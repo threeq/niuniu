@@ -1,0 +1,191 @@
+{
+  "list": {
+    "title": "Repositories",
+    "addRepository": "Add repository",
+    "searchPlaceholder": "Search repositories...",
+    "empty": "No repositories yet",
+    "noBranch": "no branch",
+    "branchesCountSuffix": "branches"
+  },
+  "detail": {
+    "tabs": {
+      "files": "Files",
+      "branches": "Branches",
+      "worktrees": "Worktrees",
+      "settings": "Settings"
+    },
+    "header": {
+      "refresh": "Refresh",
+      "openInVSCode": "Open in VS Code",
+      "terminal": "Terminal",
+      "commitsSuffix": "commits",
+      "branchesSuffix": "branches",
+      "contributorsSuffix": "contributors"
+    },
+    "branches": {
+      "filterPlaceholder": "branch / tracking / tag",
+      "newBranch": "New branch",
+      "branchNamePlaceholder": "Branch name",
+      "createBranch": "Create",
+      "changes": "Changes",
+      "commitPlaceholder": "Commit message...",
+      "commit": "Commit",
+      "discardAll": "Discard all",
+      "discardFile": "Discard this file",
+      "noChanges": "No changes",
+      "head": "HEAD (current branch)",
+      "local": "Local",
+      "remote": "Remote",
+      "delete": "Delete",
+      "commitsCount": "{{count}} commits",
+      "noCommits": "No commits yet",
+      "loading": "Loading...",
+      "filesChanged": "Files changed",
+      "noFilesChanged": "No file changes",
+      "commitInfo": {
+        "commit": "Commit",
+        "author": "Author",
+        "email": "Email",
+        "date": "Date"
+      },
+      "confirmDiscardAll": "Discard all changes? This action cannot be undone!",
+      "confirmDiscardFile": "Discard changes to \"{{path}}\"?",
+      "confirmDeleteBranch": "Delete branch \"{{name}}\"?"
+    },
+    "files": {
+      "refresh": "Refresh",
+      "navigateUp": "↑ Back",
+      "emptyDir": "Empty directory",
+      "selectFile": "Select a file to preview",
+      "loading": "Loading..."
+    },
+    "worktrees": {
+      "title": "Worktrees",
+      "refresh": "Refresh",
+      "create": "+ New worktree",
+      "cancel": "Cancel",
+      "pathPlaceholder": "Worktree path",
+      "branchPlaceholder": "Branch name",
+      "createButton": "Create",
+      "workspaceLabel": "Workspace: {{path}}",
+      "noWorkspace": "No workspace linked",
+      "uncommittedChanges": "Uncommitted changes",
+      "remove": "Remove",
+      "empty": "No worktrees yet",
+      "confirmRemove": "Remove worktree \"{{path}}\"?"
+    },
+    "settings": {
+      "title": "Repository settings",
+      "name": "Repository name",
+      "path": "Repository path",
+      "remote": "Remote URL",
+      "remotePlaceholder": "git@github.com:user/repo.git",
+      "defaultBranch": "Default branch",
+      "save": "Save changes",
+      "saving": "Saving...",
+      "saveSuccess": "Saved",
+      "saveFailed": "Save failed",
+      "gitIdentity": {
+        "title": "Git signing identity (this repository)",
+        "description": "Override the author name / email niuniu uses for commits to this repository. Empty fields fall through to your global identity in Settings → Git Identity.",
+        "name": "Name",
+        "namePlaceholder": "Alice (Work)",
+        "email": "Email",
+        "emailPlaceholder": "alice@work.com",
+        "fieldsHint": "Leave either field empty to keep the global value for that side.",
+        "previewLabel": "Effective identity",
+        "usingGlobal": "No override; falling back to your global setting.",
+        "save": "Save override",
+        "saving": "Saving...",
+        "saved": "Override saved.",
+        "saveFailed": "Could not save override: {{detail}}",
+        "clear": "Clear override",
+        "clearing": "Clearing...",
+        "cleared": "Override cleared; using global identity.",
+        "clearFailed": "Could not clear override: {{detail}}",
+        "loadFailed": "Could not load identity for this repository.",
+        "invalidEmail": "Email must be a valid address or empty.",
+        "invalidName": "Name must not contain newlines or control characters."
+      },
+      "dangerZone": "Danger zone",
+      "deleteRepository": "Delete repository",
+      "deleteWithFiles": "Delete repository and files",
+      "deleteFailed": "Delete failed",
+      "confirmDelete": "Delete repository? This action cannot be undone!",
+      "confirmDeleteWithFiles": "Delete repository and all files? This action cannot be undone!"
+    },
+    "terminal": {
+      "title": "Terminal",
+      "connected": "Connected",
+      "disconnected": "Disconnected",
+      "close": "Close terminal"
+    },
+    "loading": "Loading..."
+  },
+  "time": {
+    "now": "just now",
+    "minutesAgo": "{{count}} minutes ago",
+    "hoursAgo": "{{count}} hours ago",
+    "daysAgo": "{{count}} days ago"
+  },
+  "dialogs": {
+    "create": {
+      "title": "New repository",
+      "description": "Add a new Git repository to the system",
+      "modeLocal": "Local path",
+      "modeRemote": "Remote URL",
+      "pathLabel": "Repository path",
+      "pathHint": "Select or enter a folder path; the system will create the directory and initialize a Git repository",
+      "remoteLabel": "Remote repository URL",
+      "remotePlaceholder": "https://github.com/user/repo.git",
+      "remoteHint": "Supports https://, git://, ssh://, git@ and any git protocol; the repo will be cloned to ~/git-repos/",
+      "nameLabel": "Repository name",
+      "namePlaceholderRemote": "Leave blank to use the remote repo name",
+      "namePlaceholderLocal": "Leave blank to use the folder name",
+      "autoInit": "Auto-initialize Git repository",
+      "submitClone": "Clone and add",
+      "submitCreate": "Create",
+      "cloningInProgress": "Cloning...",
+      "creatingInProgress": "Creating...",
+      "successToast": "Repository created",
+      "errorToast": "Failed to create repository",
+      "errors": {
+        "cloneFailed": "Clone failed; please verify the remote URL is correct and reachable",
+        "notGitRepo": "Not a full Git repository; please tick \"Auto-initialize Git\"",
+        "pathCreationFailed": "Failed to create directory",
+        "gitInitFailed": "Git init failed",
+        "repoNameExists": "Repository name already exists; please choose a different name",
+        "gitIdentityMissing": "Please configure your git identity in System Dependencies first",
+        "goConfigure": "Configure",
+        "initialCommitFailed": "Initial commit failed: {{detail}}"
+      }
+    },
+    "edit": {
+      "title": "Edit repository",
+      "description": "Modify the repository name, path, and default branch",
+      "nameLabel": "Repository name",
+      "namePlaceholder": "my-repo",
+      "pathLabel": "Repository path",
+      "pathPlaceholder": "/path/to/repository",
+      "branchLabel": "Default branch",
+      "branchPlaceholder": "main"
+    },
+    "delete": {
+      "title": "Delete repository",
+      "confirmPrefix": "Delete repository ",
+      "confirmSuffix": "? This action cannot be undone.",
+      "enterNamePromptPrefix": "Type the repository name ",
+      "enterNamePromptSuffix": " to confirm:",
+      "namePlaceholder": "Enter repository name",
+      "deleteDirectory": "Also delete repository directory",
+      "deleteDirectoryHint": "Cannot be undone; the directory and all files will be permanently deleted",
+      "successToast": "Repository deleted",
+      "errorToast": "Delete failed"
+    },
+    "settings": {
+      "title": "Repository settings",
+      "description": "Manage repository \"{{name}}\"",
+      "deleteRepository": "Delete repository"
+    }
+  }
+}

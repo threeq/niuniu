@@ -1,0 +1,103 @@
+{
+  "title": "Claude 账号",
+  "subtitle": "管理多个 Claude Code 订阅账号，按工作区切换使用",
+  "subtitleTeam": "管理多个 Claude Code 订阅账号，按工作区或组织切换使用",
+  "addButton": "新增账号",
+  "expand": "展开用量",
+  "collapse": "收起用量",
+  "usage": {
+    "dataSourceBanner": "数据源：{{paths}}",
+    "subscriptionLine": "订阅档次：{{tier}}",
+    "windowFiveHourBilling": "5 小时计费块",
+    "windowSevenDayAll": "7 天窗口（全模型）",
+    "windowSevenDaySonnet": "7 天窗口（Sonnet 系列）",
+    "windowSevenDayOpus": "7 天窗口（Opus 系列）",
+    "blockActive": "活跃中",
+    "blockInactive": "已结束",
+    "blockTimeRange": "{{start}} – {{end}}",
+    "resetsAt": "{{time}} 重置",
+    "tokensSuffix": "tokens",
+    "tokensInputOutput": "输入 {{input}} · 输出 {{output}} · 缓存读 {{cacheRead}} · 缓存创建 {{cacheCreation}}",
+    "perModelHeader": "按模型",
+    "lastUpdated": "最近更新：{{seconds}} 秒前",
+    "refreshButton": "刷新",
+    "nextRefreshAfter": "{{seconds}} 秒后可再次刷新",
+    "noDataDir": {
+      "title": "未在本机找到 Claude CLI 会话数据",
+      "body": "请先在终端运行 `claude` 完成首次会话后再回来。"
+    },
+    "walkFailed": {
+      "title": "扫描会话日志失败",
+      "body": "{{detail}}"
+    },
+    "empty": {
+      "notLoggedInTitle": "此账号尚未记录任何用量",
+      "notLoggedInBody": "在工作区中启动一次使用此账号的会话即可生成数据。"
+    },
+    "unknownError": {
+      "title": "未知错误",
+      "body": "{{detail}}"
+    }
+  },
+  "row": {
+    "default": "默认",
+    "noEmail": "未登录",
+    "lastUsed": "最近使用 {{time}}",
+    "neverUsed": "未使用",
+    "actions": {
+      "login": "登录",
+      "rename": "重命名",
+      "visibility": "可见性",
+      "delete": "删除",
+      "refresh": "刷新状态"
+    }
+  },
+  "status": {
+    "pending": "未登录",
+    "active": "已登录",
+    "failed": "登录失败"
+  },
+  "visibility": {
+    "public": "公开",
+    "private": "私有"
+  },
+  "addDialog": {
+    "namePlaceholder": "账号名（如：工作号 / 个人号）",
+    "confirm": "添加",
+    "cancel": "取消"
+  },
+  "active": {
+    "label": "新建工作空间的默认账号",
+    "followDefault": "（无默认账号）",
+    "scopePersonal": "个人空间",
+    "scopeOrg": "组织 {{name}}"
+  },
+  "loginDialog": {
+    "title": "登录 Claude 账号：{{name}}",
+    "instruction": "Claude CLI 会显示一个浏览器登录链接。请复制到浏览器打开，完成 OAuth 后把回调的代码粘回这里。",
+    "urlLabel": "浏览器登录链接",
+    "copyUrl": "复制链接",
+    "copied": "已复制",
+    "openInBrowser": "在浏览器打开",
+    "cancel": "取消",
+    "successToast": "{{name}} 登录成功（{{email}}）",
+    "failedToast": "登录失败"
+  },
+  "errors": {
+    "name_taken": "该账号名已被使用",
+    "cannot_delete_default": "不能删除默认账号",
+    "not_visible": "账号不可见或不存在",
+    "invalid_visibility": "可见性参数错误",
+    "admin_required": "需要管理员权限",
+    "already_authed": "账号已登录；如需切换凭证，请删除后重新创建"
+  },
+  "delete": {
+    "confirm": "删除账号 \"{{name}}\" 吗？此操作不可撤销，对应凭证目录会被清除。"
+  },
+  "picker": {
+    "privateNotVisible": "（私有账号 - 不可访问）"
+  },
+  "workspace": {
+    "claudeAccount": "Claude 账号"
+  }
+}

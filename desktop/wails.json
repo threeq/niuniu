@@ -1,0 +1,16 @@
+{
+  "$schema": "https://wails.io/schemas/config.v3.json",
+  "name": "Niuniu Desktop",
+  "outputfilename": "niuniu-desktop",
+  "frontend:install": "npm install",
+  "frontend:build": "npm run build",
+  "frontend:dev:watcher": "",
+  "author": {
+    "name": "Niuniu Team"
+  },
+  "info": {
+    "companyName": "Niuniu",
+    "productName": "Niuniu Desktop",
+    "productVersion": "1.0.0"
+  }
+}

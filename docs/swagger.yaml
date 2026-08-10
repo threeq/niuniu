@@ -1,0 +1,3173 @@
+basePath: /api
+definitions:
+  api.AddRepositoryRequest:
+    properties:
+      branch:
+        type: string
+      repository_id:
+        type: string
+    required:
+    - repository_id
+    type: object
+  api.BgTaskAggregateDTO:
+    properties:
+      agent_busy:
+        type: boolean
+      bash_count:
+        type: integer
+      cron_count:
+        type: integer
+      highlight:
+        $ref: '#/definitions/api.BgTaskHighlight'
+      subagent_count:
+        type: integer
+      wakeup_count:
+        type: integer
+    type: object
+  api.BgTaskHighlight:
+    properties:
+      kind:
+        description: '"bash" | "subagent" | "wakeup"'
+        type: string
+      scheduled_for:
+        description: RFC3339, set for wakeup
+        type: string
+      started_at:
+        description: RFC3339, set for bash/subagent
+        type: string
+      title:
+        type: string
+    type: object
+  api.BranchesResponse:
+    properties:
+      branches:
+        items:
+          type: string
+        type: array
+      current_branch:
+        type: string
+    type: object
+  api.ChecklistStatsDTO:
+    properties:
+      completed:
+        type: integer
+      total:
+        type: integer
+    type: object
+  api.ColumnIssueStat:
+    properties:
+      column_name:
+        type: string
+      count:
+        type: integer
+    type: object
+  api.CommentResponse:
+    properties:
+      content:
+        example: This is a great comment!
+        type: string
+      created_at:
+        example: "2026-03-17T12:00:00Z"
+        type: string
+      file_path:
+        example: /path/to/file.go
+        type: string
+      id:
+        type: integer
+      line_number:
+        example: 42
+        type: integer
+      sent_to_agent:
+        example: true
+        type: boolean
+      workspace_id:
+        type: integer
+    type: object
+  api.CommitRequest:
+    properties:
+      message:
+        type: string
+    required:
+    - message
+    type: object
+  api.CreateColumnRequest:
+    properties:
+      lifecycle_mapping:
+        type: string
+      name:
+        type: string
+      position:
+        type: integer
+    required:
+    - name
+    type: object
+  api.CreateCommentRequest:
+    properties:
+      content:
+        type: string
+      file_path:
+        type: string
+      line_number:
+        type: integer
+    required:
+    - content
+    - file_path
+    type: object
+  api.CreateIssueRequest:
+    properties:
+      assignee_user_ids:
+        items:
+          type: integer
+        type: array
+      description:
+        type: string
+      due_date:
+        type: string
+      estimate:
+        type: number
+      estimate_type:
+        type: string
+      label_ids:
+        items:
+          type: integer
+        type: array
+      position:
+        type: integer
+      priority:
+        type: integer
+      start_date:
+        type: string
+      title:
+        type: string
+    required:
+    - title
+    type: object
+  api.CreateProjectRequest:
+    properties:
+      description:
+        type: string
+      name:
+        type: string
+    required:
+    - name
+    type: object
+  api.CreateRepositoryRequest:
+    properties:
+      auto_init:
+        description: Pointer to distinguish between unset and false
+        type: boolean
+      name:
+        type: string
+      path:
+        type: string
+      remote_url:
+        type: string
+    type: object
+  api.CreateWorkspaceErrorEntry:
+    properties:
+      error:
+        type: string
+      repository_id:
+        type: string
+    type: object
+  api.CreateWorkspaceOwnerRequest:
+    properties:
+      id:
+        type: integer
+      type:
+        type: string
+    type: object
+  api.CreateWorkspaceRequest:
+    properties:
+      issue_id:
+        description: nullable int64
+        type: integer
+      name:
+        type: string
+      owner:
+        $ref: '#/definitions/api.CreateWorkspaceOwnerRequest'
+      repos:
+        items:
+          $ref: '#/definitions/api.RepoBranchRequest'
+        type: array
+    type: object
+  api.CreateWorkspaceResponse:
+    properties:
+      errors:
+        items:
+          $ref: '#/definitions/api.CreateWorkspaceErrorEntry'
+        type: array
+      id:
+        type: string
+      issue_id:
+        type: string
+      path:
+        type: string
+      repositories:
+        items:
+          $ref: '#/definitions/api.CreateWorkspaceSuccessRepo'
+        type: array
+      status:
+        type: string
+      warnings:
+        items:
+          type: string
+        type: array
+    type: object
+  api.CreateWorkspaceSuccessRepo:
+    properties:
+      branch:
+        type: string
+      id:
+        type: string
+      repository_id:
+        type: string
+      worktree_path:
+        type: string
+    type: object
+  api.DirectoryEntry:
+    properties:
+      name:
+        type: string
+      path:
+        type: string
+    type: object
+  api.DirectoryListResponse:
+    properties:
+      directories:
+        items:
+          $ref: '#/definitions/api.DirectoryEntry'
+        type: array
+      parent:
+        type: string
+      path:
+        type: string
+    type: object
+  api.Error:
+    properties:
+      error:
+        $ref: '#/definitions/api.ErrorDetail'
+    type: object
+  api.ErrorDetail:
+    properties:
+      code:
+        example: PROJECT_NOT_FOUND
+        type: string
+      details: {}
+      message:
+        example: Project not found
+        type: string
+    type: object
+  api.ErrorResponse:
+    properties:
+      error:
+        $ref: '#/definitions/api.ErrorDetail'
+    type: object
+  api.FileContentResponse:
+    properties:
+      content:
+        type: string
+      path:
+        type: string
+      size:
+        type: integer
+    type: object
+  api.GitStatusResponse:
+    properties:
+      added:
+        items:
+          type: string
+        type: array
+      deleted:
+        items:
+          type: string
+        type: array
+      modified:
+        items:
+          type: string
+        type: array
+      untracked:
+        items:
+          type: string
+        type: array
+    type: object
+  api.IssueAssigneeResponse:
+    properties:
+      display_name:
+        type: string
+      id:
+        type: integer
+      username:
+        type: string
+    type: object
+  api.IssueResponse:
+    properties:
+      actual_time:
+        type: number
+      assignees:
+        items:
+          $ref: '#/definitions/api.IssueAssigneeResponse'
+        type: array
+      checklist_stats:
+        $ref: '#/definitions/api.ChecklistStatsDTO'
+      column_id:
+        type: integer
+      created_at:
+        example: "2026-03-17T12:00:00Z"
+        type: string
+      description:
+        example: Add JWT-based user authentication
+        type: string
+      due_date:
+        type: string
+      estimate:
+        type: number
+      estimate_type:
+        type: string
+      id:
+        type: integer
+      labels:
+        items:
+          $ref: '#/definitions/api.LabelResponse'
+        type: array
+      lifecycle_status:
+        example: created
+        type: string
+      position:
+        example: 0
+        type: integer
+      priority:
+        example: 1
+        type: integer
+      project_id:
+        type: integer
+      start_date:
+        type: string
+      title:
+        example: Implement user authentication
+        type: string
+      updated_at:
+        example: "2026-03-17T12:00:00Z"
+        type: string
+    type: object
+  api.LabelResponse:
+    properties:
+      color:
+        type: string
+      created_at:
+        type: string
+      created_by:
+        type: integer
+      description:
+        type: string
+      id:
+        type: integer
+      name:
+        type: string
+      project_id:
+        type: integer
+    type: object
+  api.MoveIssueRequest:
+    properties:
+      column_id:
+        type: integer
+      position:
+        minimum: 0
+        type: integer
+    required:
+    - column_id
+    type: object
+  api.OwnerDTO:
+    properties:
+      id:
+        type: integer
+      name:
+        type: string
+      slug:
+        type: string
+      type:
+        type: string
+    type: object
+  api.ProjectRepositoryBinding:
+    properties:
+      name:
+        type: string
+      path:
+        type: string
+      project_default_branch:
+        type: string
+      repo_default_branch:
+        type: string
+      repository_id:
+        type: integer
+    type: object
+  api.ProjectResponse:
+    properties:
+      created_at:
+        example: "2026-03-17T12:00:00Z"
+        type: string
+      description:
+        example: A sample project
+        type: string
+      id:
+        type: integer
+      issue_stats:
+        items:
+          $ref: '#/definitions/api.ColumnIssueStat'
+        type: array
+      name:
+        example: My Project
+        type: string
+      owner:
+        $ref: '#/definitions/api.OwnerDTO'
+      repositories:
+        items:
+          $ref: '#/definitions/api.ProjectRepositoryBinding'
+        type: array
+      status:
+        example: active
+        type: string
+      updated_at:
+        example: "2026-03-17T12:00:00Z"
+        type: string
+      ws_stats:
+        items:
+          $ref: '#/definitions/api.WsStatusStat'
+        type: array
+    type: object
+  api.RepoBranchRequest:
+    properties:
+      branch:
+        description: |-
+          Branch is the base branch the new worktree forks from. Required so the
+          server never silently falls back to a guessed default (e.g. "main") that
+          may not exist in the repo — that fallback used to leave the workspace
+          shell in place with no worktree on disk and the failure swallowed.
+        type: string
+      repo_id:
+        description: int64
+        type: integer
+    required:
+    - branch
+    - repo_id
+    type: object
+  api.RepositoryResponse:
+    properties:
+      created_at:
+        example: "2026-03-17T12:00:00Z"
+        type: string
+      default_branch:
+        example: main
+        type: string
+      git_remote:
+        example: https://github.com/niuniu-dev/niuniu.git
+        type: string
+      id:
+        type: integer
+      name:
+        example: My Repository
+        type: string
+      owner:
+        $ref: '#/definitions/api.OwnerDTO'
+      path:
+        example: /path/to/repo
+        type: string
+      total_branches:
+        example: 3
+        type: integer
+      updated_at:
+        example: "2026-03-17T12:00:00Z"
+        type: string
+    type: object
+  api.SendInputRequest:
+    properties:
+      input:
+        type: string
+    required:
+    - input
+    type: object
+  api.SetEnvRequest:
+    properties:
+      env:
+        additionalProperties:
+          type: string
+        type: object
+    type: object
+  api.StartAgentRequest:
+    properties:
+      prompt:
+        type: string
+    type: object
+  api.SystemInfoResponse:
+    properties:
+      disk_drives:
+        description: Windows drive letters, empty on Linux
+        items:
+          type: string
+        type: array
+      os:
+        description: '"windows" or "linux"'
+        type: string
+    type: object
+  api.TaskStatsDTO:
+    properties:
+      completed:
+        type: integer
+      current_task:
+        type: string
+      total:
+        type: integer
+    type: object
+  api.UpdateColumnPositionRequest:
+    properties:
+      position:
+        type: integer
+    type: object
+  api.UpdateColumnRequest:
+    properties:
+      name:
+        type: string
+    required:
+    - name
+    type: object
+  api.UpdateIssueRequest:
+    properties:
+      actual_time:
+        type: number
+      description:
+        type: string
+      due_date:
+        type: string
+      estimate:
+        type: number
+      estimate_type:
+        type: string
+      priority:
+        type: integer
+      start_date:
+        type: string
+      title:
+        type: string
+    required:
+    - title
+    type: object
+  api.UpdateProjectRequest:
+    properties:
+      description:
+        type: string
+      name:
+        type: string
+    required:
+    - name
+    type: object
+  api.UpdateRepositoryRequest:
+    properties:
+      default_branch:
+        type: string
+      git_remote:
+        type: string
+      name:
+        type: string
+      path:
+        type: string
+    required:
+    - name
+    - path
+    type: object
+  api.WorkspaceResponse:
+    properties:
+      agent_pid:
+        example: 12345
+        type: integer
+      agent_status:
+        example: idle
+        type: string
+      ahead_count:
+        type: integer
+      archived_at:
+        type: string
+      bg_tasks:
+        $ref: '#/definitions/api.BgTaskAggregateDTO'
+      changes_count:
+        type: integer
+      created_at:
+        example: "2026-03-17T12:00:00Z"
+        type: string
+      created_by:
+        type: integer
+      harness_id:
+        type: integer
+      id:
+        type: string
+      is_archived:
+        type: integer
+      issue_id:
+        type: string
+      lifecycle_status:
+        type: string
+      name:
+        example: My Workspace
+        type: string
+      owner:
+        $ref: '#/definitions/api.OwnerDTO'
+      path:
+        example: /path/to/workspace
+        type: string
+      project_name:
+        type: string
+      project_owner_id:
+        type: integer
+      project_owner_name:
+        type: string
+      project_owner_type:
+        type: string
+      schedule_count:
+        type: integer
+      status:
+        example: active
+        type: string
+      task_stats:
+        $ref: '#/definitions/api.TaskStatsDTO'
+      updated_at:
+        example: "2026-03-17T12:00:00Z"
+        type: string
+      worktrees:
+        items:
+          $ref: '#/definitions/api.WorktreeSidebarDTO'
+        type: array
+    type: object
+  api.WorktreeSidebarDTO:
+    properties:
+      ahead_count:
+        type: integer
+      base_branch:
+        type: string
+      branch:
+        type: string
+      changes_count:
+        type: integer
+      name:
+        type: string
+      repo_name:
+        type: string
+    type: object
+  api.WsStatusStat:
+    properties:
+      count:
+        type: integer
+      status:
+        type: string
+    type: object
+  api.installReq:
+    properties:
+      name:
+        type: string
+    type: object
+  api.installResp:
+    properties:
+      fallback_url:
+        type: string
+      job_id:
+        type: string
+    type: object
+  api.setGitIdentityReq:
+    properties:
+      email:
+        type: string
+      name:
+        type: string
+    type: object
+  git.CommitDetail:
+    properties:
+      author:
+        type: string
+      author_email:
+        type: string
+      date:
+        type: string
+      files_changed:
+        items:
+          $ref: '#/definitions/git.FileChange'
+        type: array
+      hash:
+        type: string
+      message:
+        type: string
+      short_hash:
+        type: string
+    type: object
+  git.DiffHunk:
+    properties:
+      content:
+        type: string
+      new_count:
+        type: integer
+      new_start:
+        type: integer
+      old_count:
+        type: integer
+      old_start:
+        type: integer
+    type: object
+  git.FileChange:
+    properties:
+      path:
+        type: string
+      status:
+        type: string
+    type: object
+  git.FileDiff:
+    properties:
+      additions:
+        type: integer
+      deletions:
+        type: integer
+      hunks:
+        items:
+          $ref: '#/definitions/git.DiffHunk'
+        type: array
+      path:
+        type: string
+      raw_patch:
+        type: string
+      status:
+        description: added|modified|deleted|renamed
+        type: string
+    type: object
+  git.FileEntry:
+    properties:
+      mode:
+        type: string
+      name:
+        type: string
+      path:
+        type: string
+      size:
+        type: integer
+      type:
+        description: '"file" or "dir"'
+        type: string
+    type: object
+  git.GraphCommit:
+    properties:
+      author:
+        type: string
+      date:
+        type: string
+      hash:
+        type: string
+      is_current:
+        type: boolean
+      message:
+        type: string
+      parents:
+        items:
+          type: string
+        type: array
+      refs:
+        items:
+          type: string
+        type: array
+      short_hash:
+        type: string
+    type: object
+  git.LogEntry:
+    properties:
+      author:
+        type: string
+      date:
+        type: string
+      hash:
+        type: string
+      message:
+        type: string
+    type: object
+  git.WorktreeInfo:
+    properties:
+      branch:
+        type: string
+      has_changes:
+        type: boolean
+      is_current:
+        type: boolean
+      path:
+        type: string
+    type: object
+  service.BranchTree:
+    properties:
+      current_branch:
+        type: string
+      local_branches:
+        items:
+          type: string
+        type: array
+      remote_branches:
+        items:
+          type: string
+        type: array
+    type: object
+  service.GitIdentity:
+    properties:
+      configured:
+        type: boolean
+      email:
+        type: string
+      name:
+        type: string
+    type: object
+  service.RepositoryStats:
+    properties:
+      last_commit_date:
+        type: string
+      total_branches:
+        type: integer
+      total_commits:
+        type: integer
+      total_contributors:
+        type: integer
+    type: object
+  service.SystemDepsInfo:
+    properties:
+      can_install:
+        type: boolean
+      package_manager:
+        type: string
+      personal_mode:
+        description: |-
+          PersonalMode is true when niuniu-server runs in personal/embedded mode
+          (cfg.Auth.Enabled=false). Host-shell ops (open terminal, open path) are
+          only meaningful in this mode. Decorated by SystemDepsHandler.
+        type: boolean
+      platform:
+        type: string
+      tools:
+        items:
+          $ref: '#/definitions/service.ToolStatus'
+        type: array
+    type: object
+  service.ToolExtras:
+    properties:
+      git_identity:
+        $ref: '#/definitions/service.GitIdentity'
+    type: object
+  service.ToolStatus:
+    properties:
+      extras:
+        $ref: '#/definitions/service.ToolExtras'
+      found:
+        type: boolean
+      name:
+        type: string
+      path:
+        type: string
+      version:
+        type: string
+    type: object
+  store.Column:
+    properties:
+      id:
+        type: integer
+      lifecycle_mapping:
+        type: string
+      name:
+        type: string
+      position:
+        type: integer
+      project_id:
+        type: integer
+    type: object
+host: localhost:3000
+info:
+  contact:
+    name: Niuniu
+    url: https://github.com/niuniu-dev/niuniu
+  description: Niuniu is a full-stack application for managing multi-project, multi-task
+    parallel development with Claude Code integration.
+  license:
+    name: MIT
+    url: https://opensource.org/licenses/MIT
+  termsOfService: http://swagger.io/terms/
+  title: Niuniu API
+  version: 1.0.0
+paths:
+  /columns/{id}:
+    delete:
+      consumes:
+      - application/json
+      description: Delete a column and all associated issues
+      parameters:
+      - description: Column ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "204":
+          description: No Content
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/api.Error'
+      summary: Delete a column
+      tags:
+      - Columns
+    put:
+      consumes:
+      - application/json
+      description: Update column details
+      parameters:
+      - description: Column ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Updated column details
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/api.UpdateColumnRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/store.Column'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/api.Error'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/api.Error'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/api.Error'
+      summary: Update a column
+      tags:
+      - Columns
+  /columns/{id}/issues:
+    get:
+      consumes:
+      - application/json
+      description: Get all issues for a column
+      parameters:
+      - description: Column ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/api.IssueResponse'
+            type: array
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/api.Error'
+      summary: List issues
+      tags:
+      - Issues
+    post:
+      consumes:
+      - application/json
+      description: Create a new issue for a column
+      parameters:
+      - description: Column ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Issue details
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/api.CreateIssueRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/api.IssueResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/api.Error'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/api.Error'
+      summary: Create an issue
+      tags:
+      - Issues
+  /columns/{id}/position:
+    put:
+      consumes:
+      - application/json
+      description: Update column position by swapping with another column
+      parameters:
+      - description: Column ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: New position
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/api.UpdateColumnPositionRequest'
+      produces:
+      - application/json
+      responses:
+        "204":
+          description: No Content
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/api.Error'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/api.Error'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/api.Error'
+      summary: Update column position
+      tags:
+      - Columns
+  /comments/{id}/send-to-agent:
+    post:
+      consumes:
+      - application/json
+      description: Send a comment to the agent as feedback
+      parameters:
+      - description: Comment ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "204":
+          description: No Content
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/api.Error'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/api.Error'
+      summary: Send comment to agent
+      tags:
+      - Review
+  /directories:
+    get:
+      description: Get subdirectories for a given path
+      parameters:
+      - description: Absolute path to list
+        in: query
+        name: path
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/api.DirectoryListResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/api.Error'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/api.Error'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/api.Error'
+      summary: List directories
+      tags:
+      - Directories
+  /issues/{id}:
+    delete:
+      consumes:
+      - application/json
+      description: Delete an issue
+      parameters:
+      - description: Issue ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "204":
+          description: No Content
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/api.Error'
+      summary: Delete an issue
+      tags:
+      - Issues
+    get:
+      description: Get issue details by ID
+      parameters:
+      - description: Issue ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/api.IssueResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/api.Error'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/api.Error'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/api.Error'
+      summary: Get an issue
+      tags:
+      - Issues
+    put:
+      consumes:
+      - application/json
+      description: Update issue details
+      parameters:
+      - description: Issue ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Updated issue details
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/api.UpdateIssueRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/api.IssueResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/api.Error'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/api.Error'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/api.Error'
+      summary: Update an issue
+      tags:
+      - Issues
+  /issues/{id}/move:
+    put:
+      consumes:
+      - application/json
+      description: Move an issue to a different column and/or position
+      parameters:
+      - description: Issue ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: New column and position
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/api.MoveIssueRequest'
+      produces:
+      - application/json
+      responses:
+        "204":
+          description: No Content
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/api.Error'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/api.Error'
+      summary: Move an issue
+      tags:
+      - Issues
+  /issues/{id}/workspace:
+    get:
+      consumes:
+      - application/json
+      description: Get workspace linked to a specific issue
+      parameters:
+      - description: Issue ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/api.WorkspaceResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/api.Error'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/api.Error'
+      summary: Get workspace by issue
+      tags:
+      - Workspaces
+    post:
+      consumes:
+      - application/json
+      description: Create a new workspace for a specific issue
+      parameters:
+      - description: Issue ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Workspace details
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/api.CreateWorkspaceRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/api.CreateWorkspaceResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/api.Error'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/api.Error'
+      summary: Create a workspace for an issue
+      tags:
+      - Workspaces
+  /projects:
+    get:
+      consumes:
+      - application/json
+      description: Get all projects
+      parameters:
+      - default: active
+        description: Comma-separated statuses (active,hidden)
+        in: query
+        name: status
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/api.ProjectResponse'
+            type: array
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/api.Error'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/api.Error'
+      summary: List projects
+      tags:
+      - Projects
+    post:
+      consumes:
+      - application/json
+      description: Create a new project with default columns using the kanban service
+      parameters:
+      - description: Project details
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/api.CreateProjectRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/api.ProjectResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/api.Error'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/api.Error'
+      summary: Create a project
+      tags:
+      - Projects
+  /projects/{id}:
+    delete:
+      consumes:
+      - application/json
+      description: Delete a project and all associated data
+      parameters:
+      - description: Project ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "204":
+          description: No Content
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/api.Error'
+      summary: Delete a project
+      tags:
+      - Projects
+    get:
+      consumes:
+      - application/json
+      description: Get a project by ID
+      parameters:
+      - description: Project ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/api.ProjectResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/api.Error'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/api.Error'
+      summary: Get a project
+      tags:
+      - Projects
+    put:
+      consumes:
+      - application/json
+      description: Update project details
+      parameters:
+      - description: Project ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Updated project details
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/api.UpdateProjectRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/api.ProjectResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/api.Error'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/api.Error'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/api.Error'
+      summary: Update a project
+      tags:
+      - Projects
+  /projects/{id}/columns:
+    get:
+      consumes:
+      - application/json
+      description: Get all columns for a project
+      parameters:
+      - description: Project ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/store.Column'
+            type: array
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/api.Error'
+      summary: List columns
+      tags:
+      - Columns
+    post:
+      consumes:
+      - application/json
+      description: Create a new column for a project
+      parameters:
+      - description: Project ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Column details
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/api.CreateColumnRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/store.Column'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/api.Error'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/api.Error'
+      summary: Create a column
+      tags:
+      - Columns
+  /repositories:
+    get:
+      consumes:
+      - application/json
+      description: Get all repositories
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/api.RepositoryResponse'
+            type: array
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/api.Error'
+      summary: List repositories
+      tags:
+      - Repositories
+    post:
+      consumes:
+      - application/json
+      description: |-
+        Create a new repository. Provide either `path` (local directory) or `remote_url` (git remote).
+        When `remote_url` is set, the repository is cloned into ~/git-repos/<name> first,
+        then the cloned path is registered. Supports https://, http://, git://, ssh://,
+        ftp://, ftps://, file://, and SCP-style git@ URLs.
+        When `path` is provided and `auto_init` is true, the directory is created and git-init'd if needed.
+      parameters:
+      - description: Repository details; provide path OR remote_url
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/api.CreateRepositoryRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/api.RepositoryResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/api.Error'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/api.Error'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/api.Error'
+      summary: Create a repository
+      tags:
+      - Repositories
+  /repositories/{id}:
+    delete:
+      consumes:
+      - application/json
+      description: Delete a repository. If delete_directory is true, also removes
+        the directory from disk.
+      parameters:
+      - description: Repository ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Also delete the repository directory from disk
+        in: query
+        name: delete_directory
+        type: boolean
+      produces:
+      - application/json
+      responses:
+        "204":
+          description: No Content
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/api.Error'
+      summary: Delete a repository
+      tags:
+      - Repositories
+    get:
+      consumes:
+      - application/json
+      description: Get a repository by ID
+      parameters:
+      - description: Repository ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/api.RepositoryResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/api.Error'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/api.Error'
+      summary: Get a repository
+      tags:
+      - Repositories
+    put:
+      consumes:
+      - application/json
+      description: Update repository details
+      parameters:
+      - description: Repository ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Updated repository details
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/api.UpdateRepositoryRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/api.RepositoryResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/api.Error'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/api.Error'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/api.Error'
+      summary: Update a repository
+      tags:
+      - Repositories
+  /repositories/{id}/branch-tree:
+    get:
+      description: Get local and remote branches organized hierarchically
+      parameters:
+      - description: Repository ID
+        in: path
+        name: id
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/service.BranchTree'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/api.Error'
+      summary: Get branch tree
+      tags:
+      - Repositories
+  /repositories/{id}/branches:
+    delete:
+      description: Delete a branch from the repository. Branch name passed as query
+        param to support slashes.
+      parameters:
+      - description: Repository ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Branch name
+        in: query
+        name: name
+        required: true
+        type: string
+      responses:
+        "204":
+          description: No Content
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/api.Error'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/api.Error'
+      summary: Delete branch
+      tags:
+      - Repositories
+    get:
+      consumes:
+      - application/json
+      description: Get all branches for a repository by its ID
+      parameters:
+      - description: Repository ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/api.Error'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/api.Error'
+      summary: Get repository branches
+      tags:
+      - Repositories
+    post:
+      consumes:
+      - application/json
+      description: Create a new branch in the repository
+      parameters:
+      - description: Repository ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Branch name
+        in: body
+        name: request
+        required: true
+        schema:
+          additionalProperties: true
+          type: object
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/api.Error'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/api.Error'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/api.Error'
+      summary: Create branch
+      tags:
+      - Repositories
+  /repositories/{id}/branches/checkout:
+    put:
+      description: Switch to a different branch. Branch name passed as query param
+        to support slashes.
+      parameters:
+      - description: Repository ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Branch name
+        in: query
+        name: name
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/api.Error'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/api.Error'
+      summary: Checkout branch
+      tags:
+      - Repositories
+  /repositories/{id}/commit:
+    post:
+      parameters:
+      - description: Repository ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Commit message
+        in: body
+        name: request
+        required: true
+        schema:
+          type: object
+      responses:
+        "200":
+          description: OK
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/api.Error'
+      summary: Commit all changes
+      tags:
+      - Repositories
+  /repositories/{id}/commits:
+    get:
+      consumes:
+      - application/json
+      description: Get commit history with pagination
+      parameters:
+      - description: Repository ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Page number (default 1)
+        in: query
+        name: page
+        type: integer
+      - description: Items per page (default 20)
+        in: query
+        name: limit
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/git.LogEntry'
+            type: array
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/api.Error'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/api.Error'
+      summary: List repository commits
+      tags:
+      - Repositories
+  /repositories/{id}/commits/{hash}:
+    get:
+      description: Get detail info for a single commit including files changed
+      parameters:
+      - description: Repository ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Commit hash
+        in: path
+        name: hash
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/git.CommitDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/api.Error'
+      summary: Get commit detail
+      tags:
+      - Repositories
+  /repositories/{id}/discard:
+    post:
+      parameters:
+      - description: Repository ID
+        in: path
+        name: id
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/api.Error'
+      summary: Discard all changes
+      tags:
+      - Repositories
+  /repositories/{id}/discard-file:
+    post:
+      parameters:
+      - description: Repository ID
+        in: path
+        name: id
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/api.Error'
+      summary: Discard file changes
+      tags:
+      - Repositories
+  /repositories/{id}/files:
+    get:
+      consumes:
+      - application/json
+      description: Get file tree at a given path in the repository
+      parameters:
+      - description: Repository ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Directory path
+        in: query
+        name: path
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/git.FileEntry'
+            type: array
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/api.Error'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/api.Error'
+      summary: List repository files
+      tags:
+      - Repositories
+  /repositories/{id}/files/content:
+    get:
+      consumes:
+      - application/json
+      description: Get the content of a file at the given path
+      parameters:
+      - description: Repository ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: File path
+        in: query
+        name: path
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/api.Error'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/api.Error'
+      summary: Get file content
+      tags:
+      - Repositories
+  /repositories/{id}/git/status:
+    get:
+      consumes:
+      - application/json
+      description: Get the git status for a repository. Uses workspace worktree if
+        workspace_id is provided, otherwise uses the repository's original path.
+      parameters:
+      - description: Repository ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: Workspace ID (optional, for worktree path)
+        in: query
+        name: workspace_id
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/api.GitStatusResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/api.Error'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/api.Error'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/api.Error'
+      summary: Get repository git status
+      tags:
+      - Git
+  /repositories/{id}/graph:
+    get:
+      consumes:
+      - application/json
+      description: Get commit graph data for branch visualization
+      parameters:
+      - description: Repository ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Max commits (default 100, max 500)
+        in: query
+        name: limit
+        type: integer
+      - description: Include all branches (default true)
+        in: query
+        name: all
+        type: boolean
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/git.GraphCommit'
+            type: array
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/api.Error'
+      summary: Get branch graph
+      tags:
+      - Repositories
+  /repositories/{id}/stats:
+    get:
+      consumes:
+      - application/json
+      description: Get statistics for a repository
+      parameters:
+      - description: Repository ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/service.RepositoryStats'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/api.Error'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/api.Error'
+      summary: Get repository stats
+      tags:
+      - Repositories
+  /repositories/{id}/worktrees:
+    get:
+      consumes:
+      - application/json
+      description: Get all worktrees for a repository
+      parameters:
+      - description: Repository ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/git.WorktreeInfo'
+            type: array
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/api.Error'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/api.Error'
+      summary: List worktrees
+      tags:
+      - Repositories
+    post:
+      consumes:
+      - application/json
+      description: Create a new worktree for the repository
+      parameters:
+      - description: Repository ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Worktree details
+        in: body
+        name: request
+        required: true
+        schema:
+          additionalProperties: true
+          type: object
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/api.Error'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/api.Error'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/api.Error'
+      summary: Create worktree
+      tags:
+      - Repositories
+  /repositories/{id}/worktrees/{worktree_id}:
+    delete:
+      consumes:
+      - application/json
+      description: Remove a worktree by its database ID
+      parameters:
+      - description: Repository ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Worktree ID
+        in: path
+        name: worktree_id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "204":
+          description: No Content
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/api.Error'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/api.Error'
+      summary: Remove worktree
+      tags:
+      - Repositories
+  /system-deps:
+    get:
+      description: Returns install status and version for node/python3/git/claude
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/service.SystemDepsInfo'
+      summary: Probe system dependencies
+      tags:
+      - SystemDeps
+  /system-deps/git-identity:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: name + email
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/api.setGitIdentityReq'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+      summary: Set git global user.name / user.email
+      tags:
+      - SystemDeps
+  /system-deps/install:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: tool name
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/api.installReq'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/api.installResp'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+      summary: Start an install job
+      tags:
+      - SystemDeps
+  /system-deps/install/stream:
+    get:
+      parameters:
+      - description: job id
+        in: query
+        name: id
+        required: true
+        type: string
+      produces:
+      - text/event-stream
+      responses: {}
+      summary: SSE log stream for install job
+      tags:
+      - SystemDeps
+  /system-info:
+    get:
+      description: Get server operating system and available disk drives (Windows
+        only)
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/api.SystemInfoResponse'
+      summary: Get system info
+      tags:
+      - Directories
+  /workspaces:
+    get:
+      consumes:
+      - application/json
+      description: Get all workspaces
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/api.WorkspaceResponse'
+            type: array
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/api.Error'
+      summary: List workspaces
+      tags:
+      - Workspaces
+    post:
+      consumes:
+      - application/json
+      description: Create a new workspace with repositories
+      parameters:
+      - description: Workspace details
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/api.CreateWorkspaceRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/api.CreateWorkspaceResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/api.Error'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/api.Error'
+      summary: Create a workspace
+      tags:
+      - Workspaces
+  /workspaces/{id}:
+    delete:
+      consumes:
+      - application/json
+      description: Delete a workspace and all its worktrees. Use ?force=true to skip
+        change checks.
+      parameters:
+      - description: Workspace ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Force delete without change check
+        in: query
+        name: force
+        type: boolean
+      produces:
+      - application/json
+      responses:
+        "204":
+          description: No Content
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/api.Error'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/api.Error'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/api.Error'
+      summary: Delete a workspace
+      tags:
+      - Workspaces
+    get:
+      consumes:
+      - application/json
+      description: Get a workspace by ID
+      parameters:
+      - description: Workspace ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/api.WorkspaceResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/api.Error'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/api.Error'
+      summary: Get a workspace
+      tags:
+      - Workspaces
+  /workspaces/{id}/agent/send:
+    post:
+      consumes:
+      - application/json
+      description: Send input to a running agent
+      parameters:
+      - description: Workspace ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Input to send
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/api.SendInputRequest'
+      produces:
+      - application/json
+      responses:
+        "204":
+          description: No Content
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/api.Error'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/api.Error'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/api.Error'
+      summary: Send input to an agent
+      tags:
+      - Agents
+  /workspaces/{id}/agent/start:
+    post:
+      consumes:
+      - application/json
+      description: Start an agent for a workspace with optional prompt
+      parameters:
+      - description: Workspace ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Agent start request
+        in: body
+        name: request
+        schema:
+          $ref: '#/definitions/api.StartAgentRequest'
+      produces:
+      - application/json
+      responses:
+        "204":
+          description: No Content
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/api.Error'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/api.Error'
+      summary: Start an agent
+      tags:
+      - Agents
+  /workspaces/{id}/agent/status:
+    get:
+      consumes:
+      - application/json
+      description: Get the current status of an agent
+      parameters:
+      - description: Workspace ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/api.Error'
+      summary: Get agent status
+      tags:
+      - Agents
+  /workspaces/{id}/agent/stop:
+    post:
+      consumes:
+      - application/json
+      description: Stop an agent for a workspace
+      parameters:
+      - description: Workspace ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "204":
+          description: No Content
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/api.Error'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/api.Error'
+      summary: Stop an agent
+      tags:
+      - Agents
+  /workspaces/{id}/comments:
+    get:
+      consumes:
+      - application/json
+      description: Get all comments for a workspace
+      parameters:
+      - description: Workspace ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/api.CommentResponse'
+            type: array
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/api.Error'
+      summary: List comments
+      tags:
+      - Review
+    post:
+      consumes:
+      - application/json
+      description: Create a new comment for a workspace
+      parameters:
+      - description: Workspace ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Comment details
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/api.CreateCommentRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/api.CommentResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/api.Error'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/api.Error'
+      summary: Create a comment
+      tags:
+      - Review
+  /workspaces/{id}/diff:
+    get:
+      consumes:
+      - application/json
+      description: Get aggregated diff for all repositories in a workspace
+      parameters:
+      - description: Workspace ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema: {}
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/api.Error'
+      summary: Get workspace diff
+      tags:
+      - Review
+  /workspaces/{id}/env:
+    get:
+      consumes:
+      - application/json
+      description: Get all environment variables for a workspace
+      parameters:
+      - description: Workspace ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/api.Error'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/api.Error'
+      summary: Get workspace env vars
+      tags:
+      - Workspaces
+    put:
+      consumes:
+      - application/json
+      description: Replace all environment variables for a workspace
+      parameters:
+      - description: Workspace ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Environment variables
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/api.SetEnvRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/api.Error'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/api.Error'
+      summary: Set workspace env vars
+      tags:
+      - Workspaces
+  /workspaces/{id}/repositories:
+    get:
+      consumes:
+      - application/json
+      description: Get all repositories bound to a workspace
+      parameters:
+      - description: Workspace ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items: {}
+            type: array
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/api.Error'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/api.Error'
+      summary: List workspace repositories
+      tags:
+      - Workspaces
+    post:
+      consumes:
+      - application/json
+      description: Add a repository to a workspace by creating a git worktree
+      parameters:
+      - description: Workspace ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Repository details
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/api.AddRepositoryRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema: {}
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/api.Error'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/api.Error'
+      summary: Add repository to workspace
+      tags:
+      - Workspaces
+  /workspaces/{id}/repositories/{repo_id}/diff:
+    get:
+      consumes:
+      - application/json
+      description: Get diff for a specific repository in a workspace
+      parameters:
+      - description: Workspace ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Repository ID
+        in: path
+        name: repo_id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema: {}
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/api.Error'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/api.Error'
+      summary: Get repository diff
+      tags:
+      - Review
+  /workspaces/{id}/repositories/{repo_id}/diff/{path}:
+    get:
+      consumes:
+      - application/json
+      description: Get the git diff for a specific file
+      parameters:
+      - description: Workspace ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Repository ID
+        in: path
+        name: repo_id
+        required: true
+        type: string
+      - description: File path (supports nested paths)
+        in: path
+        name: path
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/git.FileDiff'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/api.Error'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/api.Error'
+      summary: Get file diff
+      tags:
+      - Git
+  /workspaces/{id}/repositories/{repo_id}/files:
+    get:
+      consumes:
+      - application/json
+      description: Get the content of a file from the repository HEAD
+      parameters:
+      - description: Workspace ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Repository ID
+        in: path
+        name: repo_id
+        required: true
+        type: string
+      - description: File path
+        in: query
+        name: path
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/api.FileContentResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/api.Error'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/api.Error'
+      summary: Get file content
+      tags:
+      - Git
+  /workspaces/{id}/repositories/{repo_id}/git/branches:
+    get:
+      consumes:
+      - application/json
+      description: Get all branches and the current branch for a repository
+      parameters:
+      - description: Workspace ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Repository ID
+        in: path
+        name: repo_id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/api.BranchesResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/api.Error'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/api.Error'
+      summary: Get branches
+      tags:
+      - Git
+  /workspaces/{id}/repositories/{repo_id}/git/commit:
+    post:
+      consumes:
+      - application/json
+      description: Create a commit with all current changes
+      parameters:
+      - description: Workspace ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Repository ID
+        in: path
+        name: repo_id
+        required: true
+        type: string
+      - description: Commit details
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/api.CommitRequest'
+      produces:
+      - application/json
+      responses:
+        "204":
+          description: No Content
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/api.Error'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/api.Error'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/api.Error'
+      summary: Create a commit
+      tags:
+      - Git
+  /workspaces/{id}/repositories/{repo_id}/git/fetch:
+    post:
+      consumes:
+      - application/json
+      description: Fetch remote branches without merging
+      parameters:
+      - description: Workspace ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Repository ID
+        in: path
+        name: repo_id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "204":
+          description: No Content
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/api.Error'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/api.Error'
+      summary: Fetch branches
+      tags:
+      - Git
+  /workspaces/{id}/repositories/{repo_id}/git/log:
+    get:
+      consumes:
+      - application/json
+      description: Get the commit history for a repository in a workspace
+      parameters:
+      - description: Workspace ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Repository ID
+        in: path
+        name: repo_id
+        required: true
+        type: string
+      - description: 'Limit number of commits (default: 10)'
+        in: query
+        name: limit
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema: {}
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/api.Error'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/api.Error'
+      summary: Get commit history
+      tags:
+      - Git
+  /workspaces/{id}/repositories/{repo_id}/git/pull:
+    post:
+      consumes:
+      - application/json
+      description: Fetch and merge changes from remote
+      parameters:
+      - description: Workspace ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Repository ID
+        in: path
+        name: repo_id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "204":
+          description: No Content
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/api.Error'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/api.Error'
+      summary: Pull changes
+      tags:
+      - Git
+  /workspaces/{id}/repositories/{repo_id}/git/push:
+    post:
+      consumes:
+      - application/json
+      description: Push local changes to remote
+      parameters:
+      - description: Workspace ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Repository ID
+        in: path
+        name: repo_id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "204":
+          description: No Content
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/api.Error'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/api.Error'
+      summary: Push changes
+      tags:
+      - Git
+  /workspaces/{id}/repositories/{repo_id}/git/status:
+    get:
+      consumes:
+      - application/json
+      description: Get the git status for a repository in a workspace
+      parameters:
+      - description: Workspace ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Repository ID
+        in: path
+        name: repo_id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/api.GitStatusResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/api.Error'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/api.Error'
+      summary: Get git status
+      tags:
+      - Git
+  /workspaces/{id}/tree:
+    get:
+      consumes:
+      - application/json
+      description: Get the directory tree structure of a workspace
+      parameters:
+      - description: Workspace ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema: {}
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/api.Error'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/api.Error'
+      summary: Get workspace directory tree
+      tags:
+      - Workspaces
+  /ws/repositories/{id}/terminal:
+    get:
+      description: Open a WebSocket terminal session in the repository directory
+      parameters:
+      - description: Repository ID
+        in: path
+        name: id
+        required: true
+        type: string
+      responses: {}
+      summary: Repository terminal
+      tags:
+      - Repositories
+  /ws/workspaces/{id}/terminal:
+    get:
+      consumes:
+      - application/json
+      description: Establish a WebSocket connection to the agent's terminal
+      parameters:
+      - description: Workspace ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "101":
+          description: Switching Protocols
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/api.Error'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/api.Error'
+      summary: Agent terminal WebSocket
+      tags:
+      - Agents
+swagger: "2.0"

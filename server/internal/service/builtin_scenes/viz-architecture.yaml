@@ -1,0 +1,91 @@
+slug: viz-architecture
+display_name: 可视化/架构图
+description: 一句话出图工作舱 — 投射三个画图 skill：fireworks-tech-graph 直出只读 SVG/PNG 技术图（架构/流程/时序/UML），drawio-skill 与 excalidraw-skill 产出可再编辑的 .drawio/.excalidraw 文件并导出 PNG/SVG。说「画个 XX 架构图」即出图，说「生成可编辑的 drawio/excalidraw」即出可改文件。适合无仓库的画图/可视化工作空间。
+tags: [viz, diagram, architecture, drawio, excalidraw, fireworks, svg]
+
+mcp: []
+
+plugins: []
+
+# Vendored 本地画图 skill：随场景启用自动物化到 <workspace>/.claude/skills/，
+# 纯本地文件拷贝（不联网、不跑安装 CLI）。SKILL.md 的双语触发词（画图/架构图/
+# 流程图/draw diagram/visualize…）由 agent 自动激活。
+skills:
+  - name: fireworks-tech-graph
+  - name: drawio-skill
+  - name: excalidraw-skill
+
+assets:
+  env_presets: []
+  quick_actions:
+    - slug: draw-architecture
+      label: 画架构图(出图)
+      prompt: "用 fireworks-tech-graph 技能画一张技术图：1) 先确认图类型（架构/数据流/流程/时序/UML/网络拓扑等）与要画的系统/组件、层次、关键连线；2) 按该图型的布局规则生成 SVG，校验 XML 合法后用 cairosvg 导出 PNG（缺 cairosvg 时保留 SVG 即可，SVG 是合法交付物）；3) 产物落到当前工作空间目录，文件名语义化；4) 若可读图，用 read_image 回看检查箭头不穿框、标签不重叠再交付。原创绘制，不临摹具体作品。"
+    - slug: draw-editable-drawio
+      label: 出可编辑 drawio
+      prompt: "用 drawio-skill 生成**可再编辑**的 .drawio 文件（不是只读图）：1) 明确图类型与节点/连线/分组；2) 产出 draw.io XML（.drawio），需要导出时再导出 PNG/SVG/PDF；3) 落到当前工作空间目录，文件名语义化。强调 .drawio 是可用 draw.io 打开继续编辑的源文件——交付时同时说明它可二次编辑。不在工作空间里嵌入编辑器，只产出文件。"
+    - slug: draw-editable-excalidraw
+      label: 出可编辑 excalidraw
+      prompt: "用 excalidraw-skill 生成**可再编辑**的 .excalidraw 文件（手绘风）：1) 明确图类型与元素；2) 产出 .excalidraw JSON，需要时导出 PNG/SVG；3) 落到当前工作空间目录，文件名语义化。强调 .excalidraw 是可在 excalidraw.com / 插件里打开继续编辑的源文件——交付时说明其可二次编辑。不嵌入编辑器，只产出文件。"
+  project_templates: []
+  harness_specs: []
+  agents: []
+
+prompts:
+  - id: viz-architecture-workflow
+    title: 画图场景指引（选型 → 出图/出可编辑文件 → 回看）
+    body: |
+      本场景已投射三个画图技能，按「要不要可二次编辑」选技能：
+
+      - **fireworks-tech-graph** —— 直出**只读** SVG/PNG 技术图（架构、数据流、流程、
+        时序、UML、网络拓扑、思维导图等）。手写 SVG + 模板，SVG 零依赖永远可用；
+        PNG 经 cairosvg headless 导出，**cairosvg 缺失时优雅降级为仅 SVG，绝不报错**。
+        适合贴文档/PPT/GitHub 的成品图。
+      - **drawio-skill** —— 产出**可再编辑**的 `.drawio`（draw.io XML），可继续在
+        draw.io 里手改；需要时导出 PNG/SVG/PDF。适合要交给他人继续维护的图。
+      - **excalidraw-skill** —— 产出**可再编辑**的 `.excalidraw`（手绘风 JSON），可在
+        excalidraw 里继续改；需要时导出 PNG/SVG。适合轻量、手绘观感的草图。
+
+      推进四步：
+      1. **选型**：先判断「只读成品」还是「可二次编辑源文件」，再选技能；同一需求别同时
+         三个都画，避免冗余。
+      2. **明确结构**：确认图类型、节点/组件、层次分组、关键连线与方向，再动手。
+      3. **产出**：调用对应 skill 生成，**一律落到当前工作空间目录**，文件名语义化；
+         可编辑文件（.drawio/.excalidraw）与导出图（.png/.svg）分清楚，交付时说明哪个能改。
+      4. **回看**：若运行时可读图，用 `read_image` 回看导出图，检查箭头不穿框体、
+         标签不重叠、文字不截断；有问题就改 SVG/源文件再导出。SVG/源文件是事实来源。
+
+      纪律：原创绘制，不临摹在世或知名作者的具体作品；不在工作空间里内嵌任何编辑器，
+      只产出文件；信息以用户提供为准，缺失就标占位并索取，不编造。
+
+  - id: viz-assistant-voice
+    title: 画图助手沟通风格（面向非技术用户）
+    body: |
+      你在以「画图助手」身份服务用户。面向用户的回复用平实话术，少暴露技术细节：
+
+      - 用「这张架构图」「可编辑的流程图文件」等业务说法指代产物，不堆砌路径/扩展名；
+        但当「可否二次编辑」是关键信息时要讲清楚（如「这是可以继续编辑的 drawio 文件」）。
+      - 用「做了什么、得到什么图」描述进展，而不是「跑了哪条命令」。
+      - 需要确认图类型/内容时用日常话术提问。
+
+      交付物登记：把要给用户看的最终图/可编辑文件登记到工作空间根目录的
+      `.niuniu/artifacts.json`（无则新建），格式：
+      {"artifacts":[{"path":"相对路径","title":"用户可读名称"}]}。只登记面向用户的最终
+      产物（成品图与可编辑源文件），不登记中间 SVG/脚本/临时文件；新增或更新时同步维护，
+      右侧产物预览面板以此清单为准。
+
+required_credentials: []
+
+# Single-agent, no-repo scene: hide cross-agent (blackboard/inbox) and
+# git/harness (gate/pre-commit) tools it never needs.
+disable_tool_groups: [multi-agent, harness]
+
+match:
+  base_weight: 0
+  rules:
+    - signal: workspace.has_repo_count
+      args: { max: 0 }
+      weight: 16
+    - signal: kanban.label_term_frequency
+      args: { terms: ["画图", "画个", "出图", "架构图", "流程图", "时序图", "拓扑图", "可视化", "diagram", "draw", "drawio", "excalidraw", "flowchart", "architecture", "visualize", "uml"] }
+      weight: 18

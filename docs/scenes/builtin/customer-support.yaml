@@ -1,0 +1,70 @@
+slug: customer-support
+display_name: 客服支持
+description: 接入 Slack、知识库 MCP，注入客服话术规范，适合处理用户工单与对话
+tags: [customer-service, communication]
+
+mcp: []
+
+plugins:
+  - source: slack@claude-plugins-official
+    optional: true
+  - source: atlassian@claude-plugins-official
+    optional: true
+
+assets:
+  env_presets: []
+  quick_actions:
+    - slug: triage-ticket
+      label: 分诊这条工单
+      prompt: "请按客服分诊规范阅读用户工单：1) 提取核心诉求；2) 标注紧急度；3) 给出回复草稿；4) 若需升级，标明升级理由与对应团队。"
+    - slug: kb-search
+      label: 检索知识库
+      prompt: "先调用 kb_list 列出本工作空间可见的知识库；再用 kb_search 按用户问题的关键词检索，给出命中片段并按 kb_name + rel_path 标注来源；必要时直接读取对应文件获取完整上下文，最后据此回复用户。"
+  project_templates: []
+  harness_specs: []
+  agents: []
+
+prompts:
+  - id: support-tone
+    title: 客服话术规范
+    body: |
+      回复用户时严格遵守以下规范：
+
+      1. **礼貌**：开头使用「您好」，结尾使用「祝您工作顺利」或「期待您的反馈」。不使用「亲」「哥」「姐」等不正式称谓。
+      2. **共情**：先承认用户感受（"非常理解这给您带来的不便"），再解释问题原因，最后给方案。不能直接甩链接或文档。
+      3. **专业**：明确「我们能做什么 / 不能做什么 / 何时能给答复」。不承诺无法兑现的时间点；遇到不确定时使用「我帮您查证后在 X 小时内回复」而不是「应该是…」。
+      4. **简洁**：单条回复控制在 3 段以内；冗长解释拆成有序列表。
+      5. **闭环**：每条回复结束前确认下一步动作（"如已解决请回复确认；如未解决请提供 X 信息"）。
+      6. **升级标识**：判断需要升级的关键词包括「数据丢失」「无法登录」「退款」「投诉」，命中后立即转交并告知用户预计响应时间。
+
+required_credentials:
+  - alias: slack-bot
+    provider: slack
+    purpose: 通过 Slack MCP 接收并回复客服工单
+    optional: false
+
+# Knowledge-base reference: this scene expects a客服知识库 bound to the project so
+# kb_search can retrieve product FAQ / 话术 / 政策 when answering tickets. Visibility
+# is granted by binding the KB to the project (kb_bindings) under KB management;
+# this declaration only documents the dependency.
+knowledge_bases:
+  - name: 客服知识库
+    purpose: 检索产品 FAQ、退款/投诉政策、标准话术，作为工单回复的事实依据
+    optional: true
+
+# Single-agent, no-repo scene: hide cross-agent (blackboard/inbox) and
+# git/harness (gate/pre-commit) tools it never needs.
+disable_tool_groups: [multi-agent, harness]
+
+match:
+  base_weight: 0
+  rules:
+    - signal: workspace.has_credential
+      args: { provider: slack }
+      weight: 30
+    - signal: workspace.has_repo_count
+      args: { max: 0 }
+      weight: 20
+    - signal: kanban.label_term_frequency
+      args: { terms: ["客服", "support", "ticket"] }
+      weight: 20

@@ -1,0 +1,12 @@
+{
+  "directoryBrowser": {
+    "open": "浏览",
+    "close": "关闭",
+    "emptyFolder": "空文件夹",
+    "niuniuForbidden": "牛牛数据目录（~/.niuniu）及其子目录不能使用，请选择其他位置。"
+  },
+  "color": {
+    "preset": "预设",
+    "custom": "自定义"
+  }
+}

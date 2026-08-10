@@ -1,0 +1,1063 @@
+{
+  "integrations": {
+    "pageTitle": "整合",
+    "addCredential": "新增憑據",
+    "noCredentials": "尚未配置任何憑據",
+    "credentials": {
+      "sectionTitle": "憑據",
+      "sectionDescription": "你為各 Provider 儲存的訪問令牌 / 賬號密碼。AI 呼叫對應 Provider 時使用這裡的憑據進行鑑權。",
+      "noEnabledProvider": "暫無已啟用的 Provider",
+      "noEnabledProviderHint": "請先到上方「API Provider」啟用至少一個 Provider 後再新增憑據。",
+      "authModeLabel": "鑑權方式",
+      "authModeBearer": "Token / 個人訪問令牌",
+      "authModeBasic": "賬號 + 口令",
+      "authModeCustomHeader": "自定義 Header",
+      "authModeQueryParam": "API Key（查詢引數）",
+      "editButton": "編輯",
+      "editTitle": "編輯 {{provider}} 憑據 · {{alias}}",
+      "editProviderLocked": "憑據所屬 Provider 不可修改。如需切換請刪除後重新新增。",
+      "editKeepCurrent": "鑑權欄位留空則保持現有憑據內容不變。",
+      "editSaved": "憑據已更新",
+      "expandUsages": "展開被引用情況",
+      "collapseUsages": "收起被引用情況",
+      "usageCount": "被 {{count}} 個專案使用",
+      "usagesLoading": "載入使用情況…",
+      "usagesEmpty": "暫無專案引用此憑據",
+      "unbindButton": "移除該專案對此憑據的繫結",
+      "unbindConfirm": "確定解除「{{project}}」對此憑據的繫結（{{source_key}}）？",
+      "unbindFailed": "解除繫結失敗：{{error}}",
+      "tokenLabel": "Token / API Key",
+      "tokenPlaceholder": "貼上該 Provider 的訪問令牌",
+      "userLabel": "賬號",
+      "userPlaceholder": "鑑權賬號",
+      "passwordLabel": "密碼 / 口令",
+      "passwordPlaceholder": "鑑權密碼",
+      "secretShow": "顯示金鑰",
+      "secretHide": "隱藏金鑰",
+      "headerValueLabel": "Header 值",
+      "headerValuePlaceholder": "將作為該 Provider 配置的 Header 直接注入",
+      "imap": {
+        "hostLabel": "郵箱伺服器（IMAP 主機）",
+        "hostPlaceholder": "如 imap.example.com",
+        "portLabel": "埠",
+        "userLabel": "郵箱賬號",
+        "userPlaceholder": "你的完整郵箱地址",
+        "passwordLabel": "密碼 / 應用專用密碼",
+        "passwordPlaceholder": "建議使用應用專用密碼（App Password）",
+        "securityLabel": "加密方式",
+        "securitySsl": "SSL / TLS（推薦，埠 993）",
+        "securityStarttls": "STARTTLS（埠 143）",
+        "securityNone": "無加密（僅自建測試）",
+        "smtpHint": "如需發信，可選填發件伺服器（SMTP）；留空則按收件伺服器自動推導",
+        "smtpHostLabel": "發件伺服器（SMTP 主機，可選）",
+        "smtpHostPlaceholder": "如 smtp.example.com",
+        "smtpPortLabel": "發件埠",
+        "testButton": "測試連線",
+        "testing": "正在測試…",
+        "testOk": "連線成功，郵箱驗證透過",
+        "testFailed": "連線失敗：{{error}}",
+        "helpUrl": "https://support.google.com/accounts/answer/185833",
+        "helpLabel": "如何獲取郵箱的應用專用密碼"
+      },
+      "providers": {
+        "github": {
+          "bearer": {
+            "tokenPlaceholder": "貼上 GitHub fine-grained PAT (ghp_... 或 github_pat_...)",
+            "helpUrl": "https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/managing-your-personal-access-tokens",
+            "helpLabel": "如何建立 GitHub fine-grained PAT"
+          }
+        },
+        "tapd": {
+          "basic": {
+            "userLabel": "API 賬號",
+            "userPlaceholder": "TAPD 平臺分配的 API 賬號",
+            "passwordLabel": "API 口令",
+            "passwordPlaceholder": "API 口令",
+            "helpUrl": "https://www.tapd.cn/help/show#1120003271001000023",
+            "helpLabel": "如何獲取 TAPD API 賬號 / 口令"
+          },
+          "bearer": {
+            "tokenLabel": "個人訪問令牌",
+            "tokenPlaceholder": "TAPD 個人訪問令牌（以 Bearer 方式注入）",
+            "helpUrl": "https://www.tapd.cn/help/show#1120003271001000061",
+            "helpLabel": "如何獲取 TAPD 個人訪問令牌"
+          }
+        },
+        "jira": {
+          "basic": {
+            "userLabel": "Atlassian 郵箱",
+            "userPlaceholder": "在 Atlassian 註冊的郵箱",
+            "passwordLabel": "API 令牌",
+            "passwordPlaceholder": "Jira API token",
+            "helpUrl": "https://id.atlassian.com/manage-profile/security/api-tokens",
+            "helpLabel": "如何獲取 Jira API Token"
+          }
+        },
+        "serp-api": {
+          "query_param": {
+            "tokenLabel": "SerpAPI Key",
+            "tokenPlaceholder": "貼上 SerpAPI 的 API Key（作為查詢引數 api_key 注入，AI 不會看到）",
+            "helpUrl": "https://serpapi.com/manage-api-key",
+            "helpLabel": "如何獲取 SerpAPI Key"
+          }
+        },
+        "gsc": {
+          "bearer": {
+            "tokenLabel": "OAuth 訪問令牌",
+            "tokenPlaceholder": "貼上 Google OAuth2 access token（scope: webmasters.readonly）",
+            "helpUrl": "https://developers.google.com/webmaster-tools/v1/how-tos/authorizing",
+            "helpLabel": "如何獲取 Search Console 訪問令牌"
+          }
+        }
+      }
+    },
+    "provider": "Provider",
+    "token": "令牌",
+    "deleteButton": "刪除",
+    "deleteConfirm": "確認刪除 {{provider}} 憑據？",
+    "deleteFailed": "刪除失敗：{{error}}",
+    "deleteInUse": "無法刪除：該憑據仍被 {{count}} 個外部源使用，請先在對應專案裡解除繫結 — {{projects}}",
+    "patPlaceholder": "貼上 GitHub fine-grained PAT (ghp_...)",
+    "githubPatHelp": "如何建立 GitHub fine-grained PAT",
+    "githubPatHelpUrl": "https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/managing-your-personal-access-tokens",
+    "savedDeferredVerify": "憑據已儲存，首次使用時會自動驗證",
+    "saveFailed": "儲存失敗：{{error}}",
+    "save": "儲存",
+    "saving": "儲存中…",
+    "cancel": "取消",
+    "deferredVerifyNotice": "憑據儲存後立即可用。實際的有效性會在首次呼叫對應外部 API 時驗證，無需先「測試連線」。",
+    "aliasLabel": "別名",
+    "aliasPlaceholder": "例如：個人 GitHub",
+    "renameButton": "重新命名",
+    "providerLabel": "提供方",
+    "ownerLabel": "歸屬",
+    "ownerHint": "個人憑據僅你自己可用；組織憑據由整個團隊共享。",
+    "providerGithub": "GitHub",
+    "providerJira": "Jira",
+    "providerTapd": "TAPD",
+    "tapdAuthModeLabel": "認證方式",
+    "tapdAuthModeBasic": "API 賬號 / 口令",
+    "tapdAuthModePat": "個人訪問令牌",
+    "tapdApiUser": "API 賬號",
+    "tapdApiPassword": "API 口令",
+    "tapdApiUserPlaceholder": "TAPD 平臺分配的 API 賬號",
+    "tapdApiPasswordPlaceholder": "API 口令",
+    "tapdAccessToken": "訪問令牌",
+    "tapdAccessTokenPlaceholder": "TAPD 個人訪問令牌",
+    "tapdAccessTokenHelp": "如何獲取 TAPD 個人訪問令牌",
+    "tapdAccessTokenHelpUrl": "https://www.tapd.cn/help/show#1120003271001000061",
+    "tapdCommentAuthorOptional": "評論作者（可選，留空則無法回寫評論）",
+    "tapdApiHelp": "如何獲取 TAPD API 賬號 / 口令",
+    "tapdApiHelpUrl": "https://www.tapd.cn/help/show#1120003271001000023",
+    "jiraSite": "站點",
+    "jiraSitePlaceholder": "https://your-team.atlassian.net",
+    "jiraEmail": "郵箱",
+    "jiraEmailPlaceholder": "在 Atlassian 註冊的郵箱",
+    "jiraToken": "API 令牌",
+    "jiraTokenPlaceholder": "Jira API token",
+    "jiraTokenHelp": "如何獲取 Jira API Token",
+    "jiraTokenHelpUrl": "https://id.atlassian.com/manage-profile/security/api-tokens",
+    "providers": {
+      "sectionTitle": "API Provider",
+      "sectionDescription": "可被 AI 呼叫的外部 API 定義。每個 Provider 包含 API 根 URL、鑑權方式與允許的方法/路徑白名單，作為 call_external_api 的目標。",
+      "systemBadge": "系統預設",
+      "systemHint": "系統預設 Provider 的根 URL / 鑑權 / 白名單等不可修改，但可以禁用。",
+      "enabledShortLabel": "啟用",
+      "writeEnabledLabel": "允許寫入",
+      "writeEnabledHint": "關閉：只允許預設安全集合的介面（通常是隻讀 GET）。開啟：AI 可以呼叫任意 method / 任意 path，請確認完全信任此 Provider 再開。",
+      "writeEnabledOn": "已開啟 {{name}} 的完全訪問許可權",
+      "writeEnabledOff": "已關閉 {{name}} 的完全訪問，僅保留預設安全集合",
+      "writeWarning": "預設只放行各 Provider 的安全集合（通常是 GET 只讀）。開啟「允許寫入」後，AI 對該 Provider 擁有任意 method / 任意 path 的完整呼叫權，請按 Provider 單獨評估再開。",
+      "empty": "尚未配置 Provider。點選下方按鈕新增。",
+      "loading": "載入中…",
+      "addButton": "新增 Provider",
+      "editButton": "編輯",
+      "deleteButton": "刪除",
+      "deleteConfirm": "確認刪除 Provider「{{name}}」？引用它的憑據將無法繼續使用。",
+      "enabledLabel": "已啟用",
+      "disabledLabel": "已禁用",
+      "authType": "鑑權方式",
+      "authTypeBearer": "Bearer Token",
+      "authTypeBasic": "Basic Auth",
+      "authTypeCustomHeader": "自定義 Header",
+      "authTypeOAuth": "OAuth",
+      "createdByAi": "由 AI 自動建立",
+      "createdByUser": "由使用者建立",
+      "dialog": {
+        "addTitle": "新增 Provider",
+        "editTitle": "編輯 Provider",
+        "nameLabel": "標識 (name)",
+        "namePlaceholder": "例如：github、tapd、linear",
+        "nameHint": "全域性唯一，AI 與憑據透過此標識引用此 Provider。僅在新增時可設定。",
+        "labelLabel": "顯示名稱",
+        "labelPlaceholder": "例如：GitHub",
+        "apiBaseUrlLabel": "API 根 URL",
+        "apiBaseUrlPlaceholder": "https://api.github.com",
+        "authTypeLabel": "鑑權方式",
+        "authHeaderLabel": "鑑權 Header",
+        "authHeaderPlaceholder": "Authorization",
+        "authPrefixLabel": "Header 字首",
+        "authPrefixPlaceholder": "Bearer",
+        "whitelistLabel": "預設安全集合 (JSON，高階)",
+        "whitelistPlaceholder": "[{\"method\":\"GET\",\"path\":\"*\"}]",
+        "whitelistHint": "當使用者的「允許寫入」處於關閉狀態時，只放行此列表裡的 method + path。開啟「允許寫入」後此列表被完全忽略。Path 支援 * 通配。",
+        "whitelistInvalid": "預設安全集合必須是合法 JSON 陣列",
+        "openapiUrlLabel": "OpenAPI 文件 URL（可選）",
+        "openapiUrlPlaceholder": "https://example.com/openapi.json",
+        "openapiUrlHint": "提供後 AI 可以讀取此規範來生成正確的請求結構。",
+        "enabledToggleLabel": "啟用此 Provider",
+        "saveSuccess": "Provider 已儲存",
+        "saveFailed": "儲存失敗：{{error}}",
+        "deleteSuccess": "Provider 已刪除",
+        "deleteFailed": "刪除失敗：{{error}}"
+      }
+    }
+  },
+  "page": {
+    "title": "設定",
+    "description": "按使用場景歸攏個人、團隊、自動化與系統配置。",
+    "navLabel": "設定導航",
+    "orgsLink": "組織"
+  },
+  "groups": {
+    "personal": "個人",
+    "team": "團隊",
+    "agents": "自動化與接入",
+    "system": "系統"
+  },
+  "tabs": {
+    "general": "通用",
+    "systemDeps": "系統依賴",
+    "env": "環境變數",
+    "gitIdentity": "Git",
+    "users": "使用者",
+    "security": "安全",
+    "mobileAccess": "移動接入",
+    "claudeAccounts": "Claude 賬號",
+    "claudeSettings": "外掛與 MCP",
+    "codexAccounts": "Codex 賬號",
+    "integrations": "整合",
+    "license": "授權管理",
+    "orchestration": "編排",
+    "blueprints": "專案模板",
+    "imbot": "IM 機器人",
+    "about": "關於"
+  },
+  "imbot": {
+    "title": "IM 機器人",
+    "description": "一個機器人（一份憑據、一條連線）即可把不同群分流到你名下的不同專案。在這裡管理機器人、審批待配對的群並選擇目標專案。",
+    "botsTitle": "機器人",
+    "noBots": "還沒有機器人。新建一個即可接入 IM。",
+    "loading": "載入中…",
+    "addBot": "新建機器人",
+    "addBotDesc": "機器人憑據透過安全錄入連結提交，不會出現在此對話方塊中。先選擇接入嚮導執行所在的專案，再開始引導式接入。",
+    "addBotProjectHint": "此處僅決定接入嚮導在哪個專案裡執行。機器人屬於所有者、不歸屬任何專案；審批每個群時再把它路由到具體專案。",
+    "onboardingProject": "接入嚮導執行於專案",
+    "startOnboarding": "開始接入",
+    "starting": "啟動中…",
+    "cancel": "取消",
+    "test": "測試",
+    "testOk": "連線正常。",
+    "testFailed": "測試失敗：{{message}}",
+    "typeLark": "飛書 / Lark",
+    "typeDingtalk": "釘釘",
+    "typeTelegram": "Telegram",
+    "typeWework": "企業微信",
+    "modeStream": "長連線",
+    "modeWebhook": "Webhook",
+    "statusActive": "已啟用",
+    "statusDisabled": "已停用",
+    "pendingTitle": "有 {{count}} 個群待配對",
+    "pendingHint": "機器人已收到這些群的訊息但尚未分配專案。選擇目標專案後批准，即可把該群路由過去。",
+    "approve": "批准",
+    "approveOk": "已批准並完成路由。",
+    "projectSelectLabel": "目標專案",
+    "projectSelectPlaceholder": "選擇專案…",
+    "noWritableProjects": "你沒有可寫入的專案，無法路由。請先建立或獲得某個專案的管理許可權。",
+    "boundTitle": "已配置的繫結",
+    "boundNoProject": "未指定專案",
+    "noBoundChats": "暫無已繫結的會話",
+    "noBoundChatsForBot": "該機器人暫無繫結的會話",
+    "unbind": "解除繫結",
+    "unbindOk": "已解除繫結",
+    "rename": "重新命名",
+    "renameLabel": "機器人名稱",
+    "renameSave": "儲存",
+    "renameOk": "已重新命名"
+  },
+  "orchestration": {
+    "title": "編排成本護欄",
+    "description": "限制 AI 看板編排器。修改後幾秒內生效，無需重啟。預算按每棵編排樹（一個 Epic 加其子工作空間）獨立計費。",
+    "budget": "鏈路成本預算（美元）",
+    "budgetHint": "單棵編排樹的累計成本上限。0 表示不限制。僅支援整數美元。",
+    "maxConcurrent": "最大併發工作空間",
+    "maxConcurrentHint": "每個所有者同時活躍的工作空間數。超過上限時 start_workspace 排隊而非拒絕。0 表示不限制。",
+    "maxBatch": "單批最多建立任務數",
+    "maxBatchHint": "一次 batch_create_issues 最多建立多少個任務。0 表示不限制。",
+    "warnRatio": "接近預算預警閾值",
+    "warnRatioHint": "達到預算的該比例時，提示編排器在繼續 fan-out 前確認。",
+    "saveAll": "儲存全部",
+    "saved": "已儲存",
+    "saveFailed": "儲存失敗：{{message}}"
+  },
+  "license": {
+    "title": "授權管理",
+    "customer": "客戶",
+    "seats": "席位",
+    "expires": "到期",
+    "trial": "試用授權",
+    "upload": "上傳授權檔案",
+    "uploadSuccess": "授權已更新",
+    "uploadFailed": "授權檔案無效",
+    "unlicensed": "未授權"
+  },
+  "gitIdentity": {
+    "title": "Git 作者署名",
+    "description": "niuniu 代你提交 commit 時使用的作者署名。Claude CLI 在你的 workspace 裡跑 git commit 時會自動帶上。",
+    "emailLabel": "郵箱",
+    "emailPlaceholder": "you@example.com",
+    "emailHint": "留空時 niuniu 會用佔位郵箱 \"<使用者名稱>@niuniu.local\"，讓 commit 仍能成功。",
+    "previewLabel": "預覽",
+    "previewSubLabel": "你的提交將顯示為：",
+    "save": "儲存",
+    "saving": "儲存中…",
+    "saved": "已儲存。",
+    "invalidEmail": "郵箱必須是合法地址，或留空。",
+    "saveFailed": "儲存失敗：{{detail}}",
+    "loadFailed": "無法載入 Git 署名資訊。",
+    "perRepoNote": "想為某個倉庫單獨配置作者名/郵箱？請開啟該倉庫的「設定」tab 設定倉庫級別的覆蓋（例如：公司倉庫用工作郵箱，其它用個人郵箱）。"
+  },
+  "gitCredentials": {
+    "title": "Git 遠端憑證（SSH）",
+    "description": "為每個倉庫 host 上傳 SSH 私鑰；Claude 在 workspace 裡 push / pull / clone 時會自動使用對應 host 的 key 完成鑑權。私鑰在資料庫中以 AES-GCM 加密儲存，僅在 PTY 啟動時臨時物化到 per-PTY 目錄。",
+    "hostHint": "每個 host 一把金鑰。支援萬用字元（如 \"*\"）作為 catch-all 配置。",
+    "add": "新增憑證",
+    "addTitle": "新增 SSH 憑證",
+    "addDescription": "貼上 OpenSSH 格式的未加密私鑰。niuniu 會自動推算並儲存對應的公鑰 + 指紋供你後續核對。",
+    "loadFailed": "無法載入憑證。",
+    "loading": "載入中…",
+    "empty": "暫無 SSH 憑證。",
+    "saved": "已儲存。",
+    "save": "儲存",
+    "saving": "儲存中…",
+    "cancel": "取消",
+    "confirmDelete": "刪除",
+    "created": "已新增。",
+    "createFailed": "新增失敗：{{detail}}",
+    "deleted": "已刪除。",
+    "deleteFailed": "刪除失敗：{{detail}}",
+    "deleteTitle": "刪除 SSH 憑證",
+    "deleteConfirm": "確認要刪除 {{host}} 的 SSH 金鑰？在你重新新增之前，使用該 host 的 workspace 將無法完成 {{host}} 的鑑權。",
+    "deleteAria": "刪除 {{host}} 的憑證",
+    "col": {
+      "host": "Host",
+      "username": "使用者",
+      "fingerprint": "指紋"
+    },
+    "field": {
+      "host": "Host",
+      "hostHint": "例如 github.com、gitlab.com、gitea.example.com",
+      "username": "使用者名稱",
+      "usernameHint": "幾乎都是 \"git\"；只有自建 SSH 服務用了不同登入名時才需要改。",
+      "privateKey": "私鑰（PEM）",
+      "privateKeyHint": "貼上未加密的私鑰。帶密碼的私鑰不支援——請先在本地解密。"
+    },
+    "securityNote": "私鑰在資料庫中使用 AES-GCM + integration master secret 加密；永遠不會返回給前端、不會寫入 .git/config，只在 session 啟動時物化到 /tmp/<per-PTY-dir>/id_<host>（0600 許可權，PTY 退出時清理）。",
+    "errInvalidPrivateKey": "貼上的內容無法識別為有效的 SSH 私鑰。",
+    "errPassphraseRequired": "不支援帶密碼的私鑰。請先在本地解密。",
+    "errInvalidHost": "Host 必須是一個不含空格 / shell 元字元的單一 token。",
+    "errHostConflict": "你已經為這個 host 配置了憑證。請先刪除已有的再新增新的。"
+  },
+  "security": {
+    "loginHistory": {
+      "title": "登入歷史",
+      "empty": "暫無登入記錄",
+      "retry": "重試",
+      "col": {
+        "time": "時間",
+        "ip": "IP 地址",
+        "ua": "客戶端",
+        "result": "結果"
+      },
+      "reason": {
+        "ok": "成功",
+        "bad_password": "密碼錯誤",
+        "account_locked": "賬號鎖定",
+        "ip_locked": "IP 限制",
+        "mfa_failed": "二次驗證失敗",
+        "other": "其他"
+      }
+    },
+    "mfa": {
+      "setup": "啟用二次驗證",
+      "enable": "驗證並啟用",
+      "disable": "關閉二次驗證",
+      "disableConfirm": "確認關閉二次驗證",
+      "disableDescription": "輸入驗證器中的 6 位驗證碼以關閉二次驗證",
+      "regenerateBackupCodes": "重新生成備份碼",
+      "regenerateDescription": "輸入驗證器中的 6 位驗證碼以重新生成備份碼",
+      "backupCodesTitle": "備份碼",
+      "backupCodesSaved": "我已安全儲存",
+      "backupCodesWarning": "請將這些備份碼儲存在安全的地方。每個備份碼只能使用一次。",
+      "enabled": "二次驗證已開啟",
+      "notEnabled": "未開啟",
+      "description": "啟用基於時間的一次性密碼 (TOTP) 驗證，增強賬戶安全性",
+      "backupCodesRemain": "剩餘備份碼：{{count}} 個",
+      "verifyCode": "驗證碼",
+      "verifyCodePlaceholder": "輸入 6 位驗證碼",
+      "qrAlt": "二次驗證二維碼",
+      "setupSuccess": "二次驗證已成功啟用",
+      "disableSuccess": "二次驗證已關閉",
+      "regenerateSuccess": "備份碼已重新生成",
+      "incorrectCode": "驗證碼不正確"
+    }
+  },
+  "about": {
+    "title": "關於 Niuniu",
+    "description": "版本資訊和軟體更新",
+    "serverVersion": "服務端版本",
+    "edition": "版本型別",
+    "editionPersonal": "個人版",
+    "editionTeam": "團隊版",
+    "versionDev": "開發版",
+    "feedback": {
+      "title": "問題反饋",
+      "description": "在 GitHub 上提交 Bug 或建議給 AI Workstation",
+      "openButton": "提交反饋"
+    },
+    "update": {
+      "title": "軟體更新",
+      "description": "從官網檢查最新版本",
+      "checkButton": "檢查更新",
+      "upToDate": "當前已是最新版本（{{version}}）",
+      "newVersion": "發現新版本：{{version}}",
+      "download": "下載",
+      "viewRelease": "檢視釋出說明",
+      "lastChecked": "上次檢查：{{time}}",
+      "toastDescription": "前往官網下載最新版本",
+      "dismiss": "稍後",
+      "networkUnavailable": "無法獲取最新版本資訊（可能因網路環境受限）。可點選下方按鈕前往官網檢視最新版本。"
+    }
+  },
+  "general": {
+    "language": {
+      "title": "介面語言",
+      "description": "選擇應用介面顯示語言"
+    },
+    "privacy": {
+      "title": "隱私"
+    },
+    "telemetry": {
+      "title": "匿名使用遙測",
+      "description": "分享匿名使用資料以幫助改進 Niuniu。絕不會傳送任何程式碼、提示詞或個人資訊。",
+      "toggleLabel": "傳送匿名遙測資料",
+      "learnMore": "隱私說明",
+      "saved": "遙測偏好已儲存",
+      "saveFailed": "無法儲存遙測偏好：{{error}}"
+    },
+    "assistant": {
+      "title": "牛牛助手",
+      "description": "開啟後，頂部導航欄會顯示「牛牛助手」入口，團隊所有成員均可訪問。預設隱藏，僅管理員可開啟。",
+      "toggleLabel": "啟用牛牛助手入口",
+      "saved": "牛牛助手設定已儲存",
+      "saveFailed": "無法儲存牛牛助手設定：{{error}}"
+    },
+    "autostart": {
+      "title": "隨電腦自動啟動",
+      "description": "登入此電腦時自動啟動 Niuniu。",
+      "minimized": {
+        "title": "啟動時最小化到托盤",
+        "description": "啟動時停留在系統托盤，而不是開啟主視窗。"
+      }
+    },
+    "globalShortcuts": {
+      "title": "全域性快捷鍵",
+      "description": "設定喚起/隱藏本地牛牛視窗與「AI 直達」視窗的全域性快捷鍵（僅桌面版可用）。",
+      "toggleWindow": {
+        "title": "啟用本地視窗快捷鍵",
+        "description": "在任意位置按下快捷鍵即可顯示或隱藏本地牛牛主視窗（預設 Ctrl+Shift+N）。"
+      },
+      "toggleAI": {
+        "title": "啟用 AI 視窗快捷鍵",
+        "description": "在任意位置按下快捷鍵即可顯示或隱藏 AI 直達視窗（預設 Ctrl+Shift+Z）。"
+      },
+      "combo": {
+        "title": "快捷鍵組合",
+        "description": "點選後按下你想使用的組合鍵（至少包含一個修飾鍵）。"
+      },
+      "capturing": "請按下組合鍵…",
+      "unset": "點選設定",
+      "captureLabel": "錄製快捷鍵",
+      "boundAs": "實際生效：{{combo}}",
+      "saveFailed": "快捷鍵設定失敗：{{error}}"
+    },
+    "notifications": {
+      "title": "通知設定",
+      "description": "配置通知的顯示方式和提示音",
+      "method": "通知方式",
+      "toast": {
+        "title": "彈窗通知",
+        "description": "在螢幕上顯示 Toast 訊息提醒"
+      },
+      "sound": {
+        "title": "聲音通知",
+        "description": "播放提示音提醒新訊息"
+      },
+      "alertScope": {
+        "title": "通知範圍",
+        "permissionNote": "許可權請求徽標始終只針對你正在驅動的 agent 出現，不受此設定影響。",
+        "mine": {
+          "title": "僅自己的工作空間（建立或被指派）",
+          "description": "只對你建立的或被指派給你的問題對應的工作空間彈框、響鈴。其他工作空間狀態在列表裡照常更新，但不打擾你。"
+        },
+        "all": {
+          "title": "全部工作空間",
+          "description": "所有可訪問的工作空間都會彈框、響鈴。"
+        },
+        "none": {
+          "title": "完全關閉通知（狀態仍重新整理）",
+          "description": "完全關閉彈框和聲音。狀態在 UI 中仍會更新。"
+        }
+      }
+    },
+    "soundConfig": {
+      "title": "提示音設定",
+      "selectLabel": "選擇提示音",
+      "test": "試聽",
+      "volume": "音量",
+      "muted": "靜音",
+      "max": "最大"
+    },
+    "vscode": {
+      "title": "VS Code",
+      "description": "配置開啟 VS Code 的方式",
+      "local": {
+        "title": "本地模式",
+        "description": "透過 vscode:// 協議開啟本地安裝的 VS Code"
+      },
+      "remote": {
+        "title": "遠端模式（瀏覽器）",
+        "description": "透過 code-server 在瀏覽器中開啟 VS Code"
+      },
+      "remoteUrlLabel": "code-server 地址",
+      "remoteUrlHint": "code-server 或 VS Code Web 的訪問地址"
+    }
+  },
+  "systemDeps": {
+    "title": "系統依賴",
+    "description": "niuniu 需要以下命令列工具才能執行 agent。",
+    "requiredMissing": "尚未安裝必要依賴：{{tools}}。請在下方完成安裝後即可開始使用 niuniu。",
+    "noInstallSupport": "當前部署不支援線上安裝依賴。如需在本機安裝，請使用 niuniu 個人版客戶端。",
+    "noPackageManager": "未檢測到系統包管理器（Windows 需要 winget、macOS 需要 brew、Linux 需要 apt-get），node / python / git 無法一鍵安裝。請使用其下方的「手動下載」連結，或先安裝包管理器後回此頁重新整理。Claude 在 node 已裝時仍可一鍵安裝。",
+    "detecting": "檢測中…",
+    "detectFailed": "檢測失敗：{{message}}",
+    "recheckDone": "檢測完成",
+    "logsTitle": "安裝日誌（{{title}}）",
+    "running": "執行中…",
+    "connectionLost": "[連線中斷]",
+    "doneLine": "--- 完成（exit code {{code}}）---",
+    "anotherInstalling": "另一個安裝任務正在進行中",
+    "installNotSupported": "當前部署不支援線上安裝",
+    "installFailed": "安裝啟動失敗：{{message}}",
+    "tool": {
+      "installed": "已安裝",
+      "notInstalled": "未安裝",
+      "recheck": "重新檢測",
+      "oneClickInstall": "一鍵安裝",
+      "installing": "安裝中…",
+      "manualDownload": "手動下載 →",
+      "needNodeFirst": "請先安裝 node",
+      "willRun": "將執行：{{cmd}}",
+      "claudeLogin": "Claude 登入",
+      "claudeLoginFailed": "開啟終端失敗：{{message}}",
+      "claudeLoginNotSupported": "當前部署不支援在本機開啟終端",
+      "codexLogin": "Codex 登入",
+      "codexLoginFailed": "開啟終端失敗：{{message}}",
+      "codexLoginNotSupported": "當前部署不支援在本機開啟終端"
+    },
+    "account": {
+      "default": "預設",
+      "signedInAs": "已登入：{{email}}",
+      "noEmail": "未讀取到賬號郵箱",
+      "notSignedIn": "未檢測到登入賬號。點選登入後，終端會解析並開啟登入地址。",
+      "lastUsed": "最近使用：{{time}}",
+      "status": {
+        "active": "已登入",
+        "pending": "待登入",
+        "failed": "失效"
+      }
+    },
+    "gitIdentity": {
+      "edit": "修改",
+      "save": "儲存",
+      "cancel": "取消",
+      "saved": "已儲存到 git 全域性配置",
+      "invalid": "請輸入有效的姓名和郵箱",
+      "saveFailed": "儲存失敗：{{detail}}",
+      "disambiguation": "OS 系統層兜底（git config --global）。niuniu 僅在沒有使用者級署名時回退到此處——例如自動建立新倉庫的首次提交。要設定你自己在 niuniu workspace 裡的 commit 作者，請到「設定 → Git」tab。",
+      "unconfiguredHint": "配置 OS 系統層 git 身份，以便 niuniu 能自動初始化新倉庫。",
+      "namePlaceholder": "name (e.g. Alice)",
+      "emailPlaceholder": "email (e.g. alice@example.com)"
+    }
+  },
+  "env": {
+    "description": "管理環境變數預設組，可在工作空間中快速匯入",
+    "oneShotHint": "提示：在某個預設里加入環境變數 NIUNIU_ONESHOT_PROVIDER=1，即可讓系統級 AI 輔助呼叫（目標推斷 / 開工判定 / 列說明生成等一次性呼叫）使用該預設的模型供應商。這類呼叫不在工作空間裡執行，預設只用本機環境變數。",
+    "newPreset": "新建預設",
+    "noPresets": "暫無預設",
+    "deleteConfirm": "確定要刪除預設「{{name}}」嗎？",
+    "dialog": {
+      "createTitle": "新建預設",
+      "editTitle": "編輯預設",
+      "description": "配置環境變數預設組，可在工作空間設定中快速匯入",
+      "nameLabel": "名稱",
+      "namePlaceholder": "預設名稱",
+      "descLabel": "描述",
+      "descPlaceholder": "可選描述",
+      "envVarsLabel": "環境變數",
+      "noEnvVars": "暫無環境變數"
+    }
+  },
+  "harness": {
+    "specs": {
+      "title": "全域性工程規範",
+      "subtitle": "定義程式碼質量和流程門禁規範",
+      "newSpec": "新建規範",
+      "noSpecs": "暫無規範",
+      "deleteConfirm": "確定刪除規範「{{name}}」嗎？",
+      "toggleAria": "切換啟用狀態",
+      "editAria": "編輯規範",
+      "deleteAria": "刪除規範",
+      "kind": {
+        "regex_match": "正則匹配",
+        "command_exit_code": "命令退出碼",
+        "command_output_match": "命令輸出閾值",
+        "file_exists": "檔案存在",
+        "ai_judge": "AI 評判"
+      },
+      "kindAiJudge": "AI 評判",
+      "kindHint": {
+        "regex_match": "對所選輸入欄位執行正規表示式匹配。",
+        "command_exit_code": "執行命令並比較退出碼。",
+        "command_output_match": "執行命令，從輸出中提取數值並與閾值比較。",
+        "file_exists": "工作目錄下所列路徑全部存在時透過。",
+        "ai_judge": "將選定文字與評判規則傳送給 Anthropic 模型，由模型給出透過 / 不透過的判斷。"
+      },
+      "target": {
+        "commit_message": "提交資訊",
+        "branch_name": "分支名",
+        "agent_output": "Agent 輸出",
+        "working_dir": "工作目錄"
+      },
+      "trigger": {
+        "phase_exit": "階段退出時",
+        "on_demand": "按需觸發",
+        "pre_commit": "提交前",
+        "on_schedule": "定時觸發（Phase C — 排程繫結開發中）"
+      },
+      "judgePrompt": "評判 Prompt",
+      "judgePromptHint": "提供給模型的評分規則或說明。輸出應能被解析為透過 / 不透過，並給出簡短理由。",
+      "judgePromptPlaceholder": "請稽覈以下提交資訊。如果遵循 Conventional Commits 規範（type(scope): subject）則 PASS。第一行回覆 PASS 或 FAIL，第二行給出一句話理由。",
+      "judgeModel": "評判模型",
+      "judgeModelLabels": {
+        "haiku": "Claude Haiku 4.5（快速 / 低成本）",
+        "sonnet": "Claude Sonnet 4.6（平衡）",
+        "opus": "Claude Opus 4.7（最高質量）"
+      },
+      "aiJudgeApiKeyHint": "需在服務端配置 ANTHROPIC_API_KEY 環境變數。",
+      "cost": "費用",
+      "triggerPreCommit": "提交前",
+      "triggerOnSchedule": "定時觸發",
+      "triggerOnScheduleHint": "Phase C — 排程繫結開發中",
+      "dialog": {
+        "title": "新建工程規範",
+        "editTitle": "編輯工程規範",
+        "description": "配置一條全域性工程門禁規範",
+        "nameLabel": "規範名稱",
+        "namePlaceholder": "如：commit message 必須有 type 字首",
+        "categoryLabel": "分類",
+        "severityLabel": "嚴重級別",
+        "kindLabel": "檢查型別",
+        "targetLabel": "目標欄位",
+        "patternLabel": "正規表示式",
+        "patternPlaceholder": "如 ^(feat|fix|chore)(\\(.+\\))?: .+",
+        "patternFlagsLabel": "正則標誌",
+        "patternFlagsPlaceholder": "如 i、m、is",
+        "commandLabel": "命令",
+        "commandPlaceholder": "如 pnpm test",
+        "timeoutLabel": "超時（秒）",
+        "expectedExitCodeLabel": "期望退出碼",
+        "extractRegexLabel": "提取正則",
+        "extractRegexPlaceholder": "如 coverage:\\s*([0-9.]+)",
+        "thresholdValueLabel": "閾值",
+        "thresholdOpLabel": "比較運算子",
+        "filePathsLabel": "檔案路徑",
+        "filePathsPlaceholder": "每行一個路徑\nREADME.md\npackage.json",
+        "filePathsHint": "每行一個路徑，將以 JSON 陣列形式儲存。",
+        "testSectionLabel": "測試該規範",
+        "test": "執行測試",
+        "testing": "執行中…",
+        "testSaveFirst": "請先儲存修改再執行測試。",
+        "testFailedGeneric": "測試失敗",
+        "testDuration": "{{ms}} 毫秒",
+        "testCost": "費用 ${{cost}}",
+        "triggerLabel": "觸發時機",
+        "triggerOnScheduleHint": "Phase C — 排程繫結開發中",
+        "judgePromptLabel": "評判 Prompt",
+        "judgePromptHint": "提供給模型的評分規則或說明。輸出應能被解析為透過 / 不透過，並給出簡短理由。",
+        "judgePromptPlaceholder": "請稽覈以下提交資訊。如果遵循 Conventional Commits 規範（type(scope): subject）則 PASS。第一行回覆 PASS 或 FAIL，第二行給出一句話理由。",
+        "judgeModelLabel": "評判模型",
+        "aiJudgeApiKeyHint": "需在服務端配置 ANTHROPIC_API_KEY 環境變數。",
+        "testStatus": {
+          "pass": "透過",
+          "fail": "未透過",
+          "skip": "跳過",
+          "error": "錯誤"
+        }
+      }
+    },
+    "agentGroup": {
+      "cli": "CLI Agent",
+      "custom": "自定義 Agent"
+    }
+  },
+  "agent": {
+    "search": "搜尋 Agent（按名稱或描述）...",
+    "myAgents": {
+      "title": "我的 Agent",
+      "newAgent": "新建 Agent",
+      "loading": "載入中...",
+      "empty": "暫無 Agent",
+      "noMatch": "未找到匹配的 Agent"
+    },
+    "registry": {
+      "title": "Agent 登錄檔",
+      "summary": "共 {{total}} 個 Agent —— 來自精選目錄、本地 CLI、社羣，以及自定義來源",
+      "summaryFiltered": "共 {{filtered}}/{{total}} 個 Agent —— 來自精選目錄、本地 CLI、社羣，以及自定義來源",
+      "loading": "載入中...",
+      "empty": "暫無 Agent",
+      "emptyHint": "請確保 Claude Code 已安裝並可透過 claude 命令訪問",
+      "noMatch": "未找到匹配的 Agent",
+      "local": "本地 Agent",
+      "community": "社羣 Agent",
+      "custom": "自定義 Agent",
+      "curated": "精選目錄",
+      "curatedHint": "來自 agency-agents（MIT）的精選+漢化人格預設。點選「匯入」按需安裝，預設不捆綁。",
+      "category": {
+        "engineering": "工程",
+        "security": "安全",
+        "design": "設計",
+        "marketing": "營銷"
+      },
+      "builtin": "Built-in",
+      "imported": "已匯入",
+      "import": "匯入",
+      "noDescription": "暫無描述",
+      "sourceTitle": "來源: {{source}}"
+    },
+    "card": {
+      "noDescription": "暫無描述"
+    },
+    "deleteConfirm": "確定要刪除 Agent「{{name}}」嗎？",
+    "saveFailed": "儲存 Agent 失敗: {{message}}",
+    "deleteFailed": "刪除 Agent 失敗: {{message}}",
+    "refreshFailed": "重新整理失敗: {{message}}",
+    "importFailed": "匯入失敗: {{message}}",
+    "loadDetailFailed": "載入 Agent 詳情失敗: {{message}}",
+    "dialog": {
+      "createTitle": "新建 Agent",
+      "editTitle": "編輯 Agent",
+      "createDescription": "建立一個新的 Agent，定義其角色和行為。",
+      "editDescription": "修改 Agent 的描述和指令內容。",
+      "nameLabel": "名稱",
+      "namePlaceholder": "例如：architect、developer",
+      "descLabel": "描述",
+      "descPlaceholder": "簡要描述 Agent 的職責",
+      "frontmatterLabel": "Frontmatter",
+      "frontmatterHint": "由 name / description 欄位自動管理，用於 Claude Code 識別 Agent。",
+      "bodyLabel": "正文",
+      "bodyPlaceholder": "Agent 的 Markdown 指令內容(不含 frontmatter)..."
+    }
+  },
+  "users": {
+    "title": "使用者管理",
+    "description": "管理系統中的登入賬號",
+    "addUser": "新增使用者",
+    "loading": "載入中…",
+    "table": {
+      "username": "使用者名稱",
+      "displayName": "顯示名",
+      "role": "角色",
+      "createdAt": "建立時間",
+      "actions": "操作"
+    },
+    "actions": {
+      "manageResources": "管理資源",
+      "edit": "編輯",
+      "resetPassword": "重置密碼",
+      "delete": "刪除"
+    },
+    "tooltip": {
+      "cantChangeOwnRole": "不能修改自己的角色",
+      "needAtLeastOneAdmin": "系統至少需要一個管理員",
+      "cantDeleteSelf": "不能刪除自己"
+    },
+    "create": {
+      "title": "新增使用者",
+      "description": "建立一個新的登入賬號",
+      "usernameLabel": "使用者名稱",
+      "usernamePlaceholder": "alice",
+      "passwordLabel": "密碼",
+      "passwordPlaceholder": "至少 12 位",
+      "passwordHint": "至少 12 個字元，且不能包含使用者名稱或顯示名",
+      "displayNameLabel": "顯示名",
+      "displayNamePlaceholder": "Alice",
+      "roleLabel": "角色",
+      "submit": "建立",
+      "success": "使用者已建立"
+    },
+    "edit": {
+      "title": "編輯使用者",
+      "description": "使用者名稱不可修改",
+      "success": "已更新"
+    },
+    "resetPassword": {
+      "title": "重置密碼",
+      "description": "為 {{name}} 設定新密碼。該使用者當前的訪問令牌（最長 15 分鐘）將自然過期，重新整理會話立即清除。",
+      "newPasswordLabel": "新密碼",
+      "newPasswordPlaceholder": "至少 12 位",
+      "passwordHint": "至少 12 個字元，且不能包含使用者名稱或顯示名",
+      "submit": "重置",
+      "success": "已重置 — 該使用者的重新整理會話已清除，新登入需使用新密碼"
+    },
+    "delete": {
+      "title": "刪除使用者",
+      "description": "確定要刪除 {{name}}？該使用者的登入會話將立即失效。此操作不可撤銷。",
+      "submit": "刪除",
+      "success": "已刪除"
+    },
+    "resources": {
+      "subtitle": "查看並管理該使用者的個人資源",
+      "loading": "載入資源中…",
+      "loadFailed": "載入資源失敗",
+      "createdAt": "建立於 {{date}}",
+      "owner": "擁有者",
+      "lastOwner": "最後擁有者",
+      "sections": {
+        "orgs": "所屬組織",
+        "projects": "專案",
+        "workspaces": "工作空間",
+        "repositories": "倉庫",
+        "otherResources": "其他資源"
+      },
+      "empty": {
+        "orgs": "未加入任何組織",
+        "projects": "暫無專案",
+        "workspaces": "暫無工作空間",
+        "repositories": "暫無倉庫"
+      },
+      "counts": {
+        "envPresets": "環境預設",
+        "quickActions": "快捷操作",
+        "agents": "智能體",
+        "scenes": "場景",
+        "dataSources": "資料來源",
+        "savedQueries": "已存查詢",
+        "dashboards": "儀表板",
+        "knowledgeBases": "知識庫",
+        "harnessSpecs": "工程規範"
+      },
+      "status": {
+        "active": "活躍",
+        "archived": "已封存",
+        "deleting": "刪除中"
+      },
+      "deleteResource": {
+        "trigger": "刪除",
+        "title": "刪除{{type}}？",
+        "description": "確定要刪除「{{name}}」？此操作不可撤銷。",
+        "confirm": "刪除",
+        "success": "已刪除",
+        "types": {
+          "project": "專案",
+          "workspace": "工作空間",
+          "repository": "倉庫"
+        }
+      },
+      "purge": {
+        "dangerZone": "危險區",
+        "dangerZoneHint": "永久刪除該賬戶及其全部個人資源，並將其移出所有組織。此操作不可撤銷。",
+        "trigger": "刪除賬戶及全部資源",
+        "title": "刪除賬戶及全部資源",
+        "description": "此操作將永久刪除 {{name}} 及以下全部個人資源，並將其移出所有組織。此操作不可撤銷。",
+        "confirmLabel": "輸入使用者名稱 {{username}} 以確認",
+        "confirmPlaceholder": "輸入使用者名稱",
+        "confirm": "永久刪除",
+        "success": "賬戶及全部資源已刪除",
+        "reason": {
+          "self": "無法在此刪除你自己的賬戶。",
+          "lastAdmin": "系統至少需要一個管理員 —— 這是最後一個管理員。",
+          "lastOwnerOfOrg": "該使用者是組織「{{slug}}」的最後一個擁有者。請先轉移擁有權或刪除該組織後再試。",
+          "generic": "無法刪除該賬戶。"
+        }
+      }
+    }
+  },
+  "mobileAccess": {
+    "relayAccount": {
+      "title": "Relay 賬號",
+      "description": "手機透過 Relay 中繼連線 Niuniu 服務。輸入郵箱獲取驗證碼即可登入或自動註冊。",
+      "loadingStatus": "讀取賬號狀態…",
+      "connected": "已連線",
+      "disconnected": "未連線",
+      "logout": "退出登入",
+      "emailPlaceholder": "郵箱",
+      "codePlaceholder": "6 位驗證碼",
+      "codeSent": "驗證碼已傳送，請到郵箱查收",
+      "changeEmail": "修改郵箱",
+      "useSelfHosted": "使用自託管 Relay",
+      "useDefaultRelay": "使用預設公共 Relay",
+      "urlPlaceholder": "Relay 伺服器地址",
+      "urlHint": "預設使用公共 Relay，可填私有部署地址",
+      "invalidEmail": "郵箱格式不正確",
+      "submitRequestCode": "獲取驗證碼",
+      "submitVerify": "登入",
+      "resendIn": "{{seconds}} 秒後可重新獲取",
+      "resendNow": "重新獲取驗證碼"
+    },
+    "billing": {
+      "title": "套餐與配額",
+      "description": "檢視當前套餐使用情況、撤銷舊裝置釋放配額，或升級到更高套餐。",
+      "loading": "載入中…",
+      "loadFailed": "載入失敗",
+      "currentPlan": "當前套餐:",
+      "refresh": "重新整理",
+      "upgradePlan": "升級 / 切換套餐",
+      "free": "免費",
+      "intervalMonthly": "月",
+      "intervalYearly": "年",
+      "usage": {
+        "mobiles": "已繫結移動裝置",
+        "pairings": "今日配對次數",
+        "desktops": "桌面客戶端",
+        "bandwidth": "本月中轉流量"
+      },
+      "copyId": {
+        "copy": "複製裝置 ID",
+        "copied": "已複製"
+      },
+      "remoteDevices": {
+        "title": "Relay 賬號下的移動裝置",
+        "description": "這裡列出 Relay 伺服器為本賬號記錄的所有未撤銷裝置。撤銷後立刻釋放一個配額，用於解決 402 quota_exceeded 錯誤。",
+        "empty": "暫無遠端裝置記錄",
+        "revokeTitle": "撤銷 Relay 端裝置",
+        "revokeDescription": "確定撤銷「{{name}}」嗎？該裝置將無法繼續透過 Relay 連線本賬號，需要重新掃碼配對。這會立刻釋放一個 mobile 配額名額。",
+        "revoke": "撤銷",
+        "revokeFailed": "撤銷失敗"
+      },
+      "remoteDesktops": {
+        "title": "Relay 賬號下的桌面端",
+        "description": "這裡列出 Relay 伺服器為本賬號記錄的所有未撤銷桌面端。如果手機端 RPC 報 503 / Network request failed 且 desktop_id 在這裡找不到，說明手機指向的桌面已被撤銷，需要重新掃碼配對。",
+        "empty": "暫無遠端桌面端記錄",
+        "revokeTitle": "撤銷 Relay 端桌面",
+        "revokeDescription": "確定撤銷「{{name}}」嗎？該桌面端將無法繼續透過 Relay 接受手機連線（mobile 端再 RPC 會拿到 503 DesktopOffline），需要在桌面程序上重新啟動 + 重新掃碼配對。",
+        "revoke": "撤銷",
+        "revokeFailed": "撤銷失敗"
+      }
+    },
+    "changePlan": {
+      "title": "切換套餐",
+      "description": "付費套餐透過 Stripe 結賬，完成後由 Relay 自動升級賬號。免費套餐即時生效。",
+      "loading": "載入中…",
+      "loadFailed": "載入套餐失敗",
+      "current": "當前",
+      "processing": "處理中…",
+      "inUse": "使用中",
+      "checkout": "結賬",
+      "switch": "切換",
+      "close": "關閉",
+      "stats": {
+        "desktops": "桌面 {{n}}",
+        "mobiles": "手機 {{n}}",
+        "pairings": "配對 {{n}}/日",
+        "bandwidth": "流量 {{n}} MB/月"
+      },
+      "noticeStripe": "已在瀏覽器中開啟 Stripe 結賬頁面。完成付款後套餐會在幾秒內自動生效，可點右上角重新整理按鈕。",
+      "noticeApplied": "已切換到 {{name}} 套餐。",
+      "noticeSubmitted": "請求已提交。",
+      "switchFailed": "切換套餐失敗"
+    },
+    "pair": {
+      "section": {
+        "title": "繫結移動裝置",
+        "description": "手機掃描二維碼即可與這臺 Niuniu 安全配對，之後可以透過 Relay 遠端訪問服務。",
+        "button": "繫結移動裝置",
+        "loginRequired": "請先登入 Relay 賬號以啟用裝置繫結。"
+      },
+      "dialog": {
+        "title": "配對新裝置",
+        "description": "使用手機掃描二維碼，然後在雙端核對驗證碼完成配對。",
+        "generating": "正在生成配對碼…",
+        "qrAlt": "配對二維碼",
+        "relayHost": "中繼伺服器：",
+        "copyUrl": "複製配對連結",
+        "copied": "已複製",
+        "waitingScan": "等待手機掃碼… 配對連結將在幾分鐘後失效",
+        "verifyHeader": "請與手機上顯示的驗證碼核對",
+        "deviceLabel": "裝置：",
+        "cancel": "取消",
+        "confirmPair": "確認配對",
+        "completed": "配對完成！",
+        "autoClose": "視窗將自動關閉…",
+        "emailVerificationRequiredTitle": "請先完成郵箱驗證",
+        "emailVerificationRequiredDescription": "未驗證郵箱的賬號最多隻能繫結 1 臺桌面裝置。請在郵箱中點選驗證連結後重試配對。",
+        "verifyEmailSent": "驗證郵件已傳送，請查收",
+        "sendVerifyEmail": "傳送驗證郵件",
+        "sending": "傳送中…",
+        "retryPair": "重試配對",
+        "retry": "重試",
+        "quotaExceededTitle": "已達當前套餐配額",
+        "quotaExceededDefault": "當前套餐已到達移動裝置數或日配對次數上限。",
+        "quotaExceededHint": "可在上方「套餐與配額」撤銷不再使用的裝置，或升級到更高套餐。",
+        "pairFailedDefault": "配對失敗，請重試。"
+      }
+    },
+    "trusted": {
+      "title": "受信任的移動裝置",
+      "description": "以下裝置可以透過 Relay 連線到你的 Niuniu 服務。",
+      "loading": "載入中…",
+      "empty": "暫無受信任的移動裝置",
+      "pairedAt": "配對於 {{when}}",
+      "lastSeen": "上次線上 {{when}}",
+      "removeTitle": "移除受信任裝置",
+      "removeDescription": "確定要移除「{{name}}」嗎？該裝置將無法再連線到此 Niuniu 服務，需要重新配對才能恢復訪問。",
+      "remove": "移除",
+      "never": "從未",
+      "minutesAgo": "{{n}} 分鐘前",
+      "hoursAgo": "{{n}} 小時前",
+      "daysAgo": "{{n}} 天前",
+      "monthsAgo": "{{n}} 個月前",
+      "yearsAgo": "{{n}} 年前"
+    }
+  },
+  "claude": {
+    "nav": "外掛與 MCP",
+    "account": "賬戶",
+    "plugins": "外掛",
+    "mcp_servers": "MCP 伺服器",
+    "restart_hint": "改動在下次會話 / agent 啟動後生效。",
+    "toggle_failed": "更新失敗，已回滾。",
+    "op_failed": "操作失敗，請重試。",
+    "no_plugins": "暫無已配置的外掛。",
+    "no_mcp_servers": "暫無已配置的 MCP 伺服器。",
+    "install": "安裝",
+    "uninstall": "解除安裝",
+    "manage_marketplaces": "管理市場",
+    "marketplace_placeholder": "owner/repo 或 URL",
+    "add_marketplace": "新增",
+    "featured": "精品",
+    "filter_all": "全部",
+    "filter_installed": "已安裝",
+    "filter_available": "可用"
+  }
+}

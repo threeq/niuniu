@@ -1,0 +1,72 @@
+slug: kb-legal
+display_name: 法律知识库
+description: 接入你自己的「法律知识库 MCP」（合同模板/法规条文/内部合规制度/判例要点等），助手经 MCP 检索你的私有法律知识来辅助起草与审阅——数据在你的 MCP 后面，牛牛只做编排调用、不碰数据本身。填入你的 KB MCP 端点与凭据即可用。
+tags: [knowledge-base, kb-mcp, legal, 法律, compliance, retrieval]
+
+# 用户自配知识库 MCP —— inline HTTP 配置，投射时原样写入工作空间 .mcp.json。
+# url 为占位端点，请在「知识库 MCP 配置」向导或场景编辑里替换成你自己的 KB MCP 端点。
+# 鉴权走 Authorization 头，${cred:kb-api.token} 由牛牛在投射时从 credstore 解密注入。
+mcp:
+  - name: kb
+    config:
+      type: http
+      url: https://your-kb-endpoint.example.com/mcp
+      headers:
+        Authorization: Bearer ${cred:kb-api.token}
+
+plugins: []
+
+required_credentials:
+  - alias: kb-api
+    provider: knowledge-base
+    purpose: 访问你的法律知识库 MCP（合同/法规/合规检索）的 API 令牌
+    optional: false
+
+assets:
+  env_presets: []
+  quick_actions:
+    - slug: kb-clause-lookup
+      label: 检索条款/法规
+      prompt: "就用户的法律问题：先调用知识库 MCP 的检索工具，按争议点关键词检索相关法规条文/合同条款/内部制度；只依据命中的原文回答，逐条标注来源（法规名称+条号 / 文档+段落）；不得凭记忆引用法条，避免编造条号。"
+    - slug: kb-contract-review
+      label: 合同审阅要点
+      prompt: "审阅用户提供的合同片段：1) 用知识库 MCP 检索对应的合同模板/审查清单/合规红线；2) 逐条比对并指出缺失、冲突或高风险条款，标注依据来源；3) 明确区分「基于知识库的判断」与「需专业律师复核的事项」，不给出确定性法律结论。"
+    - slug: kb-compliance-check
+      label: 合规核对
+      prompt: "针对某项业务动作：先用知识库 MCP 检索适用的合规制度与监管要求，列出「合规/存疑/违规」三类核对结果并标注来源条款；存疑项交由人工法务确认，不擅自下定论。"
+  project_templates: []
+  harness_specs: []
+  agents: []
+
+prompts:
+  - id: kb-legal-discipline
+    title: 法律知识库检索纪律
+    body: |
+      你是接入了【用户自有法律知识库 MCP】的辅助助手。法律知识（合同模板、法规条文、
+      内部合规制度、判例要点等）在用户的 MCP 服务后面，牛牛只负责编排调用，不持有数据。严格遵守：
+
+      1. **先检索后作答**：任何涉及法条/条款/合规要求的问题，必须先调用知识库 MCP 检索，
+         依据命中的原文回答；严禁凭记忆引用或杜撰法条、条号、判例。
+      2. **逐条标注来源**：每条结论标明来自哪部法规第几条 / 哪个文档段落，便于律师复核。
+      3. **不替代专业意见**：你的输出是辅助材料，涉及最终法律判断/对外承诺的，一律标注
+         「需执业律师复核」，不给出确定性法律结论。
+      4. **无命中不臆造**：知识库检索为空时明确告知「未检索到，请人工确认」。
+      5. **数据主权与保密**：只通过知识库 MCP 读取用户数据，不外传合同/法规内容到其它服务。
+
+knowledge_bases: []
+required_data_sources: []
+
+disable_tool_groups: [multi-agent, harness]
+
+match:
+  base_weight: 0
+  rules:
+    - signal: workspace.has_credential
+      args: { provider: knowledge-base }
+      weight: 30
+    - signal: workspace.has_repo_count
+      args: { max: 0 }
+      weight: 15
+    - signal: kanban.label_term_frequency
+      args: { terms: ["法律", "合同", "法规", "合规", "条款", "legal", "contract", "compliance"] }
+      weight: 20

@@ -1,0 +1,52 @@
+slug: market-research
+display_name: 市场调研
+description: 接入网页搜索与抓取 MCP，注入调研笔记规范，适合行业研究、竞品分析、用户访谈整理
+tags: [research, content, analysis]
+
+mcp:
+  - name: fetch
+
+plugins:
+  - source: exa@claude-plugins-official
+    optional: true
+
+assets:
+  env_presets: []
+  quick_actions:
+    - slug: summarize-research
+      label: 汇总调研发现
+      prompt: "请把当前 workspace 内积累的调研笔记按主题汇总，输出：1) 核心发现 5 条；2) 数据来源清单；3) 仍存在的信息缺口；4) 下一步建议动作。"
+  project_templates: []
+  harness_specs: []
+  agents: []
+
+prompts:
+  - id: research-note-format
+    title: 调研笔记格式规范
+    body: |
+      记录每一条调研发现时，必须包含以下字段（缺一不可）：
+
+      1. **来源链接 (source)**：完整 URL；如果是 PDF/截图，标注获取方式与日期。
+      2. **提取日期 (extracted_at)**：精确到日；网页可能变更，日期是溯源的关键。
+      3. **原始引用 (original_quote)**：复制原文，不要复述；必要时翻译，但保留原文。
+      4. **结论标签 (claim_type)**：事实 (fact) / 数据 (stat) / 观点 (opinion) / 推断 (inference) — 严格区分。
+      5. **可信度 (confidence)**：高 / 中 / 低，并说明依据（一手数据 vs 转述 vs 单一来源）。
+      6. **关联问题 (linked_question)**：这条发现回答了哪个调研问题？孤立的信息不入库。
+
+      汇总时强制要求：同一结论至少两个独立来源；矛盾来源都要列出并分析原因；区分「我们已知」「我们假设」「我们不知道」。
+
+required_credentials: []
+
+# Single-agent, no-repo scene: hide cross-agent (blackboard/inbox) and
+# git/harness (gate/pre-commit) tools it never needs.
+disable_tool_groups: [multi-agent, harness]
+
+match:
+  base_weight: 0
+  rules:
+    - signal: workspace.has_repo_count
+      args: { max: 0 }
+      weight: 25
+    - signal: kanban.label_term_frequency
+      args: { terms: ["调研", "research", "市场"] }
+      weight: 20

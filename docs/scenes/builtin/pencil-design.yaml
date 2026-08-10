@@ -1,0 +1,105 @@
+slug: pencil-design
+display_name: 画布设计（OpenPencil）
+description: 画布/UI 视觉设计的 A 模式双向闭环 — 在 OpenPencil 桌面应用里画界面，Agent 经 OpenPencil MCP 结构化读写画布（读结构 → 定点改 → 回看），再按设计直出代码/提交。适合「先设计后落地」的界面/组件工作空间。
+tags: [design, ui, pencil, openpencil, canvas, code]
+
+# OpenPencil MCP —— inline HTTP 配置，原样写入工作空间 .mcp.json，无需预装、无需手改文件。
+# 端口 3100 = OpenPencil 桌面应用内嵌的 HTTP MCP 端口（官方 README；见 Spike 结论
+# docs/superpowers/specs/2026-07-02-openpencil-mcp-contract-spike.md）。桥本身不画图，
+# 真正执行画布操作的是已打开文档的 OpenPencil 桌面应用，故使用前须先起应用并打开文档。
+mcp:
+  - name: open-pencil
+    config:
+      type: http
+      url: http://localhost:3100/mcp
+
+plugins:
+  # 界面 → 直出代码时投射 frontend-design，产出遵循既有设计系统的前端代码。
+  - source: frontend-design@claude-plugins-official
+    optional: true
+  - source: ui-ux-pro-max@ui-ux-pro-max-skill
+    optional: true
+
+assets:
+  env_presets: []
+  quick_actions:
+    - slug: pencil-read-structure
+      label: 读取画布结构
+      prompt: "用 OpenPencil MCP 读取当前文档结构，先建立整体认知再动手：1) list_pages / get_current_page 看有哪些页面；2) get_page_tree 或 node_tree 拿到节点树，find_nodes/query_nodes 定位关键区块；3) 对重点节点用 get_jsx / describe 取结构化描述（优先结构化读，不靠截图）；4) 用一段话总结画布的信息架构、主要组件与设计意图，指出可能的歧义点让我确认。若返回「OpenPencil app is not connected」，请提示我先打开 OpenPencil 桌面应用并打开对应文档，不要自行拉起或重试。"
+    - slug: pencil-edit
+      label: 按需求改画布
+      prompt: "根据我接下来描述的需求，用 OpenPencil MCP 对画布做定点修改：1) 先用 find_nodes/get_node/describe 精确定位要改的节点，复述你将改动的目标与范围让我确认；2) 用 update_node / batch_update / set_* 等做最小必要修改，或用 render 重绘局部子树；3) 改完用 get_jsx / node_tree / diff_jsx 回看，确认改动符合预期、未误伤其它节点；4) 需要产物时用 export_image / export_svg 导出复核（写盘受 OPENPENCIL_MCP_ROOT 约束，落在工作空间内）。逐步小改并回看，不要一次大改。"
+    - slug: pencil-to-code
+      label: 按设计生成代码
+      prompt: "把当前 OpenPencil 设计落地为代码：1) 先用 get_jsx / describe / node_tree 读全设计结构，必要时用 design_to_tokens / analyze_typography / analyze_colors / analyze_spacing 抽取设计令牌；2) 与我确认目标技术栈与落地范围（组件/页面）；3) 用 frontend-design 技能生成遵循既有设计系统的代码（token 化、语义化、响应式、暗色），落到当前工作空间；4) 对照设计自检间距/层级/配色/文案，指出与设计的差异点。若本仓库有设计系统规范文档，严格遵循它，不要硬编码颜色/尺寸。"
+    - slug: pencil-review
+      label: 回看设计与实现差异
+      prompt: "对照 OpenPencil 画布与已生成的代码/页面，逐项核对一致性：1) 用 get_jsx / node_tree 取设计侧真值，用 export_image 导出设计截图；2) 运行/截图实现侧界面；3) 按「布局结构 → 间距/对齐 → 配色 → 字体层级 → 文案」逐层比对，列出差异清单（设计侧 vs 实现侧）与建议修法；4) 高优先差异先改，改完再回看闭环。"
+  project_templates: []
+  harness_specs: []
+  agents: []
+
+prompts:
+  - id: pencil-design-lifecycle
+    title: OpenPencil 使用前置（先起应用 · 再开文档 · 单活跃文档）
+    body: |
+      本场景通过 **OpenPencil MCP**（工作空间 `.mcp.json` 里的 `open-pencil` 条目，
+      HTTP 指向桌面应用内嵌端口 `localhost:3100`）读写画布。桥本身不画图，**真正
+      执行画布操作的是 OpenPencil 桌面应用**，因此使用任何画布工具前须满足：
+
+      1. **先起应用**：OpenPencil 桌面应用已在运行（工作空间「在 OpenPencil 中打开」
+         入口可拉起；未安装会提示安装）。
+      2. **再开文档**：应用里已打开要设计的那个文档——桥只认「已连接且已打开文档」
+         的应用，否则每次工具调用返回固定错误
+         「OpenPencil app is not connected …」。**遇到该错误就提示用户去打开应用/
+         文档，不要自行拉起进程、也不要盲目重试。**
+      3. **单活跃文档**：一个 hub 只认一个已注册的桌面应用/文档（后注册者踢掉前者）。
+         MVP 阶段请约定**一次只对一个活跃设计文档工作**，避免多画布串台。
+
+  - id: pencil-design-workflow
+    title: 画布协作工作流（读结构 → 定点改 → 回看 → 落地）
+    body: |
+      围绕「结构化读写」推进，弱视觉引擎优先用结构化工具而非截图（R4）：
+
+      1. **读结构（先看后改）**：用 `list_pages` / `get_current_page` /
+         `get_page_tree` / `node_tree` / `find_nodes` / `query_nodes` 建立整体认知，
+         对重点节点用 `get_jsx` / `describe` 取结构化描述。**优先结构化读工具**，
+         `export_image` 只在需要像素级复核时用，不作为理解画布的主手段。
+      2. **定点改（最小必要）**：先精确定位再改。单点用 `update_node` / `set_*`
+         系列（`set_fill`/`set_text`/`set_layout`/`set_font` 等）；批量用
+         `batch_update`；整棵子树重绘用 `render`（JSX → 画布，核心工具）。逐步小改。
+      3. **回看（闭环校验）**：每轮改动后用 `get_jsx` / `node_tree` / `diff_jsx`
+         确认改动落到位、未误伤其它节点；需要产物再 `export_image` / `export_svg` /
+         `export_pdf`（写盘受 `OPENPENCIL_MCP_ROOT` 约束，落在工作空间内）。
+      4. **落地（设计 → 代码）**：按设计直出代码时，先 `design_to_tokens` /
+         `analyze_*` 抽取设计令牌，再用 `frontend-design` 生成遵循既有设计系统的代码，
+         最后对照设计回看差异并收敛。
+
+      纪律：
+      - 需求信息以用户与画布为准，缺失就复述你的理解并索取，不臆造内容。
+      - 生成代码遵循本仓库设计系统规范（若有），token 化、语义化、响应式、暗色一致；
+        不硬编码颜色/尺寸。
+      - 改画布前先复述「改哪个节点、改成什么」让用户确认，避免大范围误改。
+
+required_credentials: []
+
+match:
+  base_weight: 0
+  rules:
+    # 看板标签命中设计/UI/画布相关词。.pen/.fig 以词形（pen/fig/figma）纳入，
+    # 因匹配信号作用于看板标签文本而非文件扩展名。
+    - signal: kanban.label_term_frequency
+      args:
+        terms:
+          - 设计
+          - design
+          - UI
+          - 界面
+          - 画布
+          - canvas
+          - pencil
+          - openpencil
+          - pen
+          - fig
+          - figma
+      weight: 20

@@ -1,0 +1,75 @@
+{
+  "loading": "載入中...",
+  "columnCount": "{{count}} 列",
+  "standard-dev": {
+    "label": "標準開發流",
+    "description": "適合功能開發的標準 5 列流程：Backlog → Spec → Implement → Review → Done"
+  },
+  "quick-fix": {
+    "label": "快速修復流",
+    "description": "適合 Bug 修復的精簡 4 列流程：Triage → Fix → Verify → Done"
+  },
+  "column": {
+    "backlog": {
+      "label": "待辦"
+    },
+    "spec": {
+      "label": "規格"
+    },
+    "implement": {
+      "label": "編碼"
+    },
+    "review": {
+      "label": "審查"
+    },
+    "done": {
+      "label": "完成"
+    },
+    "triage": {
+      "label": "分類"
+    },
+    "fix": {
+      "label": "修復"
+    },
+    "verify": {
+      "label": "驗證"
+    }
+  },
+  "spec": {
+    "go-test-pass": {
+      "label": "Go 測試透過"
+    }
+  },
+  "template": {
+    "standard-development": {
+      "label": "標準開發"
+    },
+    "quick-fix": {
+      "label": "快速修復"
+    }
+  },
+  "preview": {
+    "columns": "看板列",
+    "templates": "模板",
+    "specs": "Gate 規範",
+    "default": "預設"
+  },
+  "import": {
+    "button": "重新匯入預設",
+    "title": "重新匯入預設",
+    "success": "預設匯入成功",
+    "successDetail": "已匯入 {{ic}} 列、{{it}} 模板、{{is}} 規範；跳過 {{sc}} 列、{{st}} 模板、{{ss}} 規範",
+    "failed": "預設匯入失敗，請重新選擇預設或選擇「空專案」",
+    "errorActiveRun": "專案存在進行中的 Run，overwrite 策略被阻止",
+    "overwriteWarning": "將刪除並替換同名 column / template / spec，且要求專案無 active Run。此操作不可撤銷。",
+    "cancel": "取消",
+    "confirm": "匯入",
+    "selectPreset": "請先選擇一個預設",
+    "strategy": {
+      "label": "合併策略",
+      "failIfNotEmpty": "僅允許空專案（安全預設）",
+      "mergeSkipConflict": "合併 — 跳過同名衝突",
+      "overwrite": "覆蓋 — 替換同名 column / template / spec（要求無 active Run）"
+    }
+  }
+}

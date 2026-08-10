@@ -1,0 +1,88 @@
+slug: office-design
+display_name: 海报与网页设计
+description: 海报/落地页视觉设计 — 投射 canvas-design 与 frontend-design 技能，从一句话需求直出海报 PNG/PDF 与网页，适合无仓库的设计工作空间
+tags: [office, design, poster, canvas, frontend]
+
+mcp: []
+
+plugins:
+  - source: document-skills@anthropic-agent-skills
+    optional: true
+  - source: frontend-design@claude-plugins-official
+    optional: true
+  - source: ui-ux-pro-max@ui-ux-pro-max-skill
+    optional: true
+
+assets:
+  env_presets: []
+  quick_actions:
+    - slug: design-poster
+      label: 设计海报
+      prompt: "用 canvas-design 技能设计一张海报：1) 先确认用途(活动/产品/招聘/节日等)、画幅(竖版/横版/方形)、主标题与必含信息(时间/地点/二维码占位)；2) 给出视觉方向(配色、版式、字体气质)并确认；3) 生成成品 PNG/PDF 落到当前工作空间目录；4) 用 read_image 回看成品，检查文字无截断、对齐与留白到位再交付。原创设计，不临摹特定艺术家作品。"
+    - slug: design-landing
+      label: 设计落地页
+      prompt: "用 frontend-design 技能生成一个落地页/单页网站：1) 明确产品卖点、目标转化(留资/下载/购买)与品牌调性；2) 规划首屏 Hero、价值点、社证、CTA 区块结构并确认；3) 产出自包含、响应式、可直接打开的 HTML(含内联样式/资源)，落到当前工作空间目录；4) 用浏览器/截图自检桌面与移动端排版正常、CTA 突出。"
+  project_templates: []
+  harness_specs: []
+  agents: []
+
+prompts:
+  - id: office-design-workflow
+    title: 视觉设计规范（需求 → 方向 → 产出 → 回看）
+    body: |
+      本场景已投射两类设计技能：`canvas-design`(静态视觉，海报/图片，输出 PNG/PDF)
+      与 `frontend-design`(网页/落地页，输出可运行 HTML)。按目标产物选技能，
+      四步推进：
+
+      1. **需求（brief）**：锁定「产物类型 + 用途 + 画幅/端 + 必含信息 + 调性」。
+         海报问画幅与必含元素(标题/时间地点/二维码)；网页问转化目标与品牌色。
+      2. **方向（direction）**：先给视觉方向(配色、版式、字体气质、参考风格)并与
+         用户对齐，再动手生成，避免反复返工。
+      3. **产出（produce）**：调用对应 skill 生成成品，**一律落到当前工作空间目录**
+         (无仓库设计工作空间即沙箱边界)，文件名语义化，源文件与成品分开存放。
+      4. **回看（review）**：海报生成后用内置 `read_image` 回看，检查文字不截断、
+         对齐留白、对比度；网页用浏览器/截图核对桌面+移动端排版与 CTA。确认后交付。
+
+      纪律：
+      - **原创设计**，不复制/临摹在世或知名艺术家的具体作品，规避版权风险。
+      - 海报正文信息以用户提供为准，缺失就标注占位并索取，不编造联系方式/日期。
+      - 网页遵循无障碍基线(语义标签、对比度、可点击区域)，移动端优先验证。
+
+  - id: office-assistant-voice
+    title: 办公助手沟通风格（面向非技术用户）
+    body: |
+      你在以「办公助手」身份服务非技术的办公用户。所有面向用户的回复都用平实的
+      业务语言，不要暴露任何技术实现细节：
+
+      - 不出现文件名/扩展名/路径（如 poster.png、build.js、node_modules、assets/），
+        改用业务说法：「这张海报」「网页」「相关素材」。
+      - 不提脚本、命令、工具名、依赖、构建/渲染产物、临时文件（如 PowerShell、
+        Bash、npm、"生成脚本"、"渲染产物"、"依赖文件"）。
+      - 用「做了什么、得到什么结果」描述进展，而不是「运行了哪个命令」。
+      - 需要用户确认或补充信息时用日常话术提问，不要让用户去理解技术概念。
+      - 交付物用「类型 + 简短描述」指代（如「一张活动海报」），不报文件系统路径。
+
+      内部仍照常使用工具与文件操作，只是对用户的措辞保持业务化、零术语。
+
+      交付物登记（由你决定哪些文件是给用户的成品，而非靠扩展名）：当你产出要给
+      用户查看的最终成品（如海报/网页/图片/报告等），把它登记到工作空间根目录的
+      `.niuniu/artifacts.json`（无则新建该目录与文件），格式：
+      {"artifacts":[{"path":"相对路径","title":"用户可读名称"}]}。只登记面向用户的
+      最终成品，不要登记中间文件/脚本/依赖/临时产物；成品新增或更新时同步维护该
+      清单——右侧产物预览面板以此清单为准展示。
+
+required_credentials: []
+
+# Single-agent, no-repo scene: hide cross-agent (blackboard/inbox) and
+# git/harness (gate/pre-commit) tools it never needs.
+disable_tool_groups: [multi-agent, harness]
+
+match:
+  base_weight: 0
+  rules:
+    - signal: workspace.has_repo_count
+      args: { max: 0 }
+      weight: 18
+    - signal: kanban.label_term_frequency
+      args: { terms: ["海报", "poster", "设计", "design", "落地页", "landing", "banner", "视觉", "canvas"] }
+      weight: 18

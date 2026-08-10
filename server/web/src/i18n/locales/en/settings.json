@@ -1,0 +1,1063 @@
+{
+  "integrations": {
+    "pageTitle": "Integrations",
+    "addCredential": "Add credential",
+    "noCredentials": "No credentials configured yet",
+    "credentials": {
+      "sectionTitle": "Credentials",
+      "sectionDescription": "Your saved access tokens / account passwords for each provider. AI uses these to authenticate when calling the matching provider.",
+      "noEnabledProvider": "No enabled provider available",
+      "noEnabledProviderHint": "Enable at least one provider in API Providers above before adding credentials.",
+      "authModeLabel": "Auth mode",
+      "authModeBearer": "Token / personal access token",
+      "authModeBasic": "User + password",
+      "authModeCustomHeader": "Custom header",
+      "authModeQueryParam": "API key (query param)",
+      "editButton": "Edit",
+      "editTitle": "Edit {{provider}} credential · {{alias}}",
+      "editProviderLocked": "The credential's provider is locked. To switch, delete this credential and add a new one.",
+      "editKeepCurrent": "Leave auth fields blank to keep the current credential value.",
+      "editSaved": "Credential updated",
+      "expandUsages": "Expand usages",
+      "collapseUsages": "Collapse usages",
+      "usageCount": "Used by {{count}} project(s)",
+      "usagesLoading": "Loading usages…",
+      "usagesEmpty": "No projects reference this credential",
+      "unbindButton": "Remove this project's binding to this credential",
+      "unbindConfirm": "Remove {{project}}'s binding to this credential ({{source_key}})?",
+      "unbindFailed": "Unbind failed: {{error}}",
+      "tokenLabel": "Token / API key",
+      "tokenPlaceholder": "Paste the provider's access token",
+      "userLabel": "User",
+      "userPlaceholder": "Auth user",
+      "passwordLabel": "Password",
+      "passwordPlaceholder": "Auth password",
+      "secretShow": "Show secret",
+      "secretHide": "Hide secret",
+      "headerValueLabel": "Header value",
+      "headerValuePlaceholder": "Injected directly as the configured header on each call",
+      "imap": {
+        "hostLabel": "Mail server (IMAP host)",
+        "hostPlaceholder": "e.g. imap.example.com",
+        "portLabel": "Port",
+        "userLabel": "Mailbox account",
+        "userPlaceholder": "Your full email address",
+        "passwordLabel": "Password / app password",
+        "passwordPlaceholder": "An app password is recommended",
+        "securityLabel": "Encryption",
+        "securitySsl": "SSL / TLS (recommended, port 993)",
+        "securityStarttls": "STARTTLS (port 143)",
+        "securityNone": "None (self-hosted testing only)",
+        "smtpHint": "To send mail, optionally set an SMTP server; left blank it is derived from the IMAP host",
+        "smtpHostLabel": "Outgoing server (SMTP host, optional)",
+        "smtpHostPlaceholder": "e.g. smtp.example.com",
+        "smtpPortLabel": "SMTP port",
+        "testButton": "Test connection",
+        "testing": "Testing…",
+        "testOk": "Connected — mailbox verified",
+        "testFailed": "Connection failed: {{error}}",
+        "helpUrl": "https://support.google.com/accounts/answer/185833",
+        "helpLabel": "How to create an app password for your mailbox"
+      },
+      "providers": {
+        "github": {
+          "bearer": {
+            "tokenPlaceholder": "Paste a GitHub fine-grained PAT (ghp_... or github_pat_...)",
+            "helpUrl": "https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/managing-your-personal-access-tokens",
+            "helpLabel": "How to create a GitHub fine-grained PAT"
+          }
+        },
+        "tapd": {
+          "basic": {
+            "userLabel": "API user",
+            "userPlaceholder": "API user issued by the TAPD platform",
+            "passwordLabel": "API password",
+            "passwordPlaceholder": "API password",
+            "helpUrl": "https://www.tapd.cn/help/show#1120003271001000023",
+            "helpLabel": "How to obtain TAPD API user / password"
+          },
+          "bearer": {
+            "tokenLabel": "Personal access token",
+            "tokenPlaceholder": "TAPD personal access token (sent as Bearer)",
+            "helpUrl": "https://www.tapd.cn/help/show#1120003271001000061",
+            "helpLabel": "How to obtain a TAPD personal access token"
+          }
+        },
+        "jira": {
+          "basic": {
+            "userLabel": "Atlassian email",
+            "userPlaceholder": "Email registered with Atlassian",
+            "passwordLabel": "API token",
+            "passwordPlaceholder": "Jira API token",
+            "helpUrl": "https://id.atlassian.com/manage-profile/security/api-tokens",
+            "helpLabel": "How to create a Jira API token"
+          }
+        },
+        "serp-api": {
+          "query_param": {
+            "tokenLabel": "SerpAPI key",
+            "tokenPlaceholder": "Paste your SerpAPI key (injected as the api_key query param; the AI never sees it)",
+            "helpUrl": "https://serpapi.com/manage-api-key",
+            "helpLabel": "How to get a SerpAPI key"
+          }
+        },
+        "gsc": {
+          "bearer": {
+            "tokenLabel": "OAuth access token",
+            "tokenPlaceholder": "Paste a Google OAuth2 access token (scope: webmasters.readonly)",
+            "helpUrl": "https://developers.google.com/webmaster-tools/v1/how-tos/authorizing",
+            "helpLabel": "How to get a Search Console access token"
+          }
+        }
+      }
+    },
+    "provider": "Provider",
+    "token": "Token",
+    "deleteButton": "Delete",
+    "deleteConfirm": "Delete {{provider}} credential?",
+    "deleteFailed": "Delete failed: {{error}}",
+    "deleteInUse": "Cannot delete: this credential is still used by {{count}} external source(s). Remove the bindings in the matching project(s) first — {{projects}}",
+    "patPlaceholder": "Paste GitHub fine-grained PAT (ghp_...)",
+    "githubPatHelp": "How to create a GitHub fine-grained PAT",
+    "githubPatHelpUrl": "https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/managing-your-personal-access-tokens",
+    "savedDeferredVerify": "Credential saved. It will be verified the first time it's used.",
+    "saveFailed": "Save failed: {{error}}",
+    "save": "Save",
+    "saving": "Saving…",
+    "cancel": "Cancel",
+    "deferredVerifyNotice": "Credentials are usable immediately after save. Real validity is checked the first time the corresponding external API is called — no need to test the connection here.",
+    "aliasLabel": "Alias",
+    "aliasPlaceholder": "e.g. Personal GitHub",
+    "renameButton": "Rename",
+    "providerLabel": "Provider",
+    "ownerLabel": "Owner",
+    "ownerHint": "Personal credentials are only yours; org credentials are shared with the whole team.",
+    "providerGithub": "GitHub",
+    "providerJira": "Jira",
+    "providerTapd": "TAPD",
+    "tapdAuthModeLabel": "Auth method",
+    "tapdAuthModeBasic": "API user / password",
+    "tapdAuthModePat": "Personal access token",
+    "tapdApiUser": "API user",
+    "tapdApiPassword": "API password",
+    "tapdApiUserPlaceholder": "API user issued by the TAPD platform",
+    "tapdApiPasswordPlaceholder": "API password",
+    "tapdAccessToken": "Access token",
+    "tapdAccessTokenPlaceholder": "TAPD personal access token",
+    "tapdAccessTokenHelp": "How to obtain a TAPD personal access token",
+    "tapdAccessTokenHelpUrl": "https://www.tapd.cn/help/show#1120003271001000061",
+    "tapdCommentAuthorOptional": "Comment author (optional; required to write back comments)",
+    "tapdApiHelp": "How to obtain TAPD API user / password",
+    "tapdApiHelpUrl": "https://www.tapd.cn/help/show#1120003271001000023",
+    "jiraSite": "Site",
+    "jiraSitePlaceholder": "https://your-team.atlassian.net",
+    "jiraEmail": "Email",
+    "jiraEmailPlaceholder": "Email registered with Atlassian",
+    "jiraToken": "API token",
+    "jiraTokenPlaceholder": "Jira API token",
+    "jiraTokenHelp": "How to create a Jira API token",
+    "jiraTokenHelpUrl": "https://id.atlassian.com/manage-profile/security/api-tokens",
+    "providers": {
+      "sectionTitle": "API Providers",
+      "sectionDescription": "External API definitions invokable by AI. Each provider stores its base URL, auth scheme, and an allowlist of method/path patterns — these are the targets of call_external_api.",
+      "systemBadge": "System",
+      "systemHint": "Built-in providers can be enabled/disabled but their base URL, auth wiring, and whitelist are read-only.",
+      "enabledShortLabel": "Enabled",
+      "writeEnabledLabel": "Allow writes",
+      "writeEnabledHint": "Off: only the provider's default safe set passes (usually GET only). On: AI can call any method on any path — enable only when you fully trust this provider.",
+      "writeEnabledOn": "Full access granted for {{name}}",
+      "writeEnabledOff": "Full access revoked for {{name}}; only the default safe set remains",
+      "writeWarning": "By default only each provider's safe set (typically read-only GET) is allowed. Turning on \"Allow writes\" grants the AI full method/path access — review each provider before enabling.",
+      "empty": "No providers configured yet. Use the button below to add one.",
+      "loading": "Loading…",
+      "addButton": "Add provider",
+      "editButton": "Edit",
+      "deleteButton": "Delete",
+      "deleteConfirm": "Delete provider \"{{name}}\"? Credentials referencing it will stop working.",
+      "enabledLabel": "Enabled",
+      "disabledLabel": "Disabled",
+      "authType": "Auth type",
+      "authTypeBearer": "Bearer Token",
+      "authTypeBasic": "Basic Auth",
+      "authTypeCustomHeader": "Custom Header",
+      "authTypeOAuth": "OAuth",
+      "createdByAi": "Created by AI",
+      "createdByUser": "Created by user",
+      "dialog": {
+        "addTitle": "Add provider",
+        "editTitle": "Edit provider",
+        "nameLabel": "Identifier (name)",
+        "namePlaceholder": "e.g. github, tapd, linear",
+        "nameHint": "Globally unique. AI and credentials reference the provider by this identifier. Cannot be changed after creation.",
+        "labelLabel": "Display name",
+        "labelPlaceholder": "e.g. GitHub",
+        "apiBaseUrlLabel": "API base URL",
+        "apiBaseUrlPlaceholder": "https://api.github.com",
+        "authTypeLabel": "Auth type",
+        "authHeaderLabel": "Auth header",
+        "authHeaderPlaceholder": "Authorization",
+        "authPrefixLabel": "Header prefix",
+        "authPrefixPlaceholder": "Bearer",
+        "whitelistLabel": "Default safe set (JSON, advanced)",
+        "whitelistPlaceholder": "[{\"method\":\"GET\",\"path\":\"*\"}]",
+        "whitelistHint": "When \"Allow writes\" is OFF, only these method + path patterns pass. When ON, this list is bypassed entirely. Path supports * glob.",
+        "whitelistInvalid": "Default safe set must be a valid JSON array",
+        "openapiUrlLabel": "OpenAPI spec URL (optional)",
+        "openapiUrlPlaceholder": "https://example.com/openapi.json",
+        "openapiUrlHint": "When provided, AI can read this spec to construct correct requests.",
+        "enabledToggleLabel": "Enable this provider",
+        "saveSuccess": "Provider saved",
+        "saveFailed": "Save failed: {{error}}",
+        "deleteSuccess": "Provider deleted",
+        "deleteFailed": "Delete failed: {{error}}"
+      }
+    }
+  },
+  "page": {
+    "title": "Settings",
+    "description": "Personal, team, automation, and system configuration grouped by task.",
+    "navLabel": "Settings navigation",
+    "orgsLink": "Organizations"
+  },
+  "groups": {
+    "personal": "Personal",
+    "team": "Team",
+    "agents": "Automation & access",
+    "system": "System"
+  },
+  "tabs": {
+    "general": "General",
+    "systemDeps": "System Dependencies",
+    "env": "Environment Variables",
+    "gitIdentity": "Git",
+    "users": "Users",
+    "security": "Security",
+    "mobileAccess": "Mobile Access",
+    "claudeAccounts": "Claude Accounts",
+    "claudeSettings": "Plugins & MCP",
+    "codexAccounts": "Codex Accounts",
+    "integrations": "Integrations",
+    "license": "License",
+    "orchestration": "Orchestration",
+    "blueprints": "Project templates",
+    "imbot": "IM bots",
+    "about": "About"
+  },
+  "imbot": {
+    "title": "IM bots",
+    "description": "One bot (one credential, one connection) can route different chats to different projects you own. Manage bots, approve pending chats and pick their target project here.",
+    "botsTitle": "Bots",
+    "noBots": "No bots yet. Create one to connect an IM.",
+    "loading": "Loading…",
+    "addBot": "New bot",
+    "addBotDesc": "Bot credentials are submitted through a secure entry link — never in this dialog. Pick a project to run the guided setup in, then start it.",
+    "addBotProjectHint": "This only chooses where the setup wizard runs. The bot is owner-level and belongs to no project; route each chat to a project when you approve it.",
+    "onboardingProject": "Run wizard in project",
+    "startOnboarding": "Start setup",
+    "starting": "Starting…",
+    "cancel": "Cancel",
+    "test": "Test",
+    "testOk": "Connection OK.",
+    "testFailed": "Test failed: {{message}}",
+    "typeLark": "Feishu / Lark",
+    "typeDingtalk": "DingTalk",
+    "typeTelegram": "Telegram",
+    "typeWework": "WeCom",
+    "modeStream": "Stream",
+    "modeWebhook": "Webhook",
+    "statusActive": "Active",
+    "statusDisabled": "Disabled",
+    "pendingTitle": "{{count}} chat(s) awaiting pairing",
+    "pendingHint": "Bots received messages from these chats but they aren't assigned to a project yet. Pick a target project and approve to route the chat there.",
+    "approve": "Approve",
+    "approveOk": "Approved and routed.",
+    "projectSelectLabel": "Target project",
+    "projectSelectPlaceholder": "Select a project…",
+    "noWritableProjects": "You have no writable projects to route to. Create one or gain admin access to a project first.",
+    "boundTitle": "Configured bindings",
+    "boundNoProject": "No project",
+    "noBoundChats": "No bound chats yet",
+    "noBoundChatsForBot": "No bound chats for this bot yet",
+    "unbind": "Unbind",
+    "unbindOk": "Binding removed",
+    "rename": "Rename",
+    "renameLabel": "Bot name",
+    "renameSave": "Save",
+    "renameOk": "Renamed"
+  },
+  "orchestration": {
+    "title": "Orchestration Cost Guardrails",
+    "description": "Bound the AI-native board orchestrator. Changes apply within a few seconds — no restart needed. The budget is enforced per orchestration tree (an epic plus its child workspaces).",
+    "budget": "Chain cost budget (USD)",
+    "budgetHint": "Cumulative cost cap for one orchestration tree. 0 disables the cap. Whole dollars only.",
+    "maxConcurrent": "Max concurrent workspaces",
+    "maxConcurrentHint": "Per-owner concurrent active workspaces. Over the cap, start_workspace queues instead of rejecting. 0 disables.",
+    "maxBatch": "Max issues per batch",
+    "maxBatchHint": "Cap on how many issues one batch_create_issues call may create. 0 disables.",
+    "warnRatio": "Near-budget warning at",
+    "warnRatioHint": "Fraction of the budget at which the orchestrator is flagged to confirm before fanning out further.",
+    "saveAll": "Save all",
+    "saved": "Saved",
+    "saveFailed": "Save failed: {{message}}"
+  },
+  "license": {
+    "title": "License",
+    "customer": "Customer",
+    "seats": "Seats",
+    "expires": "Expires",
+    "trial": "Trial license",
+    "upload": "Upload license",
+    "uploadSuccess": "License updated",
+    "uploadFailed": "Invalid license file",
+    "unlicensed": "Not licensed"
+  },
+  "gitIdentity": {
+    "title": "Git Author Identity",
+    "description": "The author niuniu records on commits it makes on your behalf. Used by the Claude CLI agent in your workspaces.",
+    "emailLabel": "Email",
+    "emailPlaceholder": "you@example.com",
+    "emailHint": "Empty means niuniu will use the synthetic \"<username>@niuniu.local\" so commits still succeed.",
+    "previewLabel": "Preview",
+    "previewSubLabel": "Your commits will appear as:",
+    "save": "Save",
+    "saving": "Saving...",
+    "saved": "Saved.",
+    "invalidEmail": "Email must be a valid address or empty.",
+    "saveFailed": "Save failed: {{detail}}",
+    "loadFailed": "Could not load git identity.",
+    "perRepoNote": "Different identity for a specific repository? Open that repository's Settings tab to set a per-repo override (e.g. Alice's company email for the company repo, personal email elsewhere)."
+  },
+  "gitCredentials": {
+    "title": "Git Remote Credentials (SSH)",
+    "description": "Upload per-host SSH private keys so Claude (and you) can push / pull / clone in workspaces. Treat as the OS keychain equivalent — keys are AES-GCM encrypted at rest, only materialized into a per-PTY temp dir when a session needs them.",
+    "hostHint": "One key per host. Wildcards (e.g. \"*\") are allowed for catch-all configurations.",
+    "add": "Add credential",
+    "addTitle": "Add SSH credential",
+    "addDescription": "Paste an unencrypted OpenSSH private key. niuniu derives and stores the matching public key + fingerprint so you can verify it later.",
+    "loadFailed": "Could not load credentials.",
+    "loading": "Loading...",
+    "empty": "No SSH credentials yet.",
+    "saved": "Saved.",
+    "save": "Save",
+    "saving": "Saving...",
+    "cancel": "Cancel",
+    "confirmDelete": "Delete",
+    "created": "Credential added.",
+    "createFailed": "Could not add credential: {{detail}}",
+    "deleted": "Credential deleted.",
+    "deleteFailed": "Could not delete credential: {{detail}}",
+    "deleteTitle": "Delete SSH credential",
+    "deleteConfirm": "Delete the SSH key for {{host}}? Workspaces using it will fail to authenticate against {{host}} until you add a new key.",
+    "deleteAria": "Delete credential for {{host}}",
+    "col": {
+      "host": "Host",
+      "username": "User",
+      "fingerprint": "Fingerprint"
+    },
+    "field": {
+      "host": "Host",
+      "hostHint": "e.g. github.com, gitlab.com, gitea.example.com",
+      "username": "Username",
+      "usernameHint": "Almost always \"git\" — only change for self-hosted setups that use a different SSH login.",
+      "privateKey": "Private key (PEM)",
+      "privateKeyHint": "Paste the unencrypted private key. Passphrase-protected keys are not supported; decrypt locally first."
+    },
+    "securityNote": "Private keys are AES-GCM encrypted at rest with the integration master secret. They are never returned to clients, never written to .git/config, and only materialized to /tmp/<per-PTY-dir>/id_<host> at session start (0600 perms, removed on PTY exit).",
+    "errInvalidPrivateKey": "The pasted key could not be parsed as an SSH private key.",
+    "errPassphraseRequired": "Passphrase-protected keys are not supported. Decrypt the key locally first.",
+    "errInvalidHost": "Host must be a single token without whitespace or shell metacharacters.",
+    "errHostConflict": "You already have a credential for this host. Delete the existing one first."
+  },
+  "security": {
+    "loginHistory": {
+      "title": "Login History",
+      "empty": "No login records yet.",
+      "retry": "Retry",
+      "col": {
+        "time": "Time",
+        "ip": "IP Address",
+        "ua": "Client",
+        "result": "Result"
+      },
+      "reason": {
+        "ok": "Success",
+        "bad_password": "Bad password",
+        "account_locked": "Account locked",
+        "ip_locked": "IP locked",
+        "mfa_failed": "MFA failed",
+        "other": "Other"
+      }
+    },
+    "mfa": {
+      "setup": "Enable Two-Factor Authentication",
+      "enable": "Verify and Enable",
+      "disable": "Disable Two-Factor Authentication",
+      "disableConfirm": "Confirm Disable MFA",
+      "disableDescription": "Enter the 6-digit code from your authenticator app to disable MFA",
+      "regenerateBackupCodes": "Regenerate Backup Codes",
+      "regenerateDescription": "Enter the 6-digit code from your authenticator app to regenerate backup codes",
+      "backupCodesTitle": "Backup Codes",
+      "backupCodesSaved": "I have saved these safely",
+      "backupCodesWarning": "Store these backup codes in a safe place. Each code can only be used once.",
+      "enabled": "Two-Factor Authentication is enabled",
+      "notEnabled": "Not enabled",
+      "description": "Enable Time-based One-Time Password (TOTP) authentication to enhance account security",
+      "backupCodesRemain": "Backup codes remaining: {{count}}",
+      "verifyCode": "Verification Code",
+      "verifyCodePlaceholder": "Enter 6-digit code",
+      "qrAlt": "MFA QR Code",
+      "setupSuccess": "Two-factor authentication enabled successfully",
+      "disableSuccess": "Two-factor authentication disabled",
+      "regenerateSuccess": "Backup codes regenerated",
+      "incorrectCode": "Incorrect verification code"
+    }
+  },
+  "about": {
+    "title": "About Niuniu",
+    "description": "Version info and software updates",
+    "serverVersion": "Server version",
+    "edition": "Edition",
+    "editionPersonal": "Personal",
+    "editionTeam": "Team",
+    "versionDev": "Development build",
+    "feedback": {
+      "title": "Send feedback",
+      "description": "Report a bug or suggestion to Niuniu on GitHub",
+      "openButton": "Open feedback form"
+    },
+    "update": {
+      "title": "Software updates",
+      "description": "Check the latest release on the official site",
+      "checkButton": "Check for updates",
+      "upToDate": "You're on the latest version ({{version}})",
+      "newVersion": "New version available: {{version}}",
+      "download": "Download",
+      "viewRelease": "View release notes",
+      "lastChecked": "Last checked: {{time}}",
+      "toastDescription": "Open the official site to download the latest version",
+      "dismiss": "Later",
+      "networkUnavailable": "Couldn't fetch the latest version (your network may be restricted). Open the official site to check for updates."
+    }
+  },
+  "general": {
+    "language": {
+      "title": "Interface Language",
+      "description": "Choose the display language for the app"
+    },
+    "privacy": {
+      "title": "Privacy"
+    },
+    "telemetry": {
+      "title": "Anonymous usage telemetry",
+      "description": "Share anonymous usage data to help improve Niuniu. No code, prompts, or personal information are ever sent.",
+      "toggleLabel": "Send anonymous telemetry",
+      "learnMore": "Privacy details",
+      "saved": "Telemetry preference saved",
+      "saveFailed": "Could not save telemetry preference: {{error}}"
+    },
+    "assistant": {
+      "title": "Niuniu Assistant",
+      "description": "When enabled, the \"Niuniu Assistant\" entry appears in the top navigation for every team member. Hidden by default; only admins can enable it.",
+      "toggleLabel": "Enable the Niuniu Assistant entry",
+      "saved": "Assistant setting saved",
+      "saveFailed": "Could not save assistant setting: {{error}}"
+    },
+    "autostart": {
+      "title": "Start with computer",
+      "description": "Automatically launch Niuniu when you sign in to this computer.",
+      "minimized": {
+        "title": "Start minimized to the tray",
+        "description": "Stay in the system tray on launch instead of opening the main window."
+      }
+    },
+    "globalShortcuts": {
+      "title": "Global shortcuts",
+      "description": "Set the global shortcuts that show or hide the local main window and the AI Hub window (desktop only).",
+      "toggleWindow": {
+        "title": "Enable local window shortcut",
+        "description": "Press the shortcut anywhere to show or hide the local main window (default Ctrl+Shift+N)."
+      },
+      "toggleAI": {
+        "title": "Enable AI window shortcut",
+        "description": "Press the shortcut anywhere to show or hide the AI Hub window (default Ctrl+Shift+Z)."
+      },
+      "combo": {
+        "title": "Shortcut combo",
+        "description": "Click, then press the keys you want (at least one modifier)."
+      },
+      "capturing": "Press keys…",
+      "unset": "Click to set",
+      "captureLabel": "Record shortcut",
+      "boundAs": "Bound as: {{combo}}",
+      "saveFailed": "Failed to set shortcut: {{error}}"
+    },
+    "notifications": {
+      "title": "Notification Settings",
+      "description": "Configure how notifications are displayed and the alert sound",
+      "method": "Notification Method",
+      "toast": {
+        "title": "Toast Notifications",
+        "description": "Show toast messages on screen"
+      },
+      "sound": {
+        "title": "Sound Notifications",
+        "description": "Play an alert sound for new messages"
+      },
+      "alertScope": {
+        "title": "Alert scope",
+        "permissionNote": "Permission-request badges always show only for the agent you're driving and are unaffected by this setting.",
+        "mine": {
+          "title": "Mine only (creator or assignee)",
+          "description": "Only workspaces you created or where you're assigned on the linked issue will pop up and play a sound. Others still refresh silently in the list."
+        },
+        "all": {
+          "title": "All workspaces",
+          "description": "Every accessible workspace will trigger a toast and sound."
+        },
+        "none": {
+          "title": "Silent (status still refreshes)",
+          "description": "Disables toast and sound entirely. Status still updates in the UI."
+        }
+      }
+    },
+    "soundConfig": {
+      "title": "Sound Settings",
+      "selectLabel": "Select Sound",
+      "test": "Test",
+      "volume": "Volume",
+      "muted": "Mute",
+      "max": "Max"
+    },
+    "vscode": {
+      "title": "VS Code",
+      "description": "Configure how VS Code is opened",
+      "local": {
+        "title": "Local Mode",
+        "description": "Open locally installed VS Code via vscode:// protocol"
+      },
+      "remote": {
+        "title": "Remote Mode (Browser)",
+        "description": "Open VS Code in browser via code-server"
+      },
+      "remoteUrlLabel": "code-server Address",
+      "remoteUrlHint": "Access URL of code-server or VS Code Web"
+    }
+  },
+  "systemDeps": {
+    "title": "System Dependencies",
+    "description": "niuniu requires the following CLI tools to run agents.",
+    "requiredMissing": "Required dependencies not installed: {{tools}}. Install them below to start using niuniu.",
+    "noInstallSupport": "This deployment does not support online installation. To install on this machine, please use the niuniu personal-edition client.",
+    "noPackageManager": "No system package manager detected (Windows needs winget, macOS needs brew, Linux needs apt-get); node / python / git cannot be one-click installed. Use the \"Manual download\" link below each one, or install a package manager and refresh. Claude can still be one-click installed when node is present.",
+    "detecting": "Detecting…",
+    "detectFailed": "Detection failed: {{message}}",
+    "recheckDone": "Detection complete",
+    "logsTitle": "Install log ({{title}})",
+    "running": "Running…",
+    "connectionLost": "[Connection lost]",
+    "doneLine": "--- Done (exit code {{code}}) ---",
+    "anotherInstalling": "Another install task is in progress",
+    "installNotSupported": "This deployment does not support online installation",
+    "installFailed": "Failed to start install: {{message}}",
+    "tool": {
+      "installed": "Installed",
+      "notInstalled": "Not installed",
+      "recheck": "Re-detect",
+      "oneClickInstall": "One-Click Install",
+      "installing": "Installing…",
+      "manualDownload": "Manual download →",
+      "needNodeFirst": "Please install node first",
+      "willRun": "Will run: {{cmd}}",
+      "claudeLogin": "Claude Login",
+      "claudeLoginFailed": "Failed to open terminal: {{message}}",
+      "claudeLoginNotSupported": "This deployment does not support opening a terminal on the host",
+      "codexLogin": "Codex Login",
+      "codexLoginFailed": "Failed to open terminal: {{message}}",
+      "codexLoginNotSupported": "This deployment does not support opening a terminal on the host"
+    },
+    "account": {
+      "default": "Default",
+      "signedInAs": "Signed in as {{email}}",
+      "noEmail": "Account email not detected",
+      "notSignedIn": "No signed-in account detected. Use login to parse and open the sign-in URL in a terminal.",
+      "lastUsed": "Last used: {{time}}",
+      "status": {
+        "active": "Signed in",
+        "pending": "Pending",
+        "failed": "Invalid"
+      }
+    },
+    "gitIdentity": {
+      "edit": "Edit",
+      "save": "Save",
+      "cancel": "Cancel",
+      "saved": "Saved to git global config",
+      "invalid": "Please enter a valid name and email",
+      "saveFailed": "Save failed: {{detail}}",
+      "disambiguation": "OS-level fallback (git config --global). niuniu uses this when there's no per-user override — for example when auto-creating a new repository's first commit. To set your own commit author for niuniu workspaces, go to Settings → Git.",
+      "unconfiguredHint": "Configure OS-level git identity so niuniu can auto-initialize new repositories.",
+      "namePlaceholder": "name (e.g. Alice)",
+      "emailPlaceholder": "email (e.g. alice@example.com)"
+    }
+  },
+  "env": {
+    "description": "Manage environment-variable preset groups for quick import in workspaces",
+    "oneShotHint": "Tip: add NIUNIU_ONESHOT_PROVIDER=1 to a preset to make system-level AI helper calls (goal inference, kickoff classification, column-op suggestions and other one-shot calls) use that preset's model provider. These calls run outside any workspace and otherwise use only the host environment.",
+    "newPreset": "New Preset",
+    "noPresets": "No presets",
+    "deleteConfirm": "Delete preset \"{{name}}\"?",
+    "dialog": {
+      "createTitle": "New Preset",
+      "editTitle": "Edit Preset",
+      "description": "Configure environment-variable presets for quick import in workspace settings",
+      "nameLabel": "Name",
+      "namePlaceholder": "Preset name",
+      "descLabel": "Description",
+      "descPlaceholder": "Optional description",
+      "envVarsLabel": "Environment Variables",
+      "noEnvVars": "No environment variables"
+    }
+  },
+  "harness": {
+    "specs": {
+      "title": "Global Engineering Standards",
+      "subtitle": "Define code-quality and workflow gate rules",
+      "newSpec": "New Standard",
+      "noSpecs": "No standards",
+      "deleteConfirm": "Delete standard \"{{name}}\"?",
+      "toggleAria": "Toggle enabled",
+      "editAria": "Edit standard",
+      "deleteAria": "Delete standard",
+      "kind": {
+        "regex_match": "Regex match",
+        "command_exit_code": "Command exit code",
+        "command_output_match": "Command output threshold",
+        "file_exists": "File exists",
+        "ai_judge": "AI Judge"
+      },
+      "kindAiJudge": "AI Judge",
+      "kindHint": {
+        "regex_match": "Match a regular expression against the selected input field.",
+        "command_exit_code": "Run a shell command and compare its exit code.",
+        "command_output_match": "Run a shell command, extract a number, and compare it against a threshold.",
+        "file_exists": "Pass when every listed path exists in the workspace.",
+        "ai_judge": "Send the selected text to an Anthropic model with a rubric prompt; pass / fail is decided by the model."
+      },
+      "target": {
+        "commit_message": "Commit message",
+        "branch_name": "Branch name",
+        "agent_output": "Agent output",
+        "working_dir": "Working directory"
+      },
+      "trigger": {
+        "phase_exit": "On phase exit",
+        "on_demand": "On demand",
+        "pre_commit": "Pre-commit",
+        "on_schedule": "On schedule (Phase C - scheduler binding pending)"
+      },
+      "judgePrompt": "Judge prompt",
+      "judgePromptHint": "Rubric or instructions for the model. Output should be parseable as pass/fail with a brief reason.",
+      "judgePromptPlaceholder": "You are reviewing a commit message. PASS if it follows Conventional Commits (type(scope): subject). Reply with PASS or FAIL on the first line, then a one-sentence reason.",
+      "judgeModel": "Judge model",
+      "judgeModelLabels": {
+        "haiku": "Claude Haiku 4.5 (fast / cheap)",
+        "sonnet": "Claude Sonnet 4.6 (balanced)",
+        "opus": "Claude Opus 4.7 (highest quality)"
+      },
+      "aiJudgeApiKeyHint": "Requires ANTHROPIC_API_KEY environment variable on the server.",
+      "cost": "Cost",
+      "triggerPreCommit": "Pre-commit",
+      "triggerOnSchedule": "On schedule",
+      "triggerOnScheduleHint": "Phase C - scheduler binding pending",
+      "dialog": {
+        "title": "New Engineering Standard",
+        "editTitle": "Edit Engineering Standard",
+        "description": "Configure a global engineering gate rule",
+        "nameLabel": "Standard Name",
+        "namePlaceholder": "e.g. commit message must have a type prefix",
+        "categoryLabel": "Category",
+        "severityLabel": "Severity",
+        "kindLabel": "Check Kind",
+        "targetLabel": "Target Field",
+        "patternLabel": "Pattern",
+        "patternPlaceholder": "e.g. ^(feat|fix|chore)(\\(.+\\))?: .+",
+        "patternFlagsLabel": "Pattern Flags",
+        "patternFlagsPlaceholder": "e.g. i, m, is",
+        "commandLabel": "Command",
+        "commandPlaceholder": "e.g. pnpm test",
+        "timeoutLabel": "Timeout (s)",
+        "expectedExitCodeLabel": "Expected exit code",
+        "extractRegexLabel": "Extract regex",
+        "extractRegexPlaceholder": "e.g. coverage:\\s*([0-9.]+)",
+        "thresholdValueLabel": "Threshold value",
+        "thresholdOpLabel": "Threshold operator",
+        "filePathsLabel": "File paths",
+        "filePathsPlaceholder": "One path per line\nREADME.md\npackage.json",
+        "filePathsHint": "Enter one path per line; stored as a JSON array.",
+        "testSectionLabel": "Test this standard",
+        "test": "Run test",
+        "testing": "Running…",
+        "testSaveFirst": "Save your changes before running a test.",
+        "testFailedGeneric": "Test failed",
+        "testDuration": "{{ms}} ms",
+        "testCost": "Cost ${{cost}}",
+        "triggerLabel": "Trigger",
+        "triggerOnScheduleHint": "Phase C - scheduler binding pending",
+        "judgePromptLabel": "Judge prompt",
+        "judgePromptHint": "Rubric or instructions for the model. Output should be parseable as pass/fail with a brief reason.",
+        "judgePromptPlaceholder": "You are reviewing a commit message. PASS if it follows Conventional Commits (type(scope): subject). Reply with PASS or FAIL on the first line, then a one-sentence reason.",
+        "judgeModelLabel": "Judge model",
+        "aiJudgeApiKeyHint": "Requires ANTHROPIC_API_KEY environment variable on the server.",
+        "testStatus": {
+          "pass": "Passed",
+          "fail": "Failed",
+          "skip": "Skipped",
+          "error": "Error"
+        }
+      }
+    },
+    "agentGroup": {
+      "cli": "CLI Agent",
+      "custom": "Custom Agent"
+    }
+  },
+  "agent": {
+    "search": "Search agents (by name or description)...",
+    "myAgents": {
+      "title": "My Agents",
+      "newAgent": "New Agent",
+      "loading": "Loading...",
+      "empty": "No agents",
+      "noMatch": "No matching agents found"
+    },
+    "registry": {
+      "title": "Agent Registry",
+      "summary": "{{total}} agents — from the curated catalog, local CLI, community, and custom sources",
+      "summaryFiltered": "{{filtered}}/{{total}} agents — from the curated catalog, local CLI, community, and custom sources",
+      "loading": "Loading...",
+      "empty": "No agents",
+      "emptyHint": "Make sure Claude Code is installed and accessible via the claude command",
+      "noMatch": "No matching agents found",
+      "local": "Local Agents",
+      "community": "Community Agents",
+      "custom": "Custom Agents",
+      "curated": "Curated Catalog",
+      "curatedHint": "Hand-picked, localized personas from agency-agents (MIT). Click Import to install one — nothing is bundled by default.",
+      "category": {
+        "engineering": "Engineering",
+        "security": "Security",
+        "design": "Design",
+        "marketing": "Marketing"
+      },
+      "builtin": "Built-in",
+      "imported": "Imported",
+      "import": "Import",
+      "noDescription": "No description",
+      "sourceTitle": "Source: {{source}}"
+    },
+    "card": {
+      "noDescription": "No description"
+    },
+    "deleteConfirm": "Delete agent \"{{name}}\"?",
+    "saveFailed": "Failed to save agent: {{message}}",
+    "deleteFailed": "Failed to delete agent: {{message}}",
+    "refreshFailed": "Refresh failed: {{message}}",
+    "importFailed": "Import failed: {{message}}",
+    "loadDetailFailed": "Failed to load agent details: {{message}}",
+    "dialog": {
+      "createTitle": "New Agent",
+      "editTitle": "Edit Agent",
+      "createDescription": "Create a new agent and define its role and behavior.",
+      "editDescription": "Modify the agent's description and instructions.",
+      "nameLabel": "Name",
+      "namePlaceholder": "e.g. architect, developer",
+      "descLabel": "Description",
+      "descPlaceholder": "Briefly describe the agent's role",
+      "frontmatterLabel": "Frontmatter",
+      "frontmatterHint": "Auto-managed from name / description fields. Used by Claude Code to identify the agent.",
+      "bodyLabel": "Body",
+      "bodyPlaceholder": "Agent's Markdown instructions (without frontmatter)..."
+    }
+  },
+  "users": {
+    "title": "User Management",
+    "description": "Manage login accounts in the system",
+    "addUser": "Add User",
+    "loading": "Loading…",
+    "table": {
+      "username": "Username",
+      "displayName": "Display Name",
+      "role": "Role",
+      "createdAt": "Created At",
+      "actions": "Actions"
+    },
+    "actions": {
+      "manageResources": "Manage Resources",
+      "edit": "Edit",
+      "resetPassword": "Reset Password",
+      "delete": "Delete"
+    },
+    "tooltip": {
+      "cantChangeOwnRole": "Can't change your own role",
+      "needAtLeastOneAdmin": "The system needs at least one admin",
+      "cantDeleteSelf": "Can't delete yourself"
+    },
+    "create": {
+      "title": "Add User",
+      "description": "Create a new login account",
+      "usernameLabel": "Username",
+      "usernamePlaceholder": "alice",
+      "passwordLabel": "Password",
+      "passwordPlaceholder": "At least 12 chars",
+      "passwordHint": "At least 12 characters; must not contain the username or display name",
+      "displayNameLabel": "Display Name",
+      "displayNamePlaceholder": "Alice",
+      "roleLabel": "Role",
+      "submit": "Create",
+      "success": "User created"
+    },
+    "edit": {
+      "title": "Edit User",
+      "description": "Username cannot be changed",
+      "success": "Updated"
+    },
+    "resetPassword": {
+      "title": "Reset Password",
+      "description": "Set a new password for {{name}}. The user's current access token (up to 15 minutes) will expire naturally; the refresh session is revoked immediately.",
+      "newPasswordLabel": "New Password",
+      "newPasswordPlaceholder": "At least 12 chars",
+      "passwordHint": "At least 12 characters; must not contain the username or display name",
+      "submit": "Reset",
+      "success": "Reset — user's refresh session cleared; new login requires the new password"
+    },
+    "delete": {
+      "title": "Delete User",
+      "description": "Delete {{name}}? The user's login session will be invalidated immediately. This cannot be undone.",
+      "submit": "Delete",
+      "success": "Deleted"
+    },
+    "resources": {
+      "subtitle": "Review and manage this user's personal resources",
+      "loading": "Loading resources…",
+      "loadFailed": "Failed to load resources",
+      "createdAt": "Created {{date}}",
+      "owner": "Owner",
+      "lastOwner": "Last owner",
+      "sections": {
+        "orgs": "Organizations",
+        "projects": "Projects",
+        "workspaces": "Workspaces",
+        "repositories": "Repositories",
+        "otherResources": "Other resources"
+      },
+      "empty": {
+        "orgs": "Not a member of any organization",
+        "projects": "No projects",
+        "workspaces": "No workspaces",
+        "repositories": "No repositories"
+      },
+      "counts": {
+        "envPresets": "Env presets",
+        "quickActions": "Quick actions",
+        "agents": "Agents",
+        "scenes": "Scenes",
+        "dataSources": "Data sources",
+        "savedQueries": "Saved queries",
+        "dashboards": "Dashboards",
+        "knowledgeBases": "Knowledge bases",
+        "harnessSpecs": "Gate specs"
+      },
+      "status": {
+        "active": "Active",
+        "archived": "Archived",
+        "deleting": "Deleting"
+      },
+      "deleteResource": {
+        "trigger": "Delete",
+        "title": "Delete {{type}}?",
+        "description": "Delete \"{{name}}\"? This cannot be undone.",
+        "confirm": "Delete",
+        "success": "Deleted",
+        "types": {
+          "project": "project",
+          "workspace": "workspace",
+          "repository": "repository"
+        }
+      },
+      "purge": {
+        "dangerZone": "Danger zone",
+        "dangerZoneHint": "Permanently delete this account along with every personal resource. The user is removed from all organizations. This cannot be undone.",
+        "trigger": "Delete account and all resources",
+        "title": "Delete account and all resources",
+        "description": "This permanently deletes {{name}} and all of the following personal resources, and removes the user from every organization. This cannot be undone.",
+        "confirmLabel": "Type the username {{username}} to confirm",
+        "confirmPlaceholder": "Enter username",
+        "confirm": "Permanently delete",
+        "success": "Account and all resources deleted",
+        "reason": {
+          "self": "You cannot delete your own account here.",
+          "lastAdmin": "The system needs at least one admin — this is the last admin.",
+          "lastOwnerOfOrg": "This user is the last owner of organization \"{{slug}}\". Transfer ownership or delete that organization first, then retry.",
+          "generic": "Unable to delete this account."
+        }
+      }
+    }
+  },
+  "mobileAccess": {
+    "relayAccount": {
+      "title": "Relay Account",
+      "description": "Mobiles connect to Niuniu via the Relay service. Enter your email to receive a code — accounts are created automatically.",
+      "loadingStatus": "Reading account status…",
+      "connected": "Connected",
+      "disconnected": "Disconnected",
+      "logout": "Log out",
+      "emailPlaceholder": "Email",
+      "codePlaceholder": "6-digit code",
+      "codeSent": "We sent a code to your email.",
+      "changeEmail": "Change email",
+      "useSelfHosted": "Use self-hosted Relay",
+      "useDefaultRelay": "Use default public Relay",
+      "urlPlaceholder": "Relay server URL",
+      "urlHint": "Defaults to the public Relay; you may enter a private deployment URL",
+      "invalidEmail": "Invalid email address",
+      "submitRequestCode": "Send code",
+      "submitVerify": "Sign in",
+      "resendIn": "Resend in {{seconds}}s",
+      "resendNow": "Resend code"
+    },
+    "billing": {
+      "title": "Plan & Quota",
+      "description": "View current plan usage, revoke old devices to free quota, or upgrade to a higher plan.",
+      "loading": "Loading…",
+      "loadFailed": "Failed to load",
+      "currentPlan": "Current plan:",
+      "refresh": "Refresh",
+      "upgradePlan": "Upgrade / Switch Plan",
+      "free": "Free",
+      "intervalMonthly": "month",
+      "intervalYearly": "year",
+      "usage": {
+        "mobiles": "Bound mobile devices",
+        "pairings": "Pairings today",
+        "desktops": "Desktop clients",
+        "bandwidth": "Relay traffic this month"
+      },
+      "copyId": {
+        "copy": "Copy device ID",
+        "copied": "Copied"
+      },
+      "remoteDevices": {
+        "title": "Mobile devices on this Relay account",
+        "description": "All non-revoked devices the Relay server has recorded for this account. Revoking immediately frees a quota slot, useful when fixing 402 quota_exceeded errors.",
+        "empty": "No remote devices recorded",
+        "revokeTitle": "Revoke Relay device",
+        "revokeDescription": "Revoke \"{{name}}\"? The device will not be able to connect to this account via Relay and will need to be re-paired. This immediately frees a mobile quota slot.",
+        "revoke": "Revoke",
+        "revokeFailed": "Revoke failed"
+      },
+      "remoteDesktops": {
+        "title": "Desktops on this Relay account",
+        "description": "All non-revoked desktops the Relay server has recorded for this account. If the mobile shows 503 / Network request failed and its desktop_id is not in this list, the desktop has been revoked — re-pair to fix.",
+        "empty": "No remote desktops recorded",
+        "revokeTitle": "Revoke Relay desktop",
+        "revokeDescription": "Revoke \"{{name}}\"? Mobiles still pointing at this desktop will receive 503 DesktopOffline; the desktop process will need to be restarted and re-paired to register again.",
+        "revoke": "Revoke",
+        "revokeFailed": "Revoke failed"
+      }
+    },
+    "changePlan": {
+      "title": "Switch Plan",
+      "description": "Paid plans are paid via Stripe; once paid, Relay automatically upgrades the account. Free-plan switches take effect immediately.",
+      "loading": "Loading…",
+      "loadFailed": "Failed to load plans",
+      "current": "Current",
+      "processing": "Processing…",
+      "inUse": "In use",
+      "checkout": "Checkout",
+      "switch": "Switch",
+      "close": "Close",
+      "stats": {
+        "desktops": "Desktops {{n}}",
+        "mobiles": "Mobiles {{n}}",
+        "pairings": "Pairings {{n}}/day",
+        "bandwidth": "Bandwidth {{n}} MB/month"
+      },
+      "noticeStripe": "Opened the Stripe checkout page in the browser. The new plan will take effect within a few seconds after payment — click the refresh button at the top right.",
+      "noticeApplied": "Switched to plan {{name}}.",
+      "noticeSubmitted": "Request submitted.",
+      "switchFailed": "Failed to switch plan"
+    },
+    "pair": {
+      "section": {
+        "title": "Bind a Mobile Device",
+        "description": "Scan the QR code on your phone to securely pair with this Niuniu, then access the service remotely via Relay.",
+        "button": "Bind Mobile Device",
+        "loginRequired": "Please log in to your Relay account before binding a device."
+      },
+      "dialog": {
+        "title": "Pair New Device",
+        "description": "Scan the QR code on your phone, then verify the code on both ends to complete pairing.",
+        "generating": "Generating pairing code…",
+        "qrAlt": "Pairing QR code",
+        "relayHost": "Relay server: ",
+        "copyUrl": "Copy pairing link",
+        "copied": "Copied",
+        "waitingScan": "Waiting for phone scan… The pairing link expires in a few minutes.",
+        "verifyHeader": "Verify the code shown on your phone",
+        "deviceLabel": "Device: ",
+        "cancel": "Cancel",
+        "confirmPair": "Confirm Pairing",
+        "completed": "Pairing complete!",
+        "autoClose": "This window will close automatically…",
+        "emailVerificationRequiredTitle": "Please verify your email first",
+        "emailVerificationRequiredDescription": "An unverified-email account can bind at most 1 desktop device. Click the verification link in your email, then retry pairing.",
+        "verifyEmailSent": "Verification email sent — please check your inbox",
+        "sendVerifyEmail": "Send Verification Email",
+        "sending": "Sending…",
+        "retryPair": "Retry Pairing",
+        "retry": "Retry",
+        "quotaExceededTitle": "Plan quota reached",
+        "quotaExceededDefault": "The current plan has reached its mobile-device count or daily-pairing limit.",
+        "quotaExceededHint": "You can revoke unused devices in \"Plan & Quota\" above, or upgrade to a higher plan.",
+        "pairFailedDefault": "Pairing failed, please retry."
+      }
+    },
+    "trusted": {
+      "title": "Trusted Mobile Devices",
+      "description": "These devices can connect to your Niuniu service via Relay.",
+      "loading": "Loading…",
+      "empty": "No trusted mobile devices",
+      "pairedAt": "Paired {{when}}",
+      "lastSeen": "Last seen {{when}}",
+      "removeTitle": "Remove Trusted Device",
+      "removeDescription": "Remove \"{{name}}\"? This device will not be able to connect to this Niuniu service and will need to be re-paired to regain access.",
+      "remove": "Remove",
+      "never": "never",
+      "minutesAgo": "{{n}} min ago",
+      "hoursAgo": "{{n}} hr ago",
+      "daysAgo": "{{n}} d ago",
+      "monthsAgo": "{{n}} mo ago",
+      "yearsAgo": "{{n}} yr ago"
+    }
+  },
+  "claude": {
+    "nav": "Plugins & MCP",
+    "account": "Account",
+    "plugins": "Plugins",
+    "mcp_servers": "MCP servers",
+    "restart_hint": "Changes take effect after the agent / next session restarts.",
+    "toggle_failed": "Failed to update, reverted.",
+    "op_failed": "Action failed, please retry.",
+    "no_plugins": "No plugins configured.",
+    "no_mcp_servers": "No MCP servers configured.",
+    "install": "Install",
+    "uninstall": "Uninstall",
+    "manage_marketplaces": "Manage Marketplaces",
+    "marketplace_placeholder": "owner/repo or URL",
+    "add_marketplace": "Add",
+    "featured": "Featured",
+    "filter_all": "All",
+    "filter_installed": "Installed",
+    "filter_available": "Available"
+  }
+}

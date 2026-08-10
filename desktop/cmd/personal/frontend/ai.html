@@ -1,0 +1,815 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AI 直达</title>
+  <style>
+    :root {
+      --bg: #0b1220; --rail: #0d1526; --panel: #121a2b; --card: #16223b;
+      --fg: #e6ecf5; --mut: #8a97ad; --line: #223049; --ac: #3b82f6; --ac2: #22d3ee;
+      --danger: #ef4444;
+    }
+    * { box-sizing: border-box; }
+    html, body { height: 100%; margin: 0; }
+    body {
+      background: var(--bg); color: var(--fg);
+      font-family: 'Noto Sans SC', system-ui, -apple-system, sans-serif;
+      display: flex; overflow: hidden; user-select: none;
+    }
+
+    /* ---- Left rail: vertical service switcher (fixed top/bottom, scrolling middle) ---- */
+    .rail {
+      width: 60px; flex: 0 0 60px; background: var(--rail);
+      border-right: 1px solid var(--line); display: flex; flex-direction: column;
+      align-items: center; overflow: hidden;
+    }
+    .railtop { flex: 0 0 auto; display: flex; flex-direction: column; align-items: center;
+      padding: 8px 0 6px; border-bottom: 1px solid var(--line); width: 100%; }
+    .railmid { flex: 1 1 auto; display: flex; flex-direction: column; align-items: center;
+      gap: 4px; padding: 6px 0; width: 100%; overflow-y: auto; overflow-x: hidden; }
+    .railmid::-webkit-scrollbar { width: 0; }
+    .railbot { flex: 0 0 auto; display: flex; flex-direction: column; align-items: center;
+      gap: 4px; padding: 6px 0 8px; border-top: 1px solid var(--line); width: 100%; }
+    .rail .sep { width: 26px; height: 1px; background: var(--line); margin: 4px 0; flex: 0 0 auto; }
+    .railbtn.brand { background: transparent; border: 1px solid transparent; padding: 0; }
+    .railbtn.brand:hover { background: #16223b; border-color: var(--line); }
+    .railbtn.brand img { width: 34px; height: 34px; border-radius: 9px; object-fit: contain; display: block; }
+    .railbtn {
+      position: relative; width: 42px; height: 42px; border-radius: 12px; flex: 0 0 auto;
+      display: inline-flex; align-items: center; justify-content: center; cursor: pointer;
+      background: transparent; border: 1px solid transparent; transition: background .12s, border-color .12s;
+      color: var(--mut); font-size: 18px;
+    }
+    .railbtn:hover { background: #16223b; border-color: var(--line); color: var(--fg); }
+    .railbtn.on { background: #16223b; border-color: var(--ac); }
+    .railbtn.on::before {
+      content: ""; position: absolute; left: -8px; top: 50%; transform: translateY(-50%);
+      width: 3px; height: 20px; border-radius: 2px; background: var(--ac);
+    }
+    .railbtn .ava {
+      width: 30px; height: 30px; border-radius: 8px; object-fit: contain; overflow: hidden;
+      display: inline-flex; align-items: center; justify-content: center;
+      font-weight: 600; font-size: 14px; color: #fff;
+    }
+    .railbtn .rm {
+      position: absolute; top: -3px; right: -3px; width: 15px; height: 15px; border-radius: 50%;
+      background: var(--danger); color: #fff; font-size: 10px; line-height: 15px; text-align: center;
+      display: none; border: 1px solid var(--rail);
+    }
+    .railbtn:hover .rm { display: block; }
+    .railbtn.action { color: var(--mut); }
+    .railbtn.action:hover { color: var(--ac2); }
+
+    /* ---- Content: topbar + stage ---- */
+    .content { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; }
+    .topbar {
+      height: 44px; flex: 0 0 44px; display: flex; align-items: center; gap: 10px;
+      padding: 0 14px; border-bottom: 1px solid var(--line); background: var(--panel);
+    }
+    .topbar .cur { display: flex; align-items: center; gap: 8px; min-width: 0; }
+    .topbar .cur .ava { width: 22px; height: 22px; border-radius: 6px; object-fit: contain;
+      display: inline-flex; align-items: center; justify-content: center; font-weight: 600; font-size: 11px; color: #fff; }
+    .topbar .cur .nm { font-size: 14px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .topbar .cur .url { font-size: 11px; color: var(--mut); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 320px; }
+    .topbar .spacer { flex: 1; }
+    .topbar .hkhint { font-size: 11px; color: var(--mut); padding: 3px 8px; border: 1px solid var(--line); border-radius: 6px; white-space: nowrap; }
+    .tbtn {
+      background: transparent; border: 1px solid transparent; color: var(--mut); cursor: pointer;
+      border-radius: 8px; width: 30px; height: 30px; font-size: 15px; display: inline-flex;
+      align-items: center; justify-content: center; transition: background .12s, color .12s, border-color .12s;
+    }
+    .tbtn:hover { background: var(--card); color: var(--fg); border-color: var(--line); }
+    .tbtn.on { color: var(--ac2); border-color: var(--ac); }
+    .stage { flex: 1 1 auto; position: relative; background: var(--bg); }
+    /* Placeholder shown when no service is active OR the native webview isn't covering. */
+    .stage .ph {
+      position: absolute; inset: 0; display: flex; flex-direction: column;
+      align-items: center; justify-content: center; gap: 12px; color: var(--mut); text-align: center; padding: 24px;
+    }
+    .stage .ph .logo { font-size: 40px; opacity: .5; }
+    .stage .ph .big { font-size: 16px; color: var(--fg); font-weight: 500; }
+    .stage .ph .sub { font-size: 13px; max-width: 380px; line-height: 1.6; }
+    /* Loading splash */
+    .stage .load {
+      position: absolute; inset: 0; z-index: 5; display: flex; flex-direction: column;
+      align-items: center; justify-content: center; gap: 16px;
+      background: radial-gradient(900px 460px at 50% -12%, #16223b 0, #0b1220 62%);
+    }
+    .stage .load .lava {
+      width: 54px; height: 54px; border-radius: 15px; object-fit: contain; overflow: hidden;
+      display: inline-flex; align-items: center; justify-content: center; color: #fff;
+      font-weight: 600; font-size: 24px; box-shadow: 0 8px 30px rgba(59,130,246,.28);
+    }
+    .stage .load .lname { font-size: 16px; font-weight: 600; }
+    .stage .load .ltip { font-size: 13px; color: var(--mut); max-width: 380px; text-align: center; line-height: 1.6; min-height: 42px; transition: opacity .3s; }
+    .stage .load .lbar { position: relative; width: min(420px, 66%); height: 3px; border-radius: 3px; background: #1b2740; overflow: hidden; }
+    .stage .load .lbar i {
+      position: absolute; left: 0; top: 0; height: 100%; width: 36%; border-radius: 3px;
+      background: linear-gradient(90deg, transparent, var(--ac), var(--ac2), transparent);
+      animation: lrun 1.2s linear infinite;
+    }
+    @keyframes lrun { 0% { transform: translateX(-120%); } 100% { transform: translateX(340%); } }
+    @media (prefers-reduced-motion: reduce) { .stage .load .lbar i { animation-duration: 3s; } }
+    /* Settings page (full-stage) */
+    .stage .settings { position: absolute; inset: 0; z-index: 6; background: var(--bg); display: flex; flex-direction: column; }
+    .stage .settings .shead { flex: 0 0 auto; display: flex; align-items: center; gap: 10px; padding: 12px 18px; border-bottom: 1px solid var(--line); }
+    .stage .settings .shead .stitle { font-size: 15px; font-weight: 600; }
+    .stage .settings .shead .spacer { flex: 1; }
+    .stage .settings .sbody { flex: 1 1 auto; overflow-y: auto; padding: 20px; display: flex; flex-direction: column; gap: 18px; }
+    .scard { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 18px; max-width: 760px; width: 100%; margin: 0 auto; }
+    .scard h3 { margin: 0 0 4px; font-size: 15px; font-weight: 600; }
+    .scard .desc { font-size: 12px; color: var(--mut); margin: 0 0 14px; }
+    .tagbar { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
+    .tagchip {
+      font-size: 12px; padding: 4px 10px; border-radius: 999px; border: 1px solid var(--line);
+      background: var(--card); color: var(--mut); cursor: pointer; white-space: nowrap; transition: all .12s;
+    }
+    .tagchip:hover { border-color: var(--ac); color: var(--fg); }
+    .tagchip.on { background: var(--ac); border-color: var(--ac); color: #fff; }
+    .ptags { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 5px; }
+    .ptag { font-size: 10px; padding: 2px 7px; border-radius: 999px; background: #0e1830; border: 1px solid var(--line); color: var(--ac2); }
+    .addprompt { margin-top: 16px; border-top: 1px solid var(--line); padding-top: 14px; }
+
+    /* ---- Modals ---- */
+    .backdrop {
+      position: fixed; inset: 0; background: rgba(4,8,16,.62); display: none;
+      align-items: center; justify-content: center; z-index: 50; padding: 24px;
+    }
+    .backdrop.open { display: flex; }
+    .modal {
+      width: min(560px, 94vw); max-height: 84vh; overflow-y: auto; background: var(--panel);
+      border: 1px solid var(--line); border-radius: 16px; padding: 20px;
+      box-shadow: 0 24px 60px rgba(0,0,0,.5);
+    }
+    .modal h3 { margin: 0 0 4px; font-size: 16px; font-weight: 600; }
+    .modal .desc { font-size: 12px; color: var(--mut); margin: 0 0 16px; }
+    .modal .x { float: right; cursor: pointer; color: var(--mut); font-size: 18px; line-height: 1; }
+    .modal .x:hover { color: var(--fg); }
+    .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+    input, textarea {
+      background: #0e1830; border: 1px solid var(--line); color: var(--fg);
+      border-radius: 8px; padding: 8px 10px; font-size: 13px; font-family: inherit; outline: none;
+    }
+    input:focus, textarea:focus { border-color: var(--ac); }
+    .row input.grow { flex: 1; min-width: 140px; }
+    textarea { width: 100%; resize: vertical; min-height: 64px; margin-top: 8px; }
+    .btn-primary { background: var(--ac); color: #fff; border: none; border-radius: 8px; padding: 8px 16px; font-size: 13px; cursor: pointer; }
+    .btn-primary:hover { background: #2f74ee; }
+    .sect { margin-top: 18px; }
+    .sect h4 {
+      font-size: 11px; font-weight: 600; letter-spacing: .5px; text-transform: uppercase;
+      color: var(--mut); margin: 0 0 8px;
+    }
+    .srow, .prow {
+      display: flex; align-items: center; gap: 10px; padding: 9px 0; border-bottom: 1px solid var(--line);
+    }
+    .srow:last-child, .prow:last-child { border-bottom: none; }
+    .srow .ava { width: 26px; height: 26px; border-radius: 7px; flex: 0 0 auto; object-fit: contain;
+      display: inline-flex; align-items: center; justify-content: center; font-weight: 600; font-size: 12px; color: #fff; }
+    .srow .sn { flex: 1; min-width: 0; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .srow .sn small { color: var(--mut); }
+    .prow .pbody { flex: 1; min-width: 0; }
+    .prow .ptitle { font-size: 13px; font-weight: 500; }
+    .prow .pcontent { font-size: 12px; color: var(--mut); white-space: pre-wrap; word-break: break-word; margin-top: 3px;
+      max-height: 54px; overflow: hidden; }
+    .mini {
+      background: var(--card); border: 1px solid var(--line); color: var(--fg);
+      border-radius: 6px; padding: 5px 9px; font-size: 12px; cursor: pointer; flex: 0 0 auto;
+    }
+    .mini:hover { border-color: var(--ac); }
+    .mini.danger:hover { color: #fff; background: var(--danger); border-color: var(--danger); }
+    .mini.on { color: var(--ac2); border-color: var(--ac); }
+    .empty { color: var(--mut); font-size: 13px; padding: 8px 0; }
+    #toast {
+      position: fixed; left: 50%; bottom: 26px; transform: translateX(-50%) translateY(20px);
+      background: #0e1830; border: 1px solid var(--ac); color: #cfe0ff; padding: 9px 16px;
+      border-radius: 10px; font-size: 13px; opacity: 0; transition: all .25s; pointer-events: none; z-index: 60;
+    }
+    #toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+  </style>
+</head>
+<body>
+  <!-- Left rail: fixed brand (top) · scrollable services (mid) · fixed actions (bottom) -->
+  <div class="rail">
+    <div class="railtop">
+      <div class="railbtn brand" id="btn-brand" title="牛牛 返回牛牛本地工作站"><img src="appicon.png" alt="牛牛"></div>
+    </div>
+    <div class="railmid" id="rail-services"></div>
+    <div class="railbot">
+      <div class="railbtn action" id="btn-add" title="添加服务">＋</div>
+      <div class="railbtn action" id="btn-settings" title="设置">⚙</div>
+    </div>
+  </div>
+
+  <!-- Content -->
+  <div class="content">
+    <div class="topbar">
+      <div class="cur" id="cur"><span class="nm" id="cur-name">AI 直达</span></div>
+      <span class="spacer"></span>
+      <span class="hkhint" id="hk-hint" style="display:none"></span>
+      <button class="tbtn" id="btn-reload" title="重新加载">⟳</button>
+      <button class="tbtn" id="btn-browser" title="在系统浏览器打开">🌐</button>
+      <button class="tbtn" id="btn-default" title="设为默认">★</button>
+    </div>
+    <div class="stage" id="stage">
+      <div class="ph" id="stage-ph">
+        <div class="logo">🤖</div>
+        <div class="big" id="ph-big">选择左侧的 AI 服务开始使用</div>
+        <div class="sub" id="ph-sub">所有服务在同一窗口内切换；登录状态会在重启后保留。点击左下角 ＋ 添加自定义服务。</div>
+      </div>
+      <!-- Loading splash (same spirit as the remote-connect splash): covers the
+           stage while the picked service loads, then the native webview reveals. -->
+      <div class="load" id="stage-loading" style="display:none">
+        <span class="lava" id="l-ava"></span>
+        <div class="lname" id="l-name"></div>
+        <div class="ltip" id="l-tip"></div>
+        <div class="lbar"><i></i></div>
+      </div>
+
+      <!-- Settings page (full-stage, not a modal). Currently: prompt library. -->
+      <div class="settings" id="settings-page" style="display:none">
+        <div class="shead">
+          <span class="stitle" id="set-title">设置</span>
+          <span class="spacer"></span>
+          <button class="tbtn" id="set-close" title="关闭">✕</button>
+        </div>
+        <div class="sbody">
+          <div class="scard">
+            <h3 id="pr-h">提示词库</h3>
+            <p class="desc" id="pr-d">点击“复制”把提示词放入剪贴板，可在任意 AI 服务中粘贴使用。用标签分类管理。</p>
+            <div class="tagbar" id="tag-filter"></div>
+            <div id="prompt-list"><p class="empty">…</p></div>
+            <div class="addprompt">
+              <div class="row"><input class="grow" id="pin-title" placeholder="提示词标题"></div>
+              <textarea id="pin-content" placeholder="提示词内容…"></textarea>
+              <div class="row" style="margin-top:8px"><input class="grow" id="pin-tags" placeholder="标签，用逗号分隔（可选），如：写作, 翻译"></div>
+              <div class="row" style="margin-top:8px"><button class="btn-primary" id="do-add-prompt">保存提示词</button></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Manage-services modal -->
+  <div class="backdrop" id="bd-svc">
+    <div class="modal">
+      <span class="x" data-close="bd-svc">✕</span>
+      <h3 id="svc-h">添加 / 管理服务</h3>
+      <p class="desc" id="svc-d">添加自定义 AI 服务，或管理内置服务（内置服务可隐藏）。</p>
+      <div class="row">
+        <input class="grow" id="in-name" placeholder="名称（可选）">
+        <input class="grow" id="in-url" placeholder="网址，例如 chat.example.com">
+        <button class="btn-primary" id="do-add">添加</button>
+      </div>
+      <div id="svc-manage"></div>
+    </div>
+  </div>
+
+  <div id="toast"></div>
+
+  <script>
+    // Binding IDs = FNV-1a("main.App.<Method>"). Regenerate if a method is renamed.
+    const METHOD_IDS = {
+      GetAIServices: 3552732257,
+      ActivateAIService: 536355325,
+      SetAIStageRect: 3097307887,
+      SetAIOverlayOpen: 1081973711,
+      ReloadActiveAIService: 3208742791,
+      AddAIService: 2774586977,
+      RemoveAIService: 3492176866,
+      SetDefaultAIService: 3760246913,
+      GetAIPrompts: 2981435260,
+      AddAIPrompt: 378927496,
+      RemoveAIPrompt: 2031037333,
+      CopyToClipboard: 1438304177,
+      OpenServiceInBrowser: 1624744581,
+      GetAIHotkey: 1680937199,
+      ShowLocalWindow: 3574989519,
+    };
+
+    let callCounter = 0;
+    async function callWails(methodID, ...args) {
+      callCounter++;
+      const body = {
+        object: 0, method: 0,
+        args: { "call-id": 'c' + callCounter + '-' + methodID, methodID: methodID, args: args.length > 0 ? args : undefined },
+      };
+      const res = await fetch('/wails/runtime', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+      });
+      if (!res.ok) throw new Error(await res.text());
+      const ct = res.headers.get('Content-Type');
+      return (ct && ct.includes('application/json')) ? res.json() : res.text();
+    }
+    const M = METHOD_IDS;
+    const GetAIServices = () => callWails(M.GetAIServices);
+    const ActivateAIService = (id) => callWails(M.ActivateAIService, id);
+    const SetAIStageRect = (x, y, w, h) => callWails(M.SetAIStageRect, x, y, w, h);
+    const SetAIOverlay = (open) => callWails(M.SetAIOverlayOpen, open);
+    const ReloadActive = () => callWails(M.ReloadActiveAIService);
+    const AddAIService = (name, url) => callWails(M.AddAIService, name, url);
+    const RemoveAIService = (id) => callWails(M.RemoveAIService, id);
+    const SetDefaultAIService = (id) => callWails(M.SetDefaultAIService, id);
+    const GetAIPrompts = () => callWails(M.GetAIPrompts);
+    const AddAIPrompt = (t, c, tags) => callWails(M.AddAIPrompt, t, c, tags || []);
+    const RemoveAIPrompt = (id) => callWails(M.RemoveAIPrompt, id);
+    const ShowLocalWindow = () => callWails(M.ShowLocalWindow);
+    const CopyToClipboard = (text) => callWails(M.CopyToClipboard, text);
+    const OpenServiceInBrowser = (id) => callWails(M.OpenServiceInBrowser, id);
+    const GetAIHotkey = () => callWails(M.GetAIHotkey);
+
+    // --- i18n (native page, tiny dictionary; SPA i18n is not reachable here) ---
+    const ZH = document.documentElement.lang !== 'en' && !(navigator.language || '').toLowerCase().startsWith('en');
+    const L = ZH ? {
+      title: 'AI 直达', phBig: '选择左侧的 AI 服务开始使用',
+      phSub: '所有服务在同一窗口内切换；登录状态会在重启后保留。点击左下角 ＋ 添加自定义服务。',
+      addManage: '添加服务', prompts: '提示词库',
+      svcH: '添加 / 管理服务', svcD: '添加自定义 AI 服务，或管理内置服务（内置服务可隐藏）。',
+      name: '名称（可选）', url: '网址，例如 chat.example.com', add: '添加',
+      prH: '提示词库', prD: '点击“复制”把提示词放入剪贴板，可在任意 AI 服务中粘贴使用。用标签分类管理。',
+      promptTitle: '提示词标题', promptContent: '提示词内容…', addPrompt: '保存提示词',
+      promptTags: '标签，用逗号分隔（可选），如：写作, 翻译',
+      settings: '设置', brandTip: '牛牛 返回牛牛本地工作站', allTag: '全部',
+      cat: { chat: '对话大模型', image: '图文 / 图像', video: '视频生成', custom: '自定义' },
+      reload: '重新加载', browser: '在系统浏览器打开', setDefault: '设为默认', unsetDefault: '取消默认',
+      remove: '移除', hide: '隐藏', copy: '复制', del: '删除', close: '关闭',
+      copied: '已复制到剪贴板', noPrompts: '暂无提示词，添加一条常用提示词试试。',
+      confirmRemove: '移除该服务？', added: '已添加', deflt: '默认', lastUsed: '上次使用',
+      manageTitle: '全部服务',
+    } : {
+      title: 'AI Hub', phBig: 'Pick a service on the left to get started',
+      phSub: 'All services switch inside one window; logins persist across restarts. Click ＋ (bottom-left) to add a custom service.',
+      addManage: 'Add service', prompts: 'Prompts',
+      svcH: 'Add / manage services', svcD: 'Add a custom AI service, or manage built-ins (built-ins can be hidden).',
+      name: 'Name (optional)', url: 'URL, e.g. chat.example.com', add: 'Add',
+      prH: 'Prompt library', prD: 'Click “Copy” to put a prompt on the clipboard, then paste it into any AI service. Organize with tags.',
+      promptTitle: 'Prompt title', promptContent: 'Prompt content…', addPrompt: 'Save prompt',
+      promptTags: 'Tags, comma-separated (optional), e.g. writing, translate',
+      settings: 'Settings', brandTip: 'Niuniu · back to Niuniu local workstation', allTag: 'All',
+      cat: { chat: 'Chat models', image: 'Image', video: 'Video', custom: 'Custom' },
+      reload: 'Reload', browser: 'Open in system browser', setDefault: 'Set default', unsetDefault: 'Unset default',
+      remove: 'Remove', hide: 'Hide', copy: 'Copy', del: 'Delete', close: 'Close',
+      copied: 'Copied to clipboard', noPrompts: 'No prompts yet — add one you use often.',
+      confirmRemove: 'Remove this service?', added: 'Added', deflt: 'default', lastUsed: 'last used',
+      manageTitle: 'All services',
+    };
+    const CAT_ORDER = ['chat', 'image', 'video', 'custom'];
+
+    let services = [];
+    let activeID = null;
+
+    function toast(msg) {
+      const t = document.getElementById('toast');
+      t.textContent = msg; t.classList.add('show');
+      clearTimeout(toast._t); toast._t = setTimeout(() => t.classList.remove('show'), 1600);
+    }
+    function letter(name) { return (name || '?').trim().charAt(0).toUpperCase(); }
+    function badgeColor(name) {
+      let h = 0; for (const ch of (name || '')) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
+      return 'hsl(' + (h % 360) + ' 55% 42%)';
+    }
+    function avatar(s, cls) {
+      // favicon <img> with letter-badge fallback (spec: 自定义服务显示 logo).
+      const span = document.createElement('span');
+      span.className = 'ava' + (cls ? ' ' + cls : '');
+      span.style.background = badgeColor(s.name);
+      span.textContent = letter(s.name);
+      if (s.favicon) {
+        const img = new Image();
+        img.className = span.className; img.alt = '';
+        img.onload = () => span.replaceWith(img);
+        img.onerror = () => {};
+        img.src = s.favicon;
+        img.style.background = 'transparent';
+      }
+      return span;
+    }
+    function byId(id) { return services.find(s => s.id === id); }
+
+    // ---- Report the stage rect (physical px, client-relative) so Go can position
+    // the embedded native webview exactly over it. Called on load/resize/DPI change. ----
+    function reportStage() {
+      const r = document.getElementById('stage').getBoundingClientRect();
+      const dpr = window.devicePixelRatio || 1;
+      SetAIStageRect(Math.round(r.left * dpr), Math.round(r.top * dpr),
+        Math.round(r.width * dpr), Math.round(r.height * dpr)).catch(() => {});
+    }
+
+    function renderRail() {
+      const rail = document.getElementById('rail-services');
+      rail.innerHTML = '';
+      for (const cat of CAT_ORDER) {
+        const items = services.filter(s => s.category === cat);
+        if (!items.length) continue;
+        if (rail.children.length) { const sep = document.createElement('div'); sep.className = 'sep'; rail.appendChild(sep); }
+        items.forEach(s => rail.appendChild(railItem(s)));
+      }
+    }
+    function railItem(s) {
+      const b = document.createElement('div');
+      b.className = 'railbtn' + (s.id === activeID ? ' on' : '');
+      b.title = s.name;
+      b.appendChild(avatar(s));
+      if (!s.is_builtin) {
+        const rm = document.createElement('span'); rm.className = 'rm'; rm.textContent = '×'; rm.title = L.remove;
+        rm.addEventListener('click', (e) => { e.stopPropagation(); if (confirm(L.confirmRemove + '\n' + s.name)) removeService(s.id); });
+        b.appendChild(rm);
+      }
+      b.addEventListener('click', () => activate(s.id));
+      return b;
+    }
+
+    function updateTopbar() {
+      const cur = document.getElementById('cur');
+      const s = byId(activeID);
+      cur.innerHTML = '';
+      if (!s) { const nm = document.createElement('span'); nm.className = 'nm'; nm.textContent = L.title; cur.appendChild(nm); }
+      else {
+        cur.appendChild(avatar(s));
+        const nm = document.createElement('span'); nm.className = 'nm'; nm.textContent = s.name; cur.appendChild(nm);
+        const url = document.createElement('span'); url.className = 'url'; url.textContent = s.url; cur.appendChild(url);
+      }
+      document.getElementById('btn-default').classList.toggle('on', !!(s && s.is_default));
+      const dis = !s;
+      ['btn-reload', 'btn-browser', 'btn-default'].forEach(id => document.getElementById(id).disabled = dis);
+    }
+
+    // ---- Loading splash: covers the stage with a named "正在打开 <service>…" card only
+    // BRIEFLY (~200ms) — until the webview's own in-page loader has rendered — then the
+    // webview is revealed and its animated loader covers the rest of the site's fetch,
+    // handing off to the site when it paints. Returning to a pooled service reveals
+    // instantly (no splash). Go drives the reveal via window.onServiceLoaded. ----
+    // POST_LOAD_GRACE: reveal this many ms after Go signals a page finished loading (a
+    // small beat to avoid flicker). MAX_SPLASH: hard cap — a slow site (whose full load
+    // fires late) is revealed within this window anyway, so our splash never blocks for
+    // the site's whole ~10s load; the webview then shows the site's own loading/boot.
+    const POST_LOAD_GRACE = 60, MAX_SPLASH = 2500;
+    let revealTimer = null, ltipTimer = null, ltipI = 0, loading = false, loadStart = 0;
+    const LTIPS = ZH ? [
+      '所有 AI 服务在同一窗口内切换，互不打扰。',
+      '登录状态安全保存在本机，重启后无需重新登录。',
+      '提示词库可一键复制，在任意服务中通用。',
+      '点击左下角 ＋ 可添加你常用的自定义服务。',
+    ] : [
+      'Switch between all AI services inside one window.',
+      'Logins are kept on this machine — no re-login after restart.',
+      'Copy any prompt from the library; it works across services.',
+      'Click ＋ (bottom-left) to add your own custom services.',
+    ];
+    function showLoading(s) {
+      const el = document.getElementById('stage-loading');
+      const av = document.getElementById('l-ava');
+      av.textContent = letter(s.name); av.style.background = badgeColor(s.name);
+      if (s.favicon) {
+        const img = new Image(); img.onload = () => { av.textContent = ''; av.style.background = 'transparent'; av.style.backgroundImage = 'url(' + s.favicon + ')'; av.style.backgroundSize = 'cover'; };
+        img.onerror = () => {}; img.src = s.favicon;
+      } else { av.style.backgroundImage = ''; }
+      document.getElementById('l-name').textContent = (ZH ? '正在打开 ' : 'Opening ') + s.name + '…';
+      const tip = document.getElementById('l-tip');
+      ltipI = 0; tip.textContent = LTIPS[0];
+      clearInterval(ltipTimer);
+      ltipTimer = setInterval(() => { ltipI = (ltipI + 1) % LTIPS.length; tip.style.opacity = 0; setTimeout(() => { tip.textContent = LTIPS[ltipI]; tip.style.opacity = 1; }, 300); }, 1800);
+      el.style.display = 'flex';
+      loading = true;
+      loadStart = Date.now();
+    }
+    function hideLoading() {
+      document.getElementById('stage-loading').style.display = 'none';
+      clearInterval(ltipTimer);
+      loading = false;
+    }
+    // Reveal the webview: drop the splash and let Go show it (loading=false). Also
+    // re-report the stage rect now that the hub is visible and fully laid out — the
+    // freshly-revealed webview is sized to the CURRENT stage, fixing the first-open
+    // case where an early/stale rect left the webview smaller than the stage.
+    function finishLoad() {
+      clearTimeout(revealTimer);
+      hideLoading();
+      syncOverlay();
+      reportStage();
+      setTimeout(reportStage, 150);
+    }
+    // Arm the last-ditch backstop: if the load-complete signal never comes (a site that
+    // streams and never fires WebViewNavigationCompleted), reveal anyway after MAX_SPLASH.
+    function armLoadFallback() {
+      clearTimeout(revealTimer);
+      revealTimer = setTimeout(finishLoad, MAX_SPLASH);
+    }
+    // Called by Go (ExecJS) when a page in the service webview finishes loading. We reveal
+    // the webview a short grace later. The webview shows the on-brand bootstrap loader until
+    // the real site paints, so the handoff reads as "loading", not a splash or black screen.
+    window.onServiceLoaded = () => {
+      if (!loading) return;
+      clearTimeout(revealTimer);
+      revealTimer = setTimeout(finishLoad, POST_LOAD_GRACE);
+    };
+
+    // Report whether any HTML overlay (modal / settings / loading splash) is up.
+    // Go decides the docked service window's actual visibility from this PLUS the
+    // hub's own visibility (which Go tracks itself) — see App.applyAIServiceVisibility.
+    // This replaced the fragile hubShown/onHubShown/ExecJS/visibilitychange plumbing.
+    function syncOverlay() {
+      SetAIOverlay(openCount > 0 || loading).catch(() => {});
+    }
+
+    // Close any open full-stage overlay (settings page / add-service modal). Clicking
+    // a service in the rail should drop you straight into that service.
+    function closeOverlays() {
+      if (document.getElementById('settings-page').style.display === 'flex') closeSettings();
+      if (document.getElementById('bd-svc').classList.contains('open')) closeModal('bd-svc');
+    }
+
+    async function activate(id) {
+      const s = byId(id);
+      if (!s) return;
+      closeOverlays();
+      activeID = id;
+      document.getElementById('stage-ph').style.display = 'none';
+      updateTopbar();
+      renderRail(); // refresh rail highlight
+      reportStage();
+      // Splash covers the switch; overlay=true stashes every service window so we never
+      // flash the previous one. ActivateAIService returns {loaded} — true means the
+      // service is still live in the LRU pool, so we reveal it INSTANTLY (no wait, its
+      // page/login/scroll are all preserved). Only a genuinely-new service keeps the
+      // splash up until its page finishes loading.
+      showLoading(s);
+      syncOverlay();
+      const res = await ActivateAIService(id).catch(() => null);
+      if (res && res.loaded) {
+        finishLoad(); // pooled & already loaded → reveal now
+      } else {
+        armLoadFallback(); // fresh load → keep our named splash until the page finishes loading
+      }
+    }
+
+    async function loadServices(activateAfter) {
+      try {
+        services = (await GetAIServices()) || [];
+      } catch (e) { services = []; }
+      renderRail();
+      renderManage();
+      if (activateAfter) {
+        // Auto-open default → last-used → first (spec: 记住上次使用 / 默认服务). Safe
+        // even while the hub is still hidden: Go keeps the docked service window
+        // hidden until the hub is actually shown (App.applyAIServiceVisibility), so
+        // no stray frameless window appears on the desktop at startup.
+        const def = services.find(s => s.is_default);
+        const last = services.find(s => s.is_last);
+        const pick = def || last || services[0];
+        if (pick) activate(pick.id);
+        updateTopbar();
+      } else {
+        updateTopbar();
+      }
+    }
+
+    async function removeService(id) {
+      await RemoveAIService(id).catch(() => {});
+      if (activeID === id) {
+        activeID = null;
+        clearTimeout(revealTimer);
+        hideLoading();
+        syncOverlay();
+        document.getElementById('stage-ph').style.display = '';
+      }
+      await loadServices(false);
+    }
+
+    // ---- Manage-services list (inside modal) ----
+    function renderManage() {
+      const host = document.getElementById('svc-manage');
+      host.innerHTML = '';
+      const sect = document.createElement('div'); sect.className = 'sect';
+      const h = document.createElement('h4'); h.textContent = L.manageTitle; sect.appendChild(h);
+      if (!services.length) { const p = document.createElement('p'); p.className = 'empty'; p.textContent = '—'; sect.appendChild(p); host.appendChild(sect); return; }
+      services.forEach(s => {
+        const row = document.createElement('div'); row.className = 'srow';
+        row.appendChild(avatar(s));
+        const sn = document.createElement('div'); sn.className = 'sn';
+        sn.innerHTML = ''; sn.appendChild(document.createTextNode(s.name + ' '));
+        const small = document.createElement('small'); small.textContent = s.is_default ? '★' + L.deflt : (s.is_builtin ? '' : '·custom');
+        sn.appendChild(small); row.appendChild(sn);
+
+        const def = document.createElement('button'); def.className = 'mini' + (s.is_default ? ' on' : '');
+        def.textContent = '★'; def.title = s.is_default ? L.unsetDefault : L.setDefault;
+        def.addEventListener('click', async () => { await SetDefaultAIService(s.is_default ? '' : s.id); await loadServices(false); });
+        row.appendChild(def);
+
+        const web = document.createElement('button'); web.className = 'mini'; web.textContent = '🌐'; web.title = L.browser;
+        web.addEventListener('click', () => OpenServiceInBrowser(s.id));
+        row.appendChild(web);
+
+        const rm = document.createElement('button'); rm.className = 'mini danger'; rm.textContent = s.is_builtin ? L.hide : L.remove;
+        rm.addEventListener('click', async () => { if (confirm(L.confirmRemove + '\n' + s.name)) { closeModal('bd-svc'); await removeService(s.id); openModal('bd-svc'); } });
+        row.appendChild(rm);
+
+        host.appendChild(sect); sect.appendChild(row);
+      });
+      host.appendChild(sect);
+    }
+
+    // ---- Prompt library (with tags), rendered in the Settings page ----
+    let promptList = [];
+    let tagFilter = ''; // '' = all; otherwise a lower-cased tag
+
+    async function loadPrompts() {
+      try { promptList = (await GetAIPrompts()) || []; } catch (e) { promptList = []; }
+      renderTagFilter();
+      renderPrompts();
+    }
+    function allTags() {
+      const seen = {}, out = [];
+      promptList.forEach(p => (p.tags || []).forEach(t => { const k = t.toLowerCase(); if (!seen[k]) { seen[k] = 1; out.push(t); } }));
+      return out;
+    }
+    function renderTagFilter() {
+      const bar = document.getElementById('tag-filter');
+      bar.innerHTML = '';
+      const tags = allTags();
+      if (!tags.length) { bar.style.display = 'none'; return; }
+      bar.style.display = 'flex';
+      const chip = (label, val) => {
+        const c = document.createElement('span');
+        c.className = 'tagchip' + (tagFilter === val ? ' on' : '');
+        c.textContent = label;
+        c.addEventListener('click', () => { tagFilter = val; renderTagFilter(); renderPrompts(); });
+        return c;
+      };
+      bar.appendChild(chip(L.allTag, ''));
+      tags.forEach(t => bar.appendChild(chip(t, t.toLowerCase())));
+    }
+    function renderPrompts() {
+      const host = document.getElementById('prompt-list');
+      host.innerHTML = '';
+      const list = promptList.filter(p => !tagFilter || (p.tags || []).some(t => t.toLowerCase() === tagFilter));
+      if (!list.length) { host.innerHTML = '<p class="empty">' + L.noPrompts + '</p>'; return; }
+      list.forEach(p => {
+        const row = document.createElement('div'); row.className = 'prow';
+        const body = document.createElement('div'); body.className = 'pbody';
+        const t = document.createElement('div'); t.className = 'ptitle'; t.textContent = p.title || '(untitled)';
+        const c = document.createElement('div'); c.className = 'pcontent'; c.textContent = p.content;
+        body.appendChild(t); body.appendChild(c);
+        if ((p.tags || []).length) {
+          const tags = document.createElement('div'); tags.className = 'ptags';
+          p.tags.forEach(tg => { const s = document.createElement('span'); s.className = 'ptag'; s.textContent = tg; tags.appendChild(s); });
+          body.appendChild(tags);
+        }
+        row.appendChild(body);
+        const copy = document.createElement('button'); copy.className = 'mini'; copy.textContent = L.copy;
+        copy.addEventListener('click', () => CopyToClipboard(p.content).then(() => toast(L.copied)));
+        const del = document.createElement('button'); del.className = 'mini danger'; del.textContent = L.del;
+        del.addEventListener('click', () => RemoveAIPrompt(p.id).then(loadPrompts));
+        row.appendChild(copy); row.appendChild(del);
+        host.appendChild(row);
+      });
+    }
+
+    // ---- Settings page (full-stage) ----
+    function openSettings() {
+      document.getElementById('settings-page').style.display = 'flex';
+      openCount++;
+      clearTimeout(revealTimer);
+      hideLoading();
+      syncOverlay();
+      loadPrompts();
+    }
+    function closeSettings() {
+      document.getElementById('settings-page').style.display = 'none';
+      openCount = Math.max(0, openCount - 1);
+      syncOverlay();
+    }
+
+    // ---- Modals: hide the embedded native webview while open so it doesn't
+    // cover the HTML dialog (native child windows always paint above HTML). ----
+    let openCount = 0;
+    function openModal(id) {
+      document.getElementById(id).classList.add('open');
+      openCount++;
+      clearTimeout(revealTimer);
+      hideLoading();
+      syncOverlay();
+      if (id === 'bd-svc') renderManage();
+    }
+    function closeModal(id) {
+      document.getElementById(id).classList.remove('open');
+      openCount = Math.max(0, openCount - 1);
+      syncOverlay();
+    }
+    document.querySelectorAll('[data-close]').forEach(el =>
+      el.addEventListener('click', () => closeModal(el.dataset.close)));
+    document.querySelectorAll('.backdrop').forEach(bd =>
+      bd.addEventListener('click', (e) => { if (e.target === bd) closeModal(bd.id); }));
+
+    // ---- Static i18n text ----
+    function applyI18n() {
+      document.getElementById('cur-name').textContent = L.title;
+      document.getElementById('ph-big').textContent = L.phBig;
+      document.getElementById('ph-sub').textContent = L.phSub;
+      document.getElementById('svc-h').textContent = L.svcH;
+      document.getElementById('svc-d').textContent = L.svcD;
+      document.getElementById('in-name').placeholder = L.name;
+      document.getElementById('in-url').placeholder = L.url;
+      document.getElementById('do-add').textContent = L.add;
+      document.getElementById('pr-h').textContent = L.prH;
+      document.getElementById('pr-d').textContent = L.prD;
+      document.getElementById('pin-title').placeholder = L.promptTitle;
+      document.getElementById('pin-content').placeholder = L.promptContent;
+      document.getElementById('pin-tags').placeholder = L.promptTags;
+      document.getElementById('do-add-prompt').textContent = L.addPrompt;
+      document.getElementById('set-title').textContent = L.settings;
+      document.getElementById('set-close').title = L.close;
+      document.getElementById('btn-brand').title = L.brandTip;
+      document.getElementById('btn-add').title = L.addManage;
+      document.getElementById('btn-settings').title = L.settings;
+      document.getElementById('btn-reload').title = L.reload;
+      document.getElementById('btn-browser').title = L.browser;
+      document.getElementById('btn-default').title = L.setDefault;
+    }
+
+    // ---- Rail brand + actions ----
+    document.getElementById('btn-brand').addEventListener('click', () => { ShowLocalWindow().catch(() => {}); });
+    document.getElementById('btn-add').addEventListener('click', () => openModal('bd-svc'));
+    document.getElementById('btn-settings').addEventListener('click', openSettings);
+    document.getElementById('set-close').addEventListener('click', closeSettings);
+
+    // ---- Topbar actions ----
+    document.getElementById('btn-reload').addEventListener('click', async () => {
+      const s = byId(activeID);
+      if (!s) return;
+      showLoading(s);
+      syncOverlay(); // loading=true → hide webview so the splash shows during reload
+      await ReloadActive().catch(() => {});
+      armLoadFallback(); // keep splash until the reload finishes loading
+    });
+    document.getElementById('btn-browser').addEventListener('click', () => { if (activeID) OpenServiceInBrowser(activeID); });
+    document.getElementById('btn-default').addEventListener('click', async () => {
+      const s = byId(activeID); if (!s) return;
+      await SetDefaultAIService(s.is_default ? '' : s.id); await loadServices(false);
+    });
+
+    document.getElementById('do-add').addEventListener('click', async () => {
+      const name = document.getElementById('in-name').value.trim();
+      const url = document.getElementById('in-url').value.trim();
+      if (!url) return;
+      const id = await AddAIService(name, url);
+      if (id) {
+        document.getElementById('in-name').value = '';
+        document.getElementById('in-url').value = '';
+        toast(L.added);
+        await loadServices(false);
+        renderManage();
+        activate(id);
+        closeModal('bd-svc');
+      }
+    });
+    document.getElementById('do-add-prompt').addEventListener('click', async () => {
+      const t = document.getElementById('pin-title').value.trim();
+      const c = document.getElementById('pin-content').value;
+      const tags = document.getElementById('pin-tags').value.split(',').map(s => s.trim()).filter(Boolean);
+      if (!t && !c.trim()) return;
+      const id = await AddAIPrompt(t, c, tags);
+      if (id) {
+        document.getElementById('pin-title').value = '';
+        document.getElementById('pin-content').value = '';
+        document.getElementById('pin-tags').value = '';
+        loadPrompts();
+      }
+    });
+
+    // ---- Stage-rect tracking ----
+    window.addEventListener('resize', reportStage);
+    if (window.ResizeObserver) new ResizeObserver(reportStage).observe(document.getElementById('stage'));
+    // DPI changes when dragging across monitors: re-report so scaling stays correct.
+    if (window.matchMedia) {
+      try { matchMedia('(resolution: 1dppx)').addEventListener('change', reportStage); } catch (e) {}
+    }
+
+    // Show the live global hotkey (RegisterAI may have fallen back off Ctrl+Shift+A
+    // if another app claimed it, so we display whatever actually bound).
+    async function loadHotkey() {
+      try {
+        const hk = await GetAIHotkey();
+        const el = document.getElementById('hk-hint');
+        if (hk) {
+          el.textContent = (ZH ? '唤起/隐藏  ' : 'Toggle  ') + hk;
+          el.style.display = '';
+          document.getElementById('ph-sub').textContent =
+            L.phSub + (ZH ? '　全局快捷键：' + hk : '  Global hotkey: ' + hk);
+        } else {
+          el.style.display = 'none';
+        }
+      } catch (e) {}
+    }
+
+    applyI18n();
+    loadHotkey();
+    reportStage();
+    loadServices(true);
+    // Re-report shortly after load in case fonts/layout settle late.
+    setTimeout(reportStage, 250);
+  </script>
+</body>
+</html>

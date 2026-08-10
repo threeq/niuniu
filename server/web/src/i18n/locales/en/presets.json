@@ -1,0 +1,53 @@
+{
+  "loading": "Loading...",
+  "columnCount": "{{count}} columns",
+  "standard-dev": {
+    "label": "Standard Development",
+    "description": "5-column workflow for feature development: Backlog → Spec → Implement → Review → Done"
+  },
+  "quick-fix": {
+    "label": "Quick Fix",
+    "description": "4-column workflow for bug fixes: Triage → Fix → Verify → Done"
+  },
+  "column": {
+    "backlog": { "label": "Backlog" },
+    "spec": { "label": "Spec" },
+    "implement": { "label": "Implement" },
+    "review": { "label": "Review" },
+    "done": { "label": "Done" },
+    "triage": { "label": "Triage" },
+    "fix": { "label": "Fix" },
+    "verify": { "label": "Verify" }
+  },
+  "spec": {
+    "go-test-pass": { "label": "Go Tests Pass" }
+  },
+  "template": {
+    "standard-development": { "label": "Standard Development" },
+    "quick-fix": { "label": "Quick Fix" }
+  },
+  "preview": {
+    "columns": "Columns",
+    "templates": "Templates",
+    "specs": "Gate Specs",
+    "default": "Default"
+  },
+  "import": {
+    "button": "Re-import Preset",
+    "title": "Re-import Preset",
+    "success": "Preset imported successfully",
+    "successDetail": "Imported {{ic}} columns, {{it}} templates, {{is}} specs; skipped {{sc}} columns, {{st}} templates, {{ss}} specs",
+    "failed": "Preset import failed — please re-select or choose Empty Project",
+    "errorActiveRun": "Project has an active Run — overwrite strategy is blocked",
+    "overwriteWarning": "This will delete and replace same-name columns, templates, and specs. Requires no active Run. This action cannot be undone.",
+    "cancel": "Cancel",
+    "confirm": "Import",
+    "selectPreset": "Select a preset first",
+    "strategy": {
+      "label": "Merge strategy",
+      "failIfNotEmpty": "Only allow empty project (safe default)",
+      "mergeSkipConflict": "Merge — skip conflicting names",
+      "overwrite": "Overwrite — replace same-name column / template / spec (requires no active Run)"
+    }
+  }
+}

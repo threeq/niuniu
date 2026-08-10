@@ -1,0 +1,191 @@
+{
+  "list": {
+    "title": "倉庫列表",
+    "addRepository": "新增倉庫",
+    "searchPlaceholder": "搜尋倉庫...",
+    "empty": "暫無倉庫",
+    "noBranch": "no branch",
+    "branchesCountSuffix": "branches"
+  },
+  "detail": {
+    "tabs": {
+      "files": "檔案",
+      "branches": "分支",
+      "worktrees": "工作樹",
+      "settings": "設定"
+    },
+    "header": {
+      "refresh": "重新整理",
+      "openInVSCode": "開啟 VS Code",
+      "terminal": "終端",
+      "commitsSuffix": "commits",
+      "branchesSuffix": "branches",
+      "contributorsSuffix": "contributors"
+    },
+    "branches": {
+      "filterPlaceholder": "分支/追蹤/標籤",
+      "newBranch": "新建分支",
+      "branchNamePlaceholder": "分支名稱",
+      "createBranch": "建立",
+      "changes": "變更",
+      "commitPlaceholder": "提交資訊...",
+      "commit": "提交",
+      "discardAll": "回滾全部",
+      "discardFile": "回滾此檔案",
+      "noChanges": "無變更",
+      "head": "HEAD(當前分支)",
+      "local": "本地",
+      "remote": "遠端",
+      "delete": "刪除",
+      "commitsCount": "{{count}} commits",
+      "noCommits": "暫無提交記錄",
+      "loading": "載入中...",
+      "filesChanged": "變更檔案",
+      "noFilesChanged": "無檔案變更",
+      "commitInfo": {
+        "commit": "提交",
+        "author": "作者",
+        "email": "郵箱",
+        "date": "日期"
+      },
+      "confirmDiscardAll": "確定回滾所有更改? 此操作不可恢復!",
+      "confirmDiscardFile": "確定回滾 \"{{path}}\" 的更改?",
+      "confirmDeleteBranch": "確定刪除分支 \"{{name}}\"?"
+    },
+    "files": {
+      "refresh": "重新整理",
+      "navigateUp": "↑ 返回",
+      "emptyDir": "空目錄",
+      "selectFile": "選擇檔案預覽",
+      "loading": "載入中..."
+    },
+    "worktrees": {
+      "title": "工作樹",
+      "refresh": "重新整理",
+      "create": "+ 新建工作樹",
+      "cancel": "取消",
+      "pathPlaceholder": "工作樹路徑",
+      "branchPlaceholder": "分支名稱",
+      "createButton": "建立",
+      "workspaceLabel": "工作空間: {{path}}",
+      "noWorkspace": "未關聯工作空間",
+      "uncommittedChanges": "有未提交更改",
+      "remove": "移除",
+      "empty": "暫無工作樹",
+      "confirmRemove": "確定移除工作樹 \"{{path}}\"?"
+    },
+    "settings": {
+      "title": "倉庫設定",
+      "name": "倉庫名稱",
+      "path": "倉庫路徑",
+      "remote": "遠端地址",
+      "remotePlaceholder": "git@github.com:user/repo.git",
+      "defaultBranch": "預設分支",
+      "save": "儲存更改",
+      "saving": "儲存中...",
+      "saveSuccess": "儲存成功",
+      "saveFailed": "儲存失敗",
+      "gitIdentity": {
+        "title": "Git 署名（僅本倉庫）",
+        "description": "為本倉庫的 commit 單獨設定作者名/郵箱。留空的欄位會回退到「設定 → Git 署名」裡的全域性值。",
+        "name": "名字",
+        "namePlaceholder": "Alice（公司）",
+        "email": "郵箱",
+        "emailPlaceholder": "alice@work.com",
+        "fieldsHint": "任一欄位留空時該欄位使用全域性署名。",
+        "previewLabel": "實際生效",
+        "usingGlobal": "未設定覆蓋；當前使用全域性署名。",
+        "save": "儲存覆蓋",
+        "saving": "儲存中…",
+        "saved": "已儲存。",
+        "saveFailed": "儲存失敗：{{detail}}",
+        "clear": "清除覆蓋",
+        "clearing": "清除中…",
+        "cleared": "已清除；恢復使用全域性署名。",
+        "clearFailed": "清除失敗：{{detail}}",
+        "loadFailed": "無法載入本倉庫的署名設定。",
+        "invalidEmail": "郵箱必須是合法地址，或留空。",
+        "invalidName": "名字不能包含換行符或控制字元。"
+      },
+      "dangerZone": "危險區域",
+      "deleteRepository": "刪除倉庫",
+      "deleteWithFiles": "刪除倉庫及檔案",
+      "deleteFailed": "刪除失敗",
+      "confirmDelete": "確定刪除倉庫? 此操作不可恢復!",
+      "confirmDeleteWithFiles": "確定刪除倉庫並刪除所有檔案? 此操作不可恢復!"
+    },
+    "terminal": {
+      "title": "終端",
+      "connected": "已連線",
+      "disconnected": "未連線",
+      "close": "關閉終端"
+    },
+    "loading": "載入中..."
+  },
+  "time": {
+    "now": "剛剛",
+    "minutesAgo": "{{count}} 分鐘前",
+    "hoursAgo": "{{count}} 小時前",
+    "daysAgo": "{{count}} 天前"
+  },
+  "dialogs": {
+    "create": {
+      "title": "新建倉庫",
+      "description": "新增一個新的 Git 倉庫到系統中",
+      "modeLocal": "本地路徑",
+      "modeRemote": "遠端地址",
+      "pathLabel": "倉庫路徑",
+      "pathHint": "選擇或輸入資料夾路徑，系統將自動建立目錄並初始化 Git 倉庫",
+      "remoteLabel": "遠端倉庫地址",
+      "remotePlaceholder": "https://github.com/user/repo.git",
+      "remoteHint": "支援 https://、git://、ssh://、git@ 等 git 支援的所有協議，倉庫將被 clone 到 ~/git-repos/",
+      "nameLabel": "倉庫名稱",
+      "namePlaceholderRemote": "留空則自動使用遠端倉庫名稱",
+      "namePlaceholderLocal": "留空則自動使用資料夾名稱",
+      "autoInit": "自動初始化 Git 倉庫",
+      "submitClone": "Clone 並新增",
+      "submitCreate": "建立",
+      "cloningInProgress": "克隆中...",
+      "creatingInProgress": "建立中...",
+      "successToast": "倉庫建立成功",
+      "errorToast": "建立倉庫失敗",
+      "errors": {
+        "cloneFailed": "克隆失敗，請檢查遠端地址是否正確且可訪問",
+        "notGitRepo": "不是完整的 Git 倉庫，請勾選\"自動初始化 Git\"選項",
+        "pathCreationFailed": "目錄建立失敗",
+        "gitInitFailed": "Git 初始化失敗",
+        "repoNameExists": "倉庫名稱已存在，請使用其他名稱",
+        "gitIdentityMissing": "請先在「系統依賴」頁配置 git 身份",
+        "goConfigure": "去配置",
+        "initialCommitFailed": "首次提交失敗：{{detail}}"
+      }
+    },
+    "edit": {
+      "title": "編輯倉庫",
+      "description": "修改倉庫名稱、路徑和預設分支",
+      "nameLabel": "倉庫名稱",
+      "namePlaceholder": "my-repo",
+      "pathLabel": "倉庫路徑",
+      "pathPlaceholder": "/path/to/repository",
+      "branchLabel": "預設分支",
+      "branchPlaceholder": "main"
+    },
+    "delete": {
+      "title": "刪除倉庫",
+      "confirmPrefix": "確定要刪除倉庫 ",
+      "confirmSuffix": " 嗎？此操作無法撤銷。",
+      "enterNamePromptPrefix": "請輸入倉庫名稱 ",
+      "enterNamePromptSuffix": " 確認刪除：",
+      "namePlaceholder": "輸入倉庫名稱",
+      "deleteDirectory": "同時刪除倉庫目錄",
+      "deleteDirectoryHint": "刪除後無法恢復，目錄及所有檔案將被永久刪除",
+      "successToast": "倉庫已刪除",
+      "errorToast": "刪除失敗"
+    },
+    "settings": {
+      "title": "倉庫設定",
+      "description": "管理倉庫 \"{{name}}\"",
+      "deleteRepository": "刪除倉庫"
+    }
+  }
+}

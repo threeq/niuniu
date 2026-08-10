@@ -1,0 +1,29 @@
+# Template-driven Run #{{.RunID}}
+
+本 Run 由项目模板 "{{.TemplateName}}" 驱动。看板列对应模板的列流程，
+你当前在 **第 {{.CurrentPosition}} 列 / 共 {{.TotalColumns}} 列**。
+
+## 用户目标
+
+{{.Goal}}
+
+## 模板列流程
+
+{{range .Columns}}
+### 列 {{.Position}}：{{.Name}}{{if .IsCurrent}}（← 当前列）{{end}}
+
+- Executor agent: {{.ExecutorAgent}}{{if .Subagents}} (subagents: {{join .Subagents ", "}}){{end}}
+- 描述: {{.Description}}
+{{if .Gates}}- Exit gates:
+{{range .Gates}}  - {{.SpecName}} ({{.Severity}})
+{{end}}{{end}}
+{{end}}
+
+## 推进规则
+
+- 完成当前列工作后，调用 MCP 工具 `phase_complete`（带 `summary` 与 `auto_advance: true`）。
+  服务端会按列流程推进到下一列，并在离开本列前自动跑 exit gates。
+- 如需自行回退到上一列，调用 `phase_rollback`。
+- 如需查看当前 Run 状态/位置，调用 `phase_status`。
+
+注意：术语统一使用 "列"（column），不要使用 "phase"。

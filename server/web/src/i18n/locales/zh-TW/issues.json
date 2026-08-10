@@ -1,0 +1,34 @@
+{
+  "requestChanges": {
+    "title": "需修改（打回重做）",
+    "help": "留下 issue 級審查意見（為什麼不過 / 透過條件 / 驗收 gap），把卡片打回「實現」列。Agent 會在已有改動基礎上續跑，並自動帶上你的看板評論與未解決的行級 diff 評論，改完後回到本列並附本輪改動說明。",
+    "placeholder": "為什麼不過、透過條件、驗收 gap…",
+    "submit": "打回重做",
+    "submitting": "打回中…",
+    "done": "已打回「實現」列續跑",
+    "failed": "打回失敗",
+    "charCount": "字元數：{{n}} / {{max}}",
+    "reopen": {
+      "title": "重新稽覈（重開已完成 issue）",
+      "help": "本 issue 已完成。留下審查意見並把它重開回「實現」列——agent 會重新接手，並自動帶上你的看板評論與未解決 diff 評論，改完後回到審查。",
+      "submit": "重開並打回",
+      "submitting": "重開中…",
+      "done": "已重開回「實現」列續跑",
+      "failed": "重開失敗"
+    }
+  },
+  "goalCondition": {
+    "title": "自動託管完成條件（可選）",
+    "set": "已設定",
+    "unset": "未設定",
+    "hint": "留空則只用 sentinel 判停",
+    "charCount": "字元數：{{n}} / {{max}}",
+    "help": "這條條件會在 autohost 準備結束本輪時，作為 LLM 判停的依據。例如 \"所有單元測試透過\" 或 \"PR 已合併就緒\"。",
+    "aiSuggest": "AI 建議",
+    "suggesting": "生成中…",
+    "unsaved": "未儲存",
+    "suggestFailed": "生成失敗，請重試",
+    "suggestCliUnavailable": "claude CLI 不可用，AI 建議功能禁用",
+    "suggestRateLimited": "AI 建議請求太頻繁，請稍候再試"
+  }
+}

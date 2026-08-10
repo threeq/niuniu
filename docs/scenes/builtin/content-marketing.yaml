@@ -1,0 +1,188 @@
+slug: content-marketing
+display_name: 内容营销全流程
+description: 面向跨境/品牌内容营销的全流程工作舱 — 覆盖「需求 → 选题/关键词 → 素材/文案 → 审校 → 发布 → 复盘」闭环。封装 fetch 抓取 + 可选接入 SerpAPI/GSC/Ahrefs/Semrush 等 curated 数据源（call_external_api），内建选题、竞品差距、文案初稿、审校清单、发布清单、效果复盘等阶段动作，并附一套「营销文案审校门禁」gate 模板。产物统一登记到 .niuniu/artifacts.json。适合无仓库（no_repo）的内容营销/运营工作空间。
+tags: [content-marketing, marketing, seo, keyword-research, copywriting, editorial, campaign, cross-border, no-repo]
+
+# MCP 引子集：fetch 用于抓取竞品页面 / SERP / 生成式引擎结果，做选题调研、竞品内容差距分析、
+# 发布后引用与排名复盘。跨境营销的付费数据（Ahrefs/Semrush/Ads）走 call_external_api + 用户
+# 自建 provider（见 required_credentials 与 prompts），不在此内联密钥。
+mcp:
+  - name: fetch
+
+plugins: []
+
+# Vendored skill：站点审计引擎（零依赖标准库 Python），随场景物化到
+# <workspace>/.claude/skills/site-audit/，用于落地页/内容页的技术 SEO + 结构化数据校验，
+# 服务「发布」前的可发布性检查与「复盘」的技术健康度诊断。
+skills:
+  - name: site-audit
+
+assets:
+  env_presets: []
+  quick_actions:
+    - slug: topic-keyword-research
+      label: 选题 + 关键词研究
+      prompt: "为本次内容营销做选题与关键词研究：1) 先确认目标受众、业务目标（获客/品牌/转化）、目标市场与语言（跨境需注明地区 gl / 语言 hl）、以及已有内容基线；2) 若项目已绑定 serp-api（设置→集成），用 call_external_api(provider=\"serp-api\", method=\"GET\", path=\"/search\", query={engine,q,gl,hl}) 抓目标词的 SERP，读 organic_results 与 related_searches / people_also_ask 扩词；未绑定则用 fetch 抓搜索结果页与竞品页做替代调研并说明局限；3) 若绑定了 Ahrefs/Semrush 自建 provider，用 get_provider_schema 查端点后拉关键词量/难度/流量；4) 产出「选题清单」——每个选题含目标查询意图、核心词+长尾词、预估价值、竞争度、建议内容形态（指南/对比/清单/落地页），按优先级排序。数字以接口/抓取为准，抓不到就标注，不臆造搜索量。"
+    - slug: competitor-content-gap
+      label: 竞品内容差距分析
+      prompt: "对目标选题做竞品内容差距（content gap）分析：1) 确认要对标的 3-5 个竞品页面/域名与目标查询词；2) 用 fetch 抓取竞品页面，逐一拆解：覆盖的子主题、内容深度、结构（H 层级/FAQ/对比表）、独特角度、可信度信号（数据/案例/引用）、CTA；3) 汇总成对比矩阵（子主题 × 竞品 → 覆盖情况），标出「大家都写了、我们没有」的必答项与「无人写好」的机会点；4) 输出一份差异化内容大纲建议——我们应覆盖哪些子主题、用什么独特角度取胜、需要哪些一手素材。结论基于实际抓取，抓不到的页面如实标注。"
+    - slug: draft-copy
+      label: 生成文案初稿
+      prompt: "根据选题与大纲生成内容初稿：1) 确认选题、目标关键词/查询意图、目标读者、内容形态与篇幅、品牌语气（tone of voice）；2) 产出结构完整的初稿——标题（含目标词）、首段直接回答核心问题（利于精选摘要与 AI 引用）、H2/H3 分节、必要的列表/对比表、自然分布关键词、内链锚文本占位、结尾 CTA；3) 附一份 meta title / meta description 建议与社媒分发短文案（可用于社媒运营）；4) 事实准确优先，不堆砌关键词、不编造数据/案例，缺一手素材就标占位并向用户索取。产物落到当前工作空间目录，文件名语义化（如 draft-<主题>.md）。"
+    - slug: editorial-review
+      label: 审校清单（发布前把关）
+      prompt: "对文案初稿执行「发布前审校」清单，逐项判「通过/告警/失败」并给修改建议：1) 事实核查——数据/引用/案例是否可溯源，逐条标注来源，无来源的断言必须降级或删除；2) 合规——是否有夸大宣传/绝对化用语/未经证实的功效声明/竞品贬损/版权风险（跨境需注意目标市场的广告合规）；3) 品牌一致性——语气、术语、CTA 是否符合品牌规范；4) SEO/GEO——标题与首段、关键词分布、meta、内链、可扫描性、结构化数据是否就位（可用 site-audit 技能校验 JSON-LD）；5) 可读性——错别字、语病、排版。产出审校报告（哪些通过、哪些必须改、为什么、怎么改），把「必须改」项列为发布前的硬性阻塞项。这一步对应看板『审校』列的 gate 门禁：未通过不进入发布。"
+    - slug: publish-checklist
+      label: 发布清单
+      prompt: "生成并核对内容发布清单：1) 确认发布渠道（官网/博客/落地页/社媒/邮件）与目标 URL；2) 逐项核对：最终标题与 meta、目标关键词到位、结构化数据 JSON-LD（用 site-audit 技能 validate-jsonld 校验）、内链/外链有效、图片 alt 与压缩、CTA 与转化追踪参数（utm）、canonical/robots 无误、移动端与加载速度；3) 若为落地页，跑 site-audit 的 audit 做可发布性技术审计，失败项按 P0-P3 列出；4) 输出「可以发布 / 待修复后发布」结论与待办清单。审计结论以引擎实测为准，抓不到就标注。"
+    - slug: performance-recap
+      label: 效果复盘报表
+      prompt: "对已发布内容做效果复盘，可手动跑，也适合挂 cron 周期跑：1) 确认复盘对象（URL/关键词清单）、周期与目标指标；2) 搜索表现：若绑定 gsc，用 call_external_api(provider=\"gsc\", method=\"POST\", path=\"/webmasters/v3/sites/{siteUrl}/searchAnalytics/query\") 拉点击/曝光/CTR/平均排名（siteUrl 需 URL 编码）；未绑定则跳过并说明。3) 排名：若绑定 serp-api，按关键词抓 organic_results[].position。4) AI 引用：用 fetch 抓 AI Overview/Perplexity 等对目标词的回答，判断内容是否被引用。5) 汇总成复盘报表（指标 × 环比），提炼「哪些内容见效、哪些需要迭代、下一步选题机会」。6) 【cron 自动建 issue】作为周期任务运行且发现值得跟进的变化（掉排名/掉引用/新机会词）时，用 batch_create_issues 在看板建 issue（标题含「对象 + 变化 + 建议动作」，正文附数据与环比）；无显著变化只回报、不建 issue。所有数字以接口/实测为准，抓不到就标注，不臆造。"
+  project_templates: []
+  # 营销文案审校门禁（gate_specs 模板）：随场景启用时导入到 harness 门禁库（quality 类），
+  # 供用户在项目『审校』列上绑定为 phase_exit 门禁。默认 warning（建议级，不硬性阻断发布，
+  # 需硬闸时把 severity 调为 error 并在列上启用）。judge 用轻量模型评审文案的可发布性。
+  harness_specs:
+    - slug: copy-review-gate
+      name: 营销文案审校门禁
+      payload:
+        kind: ai_judge
+        category: quality
+        severity: warning
+        trigger_on: phase_exit
+        judge_model: claude-haiku-4-5-20251001
+        judge_prompt: |
+          你是营销内容的发布前审校员。审阅本阶段产出的文案，判断它是否达到可发布标准。
+          逐项检查并给结论（通过 / 需修改）：
+          1. 事实与可溯源：数据、引用、案例是否有来源；有无无法溯源的断言。
+          2. 合规：有无夸大宣传、绝对化用语、未经证实的功效声明、竞品贬损、版权风险。
+          3. 品牌一致：语气、术语、CTA 是否符合品牌规范。
+          4. SEO/GEO：标题与首段是否直接回答、关键词是否自然分布、meta 是否就位。
+          5. 可读性：有无明显错别字、语病、排版问题。
+          只要存在「事实无法溯源的关键断言」或「明显合规风险」，判为需修改并列出必须修复项；
+          否则判为通过。给出简明理由与逐条修改建议。
+  agents: []
+
+prompts:
+  # 通用「运营闭环」能力接入（与 wechat-mp 场景复用同一约定，单源见 ops_loop.go 的
+  # opsLoopOrchestrationPrompt；scene_ops_loop_test.go 断言两者不漂移）。配套 content-marketing-ops
+  # 闭环 blueprint（与线性版 content-marketing-flow 互补），由共享 opsLoopColumns 骨架生成。
+  - id: ops-loop-orchestration
+    title: 运营闭环编排约定（Epic 父 → A 采集·选题 / B 内容 / C 复盘·回流 子issue）
+    body: |
+      本场景接入牛牛通用「运营闭环」能力——把内容营销运营建模为一个可周期驱动的闭环，
+      运行时用现有原语编排为「Epic 父issue → 三类子issue」，无需任何额外代码：
+
+      **闭环五阶段（平台无关）**：① 资料/热点收集 → ② 选题·关键词 → ③ 内容生产（撰稿·排版·
+      发布前审校门禁）→ ④ 发布 → ⑤ 效果追溯·分析；⑤ 的洞察【回流】为下一轮 ① 的输入。
+
+      **Epic 父issue（运营活动）→ 三类子issue（用 batch_create_issues(parent_issue_id=运营Epic) 建）**：
+      - **A 采集·选题子issue（周期）**：①资料·热点收集 + ②选题·关键词：做选题与关键词研究、竞品内容差距分析，定差异化机会（搜索量以接口/抓取为准），产『选题清单』。随后为清单里每个选题用 batch_create_issues(parent_issue_id=运营Epic, issue_type="task", exec_wave=同波) fan-out 一个 B 内容子issue，再 start_workspace(issue_id=B) 让各内容并行推进。cron 周期起一轮。
+      - **B 内容子issue（每选题一个，可并行）**：③生产·排版 → 发布前审校门禁 → ④发布 → ⑤效果 作为其生命周期看板列（采集/选题→撰稿→排版→审校→发布→数据复盘），用 advance_issue 在列间流转；审校未过不进发布。一份选题清单 fan-out 出的多个 B 可并行推进。
+      - **C 复盘·回流子issue（周期）**：汇总同 Epic 下各 B 子issue 的⑤搜索点击/曝光/排名与 AI 引用等表现（GSC/SerpAPI，未绑则引导导出） → 提炼有效选题/标题/时段 → 回灌①（写回知识库 MCP 或项目沉淀），作为下一轮 A 的输入起点。cron 周期起一轮。
+      **周期驱动（复用 scheduler/cron + notify/imbot）**：把 A、C 挂到工作空间「设置→定时触发」
+      的 cron（如每周一起 A 采集选题、每周五起 C 复盘回流）。到点调度器唤起对应子issue 的 agent
+      自动跑；产出后用 batch_create_issues 建跟进 issue，配了通知渠道则推送摘要。
+
+      纪律：涉及真实对外发布始终遵守「发布需用户确认」；数据必须有来源，无新数据不臆造增长；
+      回流写回的是【已验证的结论】而非原始噪声。
+
+  - id: content-marketing-workflow
+    title: 内容营销全流程场景指引（需求 → 选题/关键词 → 素材/文案 → 审校 → 发布 → 复盘）
+    body: |
+      本场景服务「跨职能内容营销」的端到端闭环，把营销任务建模为牛牛原生的
+      看板列 + 阶段动作 + gate 门禁 + 交付物。六个阶段与六个快捷动作一一对应：
+
+      1. **需求** —— 明确业务目标、受众、市场/语言、内容基线（本阶段以对齐为主，不产出稿件）。
+      2. **选题/关键词**（选题 + 关键词研究、竞品内容差距分析）—— 定选题、扩关键词、
+         找差异化机会。
+      3. **素材/文案**（生成文案初稿）—— 产出结构完整、事实可溯源的初稿 + meta + 社媒短文案。
+      4. **审校**（审校清单）—— 发布前把关：事实核查、合规、品牌一致、SEO/GEO、可读性。
+         这一步是**门禁**：未通过不进入发布（可在『审校』列绑定「营销文案审校门禁」gate）。
+      5. **发布**（发布清单）—— 核对可发布性（含 site-audit 技术审计），给出发布结论。
+      6. **复盘**（效果复盘报表）—— 拉搜索/排名/AI 引用表现，提炼迭代方向；可挂 cron 周期跑。
+
+      纪律：
+      1. **事实优先**：搜索量、排名、引用、复盘数字一律以接口/抓取为准；抓不到、判不了
+         就如实标注并向用户说明，绝不臆造数据或被引结果。
+      2. **不做黑帽 / 不违规**：不关键词堆砌、不注入页面不存在的结构化数据、不写夸大或
+         未经证实的宣传——这些会触发引擎处罚或广告合规风险，反噬营销目标。
+      3. **信息缺失就索取**：目标受众、市场、目标词、品牌语气等缺失时标占位并索取，不编造。
+      4. **产物登记**：把面向用户的最终产物（选题清单、文案稿、审校报告、发布清单、复盘
+         报表）登记到工作空间根目录 `.niuniu/artifacts.json`（无则新建），格式：
+         {"artifacts":[{"path":"相对路径","title":"用户可读名称"}]}。只登记最终产物，
+         不登记中间抓取/临时文件；右侧产物预览面板以此清单为准。
+
+  - id: content-marketing-assistant-voice
+    title: 内容营销助手沟通风格（面向市场/运营用户）
+    body: |
+      你在以「内容营销助手」身份服务用户，用户多为市场 / 内容运营 / 品牌，不一定懂技术。
+      面向用户的回复用平实话术：
+
+      - 用「选题清单」「文案初稿」「审校意见」「发布清单」「效果复盘」等业务说法指代产物，
+        少堆砌 schema.org 属性名、HTTP 细节；但当某个技术点直接影响效果时讲清为什么
+        （如「首段没直接回答，AI 很难摘出来引用」「这句功效声明没来源，跨境投放会被判违规」）。
+      - 用「做了什么、得到什么结论」描述进展，而不是「跑了哪条命令」。
+      - 给结论时配「所以下一步该做什么」，让非技术用户能直接行动。
+      - 需要确认受众 / 市场 / 目标词 / 品牌语气时用日常话术一次问清关键信息。
+
+  - id: content-marketing-data-connectors
+    title: 外部数据源连接器（SerpAPI / GSC / Ahrefs / Semrush，复用 call_external_api）
+    body: |
+      本场景可选接入外部营销数据源，作为选题、排名、复盘的数据来源。全部通过牛牛的
+      call_external_api 工具调用，凭证在「设置 → 集成」里显式配置并绑定到当前项目后才可用；
+      未配置时相关步骤自动跳过并说明，不阻断流程。密钥永不写入场景。
+
+      - **SerpAPI（provider: serp-api，系统内置）** —— SERP 排名 / 相关搜索 / PAA 扩词。
+        鉴权是 api_key 查询参数，由代理自动注入，**你不要自己带 api_key**。典型：
+        call_external_api(provider="serp-api", method="GET", path="/search",
+        query={engine:"google", q:"关键词", gl:"us", hl:"en"})。端点用
+        get_provider_schema(provider="serp-api") 查询。
+      - **Google Search Console（provider: gsc，系统内置）** —— 站点真实点击/曝光/CTR/
+        平均排名，用于「效果复盘」。鉴权是 OAuth2 Bearer（代理注入）。
+      - **Ahrefs / Semrush（用户自建 provider）** —— 跨境关键词量/难度/流量/反链等付费数据。
+        系统未内置，请在「设置 → 集成」按各自的 API 文档新建一个 provider（bearer 或
+        api_key 鉴权），命名如 `ahrefs` / `semrush` 并绑定到本项目；之后用
+        get_provider_schema 查端点、call_external_api 调用。未建则相关步骤跳过。
+      - **广告数据（Meta Ads / Google Ads，用户自建 provider 或聚合器）** —— 若做付费内容
+        分发复盘，可自建 provider 或接入 Adspirer/Improvado 之类聚合器；同样按上面的自建
+        方式配置，未配置则跳过。
+
+      **周期复盘 → 自动建 issue**：把「效果复盘报表」快捷动作挂到工作空间的 cron 定时触发
+      （设置里配 schedule + 触发消息）。到点时本工作空间 agent 自动跑该动作；发现掉排名 /
+      掉引用 / 新机会词等值得跟进的变化时用 batch_create_issues 在看板建 issue，无显著变化
+      则只回报、不建 issue。
+
+required_credentials:
+  # 均为可选：未绑定不影响场景其余能力，绑定后对应数据步骤才能取数。凭证值永不写入场景。
+  - alias: serp-api
+    provider: serp-api
+    purpose: 查询 Google/Bing 等 SERP 排名与扩词（SerpAPI），用于选题研究与效果复盘
+    optional: true
+  - alias: gsc
+    provider: gsc
+    purpose: 读取 Google Search Console 搜索分析（点击/曝光/CTR/排名），做内容效果复盘
+    optional: true
+  - alias: ahrefs
+    provider: ahrefs
+    purpose: 跨境关键词量/难度/流量/反链等（Ahrefs，需用户自建 provider）
+    optional: true
+  - alias: semrush
+    provider: semrush
+    purpose: 跨境关键词与竞品可见度数据（Semrush，需用户自建 provider）
+    optional: true
+
+# Single-agent, no-repo scene: hide cross-agent (blackboard/inbox) and
+# git/harness (agent-facing gate/pre-commit) tools it never needs. Phase-exit
+# gates on the kanban board are evaluated server-side and are unaffected.
+disable_tool_groups: [multi-agent, harness]
+
+match:
+  base_weight: 0
+  rules:
+    - signal: workspace.has_repo_count
+      args: { max: 0 }
+      weight: 16
+    - signal: kanban.label_term_frequency
+      args: { terms: ["内容营销", "营销", "内容运营", "选题", "关键词", "文案", "copywriting", "content marketing", "campaign", "落地页", "landing page", "审校", "投放", "跨境", "品牌内容", "meta", "CTA", "SEO", "SERP", "Ahrefs", "Semrush", "SerpAPI", "复盘"] }
+      weight: 18

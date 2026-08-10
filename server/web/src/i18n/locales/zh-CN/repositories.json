@@ -1,0 +1,191 @@
+{
+  "list": {
+    "title": "仓库列表",
+    "addRepository": "添加仓库",
+    "searchPlaceholder": "搜索仓库...",
+    "empty": "暂无仓库",
+    "noBranch": "no branch",
+    "branchesCountSuffix": "branches"
+  },
+  "detail": {
+    "tabs": {
+      "files": "文件",
+      "branches": "分支",
+      "worktrees": "工作树",
+      "settings": "设置"
+    },
+    "header": {
+      "refresh": "刷新",
+      "openInVSCode": "打开 VS Code",
+      "terminal": "终端",
+      "commitsSuffix": "commits",
+      "branchesSuffix": "branches",
+      "contributorsSuffix": "contributors"
+    },
+    "branches": {
+      "filterPlaceholder": "分支/追踪/标签",
+      "newBranch": "新建分支",
+      "branchNamePlaceholder": "分支名称",
+      "createBranch": "创建",
+      "changes": "变更",
+      "commitPlaceholder": "提交信息...",
+      "commit": "提交",
+      "discardAll": "回滚全部",
+      "discardFile": "回滚此文件",
+      "noChanges": "无变更",
+      "head": "HEAD(当前分支)",
+      "local": "本地",
+      "remote": "远程",
+      "delete": "删除",
+      "commitsCount": "{{count}} commits",
+      "noCommits": "暂无提交记录",
+      "loading": "加载中...",
+      "filesChanged": "变更文件",
+      "noFilesChanged": "无文件变更",
+      "commitInfo": {
+        "commit": "提交",
+        "author": "作者",
+        "email": "邮箱",
+        "date": "日期"
+      },
+      "confirmDiscardAll": "确定回滚所有更改? 此操作不可恢复!",
+      "confirmDiscardFile": "确定回滚 \"{{path}}\" 的更改?",
+      "confirmDeleteBranch": "确定删除分支 \"{{name}}\"?"
+    },
+    "files": {
+      "refresh": "刷新",
+      "navigateUp": "↑ 返回",
+      "emptyDir": "空目录",
+      "selectFile": "选择文件预览",
+      "loading": "加载中..."
+    },
+    "worktrees": {
+      "title": "工作树",
+      "refresh": "刷新",
+      "create": "+ 新建工作树",
+      "cancel": "取消",
+      "pathPlaceholder": "工作树路径",
+      "branchPlaceholder": "分支名称",
+      "createButton": "创建",
+      "workspaceLabel": "工作空间: {{path}}",
+      "noWorkspace": "未关联工作空间",
+      "uncommittedChanges": "有未提交更改",
+      "remove": "移除",
+      "empty": "暂无工作树",
+      "confirmRemove": "确定移除工作树 \"{{path}}\"?"
+    },
+    "settings": {
+      "title": "仓库设置",
+      "name": "仓库名称",
+      "path": "仓库路径",
+      "remote": "远程地址",
+      "remotePlaceholder": "git@github.com:user/repo.git",
+      "defaultBranch": "默认分支",
+      "save": "保存更改",
+      "saving": "保存中...",
+      "saveSuccess": "保存成功",
+      "saveFailed": "保存失败",
+      "gitIdentity": {
+        "title": "Git 署名（仅本仓库）",
+        "description": "为本仓库的 commit 单独设置作者名/邮箱。留空的字段会回退到「设置 → Git 署名」里的全局值。",
+        "name": "名字",
+        "namePlaceholder": "Alice（公司）",
+        "email": "邮箱",
+        "emailPlaceholder": "alice@work.com",
+        "fieldsHint": "任一字段留空时该字段使用全局署名。",
+        "previewLabel": "实际生效",
+        "usingGlobal": "未设置覆盖；当前使用全局署名。",
+        "save": "保存覆盖",
+        "saving": "保存中…",
+        "saved": "已保存。",
+        "saveFailed": "保存失败：{{detail}}",
+        "clear": "清除覆盖",
+        "clearing": "清除中…",
+        "cleared": "已清除；恢复使用全局署名。",
+        "clearFailed": "清除失败：{{detail}}",
+        "loadFailed": "无法加载本仓库的署名设置。",
+        "invalidEmail": "邮箱必须是合法地址，或留空。",
+        "invalidName": "名字不能包含换行符或控制字符。"
+      },
+      "dangerZone": "危险区域",
+      "deleteRepository": "删除仓库",
+      "deleteWithFiles": "删除仓库及文件",
+      "deleteFailed": "删除失败",
+      "confirmDelete": "确定删除仓库? 此操作不可恢复!",
+      "confirmDeleteWithFiles": "确定删除仓库并删除所有文件? 此操作不可恢复!"
+    },
+    "terminal": {
+      "title": "终端",
+      "connected": "已连接",
+      "disconnected": "未连接",
+      "close": "关闭终端"
+    },
+    "loading": "加载中..."
+  },
+  "time": {
+    "now": "刚刚",
+    "minutesAgo": "{{count}} 分钟前",
+    "hoursAgo": "{{count}} 小时前",
+    "daysAgo": "{{count}} 天前"
+  },
+  "dialogs": {
+    "create": {
+      "title": "新建仓库",
+      "description": "添加一个新的 Git 仓库到系统中",
+      "modeLocal": "本地路径",
+      "modeRemote": "远程地址",
+      "pathLabel": "仓库路径",
+      "pathHint": "选择或输入文件夹路径，系统将自动创建目录并初始化 Git 仓库",
+      "remoteLabel": "远程仓库地址",
+      "remotePlaceholder": "https://github.com/user/repo.git",
+      "remoteHint": "支持 https://、git://、ssh://、git@ 等 git 支持的所有协议，仓库将被 clone 到 ~/git-repos/",
+      "nameLabel": "仓库名称",
+      "namePlaceholderRemote": "留空则自动使用远程仓库名称",
+      "namePlaceholderLocal": "留空则自动使用文件夹名称",
+      "autoInit": "自动初始化 Git 仓库",
+      "submitClone": "Clone 并添加",
+      "submitCreate": "创建",
+      "cloningInProgress": "克隆中...",
+      "creatingInProgress": "创建中...",
+      "successToast": "仓库创建成功",
+      "errorToast": "创建仓库失败",
+      "errors": {
+        "cloneFailed": "克隆失败，请检查远程地址是否正确且可访问",
+        "notGitRepo": "不是完整的 Git 仓库，请勾选\"自动初始化 Git\"选项",
+        "pathCreationFailed": "目录创建失败",
+        "gitInitFailed": "Git 初始化失败",
+        "repoNameExists": "仓库名称已存在，请使用其他名称",
+        "gitIdentityMissing": "请先在「系统依赖」页配置 git 身份",
+        "goConfigure": "去配置",
+        "initialCommitFailed": "首次提交失败：{{detail}}"
+      }
+    },
+    "edit": {
+      "title": "编辑仓库",
+      "description": "修改仓库名称、路径和默认分支",
+      "nameLabel": "仓库名称",
+      "namePlaceholder": "my-repo",
+      "pathLabel": "仓库路径",
+      "pathPlaceholder": "/path/to/repository",
+      "branchLabel": "默认分支",
+      "branchPlaceholder": "main"
+    },
+    "delete": {
+      "title": "删除仓库",
+      "confirmPrefix": "确定要删除仓库 ",
+      "confirmSuffix": " 吗？此操作无法撤销。",
+      "enterNamePromptPrefix": "请输入仓库名称 ",
+      "enterNamePromptSuffix": " 确认删除：",
+      "namePlaceholder": "输入仓库名称",
+      "deleteDirectory": "同时删除仓库目录",
+      "deleteDirectoryHint": "删除后无法恢复，目录及所有文件将被永久删除",
+      "successToast": "仓库已删除",
+      "errorToast": "删除失败"
+    },
+    "settings": {
+      "title": "仓库设置",
+      "description": "管理仓库 \"{{name}}\"",
+      "deleteRepository": "删除仓库"
+    }
+  }
+}

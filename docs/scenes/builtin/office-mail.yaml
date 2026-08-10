@@ -1,0 +1,77 @@
+slug: office-mail
+display_name: 邮件助手
+description: 让助手帮你读邮件、起草回复、分类整理、收发与清理——接入你自己的邮箱，按需调用；发信/删除等写操作由你的写权限控制，默认只读
+tags: [office, email, mail, imap, 邮件]
+
+# ai-zerolab/mcp-email-server 支持多账户：niuniu 投射时把【工作空间所属项目】在「外部源管理」
+# 里绑定的 imap 邮箱（可不同域名/服务商、可绑多个）解密后物化成每 workspace 独立的 config.toml
+# （[[emails]] 每账户一段），并用 MCP_EMAIL_SERVER_CONFIG_PATH 指向它。写操作受写权限控制：未开
+# 启写权限时各账户不写 outgoing(SMTP)→服务端只读隐藏发信/草稿；删除/移动等由 niuniu 兜底禁用。
+# 配置由投射注入，这里不写凭证。运行时依赖 uv（uvx）。版本 pin 死，升级=受控操作。
+mcp:
+  - name: email
+    config:
+      command: uvx
+      args: ["mcp-email-server@0.10.1", "stdio"]
+
+required_credentials:
+  # 在【项目】的「外部源管理」里把 imap 邮箱绑为外部源即可启用（可绑多个、不同域名）；
+  # 助手用 list_available_accounts 选择具体账户。
+  - alias: mailbox
+    provider: imap
+    purpose: 读取、整理、收发与清理你的邮件（在项目里绑定 imap 外部源，支持多账户、不同域名；写操作受写权限控制）
+
+assets:
+  env_presets: []
+  quick_actions:
+    - slug: triage-inbox
+      label: 收件箱三连看
+      prompt: "读取收件箱最近邮件，按『需立即回 / 待办 / 可归档』分三组，每封一句话摘要，列发件人与主题，不改动任何邮件。"
+    - slug: draft-reply
+      label: 起草回复
+      prompt: "针对我指定的邮件起草回复并保存为草稿；如未开启写权限则只展示草稿内容由我自行处理。"
+    - slug: classify
+      label: 分类整理
+      prompt: "按我给的规则浏览并归类邮件；涉及移动/删除/标记等改动先列变更清单等我确认，且这些写操作需已开启写权限。"
+    - slug: cleanup
+      label: 清理收件箱
+      prompt: "找出可清理的邮件（广告/过期通知等）列清单给我确认；删除/移动等写操作需已开启写权限，未开启时只产出清单不执行。"
+  project_templates: []
+  harness_specs: []
+  agents: []
+
+prompts:
+  - id: office-mail-discipline
+    title: 邮件助手纪律
+    body: |
+      你在以「邮件助手」身份服务非技术的办公用户，已接入用户本人的邮箱（可能有多个，
+      不同域名/服务商）。**操作前先用 list_available_accounts 查看可用邮箱，并在涉及具体
+      邮箱的操作里指定账户名（account_name）**；用户没说用哪个时先问或列出来让其选。严格遵守：
+
+      1. **写操作受写权限 + 在场确认双重控制**：读取/搜索/摘要/列邮箱等只读操作随时可用；
+         发信、删除、移动、标记已读等写/管理操作，仅在用户已开启「写权限」**且当前为需要
+         逐次确认的交互模式**时才可用——**任何写操作前必先复述将做的变更并等用户确认**。
+         在无人值守（自动托管）模式下，发信/删除等写工具会被系统禁用：此时**不要反复尝试**，
+         直接如实告诉用户「当前为自动模式，无法替你发信/删除；如需发送，请切到需确认的模式
+         后再让我操作」，并把拟发送的内容/清单交给用户。拿不准就先只读产出清单让用户决定。
+      2. **面向非技术用户用业务语言**：不暴露工具名 / 协议 / 文件路径 / env（如不要提
+         IMAP、SMTP、uvx）。用「你的邮箱」「这封邮件」「草稿箱」这类日常说法。
+      3. **隐私与真实性**：处理真实邮件，不外泄内容、不编造发件人 / 主题 / 正文；
+         拿不准就如实说明并向用户求证，不臆造。
+      4. 邮箱账户由 niuniu 统一管理，不要尝试新增邮箱账户（相关工具已禁用）。
+
+required_data_sources: []
+
+# Single-account, no-repo office scene: hide cross-agent (blackboard/inbox) and
+# git/harness (gate/pre-commit) tools the mail assistant never needs.
+disable_tool_groups: [multi-agent, harness]
+
+match:
+  base_weight: 0
+  rules:
+    - signal: workspace.has_repo_count
+      args: { max: 0 }
+      weight: 20
+    - signal: kanban.label_term_frequency
+      args: { terms: ["email", "mail", "邮件", "邮箱", "收件箱", "回复", "inbox"] }
+      weight: 18

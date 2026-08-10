@@ -1,0 +1,2 @@
+-- harnesses table removed in Phase 7 (drop_legacy_phase7_v1).
+-- This file is kept as a placeholder.

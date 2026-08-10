@@ -1,0 +1,16 @@
+{
+  "step": {
+    "basicInfo": "Basic Info",
+    "preset": "Choose Preset",
+    "preview": "Preview"
+  },
+  "action": {
+    "next": "Next",
+    "back": "Back",
+    "finish": "Finish"
+  },
+  "empty": {
+    "title": "Empty Project",
+    "description": "Create an empty project with no preset. Add columns and templates manually in project settings."
+  }
+}

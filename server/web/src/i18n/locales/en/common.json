@@ -1,0 +1,155 @@
+{
+  "ownerFilter": {
+    "all": "All",
+    "personal": "Personal",
+    "label": "Owner"
+  },
+  "actions": {
+    "save": "Save",
+    "saving": "Saving...",
+    "discard": "Discard",
+    "cancel": "Cancel",
+    "apply": "Apply",
+    "delete": "Delete",
+    "deleting": "Deleting...",
+    "confirm": "Confirm",
+    "edit": "Edit",
+    "create": "Create",
+    "creating": "Creating...",
+    "loading": "Loading...",
+    "retry": "Retry",
+    "close": "Close",
+    "ok": "OK",
+    "back": "Back",
+    "more": "More",
+    "search": "Search",
+    "filter": "Filter",
+    "refresh": "Refresh",
+    "copy": "Copy",
+    "copied": "Copied",
+    "add": "Add",
+    "select": "Select",
+    "login": "Log in"
+  },
+  "status": {
+    "loading": "Loading...",
+    "empty": "No data",
+    "error": "An error occurred",
+    "success": "Success",
+    "failed": "Failed",
+    "running": "Running",
+    "saveFailed": "Save failed",
+    "created": "Created",
+    "noMatchingResults": "No matching results"
+  },
+  "validation": {
+    "required": "Required",
+    "invalid": "Invalid format"
+  },
+  "time": {
+    "now": "just now",
+    "minutesAgo": "{{count}} minutes ago",
+    "hoursAgo": "{{count}} hours ago",
+    "daysAgo": "{{count}} days ago"
+  },
+  "priority": {
+    "low": "Low",
+    "medium": "Medium",
+    "high": "High",
+    "urgent": "Urgent"
+  },
+  "role": {
+    "admin": "Admin",
+    "member": "Member"
+  },
+  "errors": {
+    "networkError": "Cannot connect to server, please check if the backend is running",
+    "fileUploadTooLarge": "File {{name}} exceeds {{limit}} limit",
+    "fileUploadFailed": "Failed to upload {{name}}"
+  },
+  "notifications": {
+    "agentAttention": "Workspace !{{id}}: agent error, attention required",
+    "agentDone": "Workspace !{{id}}: agent done, waiting for review"
+  },
+  "soundOptions": {
+    "cowMooing": "Cow Mooing",
+    "ding": "Ding",
+    "chime": "Chime",
+    "bell": "Bell",
+    "horse": "Horse",
+    "cat": "Cat",
+    "chicken": "Rooster",
+    "frog": "Frogs",
+    "cricket": "Cricket",
+    "nightingale": "Nightingale",
+    "cuckoo": "Cuckoo",
+    "robin": "Robin",
+    "blackbird": "Blackbird",
+    "owl": "Owl"
+  },
+  "harnessCategory": {
+    "commit": "Commit standards",
+    "quality": "Code quality",
+    "workflow": "Workflow",
+    "agent": "Agent behavior"
+  },
+  "harnessSeverity": {
+    "error": "Error (blocking)",
+    "warning": "Warning",
+    "info": "Info"
+  },
+  "license": {
+    "banner": {
+      "expiring": "License expires in {{days}} day(s)",
+      "expired": "License expired — read-only mode. Contact your admin to renew.",
+      "tampered": "System clock rollback detected — license locked",
+      "unlicensed": "Not licensed — upload a license file to activate.",
+      "uploadNow": "Upload now",
+      "contactAuth": "Contact for license"
+    }
+  },
+  "consent": {
+    "title": "Data Privacy & Disclaimer",
+    "intro": "Please read the following terms carefully before using this system. Clicking \"Agree and continue\" means **you have read, understood, and accepted all of them**. If you do not agree, do not use the system. This notice may be updated with new versions; continued use after an update constitutes acceptance of the new version.",
+    "sections": [
+      {
+        "h": "1. Data collection & local storage",
+        "p": "This system is local-first. Your projects, code, chat messages, run records, costs, and configuration are stored by default under ~/.niuniu/ on your machine or in a database you provide. **Niuniu does not proactively upload this data to Niuniu's servers**."
+      },
+      {
+        "h": "2. Data security is your responsibility",
+        "p": "**You are solely responsible for the security of your data and runtime environment**, including but not limited to regular backups, access control, encryption, and key management. Niuniu is not responsible for the security, confidentiality, integrity, or availability of your data, or for any loss, leak, or corruption of it. Do not process data in this system that you are not authorized to handle or cannot afford to lose."
+      },
+      {
+        "h": "3. Limitations of AI & output accuracy",
+        "p": "The AI capabilities integrated in this system have inherent limitations: their output may be inaccurate, incomplete, outdated, biased, or entirely wrong (so-called \"hallucinations\"), and the same input may yield different results. AI output does not constitute legal, medical, financial, security, or other professional advice. **You should not rely on any AI output without independent verification**."
+      },
+      {
+        "h": "4. High-risk operations & your duty to review",
+        "p": "AI may generate or suggest operations with **high-risk, irreversible consequences** — for example deleting or overwriting files, executing shell/system commands, modifying or pushing code, calling external APIs, or sending or exposing data. You must manually review and verify every command and change before execution and assess the risk yourself; running in an isolated, sandboxed, or reversible environment with backups in place is strongly recommended. **You bear all consequences of executing operations generated or suggested by AI**."
+      },
+      {
+        "h": "5. AI processing & third-party services (incl. cross-border transfer)",
+        "p": "When you use AI execution features, the relevant code, file contents, chat messages, and context are sent to the third-party large-language-model services you configure (e.g. Anthropic Claude, OpenAI/Codex) for processing, governed by their terms and privacy policies. Such services may be located outside your jurisdiction and may involve cross-border data transfer; you are responsible for ensuring such transfers comply with applicable law. **Do not submit sensitive, confidential, or legally protected information you are not authorized to share externally**. The availability, changes, interruptions, and data-processing practices of third-party services are outside Niuniu's control, and Niuniu is not responsible for them."
+      },
+      {
+        "h": "6. Credentials, compliance & intellectual property",
+        "p": "You must safeguard your account credentials, API keys, and access tokens; you bear the consequences of any leak or mishandling. You must ensure your use of this system complies with the laws and regulations of your jurisdiction and other relevant ones (including personal-information protection, cross-border data transfer, confidentiality, and contractual obligations). AI-generated content may be subject to third-party intellectual-property rights or open-source license obligations; Niuniu does not warrant that it is non-infringing, commercially usable, or compliant with any particular license, and **the related compliance and infringement risks are yours**."
+      },
+      {
+        "h": "7. Disclaimer & limitation of liability",
+        "p": "This system is provided \"as is\" and \"as available\", without warranty of any kind, express or implied, as to fitness, accuracy, stability, security, or suitability for a particular purpose. To the maximum extent permitted by law, **Niuniu is not liable for any direct, indirect, incidental, special, or consequential loss** (including data loss, business interruption, or lost profits) arising from the use of or inability to use this system, including any outcome of AI output or actions taken in reliance on it."
+      }
+    ],
+    "checkbox": "I have read and agree to the Data Privacy & Disclaimer above.",
+    "agree": "Agree and continue",
+    "decline": "Decline",
+    "declineHint": "You must accept the Data Privacy & Disclaimer before using this system.",
+    "submitError": "Submission failed, please try again.",
+    "telemetry": {
+      "h": "Anonymous usage statistics (personal edition)",
+      "p": "By default, the personal edition sends one anonymous \"app opened\" event on each launch — install ID, version, OS, architecture, and open time — so we can gauge active usage. **No code, prompts, or personal information is ever collected.** You can turn this off anytime in Settings → Privacy.",
+      "learnMore": "Read the privacy notice"
+    }
+  }
+}

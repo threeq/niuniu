@@ -1,0 +1,16 @@
+{
+  "step": {
+    "basicInfo": "基本資訊",
+    "preset": "選擇預設",
+    "preview": "預覽"
+  },
+  "action": {
+    "next": "下一步",
+    "back": "上一步",
+    "finish": "完成"
+  },
+  "empty": {
+    "title": "空專案",
+    "description": "建立空專案，不匯入任何預設。之後可在專案設定中手動新增列和模板。"
+  }
+}

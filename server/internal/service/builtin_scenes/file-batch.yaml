@@ -1,0 +1,100 @@
+slug: file-batch
+display_name: 文件批量处理
+description: 本地文件批量整理/重命名工作舱 — 场景门控挂载文件系统 MCP（仅本场景可见），先确认操作目录，移动/覆盖/删除等高风险操作一律先列清单再请用户确认，适合「整理下载文件夹/批量重命名/按类型归档」
+tags: [files, batch, automation, rpa, generic]
+
+# 文件操作 MCP 仅在本场景声明 —— 未挂本场景的工作空间（含团队版）投影出的 .mcp.json
+# 里不会出现这台 server，工具列表中也看不到（issue #390 goal 1/6）。inline config 逐字
+# 写入 .mcp.json，不依赖 Claude registry 是否预装；${HOME} 由 Claude Code 展开为本机家目录。
+mcp:
+  - name: filesystem
+    config:
+      command: npx
+      args:
+        - "-y"
+        - "@modelcontextprotocol/server-filesystem"
+        - "${HOME}"
+
+# 浏览器 RPA（截图/点击/填表）复用带 playwright 的场景，本场景不重复声明，也不新增系统级 RPA。
+plugins: []
+
+assets:
+  env_presets: []
+  quick_actions:
+    - slug: tidy-downloads
+      label: 整理下载文件夹
+      prompt: "帮我整理下载文件夹：1) 先确认要整理的目录（默认「下载」文件夹），用 list_directory 列出现有文件并展示给我确认；2) 提出归档方案（按类型/日期分子文件夹），列出「哪些文件 → 移到哪个子目录」的完整清单；3) 等我确认后再用 move_file 执行，绝不未经确认就移动；4) 完成后用 list_directory 复核并汇报整理结果。"
+    - slug: batch-rename
+      label: 批量重命名
+      prompt: "帮我批量重命名文件：1) 先确认目标目录与命名规则（如统一前缀/序号/日期/小写化），用 list_directory 列出将受影响的文件；2) 生成「原名 → 新名」的完整对照清单并展示给我确认，提示可能的命名冲突；3) 确认后用 move_file 在同目录内逐个改名；4) 完成后复核无重名/无遗漏并汇报。"
+    - slug: archive-by-type
+      label: 按类型/日期归档
+      prompt: "把一个目录里的文件按类型或日期归档：1) 先确认源目录，用 list_directory / directory_tree 盘点文件分布；2) 给出分类方案与「文件 → 目标子目录」完整清单请我确认；3) 确认后用 create_directory 建归档目录、move_file 搬运，不直接删除任何文件；4) 复核并汇报每类搬了多少、是否有未归类项。"
+    - slug: dedup-cleanup
+      label: 找重复/清理候选
+      prompt: "帮我找出可清理的文件（重复、临时、超大、长期未用）：1) 先确认扫描目录，用 directory_tree / get_file_info 收集信息；2) 只「列出」清理候选清单（路径+大小+判断理由），不做任何删除；3) 删除/清理属高风险，必须我逐项或整体确认后才执行，且优先「移动到一个备份/回收子目录」而非直接删除。"
+  project_templates: []
+  harness_specs: []
+  agents: []
+
+prompts:
+  - id: file-batch-workflow
+    title: 文件批量处理工作流（确认目录 → 盘点 → 计划 → 确认 → 执行 → 复核）
+    body: |
+      本场景已门控挂载「文件系统 MCP」(filesystem)，可在本机家目录范围内读写/移动/
+      建目录/搜索文件，用于批量整理、重命名、归档等任务。按六步推进，任何一步不要跳过
+      «先确认目录» 和 «先列清单再执行»：
+
+      1. **确认目录（confirm-dir）**：动手前先和用户确认到底操作哪个目录（如「下载」
+         文件夹的确切路径）。用 `list_directory` / `directory_tree` 把该目录现有内容
+         列出来给用户看，确认「就是这里」再继续。不要凭空假设路径。
+      2. **盘点（inventory）**：用 `list_directory` / `get_file_info` / `search_files`
+         摸清文件分布（类型、大小、数量、是否有重名/冲突）。
+      3. **计划（plan）**：生成一张**完整**的「将要操作的文件清单 + 目标动作」表
+         （如「原名 → 新名」「文件 → 目标子目录」），连同潜在风险（重名覆盖、可能误伤）
+         一并展示给用户。
+      4. **确认（confirm）**：高风险批量操作（移动 / 覆盖 / 删除）**必须**先取得用户对
+         上面清单的明确确认（用 `niuniu_ask_user_question` 让用户整体或逐项确认），
+         **绝不**在未确认时自动执行。
+      5. **执行（execute）**：仅在确认范围内操作。重命名用 `move_file`（同目录改名）；
+         归档用 `create_directory` + `move_file`。filesystem MCP 已限制在本机家目录内，
+         不要尝试越界到系统目录。
+      6. **复核（verify）**：操作后用 `list_directory` 比对，向用户汇报「做了什么、影响了
+         哪些文件、是否有未处理项」。
+
+      边界与降级：
+      - filesystem MCP 没有「删除」工具。确需删除时优先「移动到一个备份/回收子目录」
+        而非真正删除；若必须删，走系统命令前同样先列清单、再确认，并提示不可恢复。
+      - 如需**网页自动化**（截图 / 点击 / 填表），请切换到带 playwright 的场景 ——
+        本场景只管本地文件，不含浏览器工具，也不做系统级桌面 RPA。
+
+  - id: file-batch-safety
+    title: 高风险文件操作安全门（移动 / 覆盖 / 删除）
+    body: |
+      涉及**移动、覆盖、删除、批量重命名**等会改变或丢失数据的操作时，安全优先于效率：
+
+      - **先清单后执行**：任何批量高风险操作，先把「将要操作的每个文件 + 目标」完整列出
+        来，请用户确认后才动手；条目很多时分批列、分批确认，不要一次性静默执行。
+      - **不静默覆盖**：当 `move_file` / `write_file` 的目标已存在，必须先告知用户会覆盖
+        谁、并取得确认；能改名避让就避让，不要默默盖掉用户的文件。
+      - **删除最谨慎**：删除不可逆。默认改为「移到备份/回收子目录」；用户坚持真删时，
+        逐项确认并明确告知不可恢复。
+      - **只在确认目录内**：不扩大到用户没点头的目录；不碰系统/隐藏配置目录。
+      - 工具调用本身也会经过牛牛的确认弹窗（写/移动类工具不在自动放行集内）；这是兜底，
+        不能替代你「先把清单讲清楚」的责任。
+
+required_credentials: []
+
+# Single-agent, no-repo file-batch scene: hide cross-agent (blackboard/inbox)
+# and git/harness (gate/pre-commit) tools it never needs.
+disable_tool_groups: [multi-agent, harness]
+
+match:
+  base_weight: 0
+  rules:
+    - signal: workspace.has_repo_count
+      args: { max: 0 }
+      weight: 16
+    - signal: kanban.label_term_frequency
+      args: { terms: ["file", "文件", "整理", "重命名", "归档", "下载", "downloads", "rename", "批量", "清理", "文件夹"] }
+      weight: 20

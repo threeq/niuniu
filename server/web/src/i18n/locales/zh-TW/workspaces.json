@@ -1,0 +1,988 @@
+{
+  "localRunner": {
+    "bar": {
+      "launch": "啟動本地執行器",
+      "connecting": "正在連線…",
+      "active": "本地執行器執行中",
+      "viewLog": "本地執行日誌",
+      "configure": "配置",
+      "error": "本地執行器異常",
+      "streamError": "日誌流連線中斷",
+      "retry": "重試"
+    },
+    "config": {
+      "title": "本地執行器",
+      "description": "繫結本機上的一個目錄，讓構建、打包、測試命令在本地執行，程式碼讀寫仍留在遠端 worktree。",
+      "defaultPrompt": "構建 / 打包 / 測試等命令優先使用本地執行器工具集（local_exec / local_read / local_sync）在繫結的本地目錄中執行；程式碼的讀寫仍在遠端 worktree 進行。當本地執行器工具集不可見時，回退到 server 執行。",
+      "dirLabel": "本地工作目錄",
+      "dirPlaceholder": "/本地/專案/路徑",
+      "dirHint": "填寫本機上要繫結到該工作空間的目錄的絕對路徑。",
+      "dirLockedHint": "繫結後工作目錄不可更改。",
+      "browse": "瀏覽…",
+      "promptLabel": "提示詞片段",
+      "useDefault": "恢復預設",
+      "promptHint": "注入給 Agent，引導其優先使用本地執行器工具集。可編輯。",
+      "allowedLabel": "命令白名單",
+      "allowedHint": "每行一條命令。名單內命令可免二次確認直接執行。",
+      "persistLabel": "記住“始終允許”",
+      "persistHint": "跨會話保留“始終允許”的授權決定。",
+      "stubHint": "在桌面端遠端連線下，儲存後會自動建立繫結並起長連；命令仍受安全閘道器攔截，白名單外的命令會先彈框確認。"
+    },
+    "log": {
+      "title": "本地執行日誌",
+      "description": "該工作空間在本地執行的命令與輸出。",
+      "boundTo": "已繫結：{{dir}}",
+      "configButton": "配置",
+      "empty": "暫無本地執行記錄。"
+    }
+  },
+  "filePreview": {
+    "loading": "正在載入預覽...",
+    "unsupported": "該檔案型別暫不支援預覽",
+    "playbackFailed": "該檔案無法在瀏覽器中播放",
+    "download": "下載",
+    "submitArtifact": "提交為產物",
+    "submitArtifactDone": "已將「{{name}}」提交為產物",
+    "submitArtifactFailed": "提交為產物失敗",
+    "close": "關閉",
+    "highlightDisabledLargeFile": "檔案較大，已關閉語法高亮以保證效能",
+    "imageZoomActual": "檢視原始尺寸",
+    "imageZoomFit": "適應視窗"
+  },
+  "artifactPreview": {
+    "empty": "暫無可預覽的產物",
+    "download": "下載",
+    "remove": "移除",
+    "removeDone": "已移除產物「{{name}}」",
+    "removeFailed": "移除產物失敗",
+    "sendToKanban": "傳送到看板",
+    "sentToKanban": "已將「{{name}}」傳送到看板",
+    "emptySlide": "第 {{n}} 頁暫無文字",
+    "gotoSlide": "跳轉到第 {{n}} 頁",
+    "prevSlide": "上一頁",
+    "nextSlide": "下一頁",
+    "play": "自動播放",
+    "pause": "暫停",
+    "slideFrameTitle": "幻燈片預覽",
+    "textFallback": "暫不支援完整渲染，僅顯示文字"
+  },
+  "studioHint": {
+    "title": "草稿工作艙",
+    "body": "當前修改只發生在工作艙內，不會影響你的原目錄。驗收滿意後再交付。",
+    "dismiss": "知道了"
+  },
+  "list": {
+    "empty": "暫無工作空間",
+    "createWorkspace": "建立工作空間"
+  },
+  "detail": {
+    "notFound": "工作空間不存在"
+  },
+  "sidebar": {
+    "title": "工作空間",
+    "newWorkspace": "新建工作空間",
+    "openKanban": "開啟專案看板",
+    "archivedList": "歸檔列表",
+    "overview": "總覽",
+    "kanbanOverview": "看板總覽",
+    "archived": "已歸檔",
+    "searchPlaceholder": "搜尋標題、ID 或對話內容...",
+    "filterAll": "全部",
+    "uncategorized": "未分類",
+    "scheduleSuffix": "定時任務",
+    "priority": {
+      "attention": "需關注",
+      "needsReview": "待稽覈",
+      "running": "執行中",
+      "zoneTitle": "需要我關注",
+      "notStarted": "未開始",
+      "expandAll": "展開全部",
+      "collapse": "收起",
+      "sortHint": "按 ID 倒序",
+      "filterLabel": "按狀態篩選",
+      "filteredEmpty": "當前篩選下沒有工作空間"
+    },
+    "pinned": {
+      "zoneTitle": "置頂",
+      "pin": "置頂",
+      "unpin": "取消置頂",
+      "failed": "操作失敗，請重試"
+    },
+    "markDone": {
+      "button": "完成",
+      "disabled": "不可完成",
+      "success": "已標記完成",
+      "undo": "撤銷",
+      "undoError": "撤銷失敗",
+      "undoStale": "撤銷失敗：工作空間已不在已完成狀態",
+      "error": "操作失敗",
+      "runningError": "執行中的工作空間需要先停止 agent",
+      "partialSuccess": "已完成，但 issue 狀態同步失敗"
+    },
+    "scope": {
+      "mine": "我的",
+      "all": "全部"
+    },
+    "search": {
+      "noMatch": "無匹配工作空間",
+      "searching": "正在搜尋對話內容…"
+    },
+    "empty": {
+      "noProjects": "還沒有專案"
+    },
+    "card": {
+      "creatorUnknown": "未知建立人",
+      "lastMessageLabel": "最近對話活動",
+      "createdAtLabel": "建立時間",
+      "durationLabel": "持續時長（最後活躍 − 建立時間）",
+      "epicMarker": "史詩",
+      "subIssueMarker": "子任務"
+    },
+    "tree": {
+      "collapse": "收起子任務",
+      "expand": "展開子任務"
+    },
+    "collapse": {
+      "fold": "摺疊側邊欄",
+      "expand": "展開側邊欄"
+    },
+    "resize": {
+      "handle": "拖動調整側邊欄寬度"
+    }
+  },
+  "workspace": {
+    "scope": {
+      "mine": "只看我的",
+      "all": "看全部",
+      "popover": {
+        "mine": "只看我建立的",
+        "all": "看組織內全部"
+      }
+    },
+    "empty": {
+      "mine": {
+        "title": "你還沒有建立工作空間",
+        "cta": "前往工作空間總覽"
+      }
+    }
+  },
+  "overview": {
+    "title": "工作空間總覽",
+    "subtitle": "跨工作空間的成本、活躍度與卡住檢測",
+    "loadFailed": "載入失敗",
+    "retry": "重試",
+    "empty": "沒有可顯示的工作空間",
+    "stuck": "卡住",
+    "stuckTooltip": "執行中但超過 2 小時無活動",
+    "messages": "{{count}} 條訊息",
+    "tokensLabel": "{{tokens}} tokens",
+    "messagesLabel": "使用者 {{user}} / AI {{ai}}",
+    "noProject": "未關聯專案",
+    "group": {
+      "expandAria": "展開 {{name}}",
+      "collapseAria": "摺疊 {{name}}"
+    },
+    "git": {
+      "aheadTooltip": "領先基線分支 {{count}} 個提交",
+      "changesTooltip": "{{count}} 個未提交變更"
+    },
+    "workspaceList": "工作空間列表",
+    "workspaceCount": "共 {{count}} 個",
+    "batch": {
+      "enter": "批次管理",
+      "exit": "完成",
+      "selectedCount": "已選 {{count}} 個",
+      "selectAria": "選擇工作空間 !{{id}}",
+      "forceLabel": "強制刪除（忽略未提交變更）",
+      "deleteSelected": "刪除（{{count}}）",
+      "deleting": "刪除中",
+      "deletingTooltip": "該工作空間正在刪除中",
+      "deleteStarted": "正在後臺刪除 {{count}} 個工作空間",
+      "skippedChanges": "{{count}} 個因存在未提交變更被跳過（勾選“強制刪除”可刪除）",
+      "skippedOther": "{{count}} 個被跳過",
+      "deleteFailed": "批次刪除失敗：{{message}}",
+      "confirmTitle": "刪除 {{count}} 個工作空間？",
+      "confirmDesc": "所選工作空間將在後臺刪除。存在未提交或未合併變更的工作空間會被跳過。",
+      "confirmDescForce": "所選工作空間將在後臺刪除，包含存在未提交或未合併變更的工作空間。此操作不可撤銷。",
+      "confirmAction": "刪除"
+    },
+    "column": {
+      "creator": "建立人"
+    },
+    "creator": {
+      "unknown": "未指定"
+    },
+    "filter": {
+      "creator": {
+        "all": "全部"
+      }
+    },
+    "metrics": {
+      "active": "活躍",
+      "activeHint": "總數 {{total}}",
+      "stuck": "卡住",
+      "stuckHint": "需要檢視",
+      "inputTokens": "輸入 token",
+      "cacheReadHint": "快取讀取 {{tokens}}",
+      "outputTokens": "輸出 token",
+      "messagesHint": "使用者 {{user}} / AI {{ai}} 條"
+    },
+    "tokenChart": {
+      "title": "Token 消耗（近 7 天）",
+      "empty": "暫無 token 消耗",
+      "input": "輸入",
+      "output": "輸出",
+      "cacheCreation": "快取寫入",
+      "cacheRead": "快取讀取"
+    },
+    "timeAgo": {
+      "never": "無活動",
+      "justNow": "剛剛",
+      "minutes": "{{count}} 分鐘前",
+      "hours": "{{count}} 小時前",
+      "days": "{{count}} 天前",
+      "months": "{{count}} 個月前"
+    }
+  },
+  "toolbar": {
+    "archived": "已歸檔",
+    "extractLearnings": "提取記憶",
+    "workflow": "工作流",
+    "data": "圖表",
+    "panels": {
+      "chat": "對話",
+      "files": "檔案",
+      "changes": "變更",
+      "issue": "問題",
+      "pinned": "Pin 訊息",
+      "artifact": "產物",
+      "canvas": "畫布",
+      "drawio": "圖表"
+    }
+  },
+  "dataDrawer": {
+    "open": "已 Pin 的圖表",
+    "title": "從本工作區 Pin 的圖表",
+    "inDashboard": "所在看板：{{name}}"
+  },
+  "team": {
+    "panel": {
+      "header": {
+        "label": "團隊"
+      },
+      "empty": {
+        "title": "選擇團隊",
+        "description": "選擇一個團隊後，將顯示 Pipeline 進度、Worker 狀態和共享 Blackboard。",
+        "warning": "選擇後無法更換。",
+        "loading": "正在載入團隊…",
+        "noTeams": "還沒有可用團隊。",
+        "goSettings": "前往團隊管理",
+        "selectButton": "選擇",
+        "applyFailed": "應用團隊失敗"
+      }
+    }
+  },
+  "sideToolbar": {
+    "openInVSCode": "在 VS Code 中開啟",
+    "openInExplorer": "開啟資源管理器",
+    "copyPath": "複製路徑",
+    "terminal": "終端"
+  },
+  "bgTasks": {
+    "agentReplying": "agent 在回覆",
+    "bashBackground": "後臺 bash",
+    "wakeupQueued": "wakeup 排隊中",
+    "subagent": "subagent",
+    "cronEnabled": "cron 啟用中",
+    "none": "無後臺任務",
+    "highlight": "bg-task highlight",
+    "tooltipItem": "{{count}} 個{{label}}"
+  },
+  "status": {
+    "created": "已建立",
+    "running": "執行中",
+    "needs_review": "待稽覈",
+    "attention": "需關注",
+    "completed": "已完成",
+    "deleting": "刪除中"
+  },
+  "dialogs": {
+    "newWorkspace": {
+      "title": "新建工作空間",
+      "description": "建立一個新的開發工作空間，可關聯多個倉庫",
+      "mode": {
+        "label": "建立方式",
+        "standard": "關聯 Issue / 倉庫",
+        "fromDirectory": "從本地目錄新建",
+        "standardHint": "關聯已有倉庫與 Issue 建立開發工作空間。",
+        "fromDirectoryHint": "選一個本地目錄即可建艙：非 git 目錄自動初始化（含 .gitignore 與 Git LFS），已是倉庫則直接繫結。"
+      },
+      "fromDir": {
+        "pathLabel": "本地目錄",
+        "pathHint": "選擇要建艙的本地資料夾。草稿在工作艙迭代，點「交付」才寫回原目錄。",
+        "missingDir": "請先選擇一個本地目錄",
+        "lfsMissing": "未檢測到 git-lfs，大檔案未啟用 LFS 跟蹤（倉庫可能膨脹）。可在系統依賴中安裝 git-lfs 後重試。",
+        "identityMissing": "尚未配置 git 使用者名稱/郵箱，無法自動初始化倉庫。請先在設定中配置 git 身份後重試。"
+      },
+      "repoSource": {
+        "existing": "已有倉庫",
+        "directory": "本地目錄",
+        "directoryHint": "選一個本地目錄加入：非 git 目錄會自動初始化，已註冊目錄直接複用。",
+        "adding": "新增中...",
+        "nameExists": "已存在同名倉庫，請重新命名目錄或改用「已有倉庫」。",
+        "notGitRepo": "該目錄不是有效的 git 倉庫。",
+        "addFailed": "新增倉庫失敗，請重試。"
+      },
+      "name": "工作空間名稱",
+      "namePlaceholder": "輸入工作空間名稱",
+      "linkIssue": "關聯問題",
+      "selectIssue": "選擇問題（可選）",
+      "searchIssue": "搜尋問題...",
+      "noAvailableIssue": "沒有可用的問題",
+      "issueHint": "可選：僅顯示未完成且未關聯工作空間的問題",
+      "noRepo": {
+        "label": "無倉庫（辦公 / 純目錄任務）",
+        "hint": "建立一個不含 git worktree 的普通目錄，適合非程式碼類任務。"
+      },
+      "addRepo": "新增倉庫",
+      "selectRepo": "選擇倉庫...",
+      "allReposAdded": "所有倉庫已新增",
+      "selectedRepos": "已選倉庫 ({{count}})",
+      "missingBranch": "請為倉庫「{{name}}」選擇一個分支",
+      "partialSuccess": "工作空間已建立，但部分倉庫未能建立 worktree：\n\n{{lines}}",
+      "createFailed": "建立工作空間失敗",
+      "submitting": "建立中...",
+      "submit": "建立",
+      "claudeAccount": "Claude 賬號",
+      "claudeAccountDefault": "（預設賬號）",
+      "codexAccount": "Codex 賬號",
+      "codexAccountDefault": "使用主機全域性 ~/.codex/",
+      "unassignedProject": "未分配專案",
+      "loadingDefaults": "正在載入預設倉庫...",
+      "loadDefaultsFailed": "獲取預設倉庫失敗，請手動選擇",
+      "cliType": {
+        "label": "Agent CLI",
+        "claude": "Claude Code",
+        "codex": "OpenAI Codex",
+        "qwen": "Qwen Code",
+        "claudeHint": "需要本機已安裝 claude 命令。預設選項。",
+        "codexHint": "需要本機已安裝 codex 命令。實驗性功能。",
+        "qwenHint": "需要本機已安裝 qwen 命令。國產引擎，驅動 Qwen / DeepSeek。實驗性功能。"
+      }
+    },
+    "deleteWorkspace": {
+      "title": "工作空間有未提交或未合併的變更",
+      "unstaged": "未暫存的修改 ({{count}})",
+      "staged": "已暫存未提交 ({{count}})",
+      "mergeConflict": "合併衝突 ({{count}})",
+      "aheadOfBase": "未合併到 {{branch}} 的提交 ({{count}})",
+      "aheadOfRemote": "未推送到遠端的提交 ({{count}})",
+      "deleting": "刪除中...",
+      "forceDelete": "強制刪除"
+    },
+    "archived": {
+      "title": "已歸檔的工作空間",
+      "count": "共 {{count}} 個歸檔工作空間",
+      "loading": "載入中...",
+      "empty": "暫無歸檔工作空間",
+      "viewArchived": "檢視歸檔工作空間",
+      "archivedAt": "歸檔於 {{date}} · 建立於 {{created}}",
+      "footer": "刪除將永久移除工作空間的所有資料（包括訊息、費用等歷史記錄）",
+      "confirmTitle": "確認刪除",
+      "confirmDescription": "此操作將永久刪除該工作空間的所有資料，包括訊息記錄、費用記錄等。此操作不可撤銷。",
+      "confirmDelete": "確認刪除"
+    }
+  },
+  "panels": {
+    "loading": "載入中...",
+    "noTasks": "無任務",
+    "archivedNotice": "此面板依賴的檔案系統已隨歸檔清除",
+    "changes": {
+      "title": "變更",
+      "changedFilesCount": "變更檔案 ({{count}})",
+      "selectFileHint": "選擇左側檔案檢視改動",
+      "vsBaseline": "vs 基線 {{branch}}",
+      "vsBaselineMulti": "vs 基線",
+      "includesAll": "含已提交+未提交",
+      "viewUnified": "Unified 行內",
+      "viewSplit": "Split 並排",
+      "focus": {
+        "enter": "專注",
+        "exit": "退出專注 · 回到聊天",
+        "railLabel": "聊天已收起",
+        "expandChat": "展開聊天"
+      },
+      "repoCurrent": "當前分支：{{branch}}",
+      "repoBase": "base: {{branch}}",
+      "openInVSCode": "在 VS Code 中開啟",
+      "openRepo": "在倉庫頁中開啟",
+      "searchFiles": "搜尋檔案…",
+      "searchClear": "清除搜尋",
+      "searchNoMatch": "沒有匹配的檔案",
+      "repoNoChanges": "無變更",
+      "collapseRepo": "摺疊",
+      "expandRepo": "展開",
+      "commitHint": "本工作空間 {{count}} 次提交已全部包含",
+      "noChanges": "暫無變更",
+      "syncFromBranchTitle": "同步最新程式碼",
+      "syncFromBranchPickerTitle": "選擇要合併的分支",
+      "syncFromBranchSearchPlaceholder": "搜尋分支...",
+      "syncFromBranchEmpty": "沒有可選分支",
+      "diff": {
+        "unified": "行內",
+        "split": "並排",
+        "binary": "無法預覽文字（二進位制或非文字檔案）。",
+        "modeChange": "僅檔案許可權變更（{{old}} → {{new}}），無內容差異。",
+        "renameOnly": "僅重新命名檔案，無內容差異。",
+        "noContentChange": "該檔案無內容差異（僅後設資料變更）。",
+        "largeFile": "差異較大（{{count}} 行）——已摺疊以保證效能。",
+        "renderAnyway": "仍然渲染",
+        "openInVSCode": "在 VS Code 中開啟",
+        "expandLines": "展開 {{count}} 行未改動內容",
+        "loadError": "載入 diff 失敗。",
+        "noDiff": "該檔案相對基線無改動。"
+      },
+      "comments": {
+        "me": "我",
+        "lineMeta": "第 {{line}} 行 · {{repo}} › {{path}}",
+        "pending": "待傳送",
+        "sent": "已傳送",
+        "placeholder": "回覆或補充修改要求…",
+        "cancel": "取消",
+        "queue": "加入佇列",
+        "sendNow": "直接傳送給 Agent",
+        "sendQueue": "傳送到 Agent · {{count}} 條",
+        "queued": "已加入佇列",
+        "sentOne": "已傳送給 Agent",
+        "sentAll": "已傳送 {{count}} 條評論給 Agent",
+        "sentPartial": "已傳送 {{sent}} 條，{{failed}} 條失敗"
+      },
+      "syncFromBranchPrompt": "請把分支 `{{sourceBranch}}` 的最新程式碼合併到下述指定 worktree 的當前分支 `{{currentBranch}}` 中。\n\n⚠️ 此工作空間下可能有多個 worktree，請嚴格只在下面這一個 worktree 中操作，不要切換到其他 worktree、不要 cd 離開它：\n- worktree 名稱：{{worktreeName}}\n- worktree 絕對路徑：{{worktreePath}}\n- 當前分支：{{currentBranch}}\n- 要合入的分支：{{sourceBranch}}\n\n請按以下步驟操作（始終用 `git -C \"{{worktreePath}}\"` 顯式定位，不要靠 cwd 推斷）：\n1. 執行 `git -C \"{{worktreePath}}\" status` 檢查工作區是否乾淨；若有未提交修改，先停下來告訴我，等我確認後再繼續；\n2. 執行 `git -C \"{{worktreePath}}\" merge {{sourceBranch}}` 進行合併；\n3. 如果產生合併衝突：先列出全部衝突檔案，再嘗試逐個解決（保留雙方意圖，避免丟失改動），完成後用 `git -C \"{{worktreePath}}\" commit --no-edit` 提交合並；遇到無法判斷如何取捨的衝突，停下來告訴我具體檔案和原因，**不要** 執行 `git merge --abort`，把現場保留給我；\n4. 合併成功後簡要報告：合併方式（fast-forward / merge commit）、新的 HEAD commit、是否還有未提交內容。"
+    },
+    "chat": {
+      "loadMore": "載入更多訊息...",
+      "agentWorking": "Agent is working...",
+      "stickyUserBackToMessage": "點選回到這條使用者訊息",
+      "queueTitle": "待執行佇列",
+      "queueRetry": "重試",
+      "queueSendToInput": "傳送到輸入框",
+      "scheduleToast": "定時任務觸發",
+      "scheduleDesc": "正在執行佇列訊息",
+      "builtin": {
+        "unsupported": "⚠️ {{command}} 僅在 Claude CLI 互動模式下可用，工作空間 chat 不支援此命令。",
+        "cleared": "會話已清除，開始新對話",
+        "noCost": "暫無費用記錄",
+        "costSummary": "費用統計（歷史累計）：${{cost}} | {{turns}} 輪 | {{interactions}} 次互動 | {{minutes}}m{{seconds}}s",
+        "costFailed": "無法獲取費用資訊",
+        "statusLine": "狀態: {{status}} | Session: {{session}}",
+        "statusNone": "無",
+        "statusFailed": "無法獲取狀態",
+        "currentModel": "當前模型: {{model}}",
+        "modelDefault": "預設（全域性配置）",
+        "modelFailed": "無法獲取模型資訊",
+        "helpText": "可用命令：\n  /clear — 清除會話\n  /cost — 檢視費用\n  /status — 檢視狀態\n  /model — 檢視模型\n  /compact — 壓縮上下文\n  /spec — 編寫或更新規格文件\n  /plan — 編寫或更新執行計劃\n  /coding — 按已確認計劃實現\n  /review — 審查程式碼變更\n  /memory — 管理記憶檔案\n  /init — 初始化 agent 指令檔案\n\n其他 plugin/skill 命令可在輸入 / 時檢視補全列表。"
+      }
+    },
+    "chatInput": {
+      "running": "輸入訊息加入佇列…",
+      "waitingConfirm": "輸入修改意見或點選繼續...",
+      "idle": "向 Agent 提問…（Ctrl+Enter 傳送，@ 引用檔案）",
+      "idleCodex": "向 Codex 提問…（Ctrl+Enter 傳送，@ 引用檔案）",
+      "idleQwen": "向 Qwen Code 提問…（Ctrl+Enter 傳送，@ 引用檔案）",
+      "dropZone": "拖放檔案到這裡",
+      "addAttachment": "新增附件",
+      "uploading": "上傳中...",
+      "attachment": "附件",
+      "queue": "排隊",
+      "send": "傳送",
+      "stopAgent": "停止 Agent",
+      "noChanges": "暫無變更",
+      "fileChanges": "{{count}} 個檔案",
+      "fileChangesPlural": "{{count}} 個檔案",
+      "rateOk": "正常",
+      "rateWarning": "受限",
+      "rateRejected": "被拒",
+      "rateLimit5h": "5 小時限流",
+      "rateResetsAt": "{{time}} 重置",
+      "contextWindow": "上下文視窗",
+      "claudeAccountFollow": "（預設）",
+      "claudeAccountTooltip": "Claude 賬號：{{name}}",
+      "resizeHandle": "拖動調整輸入框高度",
+      "statusBusy": "忙碌",
+      "statusRunning": "執行中",
+      "statusIdle": "閒置"
+    },
+    "filePicker": {
+      "header": "檔案 · 輸入過濾 · Esc/空格 取消",
+      "noResults": "無匹配檔案",
+      "searchHint": "輸入檔名搜尋...",
+      "navHint": "↑↓ 導航 · Enter 選擇",
+      "cancelHint": "Esc / 空格 取消"
+    },
+    "attachment": {
+      "clickToZoom": "{{size}} · 點選放大",
+      "loading": "載入中...",
+      "preview": "預覽",
+      "optimized": {
+        "badge": "已最佳化",
+        "tooltip": "原始 {{orig}} → 最佳化後 {{new}}"
+      }
+    },
+    "taskList": {
+      "noTasks": "無任務",
+      "phase": {
+        "spec": "需求分析",
+        "plan": "規劃",
+        "arch": "架構設計",
+        "impl": "實現",
+        "test": "測試",
+        "tasks": "任務"
+      }
+    },
+    "queue": {
+      "title": "待執行佇列",
+      "retryBadge": "重試",
+      "sendToInput": "傳送到輸入框",
+      "fuseToInput": "融合傳送（中斷當前並拼接上次訊息）",
+      "drag": "拖拽排序",
+      "edit": "編輯",
+      "delete": "刪除",
+      "save": "儲存",
+      "cancel": "取消"
+    },
+    "issue": {
+      "noIssue": "未關聯問題",
+      "loading": "載入中...",
+      "notFound": "未找到問題",
+      "confirmDelete": "確定要刪除這個問題嗎？",
+      "copyIdTitle": "點選複製 ID",
+      "copyTitleTitle": "點選複製標題",
+      "editTitleTitle": "編輯標題",
+      "run": "執行",
+      "runTitle": "將該問題的標題+描述組合成 markdown 寫入對話輸入框"
+    },
+    "claudeSettings": {
+      "trigger": "Claude",
+      "triggerTitle": "Claude 設定",
+      "title": "Claude 設定",
+      "description": "配置本工作空間的 Claude Code 行為（僅對當前工作空間生效）",
+      "cliFlags": "啟動配置",
+      "cliFlagsDesc": "覆蓋全域性配置，轉換為 Claude CLI 啟動引數",
+      "envVars": "環境變數",
+      "envVarsDesc": "作為環境變數傳遞給 Claude 程序",
+      "saving": "儲存中...",
+      "autoCompact": {
+        "section": "上下文管理",
+        "label": "自動壓縮上下文",
+        "desc": "當對話接近上下文視窗預算時，自動執行 /compact 釋放空間、減緩 token 增長。預設開啟。",
+        "percentLabel": "觸發閾值（%）",
+        "percentDesc": "上下文佔用達到預算的該百分比時壓縮。預設 70。",
+        "budgetLabel": "上下文視窗（K tokens）",
+        "budgetDesc": "你所用模型的上下文視窗大小，單位為千 token，請設為與之一致（例如 1M 視窗填 1000，200K 視窗填 200）。預設 1000（即 1M）。"
+      },
+      "fields": {
+        "agentCommand": {
+          "label": "Agent 命令",
+          "placeholder": "預設: claude"
+        },
+        "agentArgs": {
+          "label": "Agent 額外引數",
+          "placeholder": "例: --allowedTools Edit,Write,Bash"
+        },
+        "model": {
+          "label": "模型",
+          "placeholder": "例: sonnet, opus, claude-sonnet-4-6"
+        },
+        "allowedTools": {
+          "label": "允許的工具",
+          "placeholder": "例: Bash(git:*) Edit Read"
+        },
+        "maxTurns": {
+          "label": "最大輪次",
+          "placeholder": "例: 50"
+        },
+        "thinkingTokens": {
+          "label": "思考 Token 上限",
+          "placeholder": "例: 10000"
+        }
+      }
+    },
+    "workspaceScenes": {
+      "trigger": "場景",
+      "triggerTitle": "管理本工作空間附加的場景",
+      "title": "工作空間場景",
+      "description": "為這個工作空間附加場景：每個場景是一組 MCP / Claude 外掛 / 資產，會被投影到 .mcp.json 與 ~/.claude overlay。"
+    },
+    "skillInstall": {
+      "trigger": "技能",
+      "triggerTitle": "安裝常用技能（Claude 外掛）",
+      "title": "安裝技能",
+      "description": "從精選列表裡挑一個技能（Claude 外掛），選擇安裝到全域性 ~/.claude 或本工作空間繫結賬號的 .claude 目錄。",
+      "installGlobal": "全域性安裝",
+      "installWorkspace": "本工作空間",
+      "install": "安裝",
+      "uninstall": "解除安裝",
+      "installedBadge": "已安裝",
+      "tabs": {
+        "all": "全部",
+        "uninstalled": "未安裝",
+        "installed": "已安裝"
+      },
+      "tabEmpty": "此分類下暫無技能",
+      "workspaceCliBadge": "工作空間使用 {{cli}}",
+      "noVersionForCli": "無對應版本",
+      "noVersionForCliTooltip": "該精選條目在當前 CLI 的 marketplace 裡沒有對應版本，無法安裝。",
+      "scope": {
+        "global": "全域性",
+        "workspace": "本工作空間"
+      },
+      "installedToast": "{{name}} 已安裝（{{scope}}）",
+      "uninstalledToast": "{{name}} 已解除安裝（{{scope}}）",
+      "uninstallFailedToast": "{{name}} 解除安裝失敗：{{detail}}",
+      "uninstallErrorToast": "{{name}} 解除安裝請求失敗",
+      "skippedToast": "{{name}} 已存在，跳過安裝",
+      "failedToast": "{{name}} 安裝失敗：{{detail}}",
+      "unexpectedStatusToast": "{{name}} 返回未預期狀態：{{status}}",
+      "errorToast": "{{name}} 安裝請求失敗",
+      "addMarketplaceTitle": "新增新市場",
+      "addMarketplaceHint": "支援 GitHub 倉庫簡寫（owner/repo）、完整 URL 或本地路徑。新增後即可安裝該市場裡的技能。",
+      "addMarketplacePlaceholder": "owner/repo 或 https://github.com/...",
+      "addMarketplaceGlobal": "全域性新增",
+      "addMarketplaceWorkspace": "本工作空間",
+      "marketplaceAddedToast": "已新增市場 {{source}}（{{scope}}）",
+      "marketplaceAddFailedToast": "新增市場 {{source}} 失敗：{{detail}}",
+      "marketplaceAddErrorToast": "新增市場請求失敗",
+      "skills": {
+        "superpowers": {
+          "name": "Superpowers",
+          "description": "Anthropic 官方的核心 skills 集：TDD、除錯、協作模式、寫計劃與執行計劃的最佳實踐。"
+        },
+        "frontendDesign": {
+          "name": "Frontend Design",
+          "description": "前端元件、頁面、artifact 設計 skill，避免泛 AI 風格。"
+        },
+        "context7": {
+          "name": "Context7",
+          "description": "線上查詢主流庫 / 框架 / SDK / CLI 的最新文件，彌補訓練資料時效缺口。"
+        },
+        "chromeDevtools": {
+          "name": "Chrome DevTools",
+          "description": "透過 MCP 控制 Chrome：除錯、效能分析、a11y 檢查、網路請求攔截。"
+        },
+        "playwright": {
+          "name": "Playwright",
+          "description": "瀏覽器自動化與端到端測試 MCP，適合驗證前端流程。"
+        },
+        "documentSkills": {
+          "name": "Document Skills",
+          "description": "文件生成 / 解析合集：pptx、docx、xlsx、pdf、品牌指南等。"
+        }
+      }
+    },
+    "codexSettings": {
+      "trigger": "OpenAI Codex",
+      "triggerTitle": "Codex 設定",
+      "title": "Codex 設定",
+      "description": "本 Codex 工作空間的沙箱與審批策略。",
+      "sandboxLabel": "沙箱模式",
+      "approvalLabel": "審批策略",
+      "saving": "儲存中…"
+    },
+    "qwenSettings": {
+      "trigger": "Qwen Code",
+      "triggerTitle": "Qwen 設定",
+      "title": "Qwen 設定",
+      "description": "Qwen Code 引擎設定。",
+      "sharedNote": "Qwen 暫無引擎專屬設定。模型與 CLI 命令在「工作空間設定」中配置；審批模式透過工具欄的許可權選擇器設定。"
+    },
+    "workspaceSettings": {
+      "trigger": "工作空間",
+      "triggerTitle": "工作空間設定",
+      "title": "工作空間設定",
+      "description": "配置工作空間的名稱、倉庫和環境變數",
+      "agentSection": "Agent（通用）",
+      "agentSectionDesc": "適用於本工作空間執行的任意引擎 —— 命令 / 引數 / 模型 / 允許的工具。",
+      "agentDefaultHint": "預設: {{value}}",
+      "agentEgHint": "例: {{value}}",
+      "name": "名稱",
+      "boundRepos": "繫結倉庫",
+      "addRepo": "新增倉庫",
+      "boundReposDesc": "每個倉庫對應一個 git worktree",
+      "noBoundRepos": "暫無繫結倉庫",
+      "selectRepo": "選擇倉庫",
+      "selectRepoPlaceholder": "選擇倉庫...",
+      "allReposAdded": "所有倉庫已新增",
+      "selectBranch": "選擇分支",
+      "loadingBranches": "載入分支...",
+      "addingWorktree": "新增中...",
+      "addWorktree": "新增",
+      "envVars": "環境變數",
+      "importPreset": "從預設匯入",
+      "loadingPresets": "載入中...",
+      "noPresets": "暫無預設",
+      "envInjectDesc": "Agent 啟動時會注入這些環境變數",
+      "noEnvVars": "暫無環境變數",
+      "addEnvVar": "新增",
+      "dangerZone": "危險操作",
+      "archiveDesc": "歸檔將刪除工作空間目錄但保留歷史資料",
+      "archiving": "歸檔中...",
+      "archive": "歸檔工作空間",
+      "deleting": "刪除中...",
+      "delete": "刪除工作空間",
+      "saving": "儲存中...",
+      "save": "儲存",
+      "confirmArchiveTitle": "確認歸檔",
+      "confirmArchiveDesc": "歸檔將刪除工作空間目錄和 git 分支，但保留訊息、費用等歷史資料。此操作不可撤銷。",
+      "confirmArchive": "確認歸檔",
+      "claudeAccount": "Claude 賬號",
+      "claudeAccountFollow": "（跟隨活躍）",
+      "claudeAccountFollowResolved": "（預設 · {{name}}）",
+      "claudeAccountDefaultRow": "預設賬號",
+      "autohost": "自動託管",
+      "autohostDesc": "調整 Agent 自動續跑次數、錯誤重試次數與續跑/恢復提示詞。",
+      "autohostConfigure": "配置自動託管..."
+    },
+    "scheduleManager": {
+      "label": "定時計劃",
+      "add": "新增",
+      "desc": "設定定時或單次自動執行預定義對話",
+      "empty": "暫無定時計劃",
+      "onceFallback": "單次執行",
+      "namePlaceholder": "例如：每日晨會總結",
+      "nameLabel": "名稱（可選）",
+      "recurring": "重複執行",
+      "once": "單次執行",
+      "cronLabel": "Cron 表示式",
+      "runAtLabel": "執行時間",
+      "defaultMessageLabel": "預設訊息（可選）",
+      "defaultMessagePlaceholder": "佇列為空時使用此訊息傳送對話",
+      "defaultMessageDesc": "當佇列中沒有待傳送訊息時，將使用此預設訊息",
+      "submitting": "新增中...",
+      "submit": "新增",
+      "presets": {
+        "daily9": "每天 09:00",
+        "daily14": "每天 14:00",
+        "weekday9": "工作日 09:00",
+        "weekday14": "工作日 14:00",
+        "every2h": "每隔 2 小時",
+        "every4h": "每隔 4 小時"
+      }
+    },
+    "slashCommand": {
+      "loading": "載入命令列表...",
+      "noResults": "無匹配命令",
+      "groupBuiltin": "內建命令",
+      "groupCommand": "外掛命令",
+      "groupSkill": "技能",
+      "sourceBuiltin": "內建命令",
+      "sourceCommand": "外掛命令",
+      "sourceSkill": "技能",
+      "noDescription": "暫無描述"
+    },
+    "quickActions": {
+      "trigger": "快捷",
+      "triggerTitle": "快捷輸入",
+      "empty": "暫無快捷操作，點選下方管理新增",
+      "manage": "管理快捷操作...",
+      "manageTitle": "管理快捷操作",
+      "searchPlaceholder": "搜尋快捷操作",
+      "searchEmpty": "無匹配的快捷操作",
+      "dialogTitle": "管理快捷操作",
+      "dialogDescription": "配置常用的快捷輸入操作，所有工作空間共享",
+      "labelPlaceholder": "顯示名稱",
+      "contentPlaceholder": "預設內容（將填入輸入框）",
+      "autoSendLabel": "選擇後自動傳送",
+      "autoSendBadge": "自動傳送",
+      "addNew": "新增快捷操作",
+      "submit": "新增",
+      "edit": "編輯",
+      "delete": "刪除",
+      "groupPersonal": "個人",
+      "groupScene": "場景提供",
+      "sceneReadOnly": "只讀"
+    },
+    "permissions": {
+      "title": "許可權模式",
+      "description": "控制 Agent 操作的自動化程度",
+      "saved": "已儲存",
+      "autohost": {
+        "activeTitle": "自動託管已開啟",
+        "openSettings": "開啟自動託管設定",
+        "dialogTitle": "自動託管設定",
+        "dialogDescription": "調整 Agent 在此工作空間的自動續跑與錯誤恢復策略。",
+        "budgetSection": "預算",
+        "continueBudget": "續跑次數",
+        "continueBudgetDesc": "連續無操作時自動讓 Agent 繼續的次數上限。0 = 關閉續跑。",
+        "errorBudget": "錯誤重試次數",
+        "errorBudgetDesc": "報錯後自動診斷換方法的次數上限。0 = 關閉恢復。",
+        "promptSection": "提示詞",
+        "continuePrompt": "續跑提示詞",
+        "continuePromptDesc": "佇列空閒時注入給 Agent 的提示。留空使用預設。",
+        "recoverPrompt": "恢復提示詞",
+        "recoverPromptDesc": "Turn 報錯後注入給 Agent 的提示。留空使用預設。",
+        "useDefault": "恢復預設",
+        "promptHint": "建議保留 [AUTOHOST_DONE] 出口指令，否則 Agent 無法主動停下。"
+      },
+      "modes": {
+        "autohost": {
+          "label": "自動託管 (推薦)",
+          "desc": "跳過所有許可權詢問，空閒時自動續跑直至任務完成"
+        },
+        "default": {
+          "label": "預設",
+          "desc": "每次操作都需確認"
+        },
+        "acceptEdits": {
+          "label": "允許編輯",
+          "desc": "自動接受檔案編輯，其他操作需確認"
+        },
+        "auto": {
+          "label": "自動",
+          "desc": "自動處理大多數操作"
+        },
+        "plan": {
+          "label": "計劃",
+          "desc": "只規劃不執行"
+        },
+        "bypassPermissions": {
+          "label": "跳過許可權",
+          "desc": "跳過所有許可權檢查（僅限沙箱）"
+        }
+      }
+    }
+  },
+  "chatMessage": {
+    "attachmentSuffixPrefix": "以下檔案供你參考",
+    "pin": "釘住訊息",
+    "unpin": "取消釘住",
+    "pinFailed": "操作失敗",
+    "copy": "複製訊息",
+    "copied": "已複製",
+    "copyFailed": "複製失敗"
+  },
+  "pinnedPanel": {
+    "title": "Pin 訊息",
+    "empty": "還沒有釘住的訊息。把滑鼠移到訊息上，點 Pin 圖示即可釘住。",
+    "noPreview": "（無預覽）",
+    "locate": "定位到該訊息",
+    "unpin": "取消釘住",
+    "unpinFailed": "取消釘住失敗",
+    "notLoaded": "該訊息尚未載入，向上滾動以載入更早的訊息。"
+  },
+  "permission": {
+    "card": {
+      "wantsToCall": "Claude 想呼叫 {{tool}}",
+      "allowOnce": "允許",
+      "alwaysAllow": "始終允許",
+      "deny": "拒絕",
+      "confirmDeny": "確認拒絕",
+      "denyPlaceholder": "（可選）告訴 Claude 怎麼改",
+      "expired": "已超時",
+      "remaining": "{{m}}m {{s}}s",
+      "allowed": "✓ 已允許",
+      "denied": "✕ 已拒絕",
+      "timeout": "⏱ 超時未答覆",
+      "cancelled": "— 已取消",
+      "subagent": "→ {{type}}",
+      "toolInputJson": "tool input (JSON)",
+      "fallbackTool": "general-purpose"
+    },
+    "matcher": {
+      "onlyThisCommand": "僅這條命令: {{cmd}}",
+      "prefix": "字首: {{value}}",
+      "onlyThisFile": "僅當前檔案",
+      "currentDir": "當前目錄: {{dir}}/",
+      "wholeWorkspace": "整個 workspace",
+      "domain": "域名: {{host}}",
+      "onlyThisURL": "僅這個 URL",
+      "allCalls": "所有呼叫"
+    },
+    "indicator": {
+      "pendingCount": "{{count}} 個待批准"
+    },
+    "allowlist": {
+      "title": "許可權白名單",
+      "header": "許可權白名單。從聊天裡點\"始終允許\"產生；這裡只能刪除。",
+      "search": "搜尋 tool 或 matcher",
+      "empty": "（空）",
+      "any": "(any)",
+      "delete": "刪除"
+    }
+  },
+  "askUser": {
+    "card": {
+      "title": "Claude 想問你幾個問題",
+      "submit": "提交",
+      "other": "其他（自定義回答）",
+      "otherPlaceholder": "輸入你的回答…",
+      "expired": "已超時",
+      "remaining": "{{m}}m {{s}}s",
+      "answered": "✓ 已回答",
+      "timeout": "⏱ 超時未答覆",
+      "cancelled": "— 已取消"
+    },
+    "indicator": {
+      "pendingCount": "{{count}} 個問題待回答"
+    }
+  },
+  "autohost": {
+    "fallbackCondition": {
+      "title": "完成條件兜底（可選）",
+      "hint": "僅在 workspace 繫結的 issue 未設定完成條件時生效。建議優先在 Issue 詳情設定，使條件隨任務而變。",
+      "placeholder": "示例：所有單元測試透過",
+      "charCount": "字元數：{{n}} / {{max}}"
+    }
+  },
+  "mcp": {
+    "section_title": "MCP 配置",
+    "scene_title": "本工作區場景",
+    "loading": "正在檢測...",
+    "recommended_label": "推薦",
+    "available_heading": "全部可用",
+    "no_servers_available": "未檢測到本地安裝的 MCP",
+    "skip_label": "可不選；僅 niuniu MCP 會被載入",
+    "plugin_conflict": {
+      "global_load": "由 plugin 全域性載入（無法 per-workspace 關閉）"
+    },
+    "unavailable_warning": "{{count}} 個 MCP 在當前賬號下不可用",
+    "redetect": "重新檢測",
+    "restart_required": "儲存後需要重啟 Agent 才能生效",
+    "save": "儲存",
+    "restart_agent": "重啟 Agent",
+    "niuniu_required": "必選",
+    "strict_label": "禁用全域性 MCP 配置（僅用本工作區）",
+    "strict_hint": "重啟 agent 後生效。",
+    "strict_failed": "更新失敗，已回滾。",
+    "effective": "生效配置",
+    "overrides": "本工作區覆蓋"
+  },
+  "canvas": {
+    "title": "標註",
+    "loading": "畫布載入中…",
+    "empty": "畫布是空的——請先畫點內容。",
+    "fileName": "名稱",
+    "targetWorktree": "目標 worktree",
+    "sendToAgent": "發給 Agent",
+    "sent": "標註已發給 Agent。",
+    "sentWithSource": "已發給 Agent · 原始檔已儲存到 {{path}}",
+    "defaultPrompt": "這是一張標註圖（{{name}}），請按圖上標註的內容處理。",
+    "errors": {
+      "tooLarge": "圖片太大（上限 {{limit}}）。",
+      "sendFailed": "傳送標註失敗。"
+    }
+  },
+  "drawio": {
+    "title": "圖表",
+    "loading": "draw.io 載入中…",
+    "defaultPrompt": "這是一張圖表（{{name}}），請按圖中內容處理。"
+  },
+  "contentViewer": {
+    "save": "儲存",
+    "saved": "已儲存到工作樹",
+    "saveFailed": "儲存失敗",
+    "viewDiff": "變更",
+    "viewFile": "檔案",
+    "viewPreview": "預覽",
+    "viewSource": "原始碼"
+  }
+}

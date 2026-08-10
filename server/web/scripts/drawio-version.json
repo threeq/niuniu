@@ -1,0 +1,16 @@
+{
+  "version": "v30.2.7",
+  "tarballUrl": "https://github.com/jgraph/drawio/archive/refs/tags/v30.2.7.tar.gz",
+  "tarballSha256": "b735b902564fdd970b47a1177983545a5b4bf0fe60ac892f4ca047ed8042bff6",
+  "remove": [
+    "dropbox.html",
+    "onedrive3.html",
+    "github.html",
+    "gitlab.html",
+    "teams.html",
+    "connect",
+    "monday-app-association.json",
+    "WEB-INF",
+    "META-INF"
+  ]
+}

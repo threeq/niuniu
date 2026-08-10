@@ -1,0 +1,12 @@
+{
+  "directoryBrowser": {
+    "open": "Browse",
+    "close": "Close",
+    "emptyFolder": "Empty folder",
+    "niuniuForbidden": "The niuniu data directory (~/.niuniu) and its subdirectories cannot be used. Choose another location."
+  },
+  "color": {
+    "preset": "Preset",
+    "custom": "Custom"
+  }
+}

@@ -1,0 +1,41 @@
+slug: generic-code
+display_name: 通用代码项目
+description: 任意语言代码仓库的通用配置 — memory + context7 文档检索 + 通用评审规范
+tags: [development, code]
+
+mcp:
+  - name: context7
+
+plugins: []
+
+assets:
+  env_presets: []
+  quick_actions:
+    - slug: general-code-review
+      label: 通用代码评审
+      prompt: "请对当前 diff 做一次通用代码评审：错误处理、命名、测试覆盖、潜在 bug。逐项列出。"
+  project_templates: []
+  harness_specs: []
+  agents: []
+
+prompts:
+  - id: general-code-review-checklist
+    title: 通用代码评审清单
+    body: |
+      在评审任何代码改动时，按以下顺序检查并对每一项给出明确的「通过 / 待商榷 / 必须修改」结论：
+
+      1. **错误处理**：所有可能失败的调用是否检查了返回值？错误是否带上下文（不要裸 return err）？panic / unwrap 是否被滥用？
+      2. **命名**：变量、函数、类型的名字是否准确反映其作用？缩写是否在仓库内一致？是否有误导性的旧名？
+      3. **测试**：变动是否被测试覆盖？是否补了边界、错误路径、空输入？是否有易碎的 mock？
+      4. **可读性**：函数是否过长（>80 行需要拆分）？嵌套是否过深（>3 层需要早 return）？
+      5. **副作用**：是否引入了隐式全局状态、未释放的资源、阻塞调用？
+      6. **向后兼容**：API/schema 变更是否影响现有调用方？是否需要迁移脚本？
+
+required_credentials: []
+
+match:
+  base_weight: 10
+  rules:
+    - signal: workspace.has_repo_count
+      args: { min: 1 }
+      weight: 15

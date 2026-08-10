@@ -1,0 +1,119 @@
+{
+  "pairing": {
+    "scan": {
+      "title": "扫描配对码",
+      "cameraPermission": "需要相机权限才能扫描二维码",
+      "grantCamera": "授权相机",
+      "back": "返回",
+      "cancel": "✕  取消",
+      "hint": "将桌面端的配对二维码置于框内",
+      "qrExpiredTitle": "二维码已过期",
+      "qrExpiredMessage": "请在桌面端重新生成配对二维码",
+      "qrExpiredOk": "确定",
+      "notLoggedInTitle": "未登录",
+      "notLoggedInMessage": "请先登录 Relay 账号",
+      "notLoggedInAction": "去登录",
+      "prepareErrorTitle": "错误",
+      "confirmOrigin": "是否通过上述 Relay 服务与桌面端 {{desktopId}} 配对？",
+      "relayServiceLabel": "Relay 服务",
+      "confirmTitle": "确认配对",
+      "confirmBtn": "确认配对",
+      "cancelBtn": "取消",
+      "processingBtn": "处理中...",
+      "manualEntryButton": "手动输入配对码"
+    },
+    "manual": {
+      "title": "手动输入配对码",
+      "pasteLabel": "将桌面端的 niuniu-pair:// 链接粘贴到下方",
+      "confirm": "确认",
+      "invalidUrl": "配对链接无效，请粘贴完整的 niuniu-pair://v1?... 链接。"
+    },
+    "waiting": {
+      "waitingTitle": "等待桌面端确认...",
+      "waitingHint": "请在桌面端的 Niuniu 界面上点击「确认配对」",
+      "cancelLink": "取消",
+      "sasTitle": "请选择桌面端显示的验证码",
+      "sasHint": "查看桌面端 Niuniu 上显示的 6 位数字，然后在下方点击匹配项。",
+      "sasWarning": "若三个选项均不匹配，请取消配对并检查网络环境",
+      "cancelPairing": "取消配对",
+      "successTitle": "配对成功",
+      "successDesc": "桌面端已验证，可以开始使用隧道连接。",
+      "viewPairedBtn": "查看已配对设备",
+      "errorTitle": "配对失败",
+      "backBtn": "返回",
+      "notLoggedIn": "未登录 Relay 账号",
+      "pairingFailed": "配对失败",
+      "pubKeyMismatch": "公钥不匹配 — 可能存在中间人攻击",
+      "sasMismatchTitle": "验证码不匹配",
+      "sasMismatchMessage": "请求中可能存在中间人攻击，配对已取消。\n请在安全的网络环境中重试。",
+      "sasMismatchBack": "返回",
+      "pairingStatus": "配对状态：{{status}}"
+    },
+    "sasPick": {
+      "title": "请选择桌面端显示的验证码"
+    },
+    "conflict": {
+      "title": "设备已配对",
+      "description": "该账号下已有名为「{{priorName}}」的设备配对记录。这是重装后的手机吗？",
+      "replacePrevious": "替换旧设备",
+      "keepAsNew": "以新设备继续"
+    }
+  },
+  "authEmail": {
+    "welcome": "欢迎回来",
+    "tagline": "远程操控你的 牛牛🐂 桌面",
+    "emailPlaceholder": "邮箱",
+    "continue": "继续",
+    "useSelfHosted": "使用自托管 Relay",
+    "codeSent": "验证码已发送",
+    "changeEmail": "改邮箱",
+    "resendIn": "{{seconds}}s 后可重新发送",
+    "resendNow": "重新发送",
+    "verifyAndSignIn": "验证并登录",
+    "error": {
+      "invalidEmail": "邮箱格式不正确",
+      "rateLimited": "请求过于频繁，{{retry}}s 后重试",
+      "invalidCode": "验证码不正确",
+      "expiredCode": "验证码已过期",
+      "tooManyAttempts": "尝试次数过多，请重新发送验证码",
+      "network": "网络异常，请检查后重试"
+    }
+  },
+  "desktops": {
+    "headerTitle": "已配对的桌面端",
+    "logoutBtn": "退出",
+    "emptyTitle": "还没有配对的桌面端",
+    "emptyDesc": "在桌面端 Niuniu 中开启中继配对，然后点击下方按钮扫码连接",
+    "pairNewBtn": "+ 配对新桌面端",
+    "manualLink": "手动输入服务器地址",
+    "switcher": {
+      "title": "切换活跃桌面端",
+      "noDesktop": "无桌面端（直连服务器）",
+      "active": "当前：{{name}}"
+    },
+    "activeBadge": "当前活跃",
+    "unpairConfirmTitle": "解除绑定 {{name}}？",
+    "unpairConfirmMessage": "此设备将无法再连接到该桌面",
+    "unpairConfirmBtn": "解除绑定"
+  },
+  "connectionInfo": {
+    "title": "连接信息",
+    "activeDesktop": "当前桌面端",
+    "transport": "传输方式",
+    "lastHandshake": "上次握手时间",
+    "encryptedLine": "使用 Noise KK 端对端加密。中继服务器仅可见元数据。",
+    "rehandshake": "立即重新握手",
+    "transport.lan": "直连局域网",
+    "transport.relay": "经由中继",
+    "transport.disconnected": "未连接"
+  },
+  "trustedRelays": {
+    "title": "受信任的中继服务器",
+    "untrustedWarning": "中继服务器「{{host}}」不在您的受信任列表中。请只连接您信任或自己控制的中继。添加后继续配对。",
+    "trustAndContinue": "添加并信任",
+    "removeConfirm": "移除该来源"
+  },
+  "errors": {
+    "pubKeyMismatch": "公钥不匹配 — 可能存在中间人攻击"
+  }
+}

@@ -1,0 +1,76 @@
+slug: geo-audit
+display_name: GEO 引用率实测
+description: 用现有多 agent 后端（Claude/Qwen/Codex）跑一批 query，统计品牌/URL 被 LLM 引用的次数与占比，产出引用率报告与缺口清单。GEO 最核心、其他工具最缺的指标；零新依赖。说「测一下我的品牌被 AI 引用多少」「跑个引用率」即启动。适合无仓库的营销/GEO/内容工作空间。
+
+tags: [geo, citation, marketing, llm, brand, research]
+
+mcp: []
+
+plugins: []
+
+# Vendored skill：随场景启用自动物化到 <workspace>/.claude/skills/geo-citation-audit/，
+# 纯本地文件拷贝（不联网、不跑安装 CLI）。SKILL.md 的双语触发词（引用率/被引用/GEO/
+# citation rate…）由 agent 自动激活。引擎为零依赖标准库 Python，靠机器上已有的
+# claude/qwen/codex CLI 采集回答。
+skills:
+  - name: geo-citation-audit
+
+assets:
+  env_presets: []
+  quick_actions:
+    - slug: run-geo-audit
+      label: 跑一次引用率实测
+      prompt: "用 geo-citation-audit 技能做一次 GEO 引用率实测：1) 先和我确认品牌名、别名、URL/域名、竞品，以及要测的 query（我没给就基于品牌/主题生成 8–15 条中立的领域问题让我确认，问题里绝不出现品牌名）；2) 用 scripts/geo_audit.py init 生成 config.json 并填入上述信息，probe 探测可用模型（只有一个也照跑，多跑几轮）；3) 每个 query×模型×轮问一次、把回答收进 answers.jsonl（CLI 就绪用 collect 自动驱动，否则分发 sub-agent 采集，跑前给我一个调用次数预估）；4) 用 score 出 geo-report.md/json 并登记到本工作空间产物；5) 汇报总体引用率、零引用缺口 query、分模型差异与声量占比，并指出 GEO 优化落点。数字一律来自引擎，不要口算。"
+    - slug: geo-gap-actions
+      label: 缺口 query → 优化建议
+      prompt: "读取当前工作空间的 geo-report.json，针对其中 gap_queries（零引用的 query）给出可执行的 GEO 优化建议：每条缺口对应 1) 用户真正想要的答案是什么、2) 我方应补什么权威内容/落地页/FAQ 才能让模型学到并引用、3) 可衡量的复测方式。只基于报告里的真实数据，不编造引用率。"
+  project_templates: []
+  harness_specs: []
+  agents: []
+
+prompts:
+  - id: geo-audit-methodology
+    title: GEO 引用率实测方法论
+    body: |
+      本场景测的是「生成引擎里的被引用率」——当用户向 AI 问领域问题时，模型会不会
+      点名/带 URL 地提到你的品牌。这是 GEO 的核心指标，SEO 工具测不到。
+
+      铁律：
+      1. **query 必须中立**：问题里绝不出现品牌名，否则等于喂答案，引用率失真。
+         好的 query 是「该品类最好的工具是什么」「怎么解决<痛点>」这类真实用户问法。
+      2. **多模型 × 多轮**：不同模型的训练语料不同，引用率会差很多；同一模型多轮可
+         平滑随机性。有几个模型用几个，报告如实标注，别因凑不齐而放弃。
+      3. **引用判定交给引擎**：scripts/geo_audit.py 做大小写/全半角无关的子串匹配
+         （品牌名/别名/URL/域名），确定可复现。人不数数、不估计。
+      4. **缺口即落点**：零引用的 query 是 GEO 优化的靶子——补权威内容、让模型学到
+         你的品牌，下轮复测看引用率是否抬升。产物 JSON schema 稳定，可接 cron 做时间
+         序列监测。
+
+      信息以用户提供为准，缺失就标注并索取，不编造品牌/URL/竞品。
+
+  - id: geo-assistant-voice
+    title: GEO 助手沟通风格
+    body: |
+      你在以「GEO 增长助手」身份服务用户。面向用户的回复用平实业务话术：
+      - 用「引用率」「被 AI 提到的比例」「零引用的问题」等说法，少堆命令与文件路径。
+      - 汇报进展讲「测了哪些问题、得到什么结论」，而不是「跑了哪条命令」。
+      - 交付时把 geo-report.md 作为主产物，说明缺口 query 与下一步优化动作。
+
+      交付物登记：最终报告已由引擎登记到工作空间 `.niuniu/artifacts.json`，右侧产物
+      预览面板据此显示；不要登记中间的 config.json / answers.jsonl / 脚本。
+
+required_credentials: []
+
+# Single-agent, no-repo scene: hide cross-agent (blackboard/inbox) and
+# git/harness (gate/pre-commit) tools it never needs.
+disable_tool_groups: [multi-agent, harness]
+
+match:
+  base_weight: 0
+  rules:
+    - signal: workspace.has_repo_count
+      args: { max: 0 }
+      weight: 16
+    - signal: kanban.label_term_frequency
+      args: { terms: ["引用率", "被引用", "GEO", "生成引擎", "品牌", "声量", "citation", "share of voice", "geo", "brand mention"] }
+      weight: 20

@@ -1,0 +1,53 @@
+{
+  "loading": "加载中...",
+  "columnCount": "{{count}} 列",
+  "standard-dev": {
+    "label": "标准开发流",
+    "description": "适合功能开发的标准 5 列流程：Backlog → Spec → Implement → Review → Done"
+  },
+  "quick-fix": {
+    "label": "快速修复流",
+    "description": "适合 Bug 修复的精简 4 列流程：Triage → Fix → Verify → Done"
+  },
+  "column": {
+    "backlog": { "label": "待办" },
+    "spec": { "label": "规格" },
+    "implement": { "label": "编码" },
+    "review": { "label": "审查" },
+    "done": { "label": "完成" },
+    "triage": { "label": "分类" },
+    "fix": { "label": "修复" },
+    "verify": { "label": "验证" }
+  },
+  "spec": {
+    "go-test-pass": { "label": "Go 测试通过" }
+  },
+  "template": {
+    "standard-development": { "label": "标准开发" },
+    "quick-fix": { "label": "快速修复" }
+  },
+  "preview": {
+    "columns": "看板列",
+    "templates": "模板",
+    "specs": "Gate 规范",
+    "default": "默认"
+  },
+  "import": {
+    "button": "重新导入预设",
+    "title": "重新导入预设",
+    "success": "预设导入成功",
+    "successDetail": "已导入 {{ic}} 列、{{it}} 模板、{{is}} 规范；跳过 {{sc}} 列、{{st}} 模板、{{ss}} 规范",
+    "failed": "预设导入失败，请重新选择预设或选择「空项目」",
+    "errorActiveRun": "项目存在进行中的 Run，overwrite 策略被阻止",
+    "overwriteWarning": "将删除并替换同名 column / template / spec，且要求项目无 active Run。此操作不可撤销。",
+    "cancel": "取消",
+    "confirm": "导入",
+    "selectPreset": "请先选择一个预设",
+    "strategy": {
+      "label": "合并策略",
+      "failIfNotEmpty": "仅允许空项目（安全默认）",
+      "mergeSkipConflict": "合并 — 跳过同名冲突",
+      "overwrite": "覆盖 — 替换同名 column / template / spec（要求无 active Run）"
+    }
+  }
+}

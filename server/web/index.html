@@ -1,0 +1,144 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
+    <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#0b1220" media="(prefers-color-scheme: dark)" />
+    <script>
+      // Language bootstrap — MUST run before <title> tag is parsed to avoid FOUC.
+      // Also swaps favicon to the lang-specific variant. Reads niuniu.language
+      // from localStorage as a RAW STRING (not JSON), same contract as
+      // niuniu.theme below. Mirror in language-store.ts.
+      (function () {
+        try {
+          var lang = localStorage.getItem('niuniu.language');
+          if (!lang) {
+            // First open: no stored preference → detect from the browser/OS
+            // language so the very first paint (title, <html lang>, favicon)
+            // already matches the user's language. We do NOT persist here;
+            // i18next caches the resolved value to localStorage once it loads.
+            // Mirror of normalizeLanguage() in src/i18n/index.ts — keep in sync.
+            var nav = (navigator.languages && navigator.languages[0]) || navigator.language || '';
+            var l = nav.toLowerCase();
+            if (l.indexOf('zh') === 0) {
+              lang = /hant|tw|hk|mo/.test(l) ? 'zh-TW' : 'zh-CN';
+            } else {
+              // English browsers and any unsupported language → English default.
+              lang = 'en';
+            }
+          }
+          var favicon = document.querySelector('link[rel="icon"]');
+          if (lang === 'en') {
+            document.documentElement.lang = 'en';
+            document.title = 'Niuniu - AI Workstation';
+            if (favicon) favicon.href = '/icon.svg';
+          } else if (lang === 'zh-TW') {
+            document.documentElement.lang = 'zh-TW';
+            document.title = '牛牛 - AI工作站';
+            if (favicon) favicon.href = '/icon-cn.svg';
+          } else {
+            document.documentElement.lang = 'zh-CN';
+            document.title = '牛牛 - AI工作站';
+            if (favicon) favicon.href = '/icon-cn.svg';
+          }
+        } catch (_) { /* localStorage blocked */ }
+      })();
+    </script>
+    <title>牛牛 - AI工作站</title>
+    <style>
+      /* Instant first-paint loader. Lives inside #root and renders before the
+         JS bundle parses, so the user sees a spinner immediately instead of a
+         blank page. React's createRoot().render() replaces #root's children on
+         mount, removing it automatically — no JS cleanup needed. Colors mirror
+         the theme-color metas and the html.dark class set by the theme bootstrap
+         below (with prefers-color-scheme as a no-JS fallback). */
+      #app-loading {
+        position: fixed;
+        inset: 0;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 18px;
+        background: #ffffff;
+        z-index: 2147483647;
+        font-family: 'Noto Sans SC', system-ui, -apple-system, sans-serif;
+      }
+      html.dark #app-loading { background: #0b1220; }
+      @media (prefers-color-scheme: dark) {
+        html:not(.dark) #app-loading { background: #0b1220; }
+      }
+      #app-loading .al-logo {
+        width: 56px;
+        height: 56px;
+        opacity: 0.95;
+      }
+      #app-loading .al-spinner {
+        width: 34px;
+        height: 34px;
+        border: 3px solid rgba(128, 128, 128, 0.25);
+        border-top-color: #1e5fcc;
+        border-radius: 50%;
+        animation: al-spin 0.8s linear infinite;
+      }
+      #app-loading .al-text {
+        font-size: 13px;
+        letter-spacing: 0.02em;
+        color: #6b7280;
+      }
+      html.dark #app-loading .al-text { color: #9aa4b2; }
+      @media (prefers-color-scheme: dark) {
+        html:not(.dark) #app-loading .al-text { color: #9aa4b2; }
+      }
+      @keyframes al-spin {
+        to { transform: rotate(360deg); }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        #app-loading .al-spinner { animation-duration: 1.6s; }
+      }
+    </style>
+  </head>
+  <body>
+    <div id="root">
+      <!-- First-paint loading state; replaced by React on mount. -->
+      <div id="app-loading">
+        <img class="al-logo" src="/icon.svg" alt="" />
+        <div class="al-spinner"></div>
+        <div id="al-text" class="al-text">加载中…</div>
+      </div>
+    </div>
+    <script>
+      // Localize the loader text using the language already resolved by the head
+      // bootstrap (it set document.documentElement.lang before the body parsed).
+      (function () {
+        try {
+          var lang = document.documentElement.lang || 'zh-CN';
+          var txt = lang === 'en' ? 'Loading…' : lang === 'zh-TW' ? '載入中…' : '加载中…';
+          var el = document.getElementById('al-text');
+          if (el) el.textContent = txt;
+        } catch (_) { /* non-fatal */ }
+      })();
+    </script>
+    <script>
+      // Theme bootstrap — MUST run before main.tsx to avoid FOUC.
+      // Reads niuniu.theme from localStorage as a RAW STRING (not JSON).
+      // This contract is enforced by theme-store.ts — do not change without
+      // updating both sides.
+      (function () {
+        try {
+          var t = localStorage.getItem('niuniu.theme');
+          var sys = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+          var resolved = t === 'light' || t === 'dark' ? t : sys;
+          if (resolved === 'dark') document.documentElement.classList.add('dark');
+          document.documentElement.style.colorScheme = resolved;
+        } catch (_) { /* localStorage blocked */ }
+      })();
+    </script>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

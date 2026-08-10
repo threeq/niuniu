@@ -1,0 +1,50 @@
+slug: ts-react-dev
+display_name: TypeScript + React 开发
+description: 现代前端项目配置 — Playwright 浏览器自动化、pnpm lint 快速动作、React 组件评审规范
+tags: [development, typescript, react, frontend]
+
+mcp:
+  - name: context7
+
+plugins:
+  - source: playwright@claude-plugins-official
+    optional: true
+
+assets:
+  env_presets: []
+  quick_actions:
+    - slug: pnpm-lint-report
+      label: 跑 pnpm lint
+      prompt: "请在仓库根目录跑 `pnpm lint` 与 `pnpm tsc -b`，把所有 ESLint 警告和类型错误分组报告。"
+  project_templates: []
+  harness_specs: []
+  agents: []
+
+prompts:
+  - id: react-component-review
+    title: React 组件评审规范
+    body: |
+      评审 React/TypeScript 组件时，按以下顺序检查：
+
+      1. **Props 类型化**：props 是否用 interface/type 明确声明？是否避免了 `any` 与隐式 `unknown`？可选 prop 是否合理给了默认值？
+      2. **可访问性 (a11y)**：交互元素是否用语义化标签（`<button>` 而非 `<div onClick>`）？是否补了 `aria-label` / `role`？焦点顺序是否合理？颜色是否兼容色弱用户？
+      3. **设计 token**：颜色、间距、字号是否走项目 token（如 Tailwind `bg-warm-surface`、`text-prio-high`），不写裸 hex / 任意 Tailwind 值（`bg-[#xxx]`）。
+      4. **状态管理**：useState 是否过度拆分（应合并到一个对象）？派生状态是否本应用 useMemo？effect 依赖数组是否完整？
+      5. **副作用与清理**：useEffect 是否返回了清理函数？事件监听、定时器、订阅是否被解绑？
+      6. **国际化**：用户可见文字是否走 `t()`，避免在 JSX 里硬编码中文/英文字符串。
+      7. **拆分边界**：组件超过 200 行考虑拆出子组件；逻辑超过 3 个 hooks 考虑提取自定义 hook。
+
+required_credentials: []
+
+match:
+  base_weight: 5
+  rules:
+    - signal: workspace.has_repo_language
+      args: { language: typescript }
+      weight: 25
+    - signal: workspace.has_repo_language
+      args: { language: javascript }
+      weight: 25
+    - signal: workspace.has_repo_count
+      args: { min: 1 }
+      weight: 5

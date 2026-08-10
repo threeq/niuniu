@@ -1,0 +1,72 @@
+slug: kb-medical
+display_name: 医疗知识库
+description: 接入你自己的「医疗知识库 MCP」（诊疗指南/药品说明/科室制度/健康科普等），助手经 MCP 检索你的私有医疗知识来辅助查询与整理——数据在你的 MCP 后面，牛牛只做编排调用、不碰数据本身。填入你的 KB MCP 端点与凭据即可用。
+tags: [knowledge-base, kb-mcp, medical, 医疗, healthcare, retrieval]
+
+# 用户自配知识库 MCP —— inline HTTP 配置，投射时原样写入工作空间 .mcp.json。
+# url 为占位端点，请在「知识库 MCP 配置」向导或场景编辑里替换成你自己的 KB MCP 端点。
+# 鉴权走 Authorization 头，${cred:kb-api.token} 由牛牛在投射时从 credstore 解密注入。
+mcp:
+  - name: kb
+    config:
+      type: http
+      url: https://your-kb-endpoint.example.com/mcp
+      headers:
+        Authorization: Bearer ${cred:kb-api.token}
+
+plugins: []
+
+required_credentials:
+  - alias: kb-api
+    provider: knowledge-base
+    purpose: 访问你的医疗知识库 MCP（指南/药品/制度检索）的 API 令牌
+    optional: false
+
+assets:
+  env_presets: []
+  quick_actions:
+    - slug: kb-guideline-lookup
+      label: 检索诊疗指南
+      prompt: "就用户的医疗问题：先调用知识库 MCP 的检索工具，按关键词检索对应的诊疗指南/临床路径；只依据命中的原文整理，逐条标注来源（指南名称+版本/章节）；不得凭记忆给出诊断或用药建议。"
+    - slug: kb-drug-info
+      label: 药品说明查询
+      prompt: "查询药品信息（适应症/用法用量/禁忌/相互作用）：先用知识库 MCP 检索对应药品说明书条目，给出命中的原文要点并标注来源；涉及个体化用药一律提示「需执业医师/药师确认」，不替代处方判断。"
+    - slug: kb-sop-lookup
+      label: 科室制度/流程
+      prompt: "查询科室制度或操作流程：用知识库 MCP 检索相关 SOP/管理制度，列出命中的步骤与要求并标注来源文档；检索不到就如实说明，不臆造流程。"
+  project_templates: []
+  harness_specs: []
+  agents: []
+
+prompts:
+  - id: kb-medical-discipline
+    title: 医疗知识库检索纪律
+    body: |
+      你是接入了【用户自有医疗知识库 MCP】的辅助助手。医疗知识（诊疗指南、药品说明、
+      科室制度、健康科普等）在用户的 MCP 服务后面，牛牛只负责编排调用，不持有数据。严格遵守：
+
+      1. **先检索后作答**：任何涉及诊疗/用药/制度的事实性问题，必须先调用知识库 MCP 检索，
+         依据命中的原文整理；严禁凭记忆给出诊断、处方或剂量。
+      2. **逐条标注来源**：每条结论标明来自哪部指南/说明书的哪一章节+版本，便于医师复核。
+      3. **不替代临床判断**：你的输出是资料整理，涉及诊断、处方、个体化方案的一律标注
+         「需执业医师/药师确认」，不给出确定性医疗建议。
+      4. **无命中不臆造**：知识库检索为空时明确告知「未检索到，请人工确认」。
+      5. **数据主权与隐私**：只通过知识库 MCP 读取用户数据，不外传病历/药品/制度内容到其它服务。
+
+knowledge_bases: []
+required_data_sources: []
+
+disable_tool_groups: [multi-agent, harness]
+
+match:
+  base_weight: 0
+  rules:
+    - signal: workspace.has_credential
+      args: { provider: knowledge-base }
+      weight: 30
+    - signal: workspace.has_repo_count
+      args: { max: 0 }
+      weight: 15
+    - signal: kanban.label_term_frequency
+      args: { terms: ["医疗", "诊疗", "药品", "指南", "科室", "medical", "clinical", "healthcare"] }
+      weight: 20

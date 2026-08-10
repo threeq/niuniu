@@ -1,0 +1,47 @@
+[
+  {
+    "ed_priv_hex": "01010101010101010101010101010101010101010101010101010101010101018a88e3dd7409f195fd52db2d3cba5d72ca6709bf1d94121bf3748801b40f6f5c",
+    "ed_pub_hex": "8a88e3dd7409f195fd52db2d3cba5d72ca6709bf1d94121bf3748801b40f6f5c",
+    "device_token_hex": "deadbeef01020304deadbeef01020304deadbeef01020304deadbeef01020304",
+    "method": "GET",
+    "path": "/api/workspaces",
+    "timestamp": 1700000000,
+    "header": "JjJxOxPj6rZqbUSU3iUKfFzTVRUHLy-NGgM9pn4PdQUrci82gL1d-0hNXtm5b23_6dz9gj1nhPZCjQthAuJaAQ.1700000000"
+  },
+  {
+    "ed_priv_hex": "02020202020202020202020202020202020202020202020202020202020202028139770ea87d175f56a35466c34c7ecccb8d8a91b4ee37a25df60f5b8fc9b394",
+    "ed_pub_hex": "8139770ea87d175f56a35466c34c7ecccb8d8a91b4ee37a25df60f5b8fc9b394",
+    "device_token_hex": "aabbccdd11223344aabbccdd11223344aabbccdd11223344aabbccdd11223344",
+    "method": "POST",
+    "path": "/d/desktop-abc123/rpc",
+    "timestamp": 1700000001,
+    "header": "50eA3ooZLCdkizuDabsmAXrI9fylYBgsqLmrIWZosQraohxgT-vrBnavbgPrRI-5e9j28xqWlOACGdUMB5MQDA.1700000001"
+  },
+  {
+    "ed_priv_hex": "0303030303030303030303030303030303030303030303030303030303030303ed4928c628d1c2c6eae90338905995612959273a5c63f93636c14614ac8737d1",
+    "ed_pub_hex": "ed4928c628d1c2c6eae90338905995612959273a5c63f93636c14614ac8737d1",
+    "device_token_hex": "0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f",
+    "method": "DELETE",
+    "path": "/api/devices/dev-xyz",
+    "timestamp": 1700000002,
+    "header": "OE4uJq9a5K9wSAu7tMm_UJJISB-QBGFHEHLMu4ZzG2RTWp1X8feEYWzXoyMK_Dl66dLgoooctgRvA3PxQABHDg.1700000002"
+  },
+  {
+    "ed_priv_hex": "0404040404040404040404040404040404040404040404040404040404040404ca93ac1705187071d67b83c7ff0efe8108e8ec4530575d7726879333dbdabe7c",
+    "ed_pub_hex": "ca93ac1705187071d67b83c7ff0efe8108e8ec4530575d7726879333dbdabe7c",
+    "device_token_hex": "1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef",
+    "method": "PUT",
+    "path": "/api/settings",
+    "timestamp": 1700000003,
+    "header": "IiwaSN25CneaxzGOohB3YCY3Fw9KeDn1cYbn-tq0suK89rokTI62nI5jOoPQPBzf-ZfBCsfzpx4GA_r5yBdsCg.1700000003"
+  },
+  {
+    "ed_priv_hex": "cafebabecafebabecafebabecafebabecafebabecafebabecafebabecafebabeaa733187feb4d48a0af565890e9679ca4328e45985db9ab35458d3d180b52416",
+    "ed_pub_hex": "aa733187feb4d48a0af565890e9679ca4328e45985db9ab35458d3d180b52416",
+    "device_token_hex": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "method": "GET",
+    "path": "/api/health",
+    "timestamp": 1700000004,
+    "header": "1mCaaqDWJrBMITEmODc0VQx1nyZkDwNf6mXmmbifwCHwNU8f-k0R4nhjQ02pgjsCjmrS9yEQyCnlEVAb3HhBCQ.1700000004"
+  }
+]

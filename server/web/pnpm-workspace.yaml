@@ -1,0 +1,33 @@
+# pnpm 11 reads project settings from this file.
+#
+# packages: this is a single-package project (the web app lives at the root of
+# this pnpm context), but the file MUST declare a non-empty `packages` field or
+# pnpm 9 — used by the Docker `web-build` stage in server/Dockerfile — aborts
+# `pnpm build` with "packages field missing or empty". `['.']` makes the root
+# the sole workspace package (a no-op here) while keeping the pnpm 11 settings
+# below effective for local / personal builds.
+packages:
+  - '.'
+#
+# allowBuilds: pnpm 11 ignores dependency build scripts unless explicitly
+# approved. esbuild needs its install script to provision the platform binary;
+# msw's prepares the mock service worker. Both are trusted, widely-used deps.
+allowBuilds:
+  esbuild: true
+  msw: true
+#
+# minimumReleaseAgeExclude: `@aiden0z/pptx-renderer` (PPTX 真渲染预览) is an
+# intentional, trusted dependency. pnpm's default minimumReleaseAge supply-chain
+# gate (~24h) rejects it for the first day after each publish, breaking
+# `make build-personal` / `pnpm install`. Exclude just this package from the age
+# gate; the gate still applies to every other dependency.
+minimumReleaseAgeExclude:
+  - '@aiden0z/pptx-renderer'
+#
+# blockExoticSubdeps: pnpm 11 blocks git-resolved subdependencies by default.
+# `mpegts.js` pulls `webworkify-webpack` from a git tarball (already pinned in
+# pnpm-lock.yaml), which the stricter pnpm-11 default rejects on any re-resolve
+# (e.g. after adding a dependency). Allow it — the subdep is pinned to an exact
+# commit in the lockfile, and the Docker `web-build` stage on pnpm 9 never
+# enforced this gate anyway.
+blockExoticSubdeps: false

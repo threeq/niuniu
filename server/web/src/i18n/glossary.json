@@ -1,0 +1,15 @@
+{
+  "工作区": { "en": "Workspace", "zh-TW": "工作區" },
+  "项目":   { "en": "Project",   "zh-TW": "项目" },
+  "仓库":   { "en": "Repository","zh-TW": "倉庫" },
+  "调度":   { "en": "Schedule",  "zh-TW": "排程" },
+  "组织":   { "en": "Organization", "zh-TW": "組織" },
+  "看板":   { "en": "Kanban",    "zh-TW": "看板" },
+  "环境变量": { "en": "Environment Variables", "zh-TW": "環境變數" },
+  "议题":   { "en": "Issue",     "zh-TW": "議題" },
+  "团队":   { "en": "Team",      "zh-TW": "團隊" },
+  "成员":   { "en": "Member",    "zh-TW": "成員" },
+  "审计":   { "en": "Audit",     "zh-TW": "審計" },
+  "工程规范": { "en": "Engineering Standards", "zh-TW": "工程規範" },
+  "执行计划": { "en": "Execution Plan", "zh-TW": "執行計劃" }
+}

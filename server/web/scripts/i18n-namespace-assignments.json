@@ -1,0 +1,58 @@
+{
+  "generatedAt": "2026-05-10T18:17:19.113Z",
+  "fileAssignments": {
+    "components/dialogs/new-workspace-dialog.tsx": {
+      "namespace": "workspaces",
+      "hits": 1
+    },
+    "i18n/index.ts": {
+      "namespace": "common",
+      "hits": 3
+    },
+    "lib/hooks/use-owner-grouping.ts": {
+      "namespace": "common",
+      "hits": 1
+    },
+    "lib/notification-dispatcher.ts": {
+      "namespace": "common",
+      "hits": 2
+    },
+    "lib/update-checker.ts": {
+      "namespace": "common",
+      "hits": 2
+    },
+    "pages/login/login-page.tsx": {
+      "namespace": "login",
+      "hits": 2
+    },
+    "pages/project/settings-tab.tsx": {
+      "namespace": "projects",
+      "hits": 2
+    },
+    "pages/settings/about-settings.tsx": {
+      "namespace": "settings",
+      "hits": 1
+    },
+    "pages/settings/agent-settings.tsx": {
+      "namespace": "settings",
+      "hits": 5
+    },
+    "pages/settings/mobile-access/relay-account-panel.tsx": {
+      "namespace": "settings",
+      "hits": 2
+    },
+    "stores/app.ts": {
+      "namespace": "common",
+      "hits": 1
+    },
+    "stores/language-store.ts": {
+      "namespace": "common",
+      "hits": 1
+    },
+    "stores/org-store.ts": {
+      "namespace": "orgs",
+      "hits": 1
+    }
+  },
+  "commonCandidates": []
+}

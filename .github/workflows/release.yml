@@ -1,0 +1,188 @@
+name: Release
+
+# 打包个人版 desktop 二进制并发布到【本仓库】(threeq/niuniu) 的 GitHub Release。
+# 触发：向本仓库推送 vX.Y.Z 标签 → 构建 Windows/macOS(.dmg)/Linux → 发布。
+#
+# 与旧 release-sync.yml 的区别：
+# - 在公开仓库内运行、发到自身（用默认 GITHUB_TOKEN，无需 PUBLIC_REPO_TOKEN）
+# - 不再发到 niuniu-public
+# - release notes 用 GitHub 自动生成（--generate-notes），不依赖 git-cliff/AI 脚本
+# - 不开"部署官网"提醒 issue（那是私有团队流程）
+#
+# macOS 签名/公证为可选：在仓库 Settings→Environments 配 "Apple Build" 环境并填
+# MACOS_CERT_*/APPLE_API_* 即启用签名公证；否则产出未签名 .dmg（开源版可接受）。
+
+on:
+  push:
+    tags: ["v*.*.*"]
+
+permissions:
+  contents: write          # 在本仓库创建 Release
+
+concurrency:
+  group: release-${{ github.ref_name }}
+  cancel-in-progress: false
+
+env:
+  TAG: ${{ github.ref_name }}
+
+jobs:
+  prepare:
+    name: Create draft release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ env.TAG }}
+      - name: Create draft release (auto notes)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "Release $TAG 已存在，先删除重建"
+            gh release delete "$TAG" --yes --cleanup-tag
+          fi
+          gh release create "$TAG" \
+            --title "$TAG" \
+            --generate-notes \
+            --target main \
+            --draft
+
+  build-windows:
+    name: Build (windows-amd64)
+    needs: prepare
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { ref: '${{ env.TAG }}' }
+      - uses: actions/setup-go@v5
+        with: { go-version-file: server/go.mod, cache-dependency-path: server/go.sum }
+      - uses: pnpm/action-setup@v4
+        with: { version: 9 }
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: pnpm, cache-dependency-path: server/web/pnpm-lock.yaml }
+      - name: Build embedded SPA
+        run: cd server/web && pnpm install --frozen-lockfile && pnpm build
+      - uses: mlugg/setup-zig@v2
+        with: { version: 0.16.0 }
+      - name: make build-personal-windows
+        shell: bash
+        run: VERSION="$TAG" make build-personal-windows
+      - name: Upload Windows binary
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release upload "$TAG" --clobber bin/niuniu-desktop-*-windows-amd64.exe
+
+  build-darwin:
+    name: Build (darwin)
+    needs: prepare
+    runs-on: macos-latest
+    environment: Apple Build
+    steps:
+      - uses: actions/checkout@v4
+        with: { ref: '${{ env.TAG }}' }
+      - uses: actions/setup-go@v5
+        with: { go-version-file: server/go.mod, cache-dependency-path: server/go.sum }
+      - uses: pnpm/action-setup@v4
+        with: { version: 9 }
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: pnpm, cache-dependency-path: server/web/pnpm-lock.yaml }
+      - name: Build embedded SPA
+        run: cd server/web && pnpm install --frozen-lockfile && pnpm build
+      - name: Import Developer ID certificate (optional, skip if unset)
+        env:
+          MACOS_CERT_P12_BASE64: ${{ secrets.MACOS_CERT_P12_BASE64 }}
+          MACOS_CERT_PASSWORD: ${{ secrets.MACOS_CERT_PASSWORD }}
+          KEYCHAIN_PASSWORD: ${{ secrets.MACOS_KEYCHAIN_PASSWORD }}
+        run: |
+          set -euo pipefail
+          if [ -z "${MACOS_CERT_P12_BASE64:-}" ]; then
+            echo "::warning::MACOS_CERT_P12_BASE64 未配置 — 产出未签名构建"
+            exit 0
+          fi
+          CERT_PATH="$RUNNER_TEMP/cert.p12"
+          KEYCHAIN_PATH="$RUNNER_TEMP/app-signing.keychain-db"
+          echo "$MACOS_CERT_P12_BASE64" | base64 --decode > "$CERT_PATH"
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security import "$CERT_PATH" -P "$MACOS_CERT_PASSWORD" -A -t cert -f pkcs12 -k "$KEYCHAIN_PATH"
+          security set-key-partition-list -S apple-tool:,apple: -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH" >/dev/null
+          security list-keychain -d user -s "$KEYCHAIN_PATH" login.keychain-db
+          rm -f "$CERT_PATH"
+      - name: Decode App Store Connect API key (optional)
+        env:
+          APPLE_API_KEY_P8_BASE64: ${{ secrets.APPLE_API_KEY_P8_BASE64 }}
+        run: |
+          set -euo pipefail
+          if [ -z "${APPLE_API_KEY_P8_BASE64:-}" ]; then exit 0; fi
+          echo "$APPLE_API_KEY_P8_BASE64" | base64 --decode > "$RUNNER_TEMP/AuthKey.p8"
+      - name: make package-personal-darwin
+        env:
+          MACOS_SIGN_IDENTITY: ${{ secrets.MACOS_SIGN_IDENTITY }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER_ID: ${{ secrets.APPLE_API_ISSUER_ID }}
+        run: |
+          set -euo pipefail
+          [ -f "$RUNNER_TEMP/AuthKey.p8" ] && export APPLE_API_KEY_PATH="$RUNNER_TEMP/AuthKey.p8"
+          VERSION="$TAG" make package-personal-darwin
+      - name: Clean up keychain
+        if: always()
+        run: |
+          security delete-keychain "$RUNNER_TEMP/app-signing.keychain-db" 2>/dev/null || true
+          rm -f "$RUNNER_TEMP/AuthKey.p8" "$RUNNER_TEMP/cert.p12" 2>/dev/null || true
+      - name: Upload macOS .dmg
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release upload "$TAG" --clobber bin/niuniu-desktop-*-darwin-*.dmg
+
+  build-linux:
+    name: Build (linux-amd64)
+    needs: prepare
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { ref: '${{ env.TAG }}' }
+      - name: Install Wails Linux deps (GTK / WebKit2GTK 4.1 / libsoup3)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential pkg-config libgtk-3-dev libwebkit2gtk-4.1-dev libsoup-3.0-dev
+      - uses: actions/setup-go@v5
+        with: { go-version-file: server/go.mod, cache-dependency-path: server/go.sum }
+      - uses: pnpm/action-setup@v4
+        with: { version: 9 }
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: pnpm, cache-dependency-path: server/web/pnpm-lock.yaml }
+      - name: Build embedded SPA
+        run: cd server/web && pnpm install --frozen-lockfile && pnpm build
+      - uses: mlugg/setup-zig@v2
+        with: { version: 0.16.0 }
+      - name: make build-personal-linux
+        run: VERSION="$TAG" make build-personal-linux
+      - name: Upload Linux binary
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release upload "$TAG" --clobber bin/niuniu-desktop-*-linux-amd64
+
+  publish:
+    name: Publish release
+    needs: [prepare, build-windows, build-darwin, build-linux]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Flip draft → public
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release edit "$TAG" --draft=false
+          echo "✅ Release $TAG 已发布到 threeq/niuniu"

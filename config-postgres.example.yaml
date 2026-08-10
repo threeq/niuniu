@@ -1,0 +1,60 @@
+# Niuniu PostgreSQL Configuration Example
+#
+# Copy this file to ~/.niuniu/config.yaml to use PostgreSQL instead of SQLite.
+#
+# Prerequisites:
+#   1. Create a PostgreSQL database:
+#      CREATE DATABASE niuniu;
+#   2. The schema is applied automatically on first startup.
+#
+# Environment variable overrides (prefix: NIUNIU_):
+#   NIUNIU_STORAGE_DRIVER=postgres
+#   NIUNIU_STORAGE_POSTGRES_DSN=postgres://user:pass@host:5432/niuniu?sslmode=disable
+
+server:
+  host: 0.0.0.0
+  port: 3000
+
+storage:
+  driver: postgres
+  postgres:
+    dsn: "postgres://niuniu:niuniu123@localhost:5432/niuniu?sslmode=disable"
+
+auth:
+  enabled: true
+  token_expiry: 15m
+  refresh_expiry: 168h
+  users:
+    - username: niuniu
+      password: niuniu123
+      display_name: Niuniu
+      role: admin
+
+agent:
+  default: claude-code
+  claude_code:
+    command: claude
+    args: []
+
+log:
+  level: info
+  output: terminal
+
+workspace:
+  base_dir: ~/.niuniu/workspaces
+
+# Orchestration cost guardrails (spec 2026-06-06 section 16). Bound the
+# AI-native board orchestrator so "create-to-start + fan-out + autohost loop"
+# cannot run away on cost or on the SQLite single-writer.
+#
+# SQLite -> PostgreSQL threshold: SQLite has exactly one writer, so above ~3
+# concurrent agents write throughput is the bottleneck (see CLAUDE.md
+# "SQLite WAL + connection pool"). max_concurrent_workspaces caps how many
+# workspaces an owner runs at once and so directly sets the concurrent-agent
+# load; keep it <= 3 on SQLite, and switch storage.driver to postgres before
+# raising it. The default (5) already assumes a Postgres deployment like this one.
+orchestration:
+  max_batch_issues: 20            # cap per batch_create_issues call (0 = unlimited)
+  max_concurrent_workspaces: 5    # per-owner concurrent active workspaces; over -> queue (0 = unlimited)
+  chain_cost_budget_usd: 10.0     # cumulative cost cap per orchestration tree (0 = unlimited)
+  chain_cost_warn_ratio: 0.8      # fraction of budget at which start_workspace warns -> ask_user

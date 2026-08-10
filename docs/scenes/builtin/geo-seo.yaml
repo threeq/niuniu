@@ -1,0 +1,137 @@
+slug: geo-seo
+display_name: GEO/SEO 内容工作舱
+description: 面向生成式引擎优化（GEO）与传统搜索优化（SEO）的内容工作舱 — 以 GEO 为主、SEO 为辅，围绕「让内容被 AI 引用、被搜索排名」展开：实测 AI Overview / Perplexity / ChatGPT 等生成式引擎的引用率，生成 JSON-LD 结构化数据，做内容 SEO 优化改写，跑站点技术审计 checklist。产物统一登记到 .niuniu/artifacts.json。适合无仓库的内容营销 / 内容运营工作空间。
+tags: [geo, seo, content-marketing, structured-data, json-ld, serp, ai-overview]
+
+# MCP 先给引子集：fetch 用于抓取目标页面 / 生成式引擎结果做引用率实测与站点审计。
+# 后续子任务可继续补充（如搜索 MCP、排名查询 MCP 等）。
+mcp:
+  - name: fetch
+
+plugins: []
+
+# Vendored skill：随场景启用自动物化到 <workspace>/.claude/skills/site-audit/，
+# 纯本地文件拷贝（不联网、不跑安装 CLI）。SKILL.md 的双语触发词（站点审计/技术SEO/
+# JSON-LD 校验/site audit…）由 agent 自动激活；引擎为零依赖标准库 Python，可直连 URL
+# 或吃 fetch MCP 预抓的 HTML，产出打分审计报告并校验结构化数据。
+skills:
+  - name: site-audit
+
+assets:
+  env_presets: []
+  quick_actions:
+    - slug: geo-citation-test
+      label: GEO 引用率实测
+      prompt: "对目标内容做「生成式引擎引用率」实测：1) 先确认要评测的主题/目标 URL、目标查询词（用户会怎么问）、以及要覆盖的引擎（AI Overview、Perplexity、ChatGPT、Bing Copilot 等）；2) 逐个查询词用 fetch 抓取生成式引擎的回答，记录：该回答是否引用了目标内容、以什么形式引用（直链/转述/未引用）、竞品被引情况；3) 汇总成引用率表格（查询词 × 引擎 → 是否被引 / 被引形式），算出总体引用率；4) 针对未被引用的查询词，给出「为什么没被引用」的诊断（内容缺失、结构不利于抽取、缺权威信号等）与可执行改写建议。信息以实测为准，抓不到就标注并说明，不臆造引用结果。"
+    - slug: gen-json-ld
+      label: 生成 JSON-LD/结构化数据
+      prompt: "为目标页面生成结构化数据（JSON-LD）：1) 先确认页面类型与主体（Article / FAQPage / HowTo / Product / Organization / BreadcrumbList 等）与关键字段来源；2) 按 schema.org 规范生成 JSON-LD，字段完整、类型正确、日期/URL 合法；3) 用 site-audit 技能校验：scripts/site_audit.py validate-jsonld <生成的.json>，确保必填属性齐全、无语法错误；再核对与页面可见内容一致（不得注入页面上不存在的信息，避免 spammy structured data 违规）；4) 产物落到当前工作空间目录，文件名语义化（如 article-jsonld.json），并说明如何嵌入 <script type=\"application/ld+json\">。缺字段就标占位并向用户索取，不编造。"
+    - slug: seo-rewrite
+      label: 内容 SEO 优化改写
+      prompt: "对给定内容做 SEO 优化改写（兼顾 GEO 可引用性）：1) 确认目标关键词/查询意图、目标读者、当前内容；2) 从这些维度优化：标题与 H 结构、首段直接回答（利于 AI 抽取与精选摘要）、关键词自然分布、meta title/description、内链锚文本、可扫描性（列表/小标题/加粗）、E-E-A-T 权威信号；3) 输出改写后的完整内容 + 一份「改了什么、为什么」的变更说明 + 建议的 meta 标签；4) 保持事实准确，不为堆关键词牺牲可读性，不做关键词堆砌。产物落到当前工作空间目录，文件名语义化。"
+    - slug: site-audit-checklist
+      label: 站点审计 checklist
+      prompt: "用 site-audit 技能对目标站点/页面做技术 SEO + GEO 审计：1) 确认目标 URL 范围；2) 跑 scripts/site_audit.py audit <url> --ws-root <工作空间根>（引擎连不上或需渲染时，先用 fetch 抓页面存成本地 HTML 再喂给引擎）——它会逐项判「通过/告警/失败」：可抓取性（robots/canonical/noindex）、标题与 meta、H 层级、结构化数据 JSON-LD 合法性、图片 alt、移动友好、加载速度信号、AI 抽取友好度（首段直答/问答结构）；3) 读 audit-report.json，把失败项按 P0-P3 排序，逐条给「问题→为什么影响→怎么改→怎么复测」；4) 抓不到或无法判断的项引擎已如实标注，不臆断。报告（audit-report.md）已由引擎登记到工作空间产物。"
+    - slug: rank-citation-monitor
+      label: 排名 + AI 引用率监测
+      prompt: "对目标关键词/站点做「搜索排名 + AI 引用率」监测，可手动跑，也适合挂 cron 周期跑：1) 先确认监测对象——目标域名/页面、关键词清单、要覆盖的引擎；2) 排名：若项目已绑定 serp-api（在「设置→集成」配置 SerpAPI Key 并绑到本项目），用 call_external_api(provider=\"serp-api\", method=\"GET\", path=\"/search\", query={engine,q,gl,hl,location}) 抓每个关键词的结果，从 organic_results[].position 读目标域名排名；未绑定则跳过并说明。3) 搜索表现：若已绑定 gsc，用 call_external_api(provider=\"gsc\", method=\"POST\", path=\"/webmasters/v3/sites/{siteUrl}/searchAnalytics/query\") 拉点击/曝光/CTR/平均排名（siteUrl 需 URL 编码）；未绑定则跳过。4) AI 引用率：用 fetch 抓 AI Overview/Perplexity/ChatGPT 等对关键词的回答，判断目标内容是否被引用（复用「GEO 引用率实测」口径）。5) 汇总成本轮快照（关键词×指标），与上一轮对比，找出排名下滑、引用率下降或新出现的机会词。6) 【cron 自动建 issue】当作为周期任务运行且发现值得跟进的变化（如某词掉出前 10、引用率跌破阈值、竞品新占位）时，用 batch_create_issues 在看板创建 issue：标题写清「关键词 + 变化 + 建议动作」，正文附本轮数据与环比；无显著变化则只回报快照、不建 issue。所有数字以实测/接口返回为准，抓不到就标注，不臆造。"
+  project_templates: []
+  harness_specs: []
+  agents: []
+
+prompts:
+  - id: geo-seo-workflow
+    title: GEO/SEO 场景指引（GEO 主 · SEO 辅 → 实测/产出 → 登记）
+    body: |
+      本场景服务「让内容既被生成式引擎（AI）引用、又在传统搜索里有排名」，
+      **以 GEO 为主、SEO 为辅**：
+
+      - **GEO（Generative Engine Optimization，主）** —— 目标是让内容被
+        AI Overview、Perplexity、ChatGPT、Bing Copilot 等生成式引擎**引用/采信**。
+        抓手：可被抽取的结构（首段直接回答、问答式小节）、权威与可溯源信号、
+        结构化数据、实测引用率并按诊断迭代。
+      - **SEO（传统搜索，辅）** —— 目标是在 SERP 里获得排名与点击。抓手：
+        关键词与查询意图、标题/H 结构、meta、内链、结构化数据、可扫描性、
+        E-E-A-T、页面技术健康度。两者大量抓手重叠，优化时一并考虑。
+
+      四个快捷动作对应四条主线：**GEO 引用率实测 → 生成 JSON-LD/结构化数据 →
+      内容 SEO 优化改写 → 站点审计 checklist**。典型闭环：先实测/审计定位问题，
+      再改写内容 + 补结构化数据，最后复测引用率验证是否见效。
+
+      纪律：
+      1. **事实优先**：引用率、排名、审计结论一律以实测/抓取为准；抓不到、
+         判不了就如实标注并向用户说明，绝不臆造被引结果或排名数字。
+      2. **不做黑帽**：不关键词堆砌、不注入页面上不存在的结构化数据、不生成
+         误导性 meta——这些会触发引擎处罚，反噬 GEO/SEO 目标。
+      3. **信息缺失就索取**：目标 URL、查询词、页面主体等缺失时标占位并索取，
+         不编造。
+      4. **产物登记**：把面向用户的最终产物（引用率报告、JSON-LD 文件、改写稿、
+         审计报告）登记到工作空间根目录 `.niuniu/artifacts.json`（无则新建），
+         格式：{"artifacts":[{"path":"相对路径","title":"用户可读名称"}]}。
+         只登记最终产物，不登记中间抓取/临时文件；新增或更新时同步维护，右侧
+         产物预览面板以此清单为准。
+
+  - id: geo-seo-assistant-voice
+    title: GEO/SEO 助手沟通风格（面向内容运营/营销用户）
+    body: |
+      你在以「GEO/SEO 内容助手」身份服务用户，用户多为内容运营 / 市场 / 营销，
+      不一定懂技术。面向用户的回复用平实话术：
+
+      - 用「这篇内容被 AI 引用的情况」「结构化数据文件」「优化后的稿子」等业务
+        说法指代产物，少堆砌 schema.org 属性名、HTTP 细节、扩展名；但当某个技术
+        点直接影响效果时要讲清楚为什么（如「首段没有直接回答，AI 很难摘出来引用」）。
+      - 用「做了什么、得到什么结论」描述进展，而不是「跑了哪条命令」。
+      - 给结论时配「所以下一步该做什么」，让非技术用户能直接行动。
+      - 需要确认目标词 / URL / 页面类型时用日常话术提问，一次问清关键信息。
+
+  - id: geo-seo-data-connectors
+    title: 外部数据源连接器（SERP / GSC，复用 call_external_api）
+    body: |
+      本场景可选接入两个外部数据源，作为「排名 + AI 引用率」监测的数据来源。
+      二者都通过 niuniu 的 call_external_api 工具调用，凭证在「设置 → 集成」里
+      显式配置并绑定到当前项目后才可用；未配置时相关步骤自动跳过并说明，不阻断。
+
+      - **SerpAPI（provider: serp-api）** —— 搜索引擎排名 / SERP 结构化数据。
+        鉴权是 api_key 查询参数，由代理自动注入，**你不要自己带 api_key**。
+        典型：call_external_api(provider="serp-api", method="GET", path="/search",
+        query={engine:"google", q:"关键词", gl:"cn", hl:"zh-cn"})，从返回的
+        organic_results[].position 读目标域名排名。端点细节用
+        get_provider_schema(provider="serp-api") 查询。
+      - **Google Search Console（provider: gsc）** —— 站点在 Google 的真实
+        点击 / 曝光 / CTR / 平均排名。鉴权是 OAuth2 access token（Bearer，代理注入，
+        scope 需 webmasters.readonly）。典型：先 GET /webmasters/v3/sites 列出可访问
+        属性，再 POST /webmasters/v3/sites/{siteUrl}/searchAnalytics/query
+        （siteUrl 需 URL 编码，body 带 startDate/endDate/dimensions）拉数据。端点
+        细节用 get_provider_schema(provider="gsc") 查询。
+
+      **周期监测 → 自动建 issue**：把「排名 + AI 引用率监测」快捷动作挂到工作空间的
+      cron 定时触发（在设置里配置 schedule + 触发消息）。到点时本工作空间的 agent 会
+      自动跑该动作；发现排名下滑 / 引用率下降 / 新机会词等值得跟进的变化时，用
+      batch_create_issues 在看板建 issue（标题含「关键词 + 变化 + 建议动作」，正文附
+      数据与环比），无显著变化则只回报、不建 issue。
+
+required_credentials:
+  # 两个连接器均为可选：未绑定不影响场景其余能力，绑定后「排名 + AI 引用率监测」
+  # 才能取到对应数据。凭证值永不写入场景，这里只声明依赖。
+  - alias: serp-api
+    provider: serp-api
+    purpose: 查询 Google/Bing 等 SERP 排名数据（SerpAPI），用于排名监测与竞品对比
+    optional: true
+  - alias: gsc
+    provider: gsc
+    purpose: 读取 Google Search Console 搜索分析（点击/曝光/CTR/排名），做站点表现监测
+    optional: true
+
+# Single-agent, no-repo scene: hide cross-agent (blackboard/inbox) and
+# git/harness (gate/pre-commit) tools it never needs.
+disable_tool_groups: [multi-agent, harness]
+
+match:
+  base_weight: 0
+  rules:
+    - signal: workspace.has_repo_count
+      args: { max: 0 }
+      weight: 16
+    - signal: kanban.label_term_frequency
+      args: { terms: ["GEO", "SEO", "引用率", "搜索优化", "内容营销", "内容运营", "meta", "结构化数据", "JSON-LD", "schema.org", "排名", "SERP", "AI Overview", "Perplexity", "生成式引擎", "关键词", "站点审计", "GSC", "Search Console", "SerpAPI", "AI 引用率", "排名监测"] }
+      weight: 18

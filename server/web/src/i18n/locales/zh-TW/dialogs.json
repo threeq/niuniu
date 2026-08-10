@@ -1,0 +1,12 @@
+{
+  "directoryBrowser": {
+    "open": "瀏覽",
+    "close": "關閉",
+    "emptyFolder": "空資料夾",
+    "niuniuForbidden": "牛牛資料目錄（~/.niuniu）及其子目錄不能使用，請選擇其他位置。"
+  },
+  "color": {
+    "preset": "預設",
+    "custom": "自定義"
+  }
+}

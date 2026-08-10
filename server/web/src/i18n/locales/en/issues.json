@@ -1,0 +1,34 @@
+{
+  "requestChanges": {
+    "title": "Request changes (bounce back)",
+    "help": "Leave issue-level review feedback (why it did not pass / pass criteria / acceptance gap) and send the card back to the implement lane. The agent continues on its existing changes with both your issue comments and the unresolved line-level diff comments injected, then returns here with a change summary.",
+    "placeholder": "Why it did not pass, the pass criteria, and the acceptance gap…",
+    "submit": "Request changes",
+    "submitting": "Sending back…",
+    "done": "Sent back to the implement lane for rework",
+    "failed": "Failed to request changes",
+    "charCount": "{{n}} / {{max}} chars",
+    "reopen": {
+      "title": "Re-review (re-open this done issue)",
+      "help": "This issue is already done. Leave review feedback and re-open it back into the implement lane — the agent picks it up again with your issue comments and the unresolved diff comments injected, then returns for review.",
+      "submit": "Re-open for changes",
+      "submitting": "Re-opening…",
+      "done": "Re-opened into the implement lane for rework",
+      "failed": "Failed to re-open"
+    }
+  },
+  "goalCondition": {
+    "title": "Autohost completion criterion (optional)",
+    "set": "Set",
+    "unset": "Not set",
+    "hint": "Leave empty to fall back to sentinel-only stop",
+    "charCount": "{{n}} / {{max}} chars",
+    "help": "Autohost uses this criterion as the LLM judge's reference when it's about to stop the current round. e.g. \"All unit tests pass\" or \"PR is merge-ready\".",
+    "aiSuggest": "AI suggest",
+    "suggesting": "Generating…",
+    "unsaved": "Unsaved",
+    "suggestFailed": "Failed to generate suggestion, please try again",
+    "suggestCliUnavailable": "claude CLI not available; AI suggestion disabled",
+    "suggestRateLimited": "Too many AI suggest requests; please wait a moment"
+  }
+}

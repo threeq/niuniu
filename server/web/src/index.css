@@ -1,0 +1,308 @@
+/* xterm.js terminal styles */
+@import "@xterm/xterm/css/xterm.css";
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --border: 214.3 31.8% 91.4%;
+    --input: 214.3 31.8% 91.4%;
+    /* Focus ring follows brand so :focus-visible reads as accent, not a harsh
+       near-black/near-white frame (esp. programmatic refocus in dark mode). */
+    --ring: 218 75% 46%;
+    --background: 0 0% 100%;
+    --foreground: 222.2 84% 4.9%;
+    --primary: 222.2 47.4% 11.2%;
+    --primary-foreground: 210 40% 98%;
+    --secondary: 210 40% 96.1%;
+    --secondary-foreground: 222.2 47.4% 11.2%;
+    --muted: 210 40% 96.1%;
+    --muted-foreground: 215.4 16.3% 46.9%;
+    --accent: 210 40% 96.1%;
+    --accent-foreground: 222.2 47.4% 11.2%;
+    --destructive: 0 84.2% 60.2%;
+    --destructive-foreground: 210 40% 98%;
+    --card: 0 0% 100%;
+    --card-foreground: 222.2 84% 4.9%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 222.2 84% 4.9%;
+    /* Semantic surface tokens */
+    --surface: 0 0% 100%;
+    --surface-muted: 210 40% 98%;
+    --surface-raised: 0 0% 100%;
+
+    /* Status tokens */
+    --success: 142 71% 45%;
+    --success-foreground: 222 47% 11%;
+    --warning: 38 92% 50%;
+    --warning-foreground: 222 47% 11%;
+    --info: 221 83% 53%;
+    --info-foreground: 0 0% 100%;
+
+    /* Diff tokens */
+    --diff-add-bg: 142 71% 95%;
+    --diff-del-bg: 0 84% 95%;
+    --diff-add-fg: 142 66% 30%;
+    --diff-del-fg: 0 66% 42%;
+    /* Syntax highlight tokens (line-level diff viewer) */
+    --syntax-keyword: 209 75% 42%;
+    --syntax-string:  142 55% 32%;
+    --syntax-comment: 215 12% 52%;
+    --syntax-number:  28 78% 43%;
+    /* Image-preview transparency checkerboard. Kept light in both themes (the
+       checkerboard is a neutral "canvas", as in image editors) so a transparent
+       SVG/PNG with dark content — e.g. a fireworks tech-graph exported without a
+       baked background — stays readable instead of vanishing into a dark panel. */
+    --preview-checker-base: 0 0% 100%;
+    --preview-checker-cell: 220 13% 90%;
+    --radius: 0.5rem;
+
+    /* ----------------------------------------------------------------
+     * Design system tokens (see docs/design-system.md)
+     * Warm neutrals — replace cold whites/grays for new surfaces.
+     * ----------------------------------------------------------------*/
+    --warm-canvas:    36 18% 98%;
+    --warm-surface:   0 0% 100%;
+    --warm-muted:     40 14% 95%;
+    --warm-border:    35 12% 89%;
+    --warm-text:      30 5% 11%;
+    --warm-text-muted:30 4% 41%;
+
+    /* Brand — cool blue accent (use sparingly: primary CTA, current selection, links) */
+    --brand:           218 75% 46%;
+    --brand-foreground:0 0% 100%;
+    --brand-soft:      218 75% 95%;
+
+    /* Priority levels — discrete semantic, do NOT borrow `success` for "low" */
+    --prio-low:      220 9% 65%;
+    --prio-medium:   40 88% 40%;
+    --prio-high:     20 90% 49%;
+    --prio-critical: 0 72% 51%;
+
+    /* Workflow status (kanban columns, workspace lifecycle) */
+    --col-backlog:      35 8% 56%;
+    --col-spec:         218 75% 46%;
+    --col-impl:         30 82% 41%;
+    --col-review:       262 70% 56%;
+    --col-done:         142 71% 38%;
+    --col-in-progress:  200 70% 42%;
+  }
+
+  .dark {
+    --border: 217.2 32.6% 17.5%;
+    --input: 217.2 32.6% 17.5%;
+    --ring: 218 75% 60%;
+    --background: 222.2 84% 4.9%;
+    --foreground: 210 40% 98%;
+    --primary: 210 40% 98%;
+    --primary-foreground: 222.2 47.4% 11.2%;
+    --secondary: 217.2 32.6% 17.5%;
+    --secondary-foreground: 210 40% 98%;
+    --muted: 217.2 32.6% 17.5%;
+    --muted-foreground: 215 20.2% 65.1%;
+    --accent: 217.2 32.6% 17.5%;
+    --accent-foreground: 210 40% 98%;
+    --destructive: 0 62.8% 30.6%;
+    --destructive-foreground: 210 40% 98%;
+    --card: 222.2 84% 4.9%;
+    --card-foreground: 210 40% 98%;
+    --popover: 222.2 84% 4.9%;
+    --popover-foreground: 210 40% 98%;
+    /* Semantic surface tokens */
+    --surface: 222.2 84% 4.9%;
+    --surface-muted: 217.2 32.6% 12%;
+    --surface-raised: 217.2 32.6% 15%;
+
+    /* Status tokens */
+    --success: 142 71% 55%;
+    --success-foreground: 222 47% 11%;
+    --warning: 38 92% 60%;
+    --warning-foreground: 222 47% 11%;
+    --info: 221 83% 65%;
+    --info-foreground: 222 47% 11%;
+
+    /* Diff tokens */
+    --diff-add-bg: 142 71% 15%;
+    --diff-del-bg: 0 62% 18%;
+    --diff-add-fg: 142 55% 62%;
+    --diff-del-fg: 0 75% 70%;
+    /* Syntax highlight tokens (line-level diff viewer) */
+    --syntax-keyword: 209 80% 68%;
+    --syntax-string:  142 50% 62%;
+    --syntax-comment: 215 14% 55%;
+    --syntax-number:  28 80% 65%;
+    /* Held near the light value (only slightly dimmed) on purpose — see :root. */
+    --preview-checker-base: 220 13% 82%;
+    --preview-checker-cell: 220 9% 72%;
+
+    /* Design system tokens — dark parity (see docs/design-system.md) */
+    --warm-canvas:    30 5% 7%;
+    --warm-surface:   30 4% 11%;
+    --warm-muted:     30 4% 13%;
+    --warm-border:    30 4% 19%;
+    --warm-text:      36 18% 96%;
+    --warm-text-muted:30 4% 65%;
+
+    --brand:           218 75% 60%;
+    --brand-foreground:222 47% 11%;
+    --brand-soft:      218 50% 18%;
+
+    --prio-low:      220 9% 55%;
+    --prio-medium:   40 88% 60%;
+    --prio-high:     20 90% 60%;
+    --prio-critical: 0 72% 60%;
+
+    --col-backlog:      35 8% 50%;
+    --col-spec:         218 75% 60%;
+    --col-impl:         30 82% 55%;
+    --col-review:       262 70% 65%;
+    --col-done:         142 71% 50%;
+    --col-in-progress:  200 70% 58%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+
+  @media (prefers-reduced-motion: no-preference) {
+    body {
+      transition: background-color 150ms ease, color 150ms ease;
+    }
+  }
+
+  /* Respect prefers-reduced-motion for users who explicitly request it.
+     Kills decorative animation/transition globally; essential motion
+     (e.g. modal entrance ≤100ms) remains via component-specific overrides. */
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
+
+  /* Smooth scrolling */
+  html {
+    scroll-behavior: smooth;
+  }
+
+  /* Focus visible ring — ring-offset-background keeps the offset gap in the
+     page color; the default offset color is white, which reads as a harsh
+     white frame in dark mode. */
+  :focus-visible {
+    @apply outline-none ring-2 ring-ring ring-offset-2 ring-offset-background;
+  }
+
+  /* Selection styling */
+  ::selection {
+    @apply bg-primary/30 text-foreground;
+  }
+
+  /* Code blocks sit on a dark surface (prose <pre>/<code>). The global
+     ::selection above forces text-foreground, which is near-black in light
+     mode — selecting code then collapses to dark-on-dark and the highlighted
+     text vanishes. Give code contexts a dedicated high-contrast selection so
+     long URLs inside a code block stay readable while selected. */
+  pre::selection,
+  pre *::selection,
+  code::selection,
+  code *::selection {
+    @apply bg-primary text-primary-foreground;
+  }
+
+  /* Light-mode code blocks. Tailwind Typography hardcodes a dark <pre>
+     background (and light pre-code text) even in light mode, so a code block
+     renders as a stray dark box in the light chat theme and the default (dark)
+     prose link color inside it becomes nearly invisible. In light mode, make
+     code blocks follow the theme: light surface, dark text, subtle border —
+     which also restores readable link contrast. Dark mode keeps prose-invert's
+     dark blocks untouched (guarded by html:not(.dark)). */
+  html:not(.dark) .prose pre {
+    @apply bg-muted text-foreground border border-border;
+  }
+  html:not(.dark) .prose pre code {
+    color: inherit;
+  }
+
+  /* Custom scrollbar */
+  ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+
+  ::-webkit-scrollbar-track {
+    @apply bg-muted/50;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    @apply bg-muted-foreground/30 rounded-full;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    @apply bg-muted-foreground/50;
+  }
+}
+
+@layer utilities {
+  /* Transition utilities */
+  .transition-default {
+    @apply transition-all duration-200 ease-in-out;
+  }
+}
+
+@layer components {
+  /* Diff add/delete backgrounds — theme-aware via CSS variables.
+     Defined defensively so future diff renderers Just Work in both
+     light and dark mode without further changes. */
+  .bg-diff-add {
+    background-color: hsl(var(--diff-add-bg));
+  }
+  .bg-diff-del {
+    background-color: hsl(var(--diff-del-bg));
+  }
+
+  /* Transparency checkerboard behind image previews — theme-aware via CSS
+     variables, kept light in both modes so transparent SVG/PNG stays readable.
+     An opaque image fully covers it, so this only shows through where the art
+     is actually transparent. */
+  .preview-checkerboard {
+    background-color: hsl(var(--preview-checker-base));
+    background-image:
+      linear-gradient(45deg, hsl(var(--preview-checker-cell)) 25%, transparent 25%),
+      linear-gradient(-45deg, hsl(var(--preview-checker-cell)) 25%, transparent 25%),
+      linear-gradient(45deg, transparent 75%, hsl(var(--preview-checker-cell)) 75%),
+      linear-gradient(-45deg, transparent 75%, hsl(var(--preview-checker-cell)) 75%);
+    background-size: 20px 20px;
+    background-position: 0 0, 0 10px, 10px -10px, -10px 0;
+  }
+}
+
+/* Slide in from right animation */
+@keyframes slideInRight {
+  from {
+    transform: translateX(100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+.animate-slide-in {
+  animation: slideInRight 0.2s ease-out forwards;
+}
+
+@keyframes fadePulse {
+  0%   { opacity: 0; stroke-dasharray: 100; stroke-dashoffset: 100; }
+  30%  { opacity: 1; stroke-dashoffset: 0; }
+  100% { opacity: 0; }
+}

@@ -1,0 +1,41 @@
+{
+  "FixedFileInfo": {
+    "FileVersion": {
+      "Major": 0,
+      "Minor": 0,
+      "Patch": 0,
+      "Build": 0
+    },
+    "ProductVersion": {
+      "Major": 0,
+      "Minor": 0,
+      "Patch": 0,
+      "Build": 0
+    },
+    "FileFlagsMask": "3f",
+    "FileFlags": "00",
+    "FileOS": "040004",
+    "FileType": "01",
+    "FileSubType": "00"
+  },
+  "StringFileInfo": {
+    "Comments": "Niuniu Desktop — bundled local + remote edition of the Niuniu workstation. See https://github.com/threeq/niuniu-public",
+    "CompanyName": "Niuniu Technology",
+    "FileDescription": "Niuniu Desktop — AI Workstation (bundled)",
+    "FileVersion": "0.0.0.0",
+    "InternalName": "niuniu-desktop",
+    "LegalCopyright": "Copyright (C) Niuniu Technology. All rights reserved.",
+    "LegalTrademarks": "Niuniu is a trademark of Niuniu Technology.",
+    "OriginalFilename": "niuniu-desktop.exe",
+    "ProductName": "Niuniu Desktop",
+    "ProductVersion": "0.0.0.0"
+  },
+  "VarFileInfo": {
+    "Translation": {
+      "LangID": "0409",
+      "CharsetID": "04B0"
+    }
+  },
+  "IconPath": "build/icon.ico",
+  "ManifestPath": ""
+}

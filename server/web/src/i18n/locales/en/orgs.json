@@ -1,0 +1,123 @@
+{
+  "list": {
+    "title": "Organizations",
+    "createButton": "Create organization",
+    "createFirstButton": "Create your first organization",
+    "emptyAdminTitle": "No organizations yet",
+    "emptyAdminHint": "Create your first organization to start collaborating.",
+    "emptyMemberTitle": "You are not a member of any organization yet",
+    "emptyMemberHint": "Please contact an admin to be added to an organization.",
+    "roleOwner": "Owner",
+    "roleAdmin": "Admin",
+    "roleMember": "Member"
+  },
+  "detail": {
+    "back": "Back to organizations",
+    "notFound": "Organization \"{{slug}}\" not found. You may not have access, or it may not exist.",
+    "tabs": {
+      "general": "General",
+      "members": "Members",
+      "resources": "Resources",
+      "audit": "Audit log",
+      "danger": "Danger zone"
+    },
+    "general": {
+      "sectionTitle": "Basic info",
+      "name": "Name",
+      "slug": "Slug",
+      "slugHint": "Used in URLs: /settings/orgs/{{slug}}",
+      "slugPlaceholder": "...",
+      "description": "Description",
+      "descriptionPlaceholder": "A short description of this organization",
+      "saved": "Saved",
+      "saveFailed": "Save failed: {{error}}",
+      "readOnlyHint": "Only owners and admins can modify organization details.",
+      "claudeActiveAccount": "Org Claude Active Account"
+    },
+    "members": {
+      "addTitle": "Add member",
+      "searchPlaceholder": "Search by username or name",
+      "addButton": "Add",
+      "added": "Member added",
+      "addFailed": "Add failed: {{error}}",
+      "roleChangeFailed": "Role change failed: {{error}}",
+      "removed": "Member removed",
+      "removeFailed": "Remove failed: {{error}}",
+      "loading": "Loading...",
+      "empty": "No members yet",
+      "roleOwner": "Owner",
+      "roleAdmin": "Admin",
+      "roleMember": "Member",
+      "removeTitle": "Remove",
+      "confirmLeave": "Are you sure you want to leave this organization?",
+      "confirmRemove": "Are you sure you want to remove \"{{name}}\"?"
+    },
+    "resources": {
+      "description": "Resource counts owned by this organization. Click to navigate to the corresponding list page.",
+      "projects": "Projects",
+      "workspaces": "Workspaces",
+      "repositories": "Repositories"
+    },
+    "audit": {
+      "loading": "Loading...",
+      "empty": "No audit records",
+      "loadMore": "Load more",
+      "loadingMore": "Loading...",
+      "noPermission": "Only owners and admins can view the audit log."
+    },
+    "danger": {
+      "noPermission": "Only owners can perform dangerous operations.",
+      "transferTitle": "Transfer ownership",
+      "transferHint": "Transfer ownership of this organization to another member. You will become a regular admin afterward.",
+      "transferEmpty": "No other members available to transfer to.",
+      "transferSelectPlaceholder": "Select a member...",
+      "transferOptionLabel": "{{name}} ({{role}})",
+      "transferButton": "Transfer",
+      "transferring": "Transferring...",
+      "transferConfirm": "Are you sure you want to transfer ownership of \"{{org}}\" to \"{{name}}\"? This action cannot be undone.",
+      "transferred": "Ownership transferred",
+      "transferFailed": "Transfer failed: {{error}}",
+      "deleteTitle": "Delete organization",
+      "deleteHint": "Permanently delete this organization. This action cannot be undone.",
+      "deleteHasResources": "This organization still has resources ({{summary}}). Please remove them before deleting.",
+      "deleteResourceProjects": "{{count}} project(s)",
+      "deleteResourceWorkspaces": "{{count}} workspace(s)",
+      "deleteResourceRepositories": "{{count}} repository(ies)",
+      "deleteResourceSeparator": ", ",
+      "deleteButton": "Delete organization",
+      "deleting": "Deleting...",
+      "deleteConfirm": "Are you sure you want to delete \"{{org}}\"? This action cannot be undone and all memberships will be cleared.",
+      "deleted": "Organization deleted",
+      "deleteFailed": "Delete failed: {{error}}",
+      "deleteDisabledTitle": "The organization must be empty before it can be deleted"
+    }
+  },
+  "dialogs": {
+    "createOrg": {
+      "title": "New organization",
+      "description": "Create a new organization to manage members and resources.",
+      "name": "Name",
+      "namePlaceholder": "e.g. My organization",
+      "slug": "Slug (optional)",
+      "slugPlaceholder": "Leave blank to auto-generate",
+      "slugHint": "Used in URL paths; lowercase letters, digits, and hyphens only",
+      "description": "Description (optional)",
+      "descriptionPlaceholder": "A short description of this organization",
+      "cancel": "Cancel",
+      "submit": "Create",
+      "submitting": "Creating...",
+      "createFailed": "Failed to create organization: {{error}}"
+    }
+  },
+  "team": {
+    "userSearch": {
+      "displayString": "{{name}} (@{{username}})",
+      "clearLabel": "clear",
+      "searchFailed": "Search failed, please retry",
+      "searching": "Searching…",
+      "promptInput": "Enter a username or name to search",
+      "noResults": "No users found. Existing members of this organization are excluded.",
+      "showing": "Showing the first {{shown}} of {{total}} matches; type more keywords to narrow the search."
+    }
+  }
+}

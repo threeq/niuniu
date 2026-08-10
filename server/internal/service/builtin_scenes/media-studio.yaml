@@ -1,0 +1,59 @@
+slug: media-studio
+display_name: 媒体舱
+description: 社媒 / 多媒体工作舱 — 草稿→评审→排期 工作流，挂 web 检索与记忆 MCP，适合含视频/图片的内容目录
+tags: [media, social, studio, generic]
+
+mcp:
+  - name: fetch
+
+plugins: []
+
+assets:
+  env_presets: []
+  quick_actions:
+    - slug: media-draft
+      label: 写内容草稿
+      prompt: "为目标平台写一版内容草稿：1) 明确平台与受众（如小红书/公众号/X）；2) 给出标题/开头钩子/正文/结尾 CTA；3) 附 3-5 个话题标签建议。这是「草稿」阶段。"
+    - slug: media-review
+      label: 评审内容
+      prompt: "以运营视角评审当前内容：开头 3 秒是否抓人、信息是否清晰、有无平台违规风险、配图/视频建议是否到位，并给出改写版本。这是「评审」阶段。"
+    - slug: media-schedule
+      label: 规划排期
+      prompt: "为已定稿内容规划发布排期：建议发布平台、最佳时段与频率，并列出配套素材清单（封面图/视频/字幕）。这是「排期」阶段，输出一张可执行的发布计划表。"
+  project_templates: []
+  harness_specs: []
+  agents: []
+
+prompts:
+  - id: media-workflow
+    title: 社媒工作流（草稿 → 评审 → 排期）
+    body: |
+      社媒 / 多媒体任务按三个阶段推进，与开发工作流结构同构，可直接用看板的
+      issue 阶段管理：
+
+      1. **草稿（draft）**：确定平台与受众，产出标题、钩子、正文、CTA 与话题标签。
+      2. **评审（review）**：以运营视角检查开头吸引力、信息清晰度、平台合规风险，
+         给出改写版本与配图/视频建议。
+      3. **排期（schedule）**：为定稿内容规划发布平台、时段、频率与配套素材清单，
+         产出一张可执行的发布计划表。
+
+      媒体目录提示：
+      - 视频/音频/图片等大文件由建舱时启用的 Git LFS 跟踪，不会撑爆仓库。
+      - 草稿与素材都在工作舱内迭代，确认无误后再用「交付」写回原始目录。
+      - 涉及外部图像/视频生成工具时，把生成参数与产物链接记录到记忆 MCP，便于复用。
+
+required_credentials: []
+
+# Single-agent, no-repo scene: hide cross-agent (blackboard/inbox) and
+# git/harness (gate/pre-commit) tools it never needs.
+disable_tool_groups: [multi-agent, harness]
+
+match:
+  base_weight: 0
+  rules:
+    - signal: workspace.has_repo_count
+      args: { max: 0 }
+      weight: 18
+    - signal: kanban.label_term_frequency
+      args: { terms: ["media", "媒体", "社媒", "视频", "图片", "运营"] }
+      weight: 18

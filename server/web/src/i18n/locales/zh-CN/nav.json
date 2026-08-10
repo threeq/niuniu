@@ -1,0 +1,26 @@
+{
+  "brand": {
+    "name": "牛牛"
+  },
+  "menu": {
+    "projects": "项目",
+    "workspaces": "工作空间",
+    "repositories": "仓库",
+    "scenes": "场景",
+    "harness": "工程规范",
+    "agents": "Agent",
+    "assistant": "牛牛助手",
+    "aiHub": "AI 直达"
+  },
+  "actions": {
+    "autoAi": "自动AI",
+    "settings": "设置",
+    "logout": "退出登录"
+  },
+  "theme": {
+    "toggle": "切换主题",
+    "light": "浅色",
+    "dark": "深色",
+    "system": "跟随系统"
+  }
+}

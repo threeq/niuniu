@@ -1,0 +1,52 @@
+slug: tech-writing
+display_name: 技术写作
+description: 技术文档、API 文档、教程写作 — 提供文档结构规范与大纲快速动作
+tags: [writing, content, docs]
+
+mcp:
+  - name: fetch
+
+plugins: []
+
+assets:
+  env_presets: []
+  quick_actions:
+    - slug: outline-doc
+      label: 生成文档大纲
+      prompt: "请基于当前主题生成一份技术文档大纲：1) 一句话定位读者与场景；2) 按 intro/why/how/example/troubleshoot 五段输出小节标题；3) 每节列出 2-3 个要点；4) 末尾给参考资料占位。"
+  project_templates: []
+  harness_specs: []
+  agents: []
+
+prompts:
+  - id: tech-doc-structure
+    title: 技术文档结构规范
+    body: |
+      写任何技术文档时，按以下五段结构组织，缺段或顺序混乱视为不合格：
+
+      1. **Intro（导引，1-2 段）**：这篇文档解决谁、什么问题、什么场景下会读到。读者读完这段应能判断是否需要继续读。
+      2. **Why（动机，2-4 段）**：为什么需要这个能力 / 为什么选这个方案。给出对比与权衡，避免「这是最佳实践」式的空洞断言。
+      3. **How（操作步骤，分步骤编号）**：完整可执行的步骤序列。每步包含命令、预期输出、可能的失败信号。代码块必须可复制可运行。
+      4. **Example（端到端示例）**：一个完整可跑的样例，输入与输出都展示。示例覆盖典型路径，不展示 dead code。
+      5. **Troubleshoot（故障排查）**：列出 3-5 个常见错误信号与对应排查步骤；指明日志位置、关键变量、回退方案。
+
+      额外要求：
+      - 标题层级不超过 3 级；超过说明结构太深，应拆文档。
+      - 每个代码块前一句话说明「这段干什么」，后一句话说明「预期结果」。
+      - 不要 "TODO" / "TBD" 留在已发布版本里。
+
+required_credentials: []
+
+# Single-agent, no-repo scene: hide cross-agent (blackboard/inbox) and
+# git/harness (gate/pre-commit) tools it never needs.
+disable_tool_groups: [multi-agent, harness]
+
+match:
+  base_weight: 0
+  rules:
+    - signal: workspace.has_repo_count
+      args: { max: 0 }
+      weight: 20
+    - signal: kanban.label_term_frequency
+      args: { terms: ["docs", "文档", "writing"] }
+      weight: 15

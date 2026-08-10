@@ -1,0 +1,25 @@
+# NoSQL W1 PoC backing services (issue #352, Epic #345 Wave1).
+# Throwaway containers, no volumes — `docker compose down` leaves nothing behind.
+services:
+  mongo:
+    image: mongo:7
+    ports:
+      - "27017:27017"
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+  # bitnamilegacy variant: the canonical docker.elastic.co image was unreachable
+  # from this PoC host (daemon-level proxy breakage); bitnami 8.18.0 was already
+  # in the local cache and runs with security disabled by default, which is all
+  # the connectivity PoC needs. Wave3 is not tied to this image.
+  elasticsearch:
+    image: bitnamilegacy/elasticsearch:8.18.0
+    environment:
+      - ELASTICSEARCH_HEAP_SIZE=512m
+    ports:
+      - "9200:9200"
+  trino:
+    image: trinodb/trino:476
+    ports:
+      - "8080:8080"

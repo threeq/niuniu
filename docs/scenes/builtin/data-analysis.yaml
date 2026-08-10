@@ -1,0 +1,185 @@
+slug: data-analysis
+display_name: 数据分析
+description: 连数据源查数 → 分析 → 直出 Excel/图表/报告 — 绑定 run_data_query 取数 + xlsx/docx 出报表 + niuniu-data 图表渲染并 pin 到数据看板，并可经 lark CLI 推送飞书。适合数据周报、经营分析、即席查询，也兼顾本地数据集 EDA。
+tags: [data, analytics, sql, excel, report, dashboard, feishu]
+
+mcp:
+  - name: context7
+
+plugins:
+  # Anthropic 官方 document-skills：投射 xlsx/docx/pdf 技能，用于把查询结果直出
+  # Excel 报表 / Word 报告 / PDF。读取已有 .xlsx/.docx 复用 niuniu 内置
+  # read_document（meta_only 取元信息），故无需额外 MCP。
+  - source: document-skills@anthropic-agent-skills
+    optional: true
+
+assets:
+  env_presets: []
+  quick_actions:
+    - slug: list-data-sources
+      label: 盘点可用数据源
+      prompt: "调用 list_data_sources 列出当前工作空间可访问的数据源，逐条说明：name、kind（mysql/postgres/clickhouse/trino/mongo/redis/elasticsearch 等）、读写模式与 scope_config（可触达的库/表/集合/索引）。据此告诉我各源适合回答哪类问题，再等我指定要查什么。"
+    - slug: query-data-source
+      label: 查数据源
+      prompt: "用 run_data_query 查询数据源：先 list_data_sources 确认目标源的 kind 与 scope；SQL/Trino 源传单条只读 statement（SELECT/SHOW/EXPLAIN/WITH…SELECT，方言随 kind，Trino 表用 catalog.schema.table），redis/mongo/elasticsearch 源改传对应 operation。一次一条语句、加合理 LIMIT、绝不写改数据。返回后用 Markdown 表格呈现，并对关键结论给出 niuniu-data 图表块。"
+    - slug: gen-weekly-report
+      label: 生成数据周报(Excel)
+      prompt: |-
+        端到端生成一份数据周报（.xlsx），全程不要编造数字：
+        1) list_data_sources 选定数据源，与我确认本周口径（时间范围、关键指标、维度）；
+        2) run_data_query 取「本周 / 上周 / 同比」关键指标——只读 SELECT，带显式日期过滤与 LIMIT，必要时分多条查询；
+        3) 用 xlsx 技能生成 .xlsx：含「概览 / 明细 / 环比」工作表，设置表头、数字/百分比格式、环比与同比公式、必要的条件格式或迷你图，落到当前工作空间目录，文件名语义化；
+        4) 同时把核心趋势用 niuniu-data 围栏块直接渲染在回复里（关键图建议 pin 到数据看板）；
+        5) 用 read_document（meta_only 看 sheet 数、再抽查正文）自检：sheet 数、关键单元格数值与公式结果正确、文件能正常打开，然后才算交付。
+    - slug: render-chart
+      label: 在工作空间出图
+      prompt: "把刚才的数据用图表直接渲染在聊天里：输出一个语言标记为 niuniu-data 的围栏代码块。优先用 ECharts 直出模式 {\"title\":\"...\",\"chart\":{\"type\":\"echarts\",\"option\":{ ...完整 ECharts option... }}}（纯 JSON、声明式、无函数）。若数据来自数据源（run_data_query），务必在块里带上 source（SQL 源加 statement、NoSQL 源如 ES/Mongo/Redis 加 operation——即你刚传给工具的那个 operation 对象），这样图表才会出现「Pin 实时数据」、可 pin 成实时数据面板；直出 ECharts 模式同样要带 source。选最能表达该数据的图型（趋势用折线、对比用柱状、占比用饼图、相关用散点）。"
+    - slug: pin-to-dashboard
+      label: 图表 pin 到数据看板
+      prompt: "把关键图表用 pin_query 固化到我的数据看板，区分两类面板：(1) **实时数据面板（来自 run_data_query 的图优先用此）**：传 source + operation.statement（只读 SELECT，看板每次打开会经数据代理重跑取最新数据，read-only 服务端强制）+ 数据驱动的 chart_spec（如 {\"type\":\"bar\",\"x\":\"day\",\"y\":[\"cnt\"]}，或用 dataset 绑定结果集的 echarts——切勿内联固定数据），这类面板会显示「数据获取成功时间」并随刷新更新；(2) **快照数据面板**：不依赖数据源的自包含图，传 chart_spec(type=echarts) + snapshot.result，数据与时间固定在快照那一刻。起一个清晰的面板名，pin 成功后告诉我看板入口已生成。注意：前端会在 echarts 渲染的图表上提供「Pin 实时数据」按钮，点击后自动发给你重建请求——收到时按上面的实时数据面板方式用 pin_query 建面板。"
+    - slug: describe-dataset
+      label: 描述当前数据集
+      prompt: "请加载当前 workspace 内的主要数据集（本地 csv/parquet/xlsx 等），输出：1) 形状（行列数）；2) 各列类型与缺失率；3) 数值列的均值/中位数/标准差/极值；4) 类别列的 top-5 频次；5) 初步异常点提示。"
+    - slug: push-to-feishu
+      label: 推送报表到飞书
+      prompt: "用场景内的 lark CLI 把刚生成的 Excel/报告/图表推送到飞书：先 `lark whoami` 确认已登录（未登录则提示我 `lark login`，token 由 lark CLI 自管、按 owner 隔离，不在场景里存密钥）；再按目标选择 `lark drive upload`（云文档/表格）或 `lark im send`（群/个人消息），把产物或图片发出去，并回报访问链接。仅在我明确要推送时执行。"
+  project_templates: []
+  harness_specs: []
+  agents: []
+
+prompts:
+  - id: data-query-workflow
+    title: 数据源取数 → 分析 → 出报表（list_data_sources → run_data_query → xlsx/图表 → 看板）
+    body: |
+      本场景把牛牛内置的数据查询工具与 Office 报表技能串联，标准链路是
+      「查数据源 → 分析 → 直出 Excel/图表/报告」。内置 MCP 工具
+      `list_data_sources` / `run_data_query` 始终可用，无需在 .mcp.json 声明。
+
+      1. **先盘点，再取数**：动手前一律先 `list_data_sources`，按返回的 `kind`
+         决定怎么查、按 `scope_config` 确认能触达哪些库/表/集合/索引——不要假设
+         表名或越权访问 scope 外的对象。
+      2. **怎么查**：`run_data_query` 一次只传一条语句。
+         - SQL/Trino 源：传 `statement`（只读 SELECT/SHOW/EXPLAIN/WITH…SELECT，
+           方言随 source kind；Trino 表用 catalog.schema.table）。
+         - redis / mongo / elasticsearch：改传 `operation`（命令 / mongo_op /
+           es_method+es_path），字段组随 kind。
+         始终加合理 `row_limit`/`LIMIT`，需要多个指标就拆成多条查询。**只读**：
+         本场景不做写操作；若用户要求写库，明确确认范围与影响后再谨慎进行。
+      3. **分析**：用「我们看到 X，因此推断 Y」的句式区分观察与推断；环比/同比、
+         异常点、缺失与口径问题都要点明，数据缺失就标注并向用户索取，不编造数字。
+      4. **出产物**：
+         - 表/报表：用投射进来的 `xlsx`（Excel）或 `docx`（Word）技能生成文件，
+           **落到当前工作空间目录**，设置表头/数字格式/公式，文件名语义化。
+         - 图表：用 `niuniu-data` 围栏块直接渲染在回复里（见「图表渲染」段）。
+         - 看板：值得长期跟踪的图用 `pin_query` pin 到数据看板。**支持实时数据**：
+           传 source + 只读 statement + 数据驱动 chart_spec → 建成**实时数据面板**，看板
+           按需重跑取最新数据并显示「数据获取成功时间」；不依赖数据源的自包含图传
+           chart_spec + snapshot → **快照数据**，数据与时间固定。来自数据源的图优先建
+           成实时数据面板。
+      5. **自检**：生成文件后用内置 `read_document`（meta_only 看结构 + 抽查正文）核对
+         sheet/页数、关键单元格数值与公式结果、文件可正常打开，再交付。
+
+  - id: eda-procedure
+    title: 数据探索分析（EDA）步骤
+    body: |
+      接到一个新数据集时，按以下顺序进行探索分析，每步留下可复跑的 notebook cell 或脚本：
+
+      1. **Schema 完整性检查**：列名、类型、单位是否符合预期？字段含义是否与文档一致？发现差异立即与数据方确认，不要私自推断。
+      2. **空值分析**：每列缺失率；缺失是否 MCAR / MAR / MNAR？是否系统性偏差（例如某时间段集中缺失）？填补前先理解机制。
+      3. **分布检查**：数值列的直方图与箱线图；类别列的频次分布与长尾。识别明显错误值（年龄为负、金额为天文数字）。
+      4. **异常点 (outlier)**：用 IQR / z-score / domain rule 三种方法交叉判定；记录而非直接删除，留待下游决策。
+      5. **相关性与共线性**：连续变量做相关性矩阵；类别变量看 chi-square 或 Cramér's V。识别会污染模型的强共线特征。
+      6. **时间一致性**（如有时间列）：是否覆盖完整时间段？是否有断点、重复时间戳、时区错误？
+
+      产出物：一份 EDA 报告，包含上述每一步的结论、可视化截图、待澄清问题列表。结论用「我们看到 X，因此推断 Y」的句式，区分观察与推断。
+
+  - id: chart-rendering
+    title: 在工作空间直接渲染图表（ECharts）
+    body: |
+      你可以把图表**直接渲染在聊天消息里**，无需用户额外操作——只要输出一个语言标记为
+      `niuniu-data`（别名 `chart`）的围栏代码块，块体是 JSON。前端会自动用 ECharts 渲染。
+      两种用法：
+
+      1. **ECharts 直出（最灵活，无需查数据库）**：当你已经有数据、或在做演示/推演时，
+         直接给出完整的原生 ECharts option：
+
+         ```niuniu-data
+         {"title":"月度销售","chart":{"type":"echarts","option":{
+           "xAxis":{"type":"category","data":["1月","2月","3月"]},
+           "yAxis":{"type":"value"},
+           "series":[{"type":"bar","data":[120,200,150]}]}}}
+         ```
+
+         更简：语言标记用 `echarts` 时块体可以直接是裸的 option JSON（不需要外层包装）。
+         `option` 必须是纯 JSON（声明式配置，不能含函数/回调，不会被 eval）。设计系统配色
+         已默认注入，可在 option 内覆盖。**若该图数据来自数据源**，即使用直出模式也要在块
+         顶层带 `source`（SQL 加 `statement`、NoSQL 加 `operation`），否则前端无法识别其来源、
+         不会显示「Pin 实时数据」入口。
+
+      2. **查询派生（可一键 pin 成实时数据面板）**：当数据来自 `run_data_query` 工具时，使用
+         `{"title","source","statement","result","chart":{"type":"bar","x":"<列>","y":["<列>"]}}`，
+         其中 `result` 是工具返回值，`source`/`statement` 让该图能 pin 成**实时数据面板**
+         （看板按需重跑取最新数据、显示数据获取时间）。所有 echarts 渲染的图型
+         （line/area/bar/pie/scatter/echarts）只要带 source+statement 都可建成实时数据面板；
+         唯独纯内联数据的 echarts option 需先改写成数据驱动的 chart_spec 才能实时重跑。
+
+         **结果格式多变时用 echarts dataset 绑定（不要 eval、不要写转换函数）**：用
+         `{"type":"echarts","option":{...}}`，在 option 里声明 `dataset` 但**不写 source**——
+         看板每次重跑后会把结果行注入第一个 `dataset.source`、并以查询列名作 `dimensions`；
+         你只需把"行转换"写成 echarts **内置 transform**（如 `{"transform":{"type":"filter"|"sort",
+         "config":{...}}}`，可串多个 dataset），再用 `series.encode`（如 `{"x":"day","y":"cnt"}`）
+         映射维度。option 必须是纯声明式 JSON（**禁止任何函数/回调**），看板不执行 eval。
+
+      **实时时序面板必须用"相对时间窗口"，绝不写死绝对时间**：pin 成实时面板的查询会被
+      原样按需重跑，若把"当前时刻"写成绝对时间戳（如 ES `{"gte":1782305160000}`、或 SQL 里
+      硬编码某个 `'2026-06-24 20:46'`），窗口就永远停在 pin 那一刻、看似实时实则冻结。要用引擎
+      每次重跑都会重新求值的相对边界：SQL 用 `NOW() - INTERVAL '10' MINUTE`；ES 的 date 类型字段
+      用 `"gte":"now-10m"`。**当时间字段是数值型 epoch 毫秒（如腾讯云 CLS 的 `__TIMESTAMP__`，
+      引擎不认 `now-10m`）时，改用 niuniu 服务端占位符 `{{now-10m}}`**（还有 `{{now}}`、`{{now-2h}}`、
+      `{{now+5m}}`，单位 ms/s/m/h/d）——服务器会在每次取数前把它替换成当前 epoch 毫秒，例如
+      `{"range":{"__TIMESTAMP__":{"gte":"{{now-10m}}"}}}`。窗口取"最近 N 分钟/小时"这类有界范围，
+      别用无上界的固定起点，否则桶数会随时间无限增长并被行上限从最旧端截断。
+
+      选图原则：趋势用折线(line/area)、分类对比用柱状(bar)、占比用饼图(pie)、相关性用散点(scatter)、
+      明细用表格(table)。一条消息可包含多个 niuniu-data 块，与正文穿插。
+
+      样式约定（保持与产品 UI 一致）：
+      - **不要给 series/itemStyle 硬编码颜色**（如 `#dc2626`）——设计系统调色板会自动套用，
+        且自动适配暗色模式；仅当颜色有明确语义（红=严重/错误）时才显式指定。
+      - title + subtext + legend 同时使用时，legend 放底部（`"legend":{"bottom":0}`），
+        避免与副标题重叠。
+      - 柱状图避免对 0 值系列开启 `label.show`（堆叠柱会在条端挤出一串 "0"）；
+        只在数值条数少且读数重要时才开 label。
+
+  - id: lark-feishu-delivery
+    title: 飞书交付（lark CLI 作为场景内能力）
+    body: |
+      本场景把飞书接入为**场景内的一种 CLI 能力**（非独立子系统）：当用户需要把分析结果
+      送进飞书时，通过命令行工具 `lark`（lark-cli）操作，用 Bash 调用即可。
+
+      - **鉴权自管、按 owner 隔离**：token 由 lark CLI 自己管理并存放在按 owner 隔离的
+        配置目录里，**场景与工作空间都不保存任何密钥**。首次使用先 `lark whoami` 探测，
+        未登录就提示用户 `lark login`（OAuth），登录态由 CLI 持久化。
+      - **常见动作**：
+        - 上传/更新云文档或在线表格：`lark drive upload <本地文件> ...`（把刚生成的
+          .xlsx 周报、.docx 报告同步到飞书云空间）；
+        - 发送消息/图片到群或个人：`lark im send ...`（把关键图表或结论推送出去）。
+      - **纪律**：只在用户明确要求推送时才执行；推送前确认目标（云空间目录 / 群 / 接收人）；
+        推送后回报可访问链接。`lark` 不可用时如实说明并退化为仅在工作空间产出文件，不要
+        伪造推送成功。
+
+required_credentials: []
+
+# Single-agent, no-repo data scene: hide cross-agent (blackboard/inbox) and
+# git/harness (gate/pre-commit) tools it never needs.
+disable_tool_groups: [multi-agent, harness]
+
+match:
+  base_weight: 0
+  rules:
+    - signal: workspace.has_repo_language
+      args: { language: python }
+      weight: 20
+    - signal: kanban.label_term_frequency
+      args: { terms: ["data", "analysis", "数据", "数据源", "报表", "周报", "看板", "sql", "excel", "dashboard"] }
+      weight: 15

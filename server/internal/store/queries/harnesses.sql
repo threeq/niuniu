@@ -1,0 +1,3 @@
+-- harnesses, harness_phases, harness_phase_agents, harness_phase_gates, and the
+-- BindWorkspaceHarness helper were removed in Phase 7 (drop_legacy_phase7_v1).
+-- This file is kept as a placeholder; all harness_specs queries remain in harness_specs.sql.

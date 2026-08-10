@@ -1,0 +1,86 @@
+{
+  "title": "牛牛助手",
+  "subtitle": "描述需求，自動規劃並交付文件 / 表格 / PPT / 海報",
+  "tab": {
+    "chat": "對話",
+    "kanban": "看板"
+  },
+  "sandbox": {
+    "label": "本地沙箱",
+    "hint": "資料不出本機",
+    "badge": "本地沙箱"
+  },
+  "empty": {
+    "title": "說一句話，我來交付"
+  },
+  "hint": "無需建專案 · 無需選倉庫 · 說一句話",
+  "newTask": "新任務",
+  "plans": {
+    "title": "任務",
+    "empty": "還沒有任務，說一句話開始",
+    "delete": "刪除",
+    "confirmDelete": "確認刪除",
+    "cancel": "取消",
+    "toggle": "展開 / 收起子任務"
+  },
+  "creating": "正在建立工作空間…",
+  "restoring": "正在恢復對話…",
+  "error": "建立失敗，請稍後重試",
+  "input": {
+    "placeholder": "描述你想完成的任務，例如：幫我做一份本週銷售彙報 PPT",
+    "placeholderContinue": "繼續補充需求…",
+    "attach": "新增附件（圖片 / 檔案）",
+    "knowledge": "新增知識庫目錄",
+    "knowledgePlaceholder": "知識庫目錄的絕對路徑，例如 D:\\資料\\行業報告",
+    "add": "新增",
+    "remove": "移除",
+    "browse": "瀏覽…",
+    "managedTask": "建立託管任務",
+    "managedTaskTemplate": "幫我建立一個定時託管任務：每__（例如每週一上午9點）自動__，完成後通知我。"
+  },
+  "picker": {
+    "title": "選擇知識庫目錄",
+    "up": "上一級",
+    "home": "主目錄",
+    "select": "選擇此目錄",
+    "drives": "此電腦",
+    "cancel": "取消",
+    "empty": "此目錄下沒有子資料夾",
+    "error": "無法讀取目錄"
+  },
+  "dispatch": {
+    "attachmentOnly": "(附件)",
+    "seeAttachment": "(見附件)",
+    "knowledgePreamble": "[知識庫] 請先用 ingest_directory 工具把下列本地目錄作為只讀知識攝取，再據此作答："
+  },
+  "send": "傳送",
+  "you": "你",
+  "assistant": "助手",
+  "preview": {
+    "title": "產物預覽",
+    "empty": "交付的產物會自動呈現在這裡"
+  },
+  "plan": {
+    "title": "處理進度",
+    "autohost": "（自動完成）",
+    "step": "處理中",
+    "planning": "正在規劃…",
+    "completed": "已完成",
+    "working": "正在處理…（已完成 {{n}} 步）",
+    "doneCount": "已完成 {{n}} 步",
+    "openWorkspace": "檢視詳情",
+    "openWorkspaceHint": "開啟對應工作空間檢視詳細資訊"
+  },
+  "schedule": {
+    "badge": "定時任務",
+    "count": "{{n}} 項定時",
+    "paused": "定時已暫停",
+    "manage": "檢視定時任務"
+  },
+  "behind": {
+    "title": "幕後",
+    "issue": "問題 #{{id}}",
+    "workspace": "工作空間 · {{name}}",
+    "sandbox": "本地沙箱模式"
+  }
+}

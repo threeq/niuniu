@@ -1,0 +1,34 @@
+{
+  "requestChanges": {
+    "title": "需修改（打回重做）",
+    "help": "留下 issue 级审查意见（为什么不过 / 通过条件 / 验收 gap），把卡片打回「实现」列。Agent 会在已有改动基础上续跑，并自动带上你的看板评论与未解决的行级 diff 评论，改完后回到本列并附本轮改动说明。",
+    "placeholder": "为什么不过、通过条件、验收 gap…",
+    "submit": "打回重做",
+    "submitting": "打回中…",
+    "done": "已打回「实现」列续跑",
+    "failed": "打回失败",
+    "charCount": "字符数：{{n}} / {{max}}",
+    "reopen": {
+      "title": "重新审核（重开已完成 issue）",
+      "help": "本 issue 已完成。留下审查意见并把它重开回「实现」列——agent 会重新接手，并自动带上你的看板评论与未解决 diff 评论，改完后回到审查。",
+      "submit": "重开并打回",
+      "submitting": "重开中…",
+      "done": "已重开回「实现」列续跑",
+      "failed": "重开失败"
+    }
+  },
+  "goalCondition": {
+    "title": "自动托管完成条件（可选）",
+    "set": "已设置",
+    "unset": "未设置",
+    "hint": "留空则只用 sentinel 判停",
+    "charCount": "字符数：{{n}} / {{max}}",
+    "help": "这条条件会在 autohost 准备结束本轮时，作为 LLM 判停的依据。例如 \"所有单元测试通过\" 或 \"PR 已合并就绪\"。",
+    "aiSuggest": "AI 建议",
+    "suggesting": "生成中…",
+    "unsaved": "未保存",
+    "suggestFailed": "生成失败，请重试",
+    "suggestCliUnavailable": "claude CLI 不可用，AI 建议功能禁用",
+    "suggestRateLimited": "AI 建议请求太频繁，请稍候再试"
+  }
+}

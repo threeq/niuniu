@@ -1,0 +1,115 @@
+{
+  "version": "2.13",
+  "children": [
+    {
+      "type": "rectangle",
+      "id": "P972GC",
+      "x": -197,
+      "y": -253,
+      "fill": {
+        "type": "image",
+        "enabled": true,
+        "url": "images%5Cmaster.png",
+        "mode": "fill"
+      },
+      "width": 1024,
+      "height": 1024
+    },
+    {
+      "type": "rectangle",
+      "id": "Ngsre",
+      "x": -197,
+      "y": -253,
+      "fill": {
+        "type": "image",
+        "enabled": true,
+        "url": "master.png",
+        "mode": "fill"
+      },
+      "width": 1024,
+      "height": 1024
+    },
+    {
+      "type": "frame",
+      "id": "y2ND5L",
+      "x": 987,
+      "y": -253,
+      "name": "Niuniu Lockup",
+      "fill": "#FFFFFF",
+      "gap": 44,
+      "padding": [
+        64,
+        80
+      ],
+      "alignItems": "center",
+      "children": [
+        {
+          "type": "rectangle",
+          "cornerRadius": 44,
+          "id": "fYxob",
+          "name": "App Icon",
+          "fill": {
+            "type": "image",
+            "enabled": true,
+            "url": "master.png",
+            "mode": "fill"
+          },
+          "width": 200,
+          "height": 200
+        },
+        {
+          "type": "text",
+          "id": "ImdN9",
+          "name": "Wordmark",
+          "fill": "#173A6B",
+          "content": "Niuniu",
+          "fontFamily": "Inter",
+          "fontSize": 140,
+          "fontWeight": "700",
+          "letterSpacing": -2
+        }
+      ]
+    },
+    {
+      "type": "frame",
+      "id": "Baz75",
+      "x": 987,
+      "y": 235,
+      "name": "Niuniu Lockup CN",
+      "fill": "#FFFFFF",
+      "gap": 44,
+      "padding": [
+        64,
+        80
+      ],
+      "alignItems": "center",
+      "children": [
+        {
+          "type": "rectangle",
+          "cornerRadius": 44,
+          "id": "G8IbaC",
+          "name": "App Icon",
+          "fill": {
+            "type": "image",
+            "enabled": true,
+            "url": "master.png",
+            "mode": "fill"
+          },
+          "width": 200,
+          "height": 200
+        },
+        {
+          "type": "text",
+          "id": "lxEUE",
+          "name": "Wordmark CN",
+          "fill": "#173A6B",
+          "content": "牛牛",
+          "fontFamily": "Noto Sans SC",
+          "fontSize": 150,
+          "fontWeight": "700",
+          "letterSpacing": 2
+        }
+      ]
+    }
+  ]
+}

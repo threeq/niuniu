@@ -1,0 +1,61 @@
+slug: writing-studio
+display_name: 写作舱
+description: 通用写作工作舱 — 研究→草稿→评审 工作流，挂 web 检索与记忆 MCP，开箱即用
+tags: [writing, content, studio, generic]
+
+mcp:
+  - name: fetch
+
+plugins: []
+
+assets:
+  env_presets: []
+  quick_actions:
+    - slug: writing-research
+      label: 研究选题
+      prompt: "围绕当前写作主题做一轮研究：1) 用一句话写清读者与目标；2) 列出 3-5 个需要查证的关键问题；3) 用 fetch 检索资料并给出来源链接；4) 汇总成要点清单，标出仍存疑的部分。这是「研究」阶段，先不要写正文。"
+    - slug: writing-draft
+      label: 写初稿
+      prompt: "基于研究阶段的要点写出第一版草稿：结构清晰、分小节、每节有小标题；先把完整骨架写出来，允许局部粗糙。这是「草稿」阶段，不要纠结字句打磨。"
+    - slug: writing-review
+      label: 评审定稿
+      prompt: "以严格编辑视角评审当前草稿：逐节指出 1) 论点是否成立、2) 是否有未经查证的断言、3) 表达是否啰嗦或含糊，并给出修改后的版本。这是「评审」阶段，目标是可发布。"
+  project_templates: []
+  harness_specs: []
+  agents: []
+
+prompts:
+  - id: writing-workflow
+    title: 写作工作流（研究 → 草稿 → 评审）
+    body: |
+      通用写作任务按三个阶段推进，每个阶段对应看板上的一列 / 一个 issue 阶段，
+      与开发工作流（spec → implement → review）结构同构：
+
+      1. **研究（research）**：明确读者与目标，列出待查证问题，用 web 检索收集
+         资料并记录来源。产出是一份带来源的要点清单，而不是正文。本阶段禁止
+         直接开写，避免「边写边查」导致结构散乱。
+      2. **草稿（draft）**：基于研究要点写出完整骨架与第一版正文。优先保证结构
+         完整、逻辑连贯，允许字句粗糙。不要在本阶段反复打磨措辞。
+      3. **评审（review）**：以编辑视角逐节审稿——论点是否成立、有无未查证的
+         断言、表达是否冗余含糊，并给出可发布的修订版。
+
+      纪律：
+      - 每个阶段结束前先自检「本阶段产出是否达标」，达标再进入下一阶段。
+      - 所有事实性断言必须能追溯到来源；拿不准的就标注存疑，不要编造。
+      - 长文先列大纲再展开，标题层级不超过 3 级。
+
+required_credentials: []
+
+# Single-agent, no-repo scene: hide cross-agent (blackboard/inbox) and
+# git/harness (gate/pre-commit) tools it never needs.
+disable_tool_groups: [multi-agent, harness]
+
+match:
+  base_weight: 0
+  rules:
+    - signal: workspace.has_repo_count
+      args: { max: 0 }
+      weight: 20
+    - signal: kanban.label_term_frequency
+      args: { terms: ["writing", "写作", "文案", "创作", "内容"] }
+      weight: 18

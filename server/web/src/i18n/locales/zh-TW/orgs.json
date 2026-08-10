@@ -1,0 +1,122 @@
+{
+  "list": {
+    "title": "組織",
+    "createButton": "建立組織",
+    "createFirstButton": "建立第一個組織",
+    "emptyAdminTitle": "還沒有組織",
+    "emptyAdminHint": "建立第一個組織來開始協作。",
+    "emptyMemberTitle": "你還不是任何組織的成員",
+    "emptyMemberHint": "請聯絡管理員將你加入組織。",
+    "roleOwner": "所有者",
+    "roleAdmin": "管理員",
+    "roleMember": "成員"
+  },
+  "detail": {
+    "back": "返回組織列表",
+    "notFound": "未找到組織「{{slug}}」。可能你沒有訪問許可權，或組織不存在。",
+    "tabs": {
+      "general": "通用",
+      "members": "成員",
+      "resources": "資源",
+      "audit": "審計日誌",
+      "danger": "危險區域"
+    },
+    "general": {
+      "sectionTitle": "基本資訊",
+      "name": "名稱",
+      "slug": "Slug",
+      "slugHint": "用於 URL：/settings/orgs/{{slug}}",
+      "slugPlaceholder": "...",
+      "description": "描述",
+      "descriptionPlaceholder": "組織的簡要描述",
+      "saved": "已儲存",
+      "saveFailed": "儲存失敗: {{error}}",
+      "readOnlyHint": "只有所有者和管理員可以修改組織資訊。",
+      "claudeActiveAccount": "Org Claude 活躍賬號"
+    },
+    "members": {
+      "addTitle": "新增成員",
+      "searchPlaceholder": "搜尋使用者名稱或姓名",
+      "addButton": "新增",
+      "added": "已新增成員",
+      "addFailed": "新增失敗: {{error}}",
+      "roleChangeFailed": "修改角色失敗: {{error}}",
+      "removed": "已移除成員",
+      "removeFailed": "移除失敗: {{error}}",
+      "loading": "載入中...",
+      "empty": "暫無成員",
+      "roleOwner": "所有者",
+      "roleAdmin": "管理員",
+      "roleMember": "成員",
+      "removeTitle": "移除",
+      "confirmLeave": "確定要離開此組織嗎？",
+      "confirmRemove": "確定要移除成員「{{name}}」嗎？"
+    },
+    "resources": {
+      "description": "以下為屬於該組織的資源統計。點選跳轉到對應列表頁面。",
+      "projects": "專案",
+      "workspaces": "工作空間",
+      "repositories": "倉庫"
+    },
+    "audit": {
+      "loading": "載入中...",
+      "empty": "暫無審計記錄",
+      "loadMore": "載入更多",
+      "loadingMore": "載入中...",
+      "noPermission": "只有所有者和管理員可以檢視審計日誌。"
+    },
+    "danger": {
+      "noPermission": "只有所有者可以進行危險操作。",
+      "transferTitle": "轉讓所有權",
+      "transferHint": "將此組織的所有者許可權轉讓給其他成員。轉讓後你將變為普通管理員。",
+      "transferEmpty": "沒有其他成員可供轉讓。",
+      "transferSelectPlaceholder": "選擇轉讓物件...",
+      "transferOptionLabel": "{{name}}（{{role}}）",
+      "transferButton": "轉讓",
+      "transferring": "轉讓中...",
+      "transferConfirm": "確定要將組織「{{org}}」的所有權轉讓給「{{name}}」嗎？此操作不可撤銷。",
+      "transferred": "所有權已轉讓",
+      "transferFailed": "轉讓失敗: {{error}}",
+      "deleteTitle": "刪除組織",
+      "deleteHint": "永久刪除此組織。此操作不可撤銷。",
+      "deleteHasResources": "組織下仍有資源（{{summary}}），請先清空後再刪除。",
+      "deleteResourceProjects": "{{count}} 個專案",
+      "deleteResourceWorkspaces": "{{count}} 個工作空間",
+      "deleteResourceRepositories": "{{count}} 個倉庫",
+      "deleteResourceSeparator": "、",
+      "deleteButton": "刪除組織",
+      "deleting": "刪除中...",
+      "deleteConfirm": "確定要刪除組織「{{org}}」嗎？此操作不可撤銷，所有成員關係將被清除。",
+      "deleted": "組織已刪除",
+      "deleteFailed": "刪除失敗: {{error}}",
+      "deleteDisabledTitle": "組織必須為空才能刪除"
+    }
+  },
+  "dialogs": {
+    "createOrg": {
+      "title": "新建組織",
+      "description": "描述（可選）",
+      "name": "名稱",
+      "namePlaceholder": "例如：我的組織",
+      "slug": "Slug（可選）",
+      "slugPlaceholder": "留空則由後端自動生成",
+      "slugHint": "用於 URL 路徑，僅允許小寫字母、數字和連字元",
+      "descriptionPlaceholder": "組織的簡要描述",
+      "cancel": "取消",
+      "submit": "建立",
+      "submitting": "建立中...",
+      "createFailed": "建立組織失敗: {{error}}"
+    }
+  },
+  "team": {
+    "userSearch": {
+      "displayString": "{{name}} (@{{username}})",
+      "clearLabel": "clear",
+      "searchFailed": "搜尋失敗,請重試",
+      "searching": "搜尋中…",
+      "promptInput": "請輸入使用者名稱或姓名搜尋",
+      "noResults": "未找到使用者。已是本組織成員的使用者不會出現在這裡。",
+      "showing": "顯示前 {{shown}} 條,共 {{total}} 條匹配,請輸入更多關鍵字縮小範圍。"
+    }
+  }
+}

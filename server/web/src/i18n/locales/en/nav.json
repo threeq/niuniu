@@ -1,0 +1,26 @@
+{
+  "brand": {
+    "name": "Niuniu"
+  },
+  "menu": {
+    "projects": "Projects",
+    "workspaces": "Workspaces",
+    "repositories": "Repositories",
+    "scenes": "Scenes",
+    "harness": "Harness",
+    "agents": "Agents",
+    "assistant": "Niuniu Assistant",
+    "aiHub": "AI Hub"
+  },
+  "actions": {
+    "autoAi": "Auto AI",
+    "settings": "Settings",
+    "logout": "Log out"
+  },
+  "theme": {
+    "toggle": "Toggle theme",
+    "light": "Light",
+    "dark": "Dark",
+    "system": "System"
+  }
+}

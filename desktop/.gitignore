@@ -1,0 +1,8 @@
+*.exe
+*.dll
+*.so
+*.dylib
+dist/
+.DS_Store
+node_modules/
+.history/

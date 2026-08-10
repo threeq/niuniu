@@ -1,0 +1,37 @@
+[
+  {
+    "key": "0000000000000000000000000000000000000000000000000000000000000000",
+    "nonce": "000000000000000000000000",
+    "ad": "",
+    "plaintext": "",
+    "ciphertext": "4eb972c9a8fb3a1b382bb4d36f5ffad1"
+  },
+  {
+    "key": "0101010101010101010101010101010101010101010101010101010101010101",
+    "nonce": "010101010101010101010101",
+    "ad": "deadbeef",
+    "plaintext": "68656c6c6f",
+    "ciphertext": "994b8743d3248a0147c052d2e88a4d624db87fb292"
+  },
+  {
+    "key": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+    "nonce": "000102030405060708090000",
+    "ad": "01020304",
+    "plaintext": "48656c6c6f2c20576f726c6421",
+    "ciphertext": "9c0399ee4c4f5fb1e094ea98cf62e3ac9822b97bc3d3901f8cfb17f600"
+  },
+  {
+    "key": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "nonce": "ffffffffffffffffffffff00",
+    "ad": "aabbccdd",
+    "plaintext": "6e69756e6975",
+    "ciphertext": "5638aa32a462d87d1dfb61acaa010ab2d25dde7587a2"
+  },
+  {
+    "key": "cafebabecafebabecafebabecafebabecafebabecafebabecafebabecafebabe",
+    "nonce": "deadbeefdeadbeefdeadbeef",
+    "ad": "7465737420617373656369617465642064617461",
+    "plaintext": "6d6f62696c652d64657674657374",
+    "ciphertext": "decf8b18815beac782d2684f03b0c7b4aacf9d5473d40b89c1b7d4633275"
+  }
+]

@@ -1,0 +1,988 @@
+{
+  "localRunner": {
+    "bar": {
+      "launch": "Start local executor",
+      "connecting": "Connecting…",
+      "active": "Local executor running",
+      "viewLog": "Local logs",
+      "configure": "Configure",
+      "error": "Local executor error",
+      "streamError": "Log stream disconnected",
+      "retry": "Retry"
+    },
+    "config": {
+      "title": "Local executor",
+      "description": "Bind a directory on this machine so build, package and test commands run locally while reads and writes stay in the remote worktree.",
+      "defaultPrompt": "Prefer the local executor toolset (local_exec / local_read / local_sync) to run build/package/test commands in the bound directory; code reads and writes still happen in the remote worktree. Fall back to server execution when the toolset is not visible.",
+      "dirLabel": "Local working directory",
+      "dirPlaceholder": "/path/to/local/project",
+      "dirHint": "Absolute path to a directory on your computer to bind to this workspace.",
+      "dirLockedHint": "The working directory cannot be changed after binding.",
+      "browse": "Browse…",
+      "promptLabel": "Prompt fragment",
+      "useDefault": "Reset to default",
+      "promptHint": "Injected to steer the agent toward the local executor toolset. Editable.",
+      "allowedLabel": "Allowed commands",
+      "allowedHint": "One command per line. These may run without an extra approval prompt.",
+      "persistLabel": "Remember \"always allow\"",
+      "persistHint": "Persist always-allow decisions across sessions.",
+      "stubHint": "In the desktop app on a remote connection, saving automatically binds the directory and opens the live connection. Commands still pass through the security gateway — anything off the whitelist prompts for confirmation."
+    },
+    "log": {
+      "title": "Local execution logs",
+      "description": "Commands and output executed locally for this workspace.",
+      "boundTo": "Bound to {{dir}}",
+      "configButton": "Configure",
+      "empty": "No local executions yet."
+    }
+  },
+  "filePreview": {
+    "loading": "Loading preview...",
+    "unsupported": "Preview not available for this file type",
+    "playbackFailed": "This file can't be played in the browser",
+    "download": "Download",
+    "submitArtifact": "Submit as deliverable",
+    "submitArtifactDone": "\"{{name}}\" submitted as a deliverable",
+    "submitArtifactFailed": "Failed to submit as deliverable",
+    "close": "Close",
+    "highlightDisabledLargeFile": "File is large; syntax highlighting disabled for performance",
+    "imageZoomActual": "View actual size",
+    "imageZoomFit": "Fit to view"
+  },
+  "artifactPreview": {
+    "empty": "No previewable deliverables yet",
+    "download": "Download",
+    "remove": "Remove",
+    "removeDone": "Deliverable \"{{name}}\" removed",
+    "removeFailed": "Failed to remove deliverable",
+    "sendToKanban": "Send to kanban",
+    "sentToKanban": "\"{{name}}\" sent to the kanban",
+    "emptySlide": "Slide {{n}} has no text",
+    "gotoSlide": "Go to slide {{n}}",
+    "prevSlide": "Previous slide",
+    "nextSlide": "Next slide",
+    "play": "Auto-play",
+    "pause": "Pause",
+    "slideFrameTitle": "Slide preview",
+    "textFallback": "Full rendering unavailable — showing text only"
+  },
+  "studioHint": {
+    "title": "Draft studio",
+    "body": "Edits stay inside this studio and don't touch your original directory. Deliver when you're happy with the result.",
+    "dismiss": "Got it"
+  },
+  "list": {
+    "empty": "No workspaces yet",
+    "createWorkspace": "Create workspace"
+  },
+  "detail": {
+    "notFound": "Workspace not found"
+  },
+  "sidebar": {
+    "title": "Workspaces",
+    "newWorkspace": "New workspace",
+    "openKanban": "Open project kanban",
+    "archivedList": "Archived list",
+    "overview": "Overview",
+    "kanbanOverview": "Kanban overview",
+    "archived": "Archived",
+    "searchPlaceholder": "Search title, ID or chat content...",
+    "filterAll": "All",
+    "uncategorized": "Uncategorized",
+    "scheduleSuffix": "scheduled tasks",
+    "priority": {
+      "attention": "Needs attention",
+      "needsReview": "Awaiting review",
+      "running": "Running",
+      "zoneTitle": "Needs my attention",
+      "notStarted": "Not started",
+      "expandAll": "Show all",
+      "collapse": "Collapse",
+      "sortHint": "Sorted by ID ↓",
+      "filterLabel": "Filter by status",
+      "filteredEmpty": "No workspaces match the current filter"
+    },
+    "pinned": {
+      "zoneTitle": "Pinned",
+      "pin": "Pin to top",
+      "unpin": "Unpin",
+      "failed": "Action failed, please retry"
+    },
+    "markDone": {
+      "button": "Done",
+      "disabled": "Can't complete",
+      "success": "Marked as done",
+      "undo": "Undo",
+      "undoError": "Undo failed",
+      "undoStale": "Undo failed: workspace is no longer in the completed state",
+      "error": "Failed to mark as done",
+      "runningError": "Stop the agent first before marking a running workspace as done",
+      "partialSuccess": "Marked done, but issue sync failed"
+    },
+    "scope": {
+      "mine": "Mine",
+      "all": "All"
+    },
+    "search": {
+      "noMatch": "No matching workspaces",
+      "searching": "Searching chat content…"
+    },
+    "empty": {
+      "noProjects": "No projects yet"
+    },
+    "card": {
+      "creatorUnknown": "Unknown creator",
+      "lastMessageLabel": "Last conversation activity",
+      "createdAtLabel": "Created at",
+      "durationLabel": "Duration (last active − created)",
+      "epicMarker": "Epic",
+      "subIssueMarker": "Subtask"
+    },
+    "tree": {
+      "collapse": "Collapse sub-tasks",
+      "expand": "Expand sub-tasks"
+    },
+    "collapse": {
+      "fold": "Collapse sidebar",
+      "expand": "Expand sidebar"
+    },
+    "resize": {
+      "handle": "Drag to resize sidebar"
+    }
+  },
+  "workspace": {
+    "scope": {
+      "mine": "Mine",
+      "all": "All",
+      "popover": {
+        "mine": "Workspaces I created",
+        "all": "All in organization"
+      }
+    },
+    "empty": {
+      "mine": {
+        "title": "No workspaces yet",
+        "cta": "Go to workspace overview"
+      }
+    }
+  },
+  "overview": {
+    "title": "Workspaces Overview",
+    "subtitle": "Cost, activity, and stuck-detection across workspaces",
+    "loadFailed": "Failed to load",
+    "retry": "Retry",
+    "empty": "No workspaces to display",
+    "stuck": "Stuck",
+    "stuckTooltip": "Running but no activity in over 2 hours",
+    "messages": "{{count}} messages",
+    "tokensLabel": "{{tokens}} tokens",
+    "messagesLabel": "{{user}} user / {{ai}} AI",
+    "noProject": "No project",
+    "group": {
+      "expandAria": "Expand {{name}}",
+      "collapseAria": "Collapse {{name}}"
+    },
+    "git": {
+      "aheadTooltip": "{{count}} commits ahead of base branch",
+      "changesTooltip": "{{count}} uncommitted changes"
+    },
+    "workspaceList": "Workspaces",
+    "workspaceCount": "{{count}} total",
+    "batch": {
+      "enter": "Batch manage",
+      "exit": "Done",
+      "selectedCount": "{{count}} selected",
+      "selectAria": "Select workspace !{{id}}",
+      "forceLabel": "Force (ignore uncommitted changes)",
+      "deleteSelected": "Delete ({{count}})",
+      "deleting": "Deleting",
+      "deletingTooltip": "This workspace is being deleted",
+      "deleteStarted": "Deleting {{count}} workspace(s) in the background",
+      "skippedChanges": "{{count}} skipped due to uncommitted changes (enable Force to delete)",
+      "skippedOther": "{{count}} skipped",
+      "deleteFailed": "Batch delete failed: {{message}}",
+      "confirmTitle": "Delete {{count}} workspace(s)?",
+      "confirmDesc": "Selected workspaces will be deleted in the background. Workspaces with uncommitted or unmerged changes are skipped.",
+      "confirmDescForce": "Selected workspaces will be deleted in the background, including any with uncommitted or unmerged changes. This cannot be undone.",
+      "confirmAction": "Delete"
+    },
+    "column": {
+      "creator": "Creator"
+    },
+    "creator": {
+      "unknown": "Unknown"
+    },
+    "filter": {
+      "creator": {
+        "all": "All"
+      }
+    },
+    "metrics": {
+      "active": "Active",
+      "activeHint": "of {{total}} total",
+      "stuck": "Stuck",
+      "stuckHint": "Need a look",
+      "inputTokens": "Input tokens",
+      "cacheReadHint": "{{tokens}} cache read",
+      "outputTokens": "Output tokens",
+      "messagesHint": "{{user}} user / {{ai}} AI msgs"
+    },
+    "tokenChart": {
+      "title": "Token usage (last 7 days)",
+      "empty": "No token usage yet",
+      "input": "Input",
+      "output": "Output",
+      "cacheCreation": "Cache write",
+      "cacheRead": "Cache read"
+    },
+    "timeAgo": {
+      "never": "No activity",
+      "justNow": "Just now",
+      "minutes": "{{count}}m ago",
+      "hours": "{{count}}h ago",
+      "days": "{{count}}d ago",
+      "months": "{{count}}mo ago"
+    }
+  },
+  "toolbar": {
+    "archived": "Archived",
+    "extractLearnings": "Extract to memory",
+    "workflow": "Workflow",
+    "data": "Charts",
+    "panels": {
+      "chat": "Chat",
+      "files": "Files",
+      "changes": "Changes",
+      "issue": "Issue",
+      "pinned": "Pinned",
+      "artifact": "Artifacts",
+      "canvas": "Canvas",
+      "drawio": "Diagram"
+    }
+  },
+  "dataDrawer": {
+    "open": "Pinned charts",
+    "title": "Charts pinned from this workspace",
+    "inDashboard": "In: {{name}}"
+  },
+  "team": {
+    "panel": {
+      "header": {
+        "label": "Team"
+      },
+      "empty": {
+        "title": "Select a team",
+        "description": "Pick a team to see pipeline progress, worker status and the shared blackboard.",
+        "warning": "This cannot be changed once chosen.",
+        "loading": "Loading teams…",
+        "noTeams": "No teams available yet.",
+        "goSettings": "Go to team management",
+        "selectButton": "Select",
+        "applyFailed": "Failed to apply team"
+      }
+    }
+  },
+  "sideToolbar": {
+    "openInVSCode": "Open in VS Code",
+    "openInExplorer": "Open in File Explorer",
+    "copyPath": "Copy path",
+    "terminal": "Terminal"
+  },
+  "bgTasks": {
+    "agentReplying": "agent replying",
+    "bashBackground": "background bash",
+    "wakeupQueued": "wakeup queued",
+    "subagent": "subagent",
+    "cronEnabled": "cron enabled",
+    "none": "no background tasks",
+    "highlight": "bg-task highlight",
+    "tooltipItem": "{{count}} {{label}}"
+  },
+  "status": {
+    "created": "Created",
+    "running": "Running",
+    "needs_review": "Needs review",
+    "attention": "Needs attention",
+    "completed": "Completed",
+    "deleting": "Deleting"
+  },
+  "dialogs": {
+    "newWorkspace": {
+      "title": "New workspace",
+      "description": "Create a new development workspace, can link multiple repositories",
+      "mode": {
+        "label": "Create from",
+        "standard": "Issue / repositories",
+        "fromDirectory": "From local directory",
+        "standardHint": "Create a dev workspace linking existing repositories and an issue.",
+        "fromDirectoryHint": "Pick a local folder to build from: a non-git folder is auto-initialized (with .gitignore and Git LFS); an existing repo is bound in place."
+      },
+      "fromDir": {
+        "pathLabel": "Local directory",
+        "pathHint": "Pick the local folder to build from. Drafts iterate in the workspace; click Deliver to write back to the original directory.",
+        "missingDir": "Please pick a local directory first",
+        "lfsMissing": "git-lfs not detected; large files are not LFS-tracked (the repo may bloat). Install git-lfs in system dependencies and retry.",
+        "identityMissing": "git user.name / user.email is not configured, so the repo could not be auto-initialized. Configure your git identity in settings and retry."
+      },
+      "repoSource": {
+        "existing": "Existing repo",
+        "directory": "Local directory",
+        "directoryHint": "Pick a local folder to add: a non-git folder is auto-initialized, an already-registered folder is reused.",
+        "adding": "Adding...",
+        "nameExists": "A repository with that name already exists. Rename the folder or use \"Existing repo\".",
+        "notGitRepo": "That directory is not a valid git repository.",
+        "addFailed": "Failed to add the repository. Please try again."
+      },
+      "name": "Workspace name",
+      "namePlaceholder": "Enter workspace name",
+      "linkIssue": "Link issue",
+      "selectIssue": "Select issue (optional)",
+      "searchIssue": "Search issue...",
+      "noAvailableIssue": "No available issues",
+      "issueHint": "Optional: only shows incomplete issues not linked to a workspace",
+      "noRepo": {
+        "label": "No repository (office / plain-directory task)",
+        "hint": "Create a plain directory with no git worktrees. Good for non-code tasks."
+      },
+      "addRepo": "Add repository",
+      "selectRepo": "Select repository...",
+      "allReposAdded": "All repositories added",
+      "selectedRepos": "Selected repositories ({{count}})",
+      "missingBranch": "Please select a branch for repository \"{{name}}\"",
+      "partialSuccess": "Workspace created, but some repositories failed to create worktrees:\n\n{{lines}}",
+      "createFailed": "Failed to create workspace",
+      "submitting": "Creating...",
+      "submit": "Create",
+      "claudeAccount": "Claude Account",
+      "claudeAccountDefault": "(Default account)",
+      "codexAccount": "Codex account",
+      "codexAccountDefault": "Use host global ~/.codex/",
+      "unassignedProject": "Unassigned",
+      "loadingDefaults": "Loading default repositories...",
+      "loadDefaultsFailed": "Failed to load default repositories — please select manually",
+      "cliType": {
+        "label": "Agent CLI",
+        "claude": "Claude Code",
+        "codex": "OpenAI Codex",
+        "qwen": "Qwen Code",
+        "claudeHint": "Requires the claude CLI on this machine. Default choice.",
+        "codexHint": "Requires the codex CLI on this machine. Experimental.",
+        "qwenHint": "Requires the qwen CLI on this machine. Domestic engine driving Qwen / DeepSeek. Experimental."
+      }
+    },
+    "deleteWorkspace": {
+      "title": "Workspace has uncommitted or unmerged changes",
+      "unstaged": "Unstaged changes ({{count}})",
+      "staged": "Staged but not committed ({{count}})",
+      "mergeConflict": "Merge conflicts ({{count}})",
+      "aheadOfBase": "Commits not merged to {{branch}} ({{count}})",
+      "aheadOfRemote": "Commits not pushed to remote ({{count}})",
+      "deleting": "Deleting...",
+      "forceDelete": "Force delete"
+    },
+    "archived": {
+      "title": "Archived workspaces",
+      "count": "{{count}} archived workspaces",
+      "loading": "Loading...",
+      "empty": "No archived workspaces",
+      "viewArchived": "View archived workspace",
+      "archivedAt": "Archived at {{date}} · Created at {{created}}",
+      "footer": "Deleting will permanently remove all data of this workspace (including messages, costs and other history)",
+      "confirmTitle": "Confirm deletion",
+      "confirmDescription": "This will permanently delete all data of this workspace, including message history and cost records. This action cannot be undone.",
+      "confirmDelete": "Confirm delete"
+    }
+  },
+  "panels": {
+    "loading": "Loading...",
+    "noTasks": "No tasks",
+    "archivedNotice": "The filesystem this panel depends on was cleared with archive",
+    "changes": {
+      "title": "Changes",
+      "changedFilesCount": "Changed files ({{count}})",
+      "selectFileHint": "Select a file to view its changes",
+      "vsBaseline": "vs baseline {{branch}}",
+      "vsBaselineMulti": "vs baseline",
+      "includesAll": "committed + uncommitted",
+      "viewUnified": "Unified",
+      "viewSplit": "Split",
+      "focus": {
+        "enter": "Focus",
+        "exit": "Exit focus · back to chat",
+        "railLabel": "Chat collapsed",
+        "expandChat": "Expand chat"
+      },
+      "repoCurrent": "current branch: {{branch}}",
+      "repoBase": "base: {{branch}}",
+      "openInVSCode": "Open in VS Code",
+      "openRepo": "Open in repository page",
+      "searchFiles": "Search files…",
+      "searchClear": "Clear search",
+      "searchNoMatch": "No matching files",
+      "repoNoChanges": "No changes",
+      "collapseRepo": "Collapse",
+      "expandRepo": "Expand",
+      "commitHint": "All {{count}} commit(s) in this workspace are included",
+      "noChanges": "No changes",
+      "syncFromBranchTitle": "Sync latest code",
+      "syncFromBranchPickerTitle": "Pick a branch to merge in",
+      "syncFromBranchSearchPlaceholder": "Search branches...",
+      "syncFromBranchEmpty": "No branches available",
+      "diff": {
+        "unified": "Unified",
+        "split": "Split",
+        "binary": "No text preview available (binary or non-textual file).",
+        "modeChange": "File mode changed ({{old}} → {{new}}); no content differences.",
+        "renameOnly": "File renamed; no content differences.",
+        "noContentChange": "No content differences (metadata-only change).",
+        "largeFile": "Large diff ({{count}} lines) — collapsed for performance.",
+        "renderAnyway": "Render anyway",
+        "openInVSCode": "Open in VS Code",
+        "expandLines": "Expand {{count}} unchanged lines",
+        "loadError": "Failed to load diff.",
+        "noDiff": "No changes vs baseline for this file."
+      },
+      "comments": {
+        "me": "Me",
+        "lineMeta": "Line {{line}} · {{repo}} › {{path}}",
+        "pending": "Pending",
+        "sent": "Sent",
+        "placeholder": "Reply or add a change request…",
+        "cancel": "Cancel",
+        "queue": "Add to queue",
+        "sendNow": "Send to agent",
+        "sendQueue": "Send to Agent · {{count}}",
+        "queued": "Comment queued",
+        "sentOne": "Sent to agent",
+        "sentAll": "Sent {{count}} comment(s) to agent",
+        "sentPartial": "Sent {{sent}}, {{failed}} failed"
+      },
+      "syncFromBranchPrompt": "Please merge the latest code from branch `{{sourceBranch}}` into the current branch `{{currentBranch}}` of the specific worktree below.\n\n⚠️ This workspace may contain multiple worktrees. Operate ONLY on the worktree below — do not switch to or `cd` into any other worktree:\n- Worktree name: {{worktreeName}}\n- Worktree absolute path: {{worktreePath}}\n- Current branch: {{currentBranch}}\n- Branch to merge in: {{sourceBranch}}\n\nFollow these steps. Always pin every git invocation with `git -C \"{{worktreePath}}\"` instead of relying on cwd:\n1. Run `git -C \"{{worktreePath}}\" status` to check the worktree is clean. If there are uncommitted changes, stop and ask me before continuing;\n2. Run `git -C \"{{worktreePath}}\" merge {{sourceBranch}}`;\n3. If there are merge conflicts: first list every conflicted file, then try to resolve them one by one (preserving both sides' intent, no lost changes), then commit with `git -C \"{{worktreePath}}\" commit --no-edit`. If you hit a conflict you cannot judge, stop and report the file and reason — do **not** run `git merge --abort`, leave the state for me;\n4. After a successful merge, briefly report: merge style (fast-forward or merge commit), new HEAD commit, and whether anything is still uncommitted."
+    },
+    "chat": {
+      "loadMore": "Load more messages...",
+      "agentWorking": "Agent is working...",
+      "stickyUserBackToMessage": "Click to jump back to this user message",
+      "queueTitle": "Pending queue",
+      "queueRetry": "Retry",
+      "queueSendToInput": "Send to input",
+      "scheduleToast": "Scheduled task triggered",
+      "scheduleDesc": "Executing queue messages",
+      "builtin": {
+        "unsupported": "⚠️ {{command}} is only available in Claude CLI interactive mode; workspace chat does not support this command.",
+        "cleared": "Session cleared, starting new conversation",
+        "noCost": "No cost records yet",
+        "costSummary": "Cost summary (cumulative): ${{cost}} | {{turns}} turns | {{interactions}} interactions | {{minutes}}m{{seconds}}s",
+        "costFailed": "Failed to fetch cost info",
+        "statusLine": "Status: {{status}} | Session: {{session}}",
+        "statusNone": "none",
+        "statusFailed": "Failed to fetch status",
+        "currentModel": "Current model: {{model}}",
+        "modelDefault": "Default (global config)",
+        "modelFailed": "Failed to fetch model info",
+        "helpText": "Available commands:\n  /clear — clear session\n  /cost — view costs\n  /status — view status\n  /model — view model\n  /compact — compact context\n  /spec — write/update a spec\n  /plan — write/update an execution plan\n  /coding — implement the approved plan\n  /review — review code changes\n  /memory — manage memory file\n  /init — initialize agent instructions\n\nOther plugin/skill commands appear in completion when typing /."
+      }
+    },
+    "chatInput": {
+      "running": "Type to queue a message...",
+      "waitingConfirm": "Type feedback or click continue...",
+      "idle": "Ask Agent... (Ctrl+Enter to send, @ to reference files)",
+      "idleCodex": "Ask OpenAI Codex... (Ctrl+Enter to send, @ to reference files)",
+      "idleQwen": "Ask Qwen Code... (Ctrl+Enter to send, @ to reference files)",
+      "dropZone": "Drop files here",
+      "addAttachment": "Add attachment",
+      "uploading": "Uploading...",
+      "attachment": "Attach",
+      "queue": "Queue",
+      "send": "Send",
+      "stopAgent": "Stop agent",
+      "noChanges": "No changes",
+      "fileChanges": "{{count}} file",
+      "fileChangesPlural": "{{count}} files",
+      "rateOk": "OK",
+      "rateWarning": "Warning",
+      "rateRejected": "Rejected",
+      "rateLimit5h": "Rate limit (5h)",
+      "rateResetsAt": "Resets {{time}}",
+      "contextWindow": "Context window",
+      "claudeAccountFollow": "(Default)",
+      "claudeAccountTooltip": "Claude account: {{name}}",
+      "resizeHandle": "Drag to resize input",
+      "statusBusy": "Busy",
+      "statusRunning": "Running",
+      "statusIdle": "Idle"
+    },
+    "filePicker": {
+      "header": "Files · type to filter · Esc/Space to cancel",
+      "noResults": "No matching files",
+      "searchHint": "Type filename to search...",
+      "navHint": "↑↓ navigate · Enter to select",
+      "cancelHint": "Esc / Space to cancel"
+    },
+    "attachment": {
+      "clickToZoom": "{{size}} · click to zoom",
+      "loading": "Loading...",
+      "preview": "Preview",
+      "optimized": {
+        "badge": "Optimized",
+        "tooltip": "Original {{orig}} → optimized {{new}}"
+      }
+    },
+    "taskList": {
+      "noTasks": "No tasks",
+      "phase": {
+        "spec": "Spec",
+        "plan": "Plan",
+        "arch": "Architecture",
+        "impl": "Implement",
+        "test": "Test",
+        "tasks": "Tasks"
+      }
+    },
+    "queue": {
+      "title": "Pending queue",
+      "retryBadge": "Retry",
+      "sendToInput": "Send to input",
+      "fuseToInput": "Fusion send (interrupt and merge with last message)",
+      "drag": "Reorder",
+      "edit": "Edit",
+      "delete": "Delete",
+      "save": "Save",
+      "cancel": "Cancel"
+    },
+    "issue": {
+      "noIssue": "No linked issue",
+      "loading": "Loading...",
+      "notFound": "Issue not found",
+      "confirmDelete": "Are you sure to delete this issue?",
+      "copyIdTitle": "Click to copy ID",
+      "copyTitleTitle": "Click to copy title",
+      "editTitleTitle": "Edit title",
+      "run": "Run",
+      "runTitle": "Compose this issue's title + description as markdown into the chat input"
+    },
+    "claudeSettings": {
+      "trigger": "Claude",
+      "triggerTitle": "Claude settings",
+      "title": "Claude settings",
+      "description": "Configure Claude Code behavior for this workspace (only applies to current workspace)",
+      "cliFlags": "Launch config",
+      "cliFlagsDesc": "Override global config, converted to Claude CLI launch arguments",
+      "envVars": "Environment variables",
+      "envVarsDesc": "Passed as environment variables to the Claude process",
+      "saving": "Saving...",
+      "autoCompact": {
+        "section": "Context management",
+        "label": "Auto-compact context",
+        "desc": "When the conversation nears the context-window budget, automatically run /compact to free up space and slow token growth. On by default.",
+        "percentLabel": "Trigger threshold (%)",
+        "percentDesc": "Compact once context usage reaches this percent of the budget. Default 70.",
+        "budgetLabel": "Context window (K tokens)",
+        "budgetDesc": "Your model's context window, in thousands of tokens. Set this to match it (e.g. 1000 for a 1M window, 200 for a 200K window). Default 1000 (1M)."
+      },
+      "fields": {
+        "agentCommand": {
+          "label": "Agent command",
+          "placeholder": "default: claude"
+        },
+        "agentArgs": {
+          "label": "Agent extra args",
+          "placeholder": "e.g.: --allowedTools Edit,Write,Bash"
+        },
+        "model": {
+          "label": "Model",
+          "placeholder": "e.g.: sonnet, opus, claude-sonnet-4-6"
+        },
+        "allowedTools": {
+          "label": "Allowed tools",
+          "placeholder": "e.g.: Bash(git:*) Edit Read"
+        },
+        "maxTurns": {
+          "label": "Max turns",
+          "placeholder": "e.g.: 50"
+        },
+        "thinkingTokens": {
+          "label": "Thinking token limit",
+          "placeholder": "e.g.: 10000"
+        }
+      }
+    },
+    "workspaceScenes": {
+      "trigger": "Scenes",
+      "triggerTitle": "Manage scenes attached to this workspace",
+      "title": "Workspace scenes",
+      "description": "Attach scenes to this workspace. Each scene bundles MCP servers, Claude plugins, and assets that get projected into .mcp.json and the ~/.claude overlay."
+    },
+    "skillInstall": {
+      "trigger": "Skills",
+      "triggerTitle": "Install a curated Claude skill / plugin",
+      "title": "Install skills",
+      "description": "Pick a skill (Claude plugin) from the curated list. Install globally into ~/.claude or into this workspace's bound Claude account directory.",
+      "installGlobal": "Install global",
+      "installWorkspace": "Install (workspace)",
+      "install": "Install",
+      "uninstall": "Uninstall",
+      "installedBadge": "Installed",
+      "tabs": {
+        "all": "All",
+        "uninstalled": "Not installed",
+        "installed": "Installed"
+      },
+      "tabEmpty": "No skills in this category",
+      "workspaceCliBadge": "Workspace CLI: {{cli}}",
+      "noVersionForCli": "No version",
+      "noVersionForCliTooltip": "This curated entry has no version published in the active CLI's marketplace; install is unavailable.",
+      "scope": {
+        "global": "global",
+        "workspace": "workspace"
+      },
+      "installedToast": "{{name}} installed ({{scope}})",
+      "uninstalledToast": "{{name}} uninstalled ({{scope}})",
+      "uninstallFailedToast": "{{name}} uninstall failed: {{detail}}",
+      "uninstallErrorToast": "{{name}} uninstall request failed",
+      "skippedToast": "{{name}} already installed, skipped",
+      "failedToast": "{{name}} install failed: {{detail}}",
+      "unexpectedStatusToast": "{{name}} returned unexpected status: {{status}}",
+      "errorToast": "{{name}} install request failed",
+      "addMarketplaceTitle": "Add a marketplace",
+      "addMarketplaceHint": "Accepts a GitHub repo shorthand (owner/repo), a full URL, or a local path. Once added you can install plugins from this marketplace.",
+      "addMarketplacePlaceholder": "owner/repo or https://github.com/...",
+      "addMarketplaceGlobal": "Add global",
+      "addMarketplaceWorkspace": "Add (workspace)",
+      "marketplaceAddedToast": "Marketplace {{source}} added ({{scope}})",
+      "marketplaceAddFailedToast": "Add marketplace {{source}} failed: {{detail}}",
+      "marketplaceAddErrorToast": "Add marketplace request failed",
+      "skills": {
+        "superpowers": {
+          "name": "Superpowers",
+          "description": "Anthropic's core skills bundle: TDD, debugging, collaboration patterns, writing and executing plans."
+        },
+        "frontendDesign": {
+          "name": "Frontend Design",
+          "description": "Designs frontend components, pages, and artifacts while avoiding generic AI aesthetics."
+        },
+        "context7": {
+          "name": "Context7",
+          "description": "Looks up current docs for libraries / frameworks / SDKs / CLIs, covering gaps in training data."
+        },
+        "chromeDevtools": {
+          "name": "Chrome DevTools",
+          "description": "Drives Chrome via MCP for debugging, perf analysis, a11y audits, and network inspection."
+        },
+        "playwright": {
+          "name": "Playwright",
+          "description": "Browser automation and end-to-end testing MCP, useful for verifying frontend flows."
+        },
+        "documentSkills": {
+          "name": "Document Skills",
+          "description": "Document generation / parsing bundle: pptx, docx, xlsx, pdf, brand guidelines, etc."
+        }
+      }
+    },
+    "codexSettings": {
+      "trigger": "OpenAI Codex",
+      "triggerTitle": "Codex settings",
+      "title": "Codex settings",
+      "description": "Sandbox and approval policy for this Codex workspace.",
+      "sandboxLabel": "Sandbox mode",
+      "approvalLabel": "Approval policy",
+      "saving": "Saving..."
+    },
+    "qwenSettings": {
+      "trigger": "Qwen Code",
+      "triggerTitle": "Qwen settings",
+      "title": "Qwen settings",
+      "description": "Qwen Code engine settings.",
+      "sharedNote": "Qwen has no engine-specific settings yet. The model and CLI command live in Workspace settings; approval mode is set via the permission selector in the toolbar."
+    },
+    "workspaceSettings": {
+      "trigger": "Workspace",
+      "triggerTitle": "Workspace settings",
+      "title": "Workspace settings",
+      "description": "Configure workspace name, repositories and environment variables",
+      "agentSection": "Agent (shared)",
+      "agentSectionDesc": "Applies to whichever engine this workspace runs — command / args / model / allowed tools.",
+      "agentDefaultHint": "default: {{value}}",
+      "agentEgHint": "e.g. {{value}}",
+      "name": "Name",
+      "boundRepos": "Bound repositories",
+      "addRepo": "Add repository",
+      "boundReposDesc": "Each repository corresponds to a git worktree",
+      "noBoundRepos": "No bound repositories",
+      "selectRepo": "Select repository",
+      "selectRepoPlaceholder": "Select repository...",
+      "allReposAdded": "All repositories added",
+      "selectBranch": "Select branch",
+      "loadingBranches": "Loading branches...",
+      "addingWorktree": "Adding...",
+      "addWorktree": "Add",
+      "envVars": "Environment variables",
+      "importPreset": "Import from preset",
+      "loadingPresets": "Loading...",
+      "noPresets": "No presets",
+      "envInjectDesc": "These environment variables will be injected when the agent starts",
+      "noEnvVars": "No environment variables",
+      "addEnvVar": "Add",
+      "dangerZone": "Danger zone",
+      "archiveDesc": "Archiving will delete the workspace directory but preserve history data",
+      "archiving": "Archiving...",
+      "archive": "Archive workspace",
+      "deleting": "Deleting...",
+      "delete": "Delete workspace",
+      "saving": "Saving...",
+      "save": "Save",
+      "confirmArchiveTitle": "Confirm archive",
+      "confirmArchiveDesc": "Archiving will delete the workspace directory and git branches, but preserve messages, costs and other history. This action cannot be undone.",
+      "confirmArchive": "Confirm archive",
+      "claudeAccount": "Claude Account",
+      "claudeAccountFollow": "(Follow active)",
+      "claudeAccountFollowResolved": "(Default · {{name}})",
+      "claudeAccountDefaultRow": "Default account",
+      "autohost": "Auto-host",
+      "autohostDesc": "Tune auto-continue budget, error retry budget, and the continue/recover prompts.",
+      "autohostConfigure": "Configure auto-host..."
+    },
+    "scheduleManager": {
+      "label": "Scheduled plans",
+      "add": "Add",
+      "desc": "Set up scheduled or one-time auto-execution of predefined messages",
+      "empty": "No scheduled plans",
+      "onceFallback": "One-time",
+      "namePlaceholder": "e.g.: Daily standup summary",
+      "nameLabel": "Name (optional)",
+      "recurring": "Recurring",
+      "once": "One-time",
+      "cronLabel": "Cron expression",
+      "runAtLabel": "Run at",
+      "defaultMessageLabel": "Default message (optional)",
+      "defaultMessagePlaceholder": "Used when queue is empty",
+      "defaultMessageDesc": "When the queue has no pending messages, this default message will be sent",
+      "submitting": "Adding...",
+      "submit": "Add",
+      "presets": {
+        "daily9": "Daily 09:00",
+        "daily14": "Daily 14:00",
+        "weekday9": "Weekdays 09:00",
+        "weekday14": "Weekdays 14:00",
+        "every2h": "Every 2 hours",
+        "every4h": "Every 4 hours"
+      }
+    },
+    "slashCommand": {
+      "loading": "Loading commands...",
+      "noResults": "No matching commands",
+      "groupBuiltin": "Built-in commands",
+      "groupCommand": "Plugin commands",
+      "groupSkill": "Skills",
+      "sourceBuiltin": "Built-in command",
+      "sourceCommand": "Plugin command",
+      "sourceSkill": "Skill",
+      "noDescription": "No description"
+    },
+    "quickActions": {
+      "trigger": "Quick",
+      "triggerTitle": "Quick input",
+      "empty": "No quick actions yet, click manage below to add",
+      "manage": "Manage quick actions...",
+      "manageTitle": "Manage quick actions",
+      "searchPlaceholder": "Search quick actions",
+      "searchEmpty": "No matching quick actions",
+      "dialogTitle": "Manage quick actions",
+      "dialogDescription": "Configure commonly used quick input actions, shared across workspaces",
+      "labelPlaceholder": "Display name",
+      "contentPlaceholder": "Preset content (will fill into input box)",
+      "autoSendLabel": "Auto-send when selected",
+      "autoSendBadge": "Auto-send",
+      "addNew": "Add quick action",
+      "submit": "Add",
+      "edit": "Edit",
+      "delete": "Delete",
+      "groupPersonal": "Personal",
+      "groupScene": "From scene",
+      "sceneReadOnly": "Read-only"
+    },
+    "permissions": {
+      "title": "Permission mode",
+      "description": "Controls automation level of agent actions",
+      "saved": "Saved",
+      "autohost": {
+        "activeTitle": "Auto-host is active",
+        "openSettings": "Open auto-host settings",
+        "dialogTitle": "Auto-host settings",
+        "dialogDescription": "Tune how the agent auto-continues and recovers from errors in this workspace.",
+        "budgetSection": "Budgets",
+        "continueBudget": "Continue limit",
+        "continueBudgetDesc": "Max consecutive auto-continues when the queue is idle. 0 disables continue.",
+        "errorBudget": "Error retry limit",
+        "errorBudgetDesc": "Max consecutive auto-recoveries after a turn errors out. 0 disables recovery.",
+        "promptSection": "Prompts",
+        "continuePrompt": "Continue prompt",
+        "continuePromptDesc": "Injected when the queue is idle. Leave empty to use the default.",
+        "recoverPrompt": "Recovery prompt",
+        "recoverPromptDesc": "Injected after a turn ends in error. Leave empty to use the default.",
+        "useDefault": "Use default",
+        "promptHint": "Keep the [AUTOHOST_DONE] instruction so the agent can stop on its own."
+      },
+      "modes": {
+        "autohost": {
+          "label": "Auto-host (recommended)",
+          "desc": "Skip all permission prompts and auto-continue idle turns until the task is done"
+        },
+        "default": {
+          "label": "Default",
+          "desc": "Confirm every action"
+        },
+        "acceptEdits": {
+          "label": "Accept edits",
+          "desc": "Auto-accept file edits, other actions need confirmation"
+        },
+        "auto": {
+          "label": "Auto",
+          "desc": "Automatically handle most actions"
+        },
+        "plan": {
+          "label": "Plan",
+          "desc": "Plan only, do not execute"
+        },
+        "bypassPermissions": {
+          "label": "Bypass permissions",
+          "desc": "Skip all permission checks (sandbox only)"
+        }
+      }
+    }
+  },
+  "chatMessage": {
+    "attachmentSuffixPrefix": "The following files are for your reference",
+    "pin": "Pin message",
+    "unpin": "Unpin",
+    "pinFailed": "Action failed",
+    "copy": "Copy message",
+    "copied": "Copied",
+    "copyFailed": "Copy failed"
+  },
+  "pinnedPanel": {
+    "title": "Pinned",
+    "empty": "No pinned messages yet. Hover a message and click the pin icon to bookmark it.",
+    "noPreview": "(no preview)",
+    "locate": "Jump to message",
+    "unpin": "Unpin",
+    "unpinFailed": "Failed to unpin",
+    "notLoaded": "This message isn't loaded yet — scroll up to load older messages."
+  },
+  "permission": {
+    "card": {
+      "wantsToCall": "Claude wants to call {{tool}}",
+      "allowOnce": "Allow",
+      "alwaysAllow": "Always allow",
+      "deny": "Deny",
+      "confirmDeny": "Confirm deny",
+      "denyPlaceholder": "(optional) tell Claude what to change",
+      "expired": "Expired",
+      "remaining": "{{m}}m {{s}}s",
+      "allowed": "✓ Allowed",
+      "denied": "✕ Denied",
+      "timeout": "⏱ Timed out",
+      "cancelled": "— Cancelled",
+      "subagent": "→ {{type}}",
+      "toolInputJson": "tool input (JSON)",
+      "fallbackTool": "general-purpose"
+    },
+    "matcher": {
+      "onlyThisCommand": "Only this command: {{cmd}}",
+      "prefix": "Prefix: {{value}}",
+      "onlyThisFile": "Only this file",
+      "currentDir": "Current directory: {{dir}}/",
+      "wholeWorkspace": "Entire workspace",
+      "domain": "Domain: {{host}}",
+      "onlyThisURL": "Only this URL",
+      "allCalls": "All calls"
+    },
+    "indicator": {
+      "pendingCount": "{{count}} pending approval(s)"
+    },
+    "allowlist": {
+      "title": "Permission Allowlist",
+      "header": "Permission allowlist. Entries are created by clicking \"Always allow\" in chat; here you can only delete them.",
+      "search": "Search tool or matcher",
+      "empty": "(empty)",
+      "any": "(any)",
+      "delete": "Delete"
+    }
+  },
+  "askUser": {
+    "card": {
+      "title": "Claude has a question",
+      "submit": "Submit",
+      "other": "Other (write your own answer)",
+      "otherPlaceholder": "Type your answer…",
+      "expired": "Expired",
+      "remaining": "{{m}}m {{s}}s",
+      "answered": "✓ Answered",
+      "timeout": "⏱ Timed out",
+      "cancelled": "— Cancelled"
+    },
+    "indicator": {
+      "pendingCount": "{{count}} question(s) waiting"
+    }
+  },
+  "autohost": {
+    "fallbackCondition": {
+      "title": "Completion criterion fallback (optional)",
+      "hint": "Only used when the issue bound to this workspace has no completion criterion. Prefer setting it on the issue so the criterion follows the task.",
+      "placeholder": "e.g. All unit tests pass",
+      "charCount": "{{n}} / {{max}} chars"
+    }
+  },
+  "mcp": {
+    "section_title": "MCP Configuration",
+    "scene_title": "This workspace's scene",
+    "loading": "Detecting...",
+    "recommended_label": "Recommended",
+    "available_heading": "All available",
+    "no_servers_available": "No MCP servers detected locally",
+    "skip_label": "Optional; only niuniu MCP will be loaded",
+    "plugin_conflict": {
+      "global_load": "Loaded globally via plugin (cannot be disabled per workspace)"
+    },
+    "unavailable_warning": "{{count}} MCP server(s) unavailable on the current account",
+    "redetect": "Re-detect",
+    "restart_required": "Restart the agent to apply changes",
+    "save": "Save",
+    "restart_agent": "Restart Agent",
+    "niuniu_required": "Required",
+    "strict_label": "Disable global MCP config (use only this workspace's)",
+    "strict_hint": "Takes effect after the agent restarts.",
+    "strict_failed": "Failed to update, reverted.",
+    "effective": "Effective",
+    "overrides": "Workspace overrides"
+  },
+  "canvas": {
+    "title": "Annotate",
+    "loading": "Loading canvas…",
+    "empty": "The canvas is empty — draw something first.",
+    "fileName": "Name",
+    "targetWorktree": "Target worktree",
+    "sendToAgent": "Send to Agent",
+    "sent": "Annotation sent to the Agent.",
+    "sentWithSource": "Sent to the Agent · source saved to {{path}}",
+    "defaultPrompt": "Here is an annotated image ({{name}}). Please act on the notes marked on it.",
+    "errors": {
+      "tooLarge": "Image is too large (limit {{limit}}).",
+      "sendFailed": "Failed to send the annotation."
+    }
+  },
+  "drawio": {
+    "title": "Diagram",
+    "loading": "Loading draw.io…",
+    "defaultPrompt": "Here is a diagram ({{name}}). Please act on what it shows."
+  },
+  "contentViewer": {
+    "save": "Save",
+    "saved": "Saved to worktree",
+    "saveFailed": "Save failed",
+    "viewDiff": "Diff",
+    "viewFile": "File",
+    "viewPreview": "Preview",
+    "viewSource": "Source"
+  }
+}

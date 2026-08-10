@@ -1,0 +1,16 @@
+{
+  "step": {
+    "basicInfo": "基本信息",
+    "preset": "选择预设",
+    "preview": "预览"
+  },
+  "action": {
+    "next": "下一步",
+    "back": "上一步",
+    "finish": "完成"
+  },
+  "empty": {
+    "title": "空项目",
+    "description": "创建空项目，不导入任何预设。之后可在项目设置中手动添加列和模板。"
+  }
+}

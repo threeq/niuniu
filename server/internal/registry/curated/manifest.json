@@ -1,0 +1,131 @@
+{
+  "_comment": "Curated catalog imported from github.com/msitarzewski/agency-agents (MIT). Each agent .md under agents/ is the upstream persona body; this manifest adds the niuniu curation layer: 分工分类 (category), 汉化 (display_name/description from the upstream scripts/i18n/agent-names-zh.json), display emoji, and the upstream source_url recorded as provenance on import. niuniu only persists name+description on import; color/emoji/tools/vibe in the upstream frontmatter are NOT carried into the installed agent (see CuratedSource.Get, which returns the body only).",
+  "agents": [
+    {
+      "slug": "backend-architect",
+      "file": "backend-architect.md",
+      "category": "engineering",
+      "display_name": "后端架构师",
+      "description": "负责 API 设计、数据库架构与可扩展性的后端系统专家",
+      "emoji": "🏗️",
+      "source_url": "https://github.com/msitarzewski/agency-agents/blob/main/engineering/engineering-backend-architect.md"
+    },
+    {
+      "slug": "code-reviewer",
+      "file": "code-reviewer.md",
+      "category": "engineering",
+      "display_name": "代码审查工程师",
+      "description": "建设性代码审查、安全与可维护性评估专家",
+      "emoji": "👁️",
+      "source_url": "https://github.com/msitarzewski/agency-agents/blob/main/engineering/engineering-code-reviewer.md"
+    },
+    {
+      "slug": "frontend-developer",
+      "file": "frontend-developer.md",
+      "category": "engineering",
+      "display_name": "前端开发工程师",
+      "description": "专注现代 Web 技术、React/Vue/Angular 框架、UI 实现与性能优化的前端专家",
+      "emoji": "🖥️",
+      "source_url": "https://github.com/msitarzewski/agency-agents/blob/main/engineering/engineering-frontend-developer.md"
+    },
+    {
+      "slug": "database-optimizer",
+      "file": "database-optimizer.md",
+      "category": "engineering",
+      "display_name": "数据库优化工程师",
+      "description": "Schema 设计、查询优化与索引策略专家（PostgreSQL/MySQL）",
+      "emoji": "🗄️",
+      "source_url": "https://github.com/msitarzewski/agency-agents/blob/main/engineering/engineering-database-optimizer.md"
+    },
+    {
+      "slug": "devops-automator",
+      "file": "devops-automator.md",
+      "category": "engineering",
+      "display_name": "DevOps 自动化工程师",
+      "description": "CI/CD、基础设施自动化与云运营专家",
+      "emoji": "⚙️",
+      "source_url": "https://github.com/msitarzewski/agency-agents/blob/main/engineering/engineering-devops-automator.md"
+    },
+    {
+      "slug": "technical-writer",
+      "file": "technical-writer.md",
+      "category": "engineering",
+      "display_name": "技术文档工程师",
+      "description": "开发者文档、API 参考手册与教程撰写专家",
+      "emoji": "📚",
+      "source_url": "https://github.com/msitarzewski/agency-agents/blob/main/engineering/engineering-technical-writer.md"
+    },
+    {
+      "slug": "security-architect",
+      "file": "security-architect.md",
+      "category": "security",
+      "display_name": "安全架构师",
+      "description": "威胁建模、安全代码审查与应用安全架构专家",
+      "emoji": "🛡️",
+      "source_url": "https://github.com/msitarzewski/agency-agents/blob/main/security/security-architect.md"
+    },
+    {
+      "slug": "ui-designer",
+      "file": "ui-designer.md",
+      "category": "design",
+      "display_name": "UI 设计师",
+      "description": "视觉设计、组件库与设计系统专家",
+      "emoji": "🎨",
+      "source_url": "https://github.com/msitarzewski/agency-agents/blob/main/design/design-ui-designer.md"
+    },
+    {
+      "slug": "ux-researcher",
+      "file": "ux-researcher.md",
+      "category": "design",
+      "display_name": "用户体验研究员",
+      "description": "用户测试、行为分析与可用性研究专家",
+      "emoji": "🔬",
+      "source_url": "https://github.com/msitarzewski/agency-agents/blob/main/design/design-ux-researcher.md"
+    },
+    {
+      "slug": "seo-specialist",
+      "file": "seo-specialist.md",
+      "category": "marketing",
+      "display_name": "SEO 专家",
+      "description": "技术 SEO、内容策略与外链建设专家",
+      "emoji": "🔍",
+      "source_url": "https://github.com/msitarzewski/agency-agents/blob/main/marketing/marketing-seo-specialist.md"
+    },
+    {
+      "slug": "baidu-seo-specialist",
+      "file": "baidu-seo-specialist.md",
+      "category": "marketing",
+      "display_name": "百度 SEO 专家",
+      "description": "百度优化、中国 SEO 与 ICP 合规专家",
+      "emoji": "🇨🇳",
+      "source_url": "https://github.com/msitarzewski/agency-agents/blob/main/marketing/marketing-baidu-seo-specialist.md"
+    },
+    {
+      "slug": "ai-citation-strategist",
+      "file": "ai-citation-strategist.md",
+      "category": "marketing",
+      "display_name": "AI 引用策略师",
+      "description": "AEO/GEO、AI 推荐可见度与引用审计专家（服务 GEO/SEO 场景）",
+      "emoji": "🔮",
+      "source_url": "https://github.com/msitarzewski/agency-agents/blob/main/marketing/marketing-ai-citation-strategist.md"
+    },
+    {
+      "slug": "content-creator",
+      "file": "content-creator.md",
+      "category": "marketing",
+      "display_name": "内容创作者",
+      "description": "多平台内容策略、编辑日历与文案专家",
+      "emoji": "✍️",
+      "source_url": "https://github.com/msitarzewski/agency-agents/blob/main/marketing/marketing-content-creator.md"
+    },
+    {
+      "slug": "growth-hacker",
+      "file": "growth-hacker.md",
+      "category": "marketing",
+      "display_name": "增长黑客",
+      "description": "快速用户获取、病毒循环与实验驱动增长专家",
+      "emoji": "🚀",
+      "source_url": "https://github.com/msitarzewski/agency-agents/blob/main/marketing/marketing-growth-hacker.md"
+    }
+  ]
+}

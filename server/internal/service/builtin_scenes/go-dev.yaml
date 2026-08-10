@@ -1,0 +1,46 @@
+slug: go-dev
+display_name: Go 开发
+description: Go 1.21+ 项目通用配置 — gopls plugin、go-vet 快速动作、Go 评审规范
+tags: [development, go, code]
+
+mcp:
+  - name: context7
+
+plugins:
+  - source: gopls-lsp@claude-plugins-official
+    optional: false
+
+assets:
+  env_presets: []
+  quick_actions:
+    - slug: go-vet-all
+      label: 跑 go vet
+      prompt: "请在仓库根目录跑 `go vet ./...` 与 `go test -short ./...`，逐条报告 vet 警告与失败测试。"
+  project_templates: []
+  harness_specs: []
+  agents: []
+
+prompts:
+  - id: go-review-style
+    title: Go 代码评审规范
+    body: |
+      接到 Go 代码评审任务时，按以下顺序检查：
+
+      1. **错误处理**：所有 `error` 是否被检查？wrap 是否带上下文（`fmt.Errorf("doing X: %w", err)`）？sentinel error 是否用 `errors.Is/As` 比较？
+      2. **并发安全**：`goroutine` 是否有泄漏（每条 go 出去的活路必须有退出条件）？`channel` 是否正确关闭、避免向已关闭 channel 写入？共享状态是否走 mutex 或 channel？
+      3. **接口设计**：是否抽象过早？Go 风格是先用具体类型，多个实现出现后才提接口；接口定义在使用方而非实现方。
+      4. **命名**：导出名是否言之有物？缩写大小写一致（`URL`/`ID`/`HTTP` 全大写，`userID` 而非 `userId`）？避免 stutter（`http.HTTPClient` → `http.Client`）。
+      5. **资源回收**：`defer` 是否覆盖了所有提前 return 路径？`io.Closer` / `context.CancelFunc` 是否一定被调用？
+      6. **测试**：`t.Parallel()` 是否合理使用？是否用了 `testify/require` 终止失败而非 `assert` 继续？table-driven test 是否覆盖错误路径？
+
+required_credentials: []
+
+match:
+  base_weight: 5
+  rules:
+    - signal: workspace.has_repo_language
+      args: { language: go }
+      weight: 30
+    - signal: workspace.has_repo_count
+      args: { min: 1 }
+      weight: 5

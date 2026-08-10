@@ -1,0 +1,23 @@
+{
+  "form": {
+    "title": "Niuniu",
+    "subtitle": "Sign in to continue",
+    "logoAlt": "Niuniu",
+    "username": "Username",
+    "usernamePlaceholder": "Enter your username",
+    "password": "Password",
+    "passwordPlaceholder": "Enter your password",
+    "rememberMe": "Remember username and password",
+    "submit": "Sign in",
+    "submitting": "Signing in..."
+  },
+  "errors": {
+    "invalidCredentials": "Invalid username or password.",
+    "fetchUserFailed": "Sign-in succeeded but failed to fetch user info, please retry",
+    "networkError": "Cannot connect to server"
+  },
+  "locked": {
+    "account": "Account locked. Try again in {{minutes}}m{{seconds}}s.",
+    "ip": "Your IP is rate-limited. Try again in {{minutes}}m."
+  }
+}

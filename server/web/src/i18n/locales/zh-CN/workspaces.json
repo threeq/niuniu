@@ -1,0 +1,988 @@
+{
+  "localRunner": {
+    "bar": {
+      "launch": "启动本地执行器",
+      "connecting": "正在连接…",
+      "active": "本地执行器运行中",
+      "viewLog": "本地执行日志",
+      "configure": "配置",
+      "error": "本地执行器异常",
+      "streamError": "日志流连接中断",
+      "retry": "重试"
+    },
+    "config": {
+      "title": "本地执行器",
+      "description": "绑定本机上的一个目录，让构建、打包、测试命令在本地运行，代码读写仍留在远端 worktree。",
+      "defaultPrompt": "构建 / 打包 / 测试等命令优先使用本地执行器工具集（local_exec / local_read / local_sync）在绑定的本地目录中运行；代码的读写仍在远端 worktree 进行。当本地执行器工具集不可见时，回退到 server 执行。",
+      "dirLabel": "本地工作目录",
+      "dirPlaceholder": "/本地/项目/路径",
+      "dirHint": "填写本机上要绑定到该工作空间的目录的绝对路径。",
+      "dirLockedHint": "绑定后工作目录不可更改。",
+      "browse": "浏览…",
+      "promptLabel": "提示词片段",
+      "useDefault": "恢复默认",
+      "promptHint": "注入给 Agent，引导其优先使用本地执行器工具集。可编辑。",
+      "allowedLabel": "命令白名单",
+      "allowedHint": "每行一条命令。名单内命令可免二次确认直接执行。",
+      "persistLabel": "记住“始终允许”",
+      "persistHint": "跨会话保留“始终允许”的授权决定。",
+      "stubHint": "在桌面端远端连接下，保存后会自动建立绑定并起长连；命令仍受安全网关拦截，白名单外的命令会先弹框确认。"
+    },
+    "log": {
+      "title": "本地执行日志",
+      "description": "该工作空间在本地执行的命令与输出。",
+      "boundTo": "已绑定：{{dir}}",
+      "configButton": "配置",
+      "empty": "暂无本地执行记录。"
+    }
+  },
+  "filePreview": {
+    "loading": "正在加载预览...",
+    "unsupported": "该文件类型暂不支持预览",
+    "playbackFailed": "该文件无法在浏览器中播放",
+    "download": "下载",
+    "submitArtifact": "提交为产物",
+    "submitArtifactDone": "已将「{{name}}」提交为产物",
+    "submitArtifactFailed": "提交为产物失败",
+    "close": "关闭",
+    "highlightDisabledLargeFile": "文件较大，已关闭语法高亮以保证性能",
+    "imageZoomActual": "查看原始尺寸",
+    "imageZoomFit": "适应窗口"
+  },
+  "artifactPreview": {
+    "empty": "暂无可预览的产物",
+    "download": "下载",
+    "remove": "移除",
+    "removeDone": "已移除产物「{{name}}」",
+    "removeFailed": "移除产物失败",
+    "sendToKanban": "发送到看板",
+    "sentToKanban": "已将「{{name}}」发送到看板",
+    "emptySlide": "第 {{n}} 页暂无文本",
+    "gotoSlide": "跳转到第 {{n}} 页",
+    "prevSlide": "上一页",
+    "nextSlide": "下一页",
+    "play": "自动播放",
+    "pause": "暂停",
+    "slideFrameTitle": "幻灯片预览",
+    "textFallback": "暂不支持完整渲染，仅显示文本"
+  },
+  "studioHint": {
+    "title": "草稿工作舱",
+    "body": "当前修改只发生在工作舱内，不会影响你的原目录。验收满意后再交付。",
+    "dismiss": "知道了"
+  },
+  "list": {
+    "empty": "暂无工作空间",
+    "createWorkspace": "创建工作空间"
+  },
+  "detail": {
+    "notFound": "工作空间不存在"
+  },
+  "sidebar": {
+    "title": "工作空间",
+    "newWorkspace": "新建工作空间",
+    "openKanban": "打开项目看板",
+    "archivedList": "归档列表",
+    "overview": "总览",
+    "kanbanOverview": "看板总览",
+    "archived": "已归档",
+    "searchPlaceholder": "搜索标题、ID 或对话内容...",
+    "filterAll": "全部",
+    "uncategorized": "未分类",
+    "scheduleSuffix": "定时任务",
+    "priority": {
+      "attention": "需关注",
+      "needsReview": "待审核",
+      "running": "运行中",
+      "zoneTitle": "需要我关注",
+      "notStarted": "未开始",
+      "expandAll": "展开全部",
+      "collapse": "收起",
+      "sortHint": "按 ID 倒序",
+      "filterLabel": "按状态筛选",
+      "filteredEmpty": "当前筛选下没有工作空间"
+    },
+    "pinned": {
+      "zoneTitle": "置顶",
+      "pin": "置顶",
+      "unpin": "取消置顶",
+      "failed": "操作失败，请重试"
+    },
+    "markDone": {
+      "button": "完成",
+      "disabled": "不可完成",
+      "success": "已标记完成",
+      "undo": "撤销",
+      "undoError": "撤销失败",
+      "undoStale": "撤销失败：工作空间已不在已完成状态",
+      "error": "操作失败",
+      "runningError": "运行中的工作空间需要先停止 agent",
+      "partialSuccess": "已完成，但 issue 状态同步失败"
+    },
+    "scope": {
+      "mine": "我的",
+      "all": "全部"
+    },
+    "search": {
+      "noMatch": "无匹配工作空间",
+      "searching": "正在搜索对话内容…"
+    },
+    "empty": {
+      "noProjects": "还没有项目"
+    },
+    "card": {
+      "creatorUnknown": "未知创建人",
+      "lastMessageLabel": "最近对话活动",
+      "createdAtLabel": "创建时间",
+      "durationLabel": "持续时长（最后活跃 − 创建时间）",
+      "epicMarker": "史诗",
+      "subIssueMarker": "子任务"
+    },
+    "tree": {
+      "collapse": "收起子任务",
+      "expand": "展开子任务"
+    },
+    "collapse": {
+      "fold": "折叠侧边栏",
+      "expand": "展开侧边栏"
+    },
+    "resize": {
+      "handle": "拖动调整侧边栏宽度"
+    }
+  },
+  "workspace": {
+    "scope": {
+      "mine": "只看我的",
+      "all": "看全部",
+      "popover": {
+        "mine": "只看我创建的",
+        "all": "看组织内全部"
+      }
+    },
+    "empty": {
+      "mine": {
+        "title": "你还没有创建工作空间",
+        "cta": "前往工作空间总览"
+      }
+    }
+  },
+  "overview": {
+    "title": "工作空间总览",
+    "subtitle": "跨工作空间的成本、活跃度与卡住检测",
+    "loadFailed": "加载失败",
+    "retry": "重试",
+    "empty": "没有可显示的工作空间",
+    "stuck": "卡住",
+    "stuckTooltip": "运行中但超过 2 小时无活动",
+    "messages": "{{count}} 条消息",
+    "tokensLabel": "{{tokens}} tokens",
+    "messagesLabel": "用户 {{user}} / AI {{ai}}",
+    "noProject": "未关联项目",
+    "group": {
+      "expandAria": "展开 {{name}}",
+      "collapseAria": "折叠 {{name}}"
+    },
+    "git": {
+      "aheadTooltip": "领先基线分支 {{count}} 个提交",
+      "changesTooltip": "{{count}} 个未提交变更"
+    },
+    "workspaceList": "工作空间列表",
+    "workspaceCount": "共 {{count}} 个",
+    "batch": {
+      "enter": "批量管理",
+      "exit": "完成",
+      "selectedCount": "已选 {{count}} 个",
+      "selectAria": "选择工作空间 !{{id}}",
+      "forceLabel": "强制删除（忽略未提交变更）",
+      "deleteSelected": "删除（{{count}}）",
+      "deleting": "删除中",
+      "deletingTooltip": "该工作空间正在删除中",
+      "deleteStarted": "正在后台删除 {{count}} 个工作空间",
+      "skippedChanges": "{{count}} 个因存在未提交变更被跳过（勾选“强制删除”可删除）",
+      "skippedOther": "{{count}} 个被跳过",
+      "deleteFailed": "批量删除失败：{{message}}",
+      "confirmTitle": "删除 {{count}} 个工作空间？",
+      "confirmDesc": "所选工作空间将在后台删除。存在未提交或未合并变更的工作空间会被跳过。",
+      "confirmDescForce": "所选工作空间将在后台删除，包含存在未提交或未合并变更的工作空间。此操作不可撤销。",
+      "confirmAction": "删除"
+    },
+    "column": {
+      "creator": "创建人"
+    },
+    "creator": {
+      "unknown": "未指定"
+    },
+    "filter": {
+      "creator": {
+        "all": "全部"
+      }
+    },
+    "metrics": {
+      "active": "活跃",
+      "activeHint": "总数 {{total}}",
+      "stuck": "卡住",
+      "stuckHint": "需要查看",
+      "inputTokens": "输入 token",
+      "cacheReadHint": "缓存读取 {{tokens}}",
+      "outputTokens": "输出 token",
+      "messagesHint": "用户 {{user}} / AI {{ai}} 条"
+    },
+    "tokenChart": {
+      "title": "Token 消耗（近 7 天）",
+      "empty": "暂无 token 消耗",
+      "input": "输入",
+      "output": "输出",
+      "cacheCreation": "缓存写入",
+      "cacheRead": "缓存读取"
+    },
+    "timeAgo": {
+      "never": "无活动",
+      "justNow": "刚刚",
+      "minutes": "{{count}} 分钟前",
+      "hours": "{{count}} 小时前",
+      "days": "{{count}} 天前",
+      "months": "{{count}} 个月前"
+    }
+  },
+  "toolbar": {
+    "archived": "已归档",
+    "extractLearnings": "提取记忆",
+    "workflow": "工作流",
+    "data": "图表",
+    "panels": {
+      "chat": "对话",
+      "files": "文件",
+      "changes": "变更",
+      "issue": "问题",
+      "pinned": "Pin 消息",
+      "artifact": "产物",
+      "canvas": "画布",
+      "drawio": "图表"
+    }
+  },
+  "dataDrawer": {
+    "open": "已 Pin 的图表",
+    "title": "从本工作区 Pin 的图表",
+    "inDashboard": "所在看板：{{name}}"
+  },
+  "team": {
+    "panel": {
+      "header": {
+        "label": "团队"
+      },
+      "empty": {
+        "title": "选择团队",
+        "description": "选择一个团队后，将显示 Pipeline 进度、Worker 状态和共享 Blackboard。",
+        "warning": "选择后无法更换。",
+        "loading": "正在加载团队…",
+        "noTeams": "还没有可用团队。",
+        "goSettings": "前往团队管理",
+        "selectButton": "选择",
+        "applyFailed": "应用团队失败"
+      }
+    }
+  },
+  "sideToolbar": {
+    "openInVSCode": "在 VS Code 中打开",
+    "openInExplorer": "打开资源管理器",
+    "copyPath": "复制路径",
+    "terminal": "终端"
+  },
+  "bgTasks": {
+    "agentReplying": "agent 在回复",
+    "bashBackground": "后台 bash",
+    "wakeupQueued": "wakeup 排队中",
+    "subagent": "subagent",
+    "cronEnabled": "cron 启用中",
+    "none": "无后台任务",
+    "highlight": "bg-task highlight",
+    "tooltipItem": "{{count}} 个{{label}}"
+  },
+  "status": {
+    "created": "已创建",
+    "running": "运行中",
+    "needs_review": "待审核",
+    "attention": "需关注",
+    "completed": "已完成",
+    "deleting": "删除中"
+  },
+  "dialogs": {
+    "newWorkspace": {
+      "title": "新建工作空间",
+      "description": "创建一个新的开发工作空间，可关联多个仓库",
+      "mode": {
+        "label": "创建方式",
+        "standard": "关联 Issue / 仓库",
+        "fromDirectory": "从本地目录新建",
+        "standardHint": "关联已有仓库与 Issue 创建开发工作空间。",
+        "fromDirectoryHint": "选一个本地目录即可建舱：非 git 目录自动初始化（含 .gitignore 与 Git LFS），已是仓库则直接绑定。"
+      },
+      "fromDir": {
+        "pathLabel": "本地目录",
+        "pathHint": "选择要建舱的本地文件夹。草稿在工作舱迭代，点「交付」才写回原目录。",
+        "missingDir": "请先选择一个本地目录",
+        "lfsMissing": "未检测到 git-lfs，大文件未启用 LFS 跟踪（仓库可能膨胀）。可在系统依赖中安装 git-lfs 后重试。",
+        "identityMissing": "尚未配置 git 用户名/邮箱，无法自动初始化仓库。请先在设置中配置 git 身份后重试。"
+      },
+      "repoSource": {
+        "existing": "已有仓库",
+        "directory": "本地目录",
+        "directoryHint": "选一个本地目录加入：非 git 目录会自动初始化，已注册目录直接复用。",
+        "adding": "添加中...",
+        "nameExists": "已存在同名仓库，请重命名目录或改用「已有仓库」。",
+        "notGitRepo": "该目录不是有效的 git 仓库。",
+        "addFailed": "添加仓库失败，请重试。"
+      },
+      "name": "工作空间名称",
+      "namePlaceholder": "输入工作空间名称",
+      "linkIssue": "关联问题",
+      "selectIssue": "选择问题（可选）",
+      "searchIssue": "搜索问题...",
+      "noAvailableIssue": "没有可用的问题",
+      "issueHint": "可选：仅显示未完成且未关联工作空间的问题",
+      "noRepo": {
+        "label": "无仓库（办公 / 纯目录任务）",
+        "hint": "创建一个不含 git worktree 的普通目录，适合非代码类任务。"
+      },
+      "addRepo": "添加仓库",
+      "selectRepo": "选择仓库...",
+      "allReposAdded": "所有仓库已添加",
+      "selectedRepos": "已选仓库 ({{count}})",
+      "missingBranch": "请为仓库「{{name}}」选择一个分支",
+      "partialSuccess": "工作空间已创建，但部分仓库未能建立 worktree：\n\n{{lines}}",
+      "createFailed": "创建工作空间失败",
+      "submitting": "创建中...",
+      "submit": "创建",
+      "claudeAccount": "Claude 账号",
+      "claudeAccountDefault": "（默认账号）",
+      "codexAccount": "Codex 账号",
+      "codexAccountDefault": "使用主机全局 ~/.codex/",
+      "unassignedProject": "未分配项目",
+      "loadingDefaults": "正在加载默认仓库...",
+      "loadDefaultsFailed": "获取默认仓库失败，请手动选择",
+      "cliType": {
+        "label": "Agent CLI",
+        "claude": "Claude Code",
+        "codex": "OpenAI Codex",
+        "qwen": "Qwen Code",
+        "claudeHint": "需要本机已安装 claude 命令。默认选项。",
+        "codexHint": "需要本机已安装 codex 命令。实验性功能。",
+        "qwenHint": "需要本机已安装 qwen 命令。国产引擎，驱动 Qwen / DeepSeek。实验性功能。"
+      }
+    },
+    "deleteWorkspace": {
+      "title": "工作空间有未提交或未合并的变更",
+      "unstaged": "未暂存的修改 ({{count}})",
+      "staged": "已暂存未提交 ({{count}})",
+      "mergeConflict": "合并冲突 ({{count}})",
+      "aheadOfBase": "未合并到 {{branch}} 的提交 ({{count}})",
+      "aheadOfRemote": "未推送到远程的提交 ({{count}})",
+      "deleting": "删除中...",
+      "forceDelete": "强制删除"
+    },
+    "archived": {
+      "title": "已归档的工作空间",
+      "count": "共 {{count}} 个归档工作空间",
+      "loading": "加载中...",
+      "empty": "暂无归档工作空间",
+      "viewArchived": "查看归档工作空间",
+      "archivedAt": "归档于 {{date}} · 创建于 {{created}}",
+      "footer": "删除将永久移除工作空间的所有数据（包括消息、费用等历史记录）",
+      "confirmTitle": "确认删除",
+      "confirmDescription": "此操作将永久删除该工作空间的所有数据，包括消息记录、费用记录等。此操作不可撤销。",
+      "confirmDelete": "确认删除"
+    }
+  },
+  "panels": {
+    "loading": "加载中...",
+    "noTasks": "无任务",
+    "archivedNotice": "此面板依赖的文件系统已随归档清除",
+    "changes": {
+      "title": "变更",
+      "changedFilesCount": "变更文件 ({{count}})",
+      "selectFileHint": "选择左侧文件查看改动",
+      "vsBaseline": "vs 基线 {{branch}}",
+      "vsBaselineMulti": "vs 基线",
+      "includesAll": "含已提交+未提交",
+      "viewUnified": "Unified 行内",
+      "viewSplit": "Split 并排",
+      "focus": {
+        "enter": "专注",
+        "exit": "退出专注 · 回到聊天",
+        "railLabel": "聊天已收起",
+        "expandChat": "展开聊天"
+      },
+      "repoCurrent": "当前分支：{{branch}}",
+      "repoBase": "base: {{branch}}",
+      "openInVSCode": "在 VS Code 中打开",
+      "openRepo": "在仓库页中打开",
+      "searchFiles": "搜索文件…",
+      "searchClear": "清除搜索",
+      "searchNoMatch": "没有匹配的文件",
+      "repoNoChanges": "无变更",
+      "collapseRepo": "折叠",
+      "expandRepo": "展开",
+      "commitHint": "本工作空间 {{count}} 次提交已全部包含",
+      "noChanges": "暂无变更",
+      "syncFromBranchTitle": "同步最新代码",
+      "syncFromBranchPickerTitle": "选择要合并的分支",
+      "syncFromBranchSearchPlaceholder": "搜索分支...",
+      "syncFromBranchEmpty": "没有可选分支",
+      "diff": {
+        "unified": "行内",
+        "split": "并排",
+        "binary": "无法预览文本（二进制或非文本文件）。",
+        "modeChange": "仅文件权限变更（{{old}} → {{new}}），无内容差异。",
+        "renameOnly": "仅重命名文件，无内容差异。",
+        "noContentChange": "该文件无内容差异（仅元数据变更）。",
+        "largeFile": "差异较大（{{count}} 行）——已折叠以保证性能。",
+        "renderAnyway": "仍然渲染",
+        "openInVSCode": "在 VS Code 中打开",
+        "expandLines": "展开 {{count}} 行未改动内容",
+        "loadError": "加载 diff 失败。",
+        "noDiff": "该文件相对基线无改动。"
+      },
+      "comments": {
+        "me": "我",
+        "lineMeta": "第 {{line}} 行 · {{repo}} › {{path}}",
+        "pending": "待发送",
+        "sent": "已发送",
+        "placeholder": "回复或补充修改要求…",
+        "cancel": "取消",
+        "queue": "加入队列",
+        "sendNow": "直接发送给 Agent",
+        "sendQueue": "发送到 Agent · {{count}} 条",
+        "queued": "已加入队列",
+        "sentOne": "已发送给 Agent",
+        "sentAll": "已发送 {{count}} 条评论给 Agent",
+        "sentPartial": "已发送 {{sent}} 条，{{failed}} 条失败"
+      },
+      "syncFromBranchPrompt": "请把分支 `{{sourceBranch}}` 的最新代码合并到下述指定 worktree 的当前分支 `{{currentBranch}}` 中。\n\n⚠️ 此工作空间下可能有多个 worktree，请严格只在下面这一个 worktree 中操作，不要切换到其他 worktree、不要 cd 离开它：\n- worktree 名称：{{worktreeName}}\n- worktree 绝对路径：{{worktreePath}}\n- 当前分支：{{currentBranch}}\n- 要合入的分支：{{sourceBranch}}\n\n请按以下步骤操作（始终用 `git -C \"{{worktreePath}}\"` 显式定位，不要靠 cwd 推断）：\n1. 执行 `git -C \"{{worktreePath}}\" status` 检查工作区是否干净；若有未提交修改，先停下来告诉我，等我确认后再继续；\n2. 执行 `git -C \"{{worktreePath}}\" merge {{sourceBranch}}` 进行合并；\n3. 如果产生合并冲突：先列出全部冲突文件，再尝试逐个解决（保留双方意图，避免丢失改动），完成后用 `git -C \"{{worktreePath}}\" commit --no-edit` 提交合并；遇到无法判断如何取舍的冲突，停下来告诉我具体文件和原因，**不要** 执行 `git merge --abort`，把现场保留给我；\n4. 合并成功后简要报告：合并方式（fast-forward / merge commit）、新的 HEAD commit、是否还有未提交内容。"
+    },
+    "chat": {
+      "loadMore": "加载更多消息...",
+      "agentWorking": "Agent is working...",
+      "stickyUserBackToMessage": "点击回到这条用户消息",
+      "queueTitle": "待执行队列",
+      "queueRetry": "重试",
+      "queueSendToInput": "发送到输入框",
+      "scheduleToast": "定时任务触发",
+      "scheduleDesc": "正在执行队列消息",
+      "builtin": {
+        "unsupported": "⚠️ {{command}} 仅在 Claude CLI 交互模式下可用，工作空间 chat 不支持此命令。",
+        "cleared": "会话已清除，开始新对话",
+        "noCost": "暂无费用记录",
+        "costSummary": "费用统计（历史累计）：${{cost}} | {{turns}} 轮 | {{interactions}} 次交互 | {{minutes}}m{{seconds}}s",
+        "costFailed": "无法获取费用信息",
+        "statusLine": "状态: {{status}} | Session: {{session}}",
+        "statusNone": "无",
+        "statusFailed": "无法获取状态",
+        "currentModel": "当前模型: {{model}}",
+        "modelDefault": "默认（全局配置）",
+        "modelFailed": "无法获取模型信息",
+        "helpText": "可用命令：\n  /clear — 清除会话\n  /cost — 查看费用\n  /status — 查看状态\n  /model — 查看模型\n  /compact — 压缩上下文\n  /spec — 编写或更新规格文档\n  /plan — 编写或更新执行计划\n  /coding — 按已确认计划实现\n  /review — 审查代码变更\n  /memory — 管理记忆文件\n  /init — 初始化 agent 指令文件\n\n其他 plugin/skill 命令可在输入 / 时查看补全列表。"
+      }
+    },
+    "chatInput": {
+      "running": "输入消息加入队列…",
+      "waitingConfirm": "输入修改意见或点击继续...",
+      "idle": "向 Agent 提问…（Ctrl+Enter 发送，@ 引用文件）",
+      "idleCodex": "向 Codex 提问…（Ctrl+Enter 发送，@ 引用文件）",
+      "idleQwen": "向 Qwen Code 提问…（Ctrl+Enter 发送，@ 引用文件）",
+      "dropZone": "拖放文件到这里",
+      "addAttachment": "添加附件",
+      "uploading": "上传中...",
+      "attachment": "附件",
+      "queue": "排队",
+      "send": "发送",
+      "stopAgent": "停止 Agent",
+      "noChanges": "暂无变更",
+      "fileChanges": "{{count}} 个文件",
+      "fileChangesPlural": "{{count}} 个文件",
+      "rateOk": "正常",
+      "rateWarning": "受限",
+      "rateRejected": "被拒",
+      "rateLimit5h": "5 小时限流",
+      "rateResetsAt": "{{time}} 重置",
+      "contextWindow": "上下文窗口",
+      "claudeAccountFollow": "（默认）",
+      "claudeAccountTooltip": "Claude 账号：{{name}}",
+      "resizeHandle": "拖动调整输入框高度",
+      "statusBusy": "忙碌",
+      "statusRunning": "运行中",
+      "statusIdle": "空闲"
+    },
+    "filePicker": {
+      "header": "文件 · 输入过滤 · Esc/空格 取消",
+      "noResults": "无匹配文件",
+      "searchHint": "输入文件名搜索...",
+      "navHint": "↑↓ 导航 · Enter 选择",
+      "cancelHint": "Esc / 空格 取消"
+    },
+    "attachment": {
+      "clickToZoom": "{{size}} · 点击放大",
+      "loading": "加载中...",
+      "preview": "预览",
+      "optimized": {
+        "badge": "已优化",
+        "tooltip": "原始 {{orig}} → 优化后 {{new}}"
+      }
+    },
+    "taskList": {
+      "noTasks": "无任务",
+      "phase": {
+        "spec": "需求分析",
+        "plan": "规划",
+        "arch": "架构设计",
+        "impl": "实现",
+        "test": "测试",
+        "tasks": "任务"
+      }
+    },
+    "queue": {
+      "title": "待执行队列",
+      "retryBadge": "重试",
+      "sendToInput": "发送到输入框",
+      "fuseToInput": "融合发送（中断当前并拼接上次消息）",
+      "drag": "拖拽排序",
+      "edit": "编辑",
+      "delete": "删除",
+      "save": "保存",
+      "cancel": "取消"
+    },
+    "issue": {
+      "noIssue": "未关联问题",
+      "loading": "加载中...",
+      "notFound": "未找到问题",
+      "confirmDelete": "确定要删除这个问题吗？",
+      "copyIdTitle": "点击复制 ID",
+      "copyTitleTitle": "点击复制标题",
+      "editTitleTitle": "编辑标题",
+      "run": "运行",
+      "runTitle": "将该问题的标题+描述组合成 markdown 写入对话输入框"
+    },
+    "claudeSettings": {
+      "trigger": "Claude",
+      "triggerTitle": "Claude 设置",
+      "title": "Claude 设置",
+      "description": "配置本工作空间的 Claude Code 行为（仅对当前工作空间生效）",
+      "cliFlags": "启动配置",
+      "cliFlagsDesc": "覆盖全局配置，转换为 Claude CLI 启动参数",
+      "envVars": "环境变量",
+      "envVarsDesc": "作为环境变量传递给 Claude 进程",
+      "saving": "保存中...",
+      "autoCompact": {
+        "section": "上下文管理",
+        "label": "自动压缩上下文",
+        "desc": "当对话接近上下文窗口预算时，自动执行 /compact 释放空间、减缓 token 增长。默认开启。",
+        "percentLabel": "触发阈值（%）",
+        "percentDesc": "上下文占用达到预算的该百分比时压缩。默认 70。",
+        "budgetLabel": "上下文窗口（K tokens）",
+        "budgetDesc": "你所用模型的上下文窗口大小，单位为千 token，请设为与之一致（例如 1M 窗口填 1000，200K 窗口填 200）。默认 1000（即 1M）。"
+      },
+      "fields": {
+        "agentCommand": {
+          "label": "Agent 命令",
+          "placeholder": "默认: claude"
+        },
+        "agentArgs": {
+          "label": "Agent 额外参数",
+          "placeholder": "例: --allowedTools Edit,Write,Bash"
+        },
+        "model": {
+          "label": "模型",
+          "placeholder": "例: sonnet, opus, claude-sonnet-4-6"
+        },
+        "allowedTools": {
+          "label": "允许的工具",
+          "placeholder": "例: Bash(git:*) Edit Read"
+        },
+        "maxTurns": {
+          "label": "最大轮次",
+          "placeholder": "例: 50"
+        },
+        "thinkingTokens": {
+          "label": "思考 Token 上限",
+          "placeholder": "例: 10000"
+        }
+      }
+    },
+    "workspaceScenes": {
+      "trigger": "场景",
+      "triggerTitle": "管理本工作空间附加的场景",
+      "title": "工作空间场景",
+      "description": "为这个工作空间附加场景：每个场景是一组 MCP / Claude 插件 / 资产，会被投影到 .mcp.json 与 ~/.claude overlay。"
+    },
+    "skillInstall": {
+      "trigger": "技能",
+      "triggerTitle": "安装常用技能（Claude 插件）",
+      "title": "安装技能",
+      "description": "从精选列表里挑一个技能（Claude 插件），选择安装到全局 ~/.claude 或本工作空间绑定账号的 .claude 目录。",
+      "installGlobal": "全局安装",
+      "installWorkspace": "本工作空间",
+      "install": "安装",
+      "uninstall": "卸载",
+      "installedBadge": "已安装",
+      "tabs": {
+        "all": "全部",
+        "uninstalled": "未安装",
+        "installed": "已安装"
+      },
+      "tabEmpty": "此分类下暂无技能",
+      "workspaceCliBadge": "工作空间使用 {{cli}}",
+      "noVersionForCli": "无对应版本",
+      "noVersionForCliTooltip": "该精选条目在当前 CLI 的 marketplace 里没有对应版本，无法安装。",
+      "scope": {
+        "global": "全局",
+        "workspace": "本工作空间"
+      },
+      "installedToast": "{{name}} 已安装（{{scope}}）",
+      "uninstalledToast": "{{name}} 已卸载（{{scope}}）",
+      "uninstallFailedToast": "{{name}} 卸载失败：{{detail}}",
+      "uninstallErrorToast": "{{name}} 卸载请求失败",
+      "skippedToast": "{{name}} 已存在，跳过安装",
+      "failedToast": "{{name}} 安装失败：{{detail}}",
+      "unexpectedStatusToast": "{{name}} 返回未预期状态：{{status}}",
+      "errorToast": "{{name}} 安装请求失败",
+      "addMarketplaceTitle": "添加新市场",
+      "addMarketplaceHint": "支持 GitHub 仓库简写（owner/repo）、完整 URL 或本地路径。添加后即可安装该市场里的技能。",
+      "addMarketplacePlaceholder": "owner/repo 或 https://github.com/...",
+      "addMarketplaceGlobal": "全局添加",
+      "addMarketplaceWorkspace": "本工作空间",
+      "marketplaceAddedToast": "已添加市场 {{source}}（{{scope}}）",
+      "marketplaceAddFailedToast": "添加市场 {{source}} 失败：{{detail}}",
+      "marketplaceAddErrorToast": "添加市场请求失败",
+      "skills": {
+        "superpowers": {
+          "name": "Superpowers",
+          "description": "Anthropic 官方的核心 skills 集：TDD、调试、协作模式、写计划与执行计划的最佳实践。"
+        },
+        "frontendDesign": {
+          "name": "Frontend Design",
+          "description": "前端组件、页面、artifact 设计 skill，避免泛 AI 风格。"
+        },
+        "context7": {
+          "name": "Context7",
+          "description": "在线查询主流库 / 框架 / SDK / CLI 的最新文档，弥补训练数据时效缺口。"
+        },
+        "chromeDevtools": {
+          "name": "Chrome DevTools",
+          "description": "通过 MCP 控制 Chrome：调试、性能分析、a11y 检查、网络请求拦截。"
+        },
+        "playwright": {
+          "name": "Playwright",
+          "description": "浏览器自动化与端到端测试 MCP，适合验证前端流程。"
+        },
+        "documentSkills": {
+          "name": "Document Skills",
+          "description": "文档生成 / 解析合集：pptx、docx、xlsx、pdf、品牌指南等。"
+        }
+      }
+    },
+    "codexSettings": {
+      "trigger": "OpenAI Codex",
+      "triggerTitle": "Codex 设置",
+      "title": "Codex 设置",
+      "description": "本 Codex 工作空间的沙箱与审批策略。",
+      "sandboxLabel": "沙箱模式",
+      "approvalLabel": "审批策略",
+      "saving": "保存中…"
+    },
+    "qwenSettings": {
+      "trigger": "Qwen Code",
+      "triggerTitle": "Qwen 设置",
+      "title": "Qwen 设置",
+      "description": "Qwen Code 引擎设置。",
+      "sharedNote": "Qwen 暂无引擎专属设置。模型与 CLI 命令在「工作空间设置」中配置；审批模式通过工具栏的权限选择器设置。"
+    },
+    "workspaceSettings": {
+      "trigger": "工作空间",
+      "triggerTitle": "工作空间设置",
+      "title": "工作空间设置",
+      "description": "配置工作空间的名称、仓库和环境变量",
+      "agentSection": "Agent（通用）",
+      "agentSectionDesc": "适用于本工作空间运行的任意引擎 —— 命令 / 参数 / 模型 / 允许的工具。",
+      "agentDefaultHint": "默认: {{value}}",
+      "agentEgHint": "例: {{value}}",
+      "name": "名称",
+      "boundRepos": "绑定仓库",
+      "addRepo": "添加仓库",
+      "boundReposDesc": "每个仓库对应一个 git worktree",
+      "noBoundRepos": "暂无绑定仓库",
+      "selectRepo": "选择仓库",
+      "selectRepoPlaceholder": "选择仓库...",
+      "allReposAdded": "所有仓库已添加",
+      "selectBranch": "选择分支",
+      "loadingBranches": "加载分支...",
+      "addingWorktree": "添加中...",
+      "addWorktree": "添加",
+      "envVars": "环境变量",
+      "importPreset": "从预设导入",
+      "loadingPresets": "加载中...",
+      "noPresets": "暂无预设",
+      "envInjectDesc": "Agent 启动时会注入这些环境变量",
+      "noEnvVars": "暂无环境变量",
+      "addEnvVar": "添加",
+      "dangerZone": "危险操作",
+      "archiveDesc": "归档将删除工作空间目录但保留历史数据",
+      "archiving": "归档中...",
+      "archive": "归档工作空间",
+      "deleting": "删除中...",
+      "delete": "删除工作空间",
+      "saving": "保存中...",
+      "save": "保存",
+      "confirmArchiveTitle": "确认归档",
+      "confirmArchiveDesc": "归档将删除工作空间目录和 git 分支，但保留消息、费用等历史数据。此操作不可撤销。",
+      "confirmArchive": "确认归档",
+      "claudeAccount": "Claude 账号",
+      "claudeAccountFollow": "（跟随活跃）",
+      "claudeAccountFollowResolved": "（默认 · {{name}}）",
+      "claudeAccountDefaultRow": "默认账号",
+      "autohost": "自动托管",
+      "autohostDesc": "调整 Agent 自动续跑次数、错误重试次数与续跑/恢复提示词。",
+      "autohostConfigure": "配置自动托管..."
+    },
+    "scheduleManager": {
+      "label": "定时计划",
+      "add": "添加",
+      "desc": "设置定时或单次自动执行预定义对话",
+      "empty": "暂无定时计划",
+      "onceFallback": "单次执行",
+      "namePlaceholder": "例如：每日晨会总结",
+      "nameLabel": "名称（可选）",
+      "recurring": "重复执行",
+      "once": "单次执行",
+      "cronLabel": "Cron 表达式",
+      "runAtLabel": "执行时间",
+      "defaultMessageLabel": "默认消息（可选）",
+      "defaultMessagePlaceholder": "队列为空时使用此消息发送对话",
+      "defaultMessageDesc": "当队列中没有待发送消息时，将使用此默认消息",
+      "submitting": "添加中...",
+      "submit": "添加",
+      "presets": {
+        "daily9": "每天 09:00",
+        "daily14": "每天 14:00",
+        "weekday9": "工作日 09:00",
+        "weekday14": "工作日 14:00",
+        "every2h": "每隔 2 小时",
+        "every4h": "每隔 4 小时"
+      }
+    },
+    "slashCommand": {
+      "loading": "加载命令列表...",
+      "noResults": "无匹配命令",
+      "groupBuiltin": "内置命令",
+      "groupCommand": "插件命令",
+      "groupSkill": "技能",
+      "sourceBuiltin": "内置命令",
+      "sourceCommand": "插件命令",
+      "sourceSkill": "技能",
+      "noDescription": "暂无描述"
+    },
+    "quickActions": {
+      "trigger": "快捷",
+      "triggerTitle": "快捷输入",
+      "empty": "暂无快捷操作，点击下方管理添加",
+      "manage": "管理快捷操作...",
+      "manageTitle": "管理快捷操作",
+      "searchPlaceholder": "搜索快捷操作",
+      "searchEmpty": "无匹配的快捷操作",
+      "dialogTitle": "管理快捷操作",
+      "dialogDescription": "配置常用的快捷输入操作，所有工作空间共享",
+      "labelPlaceholder": "显示名称",
+      "contentPlaceholder": "预设内容（将填入输入框）",
+      "autoSendLabel": "选择后自动发送",
+      "autoSendBadge": "自动发送",
+      "addNew": "添加快捷操作",
+      "submit": "添加",
+      "edit": "编辑",
+      "delete": "删除",
+      "groupPersonal": "个人",
+      "groupScene": "场景提供",
+      "sceneReadOnly": "只读"
+    },
+    "permissions": {
+      "title": "权限模式",
+      "description": "控制 Agent 操作的自动化程度",
+      "saved": "已保存",
+      "autohost": {
+        "activeTitle": "自动托管已开启",
+        "openSettings": "打开自动托管设置",
+        "dialogTitle": "自动托管设置",
+        "dialogDescription": "调整 Agent 在此工作空间的自动续跑与错误恢复策略。",
+        "budgetSection": "预算",
+        "continueBudget": "续跑次数",
+        "continueBudgetDesc": "连续无操作时自动让 Agent 继续的次数上限。0 = 关闭续跑。",
+        "errorBudget": "错误重试次数",
+        "errorBudgetDesc": "报错后自动诊断换方法的次数上限。0 = 关闭恢复。",
+        "promptSection": "提示词",
+        "continuePrompt": "续跑提示词",
+        "continuePromptDesc": "队列空闲时注入给 Agent 的提示。留空使用默认。",
+        "recoverPrompt": "恢复提示词",
+        "recoverPromptDesc": "Turn 报错后注入给 Agent 的提示。留空使用默认。",
+        "useDefault": "恢复默认",
+        "promptHint": "建议保留 [AUTOHOST_DONE] 出口指令，否则 Agent 无法主动停下。"
+      },
+      "modes": {
+        "autohost": {
+          "label": "自动托管 (推荐)",
+          "desc": "跳过所有权限询问，空闲时自动续跑直至任务完成"
+        },
+        "default": {
+          "label": "默认",
+          "desc": "每次操作都需确认"
+        },
+        "acceptEdits": {
+          "label": "允许编辑",
+          "desc": "自动接受文件编辑，其他操作需确认"
+        },
+        "auto": {
+          "label": "自动",
+          "desc": "自动处理大多数操作"
+        },
+        "plan": {
+          "label": "计划",
+          "desc": "只规划不执行"
+        },
+        "bypassPermissions": {
+          "label": "跳过权限",
+          "desc": "跳过所有权限检查（仅限沙箱）"
+        }
+      }
+    }
+  },
+  "chatMessage": {
+    "attachmentSuffixPrefix": "以下文件供你参考",
+    "pin": "钉住消息",
+    "unpin": "取消钉住",
+    "pinFailed": "操作失败",
+    "copy": "复制消息",
+    "copied": "已复制",
+    "copyFailed": "复制失败"
+  },
+  "pinnedPanel": {
+    "title": "Pin 消息",
+    "empty": "还没有钉住的消息。把鼠标移到消息上，点 Pin 图标即可钉住。",
+    "noPreview": "（无预览）",
+    "locate": "定位到该消息",
+    "unpin": "取消钉住",
+    "unpinFailed": "取消钉住失败",
+    "notLoaded": "该消息尚未加载，向上滚动以加载更早的消息。"
+  },
+  "permission": {
+    "card": {
+      "wantsToCall": "Claude 想调用 {{tool}}",
+      "allowOnce": "允许",
+      "alwaysAllow": "始终允许",
+      "deny": "拒绝",
+      "confirmDeny": "确认拒绝",
+      "denyPlaceholder": "（可选）告诉 Claude 怎么改",
+      "expired": "已超时",
+      "remaining": "{{m}}m {{s}}s",
+      "allowed": "✓ 已允许",
+      "denied": "✕ 已拒绝",
+      "timeout": "⏱ 超时未答复",
+      "cancelled": "— 已取消",
+      "subagent": "→ {{type}}",
+      "toolInputJson": "tool input (JSON)",
+      "fallbackTool": "general-purpose"
+    },
+    "matcher": {
+      "onlyThisCommand": "仅这条命令: {{cmd}}",
+      "prefix": "前缀: {{value}}",
+      "onlyThisFile": "仅当前文件",
+      "currentDir": "当前目录: {{dir}}/",
+      "wholeWorkspace": "整个 workspace",
+      "domain": "域名: {{host}}",
+      "onlyThisURL": "仅这个 URL",
+      "allCalls": "所有调用"
+    },
+    "indicator": {
+      "pendingCount": "{{count}} 个待批准"
+    },
+    "allowlist": {
+      "title": "权限白名单",
+      "header": "权限白名单。从聊天里点\"始终允许\"产生；这里只能删除。",
+      "search": "搜索 tool 或 matcher",
+      "empty": "（空）",
+      "any": "(any)",
+      "delete": "删除"
+    }
+  },
+  "askUser": {
+    "card": {
+      "title": "Claude 想问你几个问题",
+      "submit": "提交",
+      "other": "其他（自定义回答）",
+      "otherPlaceholder": "输入你的回答…",
+      "expired": "已超时",
+      "remaining": "{{m}}m {{s}}s",
+      "answered": "✓ 已回答",
+      "timeout": "⏱ 超时未答复",
+      "cancelled": "— 已取消"
+    },
+    "indicator": {
+      "pendingCount": "{{count}} 个问题待回答"
+    }
+  },
+  "autohost": {
+    "fallbackCondition": {
+      "title": "完成条件兜底（可选）",
+      "hint": "仅在 workspace 绑定的 issue 未设置完成条件时生效。建议优先在 Issue 详情设置，使条件随任务而变。",
+      "placeholder": "示例：所有单元测试通过",
+      "charCount": "字符数：{{n}} / {{max}}"
+    }
+  },
+  "mcp": {
+    "section_title": "MCP 配置",
+    "scene_title": "本工作区场景",
+    "loading": "正在检测...",
+    "recommended_label": "推荐",
+    "available_heading": "全部可用",
+    "no_servers_available": "未检测到本地安装的 MCP",
+    "skip_label": "可不选；仅 niuniu MCP 会被加载",
+    "plugin_conflict": {
+      "global_load": "由 plugin 全局加载（无法 per-workspace 关闭）"
+    },
+    "unavailable_warning": "{{count}} 个 MCP 在当前账号下不可用",
+    "redetect": "重新检测",
+    "restart_required": "保存后需要重启 Agent 才能生效",
+    "save": "保存",
+    "restart_agent": "重启 Agent",
+    "niuniu_required": "必选",
+    "strict_label": "禁用全局 MCP 配置（仅用本工作区）",
+    "strict_hint": "重启 agent 后生效。",
+    "strict_failed": "更新失败，已回滚。",
+    "effective": "生效配置",
+    "overrides": "本工作区覆盖"
+  },
+  "canvas": {
+    "title": "标注",
+    "loading": "画布加载中…",
+    "empty": "画布是空的——请先画点内容。",
+    "fileName": "名称",
+    "targetWorktree": "目标 worktree",
+    "sendToAgent": "发给 Agent",
+    "sent": "标注已发给 Agent。",
+    "sentWithSource": "已发给 Agent · 源文件已保存到 {{path}}",
+    "defaultPrompt": "这是一张标注图（{{name}}），请按图上标注的内容处理。",
+    "errors": {
+      "tooLarge": "图片太大（上限 {{limit}}）。",
+      "sendFailed": "发送标注失败。"
+    }
+  },
+  "drawio": {
+    "title": "图表",
+    "loading": "draw.io 加载中…",
+    "defaultPrompt": "这是一张图表（{{name}}），请按图中内容处理。"
+  },
+  "contentViewer": {
+    "save": "保存",
+    "saved": "已保存到工作树",
+    "saveFailed": "保存失败",
+    "viewDiff": "变更",
+    "viewFile": "文件",
+    "viewPreview": "预览",
+    "viewSource": "源码"
+  }
+}

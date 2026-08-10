@@ -1,0 +1,290 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Local Runners</title>
+  <link rel="stylesheet" href="/style.css">
+  <style>
+    /* #526·子C global runner manager — extends the shared desktop dark theme. */
+    body { padding: 24px 32px; }
+    .container { max-width: 760px; }
+    .header { text-align: left; display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 20px; }
+    .header .title-block { flex: 1; }
+    .header h1 { font-size: 22px; }
+    .toolbar { display: flex; gap: 8px; align-items: center; }
+    .btn { background: #161616; border: 1px solid #2a2a2a; border-radius: 6px; padding: 7px 12px; color: #ddd; font-size: 13px; cursor: pointer; transition: border-color 0.15s, background 0.15s; }
+    .btn:hover { border-color: #444; }
+    .btn.primary { background: #0a1a2a; border-color: #1c3a5a; color: #79b8ff; }
+    .btn.primary:hover { border-color: #2f5a8a; }
+    .btn.danger:hover { border-color: #7a2a2a; color: #ff8080; background: #1a0a0a; }
+    .runner-list { display: flex; flex-direction: column; gap: 8px; }
+    .runner-card { background: #141414; border: 1px solid #222; border-radius: 10px; padding: 14px 16px; }
+    .runner-top { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+    .runner-name { font-size: 15px; font-weight: 600; flex: 1; }
+    .status { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: #aaa; }
+    .dot { width: 8px; height: 8px; border-radius: 50%; background: #666; flex: none; }
+    .dot.active { background: #4ade80; box-shadow: 0 0 6px #4ade8066; }
+    .dot.connecting { background: #60a5fa; }
+    .dot.stopped { background: #888; }
+    .dot.error { background: #ef4444; }
+    .runner-meta { display: flex; flex-direction: column; gap: 3px; margin-bottom: 10px; }
+    .meta-row { font-size: 12px; color: #8a8a8a; display: flex; gap: 6px; }
+    .meta-row .label { color: #5a5a5a; min-width: 68px; flex: none; }
+    .meta-row .val { color: #b0b0b0; word-break: break-all; }
+    .meta-row .val.mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+    .runner-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+    .empty { color: #555; font-size: 14px; padding: 40px 0; text-align: center; }
+    .offline-tag { font-size: 10px; background: #221a0a; color: #d0a060; padding: 2px 7px; border-radius: 4px; text-transform: uppercase; letter-spacing: 0.04em; }
+    /* Logs modal */
+    .overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.6); display: none; align-items: center; justify-content: center; padding: 32px; }
+    .overlay.open { display: flex; }
+    .modal { background: #101010; border: 1px solid #2a2a2a; border-radius: 12px; width: 100%; max-width: 720px; height: 100%; max-height: 560px; display: flex; flex-direction: column; overflow: hidden; }
+    .modal-head { display: flex; align-items: center; gap: 12px; padding: 14px 16px; border-bottom: 1px solid #222; }
+    .modal-head h2 { flex: 1; text-transform: none; letter-spacing: 0; color: #ddd; font-size: 15px; }
+    .modal-head input { flex: none; width: 200px; padding: 7px 10px; font-size: 13px; }
+    .log-body { flex: 1; overflow-y: auto; padding: 12px 16px; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; line-height: 1.6; }
+    .log-line { white-space: pre-wrap; word-break: break-all; }
+    .log-line .lv { color: #555; user-select: none; }
+    .log-line.command { color: #cbd5e1; }
+    .log-line.stdout { color: #b0b0b0; }
+    .log-line.stderr { color: #f0a0a0; }
+    .log-line.system { color: #7a8aa0; font-style: italic; }
+    .log-empty { color: #555; padding: 8px 0; }
+    .icon-btn { background: none; border: none; color: #888; font-size: 20px; cursor: pointer; padding: 2px 6px; border-radius: 4px; }
+    .icon-btn:hover { color: #ddd; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <div class="title-block">
+        <h1 id="t-title">Local Runners</h1>
+        <p class="subtitle" id="t-subtitle">Manage local execution runners across all connections</p>
+      </div>
+      <div class="toolbar">
+        <button class="btn" id="btn-refresh">Refresh</button>
+      </div>
+    </div>
+    <div id="runner-list" class="runner-list">
+      <p class="empty" id="t-loading">Loading…</p>
+    </div>
+  </div>
+
+  <div class="overlay" id="log-overlay">
+    <div class="modal">
+      <div class="modal-head">
+        <h2 id="log-title">Logs</h2>
+        <input type="text" id="log-search" placeholder="Search…">
+        <button class="icon-btn" id="log-close">&times;</button>
+      </div>
+      <div class="log-body" id="log-body"></div>
+    </div>
+  </div>
+
+  <script>
+    // --- i18n (aligned with the desktop shell; lang resolved from GetUILang) ---
+    const I18N = {
+      en: {
+        title: 'Local Runners',
+        subtitle: 'Manage local execution runners across all connections',
+        refresh: 'Refresh',
+        loading: 'Loading…',
+        empty: 'No local runners yet. Bind one from a workspace’s bottom bar in a remote connection.',
+        server: 'Server', dir: 'Directory', activity: 'Last activity', lastlog: 'Last log',
+        start: 'Start', stop: 'Stop', del: 'Delete', openDir: 'Open Folder', logs: 'Logs',
+        search: 'Search…', noLogs: 'No logs yet.', logsFor: 'Logs — ',
+        offline: 'Disconnected', confirmDel: 'Delete this runner binding? This unbinds it and clears its whitelist.',
+        st_active: 'Running', st_connecting: 'Connecting', st_stopped: 'Stopped', st_error: 'Error', st_unknown: 'Unknown',
+        never: 'never',
+      },
+      zh: {
+        title: '本地 Runner 管理',
+        subtitle: '统一管理所有连接下的本地执行器',
+        refresh: '刷新',
+        loading: '加载中…',
+        empty: '暂无本地 Runner。请在远端连接的工作空间底部栏中绑定。',
+        server: '所连服务端', dir: '本地目录', activity: '最近活动', lastlog: '最近日志',
+        start: '启动', stop: '停止', del: '删除', openDir: '打开目录', logs: '查看日志',
+        search: '搜索…', noLogs: '暂无日志。', logsFor: '日志 — ',
+        offline: '未连接', confirmDel: '删除此 Runner 绑定？将解绑并清除其白名单。',
+        st_active: '运行中', st_connecting: '连接中', st_stopped: '已停止', st_error: '错误', st_unknown: '未知',
+        never: '无',
+      },
+    };
+    let T = I18N.en;
+
+    // --- Wails binding transport: call App methods by fully-qualified name
+    // (main.App.<Method>) via the runtime endpoint. Same envelope as the picker,
+    // but methodName avoids hard-coding generated method-ID hashes. ---
+    const PKG = 'main.App.';
+    let callCounter = 0;
+    async function call(name, ...args) {
+      callCounter++;
+      const body = {
+        object: 0, method: 0,
+        args: { 'call-id': 'c' + callCounter + '-' + name, methodName: PKG + name, args: args.length ? args : undefined },
+      };
+      const res = await fetch('/wails/runtime', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+      });
+      if (!res.ok) throw new Error(await res.text());
+      const ct = res.headers.get('Content-Type');
+      return ct && ct.includes('application/json') ? res.json() : res.text();
+    }
+
+    function esc(s) { const d = document.createElement('div'); d.textContent = s == null ? '' : String(s); return d.innerHTML; }
+
+    function fmtTime(ms) {
+      if (!ms) return T.never;
+      try { return new Date(ms).toLocaleString(); } catch (e) { return T.never; }
+    }
+    function statusLabel(s) { return T['st_' + s] || T.st_unknown; }
+
+    function applyStaticI18n() {
+      document.documentElement.lang = (T === I18N.zh) ? 'zh' : 'en';
+      document.title = T.title;
+      document.getElementById('t-title').textContent = T.title;
+      document.getElementById('t-subtitle').textContent = T.subtitle;
+      document.getElementById('btn-refresh').textContent = T.refresh;
+      document.getElementById('log-search').placeholder = T.search;
+    }
+
+    function actionBtn(label, cls, onClick) {
+      const b = document.createElement('button');
+      b.className = 'btn' + (cls ? ' ' + cls : '');
+      b.textContent = label;
+      b.addEventListener('click', onClick);
+      return b;
+    }
+
+    function metaRow(label, value, mono) {
+      const row = document.createElement('div');
+      row.className = 'meta-row';
+      const l = document.createElement('span'); l.className = 'label'; l.textContent = label;
+      const v = document.createElement('span'); v.className = 'val' + (mono ? ' mono' : ''); v.textContent = value;
+      row.appendChild(l); row.appendChild(v);
+      return row;
+    }
+
+    function renderRunner(r) {
+      const card = document.createElement('div');
+      card.className = 'runner-card';
+
+      const top = document.createElement('div');
+      top.className = 'runner-top';
+      const name = document.createElement('div');
+      name.className = 'runner-name';
+      name.textContent = r.workspace_name || ('workspace ' + r.workspace_id);
+      const status = document.createElement('span');
+      status.className = 'status';
+      status.innerHTML = '<span class="dot ' + esc(r.status) + '"></span>' + esc(statusLabel(r.status));
+      top.appendChild(name);
+      top.appendChild(status);
+      if (!r.conn_active) {
+        const off = document.createElement('span');
+        off.className = 'offline-tag';
+        off.textContent = T.offline;
+        top.appendChild(off);
+      }
+      card.appendChild(top);
+
+      const meta = document.createElement('div');
+      meta.className = 'runner-meta';
+      const server = (r.connection_name || r.connection_key) + (r.connection_key ? '  (' + r.connection_key + ')' : '');
+      meta.appendChild(metaRow(T.server, server));
+      meta.appendChild(metaRow(T.dir, r.local_dir || '—', true));
+      meta.appendChild(metaRow(T.activity, fmtTime(r.last_activity_ms)));
+      if (r.last_log_summary) meta.appendChild(metaRow(T.lastlog, r.last_log_summary, true));
+      card.appendChild(meta);
+
+      const actions = document.createElement('div');
+      actions.className = 'runner-actions';
+      if (r.status === 'active') {
+        actions.appendChild(actionBtn(T.stop, '', () => act(() => call('StopLocalRunner', r.id))));
+      } else {
+        actions.appendChild(actionBtn(T.start, 'primary', () => act(() => call('StartLocalRunner', r.id))));
+      }
+      actions.appendChild(actionBtn(T.openDir, '', () => { call('OpenLocalRunnerDir', r.id).catch(() => {}); }));
+      actions.appendChild(actionBtn(T.logs, '', () => openLogs(r)));
+      actions.appendChild(actionBtn(T.del, 'danger', () => {
+        if (window.confirm(T.confirmDel)) act(() => call('DeleteLocalRunner', r.id));
+      }));
+      card.appendChild(actions);
+      return card;
+    }
+
+    async function act(fn) {
+      try { await fn(); } catch (e) { console.error('runner action failed:', e); }
+      loadRunners();
+    }
+
+    async function loadRunners() {
+      try {
+        const runners = await call('ListLocalRunners');
+        const list = document.getElementById('runner-list');
+        list.innerHTML = '';
+        if (!runners || runners.length === 0) {
+          const p = document.createElement('p'); p.className = 'empty'; p.textContent = T.empty;
+          list.appendChild(p);
+          return;
+        }
+        runners.forEach(r => list.appendChild(renderRunner(r)));
+      } catch (e) {
+        console.error('load runners failed:', e);
+      }
+    }
+
+    // --- Logs modal ---
+    let logEntries = [];
+    function renderLogBody() {
+      const body = document.getElementById('log-body');
+      const q = document.getElementById('log-search').value.trim().toLowerCase();
+      body.innerHTML = '';
+      const filtered = q ? logEntries.filter(e => (e.text || '').toLowerCase().includes(q)) : logEntries;
+      if (filtered.length === 0) {
+        const p = document.createElement('div'); p.className = 'log-empty'; p.textContent = T.noLogs;
+        body.appendChild(p);
+        return;
+      }
+      filtered.forEach(e => {
+        const line = document.createElement('div');
+        line.className = 'log-line ' + esc(e.level || 'stdout');
+        line.innerHTML = '<span class="lv">[' + esc(e.level || '') + ']</span> ' + esc(e.text || '');
+        body.appendChild(line);
+      });
+      body.scrollTop = body.scrollHeight;
+    }
+    async function openLogs(r) {
+      document.getElementById('log-title').textContent = T.logsFor + (r.workspace_name || r.workspace_id);
+      document.getElementById('log-search').value = '';
+      logEntries = [];
+      renderLogBody();
+      document.getElementById('log-overlay').classList.add('open');
+      try { logEntries = (await call('GetLocalRunnerLogs', r.id)) || []; } catch (e) { logEntries = []; }
+      renderLogBody();
+    }
+    function closeLogs() { document.getElementById('log-overlay').classList.remove('open'); }
+
+    document.getElementById('btn-refresh').addEventListener('click', loadRunners);
+    document.getElementById('log-close').addEventListener('click', closeLogs);
+    document.getElementById('log-search').addEventListener('input', renderLogBody);
+    document.getElementById('log-overlay').addEventListener('click', (e) => {
+      if (e.target === document.getElementById('log-overlay')) closeLogs();
+    });
+    document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeLogs(); });
+
+    async function init() {
+      try {
+        const lang = await call('GetUILang');
+        if (typeof lang === 'string' && lang.indexOf('zh') === 0) T = I18N.zh;
+      } catch (e) { /* default en */ }
+      applyStaticI18n();
+      loadRunners();
+      // Live refresh: status changes as connections register/unregister.
+      setInterval(loadRunners, 4000);
+    }
+    init();
+  </script>
+</body>
+</html>

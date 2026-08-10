@@ -1,0 +1,1767 @@
+openapi: 3.0.3
+info:
+  title: Niuniu API
+  description: |
+    Niuniu is a full-stack application for managing multi-project, multi-task parallel development with Claude Code integration.
+
+    **Features:**
+    - Project management with Kanban boards
+    - Workspace isolation with git worktrees
+    - Agent integration via PTY and WebSocket
+    - Code review flow with diff and comments
+    - Git operations (status, log, commit, push, pull)
+
+    **Authentication:** None (local-only tool)
+
+    **Base URL:** `http://localhost:3000/api`
+  version: 1.0.0
+  contact:
+    name: Niuniu
+  license:
+    name: MIT
+
+servers:
+  - url: http://localhost:3000/api
+    description: Development server
+  - url: http://localhost:3000/api
+    description: Production server
+
+tags:
+  - name: Config
+    description: Server configuration
+  - name: Projects
+    description: Project management
+  - name: Columns
+    description: Kanban column management
+  - name: Issues
+    description: Kanban issue management
+  - name: Workspaces
+    description: Workspace management
+  - name: Repositories
+    description: Repository management
+  - name: Agent
+    description: Claude Code agent operations
+  - name: Review
+    description: Code review with diff and comments
+  - name: Git
+    description: Git operations
+
+paths:
+  /config:
+    get:
+      tags: [Config]
+      summary: Get server configuration
+      description: Returns the current server configuration including ports, storage, workspace, and agent settings
+      operationId: getConfig
+      responses:
+        '200':
+          description: Server configuration
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Config'
+
+  /projects:
+    get:
+      tags: [Projects]
+      summary: List all projects
+      operationId: listProjects
+      responses:
+        '200':
+          description: List of projects
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ProjectResponse'
+    post:
+      tags: [Projects]
+      summary: Create a new project
+      operationId: createProject
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateProjectRequest'
+            example:
+              name: My Project
+              description: A sample project
+      responses:
+        '201':
+          description: Project created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProjectResponse'
+        '400':
+          description: Bad request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /projects/{id}:
+    get:
+      tags: [Projects]
+      summary: Get a project by ID
+      operationId: getProject
+      parameters:
+        - $ref: '#/components/parameters/ProjectId'
+      responses:
+        '200':
+          description: Project details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProjectResponse'
+        '404':
+          description: Project not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error:
+                  code: PROJECT_NOT_FOUND
+                  message: Project not found
+    put:
+      tags: [Projects]
+      summary: Update a project
+      operationId: updateProject
+      parameters:
+        - $ref: '#/components/parameters/ProjectId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateProjectRequest'
+            example:
+              name: Updated Project Name
+              description: Updated description
+      responses:
+        '200':
+          description: Project updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProjectResponse'
+        '404':
+          description: Project not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+    delete:
+      tags: [Projects]
+      summary: Delete a project
+      operationId: deleteProject
+      parameters:
+        - $ref: '#/components/parameters/ProjectId'
+      responses:
+        '204':
+          description: Project deleted
+        '404':
+          description: Project not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /projects/{id}/columns:
+    get:
+      tags: [Columns]
+      summary: List columns for a project
+      operationId: listColumns
+      parameters:
+        - $ref: '#/components/parameters/ProjectId'
+      responses:
+        '200':
+          description: List of columns
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Column'
+    post:
+      tags: [Columns]
+      summary: Create a new column
+      operationId: createColumn
+      parameters:
+        - $ref: '#/components/parameters/ProjectId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateColumnRequest'
+            example:
+              name: In Review
+              position: 3
+      responses:
+        '201':
+          description: Column created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Column'
+
+  /columns/{id}:
+    get:
+      tags: [Columns]
+      summary: Get a column by ID
+      operationId: getColumn
+      parameters:
+        - $ref: '#/components/parameters/ColumnId'
+      responses:
+        '200':
+          description: Column details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Column'
+    put:
+      tags: [Columns]
+      summary: Update a column
+      operationId: updateColumn
+      parameters:
+        - $ref: '#/components/parameters/ColumnId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateColumnRequest'
+            example:
+              name: Updated Column Name
+      responses:
+        '200':
+          description: Column updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Column'
+        '404':
+          description: Column not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error:
+                  code: COLUMN_NOT_FOUND
+                  message: Column not found
+    delete:
+      tags: [Columns]
+      summary: Delete a column
+      operationId: deleteColumn
+      parameters:
+        - $ref: '#/components/parameters/ColumnId'
+      responses:
+        '204':
+          description: Column deleted
+
+  /columns/{id}/position:
+    put:
+      tags: [Columns]
+      summary: Update column position
+      description: Updates the column's position by swapping with the column at the target position
+      operationId: updateColumnPosition
+      parameters:
+        - $ref: '#/components/parameters/ColumnId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateColumnPositionRequest'
+            example:
+              position: 2
+      responses:
+        '204':
+          description: Position updated
+        '404':
+          description: Column not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /columns/{id}/issues:
+    get:
+      tags: [Issues]
+      summary: List issues in a column
+      operationId: listIssues
+      parameters:
+        - $ref: '#/components/parameters/ColumnId'
+      responses:
+        '200':
+          description: List of issues
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/IssueResponse'
+    post:
+      tags: [Issues]
+      summary: Create a new issue
+      operationId: createIssue
+      parameters:
+        - $ref: '#/components/parameters/ColumnId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateIssueRequest'
+            example:
+              title: Implement feature X
+              description: Detailed description of the feature
+              priority: 1
+              labels: '["feature", "high-priority"]'
+              position: 0
+      responses:
+        '201':
+          description: Issue created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IssueResponse'
+
+  /issues/{id}:
+    get:
+      tags: [Issues]
+      summary: Get an issue by ID
+      operationId: getIssue
+      parameters:
+        - $ref: '#/components/parameters/IssueId'
+      responses:
+        '200':
+          description: Issue details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IssueResponse'
+    put:
+      tags: [Issues]
+      summary: Update an issue
+      operationId: updateIssue
+      parameters:
+        - $ref: '#/components/parameters/IssueId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateIssueRequest'
+            example:
+              title: Updated issue title
+              description: Updated description
+              priority: 2
+              labels: '["bug"]'
+      responses:
+        '200':
+          description: Issue updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IssueResponse'
+        '404':
+          description: Issue not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error:
+                  code: ISSUE_NOT_FOUND
+                  message: Issue not found
+    delete:
+      tags: [Issues]
+      summary: Delete an issue
+      operationId: deleteIssue
+      parameters:
+        - $ref: '#/components/parameters/IssueId'
+      responses:
+        '204':
+          description: Issue deleted
+
+  /issues/{id}/move:
+    put:
+      tags: [Issues]
+      summary: Move an issue to a different column
+      operationId: moveIssue
+      parameters:
+        - $ref: '#/components/parameters/IssueId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MoveIssueRequest'
+            example:
+              column_id: 123e4567-e89b-12d3-a456-426614174000
+              position: 0
+      responses:
+        '204':
+          description: Issue moved
+
+  /issues/{id}/workspace:
+    post:
+      tags: [Workspaces]
+      summary: Create a workspace for an issue
+      description: Creates a workspace with git worktrees for the specified repositories
+      operationId: createWorkspaceForIssue
+      parameters:
+        - $ref: '#/components/parameters/IssueId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateWorkspaceRequest'
+            example:
+              repository_ids:
+                - 123e4567-e89b-12d3-a456-426614174000
+                - 123e4567-e89b-12d3-a456-426614174001
+              branch_prefix: feature/issue-123
+      responses:
+        '201':
+          description: Workspace created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkspaceResponse'
+
+  /workspaces:
+    get:
+      tags: [Workspaces]
+      summary: List all workspaces
+      operationId: listWorkspaces
+      responses:
+        '200':
+          description: List of workspaces
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/WorkspaceResponse'
+    post:
+      tags: [Workspaces]
+      summary: Create a new workspace
+      description: Creates a workspace with git worktrees for the specified repositories
+      operationId: createWorkspace
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateWorkspaceRequest'
+            example:
+              issue_id: 123e4567-e89b-12d3-a456-426614174000
+              repository_ids:
+                - 123e4567-e89b-12d3-a456-426614174001
+                - 123e4567-e89b-12d3-a456-426614174002
+              branch_prefix: feature/new-feature
+      responses:
+        '201':
+          description: Workspace created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkspaceResponse'
+
+  /workspaces/{id}:
+    get:
+      tags: [Workspaces]
+      summary: Get a workspace by ID
+      operationId: getWorkspace
+      parameters:
+        - $ref: '#/components/parameters/WorkspaceId'
+      responses:
+        '200':
+          description: Workspace details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkspaceResponse'
+        '404':
+          description: Workspace not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error:
+                  code: WORKSPACE_NOT_FOUND
+                  message: Workspace not found
+    delete:
+      tags: [Workspaces]
+      summary: Delete a workspace
+      description: Removes all worktrees, deletes the workspace directory and database record
+      operationId: deleteWorkspace
+      parameters:
+        - $ref: '#/components/parameters/WorkspaceId'
+      responses:
+        '204':
+          description: Workspace deleted
+        '404':
+          description: Workspace not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /workspaces/{id}/tree:
+    get:
+      tags: [Workspaces]
+      summary: Get workspace file tree
+      description: Returns a recursive tree structure of all files in the workspace (excludes hidden files)
+      operationId: getWorkspaceTree
+      parameters:
+        - $ref: '#/components/parameters/WorkspaceId'
+      responses:
+        '200':
+          description: File tree
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TreeNode'
+        '404':
+          description: Workspace not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /workspaces/{id}/repositories:
+    get:
+      tags: [Workspaces]
+      summary: List repositories in a workspace
+      operationId: listWorkspaceRepositories
+      parameters:
+        - $ref: '#/components/parameters/WorkspaceId'
+      responses:
+        '200':
+          description: List of workspace repositories with details
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/WorkspaceRepoDetailResponse'
+    post:
+      tags: [Workspaces]
+      summary: Add a repository to a workspace
+      description: Creates a new git worktree for the repository in the workspace
+      operationId: addWorkspaceRepository
+      parameters:
+        - $ref: '#/components/parameters/WorkspaceId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AddWorkspaceRepositoryRequest'
+            example:
+              repository_id: 123e4567-e89b-12d3-a456-426614174000
+              branch_prefix: feature/addition
+      responses:
+        '204':
+          description: Repository added
+
+  /workspaces/{id}/repositories/{repo_id}:
+    delete:
+      tags: [Workspaces]
+      summary: Remove a repository from a workspace
+      description: Removes the git worktree and database record
+      operationId: removeWorkspaceRepository
+      parameters:
+        - $ref: '#/components/parameters/WorkspaceId'
+        - $ref: '#/components/parameters/RepositoryId'
+      responses:
+        '204':
+          description: Repository removed
+        '404':
+          description: Workspace repository not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error:
+                  code: WORKSPACE_REPOSITORY_NOT_FOUND
+                  message: Workspace repository not found
+
+  /repositories:
+    get:
+      tags: [Repositories]
+      summary: List all repositories
+      operationId: listRepositories
+      responses:
+        '200':
+          description: List of repositories
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/RepositoryResponse'
+    post:
+      tags: [Repositories]
+      summary: Register a new repository
+      description: Registers a git repository. Auto-detects git remote and default branch.
+      operationId: createRepository
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateRepositoryRequest'
+            example:
+              path: /path/to/git/repo
+              name: my-repo
+      responses:
+        '201':
+          description: Repository registered
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RepositoryResponse'
+        '400':
+          description: Invalid git repository path
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error:
+                  code: BAD_REQUEST
+                  message: Not a valid git repository
+
+  /repositories/{id}:
+    get:
+      tags: [Repositories]
+      summary: Get a repository by ID
+      operationId: getRepository
+      parameters:
+        - $ref: '#/components/parameters/RepositoryId'
+      responses:
+        '200':
+          description: Repository details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RepositoryResponse'
+        '404':
+          description: Repository not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error:
+                  code: REPOSITORY_NOT_FOUND
+                  message: Repository not found
+    put:
+      tags: [Repositories]
+      summary: Update a repository
+      operationId: updateRepository
+      parameters:
+        - $ref: '#/components/parameters/RepositoryId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateRepositoryRequest'
+            example:
+              name: updated-repo-name
+              path: /new/path/to/repo
+              git_remote: git@github.com:user/repo.git
+              default_branch: main
+      responses:
+        '200':
+          description: Repository updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RepositoryResponse'
+        '404':
+          description: Repository not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+    delete:
+      tags: [Repositories]
+      summary: Delete a repository
+      operationId: deleteRepository
+      parameters:
+        - $ref: '#/components/parameters/RepositoryId'
+      responses:
+        '204':
+          description: Repository deleted
+
+  /workspaces/{id}/agent/start:
+    post:
+      tags: [Agent]
+      summary: Start the Claude Code agent
+      description: Starts a PTY process (Claude Code agent) in the workspace directory
+      operationId: startAgent
+      parameters:
+        - $ref: '#/components/parameters/WorkspaceId'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/StartAgentRequest'
+            example:
+              prompt: Help me implement this feature
+      responses:
+        '204':
+          description: Agent started
+        '404':
+          description: Workspace not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Agent already running or start failed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /workspaces/{id}/agent/stop:
+    post:
+      tags: [Agent]
+      summary: Stop the Claude Code agent
+      description: Kills the PTY process and updates agent status to idle
+      operationId: stopAgent
+      parameters:
+        - $ref: '#/components/parameters/WorkspaceId'
+      responses:
+        '204':
+          description: Agent stopped
+
+  /workspaces/{id}/agent/send:
+    post:
+      tags: [Agent]
+      summary: Send input to the agent
+      description: Writes input text to the PTY stdin of the running agent
+      operationId: sendToAgent
+      parameters:
+        - $ref: '#/components/parameters/WorkspaceId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/sendToAgentRequest'
+            example:
+              input: /help
+      responses:
+        '204':
+          description: Input sent
+
+  /workspaces/{id}/agent/status:
+    get:
+      tags: [Agent]
+      summary: Get agent status
+      operationId: getAgentStatus
+      parameters:
+        - $ref: '#/components/parameters/WorkspaceId'
+      responses:
+        '200':
+          description: Agent status
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AgentStatusResponse'
+
+  /workspaces/{id}/diff:
+    get:
+      tags: [Review]
+      summary: Get git diff for all repositories in workspace
+      description: Returns a map of repository name to file diffs
+      operationId: getWorkspaceDiff
+      parameters:
+        - $ref: '#/components/parameters/WorkspaceId'
+      responses:
+        '200':
+          description: Git diffs grouped by repository
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties:
+                  type: array
+                  items:
+                    $ref: '#/components/schemas/FileDiff'
+        '404':
+          description: Workspace not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /workspaces/{id}/repositories/{repo_id}/diff:
+    get:
+      tags: [Review]
+      summary: Get git diff for a specific repository
+      operationId: getRepoDiff
+      parameters:
+        - $ref: '#/components/parameters/WorkspaceId'
+        - $ref: '#/components/parameters/RepositoryId'
+      responses:
+        '200':
+          description: File diffs
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/FileDiff'
+        '404':
+          description: Workspace repository not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error:
+                  code: WORKSPACE_REPOSITORY_NOT_FOUND
+                  message: Workspace repository not found
+
+  /workspaces/{id}/comments:
+    get:
+      tags: [Review]
+      summary: List review comments for a workspace
+      operationId: listComments
+      parameters:
+        - $ref: '#/components/parameters/WorkspaceId'
+      responses:
+        '200':
+          description: List of comments
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/CommentResponse'
+    post:
+      tags: [Review]
+      summary: Create a review comment
+      operationId: createComment
+      parameters:
+        - $ref: '#/components/parameters/WorkspaceId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateCommentRequest'
+            example:
+              file_path: internal/service/workspace.go
+              line_number: 42
+              content: Consider extracting this into a separate function
+      responses:
+        '201':
+          description: Comment created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CommentResponse'
+
+  /comments/{id}/send-to-agent:
+    post:
+      tags: [Review]
+      summary: Send comment to agent
+      description: Formats the comment as an instruction and sends it to the agent's PTY stdin
+      operationId: sendCommentToAgent
+      parameters:
+        - $ref: '#/components/parameters/CommentId'
+      responses:
+        '204':
+          description: Comment sent to agent
+        '400':
+          description: Send failed (agent not running or comment not found)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error:
+                  code: SEND_FAILED
+                  message: Failed to send comment to agent
+
+  /workspaces/{id}/repositories/{repo_id}/git/status:
+    get:
+      tags: [Git]
+      summary: Get git status
+      operationId: getGitStatus
+      parameters:
+        - $ref: '#/components/parameters/WorkspaceId'
+        - $ref: '#/components/parameters/RepositoryId'
+      responses:
+        '200':
+          description: Git status
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/FileStatus'
+        '404':
+          description: Workspace repository not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /workspaces/{id}/repositories/{repo_id}/git/log:
+    get:
+      tags: [Git]
+      summary: Get git log
+      operationId: getGitLog
+      parameters:
+        - $ref: '#/components/parameters/WorkspaceId'
+        - $ref: '#/components/parameters/RepositoryId'
+        - name: limit
+          in: query
+          description: Maximum number of commits to return
+          schema:
+            type: integer
+            default: 10
+            minimum: 1
+      responses:
+        '200':
+          description: Git log
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/LogEntry'
+        '404':
+          description: Workspace repository not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /workspaces/{id}/repositories/{repo_id}/git/commit:
+    post:
+      tags: [Git]
+      summary: Create a git commit
+      description: Runs `git add -A` then `git commit -m {message}`
+      operationId: gitCommit
+      parameters:
+        - $ref: '#/components/parameters/WorkspaceId'
+        - $ref: '#/components/parameters/RepositoryId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GitCommitRequest'
+            example:
+              message: feat: add new feature
+      responses:
+        '204':
+          description: Commit created
+
+  /workspaces/{id}/repositories/{repo_id}/git/pull:
+    post:
+      tags: [Git]
+      summary: Pull from remote
+      operationId: gitPull
+      parameters:
+        - $ref: '#/components/parameters/WorkspaceId'
+        - $ref: '#/components/parameters/RepositoryId'
+      responses:
+        '204':
+          description: Pull completed
+
+  /workspaces/{id}/repositories/{repo_id}/git/push:
+    post:
+      tags: [Git]
+      summary: Push to remote
+      operationId: gitPush
+      parameters:
+        - $ref: '#/components/parameters/WorkspaceId'
+        - $ref: '#/components/parameters/RepositoryId'
+      responses:
+        '204':
+          description: Push completed
+
+  /workspaces/{id}/repositories/{repo_id}/git/branches:
+    get:
+      tags: [Git]
+      summary: List git branches
+      operationId: getGitBranches
+      parameters:
+        - $ref: '#/components/parameters/WorkspaceId'
+        - $ref: '#/components/parameters/RepositoryId'
+      responses:
+        '200':
+          description: Branch list
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BranchesResponse'
+        '404':
+          description: Workspace repository not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+components:
+  parameters:
+    ProjectId:
+      name: id
+      in: path
+      required: true
+      description: Project UUID
+      schema:
+        type: string
+        format: uuid
+        example: 123e4567-e89b-12d3-a456-426614174000
+    ColumnId:
+      name: id
+      in: path
+      required: true
+      description: Column UUID
+      schema:
+        type: string
+        format: uuid
+        example: 123e4567-e89b-12d3-a456-426614174100
+    IssueId:
+      name: id
+      in: path
+      required: true
+      description: Issue UUID
+      schema:
+        type: string
+        format: uuid
+        example: 123e4567-e89b-12d3-a456-426614174200
+    WorkspaceId:
+      name: id
+      in: path
+      required: true
+      description: Workspace UUID
+      schema:
+        type: string
+        format: uuid
+        example: 123e4567-e89b-12d3-a456-426614174300
+    RepositoryId:
+      name: repo_id
+      in: path
+      required: true
+      description: Repository UUID
+      schema:
+        type: string
+        format: uuid
+        example: 123e4567-e89b-12d3-a456-426614174400
+    CommentId:
+      name: id
+      in: path
+      required: true
+      description: Comment UUID
+      schema:
+        type: string
+        format: uuid
+        example: 123e4567-e89b-12d3-a456-426614174500
+
+  schemas:
+    Error:
+      type: object
+      description: Standard error response
+      properties:
+        error:
+          type: object
+          properties:
+            code:
+              type: string
+              description: Error code (e.g., BAD_REQUEST, PROJECT_NOT_FOUND)
+              example: PROJECT_NOT_FOUND
+            message:
+              type: string
+              description: Human-readable error message
+              example: Project not found
+            details:
+              type: object
+              description: Additional error details (optional)
+              nullable: true
+          required:
+            - code
+            - message
+      required:
+        - error
+
+    Config:
+      type: object
+      properties:
+        server:
+          type: object
+          properties:
+            port:
+              type: integer
+              example: 3000
+            host:
+              type: string
+              example: 127.0.0.1
+        storage:
+          type: object
+          properties:
+            driver:
+              type: string
+              example: sqlite
+            sqlite_path:
+              type: string
+              example: /path/to/database.db
+        workspace:
+          type: object
+          properties:
+            base_dir:
+              type: string
+              example: /path/to/workspaces
+        agent:
+          type: object
+          properties:
+            default:
+              type: string
+              example: claude
+            command:
+              type: string
+              example: claude
+            args:
+              type: array
+              items:
+                type: string
+              example: []
+
+    ProjectResponse:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          example: 123e4567-e89b-12d3-a456-426614174000
+        name:
+          type: string
+          example: My Project
+        description:
+          type: string
+          nullable: true
+          example: A sample project
+        created_at:
+          type: string
+          format: date-time
+          example: 2026-03-17T12:00:00Z
+        updated_at:
+          type: string
+          format: date-time
+          example: 2026-03-17T12:00:00Z
+      required:
+        - id
+        - name
+        - created_at
+        - updated_at
+
+    CreateProjectRequest:
+      type: object
+      properties:
+        name:
+          type: string
+          example: My Project
+        description:
+          type: string
+          example: A sample project
+      required:
+        - name
+
+    UpdateProjectRequest:
+      type: object
+      properties:
+        name:
+          type: string
+          example: Updated Project Name
+        description:
+          type: string
+          example: Updated description
+      required:
+        - name
+
+    Column:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          example: 123e4567-e89b-12d3-a456-426614174100
+        project_id:
+          type: string
+          format: uuid
+          example: 123e4567-e89b-12d3-a456-426614174000
+        name:
+          type: string
+          example: In Progress
+        position:
+          type: integer
+          format: int64
+          example: 1
+      required:
+        - id
+        - project_id
+        - name
+        - position
+
+    CreateColumnRequest:
+      type: object
+      properties:
+        name:
+          type: string
+          example: In Review
+        position:
+          type: integer
+          format: int64
+          example: 2
+      required:
+        - name
+
+    UpdateColumnRequest:
+      type: object
+      properties:
+        name:
+          type: string
+          example: Updated Column Name
+      required:
+        - name
+
+    UpdateColumnPositionRequest:
+      type: object
+      properties:
+        position:
+          type: integer
+          format: int64
+          example: 2
+      required:
+        - position
+
+    IssueResponse:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          example: 123e4567-e89b-12d3-a456-426614174200
+        column_id:
+          type: string
+          format: uuid
+          example: 123e4567-e89b-12d3-a456-426614174100
+        title:
+          type: string
+          example: Implement feature X
+        description:
+          type: string
+          nullable: true
+          example: Detailed description of the feature
+        priority:
+          type: integer
+          format: int64
+          example: 1
+        labels:
+          type: string
+          description: JSON string of array
+          example: '["feature", "high-priority"]'
+        position:
+          type: integer
+          format: int64
+          example: 0
+        created_at:
+          type: string
+          format: date-time
+          example: 2026-03-17T12:00:00Z
+        updated_at:
+          type: string
+          format: date-time
+          example: 2026-03-17T12:00:00Z
+      required:
+        - id
+        - column_id
+        - title
+        - priority
+        - labels
+        - position
+        - created_at
+        - updated_at
+
+    CreateIssueRequest:
+      type: object
+      properties:
+        title:
+          type: string
+          example: Implement feature X
+        description:
+          type: string
+          example: Detailed description
+        priority:
+          type: integer
+          format: int64
+          example: 1
+        labels:
+          type: string
+          description: JSON string of array
+          example: '["feature"]'
+        position:
+          type: integer
+          format: int64
+          example: 0
+      required:
+        - title
+
+    UpdateIssueRequest:
+      type: object
+      properties:
+        title:
+          type: string
+          example: Updated issue title
+        description:
+          type: string
+          example: Updated description
+        priority:
+          type: integer
+          format: int64
+          example: 2
+        labels:
+          type: string
+          description: JSON string of array
+          example: '["bug"]'
+      required:
+        - title
+
+    MoveIssueRequest:
+      type: object
+      properties:
+        column_id:
+          type: string
+          format: uuid
+          example: 123e4567-e89b-12d3-a456-426614174100
+        position:
+          type: integer
+          format: int64
+          example: 0
+      required:
+        - column_id
+        - position
+
+    WorkspaceResponse:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          example: 123e4567-e89b-12d3-a456-426614174300
+        issue_id:
+          type: string
+          format: uuid
+          example: 123e4567-e89b-12d3-a456-426614174200
+        path:
+          type: string
+          example: /path/to/workspace
+        status:
+          type: string
+          enum: [created, running, stopped]
+          example: created
+        agent_pid:
+          type: integer
+          format: int64
+          nullable: true
+          example: 12345
+        agent_status:
+          type: string
+          enum: [idle, running]
+          example: idle
+        created_at:
+          type: string
+          format: date-time
+          example: 2026-03-17T12:00:00Z
+        updated_at:
+          type: string
+          format: date-time
+          example: 2026-03-17T12:00:00Z
+      required:
+        - id
+        - issue_id
+        - path
+        - status
+        - agent_status
+        - created_at
+        - updated_at
+
+    CreateWorkspaceRequest:
+      type: object
+      properties:
+        issue_id:
+          type: string
+          format: uuid
+          description: Required for POST /workspaces, overridden by path param for POST /issues/:id/workspace
+          example: 123e4567-e89b-12d3-a456-426614174200
+        repository_ids:
+          type: array
+          items:
+            type: string
+            format: uuid
+          example:
+            - 123e4567-e89b-12d3-a456-426614174400
+            - 123e4567-e89b-12d3-a456-426614174401
+        branch_prefix:
+          type: string
+          example: feature/new-feature
+      required:
+        - repository_ids
+        - branch_prefix
+
+    AddWorkspaceRepositoryRequest:
+      type: object
+      properties:
+        repository_id:
+          type: string
+          format: uuid
+          example: 123e4567-e89b-12d3-a456-426614174400
+        branch_prefix:
+          type: string
+          example: feature/addition
+      required:
+        - repository_id
+        - branch_prefix
+
+    TreeNode:
+      type: object
+      description: Recursive file tree node
+      properties:
+        name:
+          type: string
+          example: main.go
+        path:
+          type: string
+          example: /path/to/workspace/main.go
+        is_dir:
+          type: boolean
+          example: false
+        children:
+          type: array
+          description: Present only when is_dir is true
+          items:
+            $ref: '#/components/schemas/TreeNode'
+      required:
+        - name
+        - path
+        - is_dir
+
+    RepositoryResponse:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          example: 123e4567-e89b-12d3-a456-426614174400
+        name:
+          type: string
+          example: my-repo
+        path:
+          type: string
+          example: /path/to/git/repo
+        git_remote:
+          type: string
+          nullable: true
+          example: git@github.com:user/repo.git
+        default_branch:
+          type: string
+          nullable: true
+          example: main
+        created_at:
+          type: string
+          format: date-time
+          example: 2026-03-17T12:00:00Z
+        updated_at:
+          type: string
+          format: date-time
+          example: 2026-03-17T12:00:00Z
+      required:
+        - id
+        - name
+        - path
+        - created_at
+        - updated_at
+
+    CreateRepositoryRequest:
+      type: object
+      properties:
+        path:
+          type: string
+          description: Must be a valid git repository path
+          example: /path/to/git/repo
+        name:
+          type: string
+          description: Auto-detected from path basename if empty
+          example: my-repo
+      required:
+        - path
+
+    UpdateRepositoryRequest:
+      type: object
+      properties:
+        name:
+          type: string
+          example: updated-repo-name
+        path:
+          type: string
+          example: /new/path/to/repo
+        git_remote:
+          type: string
+          example: git@github.com:user/repo.git
+        default_branch:
+          type: string
+          example: main
+      required:
+        - name
+        - path
+
+    WorkspaceRepoDetailResponse:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          example: 123e4567-e89b-12d3-a456-426614174500
+        workspace_id:
+          type: string
+          format: uuid
+          example: 123e4567-e89b-12d3-a456-426614174300
+        repository_id:
+          type: string
+          format: uuid
+          example: 123e4567-e89b-12d3-a456-426614174400
+        worktree_path:
+          type: string
+          example: /path/to/workspace/my-repo
+        branch:
+          type: string
+          example: feature/new-feature-my-repo
+        created_at:
+          type: string
+          format: date-time
+          example: 2026-03-17T12:00:00Z
+        repository:
+          $ref: '#/components/schemas/RepositoryResponse'
+      required:
+        - id
+        - workspace_id
+        - repository_id
+        - worktree_path
+        - branch
+        - created_at
+        - repository
+
+    StartAgentRequest:
+      type: object
+      properties:
+        prompt:
+          type: string
+          description: Optional initial prompt to send to the agent
+          example: Help me implement this feature
+
+    sendToAgentRequest:
+      type: object
+      properties:
+        input:
+          type: string
+          example: /help
+      required:
+        - input
+
+    AgentStatusResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [idle, running]
+          example: idle
+      required:
+        - status
+
+    CommentResponse:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          example: 123e4567-e89b-12d3-a456-426614174600
+        workspace_id:
+          type: string
+          format: uuid
+          example: 123e4567-e89b-12d3-a456-426614174300
+        file_path:
+          type: string
+          example: internal/service/workspace.go
+        line_number:
+          type: integer
+          format: int64
+          nullable: true
+          example: 42
+        content:
+          type: string
+          example: Consider extracting this into a separate function
+        sent_to_agent:
+          type: boolean
+          nullable: true
+          example: false
+        created_at:
+          type: string
+          format: date-time
+          example: 2026-03-17T12:00:00Z
+      required:
+        - id
+        - workspace_id
+        - file_path
+        - content
+        - created_at
+
+    CreateCommentRequest:
+      type: object
+      properties:
+        file_path:
+          type: string
+          example: internal/service/workspace.go
+        line_number:
+          type: integer
+          format: int64
+          nullable: true
+          example: 42
+        content:
+          type: string
+          example: Consider extracting this into a separate function
+      required:
+        - file_path
+        - content
+
+    FileStatus:
+      type: object
+      description: Git porcelain status
+      properties:
+        path:
+          type: string
+          example: main.go
+        status:
+          type: string
+          description: Git porcelain status code
+          example: M
+      required:
+        - path
+        - status
+
+    LogEntry:
+      type: object
+      description: Git commit log entry
+      properties:
+        hash:
+          type: string
+          example: abc123def456
+        author:
+          type: string
+          example: John Doe
+        date:
+          type: string
+          example: 2026-03-17T12:00:00Z
+        message:
+          type: string
+          example: feat: add new feature
+      required:
+        - hash
+        - author
+        - date
+        - message
+
+    DiffHunk:
+      type: object
+      description: Git diff hunk
+      properties:
+        old_start:
+          type: integer
+          example: 1
+        old_count:
+          type: integer
+          example: 5
+        new_start:
+          type: integer
+          example: 1
+        new_count:
+          type: integer
+          example: 7
+        content:
+          type: string
+          example: "@@ -1,5 +1,7 @@ context"
+      required:
+        - old_start
+        - old_count
+        - new_start
+        - new_count
+        - content
+
+    FileDiff:
+      type: object
+      description: Git file diff
+      properties:
+        path:
+          type: string
+          example: main.go
+        status:
+          type: string
+          enum: [added, modified, deleted, renamed]
+          example: modified
+        hunks:
+          type: array
+          items:
+            $ref: '#/components/schemas/DiffHunk'
+        raw_patch:
+          type: string
+          example: diff --git a/main.go b/main.go...
+      required:
+        - path
+        - status
+        - hunks
+        - raw_patch
+
+    GitCommitRequest:
+      type: object
+      properties:
+        message:
+          type: string
+          example: feat: add new feature
+      required:
+        - message
+
+    BranchesResponse:
+      type: object
+      properties:
+        branches:
+          type: array
+          items:
+            type: string
+          example: [main, feature/new-feature, develop]
+        current_branch:
+          type: string
+          example: feature/new-feature
+      required:
+        - branches
+        - current_branch

@@ -1,0 +1,1 @@
+{"name":"svg-build","version":"1.0.0","private":true,"dependencies":{"opentype.js":"^2.0.0","potrace":"^2.1.8"}}

@@ -1,0 +1,76 @@
+slug: kb-ecommerce
+display_name: 电商知识库
+description: 接入你自己的「电商知识库 MCP」（商品库/退换货政策/客服话术/活动规则等），助手经 MCP 检索你的私有知识回答问题——数据在你的 MCP 后面，牛牛只做编排调用、不碰数据本身。填入你的 KB MCP 端点与凭据即可用。
+tags: [knowledge-base, kb-mcp, ecommerce, 电商, retrieval]
+
+# 用户自配知识库 MCP —— inline HTTP 配置，投射时原样写入工作空间 .mcp.json。
+# url 为占位端点，请在「知识库 MCP 配置」向导或场景编辑里替换成你自己的 KB MCP 端点。
+# 鉴权走 Authorization 头，${cred:kb-api.token} 由牛牛在投射时从 credstore 解密注入——
+# token 永不落在场景定义或投射缓存里；凭据缺失时该 server 会被整体丢弃（不写半填鉴权）。
+mcp:
+  - name: kb
+    config:
+      type: http
+      url: https://your-kb-endpoint.example.com/mcp
+      headers:
+        Authorization: Bearer ${cred:kb-api.token}
+
+plugins: []
+
+required_credentials:
+  - alias: kb-api
+    provider: knowledge-base
+    purpose: 访问你的电商知识库 MCP（商品/政策/话术检索）的 API 令牌
+    optional: false
+
+assets:
+  env_presets: []
+  quick_actions:
+    - slug: kb-lookup-policy
+      label: 查退换货/售后政策
+      prompt: "用户在问退换货或售后问题时：先调用知识库 MCP 的检索工具，按用户问题的关键词检索「退换货政策/售后规则」；只依据检索到的条款回答，逐条标注来源（文档标题/条款号），不臆造政策；若知识库无命中，明确说明「未在知识库检索到，请人工确认」而不是猜测。"
+    - slug: kb-product-qa
+      label: 商品信息问答
+      prompt: "回答商品相关问题（规格/库存/发货时效/适用场景）时：先用知识库 MCP 检索对应商品条目，给出命中的原文要点并标注来源；多个来源冲突时都列出并提示以最新为准；检索不到就如实说明，不编造参数。"
+    - slug: kb-reply-draft
+      label: 起草客服回复
+      prompt: "针对用户工单：1) 用知识库 MCP 检索相关政策与标准话术；2) 结合命中内容起草回复（礼貌、共情、给明确下一步）；3) 在回复末尾以内部备注列出所引用的知识库来源，便于复核。"
+  project_templates: []
+  harness_specs: []
+  agents: []
+
+prompts:
+  - id: kb-ecommerce-discipline
+    title: 电商知识库检索纪律
+    body: |
+      你是接入了【用户自有电商知识库 MCP】的助手。知识（商品库、退换货/售后政策、
+      客服话术、活动规则等）在用户的 MCP 服务后面，牛牛只负责编排调用，不持有数据。严格遵守：
+
+      1. **先检索后回答**：涉及政策/商品/规则的事实性问题，必须先调用知识库 MCP 的检索工具，
+         依据命中内容回答；不要凭常识或记忆代替知识库。
+      2. **逐条标注来源**：每条结论标明来自哪个文档/条款，方便人工复核与追溯。
+      3. **无命中不臆造**：知识库检索为空时，明确告知「未检索到，请人工确认」，绝不编造政策、
+         价格、库存或时效。
+      4. **面向业务用户说人话**：不暴露 MCP 工具名/协议/端点等技术细节，用「知识库」「政策文档」
+         这类日常说法。
+      5. **数据主权**：你只能通过知识库 MCP 读取用户数据；不尝试把知识库内容外传到其它服务。
+
+knowledge_bases: []
+required_data_sources: []
+
+# Single-agent, no-repo office scene: hide cross-agent (blackboard/inbox) and
+# git/harness (gate/pre-commit) tools it never needs.
+disable_tool_groups: [multi-agent, harness]
+
+match:
+  base_weight: 0
+  rules:
+    - signal: workspace.has_credential
+      args: { provider: knowledge-base }
+      weight: 30
+    - signal: workspace.has_repo_count
+      args: { max: 0 }
+      weight: 15
+    - signal: kanban.label_term_frequency
+      args: { terms: ["电商", "商品", "退换货", "售后", "客服", "ecommerce", "order"] }
+      weight: 20

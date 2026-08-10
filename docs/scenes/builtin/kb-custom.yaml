@@ -1,0 +1,65 @@
+slug: kb-custom
+display_name: 自有知识库（通用）
+description: 接入你自己的任意「知识库 MCP」——不限行业。填入你的 KB MCP 端点与凭据即可用，助手经 MCP 检索你的私有知识回答问题。数据在你的 MCP 后面，牛牛只做编排调用、不碰数据本身；也是自定义行业知识库的起点。
+tags: [knowledge-base, kb-mcp, custom, 自有, retrieval]
+
+# 用户自配知识库 MCP —— inline HTTP 配置，投射时原样写入工作空间 .mcp.json。
+# url 为占位端点，请在「知识库 MCP 配置」向导或场景编辑里替换成你自己的 KB MCP 端点。
+# 鉴权走 Authorization 头，${cred:kb-api.token} 由牛牛在投射时从 credstore 解密注入——
+# token 永不落在场景定义或投射缓存里；凭据缺失时该 server 会被整体丢弃。
+mcp:
+  - name: kb
+    config:
+      type: http
+      url: https://your-kb-endpoint.example.com/mcp
+      headers:
+        Authorization: Bearer ${cred:kb-api.token}
+
+plugins: []
+
+required_credentials:
+  - alias: kb-api
+    provider: knowledge-base
+    purpose: 访问你的知识库 MCP 的 API 令牌
+    optional: false
+
+assets:
+  env_presets: []
+  quick_actions:
+    - slug: kb-search
+      label: 检索知识库
+      prompt: "先调用知识库 MCP 的检索/列举工具了解可检索范围；再按用户问题的关键词检索，给出命中片段并逐条标注来源（文档标题/路径/段落）；必要时读取完整条目获取上下文，最后据此回答。检索不到就如实说明，不臆造。"
+    - slug: kb-summarize
+      label: 汇总某主题
+      prompt: "就用户指定的主题：用知识库 MCP 检索所有相关条目，汇总为「要点清单 + 来源清单 + 尚存缺口」；同一结论尽量给出多个来源，冲突来源都列出并说明。"
+  project_templates: []
+  harness_specs: []
+  agents: []
+
+prompts:
+  - id: kb-custom-discipline
+    title: 知识库检索纪律
+    body: |
+      你是接入了【用户自有知识库 MCP】的助手。知识在用户的 MCP 服务后面，牛牛只负责
+      编排调用，不持有数据。严格遵守：
+
+      1. **先检索后回答**：事实性问题必须先调用知识库 MCP 检索，依据命中内容回答，不用记忆代替。
+      2. **逐条标注来源**：每条结论标明来自哪个文档/段落，便于复核与追溯。
+      3. **无命中不臆造**：检索为空时明确告知「未检索到」，绝不编造。
+      4. **面向业务用户说人话**：不暴露 MCP 工具名/协议/端点等技术细节。
+      5. **数据主权**：只通过知识库 MCP 读取用户数据，不外传到其它服务。
+
+knowledge_bases: []
+required_data_sources: []
+
+disable_tool_groups: [multi-agent, harness]
+
+match:
+  base_weight: 0
+  rules:
+    - signal: workspace.has_credential
+      args: { provider: knowledge-base }
+      weight: 25
+    - signal: workspace.has_repo_count
+      args: { max: 0 }
+      weight: 10

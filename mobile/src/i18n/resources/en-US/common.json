@@ -1,0 +1,119 @@
+{
+  "pairing": {
+    "scan": {
+      "title": "Scan Pairing Code",
+      "cameraPermission": "Camera access is required to scan the QR code",
+      "grantCamera": "Grant Camera Access",
+      "back": "Back",
+      "cancel": "✕  Cancel",
+      "hint": "Point the desktop's pairing QR code at the frame",
+      "qrExpiredTitle": "QR Code Expired",
+      "qrExpiredMessage": "Please generate a new pairing QR code on your desktop",
+      "qrExpiredOk": "OK",
+      "notLoggedInTitle": "Not Signed In",
+      "notLoggedInMessage": "Please sign in to your Relay account first",
+      "notLoggedInAction": "Sign In",
+      "prepareErrorTitle": "Error",
+      "confirmOrigin": "Pair with desktop {{desktopId}} via the relay service shown above?",
+      "relayServiceLabel": "Relay Service",
+      "confirmTitle": "Confirm Pairing",
+      "confirmBtn": "Confirm Pairing",
+      "cancelBtn": "Cancel",
+      "processingBtn": "Processing...",
+      "manualEntryButton": "Enter code manually"
+    },
+    "manual": {
+      "title": "Enter Pairing Code",
+      "pasteLabel": "Paste the niuniu-pair:// URL from your desktop",
+      "confirm": "Confirm",
+      "invalidUrl": "Invalid pairing URL. Please paste the full niuniu-pair://v1?... link."
+    },
+    "waiting": {
+      "waitingTitle": "Waiting for desktop to confirm...",
+      "waitingHint": "Click \"Confirm Pairing\" in the Niuniu desktop app",
+      "cancelLink": "Cancel",
+      "sasTitle": "Select the code shown on your desktop",
+      "sasHint": "Look at the 6-digit number displayed in Niuniu on your desktop, then tap the matching option below.",
+      "sasWarning": "If none of the three options match, cancel the pairing and check your network environment",
+      "cancelPairing": "Cancel Pairing",
+      "successTitle": "Pairing Successful",
+      "successDesc": "Your desktop has been verified. Tunnel connection is ready to use.",
+      "viewPairedBtn": "View Paired Devices",
+      "errorTitle": "Pairing Failed",
+      "backBtn": "Back",
+      "notLoggedIn": "Not signed in to Relay account",
+      "pairingFailed": "Pairing failed",
+      "pubKeyMismatch": "Public key mismatch — possible man-in-the-middle attack",
+      "sasMismatchTitle": "Code Mismatch",
+      "sasMismatchMessage": "A possible man-in-the-middle attack was detected. Pairing has been cancelled.\nPlease retry on a trusted network.",
+      "sasMismatchBack": "Back",
+      "pairingStatus": "Pairing status: {{status}}"
+    },
+    "sasPick": {
+      "title": "Select the code shown on your desktop"
+    },
+    "conflict": {
+      "title": "Device Already Paired",
+      "description": "Another device named \"{{priorName}}\" is already paired with this account. Is this a reinstalled phone?",
+      "replacePrevious": "Replace previous device",
+      "keepAsNew": "Keep as new device"
+    }
+  },
+  "authEmail": {
+    "welcome": "Welcome back",
+    "tagline": "Remote control for your Niuniu🐂 desktop",
+    "emailPlaceholder": "Email",
+    "continue": "Continue",
+    "useSelfHosted": "Use a self-hosted Relay",
+    "codeSent": "Verification code sent",
+    "changeEmail": "Change email",
+    "resendIn": "Resend in {{seconds}}s",
+    "resendNow": "Resend",
+    "verifyAndSignIn": "Verify and sign in",
+    "error": {
+      "invalidEmail": "Invalid email format",
+      "rateLimited": "Too many requests, retry in {{retry}}s",
+      "invalidCode": "Incorrect code",
+      "expiredCode": "Code expired",
+      "tooManyAttempts": "Too many attempts. Please request a new code",
+      "network": "Network error, please check and retry"
+    }
+  },
+  "desktops": {
+    "headerTitle": "Paired Desktops",
+    "logoutBtn": "Sign Out",
+    "emptyTitle": "No paired desktops yet",
+    "emptyDesc": "Enable relay pairing in the Niuniu desktop app, then tap the button below to scan and connect",
+    "pairNewBtn": "+ Pair New Desktop",
+    "manualLink": "Enter server address manually",
+    "switcher": {
+      "title": "Switch Active Desktop",
+      "noDesktop": "No desktop (direct server)",
+      "active": "Active: {{name}}"
+    },
+    "activeBadge": "Active",
+    "unpairConfirmTitle": "Unpair {{name}}?",
+    "unpairConfirmMessage": "This device will no longer be able to connect to it.",
+    "unpairConfirmBtn": "Unpair"
+  },
+  "connectionInfo": {
+    "title": "Connection Info",
+    "activeDesktop": "Active Desktop",
+    "transport": "Transport",
+    "lastHandshake": "Last Handshake",
+    "encryptedLine": "Encrypted end-to-end with Noise KK. The relay sees only metadata.",
+    "rehandshake": "Re-handshake now",
+    "transport.lan": "Direct LAN",
+    "transport.relay": "Via Relay",
+    "transport.disconnected": "Disconnected"
+  },
+  "trustedRelays": {
+    "title": "Trusted Relay Servers",
+    "untrustedWarning": "The relay server \"{{host}}\" is not in your trusted list. Only connect to relays you control or trust. Add it to continue pairing.",
+    "trustAndContinue": "Add & Trust",
+    "removeConfirm": "Remove origin"
+  },
+  "errors": {
+    "pubKeyMismatch": "Public key mismatch — possible man-in-the-middle attack"
+  }
+}
