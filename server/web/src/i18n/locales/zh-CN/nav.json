@@ -6,6 +6,7 @@
     "projects": "项目",
     "workspaces": "工作空间",
     "repositories": "仓库",
+    "knowledgeBases": "知识库",
     "scenes": "场景",
     "harness": "工程规范",
     "agents": "Agent",
