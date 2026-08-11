@@ -24,6 +24,17 @@ jobs:
       - name: Prepare web embed placeholder
         run: mkdir -p server/web/dist && touch server/web/dist/.gitkeep
 
+      # desktop/internal/bundle embeds server-bin/<os>-<arch>/niuniu-server and
+      # -mcp, which only exist after the release flow's `make _personal-prepare`
+      # builds them. For a compile/vet check that would be overkill (needs CGO +
+      # zig + a full SPA build), so seed empty placeholders so `go:embed` resolves.
+      # The bytes are only read at runtime, so they're irrelevant to a build check.
+      - name: Prepare desktop bundle embed placeholders
+        run: |
+          mkdir -p desktop/internal/bundle/server-bin/linux-amd64
+          touch desktop/internal/bundle/server-bin/linux-amd64/niuniu-server
+          touch desktop/internal/bundle/server-bin/linux-amd64/niuniu-mcp
+
       - name: Build server
         run: cd server && go build ./...
 
@@ -32,6 +43,14 @@ jobs:
 
       - name: Build go-shared
         run: cd go-shared && go build ./...
+
+      # The desktop module pulls in Wails v3, which needs the Linux GTK / WebKit
+      # headers to compile (same deps the release build-linux job installs).
+      - name: Install desktop Linux deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential pkg-config libgtk-3-dev libwebkit2gtk-4.1-dev libsoup-3.0-dev
 
       - name: Build desktop
         run: cd desktop && go build ./...
