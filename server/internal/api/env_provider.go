@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -30,6 +31,7 @@ type CreateEnvProviderRequest struct {
 	Platform      string            `json:"platform"`
 	Description   string            `json:"description"`
 	BaseUrl       string            `json:"base_url"`
+	Protocol      string            `json:"protocol"`
 	ApiKey        string            `json:"api_key"`
 	Model         string            `json:"model"`
 	HaikuModel    string            `json:"haiku_model"`
@@ -48,6 +50,7 @@ type UpdateEnvProviderRequest struct {
 	Platform      string            `json:"platform"`
 	Description   string            `json:"description"`
 	BaseUrl       string            `json:"base_url"`
+	Protocol      string            `json:"protocol"`
 	ApiKey        string            `json:"api_key"`
 	Model         string            `json:"model"`
 	HaikuModel    string            `json:"haiku_model"`
@@ -55,6 +58,29 @@ type UpdateEnvProviderRequest struct {
 	OpusModel     string            `json:"opus_model"`
 	SubagentModel string            `json:"subagent_model"`
 	ExtraEnv      map[string]string `json:"extra_env"`
+}
+
+// validateProvider normalizes a provider payload: protocol defaults to
+// "anthropic", and api_key must be a "${ACCOUNT:<name>}" reference — the
+// credential always lives in an account, never inline. Returns a non-empty
+// error message when invalid.
+func validateProvider(protocol, apiKey string) string {
+	if protocol != "" && protocol != "anthropic" && protocol != "openai" {
+		return "protocol must be anthropic or openai"
+	}
+	if apiKey != "" && !isAccountKeyRef(apiKey) {
+		return "api_key must reference an account (${ACCOUNT:name})"
+	}
+	return ""
+}
+
+// isAccountKeyRef reports whether v is exactly "${ACCOUNT:<name>}".
+func isAccountKeyRef(v string) bool {
+	prefix := "${ACCOUNT:"
+	return len(v) > len(prefix)+1 &&
+		strings.HasPrefix(v, prefix) &&
+		strings.HasSuffix(v, "}") &&
+		!strings.Contains(v[len(prefix):len(v)-1], "}")
 }
 
 func (h *EnvProviderHandler) List(c *gin.Context) {
@@ -112,6 +138,10 @@ func (h *EnvProviderHandler) Create(c *gin.Context) {
 		BadRequest(c, err.Error())
 		return
 	}
+	if msg := validateProvider(req.Protocol, req.ApiKey); msg != "" {
+		BadRequest(c, msg)
+		return
+	}
 	var owner service.OwnerRef
 	if req.Owner != nil && req.Owner.Type != "" && !(req.Owner.Type == "user" && req.Owner.ID == 0) {
 		owner = service.OwnerRef{Type: req.Owner.Type, ID: req.Owner.ID}
@@ -131,7 +161,7 @@ func (h *EnvProviderHandler) Create(c *gin.Context) {
 	extra, _ := json.Marshal(req.ExtraEnv)
 	provider, err := h.svc.Create(c.Request.Context(), store.EnvProvider{
 		Name: req.Name, Platform: req.Platform, Description: req.Description,
-		BaseUrl: req.BaseUrl, ApiKey: req.ApiKey, Model: req.Model,
+		BaseUrl: req.BaseUrl, Protocol: req.Protocol, ApiKey: req.ApiKey, Model: req.Model,
 		HaikuModel: req.HaikuModel, SonnetModel: req.SonnetModel, OpusModel: req.OpusModel,
 		SubagentModel: req.SubagentModel, ExtraEnv: string(extra),
 		OwnerType: owner.Type, OwnerID: owner.ID,
@@ -165,10 +195,14 @@ func (h *EnvProviderHandler) Update(c *gin.Context) {
 		BadRequest(c, err.Error())
 		return
 	}
+	if msg := validateProvider(req.Protocol, req.ApiKey); msg != "" {
+		BadRequest(c, msg)
+		return
+	}
 	extra, _ := json.Marshal(req.ExtraEnv)
 	if err := h.svc.Update(c.Request.Context(), id, store.EnvProvider{
 		Name: req.Name, Platform: req.Platform, Description: req.Description,
-		BaseUrl: req.BaseUrl, ApiKey: req.ApiKey, Model: req.Model,
+		BaseUrl: req.BaseUrl, Protocol: req.Protocol, ApiKey: req.ApiKey, Model: req.Model,
 		HaikuModel: req.HaikuModel, SonnetModel: req.SonnetModel, OpusModel: req.OpusModel,
 		SubagentModel: req.SubagentModel, ExtraEnv: string(extra),
 	}); err != nil {
@@ -326,6 +360,7 @@ type EnvProviderResponse struct {
 	Platform      string            `json:"platform"`
 	Description   string            `json:"description"`
 	BaseUrl       string            `json:"base_url"`
+	Protocol      string            `json:"protocol"`
 	ApiKey        string            `json:"api_key"`
 	Model         string            `json:"model"`
 	HaikuModel    string            `json:"haiku_model"`
@@ -343,7 +378,7 @@ func toEnvProviderResponse(p store.EnvProvider) EnvProviderResponse {
 	_ = json.Unmarshal([]byte(p.ExtraEnv), &extra)
 	return EnvProviderResponse{
 		ID: p.ID, Name: p.Name, Platform: p.Platform, Description: p.Description,
-		BaseUrl: p.BaseUrl, ApiKey: p.ApiKey, Model: p.Model,
+		BaseUrl: p.BaseUrl, Protocol: p.Protocol, ApiKey: p.ApiKey, Model: p.Model,
 		HaikuModel: p.HaikuModel, SonnetModel: p.SonnetModel, OpusModel: p.OpusModel,
 		SubagentModel: p.SubagentModel, ExtraEnv: extra,
 		Owner: ownerDTOFromRef(p.OwnerType, p.OwnerID),

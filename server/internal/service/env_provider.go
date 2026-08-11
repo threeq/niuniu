@@ -3,19 +3,18 @@ package service
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
 	"log/slog"
-	"strings"
 
 	"github.com/niuniu-dev/niuniu/internal/sceneenv"
 	"github.com/niuniu-dev/niuniu/internal/store"
 )
 
 // EnvProviderService manages unified subscription-platform configs. A provider
-// holds natural model-endpoint fields (base_url, model, per-tier models) plus an
-// API key that is either a literal secret or a "${ACCOUNT:<name>}" reference to
-// an env_accounts row. Expand turns those fields into the correct environment
-// key/value pair for a target agent's CLI type, so the user configures
+// holds natural model-endpoint fields (base_url, protocol, model, per-tier
+// models) plus an API key that is a "${ACCOUNT:<name>}" reference to an
+// env_accounts row (the credential always lives in an account, never inline).
+// Expand (delegated to sceneenv.ExpandProvider) turns those fields into the
+// correct environment key/value pair for a target agent, so the user configures
 // model/endpoint once instead of hand-writing raw env var names per agent.
 type EnvProviderService struct {
 	q     *store.Queries
@@ -28,13 +27,13 @@ func NewEnvProviderService(q *store.Queries, db *sql.DB, authz *Authz) *EnvProvi
 }
 
 // Agent CLI-type keys (mirror adapter.Type values). The empty/default string
-// means "Claude Code", the primary Anthropic-compatible target.
+// means "Claude Code".
 const (
-	CLILauncherClaude = "claude"
-	CLILauncherCodex  = "codex"
-	CLILauncherQwen   = "qwen"
-	CLILauncherOmp    = "omp"
-	CLILauncherGoose  = "goose"
+	CLILauncherClaude = sceneenv.CLIClaude
+	CLILauncherCodex  = sceneenv.CLICodex
+	CLILauncherQwen   = sceneenv.CLIQwen
+	CLILauncherOmp    = sceneenv.CLIOmp
+	CLILauncherGoose  = sceneenv.CLIGoose
 )
 
 func (s *EnvProviderService) List(ctx context.Context) ([]store.EnvProvider, error) {
@@ -66,6 +65,7 @@ func (s *EnvProviderService) Create(ctx context.Context, p store.EnvProvider) (s
 		Platform:      p.Platform,
 		Description:   p.Description,
 		BaseUrl:       p.BaseUrl,
+		Protocol:      p.Protocol,
 		ApiKey:        p.ApiKey,
 		Model:         p.Model,
 		HaikuModel:    p.HaikuModel,
@@ -85,6 +85,7 @@ func (s *EnvProviderService) Update(ctx context.Context, id int64, p store.EnvPr
 		Platform:      p.Platform,
 		Description:   p.Description,
 		BaseUrl:       p.BaseUrl,
+		Protocol:      p.Protocol,
 		ApiKey:        p.ApiKey,
 		Model:         p.Model,
 		HaikuModel:    p.HaikuModel,
@@ -100,109 +101,13 @@ func (s *EnvProviderService) Delete(ctx context.Context, id int64) error {
 }
 
 // Expand turns a provider's natural fields into the environment key/value pair
-// for the given agent CLI type. Only non-empty fields are emitted; the API key
-// is injected via providerKey (see providerKey), and any extra_env passthrough
-// entries are merged last so users can override a generated key. Returns an
-// empty map for an empty provider (no fields set).
-//
-// cliKey is one of the CLILauncher* constants; "" defaults to Claude Code.
-// preserveRef=false resolves a "${ACCOUNT:<name>}" api_key to the account's
-// literal key (used for the /env preview); preserveRef=true emits the reference
-// unchanged so the consumer (an imported preset) stays runtime-live — changing
-// the account's key then propagates to every agent without re-importing.
+// for the given agent CLI type. The protocol field (anthropic|openai) decides
+// the env family emitted; the agent cliKey only adds per-agent extras (e.g.
+// Codex reads NIUNIU_MODEL). preserveRef=false resolves a "${ACCOUNT:<name>}"
+// api_key to the account's literal key (used for previews); preserveRef=true
+// keeps the reference for runtime substitution. See sceneenv.ExpandProvider.
 func (s *EnvProviderService) Expand(ctx context.Context, p store.EnvProvider, cliKey string, accounts []store.EnvAccount, preserveRef bool) map[string]string {
-	if cliKey == "" || cliKey == CLILauncherClaude {
-		return s.expandClaude(p, accounts, preserveRef)
-	}
-	out := map[string]string{}
-	if p.BaseUrl != "" {
-		out["OPENAI_BASE_URL"] = p.BaseUrl
-	}
-	if key := providerKey(p.ApiKey, accounts, preserveRef); key != "" {
-		out["OPENAI_API_KEY"] = key
-	}
-	if p.Model != "" {
-		out["OPENAI_MODEL"] = p.Model
-	}
-	// niuniu's Codex path reads the model from NIUNIU_MODEL control key.
-	if cliKey == CLILauncherCodex && p.Model != "" {
-		out["NIUNIU_MODEL"] = p.Model
-	}
-	mergeExtraEnv(out, p.ExtraEnv)
-	return out
-}
-
-// expandClaude produces the Anthropic-compatible env used by Claude Code (and
-// any CLI that talks to an /anthropic endpoint). High-confidence mapping.
-func (s *EnvProviderService) expandClaude(p store.EnvProvider, accounts []store.EnvAccount, preserveRef bool) map[string]string {
-	out := map[string]string{}
-	if p.BaseUrl != "" {
-		out["ANTHROPIC_BASE_URL"] = p.BaseUrl
-	}
-	if key := providerKey(p.ApiKey, accounts, preserveRef); key != "" {
-		out["ANTHROPIC_AUTH_TOKEN"] = key
-	}
-	if p.Model != "" {
-		out["ANTHROPIC_MODEL"] = p.Model
-	}
-	if p.HaikuModel != "" {
-		out["ANTHROPIC_DEFAULT_HAIKU_MODEL"] = p.HaikuModel
-	}
-	if p.SonnetModel != "" {
-		out["ANTHROPIC_DEFAULT_SONNET_MODEL"] = p.SonnetModel
-	}
-	if p.OpusModel != "" {
-		out["ANTHROPIC_DEFAULT_OPUS_MODEL"] = p.OpusModel
-	}
-	if p.SubagentModel != "" {
-		out["CLAUDE_CODE_SUBAGENT_MODEL"] = p.SubagentModel
-	}
-	mergeExtraEnv(out, p.ExtraEnv)
-	return out
-}
-
-// providerKey returns the API key to inject for the credential env key. When
-// preserveRef is true the provider's api_key is emitted unchanged — so a
-// "${ACCOUNT:<name>}" reference stays a reference that sceneenv.SubstituteAccounts
-// replaces at spawn time (runtime-live). When false, a "${ACCOUNT:<name>}"
-// reference is resolved to the account's literal key (used for previews). A
-// reference with no matching account (or an empty literal) yields "" so the
-// mapping omits the credential key rather than emitting a broken value.
-func providerKey(raw string, accounts []store.EnvAccount, preserveRef bool) string {
-	if preserveRef || !isProviderAccountRef(raw) {
-		return raw
-	}
-	name := raw[len(sceneenv.AccountRefPrefix) : len(raw)-1]
-	for _, a := range accounts {
-		if a.Name == name {
-			return a.ApiKey
-		}
-	}
-	slog.Warn("expand provider: account ref unresolved", "account", name)
-	return ""
-}
-
-// isProviderAccountRef reports whether v is exactly "${ACCOUNT:<name>}".
-func isProviderAccountRef(v string) bool {
-	return len(v) > len(sceneenv.AccountRefPrefix)+1 &&
-		strings.HasPrefix(v, sceneenv.AccountRefPrefix) &&
-		strings.HasSuffix(v, "}") &&
-		!strings.Contains(v[len(sceneenv.AccountRefPrefix):len(v)-1], "}")
-}
-
-// mergeExtraEnv decodes a provider's extra_env JSON passthrough and overlays it
-// on out (highest priority), so users can add/override provider-specific vars.
-func mergeExtraEnv(out map[string]string, raw string) {
-	if raw == "" {
-		return
-	}
-	var extra map[string]string
-	if json.Unmarshal([]byte(raw), &extra) != nil {
-		return
-	}
-	for k, v := range extra {
-		out[k] = v
-	}
+	return sceneenv.ExpandProvider(p, cliKey, accounts, preserveRef)
 }
 
 // SeedDefaults seeds a small set of system-wide (owner_id=0) providers for the
@@ -222,34 +127,40 @@ func (s *EnvProviderService) SeedDefaults(ctx context.Context) error {
 
 	defaults := []store.CreateEnvProviderParams{
 		{
-			Name: "智谱", Platform: "zhipu", BaseUrl: "https://open.bigmodel.cn/api/anthropic",
+			Name: "智谱", Platform: "zhipu", Protocol: sceneenv.ProviderProtocolAnthropic,
+			BaseUrl: "https://open.bigmodel.cn/api/anthropic",
 			Model: "glm-5.1", HaikuModel: "glm-4.5-air", SonnetModel: "glm-5-turbo", OpusModel: "glm-5.1",
 			ApiKey: "${ACCOUNT:智谱}",
 		},
 		{
-			Name: "MiniMax", Platform: "minimax", BaseUrl: "https://api.minimaxi.com/anthropic",
+			Name: "MiniMax", Platform: "minimax", Protocol: sceneenv.ProviderProtocolAnthropic,
+			BaseUrl: "https://api.minimaxi.com/anthropic",
 			Model: "MiniMax-M2.7", HaikuModel: "MiniMax-M2.7", SonnetModel: "MiniMax-M2.7", OpusModel: "MiniMax-M2.7",
 			ApiKey: "${ACCOUNT:MiniMax}",
 		},
 		{
-			Name: "DeepSeek", Platform: "deepseek", BaseUrl: "https://api.deepseek.com/anthropic",
+			Name: "DeepSeek", Platform: "deepseek", Protocol: sceneenv.ProviderProtocolAnthropic,
+			BaseUrl: "https://api.deepseek.com/anthropic",
 			Model: "deepseek-v4-pro[1m]", HaikuModel: "deepseek-v4-flash", SonnetModel: "deepseek-v4-pro[1m]", OpusModel: "deepseek-v4-pro[1m]",
 			SubagentModel: "deepseek-v4-flash", ApiKey: "${ACCOUNT:DeepSeek}",
 			ExtraEnv: `{"CLAUDE_CODE_EFFORT_LEVEL":"max"}`,
 		},
 		{
-			Name: "通义千问", Platform: "qwen", BaseUrl: "https://coding.dashscope.aliyuncs.com/apps/anthropic",
+			Name: "通义千问", Platform: "qwen", Protocol: sceneenv.ProviderProtocolAnthropic,
+			BaseUrl: "https://coding.dashscope.aliyuncs.com/apps/anthropic",
 			Model: "qwen3.6-plus", HaikuModel: "qwen3.6-plus", SonnetModel: "qwen3.6-plus", OpusModel: "qwen3.6-plus",
 			SubagentModel: "qwen3.6-plus", ApiKey: "${ACCOUNT:通义千问}",
 		},
 		{
-			Name: "Kimi", Platform: "moonshot", BaseUrl: "https://api.moonshot.cn/anthropic",
+			Name: "Kimi", Platform: "moonshot", Protocol: sceneenv.ProviderProtocolAnthropic,
+			BaseUrl: "https://api.moonshot.cn/anthropic",
 			Model: "kimi-k2.6", HaikuModel: "kimi-k2.6", SonnetModel: "kimi-k2.6", OpusModel: "kimi-k2.6",
 			SubagentModel: "kimi-k2.6", ApiKey: "${ACCOUNT:Kimi}",
 			ExtraEnv: `{"ENABLE_TOOL_SEARCH":"false"}`,
 		},
 		{
-			Name: "火山方舟", Platform: "volcengine-ark", BaseUrl: "https://ark.cn-beijing.volces.com/api/coding",
+			Name: "火山方舟", Platform: "volcengine-ark", Protocol: sceneenv.ProviderProtocolAnthropic,
+			BaseUrl: "https://ark.cn-beijing.volces.com/api/coding",
 			Model: "deepseek-v4-pro", HaikuModel: "deepseek-v4-flash", SonnetModel: "deepseek-v4-pro", OpusModel: "deepseek-v4-pro",
 			SubagentModel: "deepseek-v4-pro", ApiKey: "${ACCOUNT:火山方舟}",
 		},

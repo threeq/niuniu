@@ -4,6 +4,9 @@ SELECT * FROM workspaces WHERE is_temporary = 0 AND is_archived = 0 ORDER BY cre
 -- name: GetWorkspace :one
 SELECT * FROM workspaces WHERE id = ?;
 
+-- name: GetWorkspaceCliType :one
+SELECT cli_type FROM workspaces WHERE id = ?;
+
 -- name: GetWorkspacesByIssue :many
 SELECT * FROM workspaces WHERE issue_id = ? ORDER BY is_archived ASC, created_at DESC;
 

@@ -10,6 +10,7 @@ import type {
   SceneMatch,
   SceneMatchRule,
   SceneEnvPresetAsset,
+  SceneProviderAsset,
   SceneAssets,
   SceneDataSourceRef,
 } from '@/types/api';
@@ -76,6 +77,8 @@ export interface AdvancedDraft {
   matchBaseWeight: string;
   matchRules: MatchRuleRow[];
   envPresets: EnvPresetRow[];
+  /** Subscription-platform providers mounted by name (expanded per agent at spawn). */
+  providers: string[];
   /** Unknown leftover asset keys preserved verbatim (not surfaced in the UI). */
   assetsPassthrough: Record<string, unknown>;
   /** Legacy provider-credential requirements, preserved verbatim (no longer
@@ -107,6 +110,7 @@ export function emptyAdvancedDraft(): AdvancedDraft {
     matchBaseWeight: '',
     matchRules: [],
     envPresets: [],
+    providers: [],
     assetsPassthrough: {},
     requiredCredentialsPassthrough: [],
     skillsPassthrough: [],
@@ -129,6 +133,8 @@ export function advancedDraftFromDefinition(def: SceneDefinition): AdvancedDraft
   delete assets.harness_specs;
   const envPresetsRaw = (assets.env_presets as SceneEnvPresetAsset[] | undefined) ?? [];
   delete assets.env_presets;
+  const providersRaw = (assets.providers as SceneProviderAsset[] | undefined) ?? [];
+  delete assets.providers;
 
   return {
     mcp: (def.mcp ?? []).map((m) => ({
@@ -156,6 +162,7 @@ export function advancedDraftFromDefinition(def: SceneDefinition): AdvancedDraft
       name: p.name ?? '',
       env: Object.entries(p.env ?? {}).map(([key, value]) => ({ key, value: String(value) })),
     })),
+    providers: providersRaw.map((p) => p.name).filter(Boolean),
     assetsPassthrough: assets,
     disableToolGroups: def.disable_tool_groups ?? [],
   };
@@ -260,6 +267,11 @@ export function assembleSceneDefinition(
       return preset;
     });
 
+  // Provider assets are references by name; dedup + drop blanks.
+  const providers: SceneProviderAsset[] = Array.from(
+    new Set(draft.providers.map((n) => n.trim()).filter(Boolean)),
+  ).map((name) => ({ name }));
+
   const quick_actions: SceneQuickActionAsset[] = quickActions
     .filter((q) => q.slug.trim())
     .map((q) => ({ slug: q.slug.trim(), label: q.label.trim(), prompt: q.prompt }));
@@ -270,6 +282,7 @@ export function assembleSceneDefinition(
 
   const assets: SceneAssets = { ...advancedAssets, quick_actions, agents };
   if (envPresets.length > 0) assets.env_presets = envPresets;
+  if (providers.length > 0) assets.providers = providers;
 
   // Hidden built-in tool groups: dedup + drop blanks. Omit the key entirely when
   // none are hidden so the definition stays clean.

@@ -14,6 +14,7 @@ var pAccounts = []store.EnvAccount{
 func providerEnv() store.EnvProvider {
 	return store.EnvProvider{
 		Name:          "DeepSeek",
+		Protocol:      "anthropic",
 		BaseUrl:       "https://api.deepseek.com/anthropic",
 		ApiKey:        "${ACCOUNT:DeepSeek}",
 		Model:         "deepseek-v4",
@@ -23,6 +24,15 @@ func providerEnv() store.EnvProvider {
 		SubagentModel: "deepseek-v4-flash",
 		ExtraEnv:      `{"CLAUDE_CODE_EFFORT_LEVEL":"max"}`,
 	}
+}
+
+// providerEnvOpenAI is the same provider configured for an OpenAI-compatible
+// endpoint (different protocol + base_url), as real platforms differ.
+func providerEnvOpenAI() store.EnvProvider {
+	p := providerEnv()
+	p.Protocol = "openai"
+	p.BaseUrl = "https://api.deepseek.com/v1"
+	return p
 }
 
 func TestExpand_Claude(t *testing.T) {
@@ -47,9 +57,12 @@ func TestExpand_Claude(t *testing.T) {
 
 func TestExpand_Codex(t *testing.T) {
 	s := &EnvProviderService{}
-	env := s.Expand(context.Background(), providerEnv(), CLILauncherCodex, pAccounts, false)
+	// An OpenAI-protocol provider (e.g. api.deepseek.com/v1) produces the
+	// OpenAI-family env read by Codex. The same provider configured for the
+	// /anthropic endpoint would instead produce ANTHROPIC_* (see TestExpand_Claude).
+	env := s.Expand(context.Background(), providerEnvOpenAI(), CLILauncherCodex, pAccounts, false)
 	want := map[string]string{
-		"OPENAI_BASE_URL": "https://api.deepseek.com/anthropic",
+		"OPENAI_BASE_URL": "https://api.deepseek.com/v1",
 		"OPENAI_API_KEY":  "sk-real",
 		"OPENAI_MODEL":    "deepseek-v4",
 		"NIUNIU_MODEL":    "deepseek-v4",
@@ -67,7 +80,7 @@ func TestExpand_Codex(t *testing.T) {
 
 func TestExpand_Qwen(t *testing.T) {
 	s := &EnvProviderService{}
-	env := s.Expand(context.Background(), providerEnv(), CLILauncherQwen, pAccounts, false)
+	env := s.Expand(context.Background(), providerEnvOpenAI(), CLILauncherQwen, pAccounts, false)
 	if env["OPENAI_API_KEY"] != "sk-real" || env["OPENAI_MODEL"] != "deepseek-v4" {
 		t.Errorf("qwen env wrong: %v", env)
 	}

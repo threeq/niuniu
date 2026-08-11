@@ -332,6 +332,7 @@ export function EnvSettings() {
   const [provPlatform, setProvPlatform] = useState('')
   const [provDesc, setProvDesc] = useState('')
   const [provBaseUrl, setProvBaseUrl] = useState('')
+  const [provProtocol, setProvProtocol] = useState('anthropic')
   const [provApiKey, setProvApiKey] = useState('')
   const [provModel, setProvModel] = useState('')
   const [provHaiku, setProvHaiku] = useState('')
@@ -362,7 +363,7 @@ export function EnvSettings() {
 
   const openCreateProviderDialog = () => {
     setEditingProvider(null)
-    setProvName(''); setProvPlatform(''); setProvDesc(''); setProvBaseUrl(''); setProvApiKey('')
+    setProvName(''); setProvPlatform(''); setProvDesc(''); setProvBaseUrl(''); setProvProtocol('anthropic'); setProvApiKey('')
     setProvModel(''); setProvHaiku(''); setProvSonnet(''); setProvOpus(''); setProvSubagent('')
     setProvExtra([])
     setProvOwner({ type: 'user', id: currentUser?.id ?? 0 })
@@ -370,7 +371,7 @@ export function EnvSettings() {
   }
   const openEditProviderDialog = (p: EnvProvider) => {
     setEditingProvider(p)
-    setProvName(p.name); setProvPlatform(p.platform); setProvDesc(p.description); setProvBaseUrl(p.base_url); setProvApiKey(p.api_key)
+    setProvName(p.name); setProvPlatform(p.platform); setProvDesc(p.description); setProvBaseUrl(p.base_url); setProvProtocol(p.protocol || 'anthropic'); setProvApiKey(p.api_key)
     setProvModel(p.model); setProvHaiku(p.haiku_model); setProvSonnet(p.sonnet_model); setProvOpus(p.opus_model); setProvSubagent(p.subagent_model)
     setProvExtra(Object.entries(p.extra_env ?? {}).map(([key, value]) => ({ key, value })))
     setProviderDialogOpen(true)
@@ -382,7 +383,7 @@ export function EnvSettings() {
     }
     const data: CreateEnvProviderData = {
       name: provName, platform: provPlatform, description: provDesc,
-      base_url: provBaseUrl, api_key: provApiKey,
+      base_url: provBaseUrl, protocol: provProtocol, api_key: provApiKey,
       model: provModel, haiku_model: provHaiku, sonnet_model: provSonnet, opus_model: provOpus, subagent_model: provSubagent,
       extra_env: extra,
       owner: editingProvider ? undefined : provOwner,
@@ -748,26 +749,35 @@ export function EnvSettings() {
               <label className="block text-sm font-medium text-foreground mb-1">{t('env.provider.descLabel')}</label>
               <Input value={provDesc} onChange={(e) => setProvDesc(e.target.value)} placeholder={t('env.provider.descPlaceholder')} />
             </div>
-            <div>
-              <label className="block text-sm font-medium text-foreground mb-1">{t('env.provider.baseUrlLabel')}</label>
-              <Input value={provBaseUrl} onChange={(e) => setProvBaseUrl(e.target.value)} placeholder={t('env.provider.baseUrlPlaceholder')} />
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-sm font-medium text-foreground mb-1">{t('env.provider.baseUrlLabel')}</label>
+                <Input value={provBaseUrl} onChange={(e) => setProvBaseUrl(e.target.value)} placeholder={t('env.provider.baseUrlPlaceholder')} />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-foreground mb-1">{t('env.provider.protocolLabel')}</label>
+                <select
+                  value={provProtocol}
+                  onChange={(e) => setProvProtocol(e.target.value)}
+                  className="w-full rounded border border-border bg-background px-2 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
+                >
+                  <option value="anthropic">{t('env.provider.protocolAnthropic')}</option>
+                  <option value="openai">{t('env.provider.protocolOpenai')}</option>
+                </select>
+              </div>
             </div>
             <div>
               <label className="block text-sm font-medium text-foreground mb-1">{t('env.provider.apiKeyLabel')}</label>
-              <Input value={provApiKey} onChange={(e) => setProvApiKey(e.target.value)} placeholder={t('env.provider.apiKeyPlaceholder')} type="password" autoComplete="new-password" />
-              <div className="mt-1.5 flex items-center gap-2">
-                <span className="text-xs text-muted-foreground">{t('env.provider.apiKeyAccountLabel')}</span>
-                <select
-                  value={accounts.some((a) => provApiKey === `\${ACCOUNT:${a.name}}`) ? accounts.find((a) => provApiKey === `\${ACCOUNT:${a.name}}`)!.name : ''}
-                  onChange={(e) => setProvApiKey(e.target.value ? `\${ACCOUNT:${e.target.value}}` : provApiKey)}
-                  className="rounded border border-border bg-background px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-ring"
-                >
-                  <option value="">{t('env.provider.apiKeyAccountNone')}</option>
-                  {accounts.map((a) => (
-                    <option key={a.id} value={a.name}>{a.name}</option>
-                  ))}
-                </select>
-              </div>
+              <select
+                value={accounts.some((a) => provApiKey === `\${ACCOUNT:${a.name}}`) ? accounts.find((a) => provApiKey === `\${ACCOUNT:${a.name}}`)!.name : ''}
+                onChange={(e) => setProvApiKey(e.target.value ? `\${ACCOUNT:${e.target.value}}` : '')}
+                className="w-full rounded border border-border bg-background px-2 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
+              >
+                <option value="">{t('env.provider.apiKeyAccountNone')}</option>
+                {accounts.map((a) => (
+                  <option key={a.id} value={a.name}>{a.name}</option>
+                ))}
+              </select>
               <p className="mt-1 text-xs text-muted-foreground">{t('env.provider.apiKeyHint')}</p>
             </div>
             <div className="grid grid-cols-2 gap-3">

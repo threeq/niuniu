@@ -1062,6 +1062,7 @@ export interface EnvProvider {
   platform: string
   description: string
   base_url: string
+  protocol: string
   api_key: string
   model: string
   haiku_model: string
@@ -1079,6 +1080,7 @@ export interface CreateEnvProviderData {
   platform?: string
   description?: string
   base_url?: string
+  protocol?: string
   api_key?: string
   model?: string
   haiku_model?: string
@@ -1509,8 +1511,15 @@ export interface SceneAgentRefAsset {
   name: string;
 }
 
+/** A reference to a subscription-platform provider (env_providers), by name. The
+ *  provider expands to the workspace agent's env vars per its cli_type at spawn. */
+export interface SceneProviderAsset {
+  name: string;
+}
+
 export interface SceneAssets {
   env_presets?: SceneEnvPresetAsset[];
+  providers?: SceneProviderAsset[];
   project_templates?: SceneSlugPayloadAsset[];
   quick_actions?: SceneQuickActionAsset[];
   harness_specs?: SceneSlugPayloadAsset[];

@@ -7,7 +7,7 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Badge } from '@/components/ui/badge';
-import { mcpApi } from '@/lib/api';
+import { api, mcpApi } from '@/lib/api';
 import { listDataSources } from '@/lib/data-sources-api';
 import { getActiveClaudeAccount, listClaudeAccounts } from '@/lib/claude-account-api';
 import { useAuthStore } from '@/stores/auth-store';
@@ -129,6 +129,18 @@ export function SceneAdvancedEditor({ value, onChange, disabled }: SceneAdvanced
     queryFn: () => listDataSources(),
   });
   const dsByName = new Map(dataSources.map((d) => [d.name, d]));
+
+  // -- providers (subscription platforms mounted by name, expanded per agent) --
+  const { data: providers = [] } = useQuery({
+    queryKey: ['env-providers'],
+    queryFn: () => api.listEnvProviders(),
+  });
+  const toggleProvider = (name: string) => {
+    const has = value.providers.includes(name);
+    patch({
+      providers: has ? value.providers.filter((n) => n !== name) : [...value.providers, name],
+    });
+  };
 
   // -- mcp ------------------------------------------------------------------
   const addMcp = () => patch({ mcp: [...value.mcp, { name: '', configRaw: '' }] });
@@ -513,6 +525,28 @@ export function SceneAdvancedEditor({ value, onChange, disabled }: SceneAdvanced
         addLabel={t('editor.adv_env_add')}
         disabled={disabled}
       >
+        {/* Subscription-platform providers mounted by name (expanded per agent at spawn) */}
+        <div className="space-y-2">
+          <p className="text-xs text-warm-text-muted">{t('editor.adv_env_providers_hint')}</p>
+          {providers.length === 0 ? (
+            <p className="text-xs text-warm-text-muted">{t('editor.adv_env_providers_empty')}</p>
+          ) : (
+            <div className="space-y-1.5">
+              {providers.map((p) => (
+                <label key={p.id} className="flex items-center gap-2 text-sm text-warm-text">
+                  <Checkbox
+                    checked={value.providers.includes(p.name)}
+                    onCheckedChange={() => toggleProvider(p.name)}
+                    disabled={disabled}
+                  />
+                  <span>{p.name}</span>
+                  {p.protocol && <Badge variant="outline" className="text-xs">{p.protocol}</Badge>}
+                </label>
+              ))}
+            </div>
+          )}
+        </div>
+
         {value.envPresets.length === 0 ? (
           <p className="text-xs text-warm-text-muted py-1">{t('editor.adv_env_empty')}</p>
         ) : (

@@ -31,6 +31,8 @@ type Querier interface {
 	ListWorkspaceEnv(ctx context.Context, workspaceID int64) ([]store.WorkspaceEnv, error)
 	GetProjection(ctx context.Context, workspaceID int64) (store.WorkspaceSceneProjection, error)
 	ListEnvAccounts(ctx context.Context) ([]store.EnvAccount, error)
+	ListEnvProviders(ctx context.Context) ([]store.EnvProvider, error)
+	GetWorkspaceCliType(ctx context.Context, workspaceID int64) (string, error)
 }
 
 // AccountRefPrefix is the placeholder an env value uses to reference a
@@ -48,10 +50,37 @@ type envPresetAsset struct {
 	Env map[string]string `json:"env"`
 }
 
+// providerAsset references an env_providers row by its (globally unique) name.
+// sceneenv expands it per the workspace's cli_type at resolve time.
+type providerAsset struct {
+	Name string `json:"name"`
+}
+
 type projectedDefinition struct {
 	Assets struct {
 		EnvPresets []envPresetAsset `json:"env_presets"`
+		Providers  []providerAsset  `json:"providers"`
 	} `json:"assets"`
+}
+
+// SceneProviders decodes the workspace's cached scene projection and returns the
+// names of the provider assets it declares (empty on any failure/no projection).
+func SceneProviders(ctx context.Context, q Querier, wsID int64) []string {
+	row, err := q.GetProjection(ctx, wsID)
+	if err != nil || row.ProjectedDefinition == "" {
+		return nil
+	}
+	var def projectedDefinition
+	if err := json.Unmarshal([]byte(row.ProjectedDefinition), &def); err != nil {
+		return nil
+	}
+	out := make([]string, 0, len(def.Assets.Providers))
+	for _, p := range def.Assets.Providers {
+		if p.Name != "" {
+			out = append(out, p.Name)
+		}
+	}
+	return out
 }
 
 // SceneVars decodes the workspace's cached scene projection and returns the
@@ -83,25 +112,60 @@ func SceneVars(ctx context.Context, q Querier, wsID int64) map[string]string {
 // is the env source every agent spawn path should use instead of a bare
 // ListWorkspaceEnv so a mounted scene's variables actually reach the agent.
 //
-// Any env value that is a "${ACCOUNT:<name>}" reference is replaced with the
-// referenced account's api_key (see SubstituteAccounts). Lookup failures keep
-// the literal placeholder so the agent fails loudly if an account is missing.
+// Scene env comes from two asset kinds, expanded in this precedence order
+// (lowest to highest): scene-declared providers (expanded per the workspace's
+// cli_type via ExpandProvider), then scene env_presets, then explicit
+// workspace_env. Any env value that is a "${ACCOUNT:<name>}" reference is then
+// replaced with the referenced account's api_key (see SubstituteAccounts).
+// Lookup failures keep the literal placeholder so the agent fails loudly if an
+// account is missing.
 func Resolve(ctx context.Context, q Querier, wsID int64) ([]store.WorkspaceEnv, error) {
 	base, err := q.ListWorkspaceEnv(ctx, wsID)
 	if err != nil {
 		return nil, err
 	}
+	accounts, _ := q.ListEnvAccounts(ctx)
 	scene := SceneVars(ctx, q, wsID)
-	var out []store.WorkspaceEnv
-	if len(scene) == 0 {
-		out = base
-	} else {
-		have := make(map[string]struct{}, len(base))
-		for _, e := range base {
-			have[e.Key] = struct{}{}
+
+	// Lowest precedence: explicit workspace_env keys are reserved and win over
+	// every scene asset.
+	have := make(map[string]struct{}, len(base))
+	for _, e := range base {
+		have[e.Key] = struct{}{}
+	}
+	out := append([]store.WorkspaceEnv(nil), base...)
+
+	// Scene providers expand per the workspace's cli_type (runtime-live refs).
+	providerNames := SceneProviders(ctx, q, wsID)
+	if len(providerNames) > 0 {
+		var providers []store.EnvProvider
+		if p, perr := q.ListEnvProviders(ctx); perr == nil {
+			providers = p
 		}
-		// Append scene keys the workspace doesn't already set, sorted for a
-		// stable spawn environment.
+		cliType, _ := q.GetWorkspaceCliType(ctx, wsID)
+		for _, name := range providerNames {
+			var target *store.EnvProvider
+			for i := range providers {
+				if providers[i].Name == name {
+					p := providers[i]
+					target = &p
+					break
+				}
+			}
+			if target == nil {
+				continue
+			}
+			for k, v := range ExpandProvider(*target, cliType, accounts, true) {
+				if _, ok := have[k]; ok {
+					continue
+				}
+				out = append(out, store.WorkspaceEnv{WorkspaceID: wsID, Key: k, Value: v})
+			}
+		}
+	}
+
+	// Scene env_presets.
+	if len(scene) > 0 {
 		keys := make([]string, 0, len(scene))
 		for k := range scene {
 			if _, ok := have[k]; ok {
@@ -110,16 +174,11 @@ func Resolve(ctx context.Context, q Querier, wsID int64) ([]store.WorkspaceEnv, 
 			keys = append(keys, k)
 		}
 		sort.Strings(keys)
-		out = append([]store.WorkspaceEnv(nil), base...)
 		for _, k := range keys {
 			out = append(out, store.WorkspaceEnv{WorkspaceID: wsID, Key: k, Value: scene[k]})
 		}
 	}
-	accounts, aerr := q.ListEnvAccounts(ctx)
-	if aerr != nil {
-		// Account lookup failure degrades to leaving placeholders unresolved.
-		return out, nil
-	}
+
 	return SubstituteAccounts(accounts, out), nil
 }
 

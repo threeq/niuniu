@@ -126,6 +126,8 @@
     "adv_match_args": "Args (JSON object, optional)",
     "adv_env_title": "Env presets",
     "adv_env_hint": "Environment-variable preset groups imported when this scene is mounted.",
+    "adv_env_providers_hint": "Mount subscription-platform providers directly: their base_url / models / API key expand into the right environment variables for each workspace's Agent type at spawn.",
+    "adv_env_providers_empty": "No providers yet — configure some under Settings → Environment Variables first.",
     "adv_env_add": "Add preset",
     "adv_env_empty": "No env presets yet.",
     "adv_env_slug": "Slug",

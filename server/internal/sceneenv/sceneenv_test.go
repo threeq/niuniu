@@ -16,6 +16,8 @@ type fakeQuerier struct {
 	projection store.WorkspaceSceneProjection
 	projErr    error
 	accounts   []store.EnvAccount
+	providers  []store.EnvProvider
+	cliType    string
 }
 
 func (f fakeQuerier) ListWorkspaceEnv(_ context.Context, _ int64) ([]store.WorkspaceEnv, error) {
@@ -28,6 +30,17 @@ func (f fakeQuerier) GetProjection(_ context.Context, _ int64) (store.WorkspaceS
 
 func (f fakeQuerier) ListEnvAccounts(_ context.Context) ([]store.EnvAccount, error) {
 	return f.accounts, nil
+}
+
+func (f fakeQuerier) ListEnvProviders(_ context.Context) ([]store.EnvProvider, error) {
+	return f.providers, nil
+}
+
+func (f fakeQuerier) GetWorkspaceCliType(_ context.Context, _ int64) (string, error) {
+	if f.cliType == "" {
+		return "claude", nil
+	}
+	return f.cliType, nil
 }
 
 func envMap(rows []store.WorkspaceEnv) map[string]string {
@@ -170,6 +183,63 @@ func TestResolve_AccountRefMissingKeepsPlaceholder(t *testing.T) {
 	// Missing account keeps the literal placeholder so the agent fails loudly.
 	if got := envMap(rows)["ANTHROPIC_AUTH_TOKEN"]; got != "${ACCOUNT:NoSuchAccount}" {
 		t.Errorf("missing account should keep placeholder, got %q", got)
+	}
+}
+
+func TestResolve_SceneProviderExpandedPerCliType(t *testing.T) {
+	q := fakeQuerier{
+		projection: store.WorkspaceSceneProjection{ProjectedDefinition: `{
+			"assets": {"providers": [{"name": "DeepSeek"}]}
+		}`},
+		providers: []store.EnvProvider{{
+			Name: "DeepSeek", Protocol: "anthropic", BaseUrl: "https://api.deepseek.com/anthropic",
+			ApiKey: "${ACCOUNT:DeepSeek}", Model: "deepseek-v4", SubagentModel: "deepseek-v4-flash",
+		}},
+		accounts: []store.EnvAccount{{Name: "DeepSeek", ApiKey: "sk-real"}},
+		cliType:  "claude",
+	}
+	rows, err := Resolve(context.Background(), q, 7)
+	if err != nil {
+		t.Fatalf("Resolve returned error: %v", err)
+	}
+	got := envMap(rows)
+	if got["ANTHROPIC_BASE_URL"] != "https://api.deepseek.com/anthropic" {
+		t.Errorf("provider base_url not expanded: %q", got["ANTHROPIC_BASE_URL"])
+	}
+	if got["ANTHROPIC_AUTH_TOKEN"] != "sk-real" {
+		t.Errorf("provider account key not substituted: %q", got["ANTHROPIC_AUTH_TOKEN"])
+	}
+	if got["ANTHROPIC_MODEL"] != "deepseek-v4" {
+		t.Errorf("provider model not expanded: %q", got["ANTHROPIC_MODEL"])
+	}
+}
+
+func TestResolve_SceneProviderOpenAIProtocol(t *testing.T) {
+	q := fakeQuerier{
+		projection: store.WorkspaceSceneProjection{ProjectedDefinition: `{
+			"assets": {"providers": [{"name": "DeepSeekOpenAI"}]}
+		}`},
+		providers: []store.EnvProvider{{
+			Name: "DeepSeekOpenAI", Protocol: "openai", BaseUrl: "https://api.deepseek.com/v1",
+			ApiKey: "${ACCOUNT:DeepSeek}", Model: "deepseek-v4",
+		}},
+		accounts: []store.EnvAccount{{Name: "DeepSeek", ApiKey: "sk-real"}},
+		cliType:  "codex",
+	}
+	rows, err := Resolve(context.Background(), q, 7)
+	if err != nil {
+		t.Fatalf("Resolve returned error: %v", err)
+	}
+	got := envMap(rows)
+	if got["OPENAI_BASE_URL"] != "https://api.deepseek.com/v1" {
+		t.Errorf("openai base_url not expanded: %q", got["OPENAI_BASE_URL"])
+	}
+	// Codex reads the model from NIUNIU_MODEL for openai-protocol providers.
+	if got["NIUNIU_MODEL"] != "deepseek-v4" {
+		t.Errorf("codex NIUNIU_MODEL not set: %q", got["NIUNIU_MODEL"])
+	}
+	if _, ok := got["ANTHROPIC_MODEL"]; ok {
+		t.Error("openai provider should not emit ANTHROPIC_MODEL")
 	}
 }
 

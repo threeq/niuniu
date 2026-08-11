@@ -30,6 +30,14 @@ func (fakeSceneEnvQuerier) ListEnvAccounts(context.Context) ([]store.EnvAccount,
 	return nil, nil
 }
 
+func (fakeSceneEnvQuerier) ListEnvProviders(context.Context) ([]store.EnvProvider, error) {
+	return nil, nil
+}
+
+func (fakeSceneEnvQuerier) GetWorkspaceCliType(context.Context, int64) (string, error) {
+	return "claude", nil
+}
+
 func TestSceneEnvResolve_DecodesRealProjectionJSON(t *testing.T) {
 	// Build a Projection exactly as Recompute would: fold a scene definition
 	// that declares an env_preset asset.

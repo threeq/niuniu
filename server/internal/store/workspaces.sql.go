@@ -243,6 +243,17 @@ func (q *Queries) GetWorkspaceAlertableUserIDs(ctx context.Context, workspaceID 
 	return items, nil
 }
 
+const getWorkspaceCliType = `-- name: GetWorkspaceCliType :one
+SELECT cli_type FROM workspaces WHERE id = ?
+`
+
+func (q *Queries) GetWorkspaceCliType(ctx context.Context, id int64) (string, error) {
+	row := q.db.QueryRowContext(ctx, getWorkspaceCliType, id)
+	var cli_type string
+	err := row.Scan(&cli_type)
+	return cli_type, err
+}
+
 const getWorkspacesByIssue = `-- name: GetWorkspacesByIssue :many
 SELECT id, issue_id, name, path, status, agent_pid, agent_status, session_id, session_status, owner_type, owner_id, current_session_user_id, created_by, created_at, updated_at, is_temporary, is_archived, archived_at, claude_account_id, mcp_servers, cli_type, codex_account_id, codex_sandbox_mode, codex_approval_policy, is_studio, strict_mcp_config, language FROM workspaces WHERE issue_id = ? ORDER BY is_archived ASC, created_at DESC
 `

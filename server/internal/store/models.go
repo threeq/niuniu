@@ -308,6 +308,7 @@ type EnvProvider struct {
 	Platform      string    `json:"platform"`
 	Description   string    `json:"description"`
 	BaseUrl       string    `json:"base_url"`
+	Protocol      string    `json:"protocol"`
 	ApiKey        string    `json:"api_key"`
 	Model         string    `json:"model"`
 	HaikuModel    string    `json:"haiku_model"`

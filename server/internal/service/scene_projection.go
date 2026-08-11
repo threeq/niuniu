@@ -182,6 +182,9 @@ func (p *Projection) mergeAssets(in *SceneAssets, origin LayerOrigin) {
 	p.Assets.EnvPresets = mergeAssetSlice(p.Assets.EnvPresets, in.EnvPresets,
 		func(x EnvPresetAsset) string { return x.Slug },
 		func(slug string) { p.appendOrigin("env_preset:"+slug, origin) })
+	p.Assets.Providers = mergeAssetSlice(p.Assets.Providers, in.Providers,
+		func(x ProviderAsset) string { return x.Name },
+		func(name string) { p.appendOrigin("provider:"+name, origin) })
 	p.Assets.QuickActions = mergeAssetSlice(p.Assets.QuickActions, in.QuickActions,
 		func(x QuickActionAsset) string { return x.Slug },
 		func(slug string) { p.appendOrigin("quick_action:"+slug, origin) })
