@@ -368,7 +368,7 @@
         "claudeHint": "需要本机已安装 claude 命令。默认选项。",
         "codexHint": "需要本机已安装 codex 命令。实验性功能。",
         "qwenHint": "需要本机已安装 qwen 命令。国产引擎，驱动 Qwen / DeepSeek。实验性功能。",
-        "omp": "Oh My Pi (omp) 通用 agent",
+        "omp": "Oh My Pi (omp)",
         "ompHint": "需要本机安装 omp CLI。通用 agent（编码/办公/数据/内容）。实验性。"
       }
     },

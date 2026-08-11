@@ -45,7 +45,7 @@ const defaultVersionTimeout = 3 * time.Second
 // nor an OS-PM/npm package — it is probed via `python -m cairosvg --version` and
 // installed via `python -m pip install --user cairosvg`, so its probe/install
 // paths are special-cased below.
-var toolNames = []string{"node", "python3", "git", "claude", "codex", "tesseract", "uv", "cairosvg"}
+var toolNames = []string{"node", "python3", "git", "claude", "codex", "qwen", "omp", "tesseract", "uv", "cairosvg"}
 
 // ocrGuideURL is the canonical Tesseract install guide on the marketing site
 // (website/src/content/docs-zh/install/ocr-tesseract.mdx, issue #284). It is
@@ -198,7 +198,7 @@ func (s *SystemDepsService) Probe(ctx context.Context) SystemDepsInfo {
 			continue
 		}
 		switch tools[i].Name {
-		case "claude", "codex":
+		case "claude", "codex", "qwen", "omp":
 			tools[i].Installable = npmAvailable
 		case "cairosvg":
 			tools[i].Installable = pythonAvailable
@@ -397,6 +397,8 @@ var fallbackURLs = map[string]string{
 	"git":       "https://git-scm.com/downloads",
 	"claude":    "https://docs.claude.com/en/docs/claude-code/setup",
 	"codex":     "https://github.com/openai/codex",
+	"qwen":      "https://qwen.code/",
+	"omp":       "https://github.com/can1357/oh-my-pi",
 	"tesseract": ocrGuideURL,
 	"uv":        "https://docs.astral.sh/uv/getting-started/installation/",
 	"cairosvg":  "https://cairosvg.org/documentation/",
@@ -420,7 +422,7 @@ func (s *SystemDepsService) Install(ctx context.Context, tool string) (string, s
 	// manager (both ship as @scope/package on npm). cairosvg is special too: it
 	// installs via `python -m pip`, so it needs a python interpreter rather than
 	// the OS PM. Both carve-outs bypass the pm=="" gate below.
-	isNpmTool := tool == "claude" || tool == "codex"
+	isNpmTool := tool == "claude" || tool == "codex" || tool == "qwen" || tool == "omp"
 	isPipTool := tool == "cairosvg"
 	if !isNpmTool && !isPipTool && pm == "" {
 		return "", fallbackURLs[tool], nil
@@ -560,6 +562,12 @@ func (s *SystemDepsService) commandFor(tool, pm string) (string, []string) {
 	}
 	if tool == "codex" {
 		return "npm", []string{"install", "-g", "@openai/codex"}
+	}
+	if tool == "qwen" {
+		return "npm", []string{"install", "-g", "@qwen-code/qwen-code"}
+	}
+	if tool == "omp" {
+		return "npm", []string{"install", "-g", "oh-my-pi"}
 	}
 	if tool == "cairosvg" {
 		// Pip on every platform — deliberately NOT rsvg-convert/librsvg, which is
