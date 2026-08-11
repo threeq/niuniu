@@ -26,6 +26,6 @@ you.
 
 ## Scope
 
-This policy covers the open-source personal edition in this repository. Reported
+This policy covers the source-available personal edition in this repository. Reported
 issues will be fixed in a timely manner and credited (unless you prefer to remain
 anonymous).
