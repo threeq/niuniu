@@ -27,7 +27,7 @@ func providerEnv() store.EnvProvider {
 
 func TestExpand_Claude(t *testing.T) {
 	s := &EnvProviderService{}
-	env := s.Expand(context.Background(), providerEnv(), CLILauncherClaude, pAccounts)
+	env := s.Expand(context.Background(), providerEnv(), CLILauncherClaude, pAccounts, false)
 	want := map[string]string{
 		"ANTHROPIC_BASE_URL":             "https://api.deepseek.com/anthropic",
 		"ANTHROPIC_AUTH_TOKEN":           "sk-real",
@@ -47,7 +47,7 @@ func TestExpand_Claude(t *testing.T) {
 
 func TestExpand_Codex(t *testing.T) {
 	s := &EnvProviderService{}
-	env := s.Expand(context.Background(), providerEnv(), CLILauncherCodex, pAccounts)
+	env := s.Expand(context.Background(), providerEnv(), CLILauncherCodex, pAccounts, false)
 	want := map[string]string{
 		"OPENAI_BASE_URL": "https://api.deepseek.com/anthropic",
 		"OPENAI_API_KEY":  "sk-real",
@@ -67,7 +67,7 @@ func TestExpand_Codex(t *testing.T) {
 
 func TestExpand_Qwen(t *testing.T) {
 	s := &EnvProviderService{}
-	env := s.Expand(context.Background(), providerEnv(), CLILauncherQwen, pAccounts)
+	env := s.Expand(context.Background(), providerEnv(), CLILauncherQwen, pAccounts, false)
 	if env["OPENAI_API_KEY"] != "sk-real" || env["OPENAI_MODEL"] != "deepseek-v4" {
 		t.Errorf("qwen env wrong: %v", env)
 	}
@@ -80,7 +80,7 @@ func TestExpand_AccountRefUnresolved_OmitsKey(t *testing.T) {
 	s := &EnvProviderService{}
 	// No matching account → the ANTHROPIC_AUTH_TOKEN / OPENAI_API_KEY key is
 	// omitted entirely rather than emitted as "${ACCOUNT:Missing}".
-	env := s.Expand(context.Background(), providerEnv(), CLILauncherClaude, nil)
+	env := s.Expand(context.Background(), providerEnv(), CLILauncherClaude, nil, false)
 	if _, ok := env["ANTHROPIC_AUTH_TOKEN"]; ok {
 		t.Errorf("unresolved account should omit credential key, got %v", env)
 	}
@@ -91,7 +91,21 @@ func TestExpand_AccountRefUnresolved_OmitsKey(t *testing.T) {
 
 func TestExpand_Empty(t *testing.T) {
 	s := &EnvProviderService{}
-	if env := s.Expand(context.Background(), store.EnvProvider{}, CLILauncherClaude, nil); len(env) != 0 {
+	if env := s.Expand(context.Background(), store.EnvProvider{}, CLILauncherClaude, nil, false); len(env) != 0 {
 		t.Errorf("empty provider should expand to empty map, got %v", env)
+	}
+}
+
+func TestExpand_PreserveRef_KeepsAccountReference(t *testing.T) {
+	s := &EnvProviderService{}
+	// preserveRef=true emits the ${ACCOUNT:name} reference unchanged so an
+	// imported preset stays runtime-live (sceneenv substitutes at spawn).
+	env := s.Expand(context.Background(), providerEnv(), CLILauncherClaude, pAccounts, true)
+	if env["ANTHROPIC_AUTH_TOKEN"] != "${ACCOUNT:DeepSeek}" {
+		t.Errorf("preserveRef should keep the reference, got %q", env["ANTHROPIC_AUTH_TOKEN"])
+	}
+	// Non-credential fields still expand normally.
+	if env["ANTHROPIC_BASE_URL"] != "https://api.deepseek.com/anthropic" {
+		t.Errorf("base_url should still expand, got %q", env["ANTHROPIC_BASE_URL"])
 	}
 }

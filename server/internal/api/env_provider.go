@@ -225,7 +225,9 @@ func (h *EnvProviderHandler) Env(c *gin.Context) {
 		return
 	}
 	accounts, _ := h.accountSvc.List(c.Request.Context())
-	env := h.svc.Expand(c.Request.Context(), provider, c.DefaultQuery("cli_type", ""), accounts)
+	// Preview resolves an account ref to the real key so the user sees what the
+	// agent will actually use (masked in the UI).
+	env := h.svc.Expand(c.Request.Context(), provider, c.DefaultQuery("cli_type", ""), accounts, false)
 	c.JSON(http.StatusOK, env)
 }
 
@@ -267,7 +269,10 @@ func (h *EnvProviderHandler) Import(c *gin.Context) {
 		return
 	}
 	accounts, _ := h.accountSvc.List(c.Request.Context())
-	env := h.svc.Expand(c.Request.Context(), provider, req.CliType, accounts)
+	// Import preserves a ${ACCOUNT:<name>} reference so the resulting preset stays
+	// runtime-live: changing the account key propagates to every agent that mounts
+	// the preset, without re-importing.
+	env := h.svc.Expand(c.Request.Context(), provider, req.CliType, accounts, true)
 	if len(env) == 0 {
 		BadRequest(c, "provider has no env to import")
 		return

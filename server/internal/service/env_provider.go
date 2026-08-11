@@ -101,21 +101,24 @@ func (s *EnvProviderService) Delete(ctx context.Context, id int64) error {
 
 // Expand turns a provider's natural fields into the environment key/value pair
 // for the given agent CLI type. Only non-empty fields are emitted; the API key
-// undergoes ${ACCOUNT:<name>} substitution via the supplied accounts (see
-// resolveProviderKey), and any extra_env passthrough entries are merged last so
-// users can override a generated key. Returns an empty map for an empty
-// provider (no fields set).
+// is injected via providerKey (see providerKey), and any extra_env passthrough
+// entries are merged last so users can override a generated key. Returns an
+// empty map for an empty provider (no fields set).
 //
 // cliKey is one of the CLILauncher* constants; "" defaults to Claude Code.
-func (s *EnvProviderService) Expand(ctx context.Context, p store.EnvProvider, cliKey string, accounts []store.EnvAccount) map[string]string {
+// preserveRef=false resolves a "${ACCOUNT:<name>}" api_key to the account's
+// literal key (used for the /env preview); preserveRef=true emits the reference
+// unchanged so the consumer (an imported preset) stays runtime-live — changing
+// the account's key then propagates to every agent without re-importing.
+func (s *EnvProviderService) Expand(ctx context.Context, p store.EnvProvider, cliKey string, accounts []store.EnvAccount, preserveRef bool) map[string]string {
 	if cliKey == "" || cliKey == CLILauncherClaude {
-		return s.expandClaude(p, accounts)
+		return s.expandClaude(p, accounts, preserveRef)
 	}
 	out := map[string]string{}
 	if p.BaseUrl != "" {
 		out["OPENAI_BASE_URL"] = p.BaseUrl
 	}
-	if key := resolveProviderKey(p.ApiKey, accounts); key != "" {
+	if key := providerKey(p.ApiKey, accounts, preserveRef); key != "" {
 		out["OPENAI_API_KEY"] = key
 	}
 	if p.Model != "" {
@@ -131,12 +134,12 @@ func (s *EnvProviderService) Expand(ctx context.Context, p store.EnvProvider, cl
 
 // expandClaude produces the Anthropic-compatible env used by Claude Code (and
 // any CLI that talks to an /anthropic endpoint). High-confidence mapping.
-func (s *EnvProviderService) expandClaude(p store.EnvProvider, accounts []store.EnvAccount) map[string]string {
+func (s *EnvProviderService) expandClaude(p store.EnvProvider, accounts []store.EnvAccount, preserveRef bool) map[string]string {
 	out := map[string]string{}
 	if p.BaseUrl != "" {
 		out["ANTHROPIC_BASE_URL"] = p.BaseUrl
 	}
-	if key := resolveProviderKey(p.ApiKey, accounts); key != "" {
+	if key := providerKey(p.ApiKey, accounts, preserveRef); key != "" {
 		out["ANTHROPIC_AUTH_TOKEN"] = key
 	}
 	if p.Model != "" {
@@ -158,12 +161,15 @@ func (s *EnvProviderService) expandClaude(p store.EnvProvider, accounts []store.
 	return out
 }
 
-// resolveProviderKey returns the API key to inject, resolving a
-// "${ACCOUNT:<name>}" reference against the supplied accounts. A reference with
-// no matching account (or an empty literal) yields "" so the mapping simply
-// omits the credential key rather than emitting a broken value.
-func resolveProviderKey(raw string, accounts []store.EnvAccount) string {
-	if !isProviderAccountRef(raw) {
+// providerKey returns the API key to inject for the credential env key. When
+// preserveRef is true the provider's api_key is emitted unchanged — so a
+// "${ACCOUNT:<name>}" reference stays a reference that sceneenv.SubstituteAccounts
+// replaces at spawn time (runtime-live). When false, a "${ACCOUNT:<name>}"
+// reference is resolved to the account's literal key (used for previews). A
+// reference with no matching account (or an empty literal) yields "" so the
+// mapping omits the credential key rather than emitting a broken value.
+func providerKey(raw string, accounts []store.EnvAccount, preserveRef bool) string {
+	if preserveRef || !isProviderAccountRef(raw) {
 		return raw
 	}
 	name := raw[len(sceneenv.AccountRefPrefix) : len(raw)-1]
