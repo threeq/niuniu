@@ -58,6 +58,9 @@ type MCPConfigWriter interface {
 	GenerateClaudeSettings(wsPath string) error
 	GenerateCodexConfigToml(wsPath string, opts config.MCPGenerateOptions) error
 	GenerateCodexConfigArgs(opts config.MCPGenerateOptions) ([]string, error)
+	// NiuniuMcpServer resolves the niuniu-mcp server entry (command/args/env) for
+	// a workspace so an MCP-client agent (goose) can consume niuniu tools.
+	NiuniuMcpServer(opts config.MCPGenerateOptions) (config.McpServerEntry, error)
 	// SetWorkspaceKBReadonly write-denies the given KB dataset roots in
 	// <wsPath>/.claude/settings.json (KB base4: directories exposed read-only).
 	// An empty roots slice clears the managed entries.

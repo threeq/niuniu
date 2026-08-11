@@ -65,6 +65,11 @@ type Options struct {
 	Provider string
 	Model    string
 
+	// McpServers are MCP servers goose consumes as a client (the MCP-collaboration
+	// edge: niuniu-mcp). Passed to `session/new` so goose can call niuniu's
+	// kanban / data / memory / document tools directly. May be nil.
+	McpServers []McpServer
+
 	// ResolvePermission bridges ACP session/request_permission notifications to
 	// the host UI. When nil, permission requests are auto-denied (fail closed).
 	// The host MUST return a decision; the backend writes it back as a reply.
@@ -73,6 +78,15 @@ type Options struct {
 	// HandshakeTimeout bounds Start's initialize/session/new wait. Defaults to
 	// DefaultHandshakeTimeout.
 	HandshakeTimeout time.Duration
+}
+
+// McpServer is an MCP server definition for goose to consume as a client, in
+// the ACP `mcpServers` shape (name + config{command,args,env}).
+type McpServer struct {
+	Name    string
+	Command string
+	Args    []string
+	Env     map[string]string
 }
 
 // Backend is the agentbackend.Backend implementation for Goose. Create with
@@ -199,9 +213,10 @@ func (b *Backend) initialize(ctx context.Context) error {
 	return err
 }
 
-// createSession performs `session/new`, rooted at the workspace dir.
+// createSession performs `session/new`, rooted at the workspace dir, carrying
+// the MCP servers goose consumes as a client (niuniu-mcp).
 func (b *Backend) createSession(ctx context.Context) error {
-	params := newSessionParams{Cwd: b.opts.WorkDir, McpServers: []any{}}
+	params := newSessionParams{Cwd: b.opts.WorkDir, McpServers: mcpServersParam(b.opts.McpServers)}
 	resp, err := b.request(ctx, "session/new", params, b.opts.HandshakeTimeout)
 	if err != nil {
 		return err
@@ -653,6 +668,24 @@ func (b *Backend) finishTurn(ev agentbackend.Event) {
 	if done != nil {
 		close(done)
 	}
+}
+
+// mcpServersParam converts the internal McpServer list to the ACP `mcpServers`
+// wire shape: [{name, config:{command,args,env}}]. Returns an empty array when
+// no servers are configured (goose tolerates an empty list).
+func mcpServersParam(servers []McpServer) []any {
+	out := make([]any, 0, len(servers))
+	for _, s := range servers {
+		cfg := map[string]any{"command": s.Command}
+		if len(s.Args) > 0 {
+			cfg["args"] = s.Args
+		}
+		if len(s.Env) > 0 {
+			cfg["env"] = s.Env
+		}
+		out = append(out, map[string]any{"name": s.Name, "config": cfg})
+	}
+	return out
 }
 
 // compactJSON returns a compact string form of a JSON value, or "" for nil.

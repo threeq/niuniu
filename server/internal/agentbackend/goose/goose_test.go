@@ -135,6 +135,52 @@ func TestBackendErrorStatus(t *testing.T) {
 	assert.Contains(t, last.Error, "model unavailable")
 }
 
+func TestMcpServersParamShape(t *testing.T) {
+	servers := []McpServer{{
+		Name:    "niuniu",
+		Command: "/bin/niuniu-mcp",
+		Args:    []string{"--api-base", "http://127.0.0.1:3000", "--workspace-id", "42"},
+		Env:     map[string]string{"NIUNIU_MCP_TOKEN": "tok"},
+	}}
+	got := mcpServersParam(servers)
+	require.Len(t, got, 1)
+	entry := got[0].(map[string]any)
+	assert.Equal(t, "niuniu", entry["name"])
+	cfg := entry["config"].(map[string]any)
+	assert.Equal(t, "/bin/niuniu-mcp", cfg["command"])
+	assert.Equal(t, []string{"--api-base", "http://127.0.0.1:3000", "--workspace-id", "42"}, cfg["args"])
+	assert.Equal(t, map[string]string{"NIUNIU_MCP_TOKEN": "tok"}, cfg["env"])
+
+	// Empty → empty array (goose tolerates an empty mcpServers list).
+	assert.Empty(t, mcpServersParam(nil))
+}
+
+func TestBackendWithMcpServers(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
+	// The fake ignores mcpServers but exercises the full session/new handshake
+	// with them attached; the turn should still complete done.
+	be := New(Options{
+		Command: fakeGoosePath,
+		McpServers: []McpServer{{
+			Name:    "niuniu",
+			Command: "/bin/niuniu-mcp",
+			Args:    []string{"--api-base", "http://127.0.0.1:3000"},
+		}},
+	})
+	require.NoError(t, be.Start(ctx))
+	defer be.Close(ctx)
+
+	ch, err := be.Prompt(ctx, agentbackend.PromptRequest{Message: "x"})
+	require.NoError(t, err)
+	var last agentbackend.Event
+	for ev := range ch {
+		last = ev
+	}
+	assert.Equal(t, agentbackend.EventDone, last.Type)
+}
+
 func TestBackendAbortAndClose(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()

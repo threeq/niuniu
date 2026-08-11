@@ -159,6 +159,9 @@ func (w *stubMCPWriter) GenerateCodexConfigArgs(opts config.MCPGenerateOptions) 
 }
 
 func (w *stubMCPWriter) SetWorkspaceKBReadonly(string, []string) error { return nil }
+func (w *stubMCPWriter) NiuniuMcpServer(config.MCPGenerateOptions) (config.McpServerEntry, error) {
+	return config.McpServerEntry{}, nil
+}
 
 // TestBuildCodexExec_ReadsSandboxFromWorkspace verifies that B1's per-workspace
 // codex_sandbox_mode column flows through to the --sandbox CLI flag.

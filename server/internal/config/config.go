@@ -275,6 +275,19 @@ type GooseCliConfig struct {
 	Args    []string `mapstructure:"args"`
 }
 
+// McpServerEntry is a resolved MCP server definition (command/args/env) in the
+// Agent Client Protocol `mcpServers` shape, used by agent backends that consume
+// MCP servers as a client — goose consuming niuniu-mcp (boards / data sources /
+// memory / documents) is the integration's MCP-collaboration edge. It lives in
+// config so both service (generator) and agentproxy (consumer) can name it
+// without an import cycle.
+type McpServerEntry struct {
+	Name    string
+	Command string
+	Args    []string
+	Env     map[string]string
+}
+
 type AgentRegistryConfig struct {
 	CustomAgentsDir string          `mapstructure:"custom_agents_dir"`
 	Registries      []RegistryEntry `mapstructure:"registries"`
