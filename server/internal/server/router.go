@@ -10,6 +10,7 @@ import (
 	"github.com/gin-gonic/gin"
 	apipkg "github.com/niuniu-dev/niuniu/internal/api"
 	"github.com/niuniu-dev/niuniu/internal/auth"
+	"github.com/niuniu-dev/niuniu/license"
 	swaggerFiles "github.com/swaggo/files"
 	ginSwagger "github.com/swaggo/gin-swagger"
 )
@@ -305,8 +306,13 @@ func (s *Server) setupRoutes() {
 	api.GET("/token-usage", s.tokenUsageHandler.OwnerUsage)
 
 	// Org routes
+	// 多租户组织（Tier 1）是功能分级能力：开源个人版禁用（NopGate.FeatureEnabled
+	// 对 FeatureOrg 返回 false），企业版按 license 开启。禁用时整个 /orgs 组 403。
 	orgs := api.Group("/orgs")
 	{
+		orgs.Use(apipkg.LicenseFeatureGate(func(f string) bool {
+			return s.licenseSvc.FeatureEnabled(f)
+		}, license.FeatureOrg))
 		orgs.POST("", s.orgHandler.CreateOrg)
 		orgs.GET("", s.orgHandler.ListOrgsForUser)
 		orgs.GET("/all", s.orgHandler.ListAllOrgs) // global admin: every org
@@ -1143,8 +1149,12 @@ func (s *Server) setupRoutes() {
 	teamH := s.teamHandler
 
 	// Workspace-scoped blackboard routes (per-workspace coordination scratchpad).
+	// 团队共享空间（blackboard）属多租户组织能力，随 org 功能分级一起门控。
 	wsTeam := workspaces.Group("/:id/team")
 	{
+		wsTeam.Use(apipkg.LicenseFeatureGate(func(f string) bool {
+			return s.licenseSvc.FeatureEnabled(f)
+		}, license.FeatureOrg))
 		wsTeam.GET("/blackboard", teamH.ListBlackboard)
 		wsTeam.POST("/blackboard", teamH.WriteBlackboard)
 	}

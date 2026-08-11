@@ -125,3 +125,33 @@ func TestSeatGateAllowsWhenAvailable(t *testing.T) {
 		t.Fatalf("seat gate must allow create when seats available, got %d", got)
 	}
 }
+
+func TestFeatureGateBlocksWhenDisabled(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.Use(LicenseFeatureGate(func(f string) bool { return false }, license.FeatureOrg))
+	r.POST("/api/orgs", func(c *gin.Context) { c.Status(http.StatusOK) })
+	if got := do(r, "POST", "/api/orgs"); got != http.StatusForbidden {
+		t.Fatalf("feature gate must block route when feature disabled, got %d", got)
+	}
+}
+
+func TestFeatureGateAllowsWhenEnabled(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.Use(LicenseFeatureGate(func(f string) bool { return true }, license.FeatureOrg))
+	r.POST("/api/orgs", func(c *gin.Context) { c.Status(http.StatusOK) })
+	if got := do(r, "POST", "/api/orgs"); got != http.StatusOK {
+		t.Fatalf("feature gate must allow route when feature enabled, got %d", got)
+	}
+}
+
+func TestNopGateFeatureEnabled(t *testing.T) {
+	n := license.NopGate{}
+	if n.FeatureEnabled(license.FeatureOrg) {
+		t.Fatal("open-source NopGate must disable multi-tenant org")
+	}
+	if !n.FeatureEnabled("some_future_feature") {
+		t.Fatal("NopGate must enable non-gated features (Tier 2/3 reserved) by default")
+	}
+}
