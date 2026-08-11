@@ -387,7 +387,7 @@ export const api = {
     api.get<AvailableIssue[]>('/workspaces/available-issues'),
 
   getWorkspaceIssueDefaults: (issueId: string | number) =>
-    api.get<{ repos: IssueDefaultRepo[]; project_default_cli_type?: 'claude' | 'codex' | 'qwen' }>(
+    api.get<{ repos: IssueDefaultRepo[]; project_default_cli_type?: 'claude' | 'codex' | 'qwen' | 'omp' }>(
       `/workspaces/issue-defaults?issue_id=${encodeURIComponent(String(issueId))}`
     ),
 

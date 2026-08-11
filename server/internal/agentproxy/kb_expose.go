@@ -57,6 +57,8 @@ func kbInstructionFile(cliType string) string {
 		return "AGENTS.md"
 	case "qwen":
 		return "QWEN.md"
+	case "omp":
+		return "OMP.md"
 	default:
 		return "CLAUDE.md"
 	}

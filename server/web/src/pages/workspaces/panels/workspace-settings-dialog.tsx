@@ -77,6 +77,12 @@ const AGENT_HINTS: Record<string, Record<string, string>> = {
     NIUNIU_MODEL: 'qwen3-coder-plus, deepseek-v3',
     NIUNIU_ALLOWED_TOOLS: 'Bash(git:*) Edit Read',
   },
+  omp: {
+    NIUNIU_AGENT_COMMAND: 'omp',
+    NIUNIU_AGENT_ARGS: '--mode rpc',
+    NIUNIU_MODEL: 'glm-4.6, deepseek-v3, qwen3, kimi-k2',
+    NIUNIU_ALLOWED_TOOLS: 'Bash Edit Read',
+  },
 };
 
 interface WorkspaceSettingsDialogProps {

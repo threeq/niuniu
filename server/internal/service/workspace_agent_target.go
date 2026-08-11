@@ -25,7 +25,7 @@ type workspaceAgentTarget struct {
 // agentCliTypes is the set of CLIs that have a workspace subagent directory.
 // Used to clean every CLI's managed agents on each recompute so switching a
 // workspace's CliType doesn't leave stale niuniu-managed files behind.
-var agentCliTypes = []string{"claude", "qwen", "codex"}
+var agentCliTypes = []string{"claude", "qwen", "codex", "omp"}
 
 // workspaceAgentTargetFor returns the materialization target for a CLI type.
 // Unknown types fall back to the Claude layout (the historic default).
@@ -40,6 +40,13 @@ func workspaceAgentTargetFor(cliType string) workspaceAgentTarget {
 	case "qwen":
 		return workspaceAgentTarget{
 			dir:    filepath.Join(".qwen", "agents"),
+			ext:    ".md",
+			render: RewriteNiuniuAgentContent,
+		}
+	case "omp":
+		// omp agents are markdown (.omp/agents/*.md), like Claude's.
+		return workspaceAgentTarget{
+			dir:    filepath.Join(".omp", "agents"),
 			ext:    ".md",
 			render: RewriteNiuniuAgentContent,
 		}

@@ -736,13 +736,14 @@ var ValidCliTypes = map[string]struct{}{
 	"claude": {},
 	"codex":  {},
 	"qwen":   {},
+	"omp":    {},
 }
 
 // ErrInvalidCliType is returned by Create when input.CliType is outside the
 // closed set in ValidCliTypes. API handlers should map this to HTTP 400
 // (BadRequest) rather than the generic 500, both so monitoring does not
 // page on user-input mistakes and so clients get an actionable response.
-var ErrInvalidCliType = errors.New("invalid cli_type: must be 'claude', 'codex' or 'qwen'")
+var ErrInvalidCliType = errors.New("invalid cli_type: must be 'claude', 'codex', 'qwen' or 'omp'")
 
 // ErrCodexSandboxNotCodexWorkspace is returned by UpdateCodexSandbox when the
 // target workspace is not cli_type='codex'. UI should not surface the option
