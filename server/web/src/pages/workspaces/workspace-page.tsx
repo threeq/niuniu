@@ -19,6 +19,7 @@ import { ChangesPanel } from './panels/changes-panel';
 import { IssuePanel } from './panels/issue-panel';
 import { PinnedMessagesPanel } from './panels/pinned-messages-panel';
 import { ArtifactPanelContainer } from './panels/artifact-panel-container';
+import { WorkspaceKBsPanel } from './panels/workspace-kbs-panel';
 import { ContentViewerPanel } from './panels/content-viewer-panel';
 import { ArchivedPlaceholder } from './panels/archived-placeholder';
 import { WorkspaceProjectionBanner } from './panels/workspace-projection-banner';
@@ -49,6 +50,8 @@ function PanelContent({ panelId, workspaceId, workspace, isArchived }: { panelId
       return <PinnedMessagesPanel workspaceId={workspaceId} />;
     case 'artifact':
       return <ArtifactPanelContainer workspaceId={workspaceId} />;
+    case 'kbs':
+      return <WorkspaceKBsPanel workspaceId={workspaceId} />;
     default:
       return null;
   }

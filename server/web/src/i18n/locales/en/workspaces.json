@@ -256,6 +256,7 @@
       "issue": "Issue",
       "pinned": "Pinned",
       "artifact": "Artifacts",
+      "kbs": "Knowledge bases",
       "canvas": "Canvas",
       "drawio": "Diagram"
     }

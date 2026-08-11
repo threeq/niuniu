@@ -22,9 +22,15 @@ import {
 
 interface WorkspaceKBsManagerProps {
   workspaceId: string
+  /** Render the title/description header. The workspace side-panel renders its
+      own header and passes false to avoid a doubled title. */
+  showHeader?: boolean
 }
 
-export function WorkspaceKBsManager({ workspaceId }: WorkspaceKBsManagerProps) {
+export function WorkspaceKBsManager({
+  workspaceId,
+  showHeader = true,
+}: WorkspaceKBsManagerProps) {
   const { t } = useTranslation('knowledge')
   const queryClient = useQueryClient()
   const [selectedKbId, setSelectedKbId] = useState('')
@@ -86,15 +92,19 @@ export function WorkspaceKBsManager({ workspaceId }: WorkspaceKBsManagerProps) {
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-1">
-        <label className="block text-sm font-medium text-foreground">
-          {t('workspaceMount.title')}
-        </label>
-        <FolderOpen className="h-3.5 w-3.5 text-muted-foreground/70" aria-hidden />
-      </div>
-      <p className="text-xs text-muted-foreground mb-2">
-        {t('workspaceMount.description')}
-      </p>
+      {showHeader && (
+        <>
+          <div className="flex items-center justify-between mb-1">
+            <label className="block text-sm font-medium text-foreground">
+              {t('workspaceMount.title')}
+            </label>
+            <FolderOpen className="h-3.5 w-3.5 text-muted-foreground/70" aria-hidden />
+          </div>
+          <p className="text-xs text-muted-foreground mb-2">
+            {t('workspaceMount.description')}
+          </p>
+        </>
+      )}
 
       {isLoading ? (
         <p className="text-xs text-muted-foreground italic">
