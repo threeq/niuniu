@@ -1049,6 +1049,18 @@ func (s *Server) setupRoutes() {
 		envAccounts.DELETE("/:id", s.envAccountHandler.Delete)
 	}
 
+	// Env providers (unified subscription-platform configs → per-agent env)
+	envProviders := api.Group("/env-providers")
+	{
+		envProviders.GET("", s.envProviderHandler.List)
+		envProviders.POST("", s.envProviderHandler.Create)
+		envProviders.GET("/:id", s.envProviderHandler.Get)
+		envProviders.PUT("/:id", s.envProviderHandler.Update)
+		envProviders.DELETE("/:id", s.envProviderHandler.Delete)
+		envProviders.GET("/:id/env", s.envProviderHandler.Env)
+		envProviders.POST("/:id/import", s.envProviderHandler.Import)
+	}
+
 	// Scenes (M1 — scene-based MCP/plugin management).
 	// See docs/superpowers/specs/2026-05-17-scene-based-mcp-plugin-management-design.md §9.
 	scenes := api.Group("/scenes")

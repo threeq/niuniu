@@ -31,6 +31,8 @@ import type {
   CreateEnvPresetData,
   EnvAccount,
   CreateEnvAccountData,
+  EnvProvider,
+  CreateEnvProviderData,
   GitLogEntry,
   CommitDetail,
   SystemDepsInfo,
@@ -557,6 +559,20 @@ export const api = {
     api.put(`/env-accounts/${id}`, data),
   deleteEnvAccount: (id: number): Promise<void> =>
     api.delete(`/env-accounts/${id}`),
+
+  // Env providers (unified subscription-platform configs → per-agent env)
+  listEnvProviders: (): Promise<EnvProvider[]> =>
+    api.get<EnvProvider[]>('/env-providers'),
+  createEnvProvider: (data: CreateEnvProviderData): Promise<EnvProvider> =>
+    api.post<EnvProvider>('/env-providers', data),
+  updateEnvProvider: (id: number, data: CreateEnvProviderData): Promise<void> =>
+    api.put(`/env-providers/${id}`, data),
+  deleteEnvProvider: (id: number): Promise<void> =>
+    api.delete(`/env-providers/${id}`),
+  getProviderEnv: (id: number, cliType?: string): Promise<Record<string, string>> =>
+    api.get<Record<string, string>>(`/env-providers/${id}/env`, { params: cliType ? { cli_type: cliType } : {} }),
+  importProvider: (id: number, data: { cli_type?: string; preset_name?: string; overwrite?: boolean; owner?: { type: string; id: number } }): Promise<{ preset_id: number; preset_name: string; updated?: boolean }> =>
+    api.post(`/env-providers/${id}/import`, data),
 
   // Attachments
   uploadAttachment: async (workspaceId: string, file: File): Promise<{ name: string; path: string; size: number; mimeType: string; originalSize?: number; optimized?: boolean }> => {

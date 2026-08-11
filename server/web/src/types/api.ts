@@ -1056,6 +1056,39 @@ export interface CreateEnvAccountData {
   owner?: { type: string; id: number }
 }
 
+export interface EnvProvider {
+  id: number
+  name: string
+  platform: string
+  description: string
+  base_url: string
+  api_key: string
+  model: string
+  haiku_model: string
+  sonnet_model: string
+  opus_model: string
+  subagent_model: string
+  extra_env: Record<string, string>
+  owner?: { type: string; id: number; name?: string; slug?: string }
+  created_at: string
+  updated_at: string
+}
+
+export interface CreateEnvProviderData {
+  name: string
+  platform?: string
+  description?: string
+  base_url?: string
+  api_key?: string
+  model?: string
+  haiku_model?: string
+  sonnet_model?: string
+  opus_model?: string
+  subagent_model?: string
+  extra_env?: Record<string, string>
+  owner?: { type: string; id: number }
+}
+
 // Workspace delete change check
 export interface WorktreeChangeStatus {
   worktree_path: string;

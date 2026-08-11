@@ -632,6 +632,38 @@ CREATE TABLE IF NOT EXISTS env_accounts (
 );
 CREATE INDEX IF NOT EXISTS idx_env_accounts_owner_slug ON env_accounts(owner_type, owner_id, slug);
 
+-- ============================================================
+-- Env providers table (unified subscription-platform configs)
+-- A provider holds natural model-endpoint fields (base_url, model, per-tier
+-- models) plus an API key that is either a literal secret or a
+-- "${ACCOUNT:<name>}" reference to an env_accounts row. When a provider is
+-- applied to an agent, EnvProviderService.Expand turns its fields into the
+-- correct environment key/value pair for that agent's CLI type (e.g.
+-- ANTHROPIC_BASE_URL/ANTHROPIC_MODEL for Claude Code, OPENAI_* for
+-- Codex/Qwen/omp/goose), so the user configures model/endpoint once instead of
+-- hand-writing raw env var names.
+-- ============================================================
+CREATE TABLE IF NOT EXISTS env_providers (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    name          TEXT NOT NULL UNIQUE,
+    platform      TEXT NOT NULL DEFAULT '',
+    description   TEXT NOT NULL DEFAULT '',
+    base_url      TEXT NOT NULL DEFAULT '',
+    api_key       TEXT NOT NULL DEFAULT '',
+    model         TEXT NOT NULL DEFAULT '',
+    haiku_model   TEXT NOT NULL DEFAULT '',
+    sonnet_model  TEXT NOT NULL DEFAULT '',
+    opus_model    TEXT NOT NULL DEFAULT '',
+    subagent_model TEXT NOT NULL DEFAULT '',
+    extra_env     TEXT NOT NULL DEFAULT '{}',  -- JSON: Record<string, string> passthrough
+    owner_type    TEXT NOT NULL DEFAULT 'user' CHECK (owner_type IN ('user','org')),
+    owner_id      INTEGER NOT NULL DEFAULT 0,
+    slug          TEXT NOT NULL DEFAULT '',
+    created_at    TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at    TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_env_providers_owner_slug ON env_providers(owner_type, owner_id, slug);
+
 -- Note: agent_messages.harness_run_id is a retained-but-dead legacy column
 -- (workflow subsystem decommissioned). It has no index — the old
 -- idx_agent_messages_harness_run was dropped by the drop_workflow_tables_v1

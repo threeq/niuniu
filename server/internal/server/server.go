@@ -79,6 +79,7 @@ type Server struct {
 	quickActionSvc       *service.QuickActionService
 	envPresetSvc         *service.EnvPresetService
 	envAccountSvc        *service.EnvAccountService
+	envProviderSvc       *service.EnvProviderService
 	sceneSvc             *service.SceneService
 	sceneSeeder          *service.SceneSeeder
 	sceneLayerSvc        *service.SceneLayerService
@@ -182,6 +183,7 @@ type Server struct {
 	eventsHandler           *api.EventsHandler
 	envPresetHandler        *api.EnvPresetHandler
 	envAccountHandler        *api.EnvAccountHandler
+	envProviderHandler       *api.EnvProviderHandler
 	sceneHandler            *api.SceneHandler
 	workspaceSceneHandler   *api.WorkspaceSceneHandler
 	pluginInstallHandler    *api.PluginInstallHandler
@@ -439,6 +441,16 @@ func New(cfg *config.Config, db *sql.DB, frontendFS fs.FS) *Server {
 	s.envAccountHandler = api.NewEnvAccountHandler(s.envAccountSvc)
 	s.envAccountHandler.Authz = authz
 	s.envAccountHandler.DB = db
+
+	// Env provider service and handler (unified subscription-platform configs
+	// that expand to per-agent env vars; see EnvProviderService.Expand).
+	s.envProviderSvc = service.NewEnvProviderService(s.queries, db, authz)
+	if err := s.envProviderSvc.SeedDefaults(context.Background()); err != nil {
+		slog.Warn("seed env providers failed", "error", err)
+	}
+	s.envProviderHandler = api.NewEnvProviderHandler(s.envProviderSvc, s.envPresetSvc, s.envAccountSvc)
+	s.envProviderHandler.Authz = authz
+	s.envProviderHandler.DB = db
 
 	// Scene services (M1 — see docs/superpowers/specs/2026-05-17-scene-based-mcp-plugin-management-design.md).
 	// Order: SceneService → SceneSeeder seeds builtins from embedded YAML →

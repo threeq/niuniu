@@ -302,6 +302,26 @@ type EnvPreset struct {
 	UpdatedAt   time.Time `json:"updated_at"`
 }
 
+type EnvProvider struct {
+	ID            int64     `json:"id"`
+	Name          string    `json:"name"`
+	Platform      string    `json:"platform"`
+	Description   string    `json:"description"`
+	BaseUrl       string    `json:"base_url"`
+	ApiKey        string    `json:"api_key"`
+	Model         string    `json:"model"`
+	HaikuModel    string    `json:"haiku_model"`
+	SonnetModel   string    `json:"sonnet_model"`
+	OpusModel     string    `json:"opus_model"`
+	SubagentModel string    `json:"subagent_model"`
+	ExtraEnv      string    `json:"extra_env"`
+	OwnerType     string    `json:"owner_type"`
+	OwnerID       int64     `json:"owner_id"`
+	Slug          string    `json:"slug"`
+	CreatedAt     time.Time `json:"created_at"`
+	UpdatedAt     time.Time `json:"updated_at"`
+}
+
 type ExternalApiAudit struct {
 	ID         int64     `json:"id"`
 	UserID     int64     `json:"user_id"`

@@ -48,6 +48,7 @@ const (
 	ownerTableRepositories ownerTable = "repositories"
 	ownerTableEnvPresets   ownerTable = "env_presets"
 	ownerTableEnvAccounts  ownerTable = "env_accounts"
+	ownerTableEnvProviders ownerTable = "env_providers"
 	ownerTableQuickActions ownerTable = "quick_actions"
 	ownerTableHarnesses    ownerTable = "harnesses"
 	ownerTableAgents       ownerTable = "agents"
@@ -209,6 +210,22 @@ func (a *Authz) CanAccessEnvPreset(ctx context.Context, userID, id int64) (Owner
 // id (owner-based, mirroring CanAccessEnvPreset).
 func (a *Authz) CanAccessEnvAccount(ctx context.Context, userID, id int64) (OwnerRef, error) {
 	owner, err := a.loadOwner(ctx, ownerTableEnvAccounts, id)
+	if err != nil {
+		return OwnerRef{}, err
+	}
+	if owner.Type == "user" && owner.ID == 0 {
+		return owner, nil
+	}
+	if err := a.checkAccess(ctx, userID, owner); err != nil {
+		return OwnerRef{}, err
+	}
+	return owner, nil
+}
+
+// CanAccessEnvProvider verifies userID may access the env_provider with the
+// given id (owner-based, mirroring CanAccessEnvPreset).
+func (a *Authz) CanAccessEnvProvider(ctx context.Context, userID, id int64) (OwnerRef, error) {
+	owner, err := a.loadOwner(ctx, ownerTableEnvProviders, id)
 	if err != nil {
 		return OwnerRef{}, err
 	}
