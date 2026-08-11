@@ -40,6 +40,7 @@ import { SecurityTab } from './security/security-tab'
 import { useOrgStore } from '@/stores/org-store'
 import { useAuthStore } from '@/stores/auth-store'
 import { useConfigStore } from '@/stores/config-store'
+import { useLicenseStore } from '@/stores/license-store'
 
 type SettingsTab = 'general' | 'users' | 'security' | 'env' | 'git-identity' | 'mobile-access' | 'system-deps' | 'integrations' | 'license' | 'orchestration' | 'blueprints' | 'imbot' | 'about' | 'claude'
 
@@ -113,7 +114,9 @@ export function SettingsPage({ children, orgsActive = false }: SettingsPageProps
   const isAdmin = authUser?.role === 'admin'
   const isOrgManagerSomewhere = myOrgs.some((o) => o.role === 'owner' || o.role === 'admin')
   const ctx: TabVisibilityCtx = { authEnabled, isAdmin, isOrgManagerSomewhere }
-  const showOrgsLink = authEnabled && (myOrgs.length > 0 || isAdmin)
+  // 多租户组织是功能分级能力：license 未启用 org 时隐藏组织入口（开源个人版）。
+  const orgEnabled = useLicenseStore((s) => s.orgEnabled)
+  const showOrgsLink = orgEnabled && authEnabled && (myOrgs.length > 0 || isAdmin)
 
   const [activeTab, setActiveTab] = useState<SettingsTab>(() => resolveTab(search.tab, ctx) ?? 'general')
 

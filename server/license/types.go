@@ -25,4 +25,7 @@ type Status struct {
 	ExpiresAt     int64  `json:"expires_at"`
 	DaysRemaining int64  `json:"days_remaining"`
 	ReadOnly      bool   `json:"read_only"`
+	// FeaturesEnabled 列出当前许可证启用的门控功能（功能分级）。前端据此隐藏/置灰
+	// 未启用的能力（如多租户组织）。开源个人版为空；企业版含 FeatureOrg。
+	FeaturesEnabled []string `json:"features_enabled"`
 }

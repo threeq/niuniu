@@ -102,3 +102,18 @@ func LicenseSeatGate(check func(*gin.Context) error) gin.HandlerFunc {
 		c.Next()
 	}
 }
+
+// LicenseFeatureGate blocks a route when the named feature is disabled by the
+// current license (feature gating / tiering). `enabled` is a closure over
+// LicenseService.FeatureEnabled so the middleware stays dependency-light.
+// Apply it as a per-route middleware on feature-scoped routes ONLY (e.g. the
+// multi-tenant org group), never globally.
+func LicenseFeatureGate(enabled func(string) bool, feature string) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if !enabled(feature) {
+			abortLicense(c, http.StatusForbidden, "LICENSE_FEATURE_DISABLED", "该功能需团队版 license")
+			return
+		}
+		c.Next()
+	}
+}

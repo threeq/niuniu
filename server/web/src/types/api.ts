@@ -1629,6 +1629,8 @@ export interface LicenseStatus {
   expires_at: number
   days_remaining: number
   read_only: boolean
+  /** 当前许可证启用的门控功能（功能分级）。含 'org' 表示多租户组织可用。 */
+  features_enabled?: string[]
 }
 
 /** Per-user privacy & disclaimer consent state (drives the consent gate). */
