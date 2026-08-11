@@ -369,7 +369,9 @@
         "codexHint": "需要本機已安裝 codex 命令。實驗性功能。",
         "qwenHint": "需要本機已安裝 qwen 命令。國產引擎，驅動 Qwen / DeepSeek。實驗性功能。",
         "omp": "Oh My Pi (omp)",
-        "ompHint": "需要本機安裝 omp CLI。通用 agent（編碼/辦公/資料/內容）。實驗性。"
+        "ompHint": "需要本機安裝 omp CLI。通用 agent（編碼/辦公/資料/內容）。實驗性。",
+        "goose": "Goose",
+        "gooseHint": "需要本機安裝 goose CLI。MCP-first 通用 agent，作為 MCP client 消費 niuniu-mcp。實驗性。"
       }
     },
     "deleteWorkspace": {
@@ -512,7 +514,7 @@
       "resizeHandle": "拖動調整輸入框高度",
       "statusBusy": "忙碌",
       "statusRunning": "執行中",
-      "statusIdle": "閒置"
+      "statusIdle": "空閒"
     },
     "filePicker": {
       "header": "檔案 · 輸入過濾 · Esc/空格 取消",

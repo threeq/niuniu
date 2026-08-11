@@ -115,7 +115,7 @@ export function IssueWorkspace({ issueId, issueTitle }: IssueWorkspaceProps) {
   const [loadingBranches, setLoadingBranches] = useState<Set<number>>(new Set())
   const [searchKeyword, setSearchKeyword] = useState('')
   const [claudeAccountId, setClaudeAccountId] = useState<number | null>(null)
-  const [cliType, setCliType] = useState<'claude' | 'codex' | 'qwen' | 'omp'>('claude')
+  const [cliType, setCliType] = useState<'claude' | 'codex' | 'qwen' | 'omp' | 'goose'>('claude')
 
   const agentStatusLabels: Record<string, string> = {
     idle: t('issue.workspace.agentIdle'),
@@ -214,7 +214,7 @@ export function IssueWorkspace({ issueId, issueTitle }: IssueWorkspaceProps) {
   }, [showRepoPicker, issueDefaultsQuery.data, issueDefaultsQuery.isError])
 
   const createWorkspaceMutation = useMutation({
-    mutationFn: (data: { name: string; repos: { repo_id: number; branch: string }[]; claude_account_id?: number; cli_type?: 'claude' | 'codex' | 'qwen' | 'omp' }) =>
+    mutationFn: (data: { name: string; repos: { repo_id: number; branch: string }[]; claude_account_id?: number; cli_type?: 'claude' | 'codex' | 'qwen' | 'omp' | 'goose' }) =>
       api.post<CreateWorkspaceResponse>(`/issues/${issueId}/workspace`, data),
     onSuccess: (result) => {
       queryClient.invalidateQueries({ queryKey: ['workspace', 'by-issue', issueId] })
@@ -398,7 +398,7 @@ export function IssueWorkspace({ issueId, issueTitle }: IssueWorkspaceProps) {
                 aria-label={t('issue.workspace.cliType.label')}
                 className="grid gap-1.5"
                 onKeyDown={(e) => {
-                  const order: Array<'claude' | 'codex' | 'qwen' | 'omp'> = ['claude', 'codex', 'qwen', 'omp']
+                  const order: Array<'claude' | 'codex' | 'qwen' | 'omp' | 'goose'> = ['claude', 'codex', 'qwen', 'goose', 'omp']
                   const i = order.indexOf(cliType)
                   if (e.key === 'ArrowRight' || e.key === 'ArrowDown') {
                     e.preventDefault()
@@ -411,7 +411,7 @@ export function IssueWorkspace({ issueId, issueTitle }: IssueWorkspaceProps) {
               >
                 <span className="text-xs font-medium">{t('issue.workspace.cliType.label')}</span>
                 <div className="flex gap-1.5">
-                  {(['claude', 'codex', 'qwen', 'omp'] as const).map((opt) => (
+                  {(['claude', 'codex', 'qwen', 'goose', 'omp'] as const).map((opt) => (
                     <button
                       key={opt}
                       type="button"

@@ -369,7 +369,9 @@
         "codexHint": "Requires the codex CLI on this machine. Experimental.",
         "qwenHint": "Requires the qwen CLI on this machine. Domestic engine driving Qwen / DeepSeek. Experimental.",
         "omp": "Oh My Pi (omp)",
-        "ompHint": "Requires the omp CLI on this machine. General-purpose agent (coding, office, data, content). Experimental."
+        "ompHint": "Requires the omp CLI on this machine. General-purpose agent (coding, office, data, content). Experimental.",
+        "goose": "Goose",
+        "gooseHint": "Requires the goose CLI on this machine. MCP-first general-purpose agent; speaks MCP client to niuniu-mcp. Experimental."
       }
     },
     "deleteWorkspace": {

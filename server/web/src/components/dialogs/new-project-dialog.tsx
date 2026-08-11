@@ -29,7 +29,7 @@ export function NewProjectDialog({ open, onOpenChange }: NewProjectDialogProps) 
   const [blueprintId, setBlueprintId] = useState<number | ''>('');
   // Project default agent CLI — pre-selected when creating workspaces under this
   // project and used verbatim for issue-auto-created workspaces. Default Claude.
-  const [defaultCliType, setDefaultCliType] = useState<'claude' | 'codex' | 'qwen' | 'omp'>('claude');
+  const [defaultCliType, setDefaultCliType] = useState<'claude' | 'codex' | 'qwen' | 'omp' | 'goose'>('claude');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const currentUser = useAuthStore((s) => s.user);
@@ -178,7 +178,7 @@ export function NewProjectDialog({ open, onOpenChange }: NewProjectDialogProps) 
               <select
                 id="new-project-default-agent"
                 value={defaultCliType}
-                onChange={(e) => setDefaultCliType(e.target.value as 'claude' | 'codex' | 'qwen' | 'omp')}
+                onChange={(e) => setDefaultCliType(e.target.value as 'claude' | 'codex' | 'qwen' | 'omp' | 'goose')}
                 disabled={isSubmitting}
                 className="h-9 rounded-md border border-input bg-background px-3 py-1 text-sm"
               >
@@ -186,6 +186,7 @@ export function NewProjectDialog({ open, onOpenChange }: NewProjectDialogProps) 
                 <option value="codex">{t('issue.workspace.cliType.codex')}</option>
                 <option value="qwen">{t('issue.workspace.cliType.qwen')}</option>
                 <option value="omp">{t('issue.workspace.cliType.omp')}</option>
+                <option value="goose">{t('issue.workspace.cliType.goose')}</option>
               </select>
             </div>
           </div>

@@ -17,6 +17,12 @@ const (
 	// keeps the workspace cli_type enum uniform and gives the bridge a stable
 	// dispatch key.
 	TypeOmp Type = "omp"
+	// TypeGoose is niuniu's general-purpose agent backend: Block's Goose, driven
+	// over the Agent Client Protocol (ACP) on stdio (`goose acp`). Like omp it is
+	// not a parse-the-stdout adapter — the session layer routes TypeGoose
+	// workspaces to the agentbackend.goose Backend (see agentproxy.Send). Goose
+	// is MCP-first (70+ extensions) and plays MCP client to niuniu-mcp.
+	TypeGoose Type = "goose"
 )
 
 // Adapter encapsulates the CLI-specific concerns that vary between Claude and
@@ -81,6 +87,8 @@ func For(t Type) Adapter {
 		return QwenAdapter{}
 	case TypeOmp:
 		return OmpAdapter{}
+	case TypeGoose:
+		return GooseAdapter{}
 	}
 	return ClaudeAdapter{}
 }

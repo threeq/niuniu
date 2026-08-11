@@ -223,6 +223,7 @@ type AgentConfig struct {
 	CodexCli   CodexCliConfig   `mapstructure:"codex_cli"`
 	QwenCli    QwenCliConfig    `mapstructure:"qwen_cli"`
 	OmpCli     OmpCliConfig     `mapstructure:"omp_cli"`
+	GooseCli   GooseCliConfig   `mapstructure:"goose_cli"`
 }
 
 type LogConfig struct {
@@ -259,6 +260,17 @@ type QwenCliConfig struct {
 // `omp --mode rpc` NDJSON-over-stdio; Provider/Model are workspace-level and
 // injected as env by agentbackend.omp.
 type OmpCliConfig struct {
+	Command string   `mapstructure:"command"`
+	Args    []string `mapstructure:"args"`
+}
+
+// GooseCliConfig configures the Goose binary used by goose-type workspaces
+// (niuniu's general-purpose agent backend). Mirrors OmpCliConfig. Default
+// Command "goose" is set in the Viper defaults block. The goose agent runs over
+// the Agent Client Protocol (`goose acp`) on stdio; Provider/Model are
+// workspace-level and injected as env by agentbackend.goose. Goose has no
+// native domestic models — wire OpenRouter/Ollama/compatible endpoints.
+type GooseCliConfig struct {
 	Command string   `mapstructure:"command"`
 	Args    []string `mapstructure:"args"`
 }
@@ -349,6 +361,8 @@ func Load() (*Config, error) {
 	viper.SetDefault("agent.qwen_cli.args", []string{})
 	viper.SetDefault("agent.omp_cli.command", "omp")
 	viper.SetDefault("agent.omp_cli.args", []string{})
+	viper.SetDefault("agent.goose_cli.command", "goose")
+	viper.SetDefault("agent.goose_cli.args", []string{})
 	viper.SetDefault("log.level", "debug")
 	viper.SetDefault("log.output", "terminal")
 	viper.SetDefault("log.file_dir", "")
@@ -463,6 +477,8 @@ func Save(cfg *Config) error {
 	viper.Set("agent.qwen_cli.args", cfg.Agent.QwenCli.Args)
 	viper.Set("agent.omp_cli.command", cfg.Agent.OmpCli.Command)
 	viper.Set("agent.omp_cli.args", cfg.Agent.OmpCli.Args)
+	viper.Set("agent.goose_cli.command", cfg.Agent.GooseCli.Command)
+	viper.Set("agent.goose_cli.args", cfg.Agent.GooseCli.Args)
 	viper.Set("editor.vscode_mode", cfg.Editor.VSCodeMode)
 	viper.Set("editor.vscode_remote_url", cfg.Editor.VSCodeRemoteURL)
 	viper.Set("telemetry.enabled", cfg.Telemetry.Enabled)

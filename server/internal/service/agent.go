@@ -231,6 +231,13 @@ func (m *AgentManager) Start(ctx context.Context, workspaceID int64, workDir, in
 		}
 		args = make([]string, len(m.cfg.OmpCli.Args))
 		copy(args, m.cfg.OmpCli.Args)
+	case "goose":
+		command = m.cfg.GooseCli.Command
+		if command == "" {
+			command = "goose"
+		}
+		args = make([]string, len(m.cfg.GooseCli.Args))
+		copy(args, m.cfg.GooseCli.Args)
 	default: // claude (and empty, normalized above)
 		command = m.cfg.ClaudeCode.Command
 		args = make([]string, len(m.cfg.ClaudeCode.Args))
