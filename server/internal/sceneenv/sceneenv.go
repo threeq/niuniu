@@ -20,6 +20,7 @@ import (
 	"context"
 	"encoding/json"
 	"sort"
+	"strings"
 
 	"github.com/niuniu-dev/niuniu/internal/store"
 )
@@ -29,7 +30,16 @@ import (
 type Querier interface {
 	ListWorkspaceEnv(ctx context.Context, workspaceID int64) ([]store.WorkspaceEnv, error)
 	GetProjection(ctx context.Context, workspaceID int64) (store.WorkspaceSceneProjection, error)
+	ListEnvAccounts(ctx context.Context) ([]store.EnvAccount, error)
 }
+
+// AccountRefPrefix is the placeholder an env value uses to reference a
+// subscription-platform account's API key instead of embedding the secret
+// inline, e.g. env value "${ACCOUNT:DeepSeek}" resolves to the api_key of the
+// env_account named "DeepSeek". Env presets use this to keep credentials out of
+// the readable config and let one account feed many presets/agents. The syntax
+// is exact: the whole value must be "${ACCOUNT:<name>}".
+const AccountRefPrefix = "${ACCOUNT:"
 
 // envPresetAsset mirrors the wire shape of service.EnvPresetAsset — only the
 // declared variables are needed. Decoded from the persisted projected_definition
@@ -72,32 +82,79 @@ func SceneVars(ctx context.Context, q Querier, wsID int64) map[string]string {
 // workspace already sets that key directly (explicit workspace_env wins). This
 // is the env source every agent spawn path should use instead of a bare
 // ListWorkspaceEnv so a mounted scene's variables actually reach the agent.
+//
+// Any env value that is a "${ACCOUNT:<name>}" reference is replaced with the
+// referenced account's api_key (see SubstituteAccounts). Lookup failures keep
+// the literal placeholder so the agent fails loudly if an account is missing.
 func Resolve(ctx context.Context, q Querier, wsID int64) ([]store.WorkspaceEnv, error) {
 	base, err := q.ListWorkspaceEnv(ctx, wsID)
 	if err != nil {
 		return nil, err
 	}
 	scene := SceneVars(ctx, q, wsID)
+	var out []store.WorkspaceEnv
 	if len(scene) == 0 {
-		return base, nil
+		out = base
+	} else {
+		have := make(map[string]struct{}, len(base))
+		for _, e := range base {
+			have[e.Key] = struct{}{}
+		}
+		// Append scene keys the workspace doesn't already set, sorted for a
+		// stable spawn environment.
+		keys := make([]string, 0, len(scene))
+		for k := range scene {
+			if _, ok := have[k]; ok {
+				continue
+			}
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+		out = append([]store.WorkspaceEnv(nil), base...)
+		for _, k := range keys {
+			out = append(out, store.WorkspaceEnv{WorkspaceID: wsID, Key: k, Value: scene[k]})
+		}
 	}
-	have := make(map[string]struct{}, len(base))
-	for _, e := range base {
-		have[e.Key] = struct{}{}
+	accounts, aerr := q.ListEnvAccounts(ctx)
+	if aerr != nil {
+		// Account lookup failure degrades to leaving placeholders unresolved.
+		return out, nil
 	}
-	// Append scene keys the workspace doesn't already set, sorted for a stable
-	// spawn environment.
-	keys := make([]string, 0, len(scene))
-	for k := range scene {
-		if _, ok := have[k]; ok {
+	return SubstituteAccounts(accounts, out), nil
+}
+
+// SubstituteAccounts replaces any env value that is exactly "${ACCOUNT:<name>}"
+// with the api_key of the account of that name. Values not shaped like an
+// account reference pass through untouched. When an account is referenced but
+// does not exist (or has an empty key) the placeholder is left in place so the
+// agent fails loudly rather than silently using an empty credential. The input
+// slice is not mutated; a new slice is returned.
+func SubstituteAccounts(accounts []store.EnvAccount, rows []store.WorkspaceEnv) []store.WorkspaceEnv {
+	if len(rows) == 0 {
+		return rows
+	}
+	byName := make(map[string]string, len(accounts))
+	for _, a := range accounts {
+		byName[a.Name] = a.ApiKey
+	}
+	out := make([]store.WorkspaceEnv, len(rows))
+	for i, e := range rows {
+		out[i] = e
+		if !isAccountRef(e.Value) {
 			continue
 		}
-		keys = append(keys, k)
+		name := e.Value[len(AccountRefPrefix) : len(e.Value)-1]
+		if key, ok := byName[name]; ok && key != "" {
+			out[i].Value = key
+		}
 	}
-	sort.Strings(keys)
-	out := append([]store.WorkspaceEnv(nil), base...)
-	for _, k := range keys {
-		out = append(out, store.WorkspaceEnv{WorkspaceID: wsID, Key: k, Value: scene[k]})
-	}
-	return out, nil
+	return out
+}
+
+// isAccountRef reports whether v is exactly "${ACCOUNT:<name>}".
+func isAccountRef(v string) bool {
+	return len(v) > len(AccountRefPrefix)+1 &&
+		strings.HasPrefix(v, AccountRefPrefix) &&
+		strings.HasSuffix(v, "}") &&
+		!strings.Contains(v[len(AccountRefPrefix):len(v)-1], "}")
 }

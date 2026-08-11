@@ -29,6 +29,8 @@ import type {
   TimelineEntry,
   EnvPreset,
   CreateEnvPresetData,
+  EnvAccount,
+  CreateEnvAccountData,
   GitLogEntry,
   CommitDetail,
   SystemDepsInfo,
@@ -545,6 +547,16 @@ export const api = {
     api.put(`/env-presets/${id}`, data),
   deleteEnvPreset: (id: number): Promise<void> =>
     api.delete(`/env-presets/${id}`),
+
+  // Env accounts (subscription-platform credentials referenced by presets)
+  listEnvAccounts: (): Promise<EnvAccount[]> =>
+    api.get<EnvAccount[]>('/env-accounts'),
+  createEnvAccount: (data: CreateEnvAccountData): Promise<EnvAccount> =>
+    api.post<EnvAccount>('/env-accounts', data),
+  updateEnvAccount: (id: number, data: CreateEnvAccountData): Promise<void> =>
+    api.put(`/env-accounts/${id}`, data),
+  deleteEnvAccount: (id: number): Promise<void> =>
+    api.delete(`/env-accounts/${id}`),
 
   // Attachments
   uploadAttachment: async (workspaceId: string, file: File): Promise<{ name: string; path: string; size: number; mimeType: string; originalSize?: number; optimized?: boolean }> => {

@@ -1037,6 +1037,25 @@ export interface CreateEnvPresetData {
   owner?: { type: string; id: number }
 }
 
+export interface EnvAccount {
+  id: number
+  name: string
+  platform: string
+  description: string
+  api_key: string
+  owner?: { type: string; id: number; name?: string; slug?: string }
+  created_at: string
+  updated_at: string
+}
+
+export interface CreateEnvAccountData {
+  name: string
+  platform?: string
+  description?: string
+  api_key?: string
+  owner?: { type: string; id: number }
+}
+
 // Workspace delete change check
 export interface WorktreeChangeStatus {
   worktree_path: string;

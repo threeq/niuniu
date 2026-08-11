@@ -15,6 +15,7 @@ type fakeQuerier struct {
 	envErr     error
 	projection store.WorkspaceSceneProjection
 	projErr    error
+	accounts   []store.EnvAccount
 }
 
 func (f fakeQuerier) ListWorkspaceEnv(_ context.Context, _ int64) ([]store.WorkspaceEnv, error) {
@@ -23,6 +24,10 @@ func (f fakeQuerier) ListWorkspaceEnv(_ context.Context, _ int64) ([]store.Works
 
 func (f fakeQuerier) GetProjection(_ context.Context, _ int64) (store.WorkspaceSceneProjection, error) {
 	return f.projection, f.projErr
+}
+
+func (f fakeQuerier) ListEnvAccounts(_ context.Context) ([]store.EnvAccount, error) {
+	return f.accounts, nil
 }
 
 func envMap(rows []store.WorkspaceEnv) map[string]string {
@@ -127,5 +132,62 @@ func TestResolve_ListEnvErrorPropagates(t *testing.T) {
 	q := fakeQuerier{envErr: sql.ErrConnDone}
 	if _, err := Resolve(context.Background(), q, 7); err == nil {
 		t.Fatal("expected error to propagate when ListWorkspaceEnv fails")
+	}
+}
+
+func TestResolve_AccountRefSubstituted(t *testing.T) {
+	q := fakeQuerier{
+		env: []store.WorkspaceEnv{
+			{WorkspaceID: 7, Key: "ANTHROPIC_AUTH_TOKEN", Value: "${ACCOUNT:DeepSeek}"},
+			{WorkspaceID: 7, Key: "ANTHROPIC_BASE_URL", Value: "https://api.deepseek.com/anthropic"},
+		},
+		accounts: []store.EnvAccount{{Name: "DeepSeek", ApiKey: "sk-real-secret"}},
+	}
+	rows, err := Resolve(context.Background(), q, 7)
+	if err != nil {
+		t.Fatalf("Resolve returned error: %v", err)
+	}
+	got := envMap(rows)
+	if got["ANTHROPIC_AUTH_TOKEN"] != "sk-real-secret" {
+		t.Errorf("account ref not substituted: got %q, want sk-real-secret", got["ANTHROPIC_AUTH_TOKEN"])
+	}
+	if got["ANTHROPIC_BASE_URL"] != "https://api.deepseek.com/anthropic" {
+		t.Errorf("non-ref value mutated: got %q", got["ANTHROPIC_BASE_URL"])
+	}
+}
+
+func TestResolve_AccountRefMissingKeepsPlaceholder(t *testing.T) {
+	q := fakeQuerier{
+		env: []store.WorkspaceEnv{
+			{WorkspaceID: 7, Key: "ANTHROPIC_AUTH_TOKEN", Value: "${ACCOUNT:NoSuchAccount}"},
+		},
+		accounts: []store.EnvAccount{{Name: "DeepSeek", ApiKey: "sk-real-secret"}},
+	}
+	rows, err := Resolve(context.Background(), q, 7)
+	if err != nil {
+		t.Fatalf("Resolve returned error: %v", err)
+	}
+	// Missing account keeps the literal placeholder so the agent fails loudly.
+	if got := envMap(rows)["ANTHROPIC_AUTH_TOKEN"]; got != "${ACCOUNT:NoSuchAccount}" {
+		t.Errorf("missing account should keep placeholder, got %q", got)
+	}
+}
+
+func TestSubstituteAccounts_SceneValueSubstituted(t *testing.T) {
+	accounts := []store.EnvAccount{{Name: "智谱", ApiKey: "zhipu-key"}}
+	rows := []store.WorkspaceEnv{
+		{Key: "ANTHROPIC_AUTH_TOKEN", Value: "${ACCOUNT:智谱}"},
+		{Key: "PLAIN", Value: "not-a-ref"},
+	}
+	out := SubstituteAccounts(accounts, rows)
+	if out[0].Value != "zhipu-key" {
+		t.Errorf("scene account ref not substituted: got %q", out[0].Value)
+	}
+	if out[1].Value != "not-a-ref" {
+		t.Errorf("non-ref value mutated: got %q", out[1].Value)
+	}
+	// Input slice must not be mutated.
+	if rows[0].Value != "${ACCOUNT:智谱}" {
+		t.Error("input slice was mutated")
 	}
 }

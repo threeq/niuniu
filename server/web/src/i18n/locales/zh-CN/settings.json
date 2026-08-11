@@ -616,6 +616,25 @@
       "descPlaceholder": "可选描述",
       "envVarsLabel": "环境变量",
       "noEnvVars": "暂无环境变量"
+    },
+    "accountsTitle": "订阅平台账户",
+    "accountsDescription": "保存各订阅平台的 API Key。预设通过 ${ACCOUNT:账户名} 引用账户，一次配置可被多个 Agent 复用；修改 Key 仅需在这里改一处，所有引用它的 Agent 即刻生效。",
+    "newAccount": "新建账户",
+    "noAccounts": "暂无账户",
+    "accountDeleteConfirm": "确定要删除账户「{{name}}」吗？删除后，仍引用它的预设将无法解析其 Key。",
+    "account": {
+      "createTitle": "新建账户",
+      "editTitle": "编辑账户",
+      "description": "保存订阅平台的 API Key，供环境变量预设通过 ${ACCOUNT:账户名} 引用",
+      "nameLabel": "账户名",
+      "namePlaceholder": "例如 DeepSeek",
+      "platformLabel": "平台",
+      "platformPlaceholder": "例如 deepseek / zhipu / minimax",
+      "descLabel": "描述",
+      "descPlaceholder": "可选描述",
+      "apiKeyLabel": "API Key",
+      "apiKeyPlaceholder": "粘贴真实 API Key",
+      "apiKeyHint": "Key 仅保存在本机，不会出现在预设的明文环境变量里。"
     }
   },
   "harness": {

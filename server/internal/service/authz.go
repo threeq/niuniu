@@ -47,6 +47,7 @@ const (
 	ownerTableWorkspaces   ownerTable = "workspaces"
 	ownerTableRepositories ownerTable = "repositories"
 	ownerTableEnvPresets   ownerTable = "env_presets"
+	ownerTableEnvAccounts  ownerTable = "env_accounts"
 	ownerTableQuickActions ownerTable = "quick_actions"
 	ownerTableHarnesses    ownerTable = "harnesses"
 	ownerTableAgents       ownerTable = "agents"
@@ -192,6 +193,22 @@ func (a *Authz) CanAccessQuickAction(ctx context.Context, userID, id int64) (Own
 // hitting 403.
 func (a *Authz) CanAccessEnvPreset(ctx context.Context, userID, id int64) (OwnerRef, error) {
 	owner, err := a.loadOwner(ctx, ownerTableEnvPresets, id)
+	if err != nil {
+		return OwnerRef{}, err
+	}
+	if owner.Type == "user" && owner.ID == 0 {
+		return owner, nil
+	}
+	if err := a.checkAccess(ctx, userID, owner); err != nil {
+		return OwnerRef{}, err
+	}
+	return owner, nil
+}
+
+// CanAccessEnvAccount verifies userID may access the env_account with the given
+// id (owner-based, mirroring CanAccessEnvPreset).
+func (a *Authz) CanAccessEnvAccount(ctx context.Context, userID, id int64) (OwnerRef, error) {
+	owner, err := a.loadOwner(ctx, ownerTableEnvAccounts, id)
 	if err != nil {
 		return OwnerRef{}, err
 	}

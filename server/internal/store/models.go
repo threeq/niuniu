@@ -277,6 +277,19 @@ type DefaultProjectBlueprint struct {
 	UpdatedAt   time.Time `json:"updated_at"`
 }
 
+type EnvAccount struct {
+	ID          int64     `json:"id"`
+	Name        string    `json:"name"`
+	Platform    string    `json:"platform"`
+	Description string    `json:"description"`
+	ApiKey      string    `json:"api_key"`
+	OwnerType   string    `json:"owner_type"`
+	OwnerID     int64     `json:"owner_id"`
+	Slug        string    `json:"slug"`
+	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
+}
+
 type EnvPreset struct {
 	ID          int64     `json:"id"`
 	Name        string    `json:"name"`

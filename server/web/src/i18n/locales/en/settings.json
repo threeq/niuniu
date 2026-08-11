@@ -616,6 +616,25 @@
       "descPlaceholder": "Optional description",
       "envVarsLabel": "Environment Variables",
       "noEnvVars": "No environment variables"
+    },
+    "accountsTitle": "Subscription Platform Accounts",
+    "accountsDescription": "Store the API key for each subscription platform. Presets reference an account with ${ACCOUNT:name}; one account can be reused across many Agents, and changing the key here takes effect for every Agent that references it.",
+    "newAccount": "New Account",
+    "noAccounts": "No accounts",
+    "accountDeleteConfirm": "Delete account \"{{name}}\"? Presets that still reference it will no longer resolve its key.",
+    "account": {
+      "createTitle": "New Account",
+      "editTitle": "Edit Account",
+      "description": "Store a subscription platform API key for env presets to reference via ${ACCOUNT:name}",
+      "nameLabel": "Account name",
+      "namePlaceholder": "e.g. DeepSeek",
+      "platformLabel": "Platform",
+      "platformPlaceholder": "e.g. deepseek / zhipu / minimax",
+      "descLabel": "Description",
+      "descPlaceholder": "Optional description",
+      "apiKeyLabel": "API Key",
+      "apiKeyPlaceholder": "Paste the real API key",
+      "apiKeyHint": "The key is stored only on this machine and never appears in a preset's plaintext environment variables."
     }
   },
   "harness": {

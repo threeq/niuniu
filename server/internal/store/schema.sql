@@ -609,6 +609,29 @@ CREATE TABLE IF NOT EXISTS env_presets (
 -- idx_env_presets_owner_slug is created in store/migrate.go after the
 -- slug column is added by addAssetSlugColumns (existing DBs predate it).
 
+-- ============================================================
+-- Env accounts table (subscription-platform credential references)
+-- An env account holds a real API key/token for a subscription platform
+-- (e.g. DeepSeek, 智谱, MiniMax). Env presets reference accounts via a
+-- ${ACCOUNT:<name>} placeholder in an env value instead of embedding the
+-- secret inline; sceneenv.Resolve substitutes the account's api_key at
+-- spawn time. One account can be referenced by many presets, so changing
+-- the key once updates every agent that uses it.
+-- ============================================================
+CREATE TABLE IF NOT EXISTS env_accounts (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    name        TEXT NOT NULL UNIQUE,
+    platform    TEXT NOT NULL DEFAULT '',
+    description TEXT NOT NULL DEFAULT '',
+    api_key     TEXT NOT NULL DEFAULT '',
+    owner_type  TEXT NOT NULL DEFAULT 'user' CHECK (owner_type IN ('user','org')),
+    owner_id    INTEGER NOT NULL DEFAULT 0,
+    slug        TEXT NOT NULL DEFAULT '',
+    created_at  TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at  TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_env_accounts_owner_slug ON env_accounts(owner_type, owner_id, slug);
+
 -- Note: agent_messages.harness_run_id is a retained-but-dead legacy column
 -- (workflow subsystem decommissioned). It has no index — the old
 -- idx_agent_messages_harness_run was dropped by the drop_workflow_tables_v1

@@ -78,6 +78,7 @@ type Server struct {
 	agentFileSvc         *service.AgentService
 	quickActionSvc       *service.QuickActionService
 	envPresetSvc         *service.EnvPresetService
+	envAccountSvc        *service.EnvAccountService
 	sceneSvc             *service.SceneService
 	sceneSeeder          *service.SceneSeeder
 	sceneLayerSvc        *service.SceneLayerService
@@ -180,6 +181,7 @@ type Server struct {
 	configHandler           *api.ConfigHandler
 	eventsHandler           *api.EventsHandler
 	envPresetHandler        *api.EnvPresetHandler
+	envAccountHandler        *api.EnvAccountHandler
 	sceneHandler            *api.SceneHandler
 	workspaceSceneHandler   *api.WorkspaceSceneHandler
 	pluginInstallHandler    *api.PluginInstallHandler
@@ -427,6 +429,16 @@ func New(cfg *config.Config, db *sql.DB, frontendFS fs.FS) *Server {
 	// marked with service.OneShotProviderMarker. Resolved lazily per call.
 	agentproxy.OneShotProviderEnvFunc = s.envPresetSvc.ResolveOneShotEnv
 	s.envPresetHandler.DB = db
+
+	// Env account service and handler (subscription-platform credentials
+	// referenced by env presets via ${ACCOUNT:<name>}).
+	s.envAccountSvc = service.NewEnvAccountService(s.queries, db, authz)
+	if err := s.envAccountSvc.SeedDefaults(context.Background()); err != nil {
+		slog.Warn("seed env accounts failed", "error", err)
+	}
+	s.envAccountHandler = api.NewEnvAccountHandler(s.envAccountSvc)
+	s.envAccountHandler.Authz = authz
+	s.envAccountHandler.DB = db
 
 	// Scene services (M1 — see docs/superpowers/specs/2026-05-17-scene-based-mcp-plugin-management-design.md).
 	// Order: SceneService → SceneSeeder seeds builtins from embedded YAML →

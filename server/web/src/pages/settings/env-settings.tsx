@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
-import { Plus, Trash2, Pencil, ChevronDown, ChevronRight, Package } from 'lucide-react'
+import { Plus, Trash2, Pencil, ChevronDown, ChevronRight, Package, KeyRound } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import {
@@ -18,7 +18,7 @@ import { OwnerBadge } from '@/components/shared/owner-badge'
 import { OwnerPicker } from '@/components/shared/owner-picker'
 import { useAuthStore } from '@/stores/auth-store'
 import type { OwnerRef } from '@/types/org'
-import type { EnvPreset, CreateEnvPresetData } from '@/types/api'
+import type { EnvPreset, CreateEnvPresetData, EnvAccount, CreateEnvAccountData } from '@/types/api'
 
 function PresetCard({ preset, onEdit, onDelete }: { preset: EnvPreset; onEdit: (p: EnvPreset) => void; onDelete: (id: number) => void }) {
   const { t } = useTranslation('settings')
@@ -73,6 +73,52 @@ function PresetCard({ preset, onEdit, onDelete }: { preset: EnvPreset; onEdit: (
   )
 }
 
+// Mask a stored API key so it is never shown in full: keep the first 4 and
+// last 4 characters, collapse the middle to "…". Empty/short keys stay as-is.
+function maskKey(key: string): string {
+  if (!key) return ''
+  if (key.length <= 12) return '••••••'
+  return `${key.slice(0, 4)}…${key.slice(-4)}`
+}
+
+function AccountCard({ account, onEdit, onDelete }: { account: EnvAccount; onEdit: (a: EnvAccount) => void; onDelete: (id: number) => void }) {
+  const { t } = useTranslation('settings')
+  return (
+    <div className="border border-border rounded-lg p-4">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2 text-left flex-1 min-w-0">
+          <KeyRound className="h-4 w-4 text-info flex-shrink-0" />
+          <span className="font-medium text-sm text-foreground truncate">{account.name}</span>
+          {account.platform && (
+            <span className="text-xs text-muted-foreground truncate">{account.platform}</span>
+          )}
+          {account.description && (
+            <span className="text-xs text-muted-foreground truncate">{account.description}</span>
+          )}
+          <code className="text-xs text-muted-foreground font-mono">{maskKey(account.api_key)}</code>
+        </div>
+        <div className="flex items-center gap-1 flex-shrink-0 ml-2">
+          <button
+            onClick={() => onEdit(account)}
+            className="p-1 text-muted-foreground hover:text-info"
+          >
+            <Pencil className="h-3.5 w-3.5" />
+          </button>
+          <button
+            onClick={async () => {
+              if (!(await confirm(t('env.accountDeleteConfirm', { name: account.name })))) return
+              onDelete(account.id)
+            }}
+            className="p-1 text-muted-foreground hover:text-destructive"
+          >
+            <Trash2 className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export function EnvSettings() {
   const { t } = useTranslation('settings')
   const queryClient = useQueryClient()
@@ -111,6 +157,79 @@ export function EnvSettings() {
       queryClient.invalidateQueries({ queryKey: ['env-presets'] })
     },
   })
+
+  // --- Accounts ---
+  const { data: accounts = [], isLoading: accountsLoading } = useQuery({
+    queryKey: ['env-accounts'],
+    queryFn: () => api.listEnvAccounts(),
+  })
+
+  const [accountDialogOpen, setAccountDialogOpen] = useState(false)
+  const [editingAccount, setEditingAccount] = useState<EnvAccount | null>(null)
+  const [accountName, setAccountName] = useState('')
+  const [accountPlatform, setAccountPlatform] = useState('')
+  const [accountDesc, setAccountDesc] = useState('')
+  const [accountKey, setAccountKey] = useState('')
+  const [accountOwner, setAccountOwner] = useState<OwnerRef>({ type: 'user', id: currentUser?.id ?? 0 })
+
+  const createAccountMutation = useMutation({
+    mutationFn: (data: CreateEnvAccountData) => api.createEnvAccount(data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['env-accounts'] })
+      setAccountDialogOpen(false)
+    },
+  })
+
+  const updateAccountMutation = useMutation({
+    mutationFn: ({ id, data }: { id: number; data: CreateEnvAccountData }) => api.updateEnvAccount(id, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['env-accounts'] })
+      setAccountDialogOpen(false)
+    },
+  })
+
+  const deleteAccountMutation = useMutation({
+    mutationFn: (id: number) => api.deleteEnvAccount(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['env-accounts'] })
+    },
+  })
+
+  const openCreateAccountDialog = () => {
+    setEditingAccount(null)
+    setAccountName('')
+    setAccountPlatform('')
+    setAccountDesc('')
+    setAccountKey('')
+    setAccountOwner({ type: 'user', id: currentUser?.id ?? 0 })
+    setAccountDialogOpen(true)
+  }
+
+  const openEditAccountDialog = (account: EnvAccount) => {
+    setEditingAccount(account)
+    setAccountName(account.name)
+    setAccountPlatform(account.platform)
+    setAccountDesc(account.description)
+    setAccountKey(account.api_key)
+    setAccountDialogOpen(true)
+  }
+
+  const handleSaveAccount = () => {
+    const data: CreateEnvAccountData = {
+      name: accountName,
+      platform: accountPlatform,
+      description: accountDesc,
+      api_key: accountKey,
+      owner: editingAccount ? undefined : accountOwner,
+    }
+    if (editingAccount) {
+      updateAccountMutation.mutate({ id: editingAccount.id, data })
+    } else {
+      createAccountMutation.mutate(data)
+    }
+  }
+
+  const isSavingAccount = createAccountMutation.isPending || updateAccountMutation.isPending
 
   const openCreateDialog = () => {
     setEditingPreset(null)
@@ -151,37 +270,71 @@ export function EnvSettings() {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <div className="min-w-0">
+      {/* Subscription platform accounts */}
+      <div className="border-t border-border pt-4">
+        <div className="flex items-center justify-between">
+          <div className="min-w-0">
+            <h3 className="text-sm font-medium text-foreground">{t('env.accountsTitle')}</h3>
+            <p className="mt-1 text-xs text-muted-foreground">
+              {t('env.accountsDescription')}
+            </p>
+          </div>
+          <Button size="sm" onClick={openCreateAccountDialog} className="flex-shrink-0">
+            <Plus className="h-3.5 w-3.5 mr-1" />
+            {t('env.newAccount')}
+          </Button>
+        </div>
+
+        {accountsLoading ? (
+          <p className="mt-3 text-sm text-muted-foreground">{t('common:actions.loading')}</p>
+        ) : accounts.length === 0 ? (
+          <p className="mt-3 text-sm text-muted-foreground">{t('env.noAccounts')}</p>
+        ) : (
+          <div className="mt-3 space-y-3">
+            {accounts.map((account) => (
+              <AccountCard
+                key={account.id}
+                account={account}
+                onEdit={openEditAccountDialog}
+                onDelete={(id) => deleteAccountMutation.mutate(id)}
+              />
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Env presets */}
+      <div className="border-t border-border pt-4">
+        <div className="flex items-center justify-between">
           <p className="text-sm text-muted-foreground">
             {t('env.description')}
           </p>
-          <p className="mt-1 text-xs text-muted-foreground">
-            {t('env.oneShotHint')}
-          </p>
+          <Button size="sm" onClick={openCreateDialog} className="flex-shrink-0">
+            <Plus className="h-3.5 w-3.5 mr-1" />
+            {t('env.newPreset')}
+          </Button>
         </div>
-        <Button size="sm" onClick={openCreateDialog} className="flex-shrink-0">
-          <Plus className="h-3.5 w-3.5 mr-1" />
-          {t('env.newPreset')}
-        </Button>
-      </div>
+        <p className="mt-1 text-xs text-muted-foreground">
+          {t('env.oneShotHint')}
+        </p>
 
-      {isLoading ? (
-        <p className="text-sm text-muted-foreground">{t('common:actions.loading')}</p>
-      ) : presets.length === 0 ? (
-        <p className="text-sm text-muted-foreground">{t('env.noPresets')}</p>
-      ) : (
-        <div className="space-y-3">
-          {presets.map((preset) => (
-            <PresetCard
-              key={preset.id}
-              preset={preset}
-              onEdit={openEditDialog}
-              onDelete={(id) => deleteMutation.mutate(id)}
-            />
-          ))}
-        </div>
-      )}
+        {isLoading ? (
+          <p className="mt-3 text-sm text-muted-foreground">{t('common:actions.loading')}</p>
+        ) : presets.length === 0 ? (
+          <p className="mt-3 text-sm text-muted-foreground">{t('env.noPresets')}</p>
+        ) : (
+          <div className="mt-3 space-y-3">
+            {presets.map((preset) => (
+              <PresetCard
+                key={preset.id}
+                preset={preset}
+                onEdit={openEditDialog}
+                onDelete={(id) => deleteMutation.mutate(id)}
+              />
+            ))}
+          </div>
+        )}
+      </div>
 
       {/* Create/Edit Dialog */}
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
@@ -276,6 +429,71 @@ export function EnvSettings() {
             <Button variant="outline" onClick={() => setDialogOpen(false)}>{t('common:actions.cancel')}</Button>
             <Button onClick={handleSave} disabled={isSaving || !name.trim()}>
               {isSaving ? t('common:actions.saving') : t('common:actions.save')}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Account Create/Edit Dialog */}
+      <Dialog open={accountDialogOpen} onOpenChange={setAccountDialogOpen}>
+        <DialogContent className="max-w-lg max-h-[85vh]">
+          <DialogHeader>
+            <DialogTitle>{editingAccount ? t('env.account.editTitle') : t('env.account.createTitle')}</DialogTitle>
+            <DialogDescription>
+              {t('env.account.description')}
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4">
+            {!editingAccount && (
+              <OwnerPicker
+                value={accountOwner}
+                onChange={setAccountOwner}
+                userId={currentUser?.id ?? 0}
+                autoSelectDefault={true}
+              />
+            )}
+            <div>
+              <label className="block text-sm font-medium text-foreground mb-1">{t('env.account.nameLabel')}</label>
+              <Input
+                value={accountName}
+                onChange={(e) => setAccountName(e.target.value)}
+                placeholder={t('env.account.namePlaceholder')}
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-foreground mb-1">{t('env.account.platformLabel')}</label>
+              <Input
+                value={accountPlatform}
+                onChange={(e) => setAccountPlatform(e.target.value)}
+                placeholder={t('env.account.platformPlaceholder')}
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-foreground mb-1">{t('env.account.descLabel')}</label>
+              <Input
+                value={accountDesc}
+                onChange={(e) => setAccountDesc(e.target.value)}
+                placeholder={t('env.account.descPlaceholder')}
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-foreground mb-1">{t('env.account.apiKeyLabel')}</label>
+              <Input
+                value={accountKey}
+                onChange={(e) => setAccountKey(e.target.value)}
+                placeholder={t('env.account.apiKeyPlaceholder')}
+                type="password"
+                autoComplete="new-password"
+              />
+              <p className="mt-1 text-xs text-muted-foreground">{t('env.account.apiKeyHint')}</p>
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setAccountDialogOpen(false)}>{t('common:actions.cancel')}</Button>
+            <Button onClick={handleSaveAccount} disabled={isSavingAccount || !accountName.trim()}>
+              {isSavingAccount ? t('common:actions.saving') : t('common:actions.save')}
             </Button>
           </DialogFooter>
         </DialogContent>

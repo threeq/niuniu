@@ -161,6 +161,12 @@ func (s *EnvPresetService) SeedDefaults(ctx context.Context) error {
 		existing[p.Name] = true
 	}
 
+	// Each preset's ANTHROPIC_AUTH_TOKEN is a "${ACCOUNT:<name>}" reference to an
+	// env_account (seeded by EnvAccountService.SeedDefaults with matching names).
+	// sceneenv.Resolve substitutes the account's api_key at spawn time, so the
+	// secret stays out of the readable preset and one account can back many
+	// presets/agents. A reference with no matching account keeps its literal
+	// placeholder so the agent fails loudly instead of using a blank key.
 	defaults := []struct {
 		name        string
 		description string
@@ -170,7 +176,7 @@ func (s *EnvPresetService) SeedDefaults(ctx context.Context) error {
 			name:        "智谱",
 			description: "智谱 GLM 系列模型",
 			env: map[string]string{
-				"ANTHROPIC_AUTH_TOKEN":                     ".",
+				"ANTHROPIC_AUTH_TOKEN":                     "${ACCOUNT:智谱}",
 				"ANTHROPIC_BASE_URL":                       "https://open.bigmodel.cn/api/anthropic",
 				"API_TIMEOUT_MS":                           "3000000",
 				"CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
@@ -184,7 +190,7 @@ func (s *EnvPresetService) SeedDefaults(ctx context.Context) error {
 			description: "MiniMax M2.7 模型",
 			env: map[string]string{
 				"ANTHROPIC_BASE_URL":                       "https://api.minimaxi.com/anthropic",
-				"ANTHROPIC_AUTH_TOKEN":                     "sk-cp-",
+				"ANTHROPIC_AUTH_TOKEN":                     "${ACCOUNT:MiniMax}",
 				"API_TIMEOUT_MS":                           "3000000",
 				"CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
 				"ANTHROPIC_MODEL":                          "MiniMax-M2.7",
@@ -199,7 +205,7 @@ func (s *EnvPresetService) SeedDefaults(ctx context.Context) error {
 			description: "DeepSeek V4",
 			env: map[string]string{
 				"ANTHROPIC_BASE_URL":             "https://api.deepseek.com/anthropic",
-				"ANTHROPIC_AUTH_TOKEN":           "sk-",
+				"ANTHROPIC_AUTH_TOKEN":           "${ACCOUNT:DeepSeek}",
 				"ANTHROPIC_MODEL":                "deepseek-v4-pro[1m]",
 				"ANTHROPIC_DEFAULT_OPUS_MODEL":   "deepseek-v4-pro[1m]",
 				"ANTHROPIC_DEFAULT_SONNET_MODEL": "deepseek-v4-pro[1m]",
@@ -212,7 +218,7 @@ func (s *EnvPresetService) SeedDefaults(ctx context.Context) error {
 			name:        "通义千问",
 			description: "通义千问 Qwen 3.6",
 			env: map[string]string{
-				"ANTHROPIC_AUTH_TOKEN":           "YOUR_API_KEY",
+				"ANTHROPIC_AUTH_TOKEN":           "${ACCOUNT:通义千问}",
 				"ANTHROPIC_BASE_URL":             "https://coding.dashscope.aliyuncs.com/apps/anthropic",
 				"ANTHROPIC_MODEL":                "qwen3.6-plus",
 				"ANTHROPIC_SMALL_FAST_MODEL":     "qwen3.6-plus",
@@ -227,7 +233,7 @@ func (s *EnvPresetService) SeedDefaults(ctx context.Context) error {
 			description: "Kimi K2.6",
 			env: map[string]string{
 				"ANTHROPIC_BASE_URL":             "https://api.moonshot.cn/anthropic",
-				"ANTHROPIC_AUTH_TOKEN":           "${YOUR_MOONSHOT_API_KEY}",
+				"ANTHROPIC_AUTH_TOKEN":           "${ACCOUNT:Kimi}",
 				"ANTHROPIC_MODEL":                "kimi-k2.6",
 				"ANTHROPIC_DEFAULT_OPUS_MODEL":   "kimi-k2.6",
 				"ANTHROPIC_DEFAULT_SONNET_MODEL": "kimi-k2.6",
@@ -240,7 +246,7 @@ func (s *EnvPresetService) SeedDefaults(ctx context.Context) error {
 			name:        "火山方舟",
 			description: "火山方舟 DeepSeek V4",
 			env: map[string]string{
-				"ANTHROPIC_AUTH_TOKEN":           "-",
+				"ANTHROPIC_AUTH_TOKEN":           "${ACCOUNT:火山方舟}",
 				"ANTHROPIC_BASE_URL":             "https://ark.cn-beijing.volces.com/api/coding",
 				"ANTHROPIC_MODEL":                "deepseek-v4-pro",
 				"ANTHROPIC_DEFAULT_OPUS_MODEL":   "deepseek-v4-pro",

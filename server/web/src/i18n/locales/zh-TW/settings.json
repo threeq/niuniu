@@ -616,6 +616,25 @@
       "descPlaceholder": "可選描述",
       "envVarsLabel": "環境變數",
       "noEnvVars": "暫無環境變數"
+    },
+    "accountsTitle": "訂閱平台帳戶",
+    "accountsDescription": "保存各訂閱平台的 API Key。預設透過 ${ACCOUNT:帳戶名} 引用帳戶，一次配置可被多個 Agent 復用；修改 Key 僅需在這裡改一處，所有引用它的 Agent 即刻生效。",
+    "newAccount": "新建帳戶",
+    "noAccounts": "暫無帳戶",
+    "accountDeleteConfirm": "確定要刪除帳戶「{{name}}」嗎？刪除後，仍引用它的預設將無法解析其 Key。",
+    "account": {
+      "createTitle": "新建帳戶",
+      "editTitle": "編輯帳戶",
+      "description": "保存訂閱平台的 API Key，供環境變數預設透過 ${ACCOUNT:帳戶名} 引用",
+      "nameLabel": "帳戶名",
+      "namePlaceholder": "例如 DeepSeek",
+      "platformLabel": "平台",
+      "platformPlaceholder": "例如 deepseek / zhipu / minimax",
+      "descLabel": "描述",
+      "descPlaceholder": "可選描述",
+      "apiKeyLabel": "API Key",
+      "apiKeyPlaceholder": "貼上真實 API Key",
+      "apiKeyHint": "Key 僅保存在本機，不會出現在預設的明文環境變數裡。"
     }
   },
   "harness": {

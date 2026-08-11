@@ -1039,6 +1039,16 @@ func (s *Server) setupRoutes() {
 		envPresets.DELETE("/:id", s.envPresetHandler.Delete)
 	}
 
+	// Env accounts (subscription-platform credentials referenced by presets)
+	envAccounts := api.Group("/env-accounts")
+	{
+		envAccounts.GET("", s.envAccountHandler.List)
+		envAccounts.POST("", s.envAccountHandler.Create)
+		envAccounts.GET("/:id", s.envAccountHandler.Get)
+		envAccounts.PUT("/:id", s.envAccountHandler.Update)
+		envAccounts.DELETE("/:id", s.envAccountHandler.Delete)
+	}
+
 	// Scenes (M1 — scene-based MCP/plugin management).
 	// See docs/superpowers/specs/2026-05-17-scene-based-mcp-plugin-management-design.md §9.
 	scenes := api.Group("/scenes")
