@@ -23,6 +23,7 @@ const toolLabels: Record<string, { label: string; downloadUrl: string }> = {
   codex:     { label: 'Codex CLI', downloadUrl: 'https://github.com/openai/codex' },
   qwen:      { label: 'Qwen Code CLI', downloadUrl: 'https://qwen.code/' },
   omp:       { label: 'Oh My Pi (omp) CLI', downloadUrl: 'https://github.com/can1357/oh-my-pi' },
+  goose:     { label: 'Goose CLI', downloadUrl: 'https://github.com/block/goose' },
   tesseract: { label: 'Tesseract OCR', downloadUrl: 'https://www.niu6ai.com/docs/install/ocr-tesseract' },
   // cairosvg (issue #472): optional pip package powering PNG export for the
   // fireworks diagram scene; SVG always works without it. Installs via pip on
@@ -35,6 +36,7 @@ function commandFor(tool: string, info: SystemDepsInfo): string {
   if (tool === 'codex') return 'npm install -g @openai/codex'
   if (tool === 'qwen') return 'npm install -g @qwen-code/qwen-code'
   if (tool === 'omp') return 'npm install -g oh-my-pi'
+  if (tool === 'goose') return 'npm install -g @block/goose'
   // cairosvg installs via pip on every platform — independent of the OS PM.
   // Mirrors commandFor() in internal/service/system_deps.go (--user, no admin).
   if (tool === 'cairosvg') return 'python -m pip install --user cairosvg'

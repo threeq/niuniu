@@ -369,7 +369,9 @@
         "codexHint": "需要本机已安装 codex 命令。实验性功能。",
         "qwenHint": "需要本机已安装 qwen 命令。国产引擎，驱动 Qwen / DeepSeek。实验性功能。",
         "omp": "Oh My Pi (omp)",
-        "ompHint": "需要本机安装 omp CLI。通用 agent（编码/办公/数据/内容）。实验性。"
+        "ompHint": "需要本机安装 omp CLI。通用 agent（编码/办公/数据/内容）。实验性。",
+        "goose": "Goose",
+        "gooseHint": "需要本机安装 goose CLI。MCP-first 通用 agent，作为 MCP client 消费 niuniu-mcp。实验性。"
       }
     },
     "deleteWorkspace": {

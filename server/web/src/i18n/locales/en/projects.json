@@ -365,7 +365,8 @@
         "claude": "Claude Code",
         "codex": "OpenAI Codex",
         "qwen": "Qwen Code",
-        "omp": "Oh My Pi (omp)"
+        "omp": "Oh My Pi (omp)",
+        "goose": "Goose"
       },
       "claudeAccount": "Claude Account",
       "claudeAccountDefault": "(Default account)",

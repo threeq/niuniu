@@ -83,6 +83,12 @@ const AGENT_HINTS: Record<string, Record<string, string>> = {
     NIUNIU_MODEL: 'glm-4.6, deepseek-v3, qwen3, kimi-k2',
     NIUNIU_ALLOWED_TOOLS: 'Bash Edit Read',
   },
+  goose: {
+    NIUNIU_AGENT_COMMAND: 'goose',
+    NIUNIU_AGENT_ARGS: 'acp',
+    NIUNIU_MODEL: 'openrouter:<model>, ollama:<model>, anthropic:<model>',
+    NIUNIU_ALLOWED_TOOLS: 'Bash Edit Read',
+  },
 };
 
 interface WorkspaceSettingsDialogProps {

@@ -17,7 +17,7 @@ export interface Project extends BaseEntity {
   description: string | null;
   status: 'active' | 'hidden';
   color?: string | null;            // palette key like 'emerald'，null/缺失为未设
-  default_cli_type?: 'claude' | 'codex' | 'qwen' | 'omp';  // 项目默认 agent，新建工作区时预选
+  default_cli_type?: 'claude' | 'codex' | 'qwen' | 'omp' | 'goose';  // 项目默认 agent，新建工作区时预选
   issue_stats?: { column_name: string; count: number }[];
   ws_stats?: { status: string; count: number }[];
   owner?: import('./org').OwnerRef;
@@ -364,7 +364,7 @@ export interface Workspace {
    * different on-disk config (.codex/config.toml) and skip the Claude-specific
    * cost / account UI elements.
    */
-  cli_type: 'claude' | 'codex' | 'qwen' | 'omp';
+  cli_type: 'claude' | 'codex' | 'qwen' | 'omp' | 'goose';
   /** Codex managed account binding (M2.5). null = use global ~/.codex/. */
   codex_account_id?: number | null;
   /** Codex sandbox mode (M2.5). Defaults to 'danger-full-access'. */
@@ -515,7 +515,7 @@ export interface CreateWorkspaceRequest {
    * Optional CLI selector. Omit / empty string defaults to 'claude' in the
    * SQL layer. Pass 'codex' to create a Codex workspace.
    */
-  cli_type?: 'claude' | 'codex' | 'qwen' | 'omp';
+  cli_type?: 'claude' | 'codex' | 'qwen' | 'omp' | 'goose';
   /**
    * Create a plain owner-isolated directory with no git worktrees (office /
    * non-code tasks). When true, `repos` must be empty; when false, at least
@@ -585,7 +585,7 @@ export interface CreateWorkspaceFromDirectoryRequest {
   dir: string;
   owner?: import('./org').OwnerRef;
   name?: string;
-  cli_type?: 'claude' | 'codex' | 'qwen' | 'omp';
+  cli_type?: 'claude' | 'codex' | 'qwen' | 'omp' | 'goose';
   /** Optional workflow (project_templates) pre-selection. */
   workflow_template_id?: number | null;
 }

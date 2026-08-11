@@ -645,6 +645,11 @@ func Migrate(db *sql.DB) {
 	// SQLite rebuilds the tables (no ALTER-CHECK), Postgres swaps the named
 	// constraints in place.
 	migrateAllowOmpCLIType(db)
+
+	// 2026-08-11 General agent backends: admit 'goose' (Block's Goose) to the
+	// same cli_type enums. Runs after the omp widening so the old→new enum chain
+	// is incremental.
+	migrateAllowGooseCLIType(db)
 }
 
 // migrateIMBotAllowWechat relaxes the im_bot_channels.channel_type and
@@ -843,6 +848,59 @@ func migrateAllowOmpCLITypeSQLite(db *sql.DB, w *DB, oldEnum, newEnum string) {
 	}
 	markMigration(w, "allow_omp_cli_type_v1")
 	slog.Info("migrateAllowOmpCLIType: workspaces.cli_type / projects.default_cli_type CHECK widened for 'omp'")
+}
+
+// migrateAllowGooseCLIType widens the cli_type enums on workspaces.cli_type and
+// projects.default_cli_type to admit 'goose' (Block's Goose), the
+// general-purpose MCP-first agent backend. Same dual-driver strategy as the omp
+// widening: it advances the enum from the 4-value set to the 5-value set.
+func migrateAllowGooseCLIType(db *sql.DB) {
+	oldEnum := "('claude','codex','qwen','omp')"
+	newEnum := "('claude','codex','qwen','omp','goose')"
+	if Driver == "postgres" {
+		migrateAllowGooseCLITypePostgres(db)
+		return
+	}
+	migrateAllowGooseCLITypeSQLite(db, Wrap(db), oldEnum, newEnum)
+}
+
+func migrateAllowGooseCLITypePostgres(db *sql.DB) {
+	w := Wrap(db)
+	if migrationApplied(w, "allow_goose_cli_type_v1") {
+		return
+	}
+	stmts := []string{
+		`ALTER TABLE workspaces DROP CONSTRAINT IF EXISTS workspaces_cli_type_check`,
+		`ALTER TABLE workspaces ADD CONSTRAINT workspaces_cli_type_check
+			CHECK (cli_type IN ('claude','codex','qwen','omp','goose'))`,
+		`ALTER TABLE projects DROP CONSTRAINT IF EXISTS projects_default_cli_type_check`,
+		`ALTER TABLE projects ADD CONSTRAINT projects_default_cli_type_check
+			CHECK (default_cli_type IN ('claude','codex','qwen','omp','goose'))`,
+	}
+	for _, s := range stmts {
+		if _, err := db.Exec(s); err != nil {
+			slog.Warn("migrateAllowGooseCLIType (pg): step failed", "error", err)
+			return // leave marker unset; next start retries
+		}
+	}
+	markMigration(w, "allow_goose_cli_type_v1")
+	slog.Info("migrateAllowGooseCLIType: workspaces.cli_type / projects.default_cli_type CHECK widened for 'goose'")
+}
+
+// migrateAllowGooseCLITypeSQLite rebuilds the workspaces and projects tables with
+// the widened cli_type CHECK (reusing the omp widening's stored-DDL rebuild).
+func migrateAllowGooseCLITypeSQLite(db *sql.DB, w *DB, oldEnum, newEnum string) {
+	if migrationApplied(w, "allow_goose_cli_type_v1") {
+		return
+	}
+	for _, table := range []string{"workspaces", "projects"} {
+		if err := rebuildSQLiteWidenCheck(db, table, oldEnum, newEnum); err != nil {
+			slog.Warn("migrateAllowGooseCLIType (sqlite): rebuild failed", "table", table, "error", err)
+			return // leave marker unset; next start retries
+		}
+	}
+	markMigration(w, "allow_goose_cli_type_v1")
+	slog.Info("migrateAllowGooseCLIType: workspaces.cli_type / projects.default_cli_type CHECK widened for 'goose'")
 }
 
 // rebuildSQLiteWidenCheck rebuilds a single SQLite table with oldEnum replaced by

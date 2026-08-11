@@ -445,6 +445,11 @@ type WorkspaceSession struct {
 	// by the session. Guarded by s.mu.
 	ompBackend agentbackend.Backend
 
+	// gooseBackend is the reusable agentbackend.Backend driving goose workspaces
+	// (ACP over `goose acp`). Lazily created on the first goose turn; owned by
+	// the session. Guarded by s.mu.
+	gooseBackend agentbackend.Backend
+
 	// Per-turn state (reset each Send)
 	turnDone  chan struct{} // signaled when result event arrives
 	turnMsgId string        // current message correlation ID
@@ -3190,6 +3195,9 @@ func (s *WorkspaceSession) Send(ctx context.Context, workDir, content, attachmen
 	if cliAdapter.Type() == adapter.TypeOmp {
 		return s.runOMPBackendTurn(ctx, workDir, contentToSend, msgId)
 	}
+	if cliAdapter.Type() == adapter.TypeGoose {
+		return s.runGooseBackendTurn(ctx, workDir, contentToSend, msgId)
+	}
 	switch cliAdapter.ProcessMode() {
 	case adapter.ProcessOneShot:
 		return s.runOneShotTurn(ctx, workDir, contentToSend, msgId)
@@ -3381,6 +3389,16 @@ func (s *WorkspaceSession) killProcess() {
 	if ompBackend != nil {
 		_ = ompBackend.Close(context.Background())
 		slog.Info("agent: omp backend killed", "workspaceID", s.workspaceID)
+	}
+
+	// Tear down the goose backend process (ACP over stdio) if one was started.
+	s.mu.Lock()
+	gooseBackend := s.gooseBackend
+	s.gooseBackend = nil
+	s.mu.Unlock()
+	if gooseBackend != nil {
+		_ = gooseBackend.Close(context.Background())
+		slog.Info("agent: goose backend killed", "workspaceID", s.workspaceID)
 	}
 
 	s.procMu.Lock()
@@ -3615,6 +3633,8 @@ func normalizedCliType(cliType string) string {
 		return "qwen"
 	case "omp":
 		return "omp"
+	case "goose":
+		return "goose"
 	}
 	return "claude"
 }
