@@ -683,6 +683,8 @@ func (s *Server) setupRoutes() {
 		// Environment variables
 		workspaces.GET("/:id/env", s.workspaceHandler.GetEnv)
 		workspaces.PUT("/:id/env", s.workspaceHandler.SetEnv)
+		// Direct subscription-platform provider binding (issue #653 simplification)
+		workspaces.PUT("/:id/env-provider", s.workspaceHandler.SetEnvProvider)
 
 		// Local-runner binding (Epic #526 子B): read state / save+trigger / unbind.
 		workspaces.GET("/:id/local-runner", s.localRunnerHandler.Get)

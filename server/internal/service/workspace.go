@@ -2241,6 +2241,21 @@ func (s *WorkspaceService) SetWorkspaceEnvVars(ctx context.Context, workspaceID 
 	return nil
 }
 
+// SetEnvProvider binds (or unbinds, when providerID=0) a subscription-platform
+// provider directly to the workspace. At spawn, sceneenv.Resolve expands the
+// bound provider per the workspace's cli_type — the common "this workspace uses
+// DeepSeek" path that needs no scene.
+func (s *WorkspaceService) SetEnvProvider(ctx context.Context, workspaceID, providerID int64) error {
+	var v sql.NullInt64
+	if providerID > 0 {
+		v = sql.NullInt64{Int64: providerID, Valid: true}
+	}
+	return s.q.SetWorkspaceEnvProvider(ctx, store.SetWorkspaceEnvProviderParams{
+		ID:            workspaceID,
+		EnvProviderID: v,
+	})
+}
+
 // WorktreeChangesSummary holds per-worktree change counts
 type WorktreeChangesSummary struct {
 	Name      string `json:"name"`

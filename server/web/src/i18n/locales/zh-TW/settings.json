@@ -605,6 +605,8 @@
     "oneShotHint": "提示：在某個預設里加入環境變數 NIUNIU_ONESHOT_PROVIDER=1，即可讓系統級 AI 輔助呼叫（目標推斷 / 開工判定 / 列說明生成等一次性呼叫）使用該預設的模型供應商。這類呼叫不在工作空間裡執行，預設只用本機環境變數。",
     "newPreset": "新建預設",
     "noPresets": "暫無預設",
+    "presetsAdvancedTitle": "原始環境變數預設（進階）",
+    "presetsAdvancedHint": "通常用上方 Provider 即可；僅當需要手寫 raw KEY=VALUE（如 NIUNIU_ONESHOT_PROVIDER 等控制鍵）時再用這裡。",
     "deleteConfirm": "確定要刪除預設「{{name}}」嗎？",
     "dialog": {
       "createTitle": "新建預設",

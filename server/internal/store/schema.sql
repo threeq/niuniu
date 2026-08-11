@@ -251,7 +251,12 @@ CREATE TABLE IF NOT EXISTS workspaces (
     -- language is the creating user's UI language code (e.g. 'zh-CN'); it seeds
     -- the "User Language" directive in generated CLAUDE.md/AGENTS.md and is
     -- inherited by epic-derived child workspaces. '' = unknown (generic directive).
-    language TEXT NOT NULL DEFAULT ''
+    language TEXT NOT NULL DEFAULT '',
+    -- env_provider_id is the subscription-platform provider this workspace
+    -- uses directly (issue #653 simplification): at spawn, sceneenv.Resolve
+    -- expands it per the workspace's cli_type without requiring a scene. NULL
+    -- means no direct binding (fall back to scene-declared providers/presets).
+    env_provider_id INTEGER DEFAULT NULL REFERENCES env_providers(id) ON DELETE SET NULL
 );
 
 -- ============================================================

@@ -611,6 +611,9 @@ type WorkspaceResponse struct {
 	CodexAccountID      *int64    `json:"codex_account_id,omitempty"`
 	CodexSandboxMode    string    `json:"codex_sandbox_mode,omitempty"`
 	CodexApprovalPolicy string    `json:"codex_approval_policy,omitempty"`
+	// EnvProviderID is the directly-bound subscription-platform provider (issue
+	// #653). nil = no direct binding (env comes from scene/ explicit workspace_env).
+	EnvProviderID       *int64    `json:"env_provider_id,omitempty"`
 	CreatedAt           time.Time `json:"created_at" example:"2026-03-17T12:00:00Z"`
 	UpdatedAt           time.Time `json:"updated_at" example:"2026-03-17T12:00:00Z"`
 }
@@ -649,6 +652,11 @@ func toWorkspaceResponse(w store.Workspace) WorkspaceResponse {
 		v := w.CodexAccountID.Int64
 		codexAccountID = &v
 	}
+	var envProviderID *int64
+	if w.EnvProviderID.Valid {
+		v := w.EnvProviderID.Int64
+		envProviderID = &v
+	}
 	return WorkspaceResponse{
 		ID:                  strconv.FormatInt(w.ID, 10),
 		Name:                w.Name,
@@ -667,6 +675,7 @@ func toWorkspaceResponse(w store.Workspace) WorkspaceResponse {
 		CodexAccountID:      codexAccountID,
 		CodexSandboxMode:    normalizeCodexSandbox(w.CodexSandboxMode),
 		CodexApprovalPolicy: normalizeCodexApproval(w.CodexApprovalPolicy),
+		EnvProviderID:       envProviderID,
 		CreatedAt:           w.CreatedAt,
 		UpdatedAt:           w.UpdatedAt,
 	}

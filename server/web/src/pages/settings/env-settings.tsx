@@ -522,12 +522,15 @@ export function EnvSettings() {
         )}
       </div>
 
-      {/* Env presets */}
+      {/* Env presets — advanced/raw env (Provider is the primary path above) */}
       <div className="border-t border-border pt-4">
         <div className="flex items-center justify-between">
-          <p className="text-sm text-muted-foreground">
-            {t('env.description')}
-          </p>
+          <div>
+            <h3 className="text-sm font-medium text-foreground">{t('env.presetsAdvancedTitle')}</h3>
+            <p className="mt-1 text-xs text-muted-foreground">
+              {t('env.presetsAdvancedHint')}
+            </p>
+          </div>
           <Button size="sm" onClick={openCreateDialog} className="flex-shrink-0">
             <Plus className="h-3.5 w-3.5 mr-1" />
             {t('env.newPreset')}

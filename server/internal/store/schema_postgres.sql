@@ -251,7 +251,8 @@ CREATE TABLE IF NOT EXISTS workspaces (
     -- language is the creating user's UI language code (e.g. 'zh-CN'); it seeds
     -- the "User Language" directive in generated CLAUDE.md/AGENTS.md and is
     -- inherited by epic-derived child workspaces. '' = unknown (generic directive).
-    language TEXT NOT NULL DEFAULT ''
+    language TEXT NOT NULL DEFAULT '',
+    env_provider_id BIGINT DEFAULT NULL REFERENCES env_providers(id) ON DELETE SET NULL
 );
 
 -- ============================================================

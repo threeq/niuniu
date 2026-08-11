@@ -365,6 +365,8 @@ export interface Workspace {
    * cost / account UI elements.
    */
   cli_type: 'claude' | 'codex' | 'qwen' | 'omp' | 'goose';
+  /** Directly-bound subscription-platform provider (issue #653). null = none. */
+  env_provider_id?: number | null;
   /** Codex managed account binding (M2.5). null = use global ~/.codex/. */
   codex_account_id?: number | null;
   /** Codex sandbox mode (M2.5). Defaults to 'danger-full-access'. */

@@ -32,7 +32,9 @@ type Querier interface {
 	GetProjection(ctx context.Context, workspaceID int64) (store.WorkspaceSceneProjection, error)
 	ListEnvAccounts(ctx context.Context) ([]store.EnvAccount, error)
 	ListEnvProviders(ctx context.Context) ([]store.EnvProvider, error)
+	GetEnvProvider(ctx context.Context, id int64) (store.EnvProvider, error)
 	GetWorkspaceCliType(ctx context.Context, workspaceID int64) (string, error)
+	GetWorkspaceEnvProviderID(ctx context.Context, workspaceID int64) (int64, error)
 }
 
 // AccountRefPrefix is the placeholder an env value uses to reference a
@@ -106,44 +108,45 @@ func SceneVars(ctx context.Context, q Querier, wsID int64) map[string]string {
 	return out
 }
 
-// Resolve returns the workspace's explicit env vars overlaid on top of its
-// scene-projected env vars: every scene-declared variable is included unless the
-// workspace already sets that key directly (explicit workspace_env wins). This
-// is the env source every agent spawn path should use instead of a bare
-// ListWorkspaceEnv so a mounted scene's variables actually reach the agent.
+// Resolve returns the workspace's effective env, merged in this precedence
+// (lowest → highest): the workspace's directly-bound provider
+// (workspaces.env_provider_id, expanded per cli_type — the common "this
+// workspace uses DeepSeek" path that needs no scene), then scene-declared
+// providers, then scene env_presets, then explicit workspace_env. This is the
+// env source every agent spawn path should use instead of a bare
+// ListWorkspaceEnv so mounted providers/scenes actually reach the agent.
 //
-// Scene env comes from two asset kinds, expanded in this precedence order
-// (lowest to highest): scene-declared providers (expanded per the workspace's
-// cli_type via ExpandProvider), then scene env_presets, then explicit
-// workspace_env. Any env value that is a "${ACCOUNT:<name>}" reference is then
-// replaced with the referenced account's api_key (see SubstituteAccounts).
-// Lookup failures keep the literal placeholder so the agent fails loudly if an
-// account is missing.
+// Any env value that is a "${ACCOUNT:<name>}" reference is then replaced with
+// the referenced account's api_key (see SubstituteAccounts). Lookup failures
+// keep the literal placeholder so the agent fails loudly if an account is
+// missing. The merge is key-deduplicated (higher precedence wins) so no KEY
+// appears twice.
 func Resolve(ctx context.Context, q Querier, wsID int64) ([]store.WorkspaceEnv, error) {
 	base, err := q.ListWorkspaceEnv(ctx, wsID)
 	if err != nil {
 		return nil, err
 	}
 	accounts, _ := q.ListEnvAccounts(ctx)
+	cliType, _ := q.GetWorkspaceCliType(ctx, wsID)
 	scene := SceneVars(ctx, q, wsID)
+	merged := map[string]string{}
 
-	// Lowest precedence: explicit workspace_env keys are reserved and win over
-	// every scene asset.
-	have := make(map[string]struct{}, len(base))
-	for _, e := range base {
-		have[e.Key] = struct{}{}
+	// Lowest: directly-bound provider (no scene required).
+	if pid, perr := q.GetWorkspaceEnvProviderID(ctx, wsID); perr == nil && pid > 0 {
+		if p, gerr := q.GetEnvProvider(ctx, pid); gerr == nil {
+			for k, v := range ExpandProvider(p, cliType, accounts, true) {
+				merged[k] = v
+			}
+		}
 	}
-	out := append([]store.WorkspaceEnv(nil), base...)
 
-	// Scene providers expand per the workspace's cli_type (runtime-live refs).
-	providerNames := SceneProviders(ctx, q, wsID)
-	if len(providerNames) > 0 {
+	// Scene providers (by name).
+	if names := SceneProviders(ctx, q, wsID); len(names) > 0 {
 		var providers []store.EnvProvider
 		if p, perr := q.ListEnvProviders(ctx); perr == nil {
 			providers = p
 		}
-		cliType, _ := q.GetWorkspaceCliType(ctx, wsID)
-		for _, name := range providerNames {
+		for _, name := range names {
 			var target *store.EnvProvider
 			for i := range providers {
 				if providers[i].Name == name {
@@ -156,29 +159,30 @@ func Resolve(ctx context.Context, q Querier, wsID int64) ([]store.WorkspaceEnv, 
 				continue
 			}
 			for k, v := range ExpandProvider(*target, cliType, accounts, true) {
-				if _, ok := have[k]; ok {
-					continue
-				}
-				out = append(out, store.WorkspaceEnv{WorkspaceID: wsID, Key: k, Value: v})
+				merged[k] = v
 			}
 		}
 	}
 
 	// Scene env_presets.
-	if len(scene) > 0 {
-		keys := make([]string, 0, len(scene))
-		for k := range scene {
-			if _, ok := have[k]; ok {
-				continue
-			}
-			keys = append(keys, k)
-		}
-		sort.Strings(keys)
-		for _, k := range keys {
-			out = append(out, store.WorkspaceEnv{WorkspaceID: wsID, Key: k, Value: scene[k]})
-		}
+	for k, v := range scene {
+		merged[k] = v
 	}
 
+	// Highest: explicit workspace_env.
+	for _, e := range base {
+		merged[e.Key] = e.Value
+	}
+
+	keys := make([]string, 0, len(merged))
+	for k := range merged {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	out := make([]store.WorkspaceEnv, 0, len(keys))
+	for _, k := range keys {
+		out = append(out, store.WorkspaceEnv{WorkspaceID: wsID, Key: k, Value: merged[k]})
+	}
 	return SubstituteAccounts(accounts, out), nil
 }
 

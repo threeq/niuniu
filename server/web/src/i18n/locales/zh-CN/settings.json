@@ -605,6 +605,8 @@
     "oneShotHint": "提示：在某个预设里加入环境变量 NIUNIU_ONESHOT_PROVIDER=1，即可让系统级 AI 辅助调用（目标推断 / 开工判定 / 列说明生成等一次性调用）使用该预设的模型供应商。这类调用不在工作空间里运行，默认只用本机环境变量。",
     "newPreset": "新建预设",
     "noPresets": "暂无预设",
+    "presetsAdvancedTitle": "原始环境变量预设（高级）",
+    "presetsAdvancedHint": "通常用上方 Provider 即可；仅当需要手写 raw KEY=VALUE（如 NIUNIU_ONESHOT_PROVIDER 等控制键）时再用这里。",
     "deleteConfirm": "确定要删除预设「{{name}}」吗？",
     "dialog": {
       "createTitle": "新建预设",

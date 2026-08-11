@@ -213,6 +213,10 @@ func Migrate(db *sql.DB) {
 	// SQLite stores JSON as TEXT; PostgreSQL uses JSONB.
 	addMcpServersToWorkspaces(context.Background(), db)
 
+	// Direct subscription-platform provider binding (issue #653 simplification):
+	// a workspace can use a provider without mounting a scene. NULL = no binding.
+	addColumnIfNotExists(db, "workspaces", "env_provider_id", fk+" DEFAULT NULL REFERENCES env_providers(id) ON DELETE SET NULL")
+
 	if !migrationApplied(w, "workspaces_created_by_backfill_v1") {
 		if _, err := w.ExecContext(context.Background(),
 			`UPDATE workspaces SET created_by = owner_id

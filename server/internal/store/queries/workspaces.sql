@@ -7,6 +7,14 @@ SELECT * FROM workspaces WHERE id = ?;
 -- name: GetWorkspaceCliType :one
 SELECT cli_type FROM workspaces WHERE id = ?;
 
+-- name: GetWorkspaceEnvProviderID :one
+-- 0 means no direct provider binding (NULL COALESCE'd); callers fall back to
+-- scene-declared providers/presets.
+SELECT COALESCE(env_provider_id, 0) AS env_provider_id FROM workspaces WHERE id = ?;
+
+-- name: SetWorkspaceEnvProvider :exec
+UPDATE workspaces SET env_provider_id = ? WHERE id = ?;
+
 -- name: GetWorkspacesByIssue :many
 SELECT * FROM workspaces WHERE issue_id = ? ORDER BY is_archived ASC, created_at DESC;
 

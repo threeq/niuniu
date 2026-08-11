@@ -983,6 +983,7 @@ type Workspace struct {
 	IsStudio             int64          `json:"is_studio"`
 	StrictMcpConfig      int64          `json:"strict_mcp_config"`
 	Language             string         `json:"language"`
+	EnvProviderID        sql.NullInt64  `json:"env_provider_id"`
 }
 
 type WorkspaceCost struct {

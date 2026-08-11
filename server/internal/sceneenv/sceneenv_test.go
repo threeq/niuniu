@@ -11,13 +11,14 @@ import (
 // fakeQuerier is a minimal in-memory stand-in for *store.Queries, exercising
 // the merge logic without a database.
 type fakeQuerier struct {
-	env        []store.WorkspaceEnv
-	envErr     error
-	projection store.WorkspaceSceneProjection
-	projErr    error
-	accounts   []store.EnvAccount
-	providers  []store.EnvProvider
-	cliType    string
+	env           []store.WorkspaceEnv
+	envErr        error
+	projection    store.WorkspaceSceneProjection
+	projErr       error
+	accounts      []store.EnvAccount
+	providers     []store.EnvProvider
+	boundProvider *store.EnvProvider
+	cliType       string
 }
 
 func (f fakeQuerier) ListWorkspaceEnv(_ context.Context, _ int64) ([]store.WorkspaceEnv, error) {
@@ -36,11 +37,30 @@ func (f fakeQuerier) ListEnvProviders(_ context.Context) ([]store.EnvProvider, e
 	return f.providers, nil
 }
 
+func (f fakeQuerier) GetEnvProvider(_ context.Context, id int64) (store.EnvProvider, error) {
+	if f.boundProvider != nil && f.boundProvider.ID == id {
+		return *f.boundProvider, nil
+	}
+	for _, p := range f.providers {
+		if p.ID == id {
+			return p, nil
+		}
+	}
+	return store.EnvProvider{}, sql.ErrNoRows
+}
+
 func (f fakeQuerier) GetWorkspaceCliType(_ context.Context, _ int64) (string, error) {
 	if f.cliType == "" {
 		return "claude", nil
 	}
 	return f.cliType, nil
+}
+
+func (f fakeQuerier) GetWorkspaceEnvProviderID(_ context.Context, _ int64) (int64, error) {
+	if f.boundProvider != nil {
+		return f.boundProvider.ID, nil
+	}
+	return 0, nil
 }
 
 func envMap(rows []store.WorkspaceEnv) map[string]string {
@@ -183,6 +203,50 @@ func TestResolve_AccountRefMissingKeepsPlaceholder(t *testing.T) {
 	// Missing account keeps the literal placeholder so the agent fails loudly.
 	if got := envMap(rows)["ANTHROPIC_AUTH_TOKEN"]; got != "${ACCOUNT:NoSuchAccount}" {
 		t.Errorf("missing account should keep placeholder, got %q", got)
+	}
+}
+
+func TestResolve_BoundProviderExpandedNoScene(t *testing.T) {
+	// A workspace with a directly-bound provider (workspaces.env_provider_id)
+	// gets its env expanded per cli_type with no scene required.
+	prov := store.EnvProvider{
+		ID: 5, Name: "DeepSeek", Protocol: "anthropic",
+		BaseUrl: "https://api.deepseek.com/anthropic", ApiKey: "${ACCOUNT:DeepSeek}",
+		Model: "deepseek-v4",
+	}
+	q := fakeQuerier{
+		boundProvider: &prov,
+		accounts:      []store.EnvAccount{{Name: "DeepSeek", ApiKey: "sk-real"}},
+		cliType:       "claude",
+	}
+	rows, err := Resolve(context.Background(), q, 7)
+	if err != nil {
+		t.Fatalf("Resolve returned error: %v", err)
+	}
+	got := envMap(rows)
+	if got["ANTHROPIC_BASE_URL"] != "https://api.deepseek.com/anthropic" {
+		t.Errorf("bound provider base_url not expanded: %q", got["ANTHROPIC_BASE_URL"])
+	}
+	if got["ANTHROPIC_AUTH_TOKEN"] != "sk-real" {
+		t.Errorf("bound provider account key not substituted: %q", got["ANTHROPIC_AUTH_TOKEN"])
+	}
+}
+
+func TestResolve_BoundProviderOverriddenByExplicitEnv(t *testing.T) {
+	// Explicit workspace_env wins over the bound provider's generated env.
+	prov := store.EnvProvider{ID: 5, Name: "DeepSeek", Protocol: "anthropic",
+		BaseUrl: "https://api.deepseek.com/anthropic", Model: "deepseek-v4"}
+	q := fakeQuerier{
+		env:           []store.WorkspaceEnv{{WorkspaceID: 7, Key: "ANTHROPIC_BASE_URL", Value: "https://explicit.override"}},
+		boundProvider: &prov,
+		cliType:       "claude",
+	}
+	rows, err := Resolve(context.Background(), q, 7)
+	if err != nil {
+		t.Fatalf("Resolve returned error: %v", err)
+	}
+	if envMap(rows)["ANTHROPIC_BASE_URL"] != "https://explicit.override" {
+		t.Errorf("explicit env should win over bound provider: %v", envMap(rows)["ANTHROPIC_BASE_URL"])
 	}
 }
 

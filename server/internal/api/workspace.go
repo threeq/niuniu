@@ -1487,6 +1487,40 @@ func (h *WorkspaceHandler) SetEnv(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"env": req.Env})
 }
 
+// SetEnvProvider binds (or unbinds, when 0/null) a subscription-platform
+// provider directly to the workspace, so its base_url/models/account reach the
+// agent at spawn without mounting a scene.
+func (h *WorkspaceHandler) SetEnvProvider(c *gin.Context) {
+	userID := c.GetInt64("auth_user_id")
+	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		BadRequest(c, "invalid workspace ID")
+		return
+	}
+	if userID > 0 && h.Authz != nil {
+		if _, err := h.Authz.CanAccessWorkspace(c.Request.Context(), userID, id); err != nil {
+			writeAuthzError(c, err)
+			return
+		}
+	}
+	var req struct {
+		EnvProviderID *int64 `json:"env_provider_id"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		BadRequest(c, err.Error())
+		return
+	}
+	var pid int64
+	if req.EnvProviderID != nil {
+		pid = *req.EnvProviderID
+	}
+	if err := h.Svc.SetEnvProvider(c.Request.Context(), id, pid); err != nil {
+		InternalError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"env_provider_id": pid})
+}
+
 // GetByIssue returns the workspace linked to an issue
 // @Summary      Get workspace by issue
 // @Description  Get workspace linked to a specific issue
