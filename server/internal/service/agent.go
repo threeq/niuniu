@@ -258,68 +258,28 @@ func (m *AgentManager) Start(ctx context.Context, workspaceID int64, workDir, in
 	}
 	envSlice := convertEnvVarsToSliceFromStore(envVars)
 
-	// Inject per-CLI account config dir.
-	// Claude path: CLAUDE_CONFIG_DIR from claude_accounts.
-	// Codex path: if a codex_account is bound (M2.5), inject CODEX_HOME=
-	// <account.config_dir>. Otherwise the CLI uses the user's global ~/.codex/
-	// (back-compat — pre-M2.5 workspaces stay working).
-	var spawnAccountID int64
-	var spawnCodexAccountID int64
-	if cliType == "claude" && m.claudeAccount != nil {
-		if acc, accErr := m.claudeAccount.ResolveForWorkspace(ctx, workspaceID, userID); accErr != nil {
-			slog.Warn("agent: resolve claude account failed, spawn without CLAUDE_CONFIG_DIR",
-				"workspaceID", workspaceID, "err", accErr)
-		} else if acc.ConfigDir != "" {
-			if !EnvHasKey(envSlice, "CLAUDE_CONFIG_DIR") {
-				envSlice = append(envSlice, "CLAUDE_CONFIG_DIR="+acc.ConfigDir)
-				spawnAccountID = acc.ID
-			} else {
-				slog.Warn("agent: CLAUDE_CONFIG_DIR already set in env preset; skipping niuniu injection",
-					"workspaceID", workspaceID, "account", acc.ID)
+	// Codex path: pre-create the MCP session token and write .codex/config.toml
+	// BEFORE spawning codex, because codex reads its TOML at startup and does
+	// not auto-reload on file change in PTY mode. Failure to generate the file
+	// does not abort spawn — log+continue and the codex session will simply
+	// have no niuniu-mcp wired in. (Per-account CODEX_HOME switching removed;
+	// codex now uses the host's global ~/.codex/.)
+	if cliType == "codex" && userID > 0 && m.mcpSessions != nil && m.mcpWriter != nil {
+		rawToken, err2 := m.mcpSessions.Create(ctx, workspaceID, MCPSessionTTL)
+		if err2 != nil {
+			slog.Warn("codex: create MCP session token failed",
+				"workspaceID", workspaceID, "err", err2)
+		} else {
+			projectID, _ := m.q.GetProjectIDForWorkspace(ctx, workspaceID)
+			opts := config.MCPGenerateOptions{
+				ProjectID:    projectID,
+				WorkspaceID:  workspaceID,
+				InboxDir:     workDir + "/.team/inboxes",
+				SessionToken: rawToken,
 			}
-			go m.claudeAccount.MarkUsed(context.Background(), acc.ID)
-		}
-	} else if cliType == "codex" {
-		// Resolve codex managed account (if any) and inject CODEX_HOME so the
-		// CLI reads the per-account auth.json + config.toml. nil = back-compat:
-		// no env injection, codex falls back to user's global ~/.codex/.
-		if m.codexAccount != nil {
-			if acc, accErr := m.codexAccount.ResolveForWorkspace(ctx, workspaceID, userID); accErr != nil {
-				slog.Warn("agent: resolve codex account failed, spawn without CODEX_HOME",
-					"workspaceID", workspaceID, "err", accErr)
-			} else if acc != nil && acc.ConfigDir != "" {
-				if !EnvHasKey(envSlice, "CODEX_HOME") {
-					envSlice = append(envSlice, "CODEX_HOME="+acc.ConfigDir)
-					spawnCodexAccountID = acc.ID
-				} else {
-					slog.Warn("agent: CODEX_HOME already set in env preset; skipping niuniu injection",
-						"workspaceID", workspaceID, "account", acc.ID)
-				}
-				go m.codexAccount.MarkUsed(context.Background(), acc.ID)
-			}
-		}
-		// Pre-create the MCP session token and write .codex/config.toml
-		// BEFORE spawning codex, because codex reads its TOML at startup
-		// and does not auto-reload on file change in PTY mode. Failure to
-		// generate the file does not abort spawn — log+continue and the
-		// codex session will simply have no niuniu-mcp wired in.
-		if userID > 0 && m.mcpSessions != nil && m.mcpWriter != nil {
-			rawToken, err2 := m.mcpSessions.Create(ctx, workspaceID, MCPSessionTTL)
-			if err2 != nil {
-				slog.Warn("codex: create MCP session token failed",
-					"workspaceID", workspaceID, "err", err2)
-			} else {
-				projectID, _ := m.q.GetProjectIDForWorkspace(ctx, workspaceID)
-				opts := config.MCPGenerateOptions{
-					ProjectID:    projectID,
-					WorkspaceID:  workspaceID,
-					InboxDir:     workDir + "/.team/inboxes",
-					SessionToken: rawToken,
-				}
-				if err3 := m.mcpWriter.GenerateCodexConfigToml(workDir, opts); err3 != nil {
-					slog.Warn("codex: write .codex/config.toml failed",
-						"workspaceID", workspaceID, "err", err3)
-				}
+			if err3 := m.mcpWriter.GenerateCodexConfigToml(workDir, opts); err3 != nil {
+				slog.Warn("codex: write .codex/config.toml failed",
+					"workspaceID", workspaceID, "err", err3)
 			}
 		}
 	}
@@ -349,17 +309,6 @@ func (m *AgentManager) Start(ctx context.Context, workspaceID int64, workDir, in
 
 	// Store in processes map
 	m.processes[workspaceID] = proc
-	if spawnAccountID > 0 {
-		m.claudeAcctByWorkspace[workspaceID] = spawnAccountID
-	} else {
-		delete(m.claudeAcctByWorkspace, workspaceID)
-	}
-	if spawnCodexAccountID > 0 {
-		m.codexAcctByWorkspace[workspaceID] = spawnCodexAccountID
-	} else {
-		delete(m.codexAcctByWorkspace, workspaceID)
-	}
-
 	// Update workspace agent_status = "running", agent_pid in DB
 	pid := int64(proc.Pid())
 	err = m.q.UpdateAgentStatus(ctx, store.UpdateAgentStatusParams{

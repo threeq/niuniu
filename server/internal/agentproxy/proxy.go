@@ -2222,23 +2222,10 @@ func (s *WorkspaceSession) ensureProcess(ctx context.Context, workDir string) er
 	// Resolve internally degrades to default row on any failure (spec §解析链),
 	// so a hard error here only happens for catastrophic DB issues — log + skip
 	// injection rather than crash spawn.
+	// Per-account CLAUDE_CONFIG_DIR switching removed; claude uses the host's
+	// global ~/.claude/. accountConfigDir stays "" and claudeAccountID stays 0.
 	s.claudeAccountID = 0
 	var accountConfigDir string
-	if s.claudeAccount != nil {
-		if accID, configDir, accErr := s.claudeAccount.ResolveForWorkspace(cmdCtx, s.workspaceID, s.userID); accErr != nil {
-			slog.Warn("agent: resolve claude account failed, spawn without CLAUDE_CONFIG_DIR",
-				"workspaceID", s.workspaceID, "err", accErr)
-		} else if configDir != "" {
-			if !adapter.EnvHasKey(os.Environ(), "CLAUDE_CONFIG_DIR") && !adapterEnvHasKey(workspaceEnv, "CLAUDE_CONFIG_DIR") {
-				accountConfigDir = configDir
-				s.claudeAccountID = accID
-			} else {
-				slog.Warn("agent: CLAUDE_CONFIG_DIR already set in env preset; skipping niuniu injection",
-					"workspaceID", s.workspaceID, "account", accID)
-			}
-			go s.claudeAccount.MarkUsed(context.Background(), accID)
-		}
-	}
 
 	// Inject per-user GIT_AUTHOR_*/GIT_COMMITTER_* so commits Claude makes
 	// in the chat session are attributed to the niuniu user that started it.
