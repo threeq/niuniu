@@ -51,6 +51,10 @@ func (s *mcpWriterShim) SetWorkspaceKBReadonly(wsPath string, roots []string) er
 	return s.inner.SetWorkspaceKBReadonly(wsPath, roots)
 }
 
+func (s *mcpWriterShim) NiuniuMcpServer(opts config.MCPGenerateOptions) (config.McpServerEntry, error) {
+	return s.inner.NiuniuMcpServer(opts)
+}
+
 // kbResolverShim adapts *KBService to agentproxy.KBDatasetResolver, translating
 // the service.KBDatasetDir result into agentproxy's import-light mirror type so
 // the agent-spawn path can expose bound KB dataset dirs without importing

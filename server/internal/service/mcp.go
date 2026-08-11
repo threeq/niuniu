@@ -136,26 +136,7 @@ func (g *MCPConfigGenerator) Generate(
 	}
 
 	// niuniu base entry — preserves existing CLI-flag construction.
-	apiBase := g.resolveAPIBase()
-	args := []string{"--api-base", apiBase}
-	if opts.ProjectID > 0 {
-		args = append(args, "--project-id", strconv.FormatInt(opts.ProjectID, 10))
-	}
-	if opts.WorkspaceID > 0 {
-		args = append(args, "--workspace-id", strconv.FormatInt(opts.WorkspaceID, 10))
-	}
-	if opts.InboxDir != "" {
-		args = append(args, "--inbox-dir", opts.InboxDir)
-	}
-	if opts.AgentName != "" && opts.AgentName != "agent" {
-		args = append(args, "--agent-name", opts.AgentName)
-	}
-	if len(opts.DisableToolGroups) > 0 {
-		args = append(args, "--disable-tool-groups", strings.Join(opts.DisableToolGroups, ","))
-	}
-	if len(opts.EnableToolGroups) > 0 {
-		args = append(args, "--enable-tool-groups", strings.Join(opts.EnableToolGroups, ","))
-	}
+	args := g.buildNiuniuArgs(opts)
 
 	niuniuEntry := map[string]any{
 		"command": mcpBin,
@@ -1148,6 +1129,52 @@ func findLatestBinaryInDir(dir, prefix, suffix, hostMatch string) string {
 func (g *MCPConfigGenerator) resolveAPIBase() string {
 	port := g.detectActualPort()
 	return fmt.Sprintf("http://127.0.0.1:%d", port)
+}
+
+// buildNiuniuArgs assembles the niuniu-mcp CLI args for a workspace, shared by
+// the .mcp.json generator (Claude) and the goose MCP-client session.
+func (g *MCPConfigGenerator) buildNiuniuArgs(opts config.MCPGenerateOptions) []string {
+	apiBase := g.resolveAPIBase()
+	args := []string{"--api-base", apiBase}
+	if opts.ProjectID > 0 {
+		args = append(args, "--project-id", strconv.FormatInt(opts.ProjectID, 10))
+	}
+	if opts.WorkspaceID > 0 {
+		args = append(args, "--workspace-id", strconv.FormatInt(opts.WorkspaceID, 10))
+	}
+	if opts.InboxDir != "" {
+		args = append(args, "--inbox-dir", opts.InboxDir)
+	}
+	if opts.AgentName != "" && opts.AgentName != "agent" {
+		args = append(args, "--agent-name", opts.AgentName)
+	}
+	if len(opts.DisableToolGroups) > 0 {
+		args = append(args, "--disable-tool-groups", strings.Join(opts.DisableToolGroups, ","))
+	}
+	if len(opts.EnableToolGroups) > 0 {
+		args = append(args, "--enable-tool-groups", strings.Join(opts.EnableToolGroups, ","))
+	}
+	return args
+}
+
+// NiuniuMcpServer resolves the niuniu-mcp server entry for a workspace so an
+// MCP-client agent (goose) can consume niuniu's kanban / data / memory /
+// document tools directly. Returns an error when the niuniu-mcp binary is
+// missing (the agent then runs without the niuniu MCP surface).
+func (g *MCPConfigGenerator) NiuniuMcpServer(opts config.MCPGenerateOptions) (config.McpServerEntry, error) {
+	mcpBin := g.FindMCPBinary()
+	if mcpBin == "" {
+		return config.McpServerEntry{}, fmt.Errorf("niuniu-mcp binary not found in any search path")
+	}
+	entry := config.McpServerEntry{
+		Name:    "niuniu",
+		Command: mcpBin,
+		Args:    g.buildNiuniuArgs(opts),
+	}
+	if opts.SessionToken != "" {
+		entry.Env = map[string]string{"NIUNIU_MCP_TOKEN": opts.SessionToken}
+	}
+	return entry, nil
 }
 
 func (g *MCPConfigGenerator) detectActualPort() int {

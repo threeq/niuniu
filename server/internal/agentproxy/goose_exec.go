@@ -4,10 +4,12 @@ import (
 	"context"
 	"database/sql"
 	"log/slog"
+	"path/filepath"
 	"time"
 
 	"github.com/niuniu-dev/niuniu/internal/agentbackend"
 	"github.com/niuniu-dev/niuniu/internal/agentbackend/goose"
+	"github.com/niuniu-dev/niuniu/internal/config"
 	"github.com/niuniu-dev/niuniu/internal/store"
 )
 
@@ -65,14 +67,38 @@ func (s *WorkspaceSession) getOrStartGooseBackend(ctx context.Context, workDir s
 	}
 	s.mu.Unlock()
 
-	var be agentbackend.Backend = goose.New(goose.Options{
+	opts := goose.Options{
 		Command: s.cfg.Agent.GooseCli.Command, // default "goose"
 		Args:    s.cfg.Agent.GooseCli.Args,
 		WorkDir: workDir,
 		// Provider/Model are workspace-level; goose falls back to its own config
 		// (OpenRouter/Ollama/compatible endpoints for domestic models).
 		ResolvePermission: s.gooseResolvePermission,
-	})
+	}
+	// MCP collaboration: goose consumes niuniu-mcp (boards / data / memory /
+	// documents) as an MCP client. Best-effort — a missing niuniu-mcp binary
+	// leaves the agent running without the niuniu MCP surface.
+	if s.mcpWriter != nil {
+		projectID, _ := s.q.GetProjectIDForWorkspace(ctx, s.workspaceID)
+		entry, err := s.mcpWriter.NiuniuMcpServer(config.MCPGenerateOptions{
+			ProjectID:    projectID,
+			WorkspaceID:  s.workspaceID,
+			InboxDir:     filepath.Join(workDir, ".team", "inboxes"),
+			SessionToken: s.sessionToken,
+		})
+		if err != nil {
+			slog.Warn("goose: niuniu-mcp server resolution failed (running without niuniu MCP)",
+				"workspaceID", s.workspaceID, "err", err)
+		} else {
+			opts.McpServers = []goose.McpServer{{
+				Name:    entry.Name,
+				Command: entry.Command,
+				Args:    entry.Args,
+				Env:     entry.Env,
+			}}
+		}
+	}
+	var be agentbackend.Backend = goose.New(opts)
 	if err := be.Start(ctx); err != nil {
 		return nil, err
 	}
