@@ -645,10 +645,35 @@ func ApplySchema(db *sql.DB) error {
 		return fmt.Errorf("failed to add external columns to issues: %w", err)
 	}
 
+	if err := migrateUsersEmailColumn(db); err != nil {
+		return fmt.Errorf("failed to add email to users: %w", err)
+	}
+
 	if err := migrateUsersAuthSecurityColumns(db); err != nil {
 		return fmt.Errorf("failed to add auth-security columns to users: %w", err)
 	}
 
+	return nil
+}
+
+// migrateUsersEmailColumn adds the users.email column (per-user git
+// authorship) at Open() time. It must exist BEFORE the pre-migration auth-user
+// seed in cmd/niuniu, which runs ahead of store.Migrate: CreateUser RETURNs the
+// email column, so on a legacy DB whose users table predates it the seed
+// crashed with "no such column: email" and the server failed to start. Empty
+// string = unset; the service layer falls back to "<username>@niuniu.local".
+// Idempotent via columnExists.
+func migrateUsersEmailColumn(db *sql.DB) error {
+	exists, err := columnExists(db, "users", "email")
+	if err != nil {
+		return fmt.Errorf("check users.email: %w", err)
+	}
+	if exists {
+		return nil
+	}
+	if _, err := db.Exec("ALTER TABLE users ADD COLUMN email TEXT NOT NULL DEFAULT ''"); err != nil {
+		return fmt.Errorf("add users.email: %w", err)
+	}
 	return nil
 }
 

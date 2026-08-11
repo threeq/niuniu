@@ -327,6 +327,11 @@ func Migrate(db *sql.DB) {
 	// Spec: docs/superpowers/specs/2026-05-19-per-user-git-identity-design.md
 	// Phase 0 (authorship only). Empty string = unset; service layer falls back
 	// to "<username>@niuniu.local" so commits still succeed.
+	//
+	// NOTE: the column is physically added by migrateUsersEmailColumn in
+	// store/open.go (ApplySchema, at Open() time) so it exists before the
+	// pre-migration auth-user seed in cmd/niuniu. This line is a redundant
+	// idempotent safety net for any path that reaches Migrate() without Open().
 	addColumnIfNotExists(db, "users", "email", "TEXT NOT NULL DEFAULT ''")
 
 	// External integration indexes. Live in Migrate() (not the schema files)
