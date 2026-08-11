@@ -234,26 +234,42 @@ func (s *KBService) WorkspaceDatasetDirs(ctx context.Context, workspaceID int64)
 	if err := owner.Validate(); err != nil {
 		return nil, err
 	}
-	mounts, err := s.ListWorkspaceKBs(ctx, owner, workspaceID)
+	// Decide the fallback on whether ANY explicit mount row exists — NOT on how
+	// many are enabled. ListWorkspaceKBs filters disabled KBs, so a workspace
+	// whose mounted KBs are all disabled would otherwise spuriously fall back to
+	// project-bound KBs it never chose. Explicit mounts (even all-disabled) mean
+	// the workspace opted out of project inheritance; only a workspace with zero
+	// workspace_kbs rows falls back.
+	raw, err := s.q.ListWorkspaceKBsForWorkspace(ctx, workspaceID)
 	if err != nil {
 		return nil, err
 	}
-	if len(mounts) > 0 {
-		out := make([]KBDatasetDir, 0, len(mounts))
-		for _, m := range mounts {
-			if m.DatasetPath == "" {
-				continue
-			}
-			if _, err := os.Stat(m.DatasetPath); err != nil {
-				continue // dataset dir not materialized yet: skip
-			}
-			out = append(out, KBDatasetDir{
-				KBID:        m.KBID,
-				Name:        m.Name,
-				Description: m.Description,
-				Root:        m.DatasetPath,
-			})
+	out := make([]KBDatasetDir, 0, len(raw))
+	for _, r := range raw {
+		// Re-load the KB to honor tenant isolation + the disabled filter (the raw
+		// workspace_kbs row carries no owner/status). A disabled or cross-owner KB
+		// is skipped, not a fallback trigger.
+		kb, err := s.GetKB(ctx, owner, r.KbID)
+		if err != nil {
+			continue
 		}
+		if kb.Status == "disabled" {
+			continue
+		}
+		if r.DatasetPath == "" {
+			continue
+		}
+		if _, err := os.Stat(r.DatasetPath); err != nil {
+			continue // dataset dir not materialized yet: skip
+		}
+		out = append(out, KBDatasetDir{
+			KBID:        kb.ID,
+			Name:        kb.Name,
+			Description: kb.Description,
+			Root:        r.DatasetPath,
+		})
+	}
+	if len(raw) > 0 {
 		return out, nil
 	}
 	// No explicit mounts: fall back to project-bound KBs (backward compat). A

@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"database/sql"
 	"os"
 	"path/filepath"
 	"testing"
@@ -387,4 +388,80 @@ func TestKBWorkspaceMountIsolation(t *testing.T) {
 		t.Fatalf("other tenant should see no mounts, got %d", len(m))
 	}
 	_ = kbB // kb-b is never mounted
+}
+
+// TestKBWorkspaceDatasetDirsDisabledNoFallback verifies that a workspace with ANY
+// explicit mount never falls back to project-bound KBs, even when its mounted KB
+// is disabled. Regression: the earlier code keyed the fallback decision off the
+// ENABLED mount count, so an all-disabled explicit mount set spuriously inherited
+// every project-bound KB the workspace never chose.
+func TestKBWorkspaceDatasetDirsDisabledNoFallback(t *testing.T) {
+	allowLocal(t)
+	dataDir := t.TempDir()
+	rawDB, q := pgtest.SetupSQLiteDB(t)
+	mgr := kbindex.NewManager("sqlite", nil)
+	t.Cleanup(func() { mgr.Close() })
+	svc := NewKBService(q, dataDir, mgr)
+	owner := OwnerRef{Type: "user", ID: 1}
+	ctx := context.Background()
+
+	// Project + column + two issues → two workspaces linked to the SAME project
+	// so the project fallback has a real candidate KB.
+	proj, err := q.CreateProject(ctx, store.CreateProjectParams{Name: "proj", OwnerType: "user", OwnerID: 1})
+	if err != nil {
+		t.Fatalf("CreateProject: %v", err)
+	}
+	col, err := q.CreateColumn(ctx, store.CreateColumnParams{ProjectID: proj.ID, Name: "待办", Position: 0})
+	if err != nil {
+		t.Fatalf("CreateColumn: %v", err)
+	}
+	newWS := func(name string, pos int64) int64 {
+		t.Helper()
+		issue, ierr := q.CreateIssue(ctx, store.CreateIssueParams{ColumnID: col.ID, Title: name, Position: pos})
+		if ierr != nil {
+			t.Fatalf("CreateIssue: %v", ierr)
+		}
+		ws, werr := q.CreateWorkspace(ctx, store.CreateWorkspaceParams{
+			Name: name, Path: t.TempDir(), Status: "active",
+			OwnerType: "user", OwnerID: 1, CliType: "claude",
+			IssueID: sql.NullInt64{Int64: issue.ID, Valid: true},
+		})
+		if werr != nil {
+			t.Fatalf("CreateWorkspace: %v", werr)
+		}
+		return ws.ID
+	}
+	wsA := newWS("ws-a", 0)
+	wsB := newWS("ws-b", 1)
+
+	// A project-bound, enabled KB — the fallback candidate.
+	pbSrc := t.TempDir()
+	writeKBFile(t, pbSrc, "p.md", "项目绑定内容\n")
+	pb, _ := svc.CreateKB(ctx, owner, CreateKBParams{Name: "proj-kb", SourceKind: "local", SourceAddr: pbSrc})
+	bindKB(t, svc, pb.ID, proj.ID)
+
+	// wsB has NO explicit mount → falls back to the project-bound KB.
+	dirsB, err := svc.WorkspaceDatasetDirs(ctx, wsB)
+	if err != nil || len(dirsB) != 1 || dirsB[0].KBID != pb.ID {
+		t.Fatalf("wsB should fall back to the project-bound KB, got %+v (err=%v)", dirsB, err)
+	}
+
+	// wsA explicitly mounts a KB, then that KB is disabled. Its explicit mount
+	// must NOT trigger the project fallback → empty dirs.
+	kbSrc := t.TempDir()
+	writeKBFile(t, kbSrc, "k.md", "挂载内容\n")
+	kb, _ := svc.CreateKB(ctx, owner, CreateKBParams{Name: "mounted", SourceKind: "local", SourceAddr: kbSrc})
+	if _, err := svc.MountKB(ctx, owner, wsA, kb.ID); err != nil {
+		t.Fatalf("MountKB: %v", err)
+	}
+	if _, err := rawDB.ExecContext(ctx, `UPDATE knowledge_bases SET status = 'disabled' WHERE id = ?`, kb.ID); err != nil {
+		t.Fatalf("disable KB: %v", err)
+	}
+	dirsA, err := svc.WorkspaceDatasetDirs(ctx, wsA)
+	if err != nil {
+		t.Fatalf("WorkspaceDatasetDirs A: %v", err)
+	}
+	if len(dirsA) != 0 {
+		t.Fatalf("wsA has an explicit (disabled) mount and must NOT fall back to project KBs, got %+v", dirsA)
+	}
 }

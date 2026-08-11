@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strconv"
 	"time"
 
 	"github.com/niuniu-dev/niuniu/internal/store"
@@ -33,14 +34,34 @@ type WorkspaceKBMount struct {
 // workspaceDatasetDir returns the read-only dataset dir for a mounted KB inside
 // the workspace path: <wsPath>/datasets/<sanitized-name>. The name is sanitized
 // with the same rules as worktree branch names (sanitizeBranch); a name that
-// sanitizes to empty falls back to kb-<id> so the dir is always stable + unique
-// (KB names are unique per owner).
+// sanitizes to empty falls back to kb-<id> so the dir is always non-empty.
 func workspaceDatasetDir(wsPath, kbName string, kbID int64) string {
 	name := sanitizeBranch(kbName)
 	if name == "" {
 		name = fmt.Sprintf("kb-%d", kbID)
 	}
 	return filepath.Join(wsPath, "datasets", name)
+}
+
+// resolveMountDir computes a dataset dir for a NEW mount that does not collide
+// with any existing mount in the same workspace. KB names are unique per owner,
+// but two different names can sanitize to the same filesystem segment (e.g.
+// "a/b" vs "a_b"), which would make colliding mounts silently share one
+// directory and mix content. On a detected collision we suffix the kb id so each
+// mount keeps its own isolated, stable directory.
+func (s *KBService) resolveMountDir(ctx context.Context, workspaceID int64, wsPath, kbName string, kbID int64) (string, error) {
+	dir := workspaceDatasetDir(wsPath, kbName, kbID)
+	existing, err := s.q.ListWorkspaceKBsForWorkspace(ctx, workspaceID)
+	if err != nil {
+		return "", err
+	}
+	for _, m := range existing {
+		if m.KbID != kbID && m.DatasetPath == dir {
+			return filepath.Join(wsPath, "datasets",
+				sanitizeBranch(kbName)+"-"+strconv.FormatInt(kbID, 10)), nil
+		}
+	}
+	return dir, nil
 }
 
 // ListWorkspaceKBs returns the knowledge bases explicitly mounted to a
@@ -98,7 +119,10 @@ func (s *KBService) MountKB(ctx context.Context, owner OwnerRef, workspaceID, kb
 		return WorkspaceKBMount{}, fmt.Errorf("workspace not found")
 	}
 
-	dir := workspaceDatasetDir(ws.Path, kb.Name, kb.ID)
+	dir, err := s.resolveMountDir(ctx, workspaceID, ws.Path, kb.Name, kb.ID)
+	if err != nil {
+		return WorkspaceKBMount{}, fmt.Errorf("resolve mount dir: %w", err)
+	}
 
 	// Idempotent: already mounted returns the existing mount.
 	if m, gerr := s.q.GetWorkspaceKB(ctx, store.GetWorkspaceKBParams{WorkspaceID: workspaceID, KbID: kbID}); gerr == nil {
