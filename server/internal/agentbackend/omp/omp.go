@@ -24,6 +24,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 
 	"os/exec"
 	"strings"
@@ -152,10 +153,16 @@ func (b *Backend) Start(ctx context.Context) error {
 	}
 }
 
-// buildEnv composes the child environment: host env, explicit Env vars, model
+// buildEnv composes the child environment: the host environment (required for
+// omp to locate its config / credentials / toolchain), explicit Env vars, model
 // selection, and capability-trimming defaults.
+//
+// NOTE: a non-nil cmd.Env REPLACES the child's entire environment in Go, so this
+// MUST seed from os.Environ() — starting from an empty slice would launch omp
+// without PATH/HOME and hang on startup.
 func (b *Backend) buildEnv() []string {
-	env := append([]string{}, b.opts.Env...)
+	env := os.Environ()
+	env = append(env, b.opts.Env...)
 	if b.opts.Provider != "" {
 		env = append(env, "OMP_PROVIDER="+b.opts.Provider)
 	}
