@@ -222,6 +222,7 @@ type AgentConfig struct {
 	ClaudeCode ClaudeCodeConfig `mapstructure:"claude_code"`
 	CodexCli   CodexCliConfig   `mapstructure:"codex_cli"`
 	QwenCli    QwenCliConfig    `mapstructure:"qwen_cli"`
+	OmpCli     OmpCliConfig     `mapstructure:"omp_cli"`
 }
 
 type LogConfig struct {
@@ -248,6 +249,16 @@ type CodexCliConfig struct {
 // workspaces (niuniu's third agent engine). Mirrors CodexCliConfig. Default
 // Command "qwen" is set in the Viper defaults block.
 type QwenCliConfig struct {
+	Command string   `mapstructure:"command"`
+	Args    []string `mapstructure:"args"`
+}
+
+// OmpCliConfig configures the oh-my-pi (omp) binary used by omp-type workspaces
+// (niuniu's general-purpose agent backend). Mirrors CodexCliConfig. Default
+// Command "omp" is set in the Viper defaults block. The omp agent runs over
+// `omp --mode rpc` NDJSON-over-stdio; Provider/Model are workspace-level and
+// injected as env by agentbackend.omp.
+type OmpCliConfig struct {
 	Command string   `mapstructure:"command"`
 	Args    []string `mapstructure:"args"`
 }
@@ -336,6 +347,8 @@ func Load() (*Config, error) {
 	viper.SetDefault("agent.codex_cli.args", []string{})
 	viper.SetDefault("agent.qwen_cli.command", "qwen")
 	viper.SetDefault("agent.qwen_cli.args", []string{})
+	viper.SetDefault("agent.omp_cli.command", "omp")
+	viper.SetDefault("agent.omp_cli.args", []string{})
 	viper.SetDefault("log.level", "debug")
 	viper.SetDefault("log.output", "terminal")
 	viper.SetDefault("log.file_dir", "")
@@ -448,6 +461,8 @@ func Save(cfg *Config) error {
 	viper.Set("agent.codex_cli.args", cfg.Agent.CodexCli.Args)
 	viper.Set("agent.qwen_cli.command", cfg.Agent.QwenCli.Command)
 	viper.Set("agent.qwen_cli.args", cfg.Agent.QwenCli.Args)
+	viper.Set("agent.omp_cli.command", cfg.Agent.OmpCli.Command)
+	viper.Set("agent.omp_cli.args", cfg.Agent.OmpCli.Args)
 	viper.Set("editor.vscode_mode", cfg.Editor.VSCodeMode)
 	viper.Set("editor.vscode_remote_url", cfg.Editor.VSCodeRemoteURL)
 	viper.Set("telemetry.enabled", cfg.Telemetry.Enabled)

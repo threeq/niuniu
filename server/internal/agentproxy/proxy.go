@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/niuniu-dev/niuniu/internal/agentbackend"
 	"github.com/niuniu-dev/niuniu/internal/agentproxy/adapter"
 	"github.com/niuniu-dev/niuniu/internal/config"
 	"github.com/niuniu-dev/niuniu/internal/event"
@@ -438,6 +439,11 @@ type WorkspaceSession struct {
 	// JSON-RPC.
 	codexApp      *codexAppServerClient
 	codexThreadID string
+
+	// ompBackend is the reusable agentbackend.Backend driving omp workspaces
+	// (RPC over `omp --mode rpc`). Lazily created on the first omp turn; owned
+	// by the session. Guarded by s.mu.
+	ompBackend agentbackend.Backend
 
 	// Per-turn state (reset each Send)
 	turnDone  chan struct{} // signaled when result event arrives
@@ -3181,6 +3187,9 @@ func (s *WorkspaceSession) Send(ctx context.Context, workDir, content, attachmen
 	if cliAdapter.Type() == adapter.TypeCodex {
 		return s.runCodexAppServerTurn(ctx, workDir, contentToSend, msgId)
 	}
+	if cliAdapter.Type() == adapter.TypeOmp {
+		return s.runOMPBackendTurn(ctx, workDir, contentToSend, msgId)
+	}
 	switch cliAdapter.ProcessMode() {
 	case adapter.ProcessOneShot:
 		return s.runOneShotTurn(ctx, workDir, contentToSend, msgId)
@@ -3362,6 +3371,16 @@ func (s *WorkspaceSession) killProcess() {
 	if codexApp != nil {
 		_ = codexApp.Close()
 		slog.Info("agent: codex app-server killed", "workspaceID", s.workspaceID)
+	}
+
+	// Tear down the omp backend process (RPC over stdio) if one was started.
+	s.mu.Lock()
+	ompBackend := s.ompBackend
+	s.ompBackend = nil
+	s.mu.Unlock()
+	if ompBackend != nil {
+		_ = ompBackend.Close(context.Background())
+		slog.Info("agent: omp backend killed", "workspaceID", s.workspaceID)
 	}
 
 	s.procMu.Lock()
@@ -3594,6 +3613,8 @@ func normalizedCliType(cliType string) string {
 		return "codex"
 	case "qwen":
 		return "qwen"
+	case "omp":
+		return "omp"
 	}
 	return "claude"
 }

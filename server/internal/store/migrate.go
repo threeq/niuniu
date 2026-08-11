@@ -639,6 +639,12 @@ func Migrate(db *sql.DB) {
 	// to include 'wechat'. SQLite has no ALTER-CHECK, so the tables are rebuilt;
 	// Postgres swaps the named CHECK constraint in place.
 	migrateIMBotAllowWechat(db)
+
+	// 2026-08-11 General agent backends: admit 'omp' (oh-my-pi) to the
+	// workspaces.cli_type and projects.default_cli_type CHECK enums. Dual-driver;
+	// SQLite rebuilds the tables (no ALTER-CHECK), Postgres swaps the named
+	// constraints in place.
+	migrateAllowOmpCLIType(db)
 }
 
 // migrateIMBotAllowWechat relaxes the im_bot_channels.channel_type and
@@ -779,6 +785,135 @@ func migrateIMBotAllowWechatSQLite(db *sql.DB, w *DB) {
 	}
 	markMigration(w, "im_bot_allow_wechat_v1")
 	slog.Info("migrateIMBotAllowWechat: channel_type/platform CHECK widened for 'wechat'")
+}
+
+// migrateAllowOmpCLIType widens the closes cli_type enums on workspaces cli_type
+// and projects default_cli_type to admit 'omp' (oh-my-pi), the general-purpose
+// agent backend. Dual-driver: Postgres swaps the two named CHECK constraints in
+// place; SQLite (no ALTER-CHECK) rebuilds both tables via their actual stored
+// DDL with the enum widened, so the rebuild is robust to column drift.
+func migrateAllowOmpCLIType(db *sql.DB) {
+	oldEnum := "('claude','codex','qwen')"
+	newEnum := "('claude','codex','qwen','omp')"
+	if Driver == "postgres" {
+		migrateAllowOmpCLITypePostgres(db)
+		return
+	}
+	migrateAllowOmpCLITypeSQLite(db, Wrap(db), oldEnum, newEnum)
+}
+
+func migrateAllowOmpCLITypePostgres(db *sql.DB) {
+	w := Wrap(db)
+	if migrationApplied(w, "allow_omp_cli_type_v1") {
+		return
+	}
+	// Inline column CHECKs get the default name <table>_<column>_check.
+	stmts := []string{
+		`ALTER TABLE workspaces DROP CONSTRAINT IF EXISTS workspaces_cli_type_check`,
+		`ALTER TABLE workspaces ADD CONSTRAINT workspaces_cli_type_check
+			CHECK (cli_type IN ('claude','codex','qwen','omp'))`,
+		`ALTER TABLE projects DROP CONSTRAINT IF EXISTS projects_default_cli_type_check`,
+		`ALTER TABLE projects ADD CONSTRAINT projects_default_cli_type_check
+			CHECK (default_cli_type IN ('claude','codex','qwen','omp'))`,
+	}
+	for _, s := range stmts {
+		if _, err := db.Exec(s); err != nil {
+			slog.Warn("migrateAllowOmpCLIType (pg): step failed", "error", err)
+			return // leave marker unset; next start retries
+		}
+	}
+	markMigration(w, "allow_omp_cli_type_v1")
+	slog.Info("migrateAllowOmpCLIType: workspaces.cli_type / projects.default_cli_type CHECK widened for 'omp'")
+}
+
+// migrateAllowOmpCLITypeSQLite rebuilds the workspaces and projects tables with
+// the widened cli_type CHECK. Unlike the hand-authored rebuilds elsewhere, it
+// derives the new table from the CURRENT stored DDL (sqlite_master.sql) and
+// only widens the enum string, so any future column additions are preserved
+// automatically. Indexes are recreated from sqlite_master.
+func migrateAllowOmpCLITypeSQLite(db *sql.DB, w *DB, oldEnum, newEnum string) {
+	if migrationApplied(w, "allow_omp_cli_type_v1") {
+		return
+	}
+	for _, table := range []string{"workspaces", "projects"} {
+		if err := rebuildSQLiteWidenCheck(db, table, oldEnum, newEnum); err != nil {
+			slog.Warn("migrateAllowOmpCLIType (sqlite): rebuild failed", "table", table, "error", err)
+			return // leave marker unset; next start retries
+		}
+	}
+	markMigration(w, "allow_omp_cli_type_v1")
+	slog.Info("migrateAllowOmpCLIType: workspaces.cli_type / projects.default_cli_type CHECK widened for 'omp'")
+}
+
+// rebuildSQLiteWidenCheck rebuilds a single SQLite table with oldEnum replaced by
+// newEnum inside its stored CREATE TABLE DDL, preserving all columns/constraints
+// (only the enum literal changes) and recreating its indexes. It is a marker-less
+// step; the caller owns the migration marker. Returns nil when the table is
+// missing or already widened (so the caller can proceed and mark applied).
+func rebuildSQLiteWidenCheck(db *sql.DB, table, oldEnum, newEnum string) error {
+	var ddl string
+	if err := db.QueryRow(`SELECT sql FROM sqlite_master WHERE type='table' AND name=?`, table).Scan(&ddl); err != nil {
+		return nil // table missing
+	}
+	if strings.Contains(ddl, newEnum) {
+		return nil // already widened
+	}
+	if !strings.Contains(ddl, oldEnum) {
+		slog.Warn("rebuildSQLiteWidenCheck: unexpected DDL; skipping", "table", table)
+		return nil
+	}
+	newDDL := strings.Replace(ddl, oldEnum, newEnum, 1)
+	newName := table + "_omp_new"
+	newDDL = strings.Replace(newDDL, "CREATE TABLE "+table, "CREATE TABLE "+newName, 1)
+
+	// Preserve indexes.
+	type idx struct{ name, sql string }
+	var indexes []idx
+	rows, err := db.Query(`SELECT name, sql FROM sqlite_master WHERE type='index' AND tbl_name=? AND sql IS NOT NULL`, table)
+	if err != nil {
+		return err
+	}
+	for rows.Next() {
+		var i idx
+		if err := rows.Scan(&i.name, &i.sql); err != nil {
+			rows.Close()
+			return err
+		}
+		indexes = append(indexes, i)
+	}
+	rows.Close()
+
+	if _, err := db.Exec(`PRAGMA foreign_keys = OFF`); err != nil {
+		return err
+	}
+	defer db.Exec(`PRAGMA foreign_keys = ON`) //nolint:errcheck
+
+	tx, err := db.Begin()
+	if err != nil {
+		return err
+	}
+	stmts := []string{
+		newDDL,
+		`INSERT INTO ` + newName + ` SELECT * FROM ` + table,
+		`DROP TABLE ` + table,
+		`ALTER TABLE ` + newName + ` RENAME TO ` + table,
+	}
+	for _, s := range stmts {
+		if _, err := tx.Exec(s); err != nil {
+			_ = tx.Rollback()
+			return err
+		}
+	}
+	for _, i := range indexes {
+		if _, err := tx.Exec(i.sql); err != nil {
+			_ = tx.Rollback()
+			return err
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+	return nil
 }
 
 // migrateIMBotOnboardingTokens creates the im_bot_onboarding_tokens table on

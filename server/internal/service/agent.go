@@ -224,6 +224,13 @@ func (m *AgentManager) Start(ctx context.Context, workspaceID int64, workDir, in
 		}
 		args = make([]string, len(m.cfg.QwenCli.Args))
 		copy(args, m.cfg.QwenCli.Args)
+	case "omp":
+		command = m.cfg.OmpCli.Command
+		if command == "" {
+			command = "omp"
+		}
+		args = make([]string, len(m.cfg.OmpCli.Args))
+		copy(args, m.cfg.OmpCli.Args)
 	default: // claude (and empty, normalized above)
 		command = m.cfg.ClaudeCode.Command
 		args = make([]string, len(m.cfg.ClaudeCode.Args))

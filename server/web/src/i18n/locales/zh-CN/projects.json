@@ -364,7 +364,8 @@
         "label": "Agent CLI",
         "claude": "Claude Code",
         "codex": "OpenAI Codex",
-        "qwen": "Qwen Code"
+        "qwen": "Qwen Code",
+        "omp": "Oh My Pi (omp) 通用 agent"
       },
       "claudeAccount": "Claude 账号",
       "claudeAccountDefault": "（默认账号）",

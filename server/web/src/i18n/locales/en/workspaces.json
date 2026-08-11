@@ -367,7 +367,9 @@
         "qwen": "Qwen Code",
         "claudeHint": "Requires the claude CLI on this machine. Default choice.",
         "codexHint": "Requires the codex CLI on this machine. Experimental.",
-        "qwenHint": "Requires the qwen CLI on this machine. Domestic engine driving Qwen / DeepSeek. Experimental."
+        "qwenHint": "Requires the qwen CLI on this machine. Domestic engine driving Qwen / DeepSeek. Experimental.",
+        "omp": "Oh My Pi (omp)",
+        "ompHint": "Requires the omp CLI on this machine. General-purpose agent (coding, office, data, content). Experimental."
       }
     },
     "deleteWorkspace": {

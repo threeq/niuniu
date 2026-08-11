@@ -10,6 +10,13 @@ const (
 	// the first that runs no foreign closed-source CLI. See
 	// docs/superpowers/specs/2026-06-29-domestic-general-agent-engine-selection.md.
 	TypeQwen Type = "qwen"
+	// TypeOmp is niuniu's general-purpose agent backend: oh-my-pi (omp), driven
+	// over `omp --mode rpc` NDJSON-over-stdio. Unlike the other three it is not
+	// a parse-the-stdout adapter — the session layer routes TypeOmp workspaces
+	// to the agentbackend.omp Backend (see agentproxy.Send). This Type value
+	// keeps the workspace cli_type enum uniform and gives the bridge a stable
+	// dispatch key.
+	TypeOmp Type = "omp"
 )
 
 // Adapter encapsulates the CLI-specific concerns that vary between Claude and
@@ -72,6 +79,8 @@ func For(t Type) Adapter {
 		return CodexAdapter{}
 	case TypeQwen:
 		return QwenAdapter{}
+	case TypeOmp:
+		return OmpAdapter{}
 	}
 	return ClaudeAdapter{}
 }

@@ -367,7 +367,9 @@
         "qwen": "Qwen Code",
         "claudeHint": "需要本機已安裝 claude 命令。預設選項。",
         "codexHint": "需要本機已安裝 codex 命令。實驗性功能。",
-        "qwenHint": "需要本機已安裝 qwen 命令。國產引擎，驅動 Qwen / DeepSeek。實驗性功能。"
+        "qwenHint": "需要本機已安裝 qwen 命令。國產引擎，驅動 Qwen / DeepSeek。實驗性功能。",
+        "omp": "Oh My Pi (omp) 通用 agent",
+        "ompHint": "需要本機安裝 omp CLI。通用 agent（編碼/辦公/資料/內容）。實驗性。"
       }
     },
     "deleteWorkspace": {

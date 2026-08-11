@@ -243,6 +243,7 @@ export function ProjectSettingsTab({ projectId }: Props) {
               <option value="claude">{t('issue.workspace.cliType.claude')}</option>
               <option value="codex">{t('issue.workspace.cliType.codex')}</option>
               <option value="qwen">{t('issue.workspace.cliType.qwen')}</option>
+              <option value="omp">{t('issue.workspace.cliType.omp')}</option>
             </select>
             <p className="text-xs text-muted-foreground">{t('tabs.settings.defaultAgentHint')}</p>
           </div>

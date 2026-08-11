@@ -98,7 +98,7 @@ func (s *WorkspaceSession) maybeAutoCompact(ctx context.Context) (bool, string) 
 	// Codex has no /compact command. Qwen Code (Gemini-CLI lineage) does not use
 	// Claude's /compact either, so injecting it would burn a turn on an
 	// unrecognized command; its own context management is a PoC follow-up.
-	if s.cliType == "codex" || s.cliType == "qwen" {
+	if s.cliType == "codex" || s.cliType == "qwen" || s.cliType == "omp" {
 		return false, ""
 	}
 	if !s.autoCompactEnabled(ctx) {
