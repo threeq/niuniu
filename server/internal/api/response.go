@@ -604,11 +604,9 @@ type WorkspaceResponse struct {
 	BgTasks          *BgTaskAggregateDTO  `json:"bg_tasks,omitempty"`
 	CreatedBy        *int64               `json:"created_by,omitempty"`
 	CreatorOwner     *OwnerDTO            `json:"creator_owner,omitempty"`
-	ClaudeAccountID  *int64               `json:"claude_account_id,omitempty"`
 	CliType          string               `json:"cli_type" example:"claude"`
 	// Codex-only fields. Always populated for codex workspaces (defaults
 	// applied if column is empty). Ignored by the SPA for claude workspaces.
-	CodexAccountID      *int64    `json:"codex_account_id,omitempty"`
 	CodexSandboxMode    string    `json:"codex_sandbox_mode,omitempty"`
 	CodexApprovalPolicy string    `json:"codex_approval_policy,omitempty"`
 	// EnvProviderID is the directly-bound subscription-platform provider (issue
@@ -642,16 +640,6 @@ func toWorkspaceResponse(w store.Workspace) WorkspaceResponse {
 		v := w.CreatedBy.Int64
 		createdBy = &v
 	}
-	var claudeAccountID *int64
-	if w.ClaudeAccountID.Valid {
-		v := w.ClaudeAccountID.Int64
-		claudeAccountID = &v
-	}
-	var codexAccountID *int64
-	if w.CodexAccountID.Valid {
-		v := w.CodexAccountID.Int64
-		codexAccountID = &v
-	}
 	var envProviderID *int64
 	if w.EnvProviderID.Valid {
 		v := w.EnvProviderID.Int64
@@ -670,10 +658,8 @@ func toWorkspaceResponse(w store.Workspace) WorkspaceResponse {
 		IsStudio:            w.IsStudio,
 		ArchivedAt:          archivedAt,
 		CreatedBy:           createdBy,
-		ClaudeAccountID:     claudeAccountID,
-		CliType:             normalizeCliType(w.CliType),
-		CodexAccountID:      codexAccountID,
-		CodexSandboxMode:    normalizeCodexSandbox(w.CodexSandboxMode),
+			CliType:             normalizeCliType(w.CliType),
+			CodexSandboxMode:    normalizeCodexSandbox(w.CodexSandboxMode),
 		CodexApprovalPolicy: normalizeCodexApproval(w.CodexApprovalPolicy),
 		EnvProviderID:       envProviderID,
 		CreatedAt:           w.CreatedAt,

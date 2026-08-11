@@ -213,7 +213,7 @@ func TestApplyEmailIntegration_MultiAccountDifferentDomains(t *testing.T) {
 	bindProjectImap(t, db, projectID, "work", bindImapCred(t, cred, "work", "imap.work.com"))
 	bindProjectImap(t, db, projectID, "personal", bindImapCred(t, cred, "personal", "imap.163.com"))
 
-	projector := NewSceneProjector(db, dataDir, &MCPConfigGenerator{}, nil, nil, nil, cred)
+	projector := NewSceneProjector(db, dataDir, &MCPConfigGenerator{}, nil, nil, cred)
 	proj := emailScene()
 	resolved, dropped, _ := projector.resolveProjectionCredentials(ctx, owner, 1, proj)
 	missing := projector.applyEmailIntegration(ctx, owner, 1, ws.ID, wsDir, proj, resolved, dropped)
@@ -250,7 +250,7 @@ func TestApplyEmailIntegration_WriteEnabledAddsOutgoing(t *testing.T) {
 	bindProjectImap(t, db, projectID, "work", bindImapCred(t, cred, "work", "imap.work.com"))
 	grantImapWrite(t, db, 1) // user 1 enables write via the real UI path
 
-	projector := NewSceneProjector(db, dataDir, &MCPConfigGenerator{}, nil, nil, nil, cred)
+	projector := NewSceneProjector(db, dataDir, &MCPConfigGenerator{}, nil, nil, cred)
 	proj := emailScene()
 	resolved, dropped, _ := projector.resolveProjectionCredentials(ctx, owner, 1, proj)
 	projector.applyEmailIntegration(ctx, owner, 1, ws.ID, wsDir, proj, resolved, dropped)
@@ -278,7 +278,7 @@ func TestReprojectImapWorkspaces_RefreshesConfig(t *testing.T) {
 	cred := newImapCredSvc(t, db)
 	bindProjectImap(t, db, projectID, "work", bindImapCred(t, cred, "work", "imap.work.com"))
 
-	projector := NewSceneProjector(db, dataDir, &MCPConfigGenerator{}, nil, nil, nil, cred)
+	projector := NewSceneProjector(db, dataDir, &MCPConfigGenerator{}, nil, nil, cred)
 	svc := NewSceneLayerService(db, projector)
 	sceneSvc := NewSceneService(db)
 	scene, err := sceneSvc.Create(ctx, owner, "office-mail-t", "Mail", "", nil, &SceneDefinition{
@@ -326,7 +326,7 @@ func TestApplyEmailIntegration_OnlyProjectBoundMailboxes(t *testing.T) {
 	bindProjectImap(t, db, projectID, "work", bindImapCred(t, cred, "work", "imap.work.com"))
 	bindImapCred(t, cred, "personal", "imap.163.com")
 
-	projector := NewSceneProjector(db, dataDir, &MCPConfigGenerator{}, nil, nil, nil, cred)
+	projector := NewSceneProjector(db, dataDir, &MCPConfigGenerator{}, nil, nil, cred)
 	proj := emailScene()
 	resolved, dropped, _ := projector.resolveProjectionCredentials(ctx, owner, 1, proj)
 	projector.applyEmailIntegration(ctx, owner, 1, ws.ID, wsDir, proj, resolved, dropped)
@@ -351,7 +351,7 @@ func TestReprojectImapWorkspacesForUser_AppliesWriteToggle(t *testing.T) {
 	cred := newImapCredSvc(t, db)
 	bindProjectImap(t, db, projectID, "work", bindImapCred(t, cred, "work", "imap.work.com"))
 
-	projector := NewSceneProjector(db, dataDir, &MCPConfigGenerator{}, nil, nil, nil, cred)
+	projector := NewSceneProjector(db, dataDir, &MCPConfigGenerator{}, nil, nil, cred)
 	svc := NewSceneLayerService(db, projector)
 	sceneSvc := NewSceneService(db)
 	scene, err := sceneSvc.Create(ctx, owner, "office-mail-w", "Mail", "", nil, &SceneDefinition{
@@ -406,7 +406,7 @@ func TestCollectEmailAccounts_ScopedToCreatorBindings(t *testing.T) {
 	require.NoError(t, err)
 	bindProjectImap(t, db, projectID, "other", other.ID)
 
-	projector := NewSceneProjector(db, dataDir, &MCPConfigGenerator{}, nil, nil, nil, cred)
+	projector := NewSceneProjector(db, dataDir, &MCPConfigGenerator{}, nil, nil, cred)
 	proj := emailScene()
 	resolved, dropped, _ := projector.resolveProjectionCredentials(ctx, owner, 1, proj)
 	projector.applyEmailIntegration(ctx, owner, 1, ws.ID, wsDir, proj, resolved, dropped)
@@ -436,7 +436,7 @@ func TestApplyEmailIntegration_AutohostForcesReadOnly(t *testing.T) {
 	_, err := db.Exec(`UPDATE workspace_env SET value = 'autohost' WHERE workspace_id = ? AND key = 'NIUNIU_PERMISSION_MODE'`, ws.ID)
 	require.NoError(t, err)
 
-	projector := NewSceneProjector(db, dataDir, &MCPConfigGenerator{}, nil, nil, nil, cred)
+	projector := NewSceneProjector(db, dataDir, &MCPConfigGenerator{}, nil, nil, cred)
 	proj := emailScene()
 	resolved, dropped, _ := projector.resolveProjectionCredentials(ctx, owner, 1, proj)
 	projector.applyEmailIntegration(ctx, owner, 1, ws.ID, wsDir, proj, resolved, dropped)
@@ -461,7 +461,7 @@ func TestApplyEmailIntegration_NoCredDropsServer(t *testing.T) {
 	wsDir := owner.WorkspacePath(dataDir, ws.ID)
 
 	cred := newImapCredSvc(t, db) // none bound
-	projector := NewSceneProjector(db, dataDir, &MCPConfigGenerator{}, nil, nil, nil, cred)
+	projector := NewSceneProjector(db, dataDir, &MCPConfigGenerator{}, nil, nil, cred)
 	proj := emailScene()
 	resolved, dropped, _ := projector.resolveProjectionCredentials(ctx, owner, 1, proj)
 	missing := projector.applyEmailIntegration(ctx, owner, 1, ws.ID, wsDir, proj, resolved, dropped)

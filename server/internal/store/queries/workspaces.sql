@@ -180,3 +180,11 @@ UPDATE workspaces
 SET strict_mcp_config = ?,
     updated_at = CURRENT_TIMESTAMP
 WHERE id = ?;
+
+-- name: SetWorkspaceCodexSandbox :exec
+UPDATE workspaces SET codex_sandbox_mode = ?, codex_approval_policy = ? WHERE id = ?;
+
+-- name: GetWorkspaceCodexConfig :one
+SELECT cli_type, codex_sandbox_mode, codex_approval_policy
+FROM workspaces
+WHERE id = ?;

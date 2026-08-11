@@ -235,10 +235,8 @@ CREATE TABLE IF NOT EXISTS workspaces (
     is_temporary   INTEGER NOT NULL DEFAULT 0,
     is_archived    INTEGER NOT NULL DEFAULT 0,
     archived_at    TIMESTAMP DEFAULT NULL,
-    claude_account_id INTEGER DEFAULT NULL REFERENCES claude_accounts(id) ON DELETE SET NULL,
     mcp_servers TEXT NOT NULL DEFAULT '[]',
     cli_type TEXT NOT NULL DEFAULT 'claude' CHECK (cli_type IN ('claude','codex','qwen','omp','goose')),
-    codex_account_id INTEGER DEFAULT NULL REFERENCES codex_accounts(id) ON DELETE SET NULL,
     codex_sandbox_mode TEXT NOT NULL DEFAULT 'danger-full-access'
         CHECK (codex_sandbox_mode IN ('read-only','workspace-write','danger-full-access')),
     codex_approval_policy TEXT NOT NULL DEFAULT 'never'
@@ -1073,82 +1071,6 @@ CREATE TABLE IF NOT EXISTS issue_assignees (
     PRIMARY KEY (issue_id, user_id)
 );
 CREATE INDEX IF NOT EXISTS idx_issue_assignees_user ON issue_assignees(user_id);
-
--- Claude account pool (deployment-global, not owner-scoped)
-CREATE TABLE IF NOT EXISTS claude_accounts (
-    id            INTEGER PRIMARY KEY AUTOINCREMENT,
-    name          TEXT NOT NULL,
-    email         TEXT,
-    config_dir    TEXT NOT NULL,
-    visibility    TEXT NOT NULL DEFAULT 'public'
-                  CHECK (visibility IN ('public','private')),
-    status        TEXT NOT NULL DEFAULT 'pending'
-                  CHECK (status IN ('pending','active','failed')),
-    created_at    INTEGER NOT NULL,
-    last_used_at  INTEGER,
-    created_by    INTEGER REFERENCES users(id) ON DELETE SET NULL
-);
-
-CREATE UNIQUE INDEX IF NOT EXISTS claude_accounts_name_unique
-    ON claude_accounts (name);
-
-CREATE UNIQUE INDEX IF NOT EXISTS claude_accounts_only_one_default
-    ON claude_accounts (config_dir) WHERE config_dir = '';
-
-CREATE TABLE IF NOT EXISTS claude_active_account (
-    owner_type  TEXT NOT NULL CHECK (owner_type IN ('user','org')),
-    owner_id    INTEGER NOT NULL,
-    account_id  INTEGER NOT NULL REFERENCES claude_accounts(id) ON DELETE CASCADE,
-    PRIMARY KEY (owner_type, owner_id)
-);
-
--- IM-9: 必须紧跟 claude_accounts 之后；audit_log 通过 FK 依赖 claude_accounts，
--- schema 文件按出现顺序执行 DDL，不要把 audit_log 插到 claude_accounts 之前。
-CREATE TABLE IF NOT EXISTS claude_account_audit_log (
-    id             INTEGER PRIMARY KEY AUTOINCREMENT,
-    account_id     INTEGER REFERENCES claude_accounts(id) ON DELETE SET NULL,
-    actor_user_id  INTEGER REFERENCES users(id) ON DELETE SET NULL,
-    action         TEXT NOT NULL,
-    payload        TEXT NOT NULL DEFAULT '{}',
-    created_at     TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
-);
-CREATE INDEX IF NOT EXISTS idx_claude_audit_account_time
-    ON claude_account_audit_log(account_id, created_at DESC);
-CREATE INDEX IF NOT EXISTS idx_claude_audit_actor_time
-    ON claude_account_audit_log(actor_user_id, created_at DESC);
-
--- ============================================================
--- Codex account pool (deployment-global, mirrors claude_accounts)
--- ============================================================
-CREATE TABLE IF NOT EXISTS codex_accounts (
-    id            INTEGER PRIMARY KEY AUTOINCREMENT,
-    name          TEXT NOT NULL,
-    email         TEXT,
-    config_dir    TEXT NOT NULL,
-    visibility    TEXT NOT NULL DEFAULT 'public'
-                  CHECK (visibility IN ('public','private')),
-    status        TEXT NOT NULL DEFAULT 'pending'
-                  CHECK (status IN ('pending','active','failed')),
-    created_at    INTEGER NOT NULL,
-    last_used_at  INTEGER,
-    created_by    INTEGER REFERENCES users(id) ON DELETE SET NULL
-);
-
-CREATE UNIQUE INDEX IF NOT EXISTS codex_accounts_name_unique
-    ON codex_accounts (name);
-
-CREATE TABLE IF NOT EXISTS codex_account_audit_log (
-    id             INTEGER PRIMARY KEY AUTOINCREMENT,
-    account_id     INTEGER REFERENCES codex_accounts(id) ON DELETE SET NULL,
-    actor_user_id  INTEGER REFERENCES users(id) ON DELETE SET NULL,
-    action         TEXT NOT NULL,
-    payload        TEXT NOT NULL DEFAULT '{}',
-    created_at     TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
-);
-CREATE INDEX IF NOT EXISTS idx_codex_audit_account_time
-    ON codex_account_audit_log(account_id, created_at DESC);
-CREATE INDEX IF NOT EXISTS idx_codex_audit_actor_time
-    ON codex_account_audit_log(actor_user_id, created_at DESC);
 
 -- ============================================================
 -- External provider credentials (per-user, AES-GCM encrypted)

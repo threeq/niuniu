@@ -52,20 +52,7 @@ func TestGenerateMemoryFile_FromMemories(t *testing.T) {
 	require.Equal(t, 1, strings.Count(content, "use tx.Queries()"), "no duplication")
 }
 
-// stubClaudeResolver is a minimal claudeConfigResolver for extraction env tests.
-type stubClaudeResolver struct {
-	configDir string
-	err       error
-}
-
-func (r stubClaudeResolver) ResolveForWorkspace(_ context.Context, _, _ int64) (*ResolvedAccount, error) {
-	if r.err != nil {
-		return nil, r.err
-	}
-	return &ResolvedAccount{ConfigDir: r.configDir}, nil
-}
-
-// Extraction must spawn `claude` with the workspace's bound CLAUDE_CONFIG_DIR
+// Extraction must spawn `claude` with provider credentials from the workspace env.
 // and provider credentials — otherwise a bare `claude -p` fails with
 // "exit status 1" on hosts whose creds live in a managed config dir. It must
 // also drop a stale inherited ANTHROPIC_API_KEY when a third-party auth token
@@ -75,7 +62,6 @@ func TestBuildExtractEnv_InjectsAccountAndCredentials(t *testing.T) {
 	q := store.New(db)
 	ctx := context.Background()
 	memSvc := NewMemoryService(q, db, "claude")
-	memSvc.SetClaudeAccountService(stubClaudeResolver{configDir: "/managed/claude"})
 
 	const wsID = int64(42)
 	require.NoError(t, q.SetWorkspaceEnv(ctx, store.SetWorkspaceEnvParams{
@@ -89,7 +75,6 @@ func TestBuildExtractEnv_InjectsAccountAndCredentials(t *testing.T) {
 
 	env := memSvc.buildExtractEnv(ctx, wsID, 0)
 
-	require.Contains(t, env, "CLAUDE_CONFIG_DIR=/managed/claude")
 	require.Contains(t, env, "ANTHROPIC_AUTH_TOKEN=zhipu-real-key")
 	require.Contains(t, env, "ANTHROPIC_BASE_URL=https://open.bigmodel.cn/api/anthropic")
 	for _, e := range env {

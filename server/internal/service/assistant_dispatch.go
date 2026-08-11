@@ -80,7 +80,6 @@ type PlanCreateOpts struct {
 	Language        string
 	NoRepo          bool
 	Repos           []RepoBranch
-	ClaudeAccountID *int64
 	CreatedBy       *int64
 	// PermissionMode overrides the created workspace's NIUNIU_PERMISSION_MODE
 	// ("" => "autohost"). See RouteHint.PermissionMode.
@@ -134,12 +133,10 @@ func (s *AssistantDispatchService) RouteInProject(ctx context.Context, owner Own
 	if err != nil {
 		return PlanTarget{}, err
 	}
-	claude := s.defaultClaudeAccount(ctx, owner)
 	return s.CreatePlanInProject(ctx, owner, projectID, columnID, text, hint.TitleHint, 0, PlanCreateOpts{
 		Language:        hint.Language,
 		NoRepo:          len(repos) == 0,
 		Repos:           repos,
-		ClaudeAccountID: claude,
 		PermissionMode:  hint.PermissionMode,
 	})
 }
@@ -176,7 +173,6 @@ func (s *AssistantDispatchService) CreatePlanInProject(ctx context.Context, owne
 		OwnerType:       owner.Type,
 		OwnerID:         owner.ID,
 		CreatedBy:       opts.CreatedBy,
-		ClaudeAccountID: opts.ClaudeAccountID,
 		NoRepo:          opts.NoRepo,
 		Repos:           opts.Repos,
 		Language:        opts.Language,
@@ -230,7 +226,6 @@ func (s *AssistantDispatchService) StartWorkspaceForExistingIssue(ctx context.Co
 		Name:            issue.Title,
 		OwnerType:       owner.Type,
 		OwnerID:         owner.ID,
-		ClaudeAccountID: s.defaultClaudeAccount(ctx, owner),
 		NoRepo:          len(repos) == 0,
 		Repos:           repos,
 	})
@@ -372,18 +367,6 @@ func (s *AssistantDispatchService) projectRepoBranches(ctx context.Context, proj
 	// Deterministic order for reproducible worktree provisioning.
 	sort.Slice(repos, func(i, j int) bool { return repos[i].RepoID < repos[j].RepoID })
 	return repos, nil
-}
-
-// defaultClaudeAccount resolves the owner's active Claude account (nil when none).
-func (s *AssistantDispatchService) defaultClaudeAccount(ctx context.Context, owner OwnerRef) *int64 {
-	if s.q == nil {
-		return nil
-	}
-	id, err := s.q.GetActiveClaudeAccount(ctx, store.GetActiveClaudeAccountParams{OwnerType: owner.Type, OwnerID: owner.ID})
-	if err != nil {
-		return nil
-	}
-	return &id
 }
 
 // ownerUserID picks the acting user id for issue creation: the explicit creator

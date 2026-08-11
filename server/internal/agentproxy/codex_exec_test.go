@@ -124,22 +124,7 @@ func codexExecTestEnvValue(env []string, key string) string {
 	return ""
 }
 
-// stubCodexResolver is a fake CodexAccountResolver used to verify CODEX_HOME
-// injection without touching the real service.
-type stubCodexResolver struct {
-	configDir string
-	accountID int64
-	usedCalls int
-}
-
-func (r *stubCodexResolver) ResolveForWorkspace(ctx context.Context, workspaceID, userID int64) (int64, string, error) {
-	return r.accountID, r.configDir, nil
-}
-
-func (r *stubCodexResolver) MarkUsed(ctx context.Context, accountID int64) {
-	r.usedCalls++
-}
-
+// stubMCPWriter is a fake MCPConfigWriter for codex exec tests.
 type stubMCPWriter struct {
 	configArgs []string
 	gotOpts    config.MCPGenerateOptions
@@ -292,55 +277,3 @@ func TestBuildCodexExec_DefaultsWhenSandboxUnset(t *testing.T) {
 
 // TestBuildCodexExec_InjectsCodexHomeWhenBound verifies A4 CODEX_HOME injection
 // when a codex account resolves for the workspace.
-func TestBuildCodexExec_InjectsCodexHomeWhenBound(t *testing.T) {
-	q := setupDispatchDB(t)
-	ws, err := q.CreateWorkspace(context.Background(), store.CreateWorkspaceParams{
-		Name: "codex-home-test", Path: t.TempDir(), Status: "created",
-		OwnerType: "user", OwnerID: 1, CliType: "codex",
-	})
-	if err != nil {
-		t.Fatalf("CreateWorkspace: %v", err)
-	}
-	resolver := &stubCodexResolver{accountID: 7, configDir: "/data/codex-accounts/abc"}
-	s := &WorkspaceSession{
-		workspaceID: ws.ID, q: q,
-		cfg:          &config.Config{Agent: config.AgentConfig{CodexCli: config.CodexCliConfig{Command: "codex"}}},
-		codexAccount: resolver,
-	}
-	_, _, env, err := s.buildOneShotExec(context.Background(), ws.Path)
-	if err != nil {
-		t.Fatalf("buildOneShotExec: %v", err)
-	}
-	if got := codexExecTestEnvValue(env, "CODEX_HOME"); got != "/data/codex-accounts/abc" {
-		t.Errorf("CODEX_HOME=%q want /data/codex-accounts/abc", got)
-	}
-	if s.codexAccountID != 7 {
-		t.Errorf("session.codexAccountID=%d want 7", s.codexAccountID)
-	}
-}
-
-// TestBuildCodexExec_NoBindingSkipsCodexHome verifies back-compat: when the
-// resolver returns empty configDir, no CODEX_HOME injection happens.
-func TestBuildCodexExec_NoBindingSkipsCodexHome(t *testing.T) {
-	q := setupDispatchDB(t)
-	ws, err := q.CreateWorkspace(context.Background(), store.CreateWorkspaceParams{
-		Name: "codex-home-noop-test", Path: t.TempDir(), Status: "created",
-		OwnerType: "user", OwnerID: 1, CliType: "codex",
-	})
-	if err != nil {
-		t.Fatalf("CreateWorkspace: %v", err)
-	}
-	resolver := &stubCodexResolver{} // configDir=""
-	s := &WorkspaceSession{
-		workspaceID: ws.ID, q: q,
-		cfg:          &config.Config{Agent: config.AgentConfig{CodexCli: config.CodexCliConfig{Command: "codex"}}},
-		codexAccount: resolver,
-	}
-	_, _, env, err := s.buildOneShotExec(context.Background(), ws.Path)
-	if err != nil {
-		t.Fatalf("buildOneShotExec: %v", err)
-	}
-	if codexExecTestHasEnvKey(env, "CODEX_HOME") {
-		t.Errorf("expected no CODEX_HOME injection when resolver returns empty configDir; env=%v", env)
-	}
-}

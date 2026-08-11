@@ -158,7 +158,6 @@ type Server struct {
 	tokenUsageHandler       *api.TokenUsageHandler
 	workspaceMCPHandler     *api.WorkspaceMCPHandler
 	localRunnerHandler      *api.LocalRunnerHandler
-	claudeConfigHandler     *api.ClaudeConfigHandler
 	worktreeHandler         *api.WorktreeHandler
 	agentHandler            *api.AgentHandler
 	reviewHandler           *api.ReviewHandler
@@ -196,12 +195,6 @@ type Server struct {
 	relayHandler            *api.RelayHandler
 	shellHandler            *api.ShellHandler
 	autostartHandler        *api.AutostartHandler
-	claudeAccountSvc        *service.ClaudeAccountService
-	claudeAccountHandler    *api.ClaudeAccountHandler
-	claudeAccountPTYHandler *api.ClaudeAccountPTYHandler
-	codexAccountSvc         *service.CodexAccountService
-	codexAccountHandler     *api.CodexAccountHandler
-	codexAccountPTYHandler  *api.CodexAccountPTYHandler
 	gitIdentitySvc          *service.GitIdentityService
 	gitIdentityHandler      *api.GitIdentityHandler
 	serverSettingsSvc       *service.ServerSettingsService
@@ -507,20 +500,6 @@ func New(cfg *config.Config, db *sql.DB, frontendFS fs.FS) *Server {
 		}
 	}
 
-	// Claude account service (deployment-global account pool for multi-account switching).
-	s.claudeAccountSvc = service.NewClaudeAccountService(store.Wrap(db), s.queries, s.cfg.DataDir)
-	s.claudeAccountHandler = api.NewClaudeAccountHandler(s.claudeAccountSvc)
-	s.claudeAccountPTYHandler = api.NewClaudeAccountPTYHandler(s.claudeAccountSvc)
-	s.agentMgr.SetClaudeAccountService(s.claudeAccountSvc)
-	s.workspaceSvc.SetClaudeAccountService(s.claudeAccountSvc)
-
-	// Codex account service (deployment-global, mirrors claude account model).
-	// See docs/superpowers/specs/2026-05-22-codex-full-support-design.md A.
-	s.codexAccountSvc = service.NewCodexAccountService(store.Wrap(db), s.queries, s.cfg.DataDir)
-	s.codexAccountHandler = api.NewCodexAccountHandler(s.codexAccountSvc)
-	s.codexAccountPTYHandler = api.NewCodexAccountPTYHandler(s.codexAccountSvc)
-	s.agentMgr.SetCodexAccountService(s.codexAccountSvc)
-
 	// Per-user git authorship (Phase 0):
 	// docs/superpowers/specs/2026-05-19-per-user-git-identity-design.md
 	// The service resolves users.{display_name,email,username} so PTY spawns
@@ -571,8 +550,6 @@ func New(cfg *config.Config, db *sql.DB, frontendFS fs.FS) *Server {
 	go agentproxy.ProbeClaudeCLI(context.Background())
 	s.agentProxy.SetStatusHook(s.agentMgr) // wire workspace status transitions
 	s.agentProxy.SetMCPSessionService(s.mcpSessions)
-	s.agentProxy.SetClaudeAccountService(&service.ClaudeAccountAgentProxyAdapter{Svc: s.claudeAccountSvc})
-	s.agentProxy.SetCodexAccountService(&service.CodexAccountAgentProxyAdapter{Svc: s.codexAccountSvc})
 	// Codex approval bridge (B2): route `approval/request` notifications
 	// through the same PermissionService used by Claude's MCP tool path.
 	s.agentProxy.SetPermissionGate(&service.PermissionAgentProxyAdapter{Svc: s.permService})
@@ -580,15 +557,6 @@ func New(cfg *config.Config, db *sql.DB, frontendFS fs.FS) *Server {
 	// GitIdentityService implicitly satisfies agentproxy.GitIdentityResolver
 	// because both declare ResolveNameEmail with the same signature.
 	s.agentProxy.SetGitIdentityResolver(s.gitIdentitySvc)
-	// Register spawn trackers so claude account Delete refuses while in use (C4 / spec IM-7).
-	s.claudeAccountSvc.RegisterSpawnTracker(s.agentMgr.WorkspacesUsingAccount)
-	s.claudeAccountSvc.RegisterSpawnTracker(s.agentProxy.WorkspacesUsingAccount)
-	// Clear in-memory session when account switch falls back to clearing session_id.
-	s.claudeAccountSvc.RegisterSessionClearer(s.agentProxy.ClearWorkspaceSession)
-	// Same trackers/clearers for codex multi-account safety.
-	s.codexAccountSvc.RegisterSpawnTracker(s.agentMgr.WorkspacesUsingCodexAccount)
-	s.codexAccountSvc.RegisterSpawnTracker(s.agentProxy.WorkspacesUsingCodexAccount)
-	s.codexAccountSvc.RegisterSessionClearer(s.agentProxy.ClearWorkspaceSession)
 	mcpGen := service.NewMCPConfigGenerator(cfg)
 	s.mcpRegistry = service.NewClaudeMCPRegistry()
 	s.mcpDetector = service.NewWorkspaceMCPDetector(s.mcpRegistry)
@@ -609,7 +577,6 @@ func New(cfg *config.Config, db *sql.DB, frontendFS fs.FS) *Server {
 		cfg.DataDir,
 		s.mcpGenerator,
 		s.pluginInstaller,
-		s.claudeAccountSvc,
 		s.notifyHub,
 		// extCred is wired below once ExternalCredentialService is constructed
 		// (it depends on the keyring, built later in New). The projector tolerates
@@ -622,7 +589,7 @@ func New(cfg *config.Config, db *sql.DB, frontendFS fs.FS) *Server {
 		s.sceneLayerSvc, s.sceneProjector, s.sceneMatcher, authz, s.queries,
 	)
 	s.pluginInstallHandler = api.NewPluginInstallHandler(
-		s.pluginInstaller, s.marketplaceManager, s.claudeAccountSvc, authz, s.queries, cfg.Auth.Enabled,
+		s.pluginInstaller, s.marketplaceManager, authz, s.queries, cfg.Auth.Enabled,
 	)
 	// Plumb layer service + projector into WorkspaceService so the create path
 	// can install the empty base layer + prefill any project-default scenes.
@@ -656,7 +623,6 @@ func New(cfg *config.Config, db *sql.DB, frontendFS fs.FS) *Server {
 	s.issueTimelineHandler.Authz = authz
 	s.kanbanHandler = api.NewKanbanHandler(s.kanbanSvc, s.issueChecklistSvc)
 	s.kanbanHandler.Authz = authz
-	s.kanbanHandler.ClaudeAccount = s.claudeAccountSvc
 
 	// Conversational office assistant (#388): one-sentence → issue + no-repo
 	// workspace + goal_condition, all over the existing kanban/workspace services.
@@ -679,19 +645,14 @@ func New(cfg *config.Config, db *sql.DB, frontendFS fs.FS) *Server {
 	s.workspaceHandler.Q = s.queries
 	s.workspaceHandler.DB = db
 	s.workspaceHandler.Authz = authz
-	s.workspaceHandler.CodexAccount = s.codexAccountSvc
 	s.workspaceHandler.RepoSvc = s.repositorySvc
 	s.workspaceHandler.Perm = s.permService
 	s.workspaceMCPHandler = api.NewWorkspaceMCPHandler(
-		s.workspaceSvc, s.claudeAccountSvc,
+		s.workspaceSvc,
 		s.mcpRegistry, s.mcpDetector,
-		s.claudeAccountSvc, authz,
+		authz,
 	)
 	s.localRunnerHandler = api.NewLocalRunnerHandler(s.localRunnerSvc, authz)
-	s.claudeConfigHandler = api.NewClaudeConfigHandler(
-		service.NewClaudeConfigService(s.pluginInstaller, s.marketplaceManager, s.mcpRegistry),
-		s.claudeAccountSvc, s.claudeAccountSvc, s.sceneSvc,
-	)
 	// Inbox service backs the /mcp/inbox/{send,read} endpoints. Writes per-
 	// recipient JSON under <DataDir>/inbox/<workspace_id>/ — the on-disk shape
 	// matches what the legacy niuniu-mcp inbox_* tools produced, so migrating
@@ -793,7 +754,6 @@ func New(cfg *config.Config, db *sql.DB, frontendFS fs.FS) *Server {
 	// into the extraction subprocess so it authenticates like the agent session;
 	// otherwise a bare `claude -p` fails with "exit status 1" when credentials
 	// live in a niuniu-managed config dir rather than ~/.claude.
-	s.memorySvc.SetClaudeAccountService(s.claudeAccountSvc)
 	s.memoryHandler = api.NewMemoryHandler(s.memorySvc, authz, db, s.notifyHub)
 	s.agentProxy.SetMemoryFileWriter(s.memorySvc)
 
@@ -862,7 +822,7 @@ func New(cfg *config.Config, db *sql.DB, frontendFS fs.FS) *Server {
 	// Wire the goal_condition suggester so ensureWorkspace can infer a goal for a
 	// brand-new standalone workspace (advance_issue into an `instruct` column),
 	// reusing the haiku suggest chain the AI-suggest endpoint uses.
-	s.epicExecSvc.SetGoalSuggester(goalConditionSuggester{accounts: s.claudeAccountSvc})
+	s.epicExecSvc.SetGoalSuggester(goalConditionSuggester{})
 	// Routing livelock caps for advance_issue (spec §23.2): per-issue total-step and
 	// per-column re-entry limits, overridable via env (default otherwise).
 	s.epicExecSvc.SetRoutingLimitsFromEnv()
@@ -918,15 +878,11 @@ func New(cfg *config.Config, db *sql.DB, frontendFS fs.FS) *Server {
 
 	// Slash command service and handler
 	slashCommandSvc := service.NewSlashCommandService(&s.cfg.Agent)
-	s.slashCommandHandler = api.NewSlashCommandHandler(
-		slashCommandSvc, s.queries, s.claudeAccountSvc, authz,
-	)
+	s.slashCommandHandler = api.NewSlashCommandHandler(slashCommandSvc, authz)
 
 	// Claude usage service and handler. JSONL-aggregation backend, no
 	// Anthropic API calls. See spec docs/superpowers/specs/2026-05-02-claude-usage-jsonl-aggregation-design.md.
-	claudeUsageSvc := service.NewClaudeUsageService(s.cfg.Auth.Enabled, s.claudeAccountSvc)
-	s.claudeAccountSvc.SetUsageEvictor(claudeUsageSvc)
-	s.claudeAccountHandler.SetUsageDeps(claudeUsageSvc, s.claudeAccountSvc)
+	claudeUsageSvc := service.NewClaudeUsageService(s.cfg.Auth.Enabled)
 	// Forward Claude CLI rate_limit_event observations from the agent stream
 	// into the usage panel so it can show the authoritative 5h-window reset
 	// time (only obtainable via this passive path; /api/oauth/usage is blocked).
@@ -954,10 +910,7 @@ func New(cfg *config.Config, db *sql.DB, frontendFS fs.FS) *Server {
 		anthropicKey = os.Getenv("ANTHROPIC_API_KEY")
 	}
 	promptGenSvc := service.NewPromptGenService(anthropicKey)
-	s.promptGenHandler = &api.PromptGenHandler{
-		Svc:           promptGenSvc,
-		ClaudeAccount: s.claudeAccountSvc,
-	}
+	s.promptGenHandler = &api.PromptGenHandler{Svc: promptGenSvc}
 
 	// Agent Registry
 	localSource := registry.NewCLISource(cfg.Agent.ClaudeCode.Command)
@@ -1511,24 +1464,16 @@ func (s *Server) Engine() *gin.Engine {
 // It resolves the caller's CLAUDE_CONFIG_DIR so the inference subprocess inherits
 // the same auth niuniu's workspace agents use — the same path as the AI-suggest
 // REST endpoint (api/kanban.go SuggestGoalCondition).
-type goalConditionSuggester struct {
-	accounts *service.ClaudeAccountService
-}
+type goalConditionSuggester struct{}
 
 func (g goalConditionSuggester) Suggest(ctx context.Context, userID int64, title, description string) (string, error) {
-	configDir := ""
-	if g.accounts != nil {
-		configDir = g.accounts.ResolveConfigDirForUser(ctx, userID)
-	}
-	return agentproxy.SuggestGoalCondition(ctx, title, description, configDir)
+	_ = userID
+	return agentproxy.SuggestGoalCondition(ctx, title, description, "")
 }
 
 func (g goalConditionSuggester) Classify(ctx context.Context, userID int64, title, description string) (*service.GoalAssessment, error) {
-	configDir := ""
-	if g.accounts != nil {
-		configDir = g.accounts.ResolveConfigDirForUser(ctx, userID)
-	}
-	a, err := agentproxy.ClassifyIssueForKickoff(ctx, title, description, configDir)
+	_ = userID
+	a, err := agentproxy.ClassifyIssueForKickoff(ctx, title, description, "")
 	if err != nil {
 		return nil, err
 	}

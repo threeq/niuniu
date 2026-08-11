@@ -485,7 +485,7 @@ func TestWorkspaceService_Create_CodexDoesNotAutoAttachSuperpowers(t *testing.T)
 	}); err != nil {
 		t.Fatalf("seed legacy builtin scene: %v", err)
 	}
-	projector := NewSceneProjector(db, svc.dataDir, nil, nil, nil, nil, nil)
+	projector := NewSceneProjector(db, svc.dataDir, nil, nil, nil, nil)
 	svc.SetSceneLayerService(NewSceneLayerService(db, projector))
 	svc.SetSceneProjector(projector)
 
@@ -513,7 +513,7 @@ func TestWorkspaceService_GetWorkspaceEnvIncludesProjectDefaultSceneEnv(t *testi
 	ctx := context.Background()
 	svc, db := newWorkspaceServiceForTest(t)
 	q := store.New(db)
-	projector := NewSceneProjector(db, svc.dataDir, nil, nil, nil, nil, nil)
+	projector := NewSceneProjector(db, svc.dataDir, nil, nil, nil, nil)
 	svc.SetSceneLayerService(NewSceneLayerService(db, projector))
 	svc.SetSceneProjector(projector)
 

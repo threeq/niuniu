@@ -117,54 +117,6 @@ type BlackboardEntry struct {
 	CreatedAt     time.Time      `json:"created_at"`
 }
 
-type ClaudeAccount struct {
-	ID         int64          `json:"id"`
-	Name       string         `json:"name"`
-	Email      sql.NullString `json:"email"`
-	ConfigDir  string         `json:"config_dir"`
-	Visibility string         `json:"visibility"`
-	Status     string         `json:"status"`
-	CreatedAt  int64          `json:"created_at"`
-	LastUsedAt sql.NullInt64  `json:"last_used_at"`
-	CreatedBy  sql.NullInt64  `json:"created_by"`
-}
-
-type ClaudeAccountAuditLog struct {
-	ID          int64         `json:"id"`
-	AccountID   sql.NullInt64 `json:"account_id"`
-	ActorUserID sql.NullInt64 `json:"actor_user_id"`
-	Action      string        `json:"action"`
-	Payload     string        `json:"payload"`
-	CreatedAt   time.Time     `json:"created_at"`
-}
-
-type ClaudeActiveAccount struct {
-	OwnerType string `json:"owner_type"`
-	OwnerID   int64  `json:"owner_id"`
-	AccountID int64  `json:"account_id"`
-}
-
-type CodexAccount struct {
-	ID         int64          `json:"id"`
-	Name       string         `json:"name"`
-	Email      sql.NullString `json:"email"`
-	ConfigDir  string         `json:"config_dir"`
-	Visibility string         `json:"visibility"`
-	Status     string         `json:"status"`
-	CreatedAt  int64          `json:"created_at"`
-	LastUsedAt sql.NullInt64  `json:"last_used_at"`
-	CreatedBy  sql.NullInt64  `json:"created_by"`
-}
-
-type CodexAccountAuditLog struct {
-	ID          int64         `json:"id"`
-	AccountID   sql.NullInt64 `json:"account_id"`
-	ActorUserID sql.NullInt64 `json:"actor_user_id"`
-	Action      string        `json:"action"`
-	Payload     string        `json:"payload"`
-	CreatedAt   time.Time     `json:"created_at"`
-}
-
 type Column struct {
 	ID               int64          `json:"id"`
 	ProjectID        int64          `json:"project_id"`
@@ -974,10 +926,8 @@ type Workspace struct {
 	IsTemporary          int64          `json:"is_temporary"`
 	IsArchived           int64          `json:"is_archived"`
 	ArchivedAt           sql.NullTime   `json:"archived_at"`
-	ClaudeAccountID      sql.NullInt64  `json:"claude_account_id"`
 	McpServers           string         `json:"mcp_servers"`
 	CliType              string         `json:"cli_type"`
-	CodexAccountID       sql.NullInt64  `json:"codex_account_id"`
 	CodexSandboxMode     string         `json:"codex_sandbox_mode"`
 	CodexApprovalPolicy  string         `json:"codex_approval_policy"`
 	IsStudio             int64          `json:"is_studio"`

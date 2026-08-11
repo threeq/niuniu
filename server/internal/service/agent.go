@@ -55,15 +55,7 @@ type AgentManager struct {
 	mcpWriter     MCPConfigWriter
 	perm          *PermissionService
 	askUser       *AskUserService
-	claudeAccount *ClaudeAccountService
-	codexAccount  *CodexAccountService
-	gitIdentity   *GitIdentityService
-	// claudeAcctByWorkspace records the account ID injected at spawn time
-	// for each running PTY process; consulted by WorkspacesUsingAccount to
-	// gate Delete (C4 / spec IM-7). Guarded by mu.
-	claudeAcctByWorkspace map[int64]int64
-	// codexAcctByWorkspace mirrors claudeAcctByWorkspace for codex spawns.
-	codexAcctByWorkspace map[int64]int64
+	gitIdentity *GitIdentityService
 }
 
 func (m *AgentManager) SetMCPWriter(w MCPConfigWriter) {
@@ -90,17 +82,6 @@ func (m *AgentManager) SetAskUserService(svc *AskUserService) {
 	m.askUser = svc
 }
 
-func (m *AgentManager) SetClaudeAccountService(svc *ClaudeAccountService) {
-	m.claudeAccount = svc
-}
-
-// SetCodexAccountService wires the codex multi-account resolver so PTY spawns
-// for codex workspaces can inject CODEX_HOME=<account.config_dir>. Optional;
-// nil = back-compat path (no env injection, codex uses ~/.codex/).
-func (m *AgentManager) SetCodexAccountService(svc *CodexAccountService) {
-	m.codexAccount = svc
-}
-
 // SetGitIdentityService wires the per-user git author resolver so PTY spawns
 // can inject GIT_AUTHOR_* / GIT_COMMITTER_* env. Optional; when nil the
 // agent inherits the OS-global git config (preserving personal-edition
@@ -115,49 +96,9 @@ func NewAgentManager(q *store.Queries, cfg *config.AgentConfig) *AgentManager {
 		wsConnections:         make(map[int64]int),
 		idleTimers:            make(map[int64]*time.Timer),
 		reviewTimers:          make(map[int64]*time.Timer),
-		claudeAcctByWorkspace: make(map[int64]int64),
-		codexAcctByWorkspace:  make(map[int64]int64),
 		q:                     q,
 		cfg:                   cfg,
 	}
-}
-
-// WorkspacesUsingCodexAccount returns the workspace IDs whose live PTY agent
-// was spawned with CODEX_HOME for the given accountID. Mirrors
-// WorkspacesUsingAccount; registered with CodexAccountService to gate Delete.
-func (m *AgentManager) WorkspacesUsingCodexAccount(accountID int64) []int64 {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	var out []int64
-	for wsID, accID := range m.codexAcctByWorkspace {
-		if accID == accountID {
-			if _, alive := m.processes[wsID]; alive {
-				out = append(out, wsID)
-			}
-		}
-	}
-	return out
-}
-
-// WorkspacesUsingAccount returns the workspace IDs whose live PTY agent was
-// spawned with CLAUDE_CONFIG_DIR for the given accountID. SpawnTrackerFn
-// implementation registered with ClaudeAccountService.
-//
-// Stale entries in claudeAcctByWorkspace are tolerated — the alive check
-// against m.processes filters them out so cleanup is lazy (GC happens on
-// the next spawn for the same workspaceID, which overwrites or deletes).
-func (m *AgentManager) WorkspacesUsingAccount(accountID int64) []int64 {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	var out []int64
-	for wsID, accID := range m.claudeAcctByWorkspace {
-		if accID == accountID {
-			if _, alive := m.processes[wsID]; alive {
-				out = append(out, wsID)
-			}
-		}
-	}
-	return out
 }
 
 // LiveWorkspaceIDs returns the workspace IDs with a live PTY agent process. Used

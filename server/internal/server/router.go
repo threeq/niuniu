@@ -691,9 +691,6 @@ func (s *Server) setupRoutes() {
 		workspaces.PUT("/:id/local-runner", s.localRunnerHandler.Put)
 		workspaces.DELETE("/:id/local-runner", s.localRunnerHandler.Delete)
 
-		// Claude account override (per-workspace; null clears, follows owner active)
-		workspaces.PUT("/:id/claude-account", apipkg.SetWorkspaceClaudeAccount(s.claudeAccountSvc, s.authzSvc, s.workspaceSvc))
-
 		// Agent routes under workspace
 		workspaces.POST("/:id/agent/start", s.agentHandler.Start)
 		workspaces.POST("/:id/agent/stop", s.agentHandler.Stop)
@@ -887,42 +884,7 @@ func (s *Server) setupRoutes() {
 		api.DELETE("/imbot/chats/:chatid", s.imbotHandler.DeleteChatOwner)
 	}
 
-	// Claude account pool (deployment-global; see docs/superpowers/specs/2026-05-08-claude-multi-account-design.md)
 	{
-		api.GET("/claude-accounts", s.claudeAccountHandler.List)
-		api.POST("/claude-accounts", s.claudeAccountHandler.Create)
-		api.POST("/claude-accounts/:id/login", s.claudeAccountHandler.IssueLoginToken)
-		api.POST("/claude-accounts/:id/refresh", s.claudeAccountHandler.Refresh)
-		api.PATCH("/claude-accounts/:id", s.claudeAccountHandler.Update)
-		api.DELETE("/claude-accounts/:id", s.claudeAccountHandler.Delete)
-		api.GET("/claude-accounts/:id/audit-log", s.claudeAccountHandler.AuditLog)
-		api.GET("/claude-accounts/:id/usage", s.claudeAccountHandler.GetUsage)
-		api.GET("/claude-accounts/:id/mcp/available", s.workspaceMCPHandler.ListAvailable)
-		api.GET("/claude-accounts/:id/config", s.claudeConfigHandler.Get)
-		api.PUT("/claude-accounts/:id/plugins/:pluginId", s.claudeConfigHandler.PutPlugin)
-		api.PUT("/claude-accounts/:id/mcp/:name", s.claudeConfigHandler.PutMCP)
-		api.POST("/claude-accounts/:id/library/plugins/:pluginId/install", s.claudeConfigHandler.InstallPlugin)
-		api.POST("/claude-accounts/:id/library/plugins/:pluginId/uninstall", s.claudeConfigHandler.UninstallPlugin)
-		api.POST("/claude-accounts/:id/library/marketplaces", s.claudeConfigHandler.AddMarketplace)
-		api.GET("/claude-active-account", s.claudeAccountHandler.GetActive)
-		api.PUT("/claude-active-account", s.claudeAccountHandler.SetActive)
-	}
-
-	// Codex account pool (deployment-global; mirror of claude_accounts).
-	// See docs/superpowers/specs/2026-05-22-codex-full-support-design.md.
-	{
-		api.GET("/codex-accounts", s.codexAccountHandler.List)
-		// Literal subpath; declared before the :id routes so gin's tree
-		// router picks it as a static match instead of treating
-		// "default-status" as an :id parameter.
-		api.GET("/codex-accounts/default-status", s.codexAccountHandler.DefaultStatus)
-		api.POST("/codex-accounts", s.codexAccountHandler.Create)
-		api.POST("/codex-accounts/:id/login", s.codexAccountHandler.IssueLoginToken)
-		api.POST("/codex-accounts/:id/refresh", s.codexAccountHandler.Refresh)
-		api.PATCH("/codex-accounts/:id", s.codexAccountHandler.Update)
-		api.DELETE("/codex-accounts/:id", s.codexAccountHandler.Delete)
-		api.GET("/codex-accounts/:id/audit-log", s.codexAccountHandler.AuditLog)
-		api.PUT("/workspaces/:id/codex-account", apipkg.SetWorkspaceCodexAccount(s.codexAccountSvc, s.authzSvc, s.workspaceSvc))
 		api.PUT("/workspaces/:id/codex-sandbox", apipkg.SetWorkspaceCodexSandbox(s.workspaceSvc, s.authzSvc))
 	}
 
@@ -948,8 +910,6 @@ func (s *Server) setupRoutes() {
 		ws.GET("/repositories/:id/terminal", runGate, consentRunGate, s.repositoryHandler.Terminal)
 		ws.GET("/sse", s.agentProxyHandler.SSE)
 		ws.GET("/notify", s.notifyHandler.Connect)
-		ws.GET("/claude-accounts/:id/login-pty", runGate, consentRunGate, s.claudeAccountPTYHandler.Handle)
-		ws.GET("/codex-accounts/:id/login-pty", runGate, consentRunGate, s.codexAccountPTYHandler.Handle)
 	}
 
 	// Repository routes

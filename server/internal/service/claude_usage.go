@@ -284,20 +284,10 @@ type rateLimitObservation struct {
 
 // ----- top-level Service -----
 
-// accountConfigDirResolver is the slice of *ClaudeAccountService that
-// ClaudeUsageService needs. Defined as an interface so unit tests can supply
-// a fake without spinning a real account service. NOT a test-only field —
-// the production wiring passes the real service via NewClaudeUsageService.
-type accountConfigDirResolver interface {
-	GetByID(ctx context.Context, id int64) (*ResolvedAccount, error)
-	GetDefault(ctx context.Context) (*ResolvedAccount, error)
-}
-
 // ClaudeUsageService composes per-account JSONL aggregation + cache + tier
 // credentials + agentproxy rate_limit_event capture.
 type ClaudeUsageService struct {
 	shared   bool
-	accounts accountConfigDirResolver
 	now      func() time.Time
 
 	caches sync.Map // accountID(int64) -> *usageCache
@@ -320,13 +310,11 @@ type accountRateLimitObservations struct {
 	m  map[string]*rateLimitObservation
 }
 
-// NewClaudeUsageService constructs the service. `accounts` MUST be non-nil in
-// production wiring (server.New); tests may pass nil only if every test path
-// uses Get() with no defaultID resolution.
-func NewClaudeUsageService(authEnabled bool, accounts accountConfigDirResolver) *ClaudeUsageService {
+// NewClaudeUsageService constructs the service. Multi-account switching was
+// removed; usage is aggregated from the host's global ~/.claude/ only.
+func NewClaudeUsageService(authEnabled bool) *ClaudeUsageService {
 	return &ClaudeUsageService{
 		shared:     authEnabled,
-		accounts:   accounts,
 		now:        time.Now,
 		dirsLister: accountWalkDirs,
 		walker:     walkAndParse,
@@ -466,15 +454,10 @@ func (s *ClaudeUsageService) GetForAccount(ctx context.Context, accountID int64,
 // walk jsonl, aggregate windows, populate cache. Returns the walker error if
 // any (callers in the singleflight group all see the same error).
 func (s *ClaudeUsageService) refreshLocked(ctx context.Context, accountID int64, cache *usageCache, now time.Time) error {
-	if s.accounts == nil {
-		return errors.New("claude usage: account resolver not wired")
-	}
-	acc, err := s.accounts.GetByID(ctx, accountID)
-	if err != nil {
-		return err
-	}
-
-	dirs, err := s.dirsLister(acc.ConfigDir)
+	// Multi-account switching removed: always aggregate the host ~/.claude/.
+	_ = accountID
+	configDir := ""
+	dirs, err := s.dirsLister(configDir)
 	if err != nil {
 		return err
 	}
@@ -516,7 +499,7 @@ func (s *ClaudeUsageService) refreshLocked(ctx context.Context, accountID int64,
 		DataSourcePaths: dirs,
 		Windows:         windows,
 	}
-	creds := s.credsLoad(acc.ConfigDir)
+	creds := s.credsLoad(configDir)
 	usage.SubscriptionType = creds.SubscriptionType
 	usage.RateLimitTier = creds.RateLimitTier
 

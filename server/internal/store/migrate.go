@@ -8,9 +8,7 @@ import (
 	"log/slog"
 	"regexp"
 	"strings"
-	"time"
 
-	"github.com/niuniu-dev/niuniu/internal/claudehome"
 )
 
 // fkType returns "BIGINT" for PostgreSQL (to match BIGSERIAL PKs) or "INTEGER" for SQLite.
@@ -122,22 +120,27 @@ func Migrate(db *sql.DB) {
 		slog.Warn("drop columns.executor_agent failed (inert column remains)", "err", err)
 	}
 
-	// Backfill workspaces.claude_account_id from the owner's active account.
-	// Workspaces created before strong-binding was introduced have NULL here;
-	// migrate them so ResolveForWorkspace no longer needs an owner-level fallback.
-	w := Wrap(db)
-	if !migrationApplied(w, "workspaces_claude_account_id_backfill_v1") {
-		if _, err := w.ExecContext(context.Background(),
-			`UPDATE workspaces SET claude_account_id = (
-				SELECT account_id FROM claude_active_account
-				WHERE owner_type = workspaces.owner_type AND owner_id = workspaces.owner_id
-			)
-			WHERE claude_account_id IS NULL`); err != nil {
-			slog.Warn("backfill workspaces.claude_account_id failed", "err", err)
-		} else {
-			markMigration(w, "workspaces_claude_account_id_backfill_v1")
+	// Multi-account Claude/Codex subsystem removed (issue #653). Drop the
+	// account pool tables and the per-workspace binding columns on existing
+	// DBs. Best-effort: SQLite cannot DROP COLUMN on an FK-constrained column,
+	// so the workspace columns may persist as inert on SQLite (no query
+	// references them); the tables drop cleanly on both drivers.
+	for _, tbl := range []string{
+		"claude_account_audit_log", "claude_active_account", "claude_accounts",
+		"codex_account_audit_log", "codex_accounts",
+	} {
+		if _, err := db.Exec("DROP TABLE IF EXISTS " + tbl); err != nil {
+			slog.Warn("drop account table failed (inert table remains)", "table", tbl, "err", err)
 		}
 	}
+	if err := dropColumnIfExists(db, "workspaces", "claude_account_id"); err != nil {
+		slog.Warn("drop workspaces.claude_account_id failed (inert column remains)", "err", err)
+	}
+	if err := dropColumnIfExists(db, "workspaces", "codex_account_id"); err != nil {
+		slog.Warn("drop workspaces.codex_account_id failed (inert column remains)", "err", err)
+	}
+
+	w := Wrap(db)
 
 	// 2026-06-01 token usage stats: widen token/duration columns to BIGINT on
 	// Postgres (int4 overflows on cumulative token/duration sums), then seed
@@ -321,11 +324,6 @@ func Migrate(db *sql.DB) {
 	if Driver == "sqlite" {
 		reconcileWorkspacesFKsSQLite(db)
 	}
-
-	// Placeholder migration step for claude_accounts. Schema is created via
-	// schema.sql / schema_postgres.sql in Open(). This step exists to register
-	// the migration point for future seed logic (Task 4).
-	migrateClaudeAccountsStep(db)
 
 	// Per-user git authorship: users.email column for `git commit` author email.
 	// Spec: docs/superpowers/specs/2026-05-19-per-user-git-identity-design.md
@@ -1800,44 +1798,6 @@ func migrateExternalProviderDropProviderCheckSQLite(db *sql.DB) {
 	)
 }
 
-// migrateClaudeAccountsStep seeds the default-row pointing at ~/.claude/
-// (config_dir = "") if the pool has no default row yet. Idempotent via the
-// partial unique index claude_accounts_only_one_default. Probes ~/.claude.json
-// for an existing OAuth login so the seed row starts in 'active' state when
-// the user has already logged in via the Claude CLI.
-//
-// Default row uses sentinel name '__default__' (per spec §"默认行不变量");
-// frontend renders i18n "默认 / Default / 默認" based on config_dir == ”.
-func migrateClaudeAccountsStep(db *sql.DB) {
-	var existing int
-	row := db.QueryRow(`SELECT 1 FROM claude_accounts WHERE config_dir = '' LIMIT 1`)
-	if err := row.Scan(&existing); err == nil {
-		return // already seeded
-	} else if err != sql.ErrNoRows {
-		slog.Warn("migrateClaudeAccounts: probe default row failed", "err", err)
-		return
-	}
-
-	email := claudehome.ReadEmailFromHomeJSON()
-	status := "pending"
-	if email != "" || claudehome.CredsExistInHome() {
-		status = "active"
-	}
-
-	var emailVal sql.NullString
-	if email != "" {
-		emailVal = sql.NullString{String: email, Valid: true}
-	}
-
-	q := `INSERT INTO claude_accounts (name, email, config_dir, visibility, status, created_at)
-	      VALUES ('__default__', ?, '', 'public', ?, ?)`
-	if Driver == "postgres" {
-		q = ConvertPlaceholders(q)
-	}
-	if _, err := db.Exec(q, emailVal, status, time.Now().Unix()); err != nil {
-		slog.Warn("migrateClaudeAccounts: seed default row failed", "err", err)
-	}
-}
 
 // reconcileWorkspacesFKsSQLite rebuilds the workspaces table on SQLite when
 // the workspaces row in sqlite_master is missing the canonical `created_by ...
@@ -1959,7 +1919,6 @@ func reconcileWorkspacesFKsSQLite(db *sql.DB) {
 		is_temporary   INTEGER NOT NULL DEFAULT 0,
 		is_archived    INTEGER NOT NULL DEFAULT 0,
 		archived_at    TIMESTAMP DEFAULT NULL,
-		claude_account_id INTEGER DEFAULT NULL REFERENCES claude_accounts(id) ON DELETE SET NULL,
 		mcp_servers TEXT NOT NULL DEFAULT '[]'
 	)`
 
@@ -1971,14 +1930,12 @@ func reconcileWorkspacesFKsSQLite(db *sql.DB) {
 		id, issue_id, name, path, status, agent_pid, agent_status,
 		session_id, session_status,
 		owner_type, owner_id, current_session_user_id, created_by,
-		created_at, updated_at, is_temporary, is_archived, archived_at,
-		claude_account_id
+		created_at, updated_at, is_temporary, is_archived, archived_at
 	) SELECT
 		id, issue_id, name, path, status, agent_pid, agent_status,
 		session_id, session_status,
 		owner_type, owner_id, current_session_user_id, created_by,
-		created_at, updated_at, is_temporary, is_archived, archived_at,
-		claude_account_id
+		created_at, updated_at, is_temporary, is_archived, archived_at
 	FROM workspaces`
 
 	stmts := []string{

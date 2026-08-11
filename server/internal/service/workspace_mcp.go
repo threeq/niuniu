@@ -139,7 +139,7 @@ func (s *WorkspaceService) UpdateMCPServers(ctx context.Context, wsID int64, ser
 	}
 	// Legacy path (no scene services wired — test fixtures or older builds).
 
-	configDir := s.resolveClaudeConfigDirCtx(ctx, claudeAccountIDFromWorkspace(ws))
+	configDir := "" // multi-account removed: host ~/.claude/
 	owner := OwnerRef{Type: ws.OwnerType, ID: ws.OwnerID}
 	wsDir := owner.WorkspacePath(s.dataDir, ws.ID)
 	if ws.CliType == "codex" {
@@ -230,27 +230,3 @@ func (s *WorkspaceService) SetStrictMCP(ctx context.Context, wsID int64, strict 
 	})
 }
 
-// claudeAccountIDFromWorkspace extracts the int64 account ID from a workspace
-// row, treating NULL as 0 (default account).
-func claudeAccountIDFromWorkspace(ws store.Workspace) int64 {
-	if !ws.ClaudeAccountID.Valid {
-		return 0
-	}
-	return ws.ClaudeAccountID.Int64
-}
-
-// resolveClaudeConfigDirCtx is the context-aware variant used by
-// UpdateMCPServers so account lookup respects request cancellation/deadline.
-// resolveClaudeConfigDir (background-ctx) is retained for call sites that run
-// outside any request scope (workspace create, agent spawn warmup).
-func (s *WorkspaceService) resolveClaudeConfigDirCtx(ctx context.Context, accountID int64) string {
-	if accountID == 0 || s.claudeAccount == nil {
-		return ""
-	}
-	acc, err := s.claudeAccount.GetByID(ctx, accountID)
-	if err != nil {
-		slog.Warn("resolveClaudeConfigDirCtx failed", "account_id", accountID, "err", err)
-		return ""
-	}
-	return acc.ConfigDir
-}

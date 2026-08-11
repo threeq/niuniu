@@ -21,7 +21,6 @@ import (
 type PluginInstallHandler struct {
 	pluginInst    *service.PluginInstaller
 	marketplace   *service.MarketplaceManager
-	claudeAccount *service.ClaudeAccountService
 	authz         *service.Authz
 	q             *store.Queries
 	authEnabled   bool
@@ -33,7 +32,6 @@ type PluginInstallHandler struct {
 func NewPluginInstallHandler(
 	pluginInst *service.PluginInstaller,
 	marketplace *service.MarketplaceManager,
-	claudeAccount *service.ClaudeAccountService,
 	authz *service.Authz,
 	q *store.Queries,
 	authEnabled bool,
@@ -41,7 +39,6 @@ func NewPluginInstallHandler(
 	return &PluginInstallHandler{
 		pluginInst:    pluginInst,
 		marketplace:   marketplace,
-		claudeAccount: claudeAccount,
 		authz:         authz,
 		q:             q,
 		authEnabled:   authEnabled,
@@ -264,14 +261,7 @@ func (h *PluginInstallHandler) resolveScope(c *gin.Context, scope string, wsID i
 	if cli != "codex" {
 		cli = "claude"
 	}
-	dir := ""
-	if h.claudeAccount != nil && ws.ClaudeAccountID.Valid && ws.ClaudeAccountID.Int64 != 0 {
-		acc, err := h.claudeAccount.GetByID(c.Request.Context(), ws.ClaudeAccountID.Int64)
-		if err == nil {
-			dir = acc.ConfigDir
-		}
-	}
-	return dir, cli, true
+	return "", cli, true
 }
 
 func (h *PluginInstallHandler) canMutateGlobal(c *gin.Context) bool {

@@ -109,7 +109,7 @@ func TestResolveProjectionCredentials_InjectsAndMapsSecurity(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	projector := NewSceneProjector(db, dataDir, nil, nil, nil, nil, cred)
+	projector := NewSceneProjector(db, dataDir, nil, nil, nil, cred)
 	proj := NewProjection()
 	proj.MergeFrom(&SceneDefinition{
 		MCP: []MCPDecl{{Name: "imap-mail", Config: map[string]any{
@@ -160,7 +160,7 @@ func TestResolveProjectionCredentials_InjectsHTTPHeaders(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	projector := NewSceneProjector(db, dataDir, nil, nil, nil, nil, cred)
+	projector := NewSceneProjector(db, dataDir, nil, nil, nil, cred)
 	proj := NewProjection()
 	proj.MergeFrom(&SceneDefinition{
 		MCP: []MCPDecl{{Name: "kb", Config: map[string]any{
@@ -195,7 +195,7 @@ func TestResolveProjectionCredentials_MissingHeaderCredDropsServer(t *testing.T)
 	owner := OwnerRef{Type: "user", ID: 1}
 
 	cred := newImapCredSvc(t, db) // no credential bound
-	projector := NewSceneProjector(db, dataDir, nil, nil, nil, nil, cred)
+	projector := NewSceneProjector(db, dataDir, nil, nil, nil, cred)
 	proj := NewProjection()
 	proj.MergeFrom(&SceneDefinition{
 		MCP: []MCPDecl{{Name: "kb", Config: map[string]any{
@@ -220,7 +220,7 @@ func TestResolveProjectionCredentials_MissingCredDropsServer(t *testing.T) {
 
 	// extCred wired but NO credential bound for alias mailbox.
 	cred := newImapCredSvc(t, db)
-	projector := NewSceneProjector(db, dataDir, nil, nil, nil, nil, cred)
+	projector := NewSceneProjector(db, dataDir, nil, nil, nil, cred)
 	proj := NewProjection()
 	proj.MergeFrom(&SceneDefinition{
 		MCP: []MCPDecl{{Name: "imap-mail", Config: map[string]any{
@@ -251,7 +251,7 @@ func TestResolveProjectionCredentials_CrossUserInvisible(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	projector := NewSceneProjector(db, dataDir, nil, nil, nil, nil, cred)
+	projector := NewSceneProjector(db, dataDir, nil, nil, nil, cred)
 	proj := NewProjection()
 	proj.MergeFrom(&SceneDefinition{
 		MCP:                 []MCPDecl{{Name: "imap-mail", Config: map[string]any{"command": "npx", "env": map[string]any{"IMAP_PASS": "${cred:mailbox.password}"}}}},
