@@ -158,9 +158,11 @@ export function WorkspaceKBsManager({ workspaceId }: WorkspaceKBsManagerProps) {
           className="h-8 flex-1 min-w-0 rounded border border-border bg-background px-2 text-sm focus:outline-none focus:ring-1 focus:ring-info"
         >
           <option value="">
-            {available.length === 0
-              ? t('workspaceMount.allMounted')
-              : t('workspaceMount.pick')}
+            {allKbs.length === 0
+              ? t('workspaceMount.noKbs')
+              : available.length === 0
+                ? t('workspaceMount.allMounted')
+                : t('workspaceMount.pick')}
           </option>
           {available.map((kb) => (
             <option key={kb.id} value={String(kb.id)}>

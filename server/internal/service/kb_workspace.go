@@ -117,9 +117,10 @@ func (s *KBService) MountKB(ctx context.Context, owner OwnerRef, workspaceID, kb
 			"kb_id", kb.ID, "workspace_id", workspaceID, "err", mErr)
 	}
 
-	if _, err := s.q.CreateWorkspaceKB(ctx, store.CreateWorkspaceKBParams{
+	row, err := s.q.CreateWorkspaceKB(ctx, store.CreateWorkspaceKBParams{
 		WorkspaceID: workspaceID, KbID: kbID, DatasetPath: dir,
-	}); err != nil {
+	})
+	if err != nil {
 		return WorkspaceKBMount{}, fmt.Errorf("mount kb: %w", err)
 	}
 
@@ -131,7 +132,7 @@ func (s *KBService) MountKB(ctx context.Context, owner OwnerRef, workspaceID, kb
 
 	return WorkspaceKBMount{
 		KBID: kbID, Name: kb.Name, Description: kb.Description,
-		SourceKind: kb.SourceKind, DatasetPath: dir, MountedAt: time.Now(),
+		SourceKind: kb.SourceKind, DatasetPath: dir, MountedAt: row.CreatedAt,
 	}, nil
 }
 
