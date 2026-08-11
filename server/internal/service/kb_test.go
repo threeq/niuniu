@@ -266,3 +266,125 @@ func TestKBReingestIdempotentAndRebuild(t *testing.T) {
 		t.Fatalf("rebuilt index should still hit, got %d", len(h))
 	}
 }
+
+// newWorkspaceTest creates a KBService + a workspace owned by owner, returning
+// the workspace id and its on-disk path.
+func newWorkspaceTest(t *testing.T, svc *KBService, owner OwnerRef) (int64, string) {
+	t.Helper()
+	wsPath := t.TempDir()
+	ws, err := svc.q.CreateWorkspace(context.Background(), store.CreateWorkspaceParams{
+		Name:      "ws-test", Path: wsPath, Status: "active",
+		OwnerType: owner.Type, OwnerID: owner.ID, CliType: "claude",
+	})
+	if err != nil {
+		t.Fatalf("CreateWorkspace: %v", err)
+	}
+	return ws.ID, wsPath
+}
+
+// TestKBWorkspaceMount covers the KB as a first-class workspace citizen: mounting
+// a KB materializes its source read-only into <workspace>/datasets/<name>/,
+// auto-ingests it, exposes that dir to the agent, and unmount removes both.
+func TestKBWorkspaceMount(t *testing.T) {
+	allowLocal(t) // local corpus dirs (personal-edition feature)
+	svc, owner := newKBTest(t)
+	ctx := context.Background()
+	wsID, wsPath := newWorkspaceTest(t, svc, owner)
+
+	src := t.TempDir()
+	writeKBFile(t, src, "guide.md", "工作空间挂载的 全文检索 演示内容\n")
+	kb, _ := svc.CreateKB(ctx, owner, CreateKBParams{Name: "mount-me", SourceKind: "local", SourceAddr: src})
+
+	// Mount: materializes the dir + auto-ingests.
+	mount, err := svc.MountKB(ctx, owner, wsID, kb.ID)
+	if err != nil {
+		t.Fatalf("MountKB: %v", err)
+	}
+	wantDir := filepath.Join(wsPath, "datasets", "mount-me")
+	if mount.DatasetPath != wantDir {
+		t.Fatalf("expected dataset dir %q, got %q", wantDir, mount.DatasetPath)
+	}
+	if _, err := os.Stat(filepath.Join(wantDir, "guide.md")); err != nil {
+		t.Fatalf("materialized file missing: %v", err)
+	}
+	// Auto-ingested: the mounted corpus is searchable.
+	if h, _ := svc.Search(ctx, owner, kb.ID, "全文检索", 10); len(h) != 1 {
+		t.Fatalf("mounted KB should be searchable, got %d hits", len(h))
+	}
+
+	// ListWorkspaceKBs returns the one mount.
+	mounts, err := svc.ListWorkspaceKBs(ctx, owner, wsID)
+	if err != nil || len(mounts) != 1 || mounts[0].KBID != kb.ID {
+		t.Fatalf("ListWorkspaceKBs: err=%v got=%+v", err, mounts)
+	}
+
+	// Agent dataset resolution points at the materialized dir (in the tree), not
+	// the source root.
+	dirs, err := svc.WorkspaceDatasetDirs(ctx, wsID)
+	if err != nil || len(dirs) != 1 || dirs[0].KBID != kb.ID || dirs[0].Root != wantDir {
+		t.Fatalf("WorkspaceDatasetDirs: err=%v got=%+v", err, dirs)
+	}
+
+	// Sync propagates a changed source into the materialized dir.
+	writeKBFile(t, src, "new.txt", "新增 同步 内容\n")
+	if err := svc.SyncWorkspaceKB(ctx, owner, wsID, kb.ID); err != nil {
+		t.Fatalf("SyncWorkspaceKB: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(wantDir, "new.txt")); err != nil {
+		t.Fatalf("synced file missing: %v", err)
+	}
+
+	// Unmount removes the row + the materialized dir.
+	if err := svc.UnmountKB(ctx, owner, wsID, kb.ID); err != nil {
+		t.Fatalf("UnmountKB: %v", err)
+	}
+	if m, _ := svc.ListWorkspaceKBs(ctx, owner, wsID); len(m) != 0 {
+		t.Fatalf("expected no mounts after unmount, got %d", len(m))
+	}
+	if _, err := os.Stat(wantDir); !os.IsNotExist(err) {
+		t.Fatalf("materialized dir should be removed after unmount, stat err=%v", err)
+	}
+	// Unmount is idempotent.
+	if err := svc.UnmountKB(ctx, owner, wsID, kb.ID); err != nil {
+		t.Fatalf("double unmount should be a no-op, got %v", err)
+	}
+}
+
+// TestKBWorkspaceMountIsolation verifies per-workspace + cross-tenant isolation:
+// a workspace only sees its own mounts, and another tenant cannot mount to (or
+// read) another's workspace.
+func TestKBWorkspaceMountIsolation(t *testing.T) {
+	allowLocal(t)
+	svc, owner := newKBTest(t)
+	ctx := context.Background()
+
+	other := OwnerRef{Type: "user", ID: 2}
+	wsID, _ := newWorkspaceTest(t, svc, owner)
+
+	src := t.TempDir()
+	writeKBFile(t, src, "a.md", "内容甲\n")
+	kbA, _ := svc.CreateKB(ctx, owner, CreateKBParams{Name: "kb-a", SourceKind: "local", SourceAddr: src})
+	kbB, _ := svc.CreateKB(ctx, owner, CreateKBParams{Name: "kb-b", SourceKind: "local", SourceAddr: t.TempDir()})
+
+	// Mount only kb-a — kb-b stays unmounted (per-workspace choice).
+	if _, err := svc.MountKB(ctx, owner, wsID, kbA.ID); err != nil {
+		t.Fatalf("MountKB: %v", err)
+	}
+	m, _ := svc.ListWorkspaceKBs(ctx, owner, wsID)
+	if len(m) != 1 || m[0].KBID != kbA.ID {
+		t.Fatalf("expected only kb-a mounted, got %+v", m)
+	}
+
+	// Cross-tenant: another owner cannot mount to owner's workspace.
+	if _, err := svc.MountKB(ctx, other, wsID, kbA.ID); err == nil {
+		t.Fatalf("other tenant should not mount to owner's workspace")
+	}
+	// ...nor unmount from it, nor list it.
+	if err := svc.UnmountKB(ctx, other, wsID, kbA.ID); err == nil {
+		t.Fatalf("other tenant should not unmount owner's workspace")
+	}
+	if m, _ := svc.ListWorkspaceKBs(ctx, other, wsID); len(m) != 0 {
+		t.Fatalf("other tenant should see no mounts, got %d", len(m))
+	}
+	_ = kbB // kb-b is never mounted
+}

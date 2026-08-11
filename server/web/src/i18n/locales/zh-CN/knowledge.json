@@ -113,5 +113,21 @@
     "cancel": "取消",
     "empty": "此目录下没有子文件夹",
     "error": "无法读取目录"
+  },
+  "workspaceMount": {
+    "title": "已挂载的知识库",
+    "description": "将知识库挂载到本工作空间。每个挂载的知识库会以只读方式复制到工作空间文件树中的 <datasets/<name>/> 并自动入库，智能体可直接浏览与检索。",
+    "allMounted": "所有知识库均已挂载",
+    "pick": "选择要挂载的知识库…",
+    "mount": "挂载",
+    "none": "本工作空间尚未挂载任何知识库。",
+    "noKbs": "暂无可用知识库。请先在“设置 → 集成”中创建。",
+    "unmount": "卸载",
+    "unmountConfirm": "从本工作空间卸载知识库“{{name}}”？文件树中的只读副本会被移除，源知识库不受影响。",
+    "sync": "同步",
+    "syncing": "同步中…",
+    "mounting": "挂载中…",
+    "datasetPath": "datasets/{{name}}",
+    "readOnly": "只读"
   }
 }

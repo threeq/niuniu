@@ -837,12 +837,12 @@
       "success": "已刪除"
     },
     "resources": {
-      "subtitle": "查看並管理該使用者的個人資源",
+      "subtitle": "檢視並管理該使用者的個人資源",
       "loading": "載入資源中…",
       "loadFailed": "載入資源失敗",
       "createdAt": "建立於 {{date}}",
-      "owner": "擁有者",
-      "lastOwner": "最後擁有者",
+      "owner": "所有者",
+      "lastOwner": "最後所有者",
       "sections": {
         "orgs": "所屬組織",
         "projects": "專案",
@@ -859,23 +859,23 @@
       "counts": {
         "envPresets": "環境預設",
         "quickActions": "快捷操作",
-        "agents": "智能體",
+        "agents": "智慧體",
         "scenes": "場景",
         "dataSources": "資料來源",
         "savedQueries": "已存查詢",
-        "dashboards": "儀表板",
+        "dashboards": "儀表盤",
         "knowledgeBases": "知識庫",
         "harnessSpecs": "工程規範"
       },
       "status": {
         "active": "活躍",
-        "archived": "已封存",
+        "archived": "已歸檔",
         "deleting": "刪除中"
       },
       "deleteResource": {
         "trigger": "刪除",
         "title": "刪除{{type}}？",
-        "description": "確定要刪除「{{name}}」？此操作不可撤銷。",
+        "description": "確定要刪除“{{name}}”？此操作不可撤銷。",
         "confirm": "刪除",
         "success": "已刪除",
         "types": {
@@ -897,7 +897,7 @@
         "reason": {
           "self": "無法在此刪除你自己的賬戶。",
           "lastAdmin": "系統至少需要一個管理員 —— 這是最後一個管理員。",
-          "lastOwnerOfOrg": "該使用者是組織「{{slug}}」的最後一個擁有者。請先轉移擁有權或刪除該組織後再試。",
+          "lastOwnerOfOrg": "該使用者是組織“{{slug}}”的最後一個所有者。請先轉移所有權或刪除該組織後再試。",
           "generic": "無法刪除該賬戶。"
         }
       }

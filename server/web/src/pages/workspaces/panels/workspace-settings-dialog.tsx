@@ -28,6 +28,7 @@ import {
 } from '@/components/ui/alert-dialog';
 import { ScheduleManager } from './schedule-manager';
 import { AutohostSettingsDialog } from '@/components/dialogs/autohost-settings-dialog';
+import { WorkspaceKBsManager } from './workspace-kbs-manager';
 
 // Env keys owned exclusively by the AutohostSettingsDialog. Filtered out of
 // the raw env editor (load) and merged from the latest server state on save,
@@ -441,6 +442,11 @@ export function WorkspaceSettingsDialog({ workspace }: WorkspaceSettingsDialogPr
                 </div>
               </div>
             )}
+          </div>
+
+          {/* Knowledge bases (KB as a first-class workspace citizen) */}
+          <div className="rounded-md border border-border p-3">
+            <WorkspaceKBsManager workspaceId={workspace.id} />
           </div>
 
           {/* Shared agent settings (apply to every engine) */}

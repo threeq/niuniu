@@ -290,3 +290,51 @@ export async function removeProjectKnowledgeBase(
     method: 'DELETE',
   })
 }
+
+// --- Workspace mounting (KB as a first-class citizen) -----------------------
+// A workspace mounts a KB explicitly (workspace_kbs); the backend materializes
+// its content read-only into <workspace>/datasets/<name>/ and auto-ingests it,
+// so the workspace file tree and agent can use it directly — mirroring how a
+// repository is checked out as a worktree.
+
+export interface WorkspaceKBMount {
+  kb_id: number
+  name: string
+  description: string
+  source_kind: KBSourceKind
+  /** Read-only materialized dir inside the workspace tree. */
+  dataset_path: string
+  mounted_at?: string
+}
+
+export async function listWorkspaceKnowledgeBases(
+  workspaceId: string | number,
+): Promise<WorkspaceKBMount[]> {
+  const r = await api.get<{ items: WorkspaceKBMount[] }>(
+    `/workspaces/${workspaceId}/kbs`,
+  )
+  return r.items ?? []
+}
+
+export async function mountWorkspaceKnowledgeBase(
+  workspaceId: string | number,
+  kbId: number,
+): Promise<WorkspaceKBMount> {
+  return api.post<WorkspaceKBMount>(`/workspaces/${workspaceId}/kbs`, {
+    kb_id: kbId,
+  })
+}
+
+export async function syncWorkspaceKnowledgeBase(
+  workspaceId: string | number,
+  kbId: number,
+): Promise<void> {
+  await api.post<void>(`/workspaces/${workspaceId}/kbs/${kbId}/sync`)
+}
+
+export async function unmountWorkspaceKnowledgeBase(
+  workspaceId: string | number,
+  kbId: number,
+): Promise<void> {
+  await api.delete<void>(`/workspaces/${workspaceId}/kbs/${kbId}`)
+}

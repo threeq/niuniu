@@ -214,10 +214,17 @@ func (s *KBService) ResolveDatasetDirs(ctx context.Context, owner OwnerRef, proj
 	return out, nil
 }
 
-// WorkspaceDatasetDirs resolves ResolveDatasetDirs for a workspace by id,
-// looking up the workspace owner and its project binding first. This is the
-// entry point the agent-spawn path calls (via the KBDatasetResolver shim) so the
-// exposed set always reflects the workspace's current KB bindings.
+// WorkspaceDatasetDirs resolves the read-only dataset dirs a workspace agent may
+// Read/Grep/Glob. This is the entry point the agent-spawn path calls (via the
+// KBDatasetResolver shim) so the exposed set always reflects the workspace's
+// current KB mounts.
+//
+// KB is a first-class workspace citizen: the PRIMARY source of truth is the
+// workspace's explicit mounts (workspace_kbs), whose materialized dirs live
+// inside the workspace tree at <workspace>/datasets/<name>/ (visible in the file
+// tree). Only when a workspace has NO explicit mounts do we fall back to the
+// legacy project-implicit inheritance (project-bound KBs, resolved at their
+// source root) so existing workspaces keep working until they mount explicitly.
 func (s *KBService) WorkspaceDatasetDirs(ctx context.Context, workspaceID int64) ([]KBDatasetDir, error) {
 	ws, err := s.q.GetWorkspace(ctx, workspaceID)
 	if err != nil {
@@ -227,8 +234,31 @@ func (s *KBService) WorkspaceDatasetDirs(ctx context.Context, workspaceID int64)
 	if err := owner.Validate(); err != nil {
 		return nil, err
 	}
-	// A project-less workspace (GetProjectIDForWorkspace returns 0 or errors)
-	// sees no bound KB — mirror ListVisibleKBs' nil-project behavior.
+	mounts, err := s.ListWorkspaceKBs(ctx, owner, workspaceID)
+	if err != nil {
+		return nil, err
+	}
+	if len(mounts) > 0 {
+		out := make([]KBDatasetDir, 0, len(mounts))
+		for _, m := range mounts {
+			if m.DatasetPath == "" {
+				continue
+			}
+			if _, err := os.Stat(m.DatasetPath); err != nil {
+				continue // dataset dir not materialized yet: skip
+			}
+			out = append(out, KBDatasetDir{
+				KBID:        m.KBID,
+				Name:        m.Name,
+				Description: m.Description,
+				Root:        m.DatasetPath,
+			})
+		}
+		return out, nil
+	}
+	// No explicit mounts: fall back to project-bound KBs (backward compat). A
+	// project-less workspace (GetProjectIDForWorkspace returns 0 or errors) sees
+	// no bound KB — mirror ListVisibleKBs' nil-project behavior.
 	projectID, _ := s.q.GetProjectIDForWorkspace(ctx, workspaceID)
 	return s.ResolveDatasetDirs(ctx, owner, projectID)
 }

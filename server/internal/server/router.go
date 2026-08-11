@@ -673,6 +673,13 @@ func (s *Server) setupRoutes() {
 		workspaces.GET("/:id/repositories", s.workspaceHandler.ListRepositories)
 		workspaces.POST("/:id/repositories", s.workspaceHandler.AddRepository)
 
+		// Knowledge-base mounting (KB as a first-class citizen): explicit
+		// per-workspace mounts materialized read-only into datasets/<name>.
+		workspaces.GET("/:id/kbs", s.knowledgeBaseHandler.ListWorkspaceKBs)
+		workspaces.POST("/:id/kbs", s.knowledgeBaseHandler.MountWorkspaceKB)
+		workspaces.POST("/:id/kbs/:kbid/sync", s.knowledgeBaseHandler.SyncWorkspaceKB)
+		workspaces.DELETE("/:id/kbs/:kbid", s.knowledgeBaseHandler.UnmountWorkspaceKB)
+
 		// Workspace settings
 		workspaces.PUT("/:id/name", s.workspaceHandler.UpdateName)
 

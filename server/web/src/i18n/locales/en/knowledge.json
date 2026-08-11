@@ -113,5 +113,21 @@
     "cancel": "Cancel",
     "empty": "No subfolders here",
     "error": "Couldn't read the folder"
+  },
+  "workspaceMount": {
+    "title": "Mounted knowledge bases",
+    "description": "Mount knowledge bases to this workspace. Each mounted KB is copied read-only into <datasets/<name>/> inside the workspace file tree and auto-ingested, so the agent can browse and search it directly.",
+    "allMounted": "All knowledge bases mounted",
+    "pick": "Select a knowledge base to mount…",
+    "mount": "Mount",
+    "none": "No knowledge bases mounted to this workspace yet.",
+    "noKbs": "No knowledge bases available. Create one in Settings → Integrations first.",
+    "unmount": "Unmount",
+    "unmountConfirm": "Unmount knowledge base \"{{name}}\" from this workspace? Its read-only copy in the file tree is removed; the source knowledge base is untouched.",
+    "sync": "Sync",
+    "syncing": "Syncing…",
+    "mounting": "Mounting…",
+    "datasetPath": "datasets/{{name}}",
+    "readOnly": "read-only"
   }
 }

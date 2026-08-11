@@ -28,7 +28,7 @@ func (q *Queries) CreateKBBinding(ctx context.Context, arg CreateKBBindingParams
 
 const createKnowledgeBase = `-- name: CreateKnowledgeBase :one
 INSERT INTO knowledge_bases (owner_type, owner_id, name, description, source_kind, source_addr, source_config)
-VALUES (?, ?, ?, ?, ?, ?, ?) RETURNING id, owner_type, owner_id, name, description, source_kind, source_addr, source_config, created_at, updated_at
+VALUES (?, ?, ?, ?, ?, ?, ?) RETURNING id, owner_type, owner_id, name, description, source_kind, source_addr, source_config, status, created_at, updated_at
 `
 
 type CreateKnowledgeBaseParams struct {
@@ -61,6 +61,7 @@ func (q *Queries) CreateKnowledgeBase(ctx context.Context, arg CreateKnowledgeBa
 		&i.SourceKind,
 		&i.SourceAddr,
 		&i.SourceConfig,
+		&i.Status,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
@@ -127,7 +128,7 @@ func (q *Queries) GetKBDocumentByPath(ctx context.Context, arg GetKBDocumentByPa
 }
 
 const getKnowledgeBase = `-- name: GetKnowledgeBase :one
-SELECT id, owner_type, owner_id, name, description, source_kind, source_addr, source_config, created_at, updated_at FROM knowledge_bases WHERE id = ?
+SELECT id, owner_type, owner_id, name, description, source_kind, source_addr, source_config, status, created_at, updated_at FROM knowledge_bases WHERE id = ?
 `
 
 func (q *Queries) GetKnowledgeBase(ctx context.Context, id int64) (KnowledgeBase, error) {
@@ -142,6 +143,7 @@ func (q *Queries) GetKnowledgeBase(ctx context.Context, id int64) (KnowledgeBase
 		&i.SourceKind,
 		&i.SourceAddr,
 		&i.SourceConfig,
+		&i.Status,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
@@ -149,7 +151,7 @@ func (q *Queries) GetKnowledgeBase(ctx context.Context, id int64) (KnowledgeBase
 }
 
 const getKnowledgeBaseByOwnerAndName = `-- name: GetKnowledgeBaseByOwnerAndName :one
-SELECT id, owner_type, owner_id, name, description, source_kind, source_addr, source_config, created_at, updated_at FROM knowledge_bases WHERE owner_type = ? AND owner_id = ? AND name = ?
+SELECT id, owner_type, owner_id, name, description, source_kind, source_addr, source_config, status, created_at, updated_at FROM knowledge_bases WHERE owner_type = ? AND owner_id = ? AND name = ?
 `
 
 type GetKnowledgeBaseByOwnerAndNameParams struct {
@@ -172,6 +174,7 @@ func (q *Queries) GetKnowledgeBaseByOwnerAndName(ctx context.Context, arg GetKno
 		&i.SourceKind,
 		&i.SourceAddr,
 		&i.SourceConfig,
+		&i.Status,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
@@ -287,7 +290,7 @@ func (q *Queries) ListKBDocuments(ctx context.Context, kbID int64) ([]KbDocument
 }
 
 const listKnowledgeBasesForOwner = `-- name: ListKnowledgeBasesForOwner :many
-SELECT id, owner_type, owner_id, name, description, source_kind, source_addr, source_config, created_at, updated_at FROM knowledge_bases WHERE owner_type = ? AND owner_id = ? ORDER BY created_at DESC
+SELECT id, owner_type, owner_id, name, description, source_kind, source_addr, source_config, status, created_at, updated_at FROM knowledge_bases WHERE owner_type = ? AND owner_id = ? ORDER BY created_at DESC
 `
 
 type ListKnowledgeBasesForOwnerParams struct {
@@ -313,6 +316,7 @@ func (q *Queries) ListKnowledgeBasesForOwner(ctx context.Context, arg ListKnowle
 			&i.SourceKind,
 			&i.SourceAddr,
 			&i.SourceConfig,
+			&i.Status,
 			&i.CreatedAt,
 			&i.UpdatedAt,
 		); err != nil {
@@ -330,7 +334,7 @@ func (q *Queries) ListKnowledgeBasesForOwner(ctx context.Context, arg ListKnowle
 }
 
 const listKnowledgeBasesForProject = `-- name: ListKnowledgeBasesForProject :many
-SELECT kb.id, kb.owner_type, kb.owner_id, kb.name, kb.description, kb.source_kind, kb.source_addr, kb.source_config, kb.created_at, kb.updated_at FROM knowledge_bases kb
+SELECT kb.id, kb.owner_type, kb.owner_id, kb.name, kb.description, kb.source_kind, kb.source_addr, kb.source_config, kb.status, kb.created_at, kb.updated_at FROM knowledge_bases kb
 JOIN kb_bindings b ON b.kb_id = kb.id
 WHERE b.target_type = 'project'
   AND b.target_id = ?
@@ -370,6 +374,7 @@ func (q *Queries) ListKnowledgeBasesForProject(ctx context.Context, arg ListKnow
 			&i.SourceKind,
 			&i.SourceAddr,
 			&i.SourceConfig,
+			&i.Status,
 			&i.CreatedAt,
 			&i.UpdatedAt,
 		); err != nil {
@@ -390,7 +395,7 @@ const updateKnowledgeBase = `-- name: UpdateKnowledgeBase :one
 UPDATE knowledge_bases
 SET name = ?, description = ?, source_kind = ?, source_addr = ?, source_config = ?,
     updated_at = CURRENT_TIMESTAMP
-WHERE id = ? RETURNING id, owner_type, owner_id, name, description, source_kind, source_addr, source_config, created_at, updated_at
+WHERE id = ? RETURNING id, owner_type, owner_id, name, description, source_kind, source_addr, source_config, status, created_at, updated_at
 `
 
 type UpdateKnowledgeBaseParams struct {
@@ -421,6 +426,7 @@ func (q *Queries) UpdateKnowledgeBase(ctx context.Context, arg UpdateKnowledgeBa
 		&i.SourceKind,
 		&i.SourceAddr,
 		&i.SourceConfig,
+		&i.Status,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
