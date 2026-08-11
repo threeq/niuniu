@@ -2,10 +2,12 @@
 
 Guidance for AI coding agents (Claude Code) working in this repository.
 
-> This is the **open-source personal edition** of Niuniu (single-user, MIT). An
-> **enterprise** edition (multi-tenant teams, cloud relay, seat licensing) lives
-> in a separate private repo. Items marked **[enterprise]** below are NOT in this
-> codebase — keep contributions scoped to the personal edition.
+> This is the **source-available personal edition** of Niuniu (single-user, free
+> for personal/non-commercial use; **commercial or team/organizational use requires
+> a paid license**, see [LICENSE](LICENSE)). An **enterprise** edition
+> (multi-tenant teams, cloud relay, seat licensing) lives in a separate private
+> repo. Items marked **[enterprise]** below are NOT in this codebase — keep
+> contributions scoped to the personal edition.
 
 ## Project at a glance
 

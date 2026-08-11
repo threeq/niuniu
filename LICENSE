@@ -1,21 +1,53 @@
-MIT License
+Niuniu Source-Available License (NSL)
 
-Copyright (c) 2026 threeq
+Copyright (c) 2026 threeq (三飞)
 
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
+版本 1.0 · 生效日期：2026-08-11
 
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
+本软件采用「源码可用（Source-Available）」授权，而非开源（OSI）许可证。
+任何个人或组织获得本软件及其相关文档（以下简称"本软件"）的副本，即视为同意
+并接受本授权条款。
 
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
+一、免费授权（个人 / 非商业用途）
+
+在下列条件下，免费授予任何人使用、复制、修改、分发本软件的权利：
+
+1. 本版权声明与本授权条款须包含在所有副本或实质性部分中；
+2. 使用属于【个人、私人、非商业】用途，包括但不限于学习、研究、测试、
+   个人项目与个人开发。
+
+二、需取得商业授权（商用 / 团队 / 组织使用）
+
+凡属于下列任一情形的使用，均【必须】事先向版权人（threeq）购买并获得有效的
+商业授权，否则不获授权：
+
+1. 用于【商业目的】——直接或间接营利，包括但不限于将其作为产品或服务（含
+   SaaS、私有化部署、云服务）对外提供、销售、或用于自身商业运营；
+2. 由【团队 / 组织 / 公司 / 机关】使用——多个个体共同使用、或任何非自然人
+   实体（含公司、合伙、组织、机构）内部部署使用，无论是否营利；
+3. 向第三方提供有偿服务或支持。
+
+商业授权条款对被授权范围内的使用优先级高于本授权。未取得商业授权的上述
+使用，即为侵权。
+
+三、无担保与责任限制
+
+本软件按「现状」提供，不附带任何明示或默示的担保，包括但不限于适销性、
+特定用途适用性及不侵权保证。在任何情况下，版权人或贡献者均不对因使用本软件
+产生的任何索赔、损害或其他责任负责，无论是合同、侵权或其他方式引起。
+
+四、联系方式
+
+如需获取商业授权，请联系：
+three3q@qq.com
+
+---
+
+English summary (for reference; the Chinese terms above prevail):
+
+This software is licensed under a Source-Available (non-OSI) license.
+Free use is granted for personal, private, and non-commercial purposes.
+Any commercial use, or any use by a team, organization, company, or entity
+(including internal deployment and providing paid services), requires a paid
+commercial license from the copyright holder (threeq). The software is
+provided "AS IS" without warranty of any kind.

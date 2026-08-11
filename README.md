@@ -7,7 +7,10 @@
 Everything runs on your machine and persists to a local database. No data leaves your host unless you connect an external source yourself.
 
 [![Build](https://github.com/threeq/niuniu/actions/workflows/ci.yml/badge.svg)](https://github.com/threeq/niuniu/actions/workflows/ci.yml)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![License: Source-Available](https://img.shields.io/badge/License-Source--Available-blue.svg)](LICENSE)
+
+> **License Notice**：本仓库采用 **Source-Available（源码可用）** 授权，非 MIT/OSI 开源。
+> 个人/非商业用途免费；**商用或团队/组织使用需取得商业授权**。详见 [LICENSE](LICENSE)。
 [![Go](https://img.shields.io/badge/Go-1.25-00ADD8?logo=go&logoColor=white)](https://go.dev)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
 
@@ -26,9 +29,10 @@ modes — the same workspace becomes an office studio (Word/Excel/PPT), a data c
 (query databases, pin live dashboards), a design/diagram bench, a writing/research
 desk, or a support console.
 
-> This is the **open-source personal edition** (single-user, MIT). A hosted
-> **enterprise edition** with multi-tenant teams, cloud relay, and seat licensing
-> exists separately — see [Enterprise](#enterprise-edition).
+> This is the **source-available personal edition** (single-user, free for
+> personal/non-commercial use). A hosted **enterprise edition** with multi-tenant
+> teams, cloud relay, and seat licensing exists separately — commercial or
+> team/organizational use requires a license, see [Enterprise](#enterprise-edition).
 
 ## Key features
 
@@ -103,10 +107,13 @@ is also supported — see `config-postgres.example.yaml`.
 
 ## Enterprise edition
 
-This repository is the open-source **personal edition** (single-user, MIT). A separate
-**enterprise edition** adds: multi-tenant teams (`user`/`org` ownership with isolated
-storage/streaming/MCP), a cloud relay (account auth, device pairing, multi-node
-tunneling), and seat licensing. The commercial code is not in this repo.
+This repository is the source-available **personal edition** (single-user, free
+for personal/non-commercial use). A separate **enterprise edition** adds:
+multi-tenant teams (`user`/`org` ownership with isolated storage/streaming/MCP),
+a cloud relay (account auth, device pairing, multi-node tunneling), and seat
+licensing. The commercial code is not in this repo. **Commercial or
+team/organizational use of this software requires a paid license** — see
+[LICENSE](LICENSE).
 
 Looking for hosted/binary releases? See the project site.
 
@@ -122,4 +129,5 @@ Found a vulnerability? Please see [SECURITY.md](SECURITY.md) for responsible dis
 
 ## License
 
-[MIT](LICENSE) © threeq
+[Source-Available (NSL)](LICENSE) © 2026 threeq — personal/non-commercial use free;
+commercial or team/organizational use requires a paid license.
