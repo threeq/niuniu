@@ -49,7 +49,6 @@ const SceneEditPage = lazyNamed(() => import('./pages/scenes/scene-edit-page'), 
 const OrgsListPage = lazyNamed(() => import('./pages/settings/orgs'), 'OrgsListPage');
 const OrgDetailPage = lazyNamed(() => import('./pages/settings/orgs/org-detail-page'), 'OrgDetailPage');
 const IntegrationsPage = lazyNamed(() => import('./pages/settings/integrations'), 'IntegrationsPage');
-const ClaudeSettings = lazyNamed(() => import('./pages/settings/claude-settings'), 'ClaudeSettings');
 const HarnessPage = lazyNamed(() => import('./pages/harness'), 'HarnessPage');
 const AgentsPage = lazyNamed(() => import('./pages/agents'), 'AgentsPage');
 const DashboardsPage = lazyNamed(() => import('./pages/dashboards/dashboards-page'), 'DashboardsPage');
@@ -296,32 +295,10 @@ const orgDetailRoute = createRoute({
   },
 });
 
-const claudeAccountsRoute = createRoute({
-  getParentRoute: () => layoutRoute,
-  path: '/settings/claude-accounts',
-  beforeLoad: () => {
-    throw redirect({ to: '/settings', search: { tab: 'system-deps' } });
-  },
-});
-
-const codexAccountsRoute = createRoute({
-  getParentRoute: () => layoutRoute,
-  path: '/settings/codex-accounts',
-  beforeLoad: () => {
-    throw redirect({ to: '/settings', search: { tab: 'system-deps' } });
-  },
-});
-
 const integrationsRoute = createRoute({
   getParentRoute: () => layoutRoute,
   path: '/settings/integrations',
   component: IntegrationsPage,
-});
-
-const claudeSettingsRoute = createRoute({
-  getParentRoute: () => layoutRoute,
-  path: '/settings/claude',
-  component: ClaudeSettings,
 });
 
 const harnessRoute = createRoute({
@@ -376,10 +353,7 @@ const routeTree = rootRoute.addChildren([
     sceneDetailRoute,
     orgsListRoute,
     orgDetailRoute,
-    claudeAccountsRoute,
-    codexAccountsRoute,
     integrationsRoute,
-    claudeSettingsRoute,
     harnessRoute,
     agentsRoute,
     dashboardsRoute,

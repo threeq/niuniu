@@ -7,10 +7,8 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Badge } from '@/components/ui/badge';
-import { api, mcpApi } from '@/lib/api';
+import { api } from '@/lib/api';
 import { listDataSources } from '@/lib/data-sources-api';
-import { getActiveClaudeAccount, listClaudeAccounts } from '@/lib/claude-account-api';
-import { useAuthStore } from '@/stores/auth-store';
 import type { KnownMCP } from '@/types/api';
 import type { AdvancedDraft, DataSourceRow, EnvPresetRow, MatchRuleRow, MCPRow } from './scene-editor-helpers';
 
@@ -93,30 +91,17 @@ export function SceneAdvancedEditor({ value, onChange, disabled }: SceneAdvanced
   const { t } = useTranslation('scenes');
   const patch = (p: Partial<AdvancedDraft>) => onChange({ ...value, ...p });
 
-  const userId = useAuthStore((s) => s.user?.id);
-
   // Locally-installed MCP servers (from the owner's active Claude account, with a
   // fall back to the first account). Used to populate the picker; the scene still
   // only stores the MCP name, so a free-typed name for a not-yet-installed server
   // is also accepted.
   const { data: mcpAvailable = [] } = useQuery({
-    queryKey: ['scene-mcp-available', userId],
-    enabled: !!userId,
+    queryKey: ['scene-mcp-available'],
     queryFn: async (): Promise<KnownMCP[]> => {
-      let accountId: number | null = null;
-      try {
-        const active = await getActiveClaudeAccount('user', userId!);
-        accountId = active.account?.id ?? null;
-      } catch {
-        accountId = null;
-      }
-      if (accountId == null) {
-        const accounts = await listClaudeAccounts().catch(() => []);
-        accountId = accounts[0]?.id ?? null;
-      }
-      if (accountId == null) return [];
-      const resp = await mcpApi.listAvailable(accountId).catch(() => ({ items: [] as KnownMCP[] }));
-      return resp.items;
+      // Per-account MCP discovery was removed with the multi-account system;
+      // the picker now relies on free-typed names (the scene only stores the
+      // MCP name anyway, so a not-yet-installed server is accepted).
+      return [];
     },
   });
   const mcpByName = new Map(mcpAvailable.map((m) => [m.name, m]));

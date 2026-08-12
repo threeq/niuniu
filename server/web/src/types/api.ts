@@ -1378,62 +1378,6 @@ export interface AddMemberRequest {
   role: string;
 }
 
-// Claude multi-account types
-export type ClaudeAccountStatus = 'pending' | 'active' | 'failed'
-export type ClaudeAccountVisibility = 'public' | 'private'
-
-export interface ClaudeAccount {
-  id: number
-  name: string
-  email?: string
-  config_dir: string  // empty string = default row (~/.claude/)
-  visibility: ClaudeAccountVisibility
-  status: ClaudeAccountStatus
-  created_at: number
-  last_used_at?: number
-  created_by?: number
-}
-
-export interface ClaudeAccountCreateResp extends ClaudeAccount {
-  ws_token: string
-}
-
-// Codex multi-account types (M2.5). Mirrors claude types; no default-row
-// concept (config_dir is always a per-account path; "no binding" = nil
-// codex_account_id on the workspace).
-export type CodexAccountStatus = 'pending' | 'active' | 'failed'
-export type CodexAccountVisibility = 'public' | 'private'
-
-export interface CodexAccount {
-  id: number
-  name: string
-  email?: string
-  config_dir: string
-  visibility: CodexAccountVisibility
-  status: CodexAccountStatus
-  created_at: number
-  last_used_at?: number
-  created_by?: number
-}
-
-export interface CodexAccountCreateResp extends CodexAccount {
-  ws_token: string
-}
-
-// State of the host's native ~/.codex/. Drives the synthetic "system default"
-// row on the Codex accounts page so it reflects whether `codex login` has
-// already been completed on the host shell. Personal mode only — the row
-// itself is not rendered in hosted/team mode.
-export interface CodexDefaultStatus {
-  email: string
-  status: 'active' | 'pending'
-  config_dir: string
-}
-
-export interface ClaudeActiveAccountResp {
-  account: ClaudeAccount | null
-}
-
 // ---------------------------------------------------------------------------
 // Scene-based MCP/plugin management (M1).
 // Spec: docs/superpowers/specs/2026-05-17-scene-based-mcp-plugin-management-design.md

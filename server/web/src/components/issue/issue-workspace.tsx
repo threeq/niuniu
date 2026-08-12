@@ -2,7 +2,6 @@ import { useEffect, useRef, useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
 import { api } from '@/lib/api'
-import { listClaudeAccounts } from '@/lib/claude-account-api'
 import type { Workspace, WorkspaceRepoDetail, WorktreeGroup, Repository, CreateWorkspaceResponse, WorkspaceStatus } from '@/types/api'
 import {
   Box,
@@ -114,7 +113,6 @@ export function IssueWorkspace({ issueId, issueTitle }: IssueWorkspaceProps) {
   const [repoBranches, setRepoBranches] = useState<Map<number, string[]>>(new Map())
   const [loadingBranches, setLoadingBranches] = useState<Set<number>>(new Set())
   const [searchKeyword, setSearchKeyword] = useState('')
-  const [claudeAccountId, setClaudeAccountId] = useState<number | null>(null)
   const [cliType, setCliType] = useState<'claude' | 'codex' | 'qwen' | 'omp' | 'goose'>('claude')
 
   const agentStatusLabels: Record<string, string> = {
@@ -160,12 +158,6 @@ export function IssueWorkspace({ issueId, issueTitle }: IssueWorkspaceProps) {
     queryKey: ['repositories'],
     queryFn: () => api.listRepositories(),
     enabled: !activeWorkspace && !workspaceLoading,
-  })
-
-  const { data: claudeAccounts = [] } = useQuery({
-    queryKey: ['claude-accounts'],
-    queryFn: listClaudeAccounts,
-    enabled: showRepoPicker,
   })
 
   // Pre-select the issue's project-linked repos when the inline picker opens.
@@ -223,7 +215,6 @@ export function IssueWorkspace({ issueId, issueTitle }: IssueWorkspaceProps) {
       setRepoSelections(new Map())
       setRepoBranches(new Map())
       setSearchKeyword('')
-      setClaudeAccountId(null)
       setCliType('claude')
       // Surface partial-success: workspace shell is created but a worktree
       // failed (e.g. base branch not in repo). Without this the dialog just
@@ -242,7 +233,6 @@ export function IssueWorkspace({ issueId, issueTitle }: IssueWorkspaceProps) {
     setShowRepoPicker(true)
     setRepoSelections(new Map())
     setSearchKeyword('')
-    setClaudeAccountId(null)
     setCliType('claude')
   }
 
@@ -334,9 +324,6 @@ export function IssueWorkspace({ issueId, issueTitle }: IssueWorkspaceProps) {
       name: issueTitle,
       repos: repoList,
       cli_type: cliType,
-      // Codex workspaces don't use claude_account_id; skip to match
-      // NewWorkspaceDialog and avoid binding a stale account.
-      ...(cliType === 'claude' && claudeAccountId != null ? { claude_account_id: claudeAccountId } : {}),
     })
   }
 
@@ -430,26 +417,6 @@ export function IssueWorkspace({ issueId, issueTitle }: IssueWorkspaceProps) {
                   ))}
                 </div>
               </div>
-              {cliType === 'claude' && claudeAccounts.filter(a => a.status === 'active').length > 0 && (
-                <div className="grid gap-1.5">
-                  <label htmlFor="issue-ws-claude-account" className="text-xs font-medium">
-                    {t('issue.workspace.claudeAccount')}
-                  </label>
-                  <select
-                    id="issue-ws-claude-account"
-                    value={claudeAccountId ?? ''}
-                    onChange={(e) => setClaudeAccountId(e.target.value ? Number(e.target.value) : null)}
-                    className="h-8 rounded-md border border-input bg-background px-2 py-1 text-xs ring-offset-background focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-                  >
-                    <option value="">{t('issue.workspace.claudeAccountDefault')}</option>
-                    {claudeAccounts.filter(a => a.status === 'active').map((a) => (
-                      <option key={a.id} value={a.id}>
-                        {a.name}{a.email ? ` (${a.email})` : ''}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              )}
               {issueDefaultsQuery.isLoading && (
                 <p className="text-xs text-muted-foreground">{t('issue.workspace.loadingDefaults')}</p>
               )}
@@ -503,7 +470,7 @@ export function IssueWorkspace({ issueId, issueTitle }: IssueWorkspaceProps) {
                 <Button
                   variant="outline"
                   size="sm"
-                  onClick={() => { setShowRepoPicker(false); setRepoSelections(new Map()); setRepoBranches(new Map()); setSearchKeyword(''); setClaudeAccountId(null); setCliType('claude') }}
+                  onClick={() => { setShowRepoPicker(false); setRepoSelections(new Map()); setRepoBranches(new Map()); setSearchKeyword(''); setCliType('claude') }}
                   className="flex-1"
                 >
                   {t('issue.workspace.cancel')}

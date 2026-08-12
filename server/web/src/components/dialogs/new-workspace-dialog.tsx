@@ -4,8 +4,6 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { ChevronsUpDown, X, Search, Plug, AlertTriangle, Loader2 } from 'lucide-react';
 import { api, mcpApi, ApiError } from '@/lib/api';
 import { DirectoryBrowser } from './directory-browser';
-import { listClaudeAccounts } from '@/lib/claude-account-api';
-import { listCodexAccounts } from '@/lib/codex-account-api';
 import { useAuthStore } from '@/stores/auth-store';
 import { OwnerPicker } from '@/components/shared/owner-picker';
 import type { OwnerRef } from '@/types/org';
@@ -61,10 +59,6 @@ export function NewWorkspaceDialog({ open, onOpenChange, defaultIssueId, default
   // no_repo=true with an empty repos list.
   const [noRepo, setNoRepo] = useState(false);
   const [selectedRepoId, setSelectedRepoId] = useState<number | ''>('');
-  const [claudeAccountId, setClaudeAccountId] = useState<number | null>(null);
-  // codexAccountId binds to a managed codex_accounts row (M2.5). null = use
-  // the host's global ~/.codex/ (back-compat for pre-M2.5 deployments).
-  const [codexAccountId, setCodexAccountId] = useState<number | null>(null);
   // cliType chooses the agent CLI for the workspace. Immutable after create.
   // Codex workspaces skip the Claude account picker since codex has its own
   // ~/.codex/auth.json (M2 will introduce a codex_accounts table).
@@ -96,17 +90,6 @@ export function NewWorkspaceDialog({ open, onOpenChange, defaultIssueId, default
     enabled: open,
   });
 
-  const { data: claudeAccounts = [] } = useQuery({
-    queryKey: ['claude-accounts'],
-    queryFn: listClaudeAccounts,
-    enabled: open,
-  });
-
-  const { data: codexAccounts = [] } = useQuery({
-    queryKey: ['codex-accounts'],
-    queryFn: listCodexAccounts,
-    enabled: open,
-  });
 
   const { data: availableIssues = [] } = useQuery({
     queryKey: ['workspace-available-issues'],
@@ -184,20 +167,20 @@ export function NewWorkspaceDialog({ open, onOpenChange, defaultIssueId, default
       lastMcpDetectKeyRef.current = '';
       return;
     }
-    if (claudeAccountId == null || selectedRepos.length === 0) {
+    if (selectedRepos.length === 0) {
       setMcpDetect(null);
       setMcpServers([]);
       lastMcpDetectKeyRef.current = '';
       return;
     }
     const repoIds = selectedRepos.map((sr) => sr.repository.id).sort((a, b) => a - b);
-    const key = `${claudeAccountId}|${repoIds.join(',')}`;
+    const key = repoIds.join(',');
     if (key === lastMcpDetectKeyRef.current) return;
     lastMcpDetectKeyRef.current = key;
     let cancelled = false;
     setMcpLoading(true);
     mcpApi
-      .detect({ claude_account_id: claudeAccountId, repo_ids: repoIds })
+      .detect({ repo_ids: repoIds })
       .then((result) => {
         if (cancelled) return;
         setMcpDetect(result);
@@ -213,7 +196,7 @@ export function NewWorkspaceDialog({ open, onOpenChange, defaultIssueId, default
     return () => {
       cancelled = true;
     };
-  }, [open, claudeAccountId, selectedRepos]);
+  }, [open, selectedRepos]);
 
   const toggleMcpServer = (name: string) => {
     setMcpServers((prev) =>
@@ -256,7 +239,6 @@ export function NewWorkspaceDialog({ open, onOpenChange, defaultIssueId, default
       setWorkspaceName('');
       setSelectedRepos([]);
       setSelectedRepoId('');
-      setClaudeAccountId(null);
       setOwner({ type: 'user', id: userId });
       setRepoSource('existing');
       setDirPath('');
@@ -433,14 +415,6 @@ export function NewWorkspaceDialog({ open, onOpenChange, defaultIssueId, default
         issue_id: issueId ? parseInt(issueId) : null,
         repos,
         ...(owner.id > 0 ? { owner } : {}),
-        // Codex workspaces don't use claude_account_id; skip to avoid the
-        // backend recording a stale account binding.
-        ...(cliType === 'claude' && claudeAccountId != null
-          ? { claude_account_id: claudeAccountId }
-          : {}),
-        ...(cliType === 'codex' && codexAccountId != null
-          ? { codex_account_id: codexAccountId }
-          : {}),
         // Only ship mcp_servers when the user actually saw the picker and
         // detect resolved — sending [] when the panel never rendered would
         // suppress the backend's auto-detect fallback.
@@ -534,54 +508,6 @@ export function NewWorkspaceDialog({ open, onOpenChange, defaultIssueId, default
               </p>
             </div>
             <OwnerPicker value={owner} onChange={setOwner} userId={userId} />
-            {/* Claude Account (hidden for codex workspaces) */}
-            {cliType === 'claude' && claudeAccounts.length > 0 && (
-              <div className="grid gap-2">
-                <label htmlFor="claudeAccountSelect" className="text-sm font-medium">
-                  {t('dialogs.newWorkspace.claudeAccount')}
-                </label>
-                <select
-                  id="claudeAccountSelect"
-                  value={claudeAccountId ?? ''}
-                  onChange={(e) => setClaudeAccountId(e.target.value ? Number(e.target.value) : null)}
-                  disabled={isSubmitting}
-                  className="h-9 rounded-md border border-input bg-background px-3 py-1 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  <option value="">{t('dialogs.newWorkspace.claudeAccountDefault')}</option>
-                  {claudeAccounts.filter(a => a.status === 'active').map((a) => (
-                    <option key={a.id} value={a.id}>
-                      {a.name}{a.email ? ` (${a.email})` : ''}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            )}
-            {/* Codex Account (hidden for claude workspaces). Only shown when
-                at least one active codex account exists; otherwise the
-                workspace falls back to the host's global ~/.codex/ auth. */}
-            {cliType === 'codex' && codexAccounts.length > 0 && (
-              <div className="grid gap-2">
-                <label htmlFor="codexAccountSelect" className="text-sm font-medium">
-                  {t('dialogs.newWorkspace.codexAccount')}
-                </label>
-                <select
-                  id="codexAccountSelect"
-                  value={codexAccountId ?? ''}
-                  onChange={(e) => setCodexAccountId(e.target.value ? Number(e.target.value) : null)}
-                  disabled={isSubmitting}
-                  className="h-9 rounded-md border border-input bg-background px-3 py-1 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  <option value="">
-                    {t('dialogs.newWorkspace.codexAccountDefault')}
-                  </option>
-                  {codexAccounts.filter((a) => a.status === 'active').map((a) => (
-                    <option key={a.id} value={a.id}>
-                      {a.name}{a.email ? ` (${a.email})` : ''}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            )}
             {/* Workspace Name */}
             <div className="grid gap-2">
               <label htmlFor="workspaceName" className="text-sm font-medium">
@@ -855,7 +781,7 @@ export function NewWorkspaceDialog({ open, onOpenChange, defaultIssueId, default
             {/* MCP picker — collapsible single-form section (not a wizard step).
                 Renders only when the user has picked both a Claude account and
                 at least one repo, since detection requires both inputs. */}
-            {claudeAccountId != null && selectedRepos.length > 0 && (
+            {selectedRepos.length > 0 && (
               <div className="grid gap-2" data-testid="mcp-section">
                 <Label className="text-sm font-medium flex items-center gap-1.5">
                   <Plug className="h-3.5 w-3.5 text-muted-foreground" />

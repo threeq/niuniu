@@ -5,7 +5,6 @@ import { Bot, Send, X, Loader2, Paperclip, ListPlus, Activity } from 'lucide-rea
 import { cn } from '@/lib/utils';
 import type { Workspace, ChatAttachment } from '@/types/api';
 import { api } from '@/lib/api';
-import { listClaudeAccounts } from '@/lib/claude-account-api';
 import { WorkspaceSettingsDialog } from './workspace-settings-dialog';
 import { WorkspaceScenesDialog } from './workspace-scenes-dialog';
 import { ClaudeSettingsDialog } from './claude-settings-dialog';
@@ -80,22 +79,6 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
   // settings. (Was `!== 'codex'`, which wrongly bucketed qwen as Claude.)
   const isClaudeWorkspace = cliType === 'claude';
 
-  const { data: claudeAccounts = [] } = useQuery({
-    queryKey: ['claude-accounts'],
-    queryFn: listClaudeAccounts,
-    enabled: isClaudeWorkspace,
-    staleTime: 60_000,
-  });
-  // When workspace.claude_account_id is null, the agent spawns against
-  // ~/.claude — which is the __default__ account row (config_dir === '').
-  // Show that row's email/name so the badge reflects the *actual* account in
-  // use, not an abstract "(default)" placeholder.
-  const effectiveAccount = workspace.claude_account_id != null
-    ? claudeAccounts.find((a) => a.id === workspace.claude_account_id)
-    : claudeAccounts.find((a) => a.config_dir === '');
-  const claudeAccountLabel = effectiveAccount?.email
-    || effectiveAccount?.name
-    || t('panels.chatInput.claudeAccountFollow');
 
   useImperativeHandle(ref, () => ({
     setValue(value: string) {
@@ -503,15 +486,6 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
         <div className="flex items-center gap-1 text-[11px] text-muted-foreground font-mono">
           <span className="text-muted-foreground/60 shrink-0">$</span>
           <span className="truncate min-w-0 flex-1" title={workDir || workspace.path}>{workDir || workspace.path}</span>
-          {isClaudeWorkspace && claudeAccounts.length > 0 && (
-            <span
-              className="ml-2 inline-flex items-center gap-1 shrink-0 max-w-[140px] text-muted-foreground/80"
-              title={t('panels.chatInput.claudeAccountTooltip', { name: claudeAccountLabel })}
-            >
-              <Bot className="w-3 h-3 shrink-0" />
-              <span className="truncate">{claudeAccountLabel}</span>
-            </span>
-          )}
         </div>
       </div>
 

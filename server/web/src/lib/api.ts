@@ -51,7 +51,6 @@ import type {
   WorkspaceOverview,
   BatchDeleteWorkspacesResult,
   ServerSetting,
-  KnownMCP,
   MCPDetectResult,
   WorkspaceMCPState,
   EpicProgress,
@@ -77,7 +76,6 @@ import type {
   AskUserRequest,
   AskUserDecideBody,
 } from '../types/ask-user'
-import type { AccountUsage } from '@/types/claude-usage'
 // Type-only (erased at runtime, so no cycle with use-file-diff -> api): reuse the
 // git.FileDiff shape for the checkpoint diff response.
 import type { GitFileDiff } from './hooks/use-file-diff'
@@ -786,15 +784,6 @@ export async function decideAskUser(
   );
 }
 
-export async function getClaudeAccountUsage(
-  accountId: number,
-  force = false,
-): Promise<AccountUsage> {
-  return api.get<AccountUsage>(`/claude-accounts/${accountId}/usage`, {
-    params: force ? { force: '1' } : undefined,
-  })
-}
-
 export async function getWorkspacesOverview(owner?: string): Promise<WorkspaceOverview> {
   return api.get<WorkspaceOverview>('/workspaces/overview', {
     params: owner ? { owner } : undefined,
@@ -1037,9 +1026,7 @@ export const checkpointApi = {
 // - redetect: re-runs detection against current repo state (used by the
 //   workspace settings "重新检测" button).
 export const mcpApi = {
-  listAvailable: (accountId: number) =>
-    api.get<{ items: KnownMCP[] }>(`/claude-accounts/${accountId}/mcp/available`),
-  detect: (body: { claude_account_id: number; repo_ids: number[] }) =>
+  detect: (body: { repo_ids: number[] }) =>
     api.post<MCPDetectResult>('/workspaces/mcp/detect', body),
   get: (wsId: number) =>
     api.get<WorkspaceMCPState>(`/workspaces/${wsId}/mcp`),

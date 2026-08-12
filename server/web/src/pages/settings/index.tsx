@@ -13,7 +13,6 @@ import {
   Settings2,
   ShieldCheck,
   SlidersHorizontal,
-  Sparkles,
   UserCog,
   Variable,
   Workflow,
@@ -34,7 +33,6 @@ import { UsersSettings } from './users-settings'
 import { IntegrationsPage } from './integrations'
 import { OrchestrationSettings } from './orchestration-settings'
 import { ProjectBlueprintsSettings } from './project-blueprints-settings'
-import { ClaudeSettings } from './claude-settings'
 import { ImBotSettings } from './imbot-settings'
 import { SecurityTab } from './security/security-tab'
 import { useOrgStore } from '@/stores/org-store'
@@ -60,7 +58,6 @@ const tabs: { id: SettingsTab; labelKey: string; icon?: LucideIcon; visible?: (c
   { id: 'users', labelKey: 'tabs.users', icon: UserCog, visible: ({ authEnabled, isAdmin }) => authEnabled && isAdmin },
   { id: 'security', labelKey: 'tabs.security', icon: ShieldCheck, visible: ({ authEnabled }) => authEnabled },
   { id: 'mobile-access', labelKey: 'tabs.mobileAccess', icon: MonitorCog, hiddenInTabBar: true },
-  { id: 'claude', labelKey: 'tabs.claudeSettings', icon: Sparkles },
   { id: 'integrations', labelKey: 'tabs.integrations', icon: Plug },
   { id: 'license', labelKey: 'tabs.license', icon: BadgeCheck, visible: ({ authEnabled, isAdmin }) => authEnabled && isAdmin },
   { id: 'orchestration', labelKey: 'tabs.orchestration', icon: Workflow },
@@ -236,7 +233,6 @@ export function SettingsPage({ children, orgsActive = false }: SettingsPageProps
                 {activeTab === 'users' && authEnabled && isAdmin && <UsersSettings />}
                 {activeTab === 'security' && authEnabled && <SecurityTab />}
                 {activeTab === 'mobile-access' && <MobileAccessSettings />}
-                {activeTab === 'claude' && <ClaudeSettings />}
                 {activeTab === 'integrations' && <IntegrationsPage />}
                 {activeTab === 'license' && authEnabled && isAdmin && <LicenseSettings />}
                 {activeTab === 'orchestration' && <OrchestrationSettings />}
