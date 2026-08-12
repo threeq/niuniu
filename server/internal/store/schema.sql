@@ -17,6 +17,10 @@ CREATE TABLE IF NOT EXISTS projects (
     -- in the create UI and used verbatim when a workspace is auto-created from
     -- an issue. Mirrors workspaces.cli_type's closed set.
     default_cli_type TEXT NOT NULL DEFAULT 'claude' CHECK (default_cli_type IN ('claude','codex','qwen','omp','goose')),
+    -- Default subscription-platform provider for workspaces created under this
+    -- project. Inherited by a new workspace's env_provider_id at creation time
+    -- (a snapshot; the workspace can override afterward). NULL = no default.
+    env_provider_id INTEGER DEFAULT NULL REFERENCES env_providers(id) ON DELETE SET NULL,
     -- Per-project workspace auto-cleanup policy. cleanup_enabled=0 (default) is
     -- OFF; when 1, an hourly sweeper deletes each workspace (and its issue) whose
     -- linked issue falls in one of cleanup_statuses (comma-separated subset of

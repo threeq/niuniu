@@ -713,6 +713,7 @@ type Project struct {
 	Color               sql.NullString `json:"color"`
 	MemorySweepCron     string         `json:"memory_sweep_cron"`
 	DefaultCliType      string         `json:"default_cli_type"`
+	EnvProviderID       sql.NullInt64  `json:"env_provider_id"`
 	CleanupEnabled      int64          `json:"cleanup_enabled"`
 	CleanupInactiveDays int64          `json:"cleanup_inactive_days"`
 	CleanupStatuses     string         `json:"cleanup_statuses"`

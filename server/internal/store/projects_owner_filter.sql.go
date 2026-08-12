@@ -11,7 +11,7 @@ import (
 )
 
 const listProjectsForOwners = `-- name: ListProjectsForOwners :many
-SELECT id, name, description, status, owner_type, owner_id, color, memory_sweep_cron, default_cli_type, cleanup_enabled, cleanup_inactive_days, cleanup_statuses, created_at, updated_at FROM projects
+SELECT id, name, description, status, owner_type, owner_id, color, memory_sweep_cron, default_cli_type, env_provider_id, cleanup_enabled, cleanup_inactive_days, cleanup_statuses, created_at, updated_at FROM projects
 WHERE (owner_type = 'user' AND owner_id = ?)
    OR (owner_type = 'org'  AND owner_id IN (/*SLICE:org_ids*/?))
 ORDER BY created_at DESC
@@ -52,6 +52,7 @@ func (q *Queries) ListProjectsForOwners(ctx context.Context, arg ListProjectsFor
 			&i.Color,
 			&i.MemorySweepCron,
 			&i.DefaultCliType,
+			&i.EnvProviderID,
 			&i.CleanupEnabled,
 			&i.CleanupInactiveDays,
 			&i.CleanupStatuses,

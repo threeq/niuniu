@@ -220,6 +220,11 @@ func Migrate(db *sql.DB) {
 	// a workspace can use a provider without mounting a scene. NULL = no binding.
 	addColumnIfNotExists(db, "workspaces", "env_provider_id", fk+" DEFAULT NULL REFERENCES env_providers(id) ON DELETE SET NULL")
 
+	// Project-level default provider binding: a new workspace created from an
+	// issue under this project inherits the project's env_provider_id. NULL = no
+	// default (the workspace picks its own or uses none).
+	addColumnIfNotExists(db, "projects", "env_provider_id", fk+" DEFAULT NULL REFERENCES env_providers(id) ON DELETE SET NULL")
+
 	// env_providers.protocol was added to schema.sql for fresh DBs but existing
 	// DBs (created when the table first shipped without it) are missing the
 	// column, so every provider query failed with "no such column: protocol".

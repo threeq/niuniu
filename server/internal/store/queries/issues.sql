@@ -104,6 +104,15 @@ JOIN columns c ON i.column_id = c.id
 JOIN projects p ON c.project_id = p.id
 WHERE i.id = ?;
 
+-- name: GetProjectEnvProviderByIssueID :one
+-- Returns the project's default env_provider_id for an issue (0 = none).
+-- Used by workspace creation to inherit the project's provider binding.
+SELECT COALESCE(p.env_provider_id, 0) AS env_provider_id
+FROM issues i
+JOIN columns c ON i.column_id = c.id
+JOIN projects p ON c.project_id = p.id
+WHERE i.id = ?;
+
 -- name: GetProjectAndLifecycleByIssueIDs :many
 -- Batched form of GetProjectAndLifecycleByIssueID for the workspace sidebar,
 -- which resolves project/lifecycle for every listed workspace at once instead

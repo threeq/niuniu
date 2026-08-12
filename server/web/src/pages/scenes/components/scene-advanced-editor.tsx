@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useQuery } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
@@ -7,7 +8,6 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Badge } from '@/components/ui/badge';
-import { api } from '@/lib/api';
 import { listDataSources } from '@/lib/data-sources-api';
 import type { KnownMCP } from '@/types/api';
 import type { AdvancedDraft, DataSourceRow, EnvPresetRow, MatchRuleRow, MCPRow } from './scene-editor-helpers';
@@ -38,6 +38,7 @@ function Section({
   onAdd,
   addLabel,
   disabled,
+  collapsible,
   children,
 }: {
   title: string;
@@ -45,20 +46,33 @@ function Section({
   onAdd?: () => void;
   addLabel?: string;
   disabled?: boolean;
+  collapsible?: boolean;
   children: React.ReactNode;
 }) {
+  const [collapsed, setCollapsed] = useState(false);
+  const header = (
+    <div className="flex items-center justify-between">
+      <h3
+        className={`text-sm font-semibold text-warm-text ${collapsible ? 'cursor-pointer select-none' : ''}`}
+        onClick={collapsible ? () => setCollapsed((v) => !v) : undefined}
+      >
+        {collapsible && (
+          <span className="inline-block w-4 text-warm-text-muted">{collapsed ? '▶' : '▼'}</span>
+        )}
+        {title}
+      </h3>
+      {!collapsed && onAdd && (
+        <Button type="button" variant="outline" size="sm" onClick={onAdd} disabled={disabled}>
+          <Plus className="h-4 w-4 mr-1" /> {addLabel}
+        </Button>
+      )}
+    </div>
+  );
   return (
     <section className="space-y-2 rounded-lg border border-warm-border p-4">
-      <div className="flex items-center justify-between">
-        <h3 className="text-sm font-semibold text-warm-text">{title}</h3>
-        {onAdd && (
-          <Button type="button" variant="outline" size="sm" onClick={onAdd} disabled={disabled}>
-            <Plus className="h-4 w-4 mr-1" /> {addLabel}
-          </Button>
-        )}
-      </div>
-      {hint && <p className="text-xs text-warm-text-muted">{hint}</p>}
-      {children}
+      {header}
+      {!collapsed && hint && <p className="text-xs text-warm-text-muted">{hint}</p>}
+      {!collapsed && children}
     </section>
   );
 }
@@ -114,18 +128,6 @@ export function SceneAdvancedEditor({ value, onChange, disabled }: SceneAdvanced
     queryFn: () => listDataSources(),
   });
   const dsByName = new Map(dataSources.map((d) => [d.name, d]));
-
-  // -- providers (subscription platforms mounted by name, expanded per agent) --
-  const { data: providers = [] } = useQuery({
-    queryKey: ['env-providers'],
-    queryFn: () => api.listEnvProviders(),
-  });
-  const toggleProvider = (name: string) => {
-    const has = value.providers.includes(name);
-    patch({
-      providers: has ? value.providers.filter((n) => n !== name) : [...value.providers, name],
-    });
-  };
 
   // -- mcp ------------------------------------------------------------------
   const addMcp = () => patch({ mcp: [...value.mcp, { name: '', configRaw: '' }] });
@@ -502,35 +504,15 @@ export function SceneAdvancedEditor({ value, onChange, disabled }: SceneAdvanced
         )}
       </Section>
 
-      {/* Env presets */}
+      {/* Env presets (editable; data flows to env_presets table; collapsible) */}
       <Section
         title={t('editor.adv_env_title')}
         hint={t('editor.adv_env_hint')}
         onAdd={addPreset}
         addLabel={t('editor.adv_env_add')}
         disabled={disabled}
+        collapsible
       >
-        {/* Subscription-platform providers mounted by name (expanded per agent at spawn) */}
-        <div className="space-y-2">
-          <p className="text-xs text-warm-text-muted">{t('editor.adv_env_providers_hint')}</p>
-          {providers.length === 0 ? (
-            <p className="text-xs text-warm-text-muted">{t('editor.adv_env_providers_empty')}</p>
-          ) : (
-            <div className="space-y-1.5">
-              {providers.map((p) => (
-                <label key={p.id} className="flex items-center gap-2 text-sm text-warm-text">
-                  <Checkbox
-                    checked={value.providers.includes(p.name)}
-                    onCheckedChange={() => toggleProvider(p.name)}
-                    disabled={disabled}
-                  />
-                  <span>{p.name}</span>
-                  {Object.keys(p.base_urls ?? {}).map((proto) => (<Badge key={proto} variant="outline" className="text-xs">{proto}</Badge>))}
-                </label>
-              ))}
-            </div>
-          )}
-        </div>
 
         {value.envPresets.length === 0 ? (
           <p className="text-xs text-warm-text-muted py-1">{t('editor.adv_env_empty')}</p>
