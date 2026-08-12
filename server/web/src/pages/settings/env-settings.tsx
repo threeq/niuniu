@@ -472,7 +472,7 @@ export function EnvSettings({ mode = 'all' }: { mode?: 'all' | 'presets' | 'prov
           <p className="mt-3 text-sm text-muted-foreground">{t('env.noProviders')}</p>
         ) : (
           <div className="mt-3 space-y-3">
-            {providers.map((p) => (
+            {[...providers].sort((a, b) => a.name.localeCompare(b.name, 'zh-Hans-CN')).map((p) => (
               <ProviderCard
                 key={p.id}
                 provider={p}
