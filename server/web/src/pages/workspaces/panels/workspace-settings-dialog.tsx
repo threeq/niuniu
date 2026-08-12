@@ -585,10 +585,11 @@ export function WorkspaceSettingsDialog({ workspace }: WorkspaceSettingsDialogPr
                     />
                     <span className="text-muted-foreground/70 text-xs">=</span>
                     <input
-                      type="text"
+                      type="password"
                       value={item.value}
                       onChange={(e) => updateEnvVar(index, 'value', e.target.value)}
                       placeholder="value"
+                      autoComplete="off"
                       className="flex-1 min-w-0 rounded border border-border px-2 py-1 text-xs font-mono focus:outline-none focus:ring-1 focus:ring-info"
                     />
                     <button
