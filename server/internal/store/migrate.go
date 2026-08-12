@@ -220,6 +220,13 @@ func Migrate(db *sql.DB) {
 	// a workspace can use a provider without mounting a scene. NULL = no binding.
 	addColumnIfNotExists(db, "workspaces", "env_provider_id", fk+" DEFAULT NULL REFERENCES env_providers(id) ON DELETE SET NULL")
 
+	// env_providers.protocol was added to schema.sql for fresh DBs but existing
+	// DBs (created when the table first shipped without it) are missing the
+	// column, so every provider query failed with "no such column: protocol".
+	// Add it without the CHECK (SQLite ALTER TABLE ADD COLUMN forbids CHECK);
+	// values are still validated by the API layer and by schema.sql on fresh DBs.
+	addColumnIfNotExists(db, "env_providers", "protocol", "TEXT NOT NULL DEFAULT 'anthropic'")
+
 	if !migrationApplied(w, "workspaces_created_by_backfill_v1") {
 		if _, err := w.ExecContext(context.Background(),
 			`UPDATE workspaces SET created_by = owner_id
