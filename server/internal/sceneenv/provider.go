@@ -32,29 +32,59 @@ const (
 	CLIGoose  = "goose"
 )
 
+// ProtocolForCLI returns the API protocol a given agent CLI type consumes.
+// Claude Code reads Anthropic-protocol env (ANTHROPIC_*); every other CLI
+// (codex/qwen/omp/goose) reads OpenAI-protocol env (OPENAI_*). This mapping is
+// how one provider — which can hold a base_url per protocol — serves multiple
+// agent types from a single config.
+func ProtocolForCLI(cliType string) string {
+	if cliType == "" || cliType == CLIClaude {
+		return ProviderProtocolAnthropic
+	}
+	return ProviderProtocolOpenAI
+}
+
 // ExpandProvider turns a provider's natural fields into the environment
-// key/value pair for the given agent CLI type. Only non-empty fields are
-// emitted; the API key is injected via providerKey, and any extra_env passthrough
-// entries are merged last so users can override a generated key. Returns an
-// empty map for an empty provider (no fields set).
+// key/value pair for the given agent CLI type. The protocol is derived from the
+// agent's cliType (ProtocolForCLI); the base_url is looked up from the
+// provider's per-protocol base_urls map. If the provider has no base_url
+// configured for the agent's protocol it returns an empty map (the provider
+// doesn't serve that agent type). Only non-empty fields are emitted; the API
+// key is injected via providerKey; extra_env is merged last so users can
+// override a generated key.
 //
 // preserveRef=false resolves a "${ACCOUNT:<name>}" api_key to the account's
 // literal key (used for previews); preserveRef=true emits the reference
-// unchanged so a runtime consumer (e.g. a scene-mounted provider) stays
-// runtime-live — changing the account's key then propagates without re-mounting.
+// unchanged so a runtime consumer stays runtime-live.
 func ExpandProvider(p store.EnvProvider, cliType string, accounts []store.EnvAccount, preserveRef bool) map[string]string {
-	if p.Protocol == ProviderProtocolOpenAI {
-		return expandOpenAI(p, cliType, accounts, preserveRef)
+	protocol := ProtocolForCLI(cliType)
+	baseURL := decodeBaseURLs(p.BaseUrls)[protocol]
+	if baseURL == "" {
+		return map[string]string{}
 	}
-	return expandAnthropic(p, accounts, preserveRef)
+	if protocol == ProviderProtocolOpenAI {
+		return expandOpenAI(p, baseURL, cliType, accounts, preserveRef)
+	}
+	return expandAnthropic(p, baseURL, accounts, preserveRef)
+}
+
+// decodeBaseURLs parses a provider's stored base_urls JSON (Record<protocol,
+// base_url>), returning an empty (non-nil) map on any decode error.
+func decodeBaseURLs(raw string) map[string]string {
+	m := map[string]string{}
+	if raw == "" {
+		return m
+	}
+	_ = json.Unmarshal([]byte(raw), &m)
+	return m
 }
 
 // expandAnthropic produces the Anthropic-compatible env read by Claude Code
 // (and any CLI that talks to an /anthropic endpoint). High-confidence mapping.
-func expandAnthropic(p store.EnvProvider, accounts []store.EnvAccount, preserveRef bool) map[string]string {
+func expandAnthropic(p store.EnvProvider, baseURL string, accounts []store.EnvAccount, preserveRef bool) map[string]string {
 	out := map[string]string{}
-	if p.BaseUrl != "" {
-		out["ANTHROPIC_BASE_URL"] = p.BaseUrl
+	if baseURL != "" {
+		out["ANTHROPIC_BASE_URL"] = baseURL
 	}
 	if key := providerKey(p.ApiKey, accounts, preserveRef); key != "" {
 		out["ANTHROPIC_AUTH_TOKEN"] = key
@@ -81,10 +111,10 @@ func expandAnthropic(p store.EnvProvider, accounts []store.EnvAccount, preserveR
 // expandOpenAI produces the OpenAI-compatible env read by Codex/Qwen and other
 // OpenAI-protocol CLIs. niuniu's Codex path additionally reads the model from
 // the NIUNIU_MODEL control key.
-func expandOpenAI(p store.EnvProvider, cliType string, accounts []store.EnvAccount, preserveRef bool) map[string]string {
+func expandOpenAI(p store.EnvProvider, baseURL, cliType string, accounts []store.EnvAccount, preserveRef bool) map[string]string {
 	out := map[string]string{}
-	if p.BaseUrl != "" {
-		out["OPENAI_BASE_URL"] = p.BaseUrl
+	if baseURL != "" {
+		out["OPENAI_BASE_URL"] = baseURL
 	}
 	if key := providerKey(p.ApiKey, accounts, preserveRef); key != "" {
 		out["OPENAI_API_KEY"] = key

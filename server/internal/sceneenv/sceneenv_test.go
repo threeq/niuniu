@@ -210,8 +210,8 @@ func TestResolve_BoundProviderExpandedNoScene(t *testing.T) {
 	// A workspace with a directly-bound provider (workspaces.env_provider_id)
 	// gets its env expanded per cli_type with no scene required.
 	prov := store.EnvProvider{
-		ID: 5, Name: "DeepSeek", Protocol: "anthropic",
-		BaseUrl: "https://api.deepseek.com/anthropic", ApiKey: "${ACCOUNT:DeepSeek}",
+		ID: 5, Name: "DeepSeek",
+		BaseUrls: `{"anthropic":"https://api.deepseek.com/anthropic"}`, ApiKey: "${ACCOUNT:DeepSeek}",
 		Model: "deepseek-v4",
 	}
 	q := fakeQuerier{
@@ -234,8 +234,8 @@ func TestResolve_BoundProviderExpandedNoScene(t *testing.T) {
 
 func TestResolve_BoundProviderOverriddenByExplicitEnv(t *testing.T) {
 	// Explicit workspace_env wins over the bound provider's generated env.
-	prov := store.EnvProvider{ID: 5, Name: "DeepSeek", Protocol: "anthropic",
-		BaseUrl: "https://api.deepseek.com/anthropic", Model: "deepseek-v4"}
+	prov := store.EnvProvider{ID: 5, Name: "DeepSeek",
+		BaseUrls: `{"anthropic":"https://api.deepseek.com/anthropic"}`, Model: "deepseek-v4"}
 	q := fakeQuerier{
 		env:           []store.WorkspaceEnv{{WorkspaceID: 7, Key: "ANTHROPIC_BASE_URL", Value: "https://explicit.override"}},
 		boundProvider: &prov,
@@ -256,7 +256,7 @@ func TestResolve_SceneProviderExpandedPerCliType(t *testing.T) {
 			"assets": {"providers": [{"name": "DeepSeek"}]}
 		}`},
 		providers: []store.EnvProvider{{
-			Name: "DeepSeek", Protocol: "anthropic", BaseUrl: "https://api.deepseek.com/anthropic",
+			Name: "DeepSeek", BaseUrls: `{"anthropic":"https://api.deepseek.com/anthropic"}`,
 			ApiKey: "${ACCOUNT:DeepSeek}", Model: "deepseek-v4", SubagentModel: "deepseek-v4-flash",
 		}},
 		accounts: []store.EnvAccount{{Name: "DeepSeek", ApiKey: "sk-real"}},
@@ -284,7 +284,7 @@ func TestResolve_SceneProviderOpenAIProtocol(t *testing.T) {
 			"assets": {"providers": [{"name": "DeepSeekOpenAI"}]}
 		}`},
 		providers: []store.EnvProvider{{
-			Name: "DeepSeekOpenAI", Protocol: "openai", BaseUrl: "https://api.deepseek.com/v1",
+			Name: "DeepSeekOpenAI", BaseUrls: `{"openai":"https://api.deepseek.com/v1"}`,
 			ApiKey: "${ACCOUNT:DeepSeek}", Model: "deepseek-v4",
 		}},
 		accounts: []store.EnvAccount{{Name: "DeepSeek", ApiKey: "sk-real"}},

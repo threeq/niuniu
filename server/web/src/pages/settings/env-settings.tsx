@@ -151,9 +151,9 @@ function ProviderCard({ provider, onEdit, onDelete, onImport }: {
           {provider.platform && (
             <span className="text-xs text-muted-foreground truncate">{provider.platform}</span>
           )}
-          {provider.base_url && (
-            <span className="text-xs text-muted-foreground font-mono truncate">{provider.base_url}</span>
-          )}
+          {Object.entries(provider.base_urls ?? {}).map(([proto, url]) => (
+            <span key={proto} className="text-xs text-muted-foreground font-mono truncate">{proto}: {url}</span>
+          ))}
           {provider.model && (
             <span className="text-xs text-muted-foreground truncate">model: {provider.model}</span>
           )}
@@ -331,8 +331,7 @@ export function EnvSettings() {
   const [provName, setProvName] = useState('')
   const [provPlatform, setProvPlatform] = useState('')
   const [provDesc, setProvDesc] = useState('')
-  const [provBaseUrl, setProvBaseUrl] = useState('')
-  const [provProtocol, setProvProtocol] = useState('anthropic')
+  const [provBaseUrls, setProvBaseUrls] = useState<{ protocol: string; url: string }[]>([])
   const [provApiKey, setProvApiKey] = useState('')
   const [provModel, setProvModel] = useState('')
   const [provHaiku, setProvHaiku] = useState('')
@@ -363,7 +362,7 @@ export function EnvSettings() {
 
   const openCreateProviderDialog = () => {
     setEditingProvider(null)
-    setProvName(''); setProvPlatform(''); setProvDesc(''); setProvBaseUrl(''); setProvProtocol('anthropic'); setProvApiKey('')
+    setProvName(''); setProvPlatform(''); setProvDesc(''); setProvBaseUrls([]); setProvApiKey('')
     setProvModel(''); setProvHaiku(''); setProvSonnet(''); setProvOpus(''); setProvSubagent('')
     setProvExtra([])
     setProvOwner({ type: 'user', id: currentUser?.id ?? 0 })
@@ -371,7 +370,7 @@ export function EnvSettings() {
   }
   const openEditProviderDialog = (p: EnvProvider) => {
     setEditingProvider(p)
-    setProvName(p.name); setProvPlatform(p.platform); setProvDesc(p.description); setProvBaseUrl(p.base_url); setProvProtocol(p.protocol || 'anthropic'); setProvApiKey(p.api_key)
+    setProvName(p.name); setProvPlatform(p.platform); setProvDesc(p.description); setProvBaseUrls(Object.entries(p.base_urls ?? {}).map(([protocol, url]) => ({ protocol, url }))); setProvApiKey(p.api_key)
     setProvModel(p.model); setProvHaiku(p.haiku_model); setProvSonnet(p.sonnet_model); setProvOpus(p.opus_model); setProvSubagent(p.subagent_model)
     setProvExtra(Object.entries(p.extra_env ?? {}).map(([key, value]) => ({ key, value })))
     setProviderDialogOpen(true)
@@ -383,7 +382,8 @@ export function EnvSettings() {
     }
     const data: CreateEnvProviderData = {
       name: provName, platform: provPlatform, description: provDesc,
-      base_url: provBaseUrl, protocol: provProtocol, api_key: provApiKey,
+      base_urls: Object.fromEntries(provBaseUrls.filter((b) => b.protocol && b.url.trim()).map((b) => [b.protocol, b.url.trim()])),
+      api_key: provApiKey,
       model: provModel, haiku_model: provHaiku, sonnet_model: provSonnet, opus_model: provOpus, subagent_model: provSubagent,
       extra_env: extra,
       owner: editingProvider ? undefined : provOwner,
@@ -752,22 +752,46 @@ export function EnvSettings() {
               <label className="block text-sm font-medium text-foreground mb-1">{t('env.provider.descLabel')}</label>
               <Input value={provDesc} onChange={(e) => setProvDesc(e.target.value)} placeholder={t('env.provider.descPlaceholder')} />
             </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="block text-sm font-medium text-foreground mb-1">{t('env.provider.baseUrlLabel')}</label>
-                <Input value={provBaseUrl} onChange={(e) => setProvBaseUrl(e.target.value)} placeholder={t('env.provider.baseUrlPlaceholder')} />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-foreground mb-1">{t('env.provider.protocolLabel')}</label>
-                <select
-                  value={provProtocol}
-                  onChange={(e) => setProvProtocol(e.target.value)}
-                  className="w-full rounded border border-border bg-background px-2 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
+            <div>
+              <div className="flex items-center justify-between mb-1">
+                <label className="block text-sm font-medium text-foreground">{t('env.provider.baseUrlsLabel')}</label>
+                <button
+                  onClick={() => setProvBaseUrls((prev) => [...prev, { protocol: prev.some((b) => b.protocol === 'anthropic') ? 'openai' : 'anthropic', url: '' }])}
+                  className="flex items-center gap-0.5 text-xs text-info hover:text-info/80"
                 >
-                  <option value="anthropic">{t('env.provider.protocolAnthropic')}</option>
-                  <option value="openai">{t('env.provider.protocolOpenai')}</option>
-                </select>
+                  <Plus className="h-3 w-3" />
+                  {t('common:actions.add')}
+                </button>
               </div>
+              <p className="text-xs text-muted-foreground mb-1.5">{t('env.provider.baseUrlsHint')}</p>
+              {provBaseUrls.length === 0 ? (
+                <p className="text-xs text-muted-foreground italic">{t('env.provider.baseUrlsEmpty')}</p>
+              ) : (
+                <div className="space-y-1.5">
+                  {provBaseUrls.map((b, i) => (
+                    <div key={i} className="flex items-center gap-1.5">
+                      <select
+                        value={b.protocol}
+                        onChange={(e) => setProvBaseUrls((prev) => prev.map((x, idx) => (idx === i ? { ...x, protocol: e.target.value } : x)))}
+                        className="rounded border border-border bg-background px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-ring"
+                      >
+                        <option value="anthropic">{t('env.provider.protocolAnthropic')}</option>
+                        <option value="openai">{t('env.provider.protocolOpenai')}</option>
+                      </select>
+                      <input
+                        type="text"
+                        value={b.url}
+                        onChange={(e) => setProvBaseUrls((prev) => prev.map((x, idx) => (idx === i ? { ...x, url: e.target.value } : x)))}
+                        placeholder={t('env.provider.baseUrlPlaceholder')}
+                        className="flex-1 min-w-0 rounded border border-border px-2 py-1 text-xs font-mono focus:outline-none focus:ring-1 focus:ring-ring"
+                      />
+                      <button onClick={() => setProvBaseUrls((prev) => prev.filter((_, idx) => idx !== i))} className="p-1 text-muted-foreground hover:text-destructive">
+                        <Trash2 className="h-3 w-3" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
             <div>
               <label className="block text-sm font-medium text-foreground mb-1">{t('env.provider.apiKeyLabel')}</label>

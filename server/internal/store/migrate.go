@@ -227,6 +227,25 @@ func Migrate(db *sql.DB) {
 	// values are still validated by the API layer and by schema.sql on fresh DBs.
 	addColumnIfNotExists(db, "env_providers", "protocol", "TEXT NOT NULL DEFAULT 'anthropic'")
 
+	// env_providers now stores a base_url PER protocol (base_urls JSON) instead
+	// of a single base_url+protocol, so one provider serves multiple agent types.
+	// Fresh DBs get base_urls from schema.sql; existing DBs need the column added
+	// and backfilled from their legacy base_url+protocol rows.
+	addColumnIfNotExists(db, "env_providers", "base_urls", "TEXT NOT NULL DEFAULT '{}'")
+	if hasLegacyURL, _ := columnExists(db, "env_providers", "base_url"); hasLegacyURL {
+		// Only existing DBs carry the legacy base_url/protocol columns; fresh
+		// DBs (schema.sql without them) skip this. Driver-aware JSON build.
+		var backfill string
+		if Driver == "postgres" {
+			backfill = `UPDATE env_providers SET base_urls = jsonb_build_object(protocol, base_url)::text WHERE (base_urls = '{}' OR base_urls IS NULL) AND COALESCE(base_url,'') <> ''`
+		} else {
+			backfill = `UPDATE env_providers SET base_urls = ('{"' || protocol || '":"' || base_url || '"}') WHERE (base_urls = '{}' OR base_urls = '') AND COALESCE(base_url,'') <> ''`
+		}
+		if _, err := db.Exec(backfill); err != nil {
+			slog.Warn("backfill env_providers.base_urls failed", "error", err)
+		}
+	}
+
 	if !migrationApplied(w, "workspaces_created_by_backfill_v1") {
 		if _, err := w.ExecContext(context.Background(),
 			`UPDATE workspaces SET created_by = owner_id

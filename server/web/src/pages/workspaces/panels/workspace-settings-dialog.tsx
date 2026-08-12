@@ -514,7 +514,7 @@ export function WorkspaceSettingsDialog({ workspace }: WorkspaceSettingsDialogPr
                 <option value={0}>{t('panels.workspaceSettings.envProviderNone')}</option>
                 {providers.map((p) => (
                   <option key={p.id} value={p.id}>
-                    {p.name}{p.protocol ? ` · ${p.protocol}` : ''}{p.model ? ` · ${p.model}` : ''}
+                    {p.name}{Object.keys(p.base_urls ?? {}).length ? ` · ${Object.keys(p.base_urls).join('/')}` : ''}{p.model ? ` · ${p.model}` : ''}
                   </option>
                 ))}
               </select>

@@ -525,7 +525,7 @@ export function SceneAdvancedEditor({ value, onChange, disabled }: SceneAdvanced
                     disabled={disabled}
                   />
                   <span>{p.name}</span>
-                  {p.protocol && <Badge variant="outline" className="text-xs">{p.protocol}</Badge>}
+                  {Object.keys(p.base_urls ?? {}).map((proto) => (<Badge key={proto} variant="outline" className="text-xs">{proto}</Badge>))}
                 </label>
               ))}
             </div>

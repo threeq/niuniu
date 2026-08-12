@@ -14,13 +14,13 @@ ORDER BY created_at DESC;
 SELECT * FROM env_providers WHERE id = ?;
 
 -- name: CreateEnvProvider :one
-INSERT INTO env_providers (name, platform, description, base_url, protocol, api_key, model, haiku_model, sonnet_model, opus_model, subagent_model, extra_env, owner_type, owner_id, slug)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+INSERT INTO env_providers (name, platform, description, base_urls, api_key, model, haiku_model, sonnet_model, opus_model, subagent_model, extra_env, owner_type, owner_id, slug)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 RETURNING *;
 
 -- name: UpdateEnvProvider :exec
 UPDATE env_providers
-SET name = ?, platform = ?, description = ?, base_url = ?, protocol = ?, api_key = ?, model = ?,
+SET name = ?, platform = ?, description = ?, base_urls = ?, api_key = ?, model = ?,
     haiku_model = ?, sonnet_model = ?, opus_model = ?, subagent_model = ?, extra_env = ?, slug = ?, updated_at = CURRENT_TIMESTAMP
 WHERE id = ?;
 

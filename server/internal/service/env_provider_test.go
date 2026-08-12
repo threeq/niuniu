@@ -14,8 +14,7 @@ var pAccounts = []store.EnvAccount{
 func providerEnv() store.EnvProvider {
 	return store.EnvProvider{
 		Name:          "DeepSeek",
-		Protocol:      "anthropic",
-		BaseUrl:       "https://api.deepseek.com/anthropic",
+		BaseUrls:      `{"anthropic":"https://api.deepseek.com/anthropic"}`,
 		ApiKey:        "${ACCOUNT:DeepSeek}",
 		Model:         "deepseek-v4",
 		HaikuModel:    "deepseek-v4-flash",
@@ -30,8 +29,7 @@ func providerEnv() store.EnvProvider {
 // endpoint (different protocol + base_url), as real platforms differ.
 func providerEnvOpenAI() store.EnvProvider {
 	p := providerEnv()
-	p.Protocol = "openai"
-	p.BaseUrl = "https://api.deepseek.com/v1"
+	p.BaseUrls = `{"openai":"https://api.deepseek.com/v1"}`
 	return p
 }
 

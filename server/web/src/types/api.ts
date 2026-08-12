@@ -1063,8 +1063,7 @@ export interface EnvProvider {
   name: string
   platform: string
   description: string
-  base_url: string
-  protocol: string
+  base_urls: Record<string, string>
   api_key: string
   model: string
   haiku_model: string
@@ -1081,8 +1080,7 @@ export interface CreateEnvProviderData {
   name: string
   platform?: string
   description?: string
-  base_url?: string
-  protocol?: string
+  base_urls?: Record<string, string>
   api_key?: string
   model?: string
   haiku_model?: string

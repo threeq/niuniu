@@ -638,8 +638,7 @@ CREATE TABLE IF NOT EXISTS env_providers (
     name          TEXT NOT NULL UNIQUE,
     platform      TEXT NOT NULL DEFAULT '',
     description   TEXT NOT NULL DEFAULT '',
-    base_url      TEXT NOT NULL DEFAULT '',
-    protocol      TEXT NOT NULL DEFAULT 'anthropic' CHECK (protocol IN ('anthropic','openai')),
+    base_urls     TEXT NOT NULL DEFAULT '{}',  -- JSON: Record<protocol, base_url>
     api_key       TEXT NOT NULL DEFAULT '',
     model         TEXT NOT NULL DEFAULT '',
     haiku_model   TEXT NOT NULL DEFAULT '',
