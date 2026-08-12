@@ -124,7 +124,18 @@ func Migrate(db *sql.DB) {
 	// account pool tables and the per-workspace binding columns on existing
 	// DBs. Best-effort: SQLite cannot DROP COLUMN on an FK-constrained column,
 	// so the workspace columns may persist as inert on SQLite (no query
-	// references them); the tables drop cleanly on both drivers.
+	// references them). On Postgres the FK-bearing workspace columns MUST be
+	// dropped before the tables they reference — DROP TABLE on an
+	// FK-referenced table fails with SQLSTATE 2BP01 and leaves the account
+	// tables behind as orphans.
+	if Driver == "postgres" {
+		if err := dropColumnIfExists(db, "workspaces", "claude_account_id"); err != nil {
+			slog.Warn("drop workspaces.claude_account_id failed (inert column remains)", "err", err)
+		}
+		if err := dropColumnIfExists(db, "workspaces", "codex_account_id"); err != nil {
+			slog.Warn("drop workspaces.codex_account_id failed (inert column remains)", "err", err)
+		}
+	}
 	for _, tbl := range []string{
 		"claude_account_audit_log", "claude_active_account", "claude_accounts",
 		"codex_account_audit_log", "codex_accounts",
@@ -1111,21 +1122,37 @@ func rebuildSQLiteWidenCheck(db *sql.DB, table, oldEnum, newEnum string) error {
 // migrateIMBotOnboardingTokens creates the im_bot_onboarding_tokens table on
 // existing databases. The table is defined in schema.sql / schema_postgres.sql
 // for fresh installs; this migration covers upgraded DBs. Uses EnsureMigration
-// for idempotency and SQLite-compatible DDL (INTEGER PK / TEXT types).
+// for idempotency. The DDL is driver-specific: INTEGER PRIMARY KEY
+// AUTOINCREMENT is SQLite-only — Postgres needs BIGSERIAL (mirroring
+// schema_postgres.sql), otherwise the statement fails at PARSE time even
+// though CREATE TABLE IF NOT EXISTS would have been a no-op.
 func migrateIMBotOnboardingTokens(db *sql.DB) {
 	w := Wrap(db)
-	if err := EnsureMigration(w, "im_bot_onboarding_tokens_v1",
-		`CREATE TABLE IF NOT EXISTS im_bot_onboarding_tokens (
-			id              INTEGER PRIMARY KEY AUTOINCREMENT,
-			token_hash      TEXT NOT NULL UNIQUE,
-			project_id      INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
-			platform        TEXT NOT NULL CHECK (platform IN ('lark','dingtalk','telegram','wework','wechat')),
-			channel_name    TEXT NOT NULL DEFAULT '',
-			connection_mode TEXT NOT NULL DEFAULT 'stream' CHECK (connection_mode IN ('stream','webhook')),
-			expires_at      TIMESTAMP NOT NULL,
-			used_at         TIMESTAMP,
-			created_at      TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
-		)`); err != nil {
+	ddl := `CREATE TABLE IF NOT EXISTS im_bot_onboarding_tokens (
+		id              INTEGER PRIMARY KEY AUTOINCREMENT,
+		token_hash      TEXT NOT NULL UNIQUE,
+		project_id      INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+		platform        TEXT NOT NULL CHECK (platform IN ('lark','dingtalk','telegram','wework','wechat')),
+		channel_name    TEXT NOT NULL DEFAULT '',
+		connection_mode TEXT NOT NULL DEFAULT 'stream' CHECK (connection_mode IN ('stream','webhook')),
+		expires_at      TIMESTAMP NOT NULL,
+		used_at         TIMESTAMP,
+		created_at      TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+	)`
+	if Driver == "postgres" {
+		ddl = `CREATE TABLE IF NOT EXISTS im_bot_onboarding_tokens (
+		id              BIGSERIAL PRIMARY KEY,
+		token_hash      TEXT NOT NULL UNIQUE,
+		project_id      BIGINT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+		platform        TEXT NOT NULL CHECK (platform IN ('lark','dingtalk','telegram','wework','wechat')),
+		channel_name    TEXT NOT NULL DEFAULT '',
+		connection_mode TEXT NOT NULL DEFAULT 'stream' CHECK (connection_mode IN ('stream','webhook')),
+		expires_at      TIMESTAMP NOT NULL,
+		used_at         TIMESTAMP,
+		created_at      TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+	)`
+	}
+	if err := EnsureMigration(w, "im_bot_onboarding_tokens_v1", ddl); err != nil {
 		slog.Error("migrateIMBotOnboardingTokens failed", "error", err)
 	}
 }
