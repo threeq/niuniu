@@ -22,7 +22,8 @@
   "sourceKind": {
     "local": "Local path",
     "upload": "Upload files",
-    "url": "Network address"
+    "url": "Network address",
+    "mcp": "MCP endpoint"
   },
   "ingest": {
     "pending": "Queued",
@@ -53,6 +54,11 @@
     "urlLabel": "Network address",
     "urlPlaceholder": "https://… direct link or archive (zip / tar.gz)",
     "urlHint": "On save the backend downloads and parses asynchronously; progress shows in the list. On failure you can retry or switch mirror.",
+    "mcpEndpointLabel": "KB MCP endpoint (URL)",
+    "mcpEndpointHint": "Your own knowledge-base MCP endpoint. niuniu only orchestrates the call; your data stays behind your MCP.",
+    "mcpTokenLabel": "API token",
+    "mcpTokenPh": "Paste your knowledge-base API token",
+    "mcpTokenHint": "Encrypted into credstore and injected at projection time — never stored in the KB row.",
     "urlMirrorHint": "This preset ships {{count}} mirror(s); the primary is tried first, then each fallback in order.",
     "editSourceNote": "The source cannot be changed after creation.",
     "cancel": "Cancel",

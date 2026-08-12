@@ -15,6 +15,7 @@ const (
 	KBSourceLocal = "local" // a directory (or uploaded files) already on disk
 	KBSourceURL   = "url"   // a network address; async download lands in datasets (#500)
 	KBSourceRepo  = "repo"  // reserved; not implemented this wave
+	KBSourceMcp   = "mcp"   // an external knowledge-base MCP endpoint (no local corpus; projected as an inline MCP server when selected by a scene/workspace)
 )
 
 // kbTextExts is the allow-list of extensions ingested as plain UTF-8 text. The
@@ -72,6 +73,11 @@ func (s *KBService) resolveSourceRoot(owner OwnerRef, kb store.KnowledgeBase) (s
 		return root, nil
 	case KBSourceRepo:
 		return "", fmt.Errorf("kb %d: source kind 'repo' is reserved and not implemented", kb.ID)
+	case KBSourceMcp:
+		// An mcp-kind KB has no local corpus: it is a remote search endpoint,
+		// projected as an inline MCP server when selected by a scene/workspace.
+		// It is never ingested or materialized, so it has no source root.
+		return "", fmt.Errorf("kb %d: source kind 'mcp' has no local source root", kb.ID)
 	default:
 		return "", fmt.Errorf("kb %d: unknown source kind %q", kb.ID, kb.SourceKind)
 	}

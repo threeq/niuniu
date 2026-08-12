@@ -683,6 +683,11 @@ func Migrate(db *sql.DB) {
 	// same cli_type enums. Runs after the omp widening so the old→new enum chain
 	// is incremental.
 	migrateAllowGooseCLIType(db)
+
+	// 2026-08-12 KB first-class citizen: admit 'mcp' to knowledge_bases.source_kind
+	// so an external knowledge-base MCP endpoint can be a KB source kind (managed
+	// in the unified KB list) instead of a hand-configured scene MCP server.
+	migrateAllowMcpKBSource(db)
 }
 
 // migrateIMBotAllowWechat relaxes the im_bot_channels.channel_type and
@@ -934,6 +939,102 @@ func migrateAllowGooseCLITypeSQLite(db *sql.DB, w *DB, oldEnum, newEnum string) 
 	}
 	markMigration(w, "allow_goose_cli_type_v1")
 	slog.Info("migrateAllowGooseCLIType: workspaces.cli_type / projects.default_cli_type CHECK widened for 'goose'")
+}
+
+// migrateAllowMcpKBSource widens knowledge_bases.source_kind to admit 'mcp'
+// (an external knowledge-base MCP endpoint as a first-class KB source kind).
+// Dual-driver, marker-gated. On fresh installs the schema files already carry
+// 'mcp', so the rebuild is a one-time no-op that reproduces the same table.
+//
+// SQLite has no ALTER for CHECK, so the table is rebuilt from a HAND-AUTHORED
+// full DDL (every current column, including the migrate-added ingest_* columns)
+// and copied by explicit column list. rebuildSQLiteWidenCheck cannot be used
+// here: it rebuilds from the stored sqlite_master DDL, which predates the
+// ALTER-added columns and would drop them on the positional SELECT * copy.
+func migrateAllowMcpKBSource(db *sql.DB) {
+	w := Wrap(db)
+	if migrationApplied(w, "allow_mcp_kb_source_v1") {
+		return
+	}
+	if Driver == "postgres" {
+		stmts := []string{
+			`ALTER TABLE knowledge_bases DROP CONSTRAINT IF EXISTS knowledge_bases_source_kind_check`,
+			`ALTER TABLE knowledge_bases ADD CONSTRAINT knowledge_bases_source_kind_check
+				CHECK (source_kind IN ('local','url','repo','mcp'))`,
+		}
+		for _, s := range stmts {
+			if _, err := db.Exec(s); err != nil {
+				slog.Warn("migrateAllowMcpKBSource (pg): step failed", "error", err)
+				return // leave marker unset; next start retries
+			}
+		}
+		markMigration(w, "allow_mcp_kb_source_v1")
+		slog.Info("migrateAllowMcpKBSource: knowledge_bases.source_kind CHECK widened for 'mcp'")
+		return
+	}
+
+	// SQLite: skip fresh installs whose stored DDL already admits 'mcp'.
+	var ddl string
+	if err := db.QueryRow(`SELECT sql FROM sqlite_master WHERE type='table' AND name='knowledge_bases'`).Scan(&ddl); err != nil {
+		slog.Warn("migrateAllowMcpKBSource (sqlite): lookup failed", "error", err)
+		return
+	}
+	if strings.Contains(ddl, "'mcp'") {
+		markMigration(w, "allow_mcp_kb_source_v1")
+		return
+	}
+
+	cols := "id, owner_type, owner_id, name, description, source_kind, source_addr, source_config, status, ingest_status, ingest_progress, ingest_error, doc_count, chunk_count, last_indexed_at, created_at, updated_at"
+	if _, err := db.Exec(`PRAGMA foreign_keys = OFF`); err != nil {
+		slog.Warn("migrateAllowMcpKBSource (sqlite): disable FK failed", "error", err)
+		return
+	}
+	defer db.Exec(`PRAGMA foreign_keys = ON`) //nolint:errcheck
+
+	tx, err := db.Begin()
+	if err != nil {
+		slog.Warn("migrateAllowMcpKBSource (sqlite): begin tx failed", "error", err)
+		return
+	}
+	stmts := []string{
+		`CREATE TABLE knowledge_bases_new (
+			id              INTEGER PRIMARY KEY AUTOINCREMENT,
+			owner_type      TEXT NOT NULL DEFAULT 'user' CHECK (owner_type IN ('user','org')),
+			owner_id        INTEGER NOT NULL DEFAULT 0,
+			name            TEXT NOT NULL,
+			description     TEXT NOT NULL DEFAULT '',
+			source_kind     TEXT NOT NULL DEFAULT 'local' CHECK (source_kind IN ('local','url','repo','mcp')),
+			source_addr     TEXT NOT NULL DEFAULT '',
+			source_config   TEXT NOT NULL DEFAULT '{}',
+			status          TEXT NOT NULL DEFAULT 'enabled',
+			ingest_status   TEXT NOT NULL DEFAULT 'ready',
+			ingest_progress INTEGER NOT NULL DEFAULT 0,
+			ingest_error    TEXT NOT NULL DEFAULT '',
+			doc_count       INTEGER NOT NULL DEFAULT 0,
+			chunk_count     INTEGER NOT NULL DEFAULT 0,
+			last_indexed_at TIMESTAMP DEFAULT NULL,
+			created_at      TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			updated_at      TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			UNIQUE(owner_type, owner_id, name)
+		)`,
+		`INSERT INTO knowledge_bases_new (` + cols + `) SELECT ` + cols + ` FROM knowledge_bases`,
+		`DROP TABLE knowledge_bases`,
+		`ALTER TABLE knowledge_bases_new RENAME TO knowledge_bases`,
+	}
+	for _, s := range stmts {
+		if _, err := tx.Exec(s); err != nil {
+			_ = tx.Rollback()
+			slog.Warn("migrateAllowMcpKBSource (sqlite): step failed",
+				"error", err, "first_line", strings.SplitN(s, "\n", 2)[0])
+			return // leave marker unset; next start retries
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		slog.Warn("migrateAllowMcpKBSource (sqlite): commit failed", "error", err)
+		return
+	}
+	markMigration(w, "allow_mcp_kb_source_v1")
+	slog.Info("migrateAllowMcpKBSource: knowledge_bases.source_kind CHECK widened for 'mcp'")
 }
 
 // rebuildSQLiteWidenCheck rebuilds a single SQLite table with oldEnum replaced by

@@ -22,7 +22,8 @@
   "sourceKind": {
     "local": "本地路径",
     "upload": "上传文件",
-    "url": "网络地址"
+    "url": "网络地址",
+    "mcp": "MCP 端点"
   },
   "ingest": {
     "pending": "排队中",
@@ -53,6 +54,11 @@
     "urlLabel": "网络地址",
     "urlPlaceholder": "https://… 直链或压缩包（zip / tar.gz）",
     "urlHint": "保存后在后台异步下载并解析，列表中会显示进度；失败可重试或更换镜像。",
+    "mcpEndpointLabel": "知识库 MCP 端点（URL）",
+    "mcpEndpointHint": "你自己的知识库 MCP 端点。牛牛只编排调用，数据始终在你的 MCP 后面。",
+    "mcpTokenLabel": "API 令牌",
+    "mcpTokenPh": "粘贴你的知识库 API 令牌",
+    "mcpTokenHint": "加密存入 credstore，投射时注入——绝不落在知识库记录里。",
     "urlMirrorHint": "该预设附带 {{count}} 个镜像地址，主源失败时按序兜底。",
     "editSourceNote": "数据来源在创建后不可更改。",
     "cancel": "取消",

@@ -22,7 +22,8 @@
   "sourceKind": {
     "local": "本地路徑",
     "upload": "上傳檔案",
-    "url": "網路地址"
+    "url": "網路地址",
+    "mcp": "MCP 端點"
   },
   "ingest": {
     "pending": "排隊中",
@@ -53,6 +54,11 @@
     "urlLabel": "網路地址",
     "urlPlaceholder": "https://… 直鏈或壓縮包（zip / tar.gz）",
     "urlHint": "儲存後在後臺非同步下載並解析，列表中會顯示進度；失敗可重試或更換映象。",
+    "mcpEndpointLabel": "知識庫 MCP 端點（URL）",
+    "mcpEndpointHint": "你自己的知識庫 MCP 端點。牛牛隻編排呼叫，資料始終在你的 MCP 後面。",
+    "mcpTokenLabel": "API 令牌",
+    "mcpTokenPh": "貼上你的知識庫 API 令牌",
+    "mcpTokenHint": "加密存入 credstore，投射時注入——絕不落在知識庫記錄裡。",
     "urlMirrorHint": "該預設附帶 {{count}} 個映象地址，主源失敗時按序兜底。",
     "editSourceNote": "資料來源在建立後不可更改。",
     "cancel": "取消",

@@ -105,6 +105,7 @@ func (p *SceneProjector) Recompute(ctx context.Context, wsID int64) (*Projection
 				slog.Warn("scene projector: bad base definition", "workspace_id", wsID, "err", err)
 				continue
 			}
+			p.expandKnowledgeBases(ctx, wsID, def)
 			proj.MergeFrom(def, BaseLayerOrigin)
 			continue
 		}
@@ -121,9 +122,95 @@ func (p *SceneProjector) Recompute(ctx context.Context, wsID int64) (*Projection
 			slog.Warn("scene projector: bad scene definition", "scene_id", scene.ID, "err", err)
 			continue
 		}
+		p.expandKnowledgeBases(ctx, wsID, def)
 		proj.MergeFrom(def, LayerOrigin(scene.ID))
 	}
 	return proj, nil
+}
+
+// expandKnowledgeBases turns a scene's declared knowledge-base refs into real
+// projection entries. A knowledge base is now a first-class resource with a
+// source kind; an mcp-kind KB (an external KB MCP endpoint) is projected as an
+// inline MCP server whose Authorization header is resolved from credstore at
+// write time — exactly what the old hand-configured scene "kb" MCP server did,
+// but driven by the unified KB list. local/url KBs are reached via the existing
+// kb_search / workspace-mount path, so they add no MCP server here. Best-effort:
+// an unresolvable or non-mcp KB is skipped, never aborting the projection.
+func (p *SceneProjector) expandKnowledgeBases(ctx context.Context, wsID int64, def *SceneDefinition) {
+	if len(def.KnowledgeBases) == 0 {
+		return
+	}
+	ws, err := p.q.GetWorkspace(ctx, wsID)
+	if err != nil {
+		return
+	}
+	for _, ref := range def.KnowledgeBases {
+		name := strings.TrimSpace(ref.Name)
+		if name == "" {
+			continue
+		}
+		kb, err := p.q.GetKnowledgeBaseByOwnerAndName(ctx, store.GetKnowledgeBaseByOwnerAndNameParams{
+			OwnerType: ws.OwnerType, OwnerID: ws.OwnerID, Name: name,
+		})
+		if err != nil {
+			continue // KB not found under this owner: skip
+		}
+		if kb.SourceKind != "mcp" {
+			continue // local/url KBs are exposed via kb_search + workspace mount
+		}
+		alias := kbMcpAlias(kb)
+		server := kbMcpServerName(kb)
+		def.MCP = append(def.MCP, MCPDecl{
+			Name: server,
+			Config: map[string]any{
+				"type": "http",
+				"url":  kb.SourceAddr,
+				"headers": map[string]any{
+					"Authorization": "Bearer ${cred:" + alias + ".token}",
+				},
+			},
+		})
+		def.RequiredCredentials = append(def.RequiredCredentials, RequiredCredential{
+			Alias: alias, Provider: "knowledge-base", Purpose: ref.Purpose,
+		})
+	}
+}
+
+// kbMcpAlias resolves the credstore alias an mcp-kind KB's token is stored under
+// (source_config.cred_alias, set at create time), falling back to kb-<id>.
+func kbMcpAlias(kb store.KnowledgeBase) string {
+	if kb.SourceConfig != "" {
+		var cfg struct {
+			CredAlias string `json:"cred_alias"`
+		}
+		if json.Unmarshal([]byte(kb.SourceConfig), &cfg) == nil && cfg.CredAlias != "" {
+			return cfg.CredAlias
+		}
+	}
+	return fmt.Sprintf("kb-%d", kb.ID)
+}
+
+// kbMcpServerName derives a valid MCP server name from a KB: the KB name
+// slugified (lower-case ascii, dash-joined), falling back to kb-<id> when the
+// name has no ascii slug (e.g. all-CJK).
+func kbMcpServerName(kb store.KnowledgeBase) string {
+	s := strings.ToLower(strings.TrimSpace(kb.Name))
+	var b strings.Builder
+	for _, r := range s {
+		switch {
+		case r >= 'a' && r <= 'z', r >= '0' && r <= '9':
+			b.WriteRune(r)
+		case r == '-' || r == '_':
+			b.WriteRune(r)
+		default:
+			b.WriteByte('-')
+		}
+	}
+	out := strings.Trim(b.String(), "-")
+	if out == "" || len(out) > 40 {
+		return fmt.Sprintf("kb-%d", kb.ID)
+	}
+	return out
 }
 
 // Apply is the full pipeline: recompute → side-effects → persist. Failures

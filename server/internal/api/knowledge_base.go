@@ -16,6 +16,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"os"
@@ -313,16 +314,20 @@ func (h *KnowledgeBaseHandler) Create(c *gin.Context) {
 	}
 	ctx := c.Request.Context()
 
-	// Map the UI's three source kinds onto #497's local/url. "upload" is a local
-	// KB whose dataset dir is filled later via the files endpoint.
+	// Map the UI's source kinds onto the backend kinds. "upload" is a local KB
+	// whose dataset dir is filled later via the files endpoint. "mcp" is an
+	// external knowledge-base MCP endpoint (no local corpus, never ingested).
 	kind := service.KBSourceLocal
 	addr := b.SourceLocation
 	isUpload := b.SourceKind == "upload"
+	isMcp := b.SourceKind == "mcp"
 	switch b.SourceKind {
 	case "url":
 		kind = service.KBSourceURL
 	case "local", "upload":
 		kind = service.KBSourceLocal
+	case "mcp":
+		kind = service.KBSourceMcp
 	default:
 		c.JSON(http.StatusBadRequest, gin.H{"error": "unsupported source kind"})
 		return
@@ -365,14 +370,30 @@ func (h *KnowledgeBaseHandler) Create(c *gin.Context) {
 		kb.SourceAddr = dir
 	}
 
+	if isMcp {
+		// An mcp-kind KB points at a remote endpoint; the API token lives in
+		// credstore under a per-KB alias the projection resolves into the
+		// projected MCP server's Authorization header. No local corpus → never
+		// ingested; mark ready so the management UI doesn't spin.
+		alias := fmt.Sprintf("kb-%d", kb.ID)
+		mcpCfg := cfg
+		mcpCfg["cred_alias"] = alias
+		mcpCfgJSON, _ := json.Marshal(mcpCfg)
+		_, _ = h.db.ExecContext(ctx, `UPDATE knowledge_bases SET source_config = ? WHERE id = ?`, string(mcpCfgJSON), kb.ID)
+		kb.SourceConfig = string(mcpCfgJSON)
+	}
+
 	if len(b.Bindings) > 0 {
 		_ = h.replaceBindings(ctx, kb.ID, b.Bindings)
 	}
 
-	// Upload waits for files; local/url ingest right away.
-	if isUpload {
+	// Upload waits for files; mcp has no local corpus; local/url ingest now.
+	switch {
+	case isUpload:
 		h.setIngest(ctx, kb.ID, "pending", 0, "")
-	} else {
+	case isMcp:
+		h.setIngest(ctx, kb.ID, "ready", 100, "")
+	default:
 		h.startIngest(ctx, owner, kb.ID, kind)
 	}
 	c.JSON(http.StatusCreated, h.kbToJSON(ctx, kb))
@@ -482,7 +503,12 @@ func (h *KnowledgeBaseHandler) Retry(c *gin.Context) {
 		_, _ = h.db.ExecContext(ctx, `UPDATE knowledge_bases SET source_addr = ? WHERE id = ?`, b.MirrorURL, id)
 		kb.SourceAddr = b.MirrorURL
 	}
-	h.startIngest(ctx, owner, id, kb.SourceKind)
+	// mcp-kind KBs have no local corpus to ingest; retry is a no-op for them.
+	if kb.SourceKind == service.KBSourceMcp {
+		h.setIngest(ctx, id, "ready", 100, "")
+	} else {
+		h.startIngest(ctx, owner, id, kb.SourceKind)
+	}
 	kb, _ = h.kb.GetKB(ctx, owner, id)
 	c.JSON(http.StatusOK, h.kbToJSON(ctx, kb))
 }
