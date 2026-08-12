@@ -108,6 +108,21 @@ export function ProjectSettingsTab({ projectId }: Props) {
     onError: () => toast.error(t('tabs.settings.saveFailed')),
   });
 
+  // Project default Provider — inherited by new workspaces created from issues.
+  const { data: providers = [] } = useQuery({
+    queryKey: ['env-providers'],
+    queryFn: () => api.listEnvProviders(),
+  });
+  const providerMut = useMutation({
+    mutationFn: async (providerId: number | null) =>
+      api.setProjectEnvProvider(String(projectId), providerId),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['project', String(projectId)] });
+      qc.invalidateQueries({ queryKey: ['projects'] });
+    },
+    onError: () => toast.error(t('tabs.settings.saveFailed')),
+  });
+
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [savingBasic, setSavingBasic] = useState(false);
@@ -246,6 +261,24 @@ export function ProjectSettingsTab({ projectId }: Props) {
               <option value="omp">{t('issue.workspace.cliType.omp')}</option>
             </select>
             <p className="text-xs text-muted-foreground">{t('tabs.settings.defaultAgentHint')}</p>
+          </div>
+          {/* Default Provider — inherited by new workspaces. */}
+          <div className="grid gap-2">
+            <label className="text-sm font-medium">{t('tabs.settings.defaultProvider')}</label>
+            <select
+              value={project.env_provider_id ?? 0}
+              onChange={(e) => providerMut.mutate(e.target.value === '0' ? null : Number(e.target.value))}
+              disabled={!isAdmin || providerMut.isPending}
+              className="h-9 rounded-md border border-input bg-background px-3 py-1 text-sm"
+            >
+              <option value={0}>{t('tabs.settings.defaultProviderNone')}</option>
+              {providers.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.name}{Object.keys(p.base_urls ?? {}).length ? ` · ${Object.keys(p.base_urls).join('/')}` : ''}{p.model ? ` · ${p.model}` : ''}
+                </option>
+              ))}
+            </select>
+            <p className="text-xs text-muted-foreground">{t('tabs.settings.defaultProviderHint')}</p>
           </div>
           <div className="grid gap-2">
             <label className="text-sm font-medium">{t('tabs.settings.owner')}</label>
