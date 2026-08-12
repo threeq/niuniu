@@ -105,6 +105,7 @@ describe('assembleSceneDefinition', () => {
     matchBaseWeight: '',
     matchRules: [{ signal: 's', weight: '5', argsRaw: '' }],
     envPresets: [{ slug: 'e1', name: 'Preset 1', env: [{ key: 'A', value: '1' }] }],
+    providers: ['DeepSeek'],
     assetsPassthrough: {},
     requiredCredentialsPassthrough: [{ alias: 'x', provider: 'slack' }],
     skillsPassthrough: [{ name: 'fireworks-tech-graph' }],

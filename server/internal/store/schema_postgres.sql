@@ -17,6 +17,7 @@ CREATE TABLE IF NOT EXISTS projects (
     -- in the create UI and used verbatim when a workspace is auto-created from
     -- an issue. Mirrors workspaces.cli_type's closed set.
     default_cli_type TEXT NOT NULL DEFAULT 'claude' CHECK (default_cli_type IN ('claude','codex','qwen','omp','goose')),
+    env_provider_id BIGINT DEFAULT NULL REFERENCES env_providers(id) ON DELETE SET NULL,
     -- Per-project workspace auto-cleanup policy. cleanup_enabled=0 (default) is
     -- OFF; when 1, an hourly sweeper deletes each workspace (and its issue) whose
     -- linked issue falls in one of cleanup_statuses (comma-separated subset of
@@ -235,10 +236,8 @@ CREATE TABLE IF NOT EXISTS workspaces (
     is_temporary   INTEGER NOT NULL DEFAULT 0,
     is_archived    INTEGER NOT NULL DEFAULT 0,
     archived_at    TIMESTAMP DEFAULT NULL,
-    claude_account_id BIGINT DEFAULT NULL, -- FK to claude_accounts added by addWorkspaceClaudeAccountColumn migration after the table exists
     mcp_servers JSONB NOT NULL DEFAULT '[]'::jsonb,
     cli_type TEXT NOT NULL DEFAULT 'claude' CHECK (cli_type IN ('claude','codex','qwen','omp','goose')),
-    codex_account_id BIGINT DEFAULT NULL, -- FK to codex_accounts added by deferred block after codex_accounts CREATE TABLE
     codex_sandbox_mode TEXT NOT NULL DEFAULT 'danger-full-access'
         CHECK (codex_sandbox_mode IN ('read-only','workspace-write','danger-full-access')),
     codex_approval_policy TEXT NOT NULL DEFAULT 'never'
@@ -251,7 +250,8 @@ CREATE TABLE IF NOT EXISTS workspaces (
     -- language is the creating user's UI language code (e.g. 'zh-CN'); it seeds
     -- the "User Language" directive in generated CLAUDE.md/AGENTS.md and is
     -- inherited by epic-derived child workspaces. '' = unknown (generic directive).
-    language TEXT NOT NULL DEFAULT ''
+    language TEXT NOT NULL DEFAULT '',
+    env_provider_id BIGINT DEFAULT NULL REFERENCES env_providers(id) ON DELETE SET NULL
 );
 
 -- ============================================================
@@ -610,6 +610,51 @@ CREATE TABLE IF NOT EXISTS env_presets (
 );
 -- idx_env_presets_owner_slug created in store/migrate.go (post addAssetSlugColumns).
 
+-- ============================================================
+-- Env accounts table (subscription-platform credential references)
+-- Mirrors env_accounts in schema.sql (dual-driver parity). See the SQLite
+-- definition for the semantic contract.
+-- ============================================================
+CREATE TABLE IF NOT EXISTS env_accounts (
+    id          BIGSERIAL PRIMARY KEY,
+    name        TEXT NOT NULL UNIQUE,
+    platform    TEXT NOT NULL DEFAULT '',
+    description TEXT NOT NULL DEFAULT '',
+    api_key     TEXT NOT NULL DEFAULT '',
+    owner_type  TEXT NOT NULL DEFAULT 'user' CHECK (owner_type IN ('user','org')),
+    owner_id    BIGINT NOT NULL DEFAULT 0,
+    slug        TEXT NOT NULL DEFAULT '',
+    created_at  TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at  TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_env_accounts_owner_slug ON env_accounts(owner_type, owner_id, slug);
+
+-- ============================================================
+-- Env providers table (unified subscription-platform configs)
+-- Mirrors env_providers in schema.sql (dual-driver parity). See the SQLite
+-- definition for the semantic contract.
+-- ============================================================
+CREATE TABLE IF NOT EXISTS env_providers (
+    id            BIGSERIAL PRIMARY KEY,
+    name          TEXT NOT NULL UNIQUE,
+    platform      TEXT NOT NULL DEFAULT '',
+    description   TEXT NOT NULL DEFAULT '',
+    base_urls     TEXT NOT NULL DEFAULT '{}',  -- JSON: Record<protocol, base_url>
+    api_key       TEXT NOT NULL DEFAULT '',
+    model         TEXT NOT NULL DEFAULT '',
+    haiku_model   TEXT NOT NULL DEFAULT '',
+    sonnet_model  TEXT NOT NULL DEFAULT '',
+    opus_model    TEXT NOT NULL DEFAULT '',
+    subagent_model TEXT NOT NULL DEFAULT '',
+    extra_env     TEXT NOT NULL DEFAULT '{}',  -- JSON: Record<string, string> passthrough
+    owner_type    TEXT NOT NULL DEFAULT 'user' CHECK (owner_type IN ('user','org')),
+    owner_id      BIGINT NOT NULL DEFAULT 0,
+    slug          TEXT NOT NULL DEFAULT '',
+    created_at    TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at    TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_env_providers_owner_slug ON env_providers(owner_type, owner_id, slug);
+
 -- Note: agent_messages.harness_run_id is a retained-but-dead legacy column
 -- (workflow subsystem decommissioned). It has no index — the old
 -- idx_agent_messages_harness_run was dropped by the drop_workflow_tables_v1
@@ -861,9 +906,6 @@ DO $$ BEGIN
                    WHERE table_schema = 'public' AND table_name = 'issues' AND column_name = 'created_by') THEN
         ALTER TABLE issues ADD CONSTRAINT fk_issues_created_by FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL;
     END IF;
-    -- NOTE: fk_workspaces_claude_account_id is declared in a SEPARATE DO block
-    -- AFTER the claude_accounts CREATE TABLE later in this file — the parent
-    -- table doesn't exist yet at this point.
     -- NOTE: harness_run_id columns on agent_messages / workspace_costs /
     -- workspace_tasks (and blackboard_entries) are retained as plain BIGINT with
     -- NO foreign key — the harness_runs table was dropped. Likewise the legacy
@@ -1033,103 +1075,6 @@ CREATE TABLE IF NOT EXISTS issue_assignees (
 );
 CREATE INDEX IF NOT EXISTS idx_issue_assignees_user ON issue_assignees(user_id);
 
--- Claude account pool (deployment-global, not owner-scoped)
-CREATE TABLE IF NOT EXISTS claude_accounts (
-    id            BIGSERIAL PRIMARY KEY,
-    name          TEXT NOT NULL,
-    email         TEXT,
-    config_dir    TEXT NOT NULL,
-    visibility    TEXT NOT NULL DEFAULT 'public'
-                  CHECK (visibility IN ('public','private')),
-    status        TEXT NOT NULL DEFAULT 'pending'
-                  CHECK (status IN ('pending','active','failed')),
-    created_at    BIGINT NOT NULL,
-    last_used_at  BIGINT,
-    created_by    BIGINT REFERENCES users(id) ON DELETE SET NULL
-);
-
-CREATE UNIQUE INDEX IF NOT EXISTS claude_accounts_name_unique
-    ON claude_accounts (name);
-
-CREATE UNIQUE INDEX IF NOT EXISTS claude_accounts_only_one_default
-    ON claude_accounts (config_dir) WHERE config_dir = '';
-
-CREATE TABLE IF NOT EXISTS claude_active_account (
-    owner_type  TEXT NOT NULL CHECK (owner_type IN ('user','org')),
-    owner_id    BIGINT NOT NULL,
-    account_id  BIGINT NOT NULL REFERENCES claude_accounts(id) ON DELETE CASCADE,
-    PRIMARY KEY (owner_type, owner_id)
-);
-
-CREATE TABLE IF NOT EXISTS claude_account_audit_log (
-    id             BIGSERIAL PRIMARY KEY,
-    account_id     BIGINT REFERENCES claude_accounts(id) ON DELETE SET NULL,
-    actor_user_id  BIGINT REFERENCES users(id) ON DELETE SET NULL,
-    action         TEXT NOT NULL,
-    payload        TEXT NOT NULL DEFAULT '{}',
-    created_at     TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-CREATE INDEX IF NOT EXISTS idx_claude_audit_account_time
-    ON claude_account_audit_log(account_id, created_at DESC);
-CREATE INDEX IF NOT EXISTS idx_claude_audit_actor_time
-    ON claude_account_audit_log(actor_user_id, created_at DESC);
-
--- Deferred FK from workspaces.claude_account_id → claude_accounts(id).
--- Must run AFTER claude_accounts CREATE TABLE (above this line). The earlier
--- DO block at the top of "Deferred foreign keys" section runs before
--- claude_accounts exists in fresh-deploy schema execution order.
-DO $$ BEGIN
-    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_workspaces_claude_account_id')
-       AND EXISTS (SELECT 1 FROM information_schema.columns
-                   WHERE table_schema = 'public' AND table_name = 'workspaces' AND column_name = 'claude_account_id') THEN
-        ALTER TABLE workspaces ADD CONSTRAINT fk_workspaces_claude_account_id FOREIGN KEY (claude_account_id) REFERENCES claude_accounts(id) ON DELETE SET NULL;
-    END IF;
-END $$;
-
--- ============================================================
--- Codex account pool (deployment-global, mirrors claude_accounts)
--- ============================================================
-CREATE TABLE IF NOT EXISTS codex_accounts (
-    id            BIGSERIAL PRIMARY KEY,
-    name          TEXT NOT NULL,
-    email         TEXT,
-    config_dir    TEXT NOT NULL,
-    visibility    TEXT NOT NULL DEFAULT 'public'
-                  CHECK (visibility IN ('public','private')),
-    status        TEXT NOT NULL DEFAULT 'pending'
-                  CHECK (status IN ('pending','active','failed')),
-    created_at    BIGINT NOT NULL,
-    last_used_at  BIGINT,
-    created_by    BIGINT REFERENCES users(id) ON DELETE SET NULL
-);
-
-CREATE UNIQUE INDEX IF NOT EXISTS codex_accounts_name_unique
-    ON codex_accounts (name);
-
-CREATE TABLE IF NOT EXISTS codex_account_audit_log (
-    id             BIGSERIAL PRIMARY KEY,
-    account_id     BIGINT REFERENCES codex_accounts(id) ON DELETE SET NULL,
-    actor_user_id  BIGINT REFERENCES users(id) ON DELETE SET NULL,
-    action         TEXT NOT NULL,
-    payload        TEXT NOT NULL DEFAULT '{}',
-    created_at     TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-CREATE INDEX IF NOT EXISTS idx_codex_audit_account_time
-    ON codex_account_audit_log(account_id, created_at DESC);
-CREATE INDEX IF NOT EXISTS idx_codex_audit_actor_time
-    ON codex_account_audit_log(actor_user_id, created_at DESC);
-
--- Deferred FK from workspaces.codex_account_id → codex_accounts(id).
--- Same pattern as claude_account_id above.
-DO $$ BEGIN
-    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_workspaces_codex_account_id')
-       AND EXISTS (SELECT 1 FROM information_schema.columns
-                   WHERE table_schema = 'public' AND table_name = 'workspaces' AND column_name = 'codex_account_id') THEN
-        ALTER TABLE workspaces ADD CONSTRAINT fk_workspaces_codex_account_id FOREIGN KEY (codex_account_id) REFERENCES codex_accounts(id) ON DELETE SET NULL;
-    END IF;
-END $$;
-
--- ============================================================
 -- External provider credentials (per-user, AES-GCM encrypted)
 -- ============================================================
 CREATE TABLE IF NOT EXISTS external_provider_credentials (

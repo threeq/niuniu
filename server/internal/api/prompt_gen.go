@@ -1,7 +1,6 @@
 package api
 
 import (
-	"fmt"
 	"log/slog"
 	"net/http"
 
@@ -12,8 +11,7 @@ import (
 
 // PromptGenHandler handles AI prompt generation endpoints.
 type PromptGenHandler struct {
-	Svc          *service.PromptGenService
-	ClaudeAccount *service.ClaudeAccountService // optional; used by SuggestColumnOp
+	Svc *service.PromptGenService
 }
 
 // GeneratePrompt generates an agent role's system prompt.
@@ -71,13 +69,6 @@ func (h *PromptGenHandler) SuggestColumnOp(c *gin.Context) {
 	// KanbanHandler.SuggestGoalCondition so both use the same credentials.
 	userID := c.GetInt64("auth_user_id")
 	configDir := ""
-	accountLabel := "default ~/.claude"
-	if h.ClaudeAccount != nil {
-		if acc := h.ClaudeAccount.ResolveAccountForUser(c.Request.Context(), userID); acc != nil {
-			configDir = acc.ConfigDir
-			accountLabel = fmt.Sprintf("%s (id=%d)", acc.Name, acc.ID)
-		}
-	}
 
 	result, err := agentproxy.SuggestColumnOpFields(
 		c.Request.Context(),
@@ -96,7 +87,7 @@ func (h *PromptGenHandler) SuggestColumnOp(c *gin.Context) {
 		}
 		slog.Warn("SuggestColumnOp failed",
 			"user_id", userID, "column", req.ColumnName,
-			"claude_account", accountLabel, "error", err)
+			"error", err)
 		c.AbortWithStatusJSON(http.StatusBadGateway, gin.H{
 			"error": gin.H{"code": "SUGGEST_FAILED", "message": err.Error()},
 		})

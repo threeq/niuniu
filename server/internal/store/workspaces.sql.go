@@ -58,7 +58,7 @@ func (q *Queries) CountSchedulesByWorkspace(ctx context.Context) ([]CountSchedul
 const createWorkspace = `-- name: CreateWorkspace :one
 INSERT INTO workspaces (issue_id, name, path, status, owner_type, owner_id, created_by, cli_type, codex_sandbox_mode, codex_approval_policy, language)
 VALUES (?, ?, ?, ?, ?, ?, ?, COALESCE(NULLIF(CAST(?8 AS TEXT), ''), 'claude'), 'danger-full-access', 'never', CAST(?9 AS TEXT))
-RETURNING id, issue_id, name, path, status, agent_pid, agent_status, session_id, session_status, owner_type, owner_id, current_session_user_id, created_by, created_at, updated_at, is_temporary, is_archived, archived_at, claude_account_id, mcp_servers, cli_type, codex_account_id, codex_sandbox_mode, codex_approval_policy, is_studio, strict_mcp_config, language
+RETURNING id, issue_id, name, path, status, agent_pid, agent_status, session_id, session_status, owner_type, owner_id, current_session_user_id, created_by, created_at, updated_at, is_temporary, is_archived, archived_at, mcp_servers, cli_type, codex_sandbox_mode, codex_approval_policy, is_studio, strict_mcp_config, language, env_provider_id
 `
 
 type CreateWorkspaceParams struct {
@@ -128,15 +128,14 @@ func (q *Queries) CreateWorkspace(ctx context.Context, arg CreateWorkspaceParams
 		&i.IsTemporary,
 		&i.IsArchived,
 		&i.ArchivedAt,
-		&i.ClaudeAccountID,
 		&i.McpServers,
 		&i.CliType,
-		&i.CodexAccountID,
 		&i.CodexSandboxMode,
 		&i.CodexApprovalPolicy,
 		&i.IsStudio,
 		&i.StrictMcpConfig,
 		&i.Language,
+		&i.EnvProviderID,
 	)
 	return i, err
 }
@@ -165,7 +164,7 @@ func (q *Queries) GetProjectIDForWorkspace(ctx context.Context, id int64) (int64
 }
 
 const getWorkspace = `-- name: GetWorkspace :one
-SELECT id, issue_id, name, path, status, agent_pid, agent_status, session_id, session_status, owner_type, owner_id, current_session_user_id, created_by, created_at, updated_at, is_temporary, is_archived, archived_at, claude_account_id, mcp_servers, cli_type, codex_account_id, codex_sandbox_mode, codex_approval_policy, is_studio, strict_mcp_config, language FROM workspaces WHERE id = ?
+SELECT id, issue_id, name, path, status, agent_pid, agent_status, session_id, session_status, owner_type, owner_id, current_session_user_id, created_by, created_at, updated_at, is_temporary, is_archived, archived_at, mcp_servers, cli_type, codex_sandbox_mode, codex_approval_policy, is_studio, strict_mcp_config, language, env_provider_id FROM workspaces WHERE id = ?
 `
 
 func (q *Queries) GetWorkspace(ctx context.Context, id int64) (Workspace, error) {
@@ -190,15 +189,14 @@ func (q *Queries) GetWorkspace(ctx context.Context, id int64) (Workspace, error)
 		&i.IsTemporary,
 		&i.IsArchived,
 		&i.ArchivedAt,
-		&i.ClaudeAccountID,
 		&i.McpServers,
 		&i.CliType,
-		&i.CodexAccountID,
 		&i.CodexSandboxMode,
 		&i.CodexApprovalPolicy,
 		&i.IsStudio,
 		&i.StrictMcpConfig,
 		&i.Language,
+		&i.EnvProviderID,
 	)
 	return i, err
 }
@@ -243,8 +241,51 @@ func (q *Queries) GetWorkspaceAlertableUserIDs(ctx context.Context, workspaceID 
 	return items, nil
 }
 
+const getWorkspaceCliType = `-- name: GetWorkspaceCliType :one
+SELECT cli_type FROM workspaces WHERE id = ?
+`
+
+func (q *Queries) GetWorkspaceCliType(ctx context.Context, id int64) (string, error) {
+	row := q.db.QueryRowContext(ctx, getWorkspaceCliType, id)
+	var cli_type string
+	err := row.Scan(&cli_type)
+	return cli_type, err
+}
+
+const getWorkspaceCodexConfig = `-- name: GetWorkspaceCodexConfig :one
+SELECT cli_type, codex_sandbox_mode, codex_approval_policy
+FROM workspaces
+WHERE id = ?
+`
+
+type GetWorkspaceCodexConfigRow struct {
+	CliType             string `json:"cli_type"`
+	CodexSandboxMode    string `json:"codex_sandbox_mode"`
+	CodexApprovalPolicy string `json:"codex_approval_policy"`
+}
+
+func (q *Queries) GetWorkspaceCodexConfig(ctx context.Context, id int64) (GetWorkspaceCodexConfigRow, error) {
+	row := q.db.QueryRowContext(ctx, getWorkspaceCodexConfig, id)
+	var i GetWorkspaceCodexConfigRow
+	err := row.Scan(&i.CliType, &i.CodexSandboxMode, &i.CodexApprovalPolicy)
+	return i, err
+}
+
+const getWorkspaceEnvProviderID = `-- name: GetWorkspaceEnvProviderID :one
+SELECT COALESCE(env_provider_id, 0) AS env_provider_id FROM workspaces WHERE id = ?
+`
+
+// 0 means no direct provider binding (NULL COALESCE'd); callers fall back to
+// scene-declared providers/presets.
+func (q *Queries) GetWorkspaceEnvProviderID(ctx context.Context, id int64) (int64, error) {
+	row := q.db.QueryRowContext(ctx, getWorkspaceEnvProviderID, id)
+	var env_provider_id int64
+	err := row.Scan(&env_provider_id)
+	return env_provider_id, err
+}
+
 const getWorkspacesByIssue = `-- name: GetWorkspacesByIssue :many
-SELECT id, issue_id, name, path, status, agent_pid, agent_status, session_id, session_status, owner_type, owner_id, current_session_user_id, created_by, created_at, updated_at, is_temporary, is_archived, archived_at, claude_account_id, mcp_servers, cli_type, codex_account_id, codex_sandbox_mode, codex_approval_policy, is_studio, strict_mcp_config, language FROM workspaces WHERE issue_id = ? ORDER BY is_archived ASC, created_at DESC
+SELECT id, issue_id, name, path, status, agent_pid, agent_status, session_id, session_status, owner_type, owner_id, current_session_user_id, created_by, created_at, updated_at, is_temporary, is_archived, archived_at, mcp_servers, cli_type, codex_sandbox_mode, codex_approval_policy, is_studio, strict_mcp_config, language, env_provider_id FROM workspaces WHERE issue_id = ? ORDER BY is_archived ASC, created_at DESC
 `
 
 func (q *Queries) GetWorkspacesByIssue(ctx context.Context, issueID sql.NullInt64) ([]Workspace, error) {
@@ -275,15 +316,14 @@ func (q *Queries) GetWorkspacesByIssue(ctx context.Context, issueID sql.NullInt6
 			&i.IsTemporary,
 			&i.IsArchived,
 			&i.ArchivedAt,
-			&i.ClaudeAccountID,
 			&i.McpServers,
 			&i.CliType,
-			&i.CodexAccountID,
 			&i.CodexSandboxMode,
 			&i.CodexApprovalPolicy,
 			&i.IsStudio,
 			&i.StrictMcpConfig,
 			&i.Language,
+			&i.EnvProviderID,
 		); err != nil {
 			return nil, err
 		}
@@ -299,7 +339,7 @@ func (q *Queries) GetWorkspacesByIssue(ctx context.Context, issueID sql.NullInt6
 }
 
 const listArchivedWorkspaces = `-- name: ListArchivedWorkspaces :many
-SELECT id, issue_id, name, path, status, agent_pid, agent_status, session_id, session_status, owner_type, owner_id, current_session_user_id, created_by, created_at, updated_at, is_temporary, is_archived, archived_at, claude_account_id, mcp_servers, cli_type, codex_account_id, codex_sandbox_mode, codex_approval_policy, is_studio, strict_mcp_config, language FROM workspaces WHERE is_archived = 1 ORDER BY archived_at DESC
+SELECT id, issue_id, name, path, status, agent_pid, agent_status, session_id, session_status, owner_type, owner_id, current_session_user_id, created_by, created_at, updated_at, is_temporary, is_archived, archived_at, mcp_servers, cli_type, codex_sandbox_mode, codex_approval_policy, is_studio, strict_mcp_config, language, env_provider_id FROM workspaces WHERE is_archived = 1 ORDER BY archived_at DESC
 `
 
 func (q *Queries) ListArchivedWorkspaces(ctx context.Context) ([]Workspace, error) {
@@ -330,15 +370,14 @@ func (q *Queries) ListArchivedWorkspaces(ctx context.Context) ([]Workspace, erro
 			&i.IsTemporary,
 			&i.IsArchived,
 			&i.ArchivedAt,
-			&i.ClaudeAccountID,
 			&i.McpServers,
 			&i.CliType,
-			&i.CodexAccountID,
 			&i.CodexSandboxMode,
 			&i.CodexApprovalPolicy,
 			&i.IsStudio,
 			&i.StrictMcpConfig,
 			&i.Language,
+			&i.EnvProviderID,
 		); err != nil {
 			return nil, err
 		}
@@ -354,7 +393,7 @@ func (q *Queries) ListArchivedWorkspaces(ctx context.Context) ([]Workspace, erro
 }
 
 const listArchivedWorkspacesWithMeta = `-- name: ListArchivedWorkspacesWithMeta :many
-SELECT w.id, w.issue_id, w.name, w.path, w.status, w.agent_pid, w.agent_status, w.session_id, w.session_status, w.owner_type, w.owner_id, w.current_session_user_id, w.created_by, w.created_at, w.updated_at, w.is_temporary, w.is_archived, w.archived_at, w.claude_account_id, w.mcp_servers, w.cli_type, w.codex_account_id, w.codex_sandbox_mode, w.codex_approval_policy, w.is_studio, w.strict_mcp_config, w.language,
+SELECT w.id, w.issue_id, w.name, w.path, w.status, w.agent_pid, w.agent_status, w.session_id, w.session_status, w.owner_type, w.owner_id, w.current_session_user_id, w.created_by, w.created_at, w.updated_at, w.is_temporary, w.is_archived, w.archived_at, w.mcp_servers, w.cli_type, w.codex_sandbox_mode, w.codex_approval_policy, w.is_studio, w.strict_mcp_config, w.language, w.env_provider_id,
   COALESCE(i.title, '') AS issue_title,
   COALESCE(p.name, '') AS project_name
 FROM workspaces w
@@ -384,15 +423,14 @@ type ListArchivedWorkspacesWithMetaRow struct {
 	IsTemporary          int64          `json:"is_temporary"`
 	IsArchived           int64          `json:"is_archived"`
 	ArchivedAt           sql.NullTime   `json:"archived_at"`
-	ClaudeAccountID      sql.NullInt64  `json:"claude_account_id"`
 	McpServers           string         `json:"mcp_servers"`
 	CliType              string         `json:"cli_type"`
-	CodexAccountID       sql.NullInt64  `json:"codex_account_id"`
 	CodexSandboxMode     string         `json:"codex_sandbox_mode"`
 	CodexApprovalPolicy  string         `json:"codex_approval_policy"`
 	IsStudio             int64          `json:"is_studio"`
 	StrictMcpConfig      int64          `json:"strict_mcp_config"`
 	Language             string         `json:"language"`
+	EnvProviderID        sql.NullInt64  `json:"env_provider_id"`
 	IssueTitle           string         `json:"issue_title"`
 	ProjectName          string         `json:"project_name"`
 }
@@ -425,15 +463,14 @@ func (q *Queries) ListArchivedWorkspacesWithMeta(ctx context.Context) ([]ListArc
 			&i.IsTemporary,
 			&i.IsArchived,
 			&i.ArchivedAt,
-			&i.ClaudeAccountID,
 			&i.McpServers,
 			&i.CliType,
-			&i.CodexAccountID,
 			&i.CodexSandboxMode,
 			&i.CodexApprovalPolicy,
 			&i.IsStudio,
 			&i.StrictMcpConfig,
 			&i.Language,
+			&i.EnvProviderID,
 			&i.IssueTitle,
 			&i.ProjectName,
 		); err != nil {
@@ -569,7 +606,7 @@ func (q *Queries) ListProjectWorkspacesForCleanup(ctx context.Context, projectID
 }
 
 const listWorkspaces = `-- name: ListWorkspaces :many
-SELECT id, issue_id, name, path, status, agent_pid, agent_status, session_id, session_status, owner_type, owner_id, current_session_user_id, created_by, created_at, updated_at, is_temporary, is_archived, archived_at, claude_account_id, mcp_servers, cli_type, codex_account_id, codex_sandbox_mode, codex_approval_policy, is_studio, strict_mcp_config, language FROM workspaces WHERE is_temporary = 0 AND is_archived = 0 ORDER BY created_at DESC
+SELECT id, issue_id, name, path, status, agent_pid, agent_status, session_id, session_status, owner_type, owner_id, current_session_user_id, created_by, created_at, updated_at, is_temporary, is_archived, archived_at, mcp_servers, cli_type, codex_sandbox_mode, codex_approval_policy, is_studio, strict_mcp_config, language, env_provider_id FROM workspaces WHERE is_temporary = 0 AND is_archived = 0 ORDER BY created_at DESC
 `
 
 func (q *Queries) ListWorkspaces(ctx context.Context) ([]Workspace, error) {
@@ -600,15 +637,14 @@ func (q *Queries) ListWorkspaces(ctx context.Context) ([]Workspace, error) {
 			&i.IsTemporary,
 			&i.IsArchived,
 			&i.ArchivedAt,
-			&i.ClaudeAccountID,
 			&i.McpServers,
 			&i.CliType,
-			&i.CodexAccountID,
 			&i.CodexSandboxMode,
 			&i.CodexApprovalPolicy,
 			&i.IsStudio,
 			&i.StrictMcpConfig,
 			&i.Language,
+			&i.EnvProviderID,
 		); err != nil {
 			return nil, err
 		}
@@ -640,6 +676,35 @@ func (q *Queries) MarkWorkspaceDeleting(ctx context.Context, id int64) (int64, e
 		return 0, err
 	}
 	return result.RowsAffected()
+}
+
+const setWorkspaceCodexSandbox = `-- name: SetWorkspaceCodexSandbox :exec
+UPDATE workspaces SET codex_sandbox_mode = ?, codex_approval_policy = ? WHERE id = ?
+`
+
+type SetWorkspaceCodexSandboxParams struct {
+	CodexSandboxMode    string `json:"codex_sandbox_mode"`
+	CodexApprovalPolicy string `json:"codex_approval_policy"`
+	ID                  int64  `json:"id"`
+}
+
+func (q *Queries) SetWorkspaceCodexSandbox(ctx context.Context, arg SetWorkspaceCodexSandboxParams) error {
+	_, err := q.db.ExecContext(ctx, setWorkspaceCodexSandbox, arg.CodexSandboxMode, arg.CodexApprovalPolicy, arg.ID)
+	return err
+}
+
+const setWorkspaceEnvProvider = `-- name: SetWorkspaceEnvProvider :exec
+UPDATE workspaces SET env_provider_id = ? WHERE id = ?
+`
+
+type SetWorkspaceEnvProviderParams struct {
+	EnvProviderID sql.NullInt64 `json:"env_provider_id"`
+	ID            int64         `json:"id"`
+}
+
+func (q *Queries) SetWorkspaceEnvProvider(ctx context.Context, arg SetWorkspaceEnvProviderParams) error {
+	_, err := q.db.ExecContext(ctx, setWorkspaceEnvProvider, arg.EnvProviderID, arg.ID)
+	return err
 }
 
 const setWorkspaceStudio = `-- name: SetWorkspaceStudio :exec
@@ -722,7 +787,7 @@ func (q *Queries) UpdateWorkspaceName(ctx context.Context, arg UpdateWorkspaceNa
 }
 
 const updateWorkspacePath = `-- name: UpdateWorkspacePath :one
-UPDATE workspaces SET path = ? WHERE id = ? RETURNING id, issue_id, name, path, status, agent_pid, agent_status, session_id, session_status, owner_type, owner_id, current_session_user_id, created_by, created_at, updated_at, is_temporary, is_archived, archived_at, claude_account_id, mcp_servers, cli_type, codex_account_id, codex_sandbox_mode, codex_approval_policy, is_studio, strict_mcp_config, language
+UPDATE workspaces SET path = ? WHERE id = ? RETURNING id, issue_id, name, path, status, agent_pid, agent_status, session_id, session_status, owner_type, owner_id, current_session_user_id, created_by, created_at, updated_at, is_temporary, is_archived, archived_at, mcp_servers, cli_type, codex_sandbox_mode, codex_approval_policy, is_studio, strict_mcp_config, language, env_provider_id
 `
 
 type UpdateWorkspacePathParams struct {
@@ -752,15 +817,14 @@ func (q *Queries) UpdateWorkspacePath(ctx context.Context, arg UpdateWorkspacePa
 		&i.IsTemporary,
 		&i.IsArchived,
 		&i.ArchivedAt,
-		&i.ClaudeAccountID,
 		&i.McpServers,
 		&i.CliType,
-		&i.CodexAccountID,
 		&i.CodexSandboxMode,
 		&i.CodexApprovalPolicy,
 		&i.IsStudio,
 		&i.StrictMcpConfig,
 		&i.Language,
+		&i.EnvProviderID,
 	)
 	return i, err
 }

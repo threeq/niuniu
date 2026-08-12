@@ -389,29 +389,9 @@ func (s *WorkspaceSession) buildOneShotExec(ctx context.Context, workDir string)
 		mcpOpts = &opts
 	}
 
-	// Inject CODEX_HOME when a managed codex account is bound (M2.5). When
-	// no binding (or no resolver wired), leave env alone so the CLI falls
-	// back to the user's global ~/.codex/ — back-compat for pre-M2.5 rows.
+	// Per-account CODEX_HOME switching removed; codex uses the host's global
+	// ~/.codex/.
 	var accountConfigDir string
-	if s.codexAccount != nil {
-		if accID, configDir, accErr := s.codexAccount.ResolveForWorkspace(ctx, s.workspaceID, s.userID); accErr != nil {
-			slog.Warn("codex chat: resolve codex account failed; spawning without CODEX_HOME",
-				"workspaceID", s.workspaceID, "err", accErr)
-		} else if configDir != "" {
-			if !adapter.EnvHasKey(os.Environ(), "CODEX_HOME") && !adapterEnvHasKey(workspaceEnv, "CODEX_HOME") {
-				accountConfigDir = configDir
-				s.procMu.Lock()
-				s.codexAccountID = accID
-				s.procMu.Unlock()
-			} else {
-				slog.Warn("codex chat: CODEX_HOME already set in env preset; skipping niuniu injection",
-					"workspaceID", s.workspaceID, "accountID", accID)
-			}
-			if accID > 0 {
-				go s.codexAccount.MarkUsed(context.Background(), accID)
-			}
-		}
-	}
 	var gitName, gitEmail string
 	if gitUID := s.effectiveGitUserID(ctx); s.gitIdentity != nil && gitUID > 0 {
 		if name, email, err := s.gitIdentity.ResolveNameEmail(ctx, gitUID); err == nil && name != "" && email != "" {

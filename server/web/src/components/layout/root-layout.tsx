@@ -28,7 +28,7 @@ export function RootLayout() {
     <div className="h-screen flex flex-col">
       <LicenseBanner />
       <GlobalNav />
-      <div className="flex-1 overflow-hidden">
+      <div className="flex-1 min-h-0 overflow-hidden">
         <Suspense fallback={<RouteFallback />}>
           <Outlet />
         </Suspense>

@@ -329,6 +329,23 @@ func (q *Queries) GetProjectAndLifecycleByIssueIDs(ctx context.Context, issueIds
 	return items, nil
 }
 
+const getProjectEnvProviderByIssueID = `-- name: GetProjectEnvProviderByIssueID :one
+SELECT COALESCE(p.env_provider_id, 0) AS env_provider_id
+FROM issues i
+JOIN columns c ON i.column_id = c.id
+JOIN projects p ON c.project_id = p.id
+WHERE i.id = ?
+`
+
+// Returns the project's default env_provider_id for an issue (0 = none).
+// Used by workspace creation to inherit the project's provider binding.
+func (q *Queries) GetProjectEnvProviderByIssueID(ctx context.Context, id int64) (int64, error) {
+	row := q.db.QueryRowContext(ctx, getProjectEnvProviderByIssueID, id)
+	var env_provider_id int64
+	err := row.Scan(&env_provider_id)
+	return env_provider_id, err
+}
+
 const getProjectNameByIssueID = `-- name: GetProjectNameByIssueID :one
 SELECT p.name FROM projects p
 JOIN columns c ON c.project_id = p.id

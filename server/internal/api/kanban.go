@@ -67,7 +67,6 @@ type KanbanHandler struct {
 	svc           *service.KanbanService
 	checklistSvc  *service.IssueChecklistService
 	Authz         *service.Authz
-	ClaudeAccount *service.ClaudeAccountService // optional; nil = SuggestGoalCondition spawns with no CLAUDE_CONFIG_DIR
 	// Orchestrator auto-starts orchestration when an issue is created directly into
 	// an `instruct` column (spec §13 stage 8 / §3 "建 issue 即起编排"). Optional;
 	// nil-safe (creation just lands the card). Wired to *service.EpicExecutionService.
@@ -1082,13 +1081,6 @@ func (h *KanbanHandler) SuggestGoalCondition(c *gin.Context) {
 	// "<name> (id=<id>)" or "default ~/.claude" so logs and 502 bodies
 	// point at the exact account, not just the config_dir path.
 	configDir := ""
-	accountLabel := "default ~/.claude"
-	if h.ClaudeAccount != nil {
-		if acc := h.ClaudeAccount.ResolveAccountForUser(c.Request.Context(), userID); acc != nil {
-			configDir = acc.ConfigDir
-			accountLabel = fmt.Sprintf("%s (id=%d)", acc.Name, acc.ID)
-		}
-	}
 	suggestion, err := agentproxy.SuggestGoalCondition(
 		c.Request.Context(),
 		detail.Title,
@@ -1107,19 +1099,18 @@ func (h *KanbanHandler) SuggestGoalCondition(c *gin.Context) {
 		}
 		slog.Warn("SuggestGoalCondition failed",
 			"user_id", userID, "issue_id", issueID,
-			"claude_account", accountLabel, "error", err)
+			"error", err)
 		c.AbortWithStatusJSON(http.StatusBadGateway, gin.H{
 			"error": gin.H{
 				"code":           "SUGGEST_FAILED",
-				"message":        fmt.Sprintf("[account %s] %s", accountLabel, err.Error()),
-				"claude_account": accountLabel,
+				"message":        err.Error(),
 			},
 		})
 		return
 	}
 	slog.Info("SuggestGoalCondition ok",
 		"user_id", userID, "issue_id", issueID,
-		"claude_account", accountLabel, "len", len(suggestion))
+		"len", len(suggestion))
 	c.JSON(http.StatusOK, gin.H{
 		"data": SuggestGoalConditionResponse{Suggestion: suggestion},
 	})

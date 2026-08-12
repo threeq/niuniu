@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
-import { Plus, Trash2, Pencil, ChevronDown, ChevronRight, Package } from 'lucide-react'
+import { Plus, Trash2, Pencil, ChevronDown, ChevronRight, Package, KeyRound, Server } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import {
@@ -18,7 +18,10 @@ import { OwnerBadge } from '@/components/shared/owner-badge'
 import { OwnerPicker } from '@/components/shared/owner-picker'
 import { useAuthStore } from '@/stores/auth-store'
 import type { OwnerRef } from '@/types/org'
-import type { EnvPreset, CreateEnvPresetData } from '@/types/api'
+import type { EnvPreset, CreateEnvPresetData, EnvAccount, CreateEnvAccountData, EnvProvider, CreateEnvProviderData } from '@/types/api'
+
+const PROVIDER_CLI_TYPES = ['claude', 'codex', 'qwen', 'omp', 'goose'] as const
+type ProviderCliType = (typeof PROVIDER_CLI_TYPES)[number]
 
 function PresetCard({ preset, onEdit, onDelete }: { preset: EnvPreset; onEdit: (p: EnvPreset) => void; onDelete: (id: number) => void }) {
   const { t } = useTranslation('settings')
@@ -73,7 +76,135 @@ function PresetCard({ preset, onEdit, onDelete }: { preset: EnvPreset; onEdit: (
   )
 }
 
-export function EnvSettings() {
+// Mask a stored API key so it is never shown in full: keep the first 4 and
+// last 4 characters, collapse the middle to "…". Empty/short keys stay as-is.
+function maskKey(key: string): string {
+  if (!key) return ''
+  if (key.length <= 12) return '••••••'
+  return `${key.slice(0, 4)}…${key.slice(-4)}`
+}
+
+function AccountCard({ account, onEdit, onDelete }: { account: EnvAccount; onEdit: (a: EnvAccount) => void; onDelete: (id: number) => void }) {
+  const { t } = useTranslation('settings')
+  return (
+    <div className="border border-border rounded-lg p-4">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2 text-left flex-1 min-w-0">
+          <KeyRound className="h-4 w-4 text-info flex-shrink-0" />
+          <span className="font-medium text-sm text-foreground truncate">{account.name}</span>
+          {account.platform && (
+            <span className="text-xs text-muted-foreground truncate">{account.platform}</span>
+          )}
+          {account.description && (
+            <span className="text-xs text-muted-foreground truncate">{account.description}</span>
+          )}
+          <code className="text-xs text-muted-foreground font-mono">{maskKey(account.api_key)}</code>
+        </div>
+        <div className="flex items-center gap-1 flex-shrink-0 ml-2">
+          <button
+            onClick={() => onEdit(account)}
+            className="p-1 text-muted-foreground hover:text-info"
+          >
+            <Pencil className="h-3.5 w-3.5" />
+          </button>
+          <button
+            onClick={async () => {
+              if (!(await confirm(t('env.accountDeleteConfirm', { name: account.name })))) return
+              onDelete(account.id)
+            }}
+            className="p-1 text-muted-foreground hover:text-destructive"
+          >
+            <Trash2 className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function ProviderCard({ provider, onEdit, onDelete }: {
+  provider: EnvProvider
+  onEdit: (p: EnvProvider) => void
+  onDelete: (id: number) => void
+}) {
+  const { t } = useTranslation('settings')
+  const [showPreview, setShowPreview] = useState(false)
+  const [cliType, setCliType] = useState<ProviderCliType>('claude')
+  const { data: previewEnv = {} } = useQuery({
+    queryKey: ['provider-env', provider.id, cliType],
+    queryFn: () => api.getProviderEnv(provider.id, cliType),
+    enabled: showPreview,
+  })
+
+  const cliLabel = (c: string) => t(`env.providerCliType${c.charAt(0).toUpperCase()}${c.slice(1)}`)
+
+  return (
+    <div className="border border-border rounded-lg p-4">
+      <div className="flex items-center justify-between gap-2">
+        <button
+          onClick={() => setShowPreview((v) => !v)}
+          className="flex items-center gap-2 text-left flex-1 min-w-0"
+        >
+          <Server className="h-4 w-4 text-info flex-shrink-0" />
+          <span className="font-medium text-sm text-foreground truncate">{provider.name}</span>
+          {provider.platform && (
+            <span className="text-xs text-muted-foreground truncate">{provider.platform}</span>
+          )}
+          {Object.entries(provider.base_urls ?? {}).map(([proto, url]) => (
+            <span key={proto} className="text-xs text-muted-foreground font-mono truncate">{proto}: {url}</span>
+          ))}
+          {provider.model && (
+            <span className="text-xs text-muted-foreground truncate">model: {provider.model}</span>
+          )}
+        </button>
+        <div className="flex items-center gap-1 flex-shrink-0 ml-2">
+
+          <button onClick={() => onEdit(provider)} className="p-1 text-muted-foreground hover:text-info">
+            <Pencil className="h-3.5 w-3.5" />
+          </button>
+          <button
+            onClick={async () => {
+              if (!(await confirm(t('env.providerDeleteConfirm', { name: provider.name })))) return
+              onDelete(provider.id)
+            }}
+            className="p-1 text-muted-foreground hover:text-destructive"
+          >
+            <Trash2 className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      </div>
+
+      {showPreview && (
+        <div className="mt-3 ml-6">
+          <div className="flex items-center gap-2 mb-2">
+            <span className="text-xs text-muted-foreground">{t('env.providerCliTypeLabel')}</span>
+            <select
+              value={cliType}
+              onChange={(e) => setCliType(e.target.value as ProviderCliType)}
+              className="rounded border border-border bg-background px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-ring"
+            >
+              {PROVIDER_CLI_TYPES.map((c) => (
+                <option key={c} value={c}>{cliLabel(c)}</option>
+              ))}
+            </select>
+            <span className="text-xs text-muted-foreground">{t('env.providerPreviewLabel')}</span>
+          </div>
+          <div className="space-y-1">
+            {Object.entries(previewEnv).map(([k, v]) => (
+              <div key={k} className="flex items-center gap-2 text-xs font-mono">
+                <span className="text-success font-medium">{k}</span>
+                <span className="text-muted-foreground">=</span>
+                <span className="text-foreground break-all">{maskKey(v)}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+export function EnvSettings({ mode = 'all' }: { mode?: 'all' | 'presets' | 'providers' }) {
   const { t } = useTranslation('settings')
   const queryClient = useQueryClient()
   const currentUser = useAuthStore((s) => s.user)
@@ -111,6 +242,152 @@ export function EnvSettings() {
       queryClient.invalidateQueries({ queryKey: ['env-presets'] })
     },
   })
+
+  // --- Accounts ---
+  const { data: accounts = [], isLoading: accountsLoading } = useQuery({
+    queryKey: ['env-accounts'],
+    queryFn: () => api.listEnvAccounts(),
+  })
+
+  const [accountDialogOpen, setAccountDialogOpen] = useState(false)
+  const [editingAccount, setEditingAccount] = useState<EnvAccount | null>(null)
+  const [accountName, setAccountName] = useState('')
+  const [accountPlatform, setAccountPlatform] = useState('')
+  const [accountDesc, setAccountDesc] = useState('')
+  const [accountKey, setAccountKey] = useState('')
+  const [accountOwner, setAccountOwner] = useState<OwnerRef>({ type: 'user', id: currentUser?.id ?? 0 })
+
+  const createAccountMutation = useMutation({
+    mutationFn: (data: CreateEnvAccountData) => api.createEnvAccount(data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['env-accounts'] })
+      setAccountDialogOpen(false)
+    },
+  })
+
+  const updateAccountMutation = useMutation({
+    mutationFn: ({ id, data }: { id: number; data: CreateEnvAccountData }) => api.updateEnvAccount(id, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['env-accounts'] })
+      setAccountDialogOpen(false)
+    },
+  })
+
+  const deleteAccountMutation = useMutation({
+    mutationFn: (id: number) => api.deleteEnvAccount(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['env-accounts'] })
+    },
+  })
+
+  const openCreateAccountDialog = () => {
+    setEditingAccount(null)
+    setAccountName('')
+    setAccountPlatform('')
+    setAccountDesc('')
+    setAccountKey('')
+    setAccountOwner({ type: 'user', id: currentUser?.id ?? 0 })
+    setAccountDialogOpen(true)
+  }
+
+  const openEditAccountDialog = (account: EnvAccount) => {
+    setEditingAccount(account)
+    setAccountName(account.name)
+    setAccountPlatform(account.platform)
+    setAccountDesc(account.description)
+    setAccountKey(account.api_key)
+    setAccountDialogOpen(true)
+  }
+
+  const handleSaveAccount = () => {
+    const data: CreateEnvAccountData = {
+      name: accountName,
+      platform: accountPlatform,
+      description: accountDesc,
+      api_key: accountKey,
+      owner: editingAccount ? undefined : accountOwner,
+    }
+    if (editingAccount) {
+      updateAccountMutation.mutate({ id: editingAccount.id, data })
+    } else {
+      createAccountMutation.mutate(data)
+    }
+  }
+
+  const isSavingAccount = createAccountMutation.isPending || updateAccountMutation.isPending
+
+  // --- Providers ---
+  const { data: providers = [], isLoading: providersLoading } = useQuery({
+    queryKey: ['env-providers'],
+    queryFn: () => api.listEnvProviders(),
+  })
+
+  const [providerDialogOpen, setProviderDialogOpen] = useState(false)
+  const [editingProvider, setEditingProvider] = useState<EnvProvider | null>(null)
+  const [provName, setProvName] = useState('')
+  const [provPlatform, setProvPlatform] = useState('')
+  const [provDesc, setProvDesc] = useState('')
+  const [provBaseUrls, setProvBaseUrls] = useState<{ protocol: string; url: string }[]>([])
+  const [provApiKey, setProvApiKey] = useState('')
+  const [provModel, setProvModel] = useState('')
+  const [provHaiku, setProvHaiku] = useState('')
+  const [provSonnet, setProvSonnet] = useState('')
+  const [provOpus, setProvOpus] = useState('')
+  const [provSubagent, setProvSubagent] = useState('')
+  const [provExtra, setProvExtra] = useState<{ key: string; value: string }[]>([])
+  const [provOwner, setProvOwner] = useState<OwnerRef>({ type: 'user', id: currentUser?.id ?? 0 })
+
+  const createProviderMutation = useMutation({
+    mutationFn: (data: CreateEnvProviderData) => api.createEnvProvider(data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['env-providers'] })
+      setProviderDialogOpen(false)
+    },
+  })
+  const updateProviderMutation = useMutation({
+    mutationFn: ({ id, data }: { id: number; data: CreateEnvProviderData }) => api.updateEnvProvider(id, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['env-providers'] })
+      setProviderDialogOpen(false)
+    },
+  })
+  const deleteProviderMutation = useMutation({
+    mutationFn: (id: number) => api.deleteEnvProvider(id),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['env-providers'] }),
+  })
+
+  const openCreateProviderDialog = () => {
+    setEditingProvider(null)
+    setProvName(''); setProvPlatform(''); setProvDesc(''); setProvBaseUrls([]); setProvApiKey('')
+    setProvModel(''); setProvHaiku(''); setProvSonnet(''); setProvOpus(''); setProvSubagent('')
+    setProvExtra([])
+    setProvOwner({ type: 'user', id: currentUser?.id ?? 0 })
+    setProviderDialogOpen(true)
+  }
+  const openEditProviderDialog = (p: EnvProvider) => {
+    setEditingProvider(p)
+    setProvName(p.name); setProvPlatform(p.platform); setProvDesc(p.description); setProvBaseUrls(Object.entries(p.base_urls ?? {}).map(([protocol, url]) => ({ protocol, url }))); setProvApiKey(p.api_key)
+    setProvModel(p.model); setProvHaiku(p.haiku_model); setProvSonnet(p.sonnet_model); setProvOpus(p.opus_model); setProvSubagent(p.subagent_model)
+    setProvExtra(Object.entries(p.extra_env ?? {}).map(([key, value]) => ({ key, value })))
+    setProviderDialogOpen(true)
+  }
+  const handleSaveProvider = () => {
+    const extra: Record<string, string> = {}
+    for (const { key, value } of provExtra) {
+      if (key.trim()) extra[key.trim()] = value
+    }
+    const data: CreateEnvProviderData = {
+      name: provName, platform: provPlatform, description: provDesc,
+      base_urls: Object.fromEntries(provBaseUrls.filter((b) => b.protocol && b.url.trim()).map((b) => [b.protocol, b.url.trim()])),
+      api_key: provApiKey,
+      model: provModel, haiku_model: provHaiku, sonnet_model: provSonnet, opus_model: provOpus, subagent_model: provSubagent,
+      extra_env: extra,
+      owner: editingProvider ? undefined : provOwner,
+    }
+    if (editingProvider) updateProviderMutation.mutate({ id: editingProvider.id, data })
+    else createProviderMutation.mutate(data)
+  }
+  const isSavingProvider = createProviderMutation.isPending || updateProviderMutation.isPending
 
   const openCreateDialog = () => {
     setEditingPreset(null)
@@ -151,37 +428,108 @@ export function EnvSettings() {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <div className="min-w-0">
-          <p className="text-sm text-muted-foreground">
-            {t('env.description')}
-          </p>
-          <p className="mt-1 text-xs text-muted-foreground">
-            {t('env.oneShotHint')}
-          </p>
+      {/* Subscription platform providers (unified config → per-agent env) */}
+      <div className={mode === 'presets' ? 'hidden' : ''}>
+        <div className="flex items-center justify-between">
+          <div className="min-w-0">
+            <h3 className="text-sm font-medium text-foreground">{t('env.providersTitle')}</h3>
+            <p className="mt-1 text-xs text-muted-foreground">
+              {t('env.providersDescription')}
+            </p>
+          </div>
+          <Button size="sm" onClick={openCreateProviderDialog} className="flex-shrink-0">
+            <Plus className="h-3.5 w-3.5 mr-1" />
+            {t('env.newProvider')}
+          </Button>
         </div>
-        <Button size="sm" onClick={openCreateDialog} className="flex-shrink-0">
-          <Plus className="h-3.5 w-3.5 mr-1" />
-          {t('env.newPreset')}
-        </Button>
+
+        {providersLoading ? (
+          <p className="mt-3 text-sm text-muted-foreground">{t('common:actions.loading')}</p>
+        ) : providers.length === 0 ? (
+          <p className="mt-3 text-sm text-muted-foreground">{t('env.noProviders')}</p>
+        ) : (
+          <div className="mt-3 space-y-3">
+            {providers.map((p) => (
+              <ProviderCard
+                key={p.id}
+                provider={p}
+                onEdit={openEditProviderDialog}
+                onDelete={(id) => deleteProviderMutation.mutate(id)}
+                
+              />
+            ))}
+          </div>
+        )}
       </div>
 
-      {isLoading ? (
-        <p className="text-sm text-muted-foreground">{t('common:actions.loading')}</p>
-      ) : presets.length === 0 ? (
-        <p className="text-sm text-muted-foreground">{t('env.noPresets')}</p>
-      ) : (
-        <div className="space-y-3">
-          {presets.map((preset) => (
-            <PresetCard
-              key={preset.id}
-              preset={preset}
-              onEdit={openEditDialog}
-              onDelete={(id) => deleteMutation.mutate(id)}
-            />
-          ))}
+      {/* Subscription platform accounts */}
+      <div className={mode === 'presets' ? 'border-t border-border pt-4 hidden' : 'border-t border-border pt-4'}>
+        <div className="flex items-center justify-between">
+          <div className="min-w-0">
+            <h3 className="text-sm font-medium text-foreground">{t('env.accountsTitle')}</h3>
+            <p className="mt-1 text-xs text-muted-foreground">
+              {t('env.accountsDescription')}
+            </p>
+          </div>
+          <Button size="sm" onClick={openCreateAccountDialog} className="flex-shrink-0">
+            <Plus className="h-3.5 w-3.5 mr-1" />
+            {t('env.newAccount')}
+          </Button>
         </div>
-      )}
+
+        {accountsLoading ? (
+          <p className="mt-3 text-sm text-muted-foreground">{t('common:actions.loading')}</p>
+        ) : accounts.length === 0 ? (
+          <p className="mt-3 text-sm text-muted-foreground">{t('env.noAccounts')}</p>
+        ) : (
+          <div className="mt-3 space-y-3">
+            {accounts.map((account) => (
+              <AccountCard
+                key={account.id}
+                account={account}
+                onEdit={openEditAccountDialog}
+                onDelete={(id) => deleteAccountMutation.mutate(id)}
+              />
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Env presets — advanced/raw env (Provider is the primary path above) */}
+      <div className={mode === 'providers' ? 'border-t border-border pt-4 hidden' : 'border-t border-border pt-4'}>
+        <div className="flex items-center justify-between">
+          <div>
+            <h3 className="text-sm font-medium text-foreground">{t('env.presetsAdvancedTitle')}</h3>
+            <p className="mt-1 text-xs text-muted-foreground">
+              {t('env.presetsAdvancedHint')}
+            </p>
+          </div>
+          <Button size="sm" onClick={openCreateDialog} className="flex-shrink-0">
+            <Plus className="h-3.5 w-3.5 mr-1" />
+            {t('env.newPreset')}
+          </Button>
+        </div>
+        <p className="mt-1 text-xs text-muted-foreground">
+          {t('env.oneShotHint')}
+        </p>
+
+        {isLoading ? (
+          <p className="mt-3 text-sm text-muted-foreground">{t('common:actions.loading')}</p>
+        ) : presets.length === 0 ? (
+          <p className="mt-3 text-sm text-muted-foreground">{t('env.noPresets')}</p>
+        ) : (
+          <div className="mt-3 space-y-3">
+            {presets.map((preset) => (
+              <PresetCard
+                key={preset.id}
+                preset={preset}
+                onEdit={openEditDialog}
+                onDelete={(id) => deleteMutation.mutate(id)}
+              />
+            ))}
+          </div>
+        )}
+      </div>
 
       {/* Create/Edit Dialog */}
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
@@ -280,6 +628,228 @@ export function EnvSettings() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Account Create/Edit Dialog */}
+      <Dialog open={accountDialogOpen} onOpenChange={setAccountDialogOpen}>
+        <DialogContent className="max-w-lg max-h-[85vh]">
+          <DialogHeader>
+            <DialogTitle>{editingAccount ? t('env.account.editTitle') : t('env.account.createTitle')}</DialogTitle>
+            <DialogDescription>
+              {t('env.account.description')}
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4">
+            {!editingAccount && (
+              <OwnerPicker
+                value={accountOwner}
+                onChange={setAccountOwner}
+                userId={currentUser?.id ?? 0}
+                autoSelectDefault={true}
+              />
+            )}
+            <div>
+              <label className="block text-sm font-medium text-foreground mb-1">{t('env.account.nameLabel')}</label>
+              <Input
+                value={accountName}
+                onChange={(e) => setAccountName(e.target.value)}
+                placeholder={t('env.account.namePlaceholder')}
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-foreground mb-1">{t('env.account.platformLabel')}</label>
+              <Input
+                value={accountPlatform}
+                onChange={(e) => setAccountPlatform(e.target.value)}
+                placeholder={t('env.account.platformPlaceholder')}
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-foreground mb-1">{t('env.account.descLabel')}</label>
+              <Input
+                value={accountDesc}
+                onChange={(e) => setAccountDesc(e.target.value)}
+                placeholder={t('env.account.descPlaceholder')}
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-foreground mb-1">{t('env.account.apiKeyLabel')}</label>
+              <Input
+                value={accountKey}
+                onChange={(e) => setAccountKey(e.target.value)}
+                placeholder={t('env.account.apiKeyPlaceholder')}
+                type="password"
+                autoComplete="new-password"
+              />
+              <p className="mt-1 text-xs text-muted-foreground">{t('env.account.apiKeyHint')}</p>
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setAccountDialogOpen(false)}>{t('common:actions.cancel')}</Button>
+            <Button onClick={handleSaveAccount} disabled={isSavingAccount || !accountName.trim()}>
+              {isSavingAccount ? t('common:actions.saving') : t('common:actions.save')}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Provider Create/Edit Dialog */}
+      <Dialog open={providerDialogOpen} onOpenChange={setProviderDialogOpen}>
+        <DialogContent className="max-w-lg max-h-[90vh]">
+          <DialogHeader>
+            <DialogTitle>{editingProvider ? t('env.provider.editTitle') : t('env.provider.createTitle')}</DialogTitle>
+            <DialogDescription>{t('env.provider.description')}</DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4 overflow-y-auto pr-1">
+            {!editingProvider && (
+              <OwnerPicker
+                value={provOwner}
+                onChange={setProvOwner}
+                userId={currentUser?.id ?? 0}
+                autoSelectDefault={true}
+              />
+            )}
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-sm font-medium text-foreground mb-1">{t('env.provider.nameLabel')}</label>
+                <Input value={provName} onChange={(e) => setProvName(e.target.value)} placeholder={t('env.provider.namePlaceholder')} />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-foreground mb-1">{t('env.provider.platformLabel')}</label>
+                <Input value={provPlatform} onChange={(e) => setProvPlatform(e.target.value)} placeholder={t('env.provider.platformPlaceholder')} />
+              </div>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-foreground mb-1">{t('env.provider.descLabel')}</label>
+              <Input value={provDesc} onChange={(e) => setProvDesc(e.target.value)} placeholder={t('env.provider.descPlaceholder')} />
+            </div>
+            <div>
+              <div className="flex items-center justify-between mb-1">
+                <label className="block text-sm font-medium text-foreground">{t('env.provider.baseUrlsLabel')}</label>
+                <button
+                  onClick={() => setProvBaseUrls((prev) => [...prev, { protocol: prev.some((b) => b.protocol === 'anthropic') ? 'openai' : 'anthropic', url: '' }])}
+                  className="flex items-center gap-0.5 text-xs text-info hover:text-info/80"
+                >
+                  <Plus className="h-3 w-3" />
+                  {t('common:actions.add')}
+                </button>
+              </div>
+              <p className="text-xs text-muted-foreground mb-1.5">{t('env.provider.baseUrlsHint')}</p>
+              {provBaseUrls.length === 0 ? (
+                <p className="text-xs text-muted-foreground italic">{t('env.provider.baseUrlsEmpty')}</p>
+              ) : (
+                <div className="space-y-1.5">
+                  {provBaseUrls.map((b, i) => (
+                    <div key={i} className="flex items-center gap-1.5">
+                      <select
+                        value={b.protocol}
+                        onChange={(e) => setProvBaseUrls((prev) => prev.map((x, idx) => (idx === i ? { ...x, protocol: e.target.value } : x)))}
+                        className="rounded border border-border bg-background px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-ring"
+                      >
+                        <option value="anthropic">{t('env.provider.protocolAnthropic')}</option>
+                        <option value="openai">{t('env.provider.protocolOpenai')}</option>
+                      </select>
+                      <input
+                        type="text"
+                        value={b.url}
+                        onChange={(e) => setProvBaseUrls((prev) => prev.map((x, idx) => (idx === i ? { ...x, url: e.target.value } : x)))}
+                        placeholder={t('env.provider.baseUrlPlaceholder')}
+                        className="flex-1 min-w-0 rounded border border-border px-2 py-1 text-xs font-mono focus:outline-none focus:ring-1 focus:ring-ring"
+                      />
+                      <button onClick={() => setProvBaseUrls((prev) => prev.filter((_, idx) => idx !== i))} className="p-1 text-muted-foreground hover:text-destructive">
+                        <Trash2 className="h-3 w-3" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-foreground mb-1">{t('env.provider.apiKeyLabel')}</label>
+              <select
+                value={accounts.some((a) => provApiKey === `\${ACCOUNT:${a.name}}`) ? accounts.find((a) => provApiKey === `\${ACCOUNT:${a.name}}`)!.name : ''}
+                onChange={(e) => setProvApiKey(e.target.value ? `\${ACCOUNT:${e.target.value}}` : '')}
+                className="w-full rounded border border-border bg-background px-2 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
+              >
+                <option value="">{t('env.provider.apiKeyAccountNone')}</option>
+                {accounts.map((a) => (
+                  <option key={a.id} value={a.name}>{a.name}</option>
+                ))}
+              </select>
+              <p className="mt-1 text-xs text-muted-foreground">{t('env.provider.apiKeyHint')}</p>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-sm font-medium text-foreground mb-1">{t('env.provider.modelLabel')}</label>
+                <Input value={provModel} onChange={(e) => setProvModel(e.target.value)} />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-foreground mb-1">{t('env.provider.haikuModelLabel')}</label>
+                <Input value={provHaiku} onChange={(e) => setProvHaiku(e.target.value)} />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-foreground mb-1">{t('env.provider.sonnetModelLabel')}</label>
+                <Input value={provSonnet} onChange={(e) => setProvSonnet(e.target.value)} />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-foreground mb-1">{t('env.provider.opusModelLabel')}</label>
+                <Input value={provOpus} onChange={(e) => setProvOpus(e.target.value)} />
+              </div>
+              <div className="col-span-2">
+                <label className="block text-sm font-medium text-foreground mb-1">{t('env.provider.subagentModelLabel')}</label>
+                <Input value={provSubagent} onChange={(e) => setProvSubagent(e.target.value)} />
+              </div>
+            </div>
+            <div>
+              <div className="flex items-center justify-between mb-1">
+                <label className="block text-sm font-medium text-foreground">{t('env.provider.extraEnvLabel')}</label>
+                <button onClick={() => setProvExtra((prev) => [...prev, { key: '', value: '' }])} className="flex items-center gap-0.5 text-xs text-info hover:text-info/80">
+                  <Plus className="h-3 w-3" />
+                  {t('common:actions.add')}
+                </button>
+              </div>
+              {provExtra.length === 0 ? (
+                <p className="text-xs text-muted-foreground italic">{t('env.provider.extraEnvHint')}</p>
+              ) : (
+                <div className="space-y-1.5">
+                  {provExtra.map((item, index) => (
+                    <div key={index} className="flex items-center gap-1.5">
+                      <input
+                        type="text"
+                        value={item.key}
+                        onChange={(e) => setProvExtra((prev) => prev.map((v, i) => (i === index ? { ...v, key: e.target.value } : v)))}
+                        placeholder="KEY"
+                        className="flex-1 min-w-0 rounded border border-border px-2 py-1 text-xs font-mono focus:outline-none focus:ring-1 focus:ring-ring"
+                      />
+                      <span className="text-muted-foreground text-xs">=</span>
+                      <input
+                        type="text"
+                        value={item.value}
+                        onChange={(e) => setProvExtra((prev) => prev.map((v, i) => (i === index ? { ...v, value: e.target.value } : v)))}
+                        placeholder="value"
+                        className="flex-1 min-w-0 rounded border border-border px-2 py-1 text-xs font-mono focus:outline-none focus:ring-1 focus:ring-ring"
+                      />
+                      <button onClick={() => setProvExtra((prev) => prev.filter((_, i) => i !== index))} className="p-1 text-muted-foreground hover:text-destructive">
+                        <Trash2 className="h-3 w-3" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setProviderDialogOpen(false)}>{t('common:actions.cancel')}</Button>
+            <Button onClick={handleSaveProvider} disabled={isSavingProvider || !provName.trim()}>
+              {isSavingProvider ? t('common:actions.saving') : t('common:actions.save')}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
     </div>
   )
 }

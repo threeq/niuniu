@@ -4,6 +4,17 @@ SELECT * FROM workspaces WHERE is_temporary = 0 AND is_archived = 0 ORDER BY cre
 -- name: GetWorkspace :one
 SELECT * FROM workspaces WHERE id = ?;
 
+-- name: GetWorkspaceCliType :one
+SELECT cli_type FROM workspaces WHERE id = ?;
+
+-- name: GetWorkspaceEnvProviderID :one
+-- 0 means no direct provider binding (NULL COALESCE'd); callers fall back to
+-- scene-declared providers/presets.
+SELECT COALESCE(env_provider_id, 0) AS env_provider_id FROM workspaces WHERE id = ?;
+
+-- name: SetWorkspaceEnvProvider :exec
+UPDATE workspaces SET env_provider_id = ? WHERE id = ?;
+
 -- name: GetWorkspacesByIssue :many
 SELECT * FROM workspaces WHERE issue_id = ? ORDER BY is_archived ASC, created_at DESC;
 
@@ -168,4 +179,12 @@ WHERE id = ?;
 UPDATE workspaces
 SET strict_mcp_config = ?,
     updated_at = CURRENT_TIMESTAMP
+WHERE id = ?;
+
+-- name: SetWorkspaceCodexSandbox :exec
+UPDATE workspaces SET codex_sandbox_mode = ?, codex_approval_policy = ? WHERE id = ?;
+
+-- name: GetWorkspaceCodexConfig :one
+SELECT cli_type, codex_sandbox_mode, codex_approval_policy
+FROM workspaces
 WHERE id = ?;

@@ -1,8 +1,7 @@
-import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
+import { describe, expect, it, vi, afterEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { ChatInput } from './chat-input';
-import * as claudeAccountApi from '@/lib/claude-account-api';
 import type { Workspace } from '@/types/api';
 
 function withQuery(ui: React.ReactNode) {
@@ -18,10 +17,6 @@ const baseWorkspace = {
 } as unknown as Workspace;
 
 describe('ChatInput IME composition guard', () => {
-  beforeEach(() => {
-    vi.spyOn(claudeAccountApi, 'listClaudeAccounts').mockResolvedValue([]);
-  });
-
   afterEach(() => vi.restoreAllMocks());
 
   it('does not send on Ctrl+Enter while IME composition is active', () => {

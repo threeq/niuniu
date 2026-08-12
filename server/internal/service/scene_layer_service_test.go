@@ -22,7 +22,7 @@ import (
 // mcpGen instance. CLAUDE.md splicing and asset imports still run.
 func makeTestProjector(t *testing.T, db *sql.DB, dataDir string) *SceneProjector {
 	t.Helper()
-	return NewSceneProjector(db, dataDir, nil, nil, nil, nil, nil)
+	return NewSceneProjector(db, dataDir, nil, nil, nil, nil)
 }
 
 func createTestWorkspace(t *testing.T, db *sql.DB, dataDir string) store.Workspace {

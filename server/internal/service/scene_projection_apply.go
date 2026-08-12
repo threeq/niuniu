@@ -37,7 +37,6 @@ type SceneProjector struct {
 	dataDir       string
 	mcpGen        *MCPConfigGenerator
 	pluginInst    *PluginInstaller
-	claudeAccount *ClaudeAccountService // optional, resolves bound-account config dir
 	notifyHub     *notify.NotificationHub
 	extCred       *ExternalCredentialService // optional, decrypts ${cred:...} placeholders
 	localRunner   *LocalRunnerService        // optional, Epic #526 子B — prompt fragment injection
@@ -50,13 +49,12 @@ func (p *SceneProjector) SetLocalRunner(s *LocalRunnerService) { p.localRunner =
 
 // NewSceneProjector wires the dependencies. mcpGen and pluginInst may be nil
 // in test scenarios — Apply degrades gracefully (skips the matching step
-// rather than failing). claudeAccount is optional for the same reason.
+// rather than failing).
 func NewSceneProjector(
 	db *sql.DB,
 	dataDir string,
 	mcpGen *MCPConfigGenerator,
 	pluginInst *PluginInstaller,
-	claudeAccount *ClaudeAccountService,
 	notifyHub *notify.NotificationHub,
 	extCred *ExternalCredentialService,
 ) *SceneProjector {
@@ -67,7 +65,6 @@ func NewSceneProjector(
 		dataDir:       dataDir,
 		mcpGen:        mcpGen,
 		pluginInst:    pluginInst,
-		claudeAccount: claudeAccount,
 		notifyHub:     notifyHub,
 		extCred:       extCred,
 	}
@@ -545,20 +542,11 @@ func countByStatus(rs []PluginInstallResult, s PluginInstallStatus) int {
 // projection query.
 const SceneProjectionTopic = "scene_projection_updated"
 
+// resolveConfigDir returns the Claude config dir for a workspace's projection.
+// Multi-account switching removed: always the host's global ~/.claude/ ("").
 func (p *SceneProjector) resolveConfigDir(ws store.Workspace) string {
-	if p.claudeAccount == nil {
-		return ""
-	}
-	if !ws.ClaudeAccountID.Valid || ws.ClaudeAccountID.Int64 == 0 {
-		return ""
-	}
-	// GetByID is available on ClaudeAccountService — use it directly because
-	// ResolveConfigDirForUser is keyed by user, not account.
-	acc, err := p.claudeAccount.GetByID(context.Background(), ws.ClaudeAccountID.Int64)
-	if err != nil {
-		return ""
-	}
-	return acc.ConfigDir
+	_ = ws
+	return ""
 }
 
 func (p *SceneProjector) writeScenePromptFiles(wsDir, cliType string, proj *Projection) error {

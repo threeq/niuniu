@@ -364,18 +364,9 @@ func (s *MemoryService) buildExtractEnv(ctx context.Context, workspaceID, userID
 		slog.Warn("memory: list workspace env for extraction failed", "workspaceID", workspaceID, "error", err)
 	}
 
-	var accountConfigDir string
-	if s.claudeAccount != nil {
-		// ResolveForWorkspace degrades internally (returns an empty ConfigDir
-		// rather than erroring for the no-bound-account case), so a hard error
-		// here means a catastrophic DB issue — log and fall back to inherited env.
-		if acc, err := s.claudeAccount.ResolveForWorkspace(ctx, workspaceID, userID); err != nil {
-			slog.Warn("memory: resolve claude account for extraction failed; using inherited env",
-				"workspaceID", workspaceID, "error", err)
-		} else if acc != nil {
-			accountConfigDir = acc.ConfigDir
-		}
-	}
+	// Multi-account switching removed: extraction uses the host ~/.claude/.
+	const accountConfigDir = ""
+
 
 	// InjectEnv honors a CLAUDE_CONFIG_DIR already present in the host env or
 	// workspace preset (it only adds the account dir when absent) and applies

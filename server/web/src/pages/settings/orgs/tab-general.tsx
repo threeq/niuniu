@@ -1,16 +1,10 @@
 import { useState, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
-import { useQuery } from '@tanstack/react-query'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { api } from '@/lib/api'
 import { useOrgStore } from '@/stores/org-store'
-import {
-  listClaudeAccounts,
-  getActiveClaudeAccount,
-  setActiveClaudeAccount,
-} from '@/lib/claude-account-api'
 import type { Org } from '@/types/org'
 
 interface TabGeneralProps {
@@ -29,38 +23,6 @@ export function TabGeneral({ org, role }: TabGeneralProps) {
   const [slug, setSlug] = useState(org.slug)
   const [description, setDescription] = useState(org.description ?? '')
   const [saving, setSaving] = useState(false)
-
-  // Claude active account for this org
-  const { data: claudeAccounts = [] } = useQuery({
-    queryKey: ['claude-accounts'],
-    queryFn: listClaudeAccounts,
-    enabled: canEdit,
-  })
-  const { data: orgActiveResp, refetch: refetchOrgActive } = useQuery({
-    queryKey: ['claude-active-account', 'org', org.id],
-    queryFn: () => getActiveClaudeAccount('org', org.id),
-    enabled: canEdit,
-  })
-  const orgActiveAccountId = orgActiveResp?.account?.id ?? null
-
-  const activeClaudeAccounts = claudeAccounts.filter(
-    (a) => a.config_dir !== '' && a.status === 'active'
-  )
-  const orgActiveInList = claudeAccounts.find((a) => a.id === orgActiveAccountId)
-  const orgActiveIsInvisible = orgActiveAccountId !== null && !orgActiveInList
-
-  async function handleOrgActiveChange(accountId: number | null) {
-    try {
-      await setActiveClaudeAccount({
-        owner_type: 'org',
-        owner_id: org.id,
-        account_id: accountId,
-      })
-      refetchOrgActive()
-    } catch {
-      // apiFetch shows toast
-    }
-  }
 
   // Reset form if org changes
   useEffect(() => {
@@ -138,32 +100,6 @@ export function TabGeneral({ org, role }: TabGeneralProps) {
           </div>
         </div>
       </div>
-
-      {/* Org active Claude account */}
-      {canEdit && (
-        <div className="border-t border-border pt-4">
-          <label className="text-sm font-medium text-foreground">
-            {t('detail.general.claudeActiveAccount')}
-          </label>
-          <select
-            value={orgActiveAccountId ?? ''}
-            onChange={(e) => handleOrgActiveChange(e.target.value === '' ? null : Number(e.target.value))}
-            className="mt-1 w-full h-9 rounded border border-border bg-background px-3 text-sm focus:outline-none focus:ring-1 focus:ring-info"
-          >
-            <option value="">{t('claude-accounts:active.followDefault')}</option>
-            {orgActiveIsInvisible && (
-              <option value={String(orgActiveAccountId)} disabled>
-                {t('claude-accounts:picker.privateNotVisible')}
-              </option>
-            )}
-            {activeClaudeAccounts.map((a) => (
-              <option key={a.id} value={String(a.id)}>
-                {a.name} {a.email ? `(${a.email})` : ''}
-              </option>
-            ))}
-          </select>
-        </div>
-      )}
 
       {canEdit && (
         <Button onClick={handleSave} disabled={!name.trim() || saving} size="sm">

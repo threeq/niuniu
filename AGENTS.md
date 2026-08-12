@@ -151,7 +151,7 @@ Dual-driver (SQLite default / PostgreSQL) behind a query-rewriting wrapper.
   overlay. Plugin install is explicit user-click only.
 - **Autohost**: unattended watchdog that keeps an agent working until a goal
   condition is met; completion signaled by the `[AUTOHOST_DONE]` sentinel.
-- **Multi-account Claude / Codex**: per-owner CLI creds; PTY-driven login switches.
+- **Single-account Claude / Codex**: the host's `~/.claude` / `~/.codex` login is used as-is (no per-workspace account switching). Subscription-platform API keys are managed via env Providers/Accounts (Settings → Environment Variables) and bound per-workspace.
 
 ## Personal edition specifics
 

@@ -1,16 +1,13 @@
 import { useEffect, useRef, useState } from 'react'
-import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { useQuery } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { api } from '@/lib/api'
 import { MINIMUM_TOOLS } from '@/lib/system-deps-gate'
 import { openClaudeLoginTerminal, openCodexLoginTerminal, openExternalSmart } from '@/lib/shell'
-import { issueClaudeLoginToken, listClaudeAccounts } from '@/lib/claude-account-api'
-import { getCodexDefaultStatus, listCodexAccounts } from '@/lib/codex-account-api'
-import type { ClaudeAccount, CodexAccount, CodexDefaultStatus, SystemDepsInfo, ToolStatus } from '@/types/api'
+import type { SystemDepsInfo, ToolStatus } from '@/types/api'
 import { GitIdentityPanel } from '@/components/system-deps/GitIdentityPanel'
-import { ClaudeLoginDialog } from '@/components/dialogs/ClaudeLoginDialog'
 
 // downloadUrl for tesseract points at the in-house OCR install guide (#284);
 // keep it in sync with ocrGuideURL in internal/service/system_deps.go and
@@ -63,93 +60,18 @@ function commandFor(tool: string, info: SystemDepsInfo): string {
   }
 }
 
-type AccountSummary = {
-  id?: number
-  name: string
-  email?: string
-  status: 'pending' | 'active' | 'failed'
-  configDir?: string
-  lastUsedAt?: number
-  isDefault?: boolean
-}
-
-function pickClaudeAccount(accounts: ClaudeAccount[]): AccountSummary | undefined {
-  const account =
-    accounts.find((a) => a.config_dir === '' && a.status === 'active') ??
-    accounts.find((a) => a.config_dir === '') ??
-    accounts.find((a) => a.status === 'active') ??
-    accounts[0]
-  if (!account) return undefined
-  return {
-    id: account.id,
-    name: account.name,
-    email: account.email,
-    status: account.status,
-    configDir: account.config_dir,
-    lastUsedAt: account.last_used_at,
-    isDefault: account.config_dir === '',
-  }
-}
-
-function codexDefaultSummary(status: CodexDefaultStatus | undefined): AccountSummary | undefined {
-  if (!status) return undefined
-  return {
-    name: 'Codex',
-    email: status.email,
-    status: status.status,
-    configDir: status.config_dir,
-    isDefault: true,
-  }
-}
-
-function pickCodexAccount(accounts: CodexAccount[]): AccountSummary | undefined {
-  const account = accounts.find((a) => a.status === 'active') ?? accounts[0]
-  if (!account) return undefined
-  return {
-    id: account.id,
-    name: account.name,
-    email: account.email,
-    status: account.status,
-    configDir: account.config_dir,
-    lastUsedAt: account.last_used_at,
-  }
-}
-
 export function SystemDepsSettings() {
   const { t } = useTranslation('settings')
-  const qc = useQueryClient()
   const probe = useQuery({
     queryKey: ['system-deps'],
     queryFn: () => api.getSystemDeps(),
     refetchOnWindowFocus: false,
   })
-  const claudeAccounts = useQuery({
-    queryKey: ['claude-accounts'],
-    queryFn: listClaudeAccounts,
-    enabled: !!probe.data,
-  })
-  const codexAccounts = useQuery({
-    queryKey: ['codex-accounts'],
-    queryFn: listCodexAccounts,
-    enabled: !!probe.data,
-  })
-  const codexDefault = useQuery({
-    queryKey: ['codex-accounts', 'default-status'],
-    queryFn: getCodexDefaultStatus,
-    enabled: !!probe.data?.personal_mode,
-    refetchOnWindowFocus: true,
-  })
-
   const [installing, setInstalling] = useState<string | null>(null) // tool name
   const [loginPending, setLoginPending] = useState<boolean>(false)
   const loginTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [logs, setLogs] = useState<string[]>([])
   const [logTitle, setLogTitle] = useState<string>('')
-  const [claudeLoginDialog, setClaudeLoginDialog] = useState<{
-    accountId: number
-    wsToken: string
-    accountName: string
-  } | null>(null)
   const esRef = useRef<EventSource | null>(null)
   const finishedRef = useRef<boolean>(false)
   const logBoxRef = useRef<HTMLDivElement | null>(null)
@@ -282,32 +204,11 @@ export function SystemDepsSettings() {
   }
 
   function handleClaudeLogin() {
-    void (async () => {
-      if (loginPending) return
-      setLoginPending(true)
-      const account = pickClaudeAccount(claudeAccounts.data ?? [])
-      if (account?.id) {
-        try {
-          const { ws_token } = await issueClaudeLoginToken(account.id)
-          setClaudeLoginDialog({
-            accountId: account.id,
-            wsToken: ws_token,
-            accountName: account.name,
-          })
-          setLoginPending(false)
-          return
-        } catch {
-          // Fall through to the host terminal path. That keeps login available
-          // even if the managed PTY endpoint is not usable in this deployment.
-        }
-      }
-      setLoginPending(false)
-      await runLogin(
-        openClaudeLoginTerminal,
-        'systemDeps.tool.claudeLoginNotSupported',
-        'systemDeps.tool.claudeLoginFailed',
-      )
-    })()
+    void runLogin(
+      openClaudeLoginTerminal,
+      'systemDeps.tool.claudeLoginNotSupported',
+      'systemDeps.tool.claudeLoginFailed',
+    )
   }
 
   function handleCodexLogin() {
@@ -332,11 +233,6 @@ export function SystemDepsSettings() {
   const missingRequired = MINIMUM_TOOLS.filter(
     (name) => !info.tools.find((tool) => tool.name === name)?.found,
   )
-  const accountSummaries: Partial<Record<string, AccountSummary>> = {
-    claude: pickClaudeAccount(claudeAccounts.data ?? []),
-    codex: codexDefaultSummary(codexDefault.data) ?? pickCodexAccount(codexAccounts.data ?? []),
-  }
-
   return (
     <div className="p-6 max-w-3xl space-y-4">
       <div>
@@ -377,7 +273,6 @@ export function SystemDepsSettings() {
             onClaudeLogin={handleClaudeLogin}
             onCodexLogin={handleCodexLogin}
             nodeFound={info.tools.find((t) => t.name === 'node')?.found ?? false}
-            account={accountSummaries[tool.name]}
           />
         ))}
       </div>
@@ -401,18 +296,6 @@ export function SystemDepsSettings() {
         </div>
       )}
 
-      {claudeLoginDialog && (
-        <ClaudeLoginDialog
-          accountId={claudeLoginDialog.accountId}
-          wsToken={claudeLoginDialog.wsToken}
-          accountName={claudeLoginDialog.accountName}
-          onClose={() => {
-            setClaudeLoginDialog(null)
-            void qc.invalidateQueries({ queryKey: ['claude-accounts'] })
-            void probe.refetch()
-          }}
-        />
-      )}
     </div>
   )
 }
@@ -428,10 +311,9 @@ export function ToolCard(props: {
   onClaudeLogin: () => void
   onCodexLogin?: () => void
   nodeFound: boolean
-  account?: AccountSummary
 }) {
   const { t } = useTranslation('settings')
-  const { tool, info, installing, loginPending, isRefreshing, onInstall, onRefresh, onClaudeLogin, onCodexLogin, nodeFound, account } = props
+  const { tool, info, installing, loginPending, isRefreshing, onInstall, onRefresh, onClaudeLogin, onCodexLogin, nodeFound } = props
   const meta = toolLabels[tool.name]
   const cmd = commandFor(tool.name, info)
   const isInstalling = installing === tool.name
@@ -531,50 +413,6 @@ export function ToolCard(props: {
       </div>
       {tool.found && tool.path && (
         <div className="mt-1 ml-4 text-xs text-muted-foreground font-mono truncate">{tool.path}</div>
-      )}
-      {tool.found && (tool.name === 'claude' || tool.name === 'codex') && (
-        <div className="mt-2 ml-4 rounded-md border border-warm-border bg-warm-muted px-3 py-2 text-xs">
-          {account ? (
-            <div className="flex flex-col gap-1">
-              <div className="flex items-center gap-2">
-                <span className="font-medium text-warm-text">{account.name}</span>
-                {account.isDefault && (
-                  <span className="rounded bg-info/15 px-1.5 py-0.5 text-[10px] font-medium text-info">
-                    {t('systemDeps.account.default')}
-                  </span>
-                )}
-                <span
-                  className={`rounded px-1.5 py-0.5 text-[10px] font-medium ${
-                    account.status === 'active'
-                      ? 'bg-success/15 text-success'
-                      : account.status === 'failed'
-                        ? 'bg-destructive/15 text-destructive'
-                        : 'bg-warning/15 text-warning'
-                  }`}
-                >
-                  {t(`systemDeps.account.status.${account.status}`)}
-                </span>
-              </div>
-              <div className="text-warm-text-muted">
-                {account.email
-                  ? t('systemDeps.account.signedInAs', { email: account.email })
-                  : t('systemDeps.account.noEmail')}
-              </div>
-              {account.lastUsedAt && (
-                <div className="text-warm-text-muted">
-                  {t('systemDeps.account.lastUsed', {
-                    time: new Date(account.lastUsedAt * 1000).toLocaleDateString(),
-                  })}
-                </div>
-              )}
-              {account.configDir && (
-                <div className="truncate font-mono text-warm-text-muted">{account.configDir}</div>
-              )}
-            </div>
-          ) : (
-            <div className="text-warm-text-muted">{t('systemDeps.account.notSignedIn')}</div>
-          )}
-        </div>
       )}
       {!tool.found && tool.installable && cmd && (
         <div className="mt-1 ml-4 text-xs text-muted-foreground font-mono">{t('systemDeps.tool.willRun', { cmd })}</div>

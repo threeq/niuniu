@@ -18,6 +18,7 @@ export interface Project extends BaseEntity {
   status: 'active' | 'hidden';
   color?: string | null;            // palette key like 'emerald'，null/缺失为未设
   default_cli_type?: 'claude' | 'codex' | 'qwen' | 'omp' | 'goose';  // 项目默认 agent，新建工作区时预选
+  env_provider_id?: number | null;  // 默认 Provider，工作空间继承
   issue_stats?: { column_name: string; count: number }[];
   ws_stats?: { status: string; count: number }[];
   owner?: import('./org').OwnerRef;
@@ -365,6 +366,8 @@ export interface Workspace {
    * cost / account UI elements.
    */
   cli_type: 'claude' | 'codex' | 'qwen' | 'omp' | 'goose';
+  /** Directly-bound subscription-platform provider (issue #653). null = none. */
+  env_provider_id?: number | null;
   /** Codex managed account binding (M2.5). null = use global ~/.codex/. */
   codex_account_id?: number | null;
   /** Codex sandbox mode (M2.5). Defaults to 'danger-full-access'. */
@@ -1037,6 +1040,58 @@ export interface CreateEnvPresetData {
   owner?: { type: string; id: number }
 }
 
+export interface EnvAccount {
+  id: number
+  name: string
+  platform: string
+  description: string
+  api_key: string
+  owner?: { type: string; id: number; name?: string; slug?: string }
+  created_at: string
+  updated_at: string
+}
+
+export interface CreateEnvAccountData {
+  name: string
+  platform?: string
+  description?: string
+  api_key?: string
+  owner?: { type: string; id: number }
+}
+
+export interface EnvProvider {
+  id: number
+  name: string
+  platform: string
+  description: string
+  base_urls: Record<string, string>
+  api_key: string
+  model: string
+  haiku_model: string
+  sonnet_model: string
+  opus_model: string
+  subagent_model: string
+  extra_env: Record<string, string>
+  owner?: { type: string; id: number; name?: string; slug?: string }
+  created_at: string
+  updated_at: string
+}
+
+export interface CreateEnvProviderData {
+  name: string
+  platform?: string
+  description?: string
+  base_urls?: Record<string, string>
+  api_key?: string
+  model?: string
+  haiku_model?: string
+  sonnet_model?: string
+  opus_model?: string
+  subagent_model?: string
+  extra_env?: Record<string, string>
+  owner?: { type: string; id: number }
+}
+
 // Workspace delete change check
 export interface WorktreeChangeStatus {
   worktree_path: string;
@@ -1322,62 +1377,6 @@ export interface AddMemberRequest {
   role: string;
 }
 
-// Claude multi-account types
-export type ClaudeAccountStatus = 'pending' | 'active' | 'failed'
-export type ClaudeAccountVisibility = 'public' | 'private'
-
-export interface ClaudeAccount {
-  id: number
-  name: string
-  email?: string
-  config_dir: string  // empty string = default row (~/.claude/)
-  visibility: ClaudeAccountVisibility
-  status: ClaudeAccountStatus
-  created_at: number
-  last_used_at?: number
-  created_by?: number
-}
-
-export interface ClaudeAccountCreateResp extends ClaudeAccount {
-  ws_token: string
-}
-
-// Codex multi-account types (M2.5). Mirrors claude types; no default-row
-// concept (config_dir is always a per-account path; "no binding" = nil
-// codex_account_id on the workspace).
-export type CodexAccountStatus = 'pending' | 'active' | 'failed'
-export type CodexAccountVisibility = 'public' | 'private'
-
-export interface CodexAccount {
-  id: number
-  name: string
-  email?: string
-  config_dir: string
-  visibility: CodexAccountVisibility
-  status: CodexAccountStatus
-  created_at: number
-  last_used_at?: number
-  created_by?: number
-}
-
-export interface CodexAccountCreateResp extends CodexAccount {
-  ws_token: string
-}
-
-// State of the host's native ~/.codex/. Drives the synthetic "system default"
-// row on the Codex accounts page so it reflects whether `codex login` has
-// already been completed on the host shell. Personal mode only — the row
-// itself is not rendered in hosted/team mode.
-export interface CodexDefaultStatus {
-  email: string
-  status: 'active' | 'pending'
-  config_dir: string
-}
-
-export interface ClaudeActiveAccountResp {
-  account: ClaudeAccount | null
-}
-
 // ---------------------------------------------------------------------------
 // Scene-based MCP/plugin management (M1).
 // Spec: docs/superpowers/specs/2026-05-17-scene-based-mcp-plugin-management-design.md
@@ -1457,8 +1456,15 @@ export interface SceneAgentRefAsset {
   name: string;
 }
 
+/** A reference to a subscription-platform provider (env_providers), by name. The
+ *  provider expands to the workspace agent's env vars per its cli_type at spawn. */
+export interface SceneProviderAsset {
+  name: string;
+}
+
 export interface SceneAssets {
   env_presets?: SceneEnvPresetAsset[];
+  providers?: SceneProviderAsset[];
   project_templates?: SceneSlugPayloadAsset[];
   quick_actions?: SceneQuickActionAsset[];
   harness_specs?: SceneSlugPayloadAsset[];

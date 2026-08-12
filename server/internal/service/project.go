@@ -194,6 +194,30 @@ func (s *ProjectService) UpdateDefaultCliType(ctx context.Context, id int64, cli
 	return project, nil
 }
 
+// UpdateEnvProvider binds (or unbinds, when providerID=0) a subscription-platform
+// provider as the project default. New workspaces created from issues under this
+// project inherit it.
+func (s *ProjectService) UpdateEnvProvider(ctx context.Context, id, providerID int64) (store.Project, error) {
+	var v sql.NullInt64
+	if providerID > 0 {
+		v = sql.NullInt64{Int64: providerID, Valid: true}
+	}
+	if err := s.q.SetProjectEnvProvider(ctx, store.SetProjectEnvProviderParams{
+		EnvProviderID: v,
+		ID:            id,
+	}); err != nil {
+		return store.Project{}, err
+	}
+	project, err := s.q.GetProject(ctx, id)
+	if err != nil {
+		return project, err
+	}
+	if s.notifyHub != nil {
+		s.notifyHub.Broadcast(notify.Notification{Topic: notify.TopicProject, Action: "updated", ID: id})
+	}
+	return project, nil
+}
+
 func (s *ProjectService) Update(ctx context.Context, id int64, name, description string) (store.Project, error) {
 	project, err := s.q.UpdateProject(ctx, store.UpdateProjectParams{
 		ID:          id,

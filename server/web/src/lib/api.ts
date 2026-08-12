@@ -29,6 +29,10 @@ import type {
   TimelineEntry,
   EnvPreset,
   CreateEnvPresetData,
+  EnvAccount,
+  CreateEnvAccountData,
+  EnvProvider,
+  CreateEnvProviderData,
   GitLogEntry,
   CommitDetail,
   SystemDepsInfo,
@@ -47,7 +51,6 @@ import type {
   WorkspaceOverview,
   BatchDeleteWorkspacesResult,
   ServerSetting,
-  KnownMCP,
   MCPDetectResult,
   WorkspaceMCPState,
   EpicProgress,
@@ -73,7 +76,6 @@ import type {
   AskUserRequest,
   AskUserDecideBody,
 } from '../types/ask-user'
-import type { AccountUsage } from '@/types/claude-usage'
 // Type-only (erased at runtime, so no cycle with use-file-diff -> api): reuse the
 // git.FileDiff shape for the checkpoint diff response.
 import type { GitFileDiff } from './hooks/use-file-diff'
@@ -546,6 +548,35 @@ export const api = {
   deleteEnvPreset: (id: number): Promise<void> =>
     api.delete(`/env-presets/${id}`),
 
+  // Env accounts (subscription-platform credentials referenced by presets)
+  listEnvAccounts: (): Promise<EnvAccount[]> =>
+    api.get<EnvAccount[]>('/env-accounts'),
+  createEnvAccount: (data: CreateEnvAccountData): Promise<EnvAccount> =>
+    api.post<EnvAccount>('/env-accounts', data),
+  updateEnvAccount: (id: number, data: CreateEnvAccountData): Promise<void> =>
+    api.put(`/env-accounts/${id}`, data),
+  deleteEnvAccount: (id: number): Promise<void> =>
+    api.delete(`/env-accounts/${id}`),
+
+  // Env providers (unified subscription-platform configs → per-agent env)
+  listEnvProviders: (): Promise<EnvProvider[]> =>
+    api.get<EnvProvider[]>('/env-providers'),
+  createEnvProvider: (data: CreateEnvProviderData): Promise<EnvProvider> =>
+    api.post<EnvProvider>('/env-providers', data),
+  updateEnvProvider: (id: number, data: CreateEnvProviderData): Promise<void> =>
+    api.put(`/env-providers/${id}`, data),
+  deleteEnvProvider: (id: number): Promise<void> =>
+    api.delete(`/env-providers/${id}`),
+  getProviderEnv: (id: number, cliType?: string): Promise<Record<string, string>> =>
+    api.get<Record<string, string>>(`/env-providers/${id}/env`, { params: cliType ? { cli_type: cliType } : {} }),
+  // Workspace direct provider binding (issue #653 simplification)
+  setWorkspaceEnvProvider: (workspaceId: string, providerId: number | null): Promise<{ env_provider_id: number }> =>
+    api.put(`/workspaces/${workspaceId}/env-provider`, { env_provider_id: providerId }),
+
+  // Project default provider binding (inherited by new workspaces)
+  setProjectEnvProvider: (projectId: string, providerId: number | null): Promise<unknown> =>
+    api.put(`/projects/${projectId}/env-provider`, { env_provider_id: providerId }),
+
   // Attachments
   uploadAttachment: async (workspaceId: string, file: File): Promise<{ name: string; path: string; size: number; mimeType: string; originalSize?: number; optimized?: boolean }> => {
     const formData = new FormData();
@@ -752,15 +783,6 @@ export async function decideAskUser(
     `/agent-ask-user-decisions/${requestId}`,
     body,
   );
-}
-
-export async function getClaudeAccountUsage(
-  accountId: number,
-  force = false,
-): Promise<AccountUsage> {
-  return api.get<AccountUsage>(`/claude-accounts/${accountId}/usage`, {
-    params: force ? { force: '1' } : undefined,
-  })
 }
 
 export async function getWorkspacesOverview(owner?: string): Promise<WorkspaceOverview> {
@@ -1005,9 +1027,7 @@ export const checkpointApi = {
 // - redetect: re-runs detection against current repo state (used by the
 //   workspace settings "重新检测" button).
 export const mcpApi = {
-  listAvailable: (accountId: number) =>
-    api.get<{ items: KnownMCP[] }>(`/claude-accounts/${accountId}/mcp/available`),
-  detect: (body: { claude_account_id: number; repo_ids: number[] }) =>
+  detect: (body: { repo_ids: number[] }) =>
     api.post<MCPDetectResult>('/workspaces/mcp/detect', body),
   get: (wsId: number) =>
     api.get<WorkspaceMCPState>(`/workspaces/${wsId}/mcp`),

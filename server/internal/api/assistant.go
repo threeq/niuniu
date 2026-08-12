@@ -234,7 +234,6 @@ func (h *AssistantHandler) createPlan(ctx context.Context, userID int64, owner s
 		description, titleHint, parentIssueID, service.PlanCreateOpts{
 			Language:        language,
 			NoRepo:          true,
-			ClaudeAccountID: resolveDefaultClaudeAccount(ctx, h.Q, owner.Type, owner.ID),
 			CreatedBy:       createdBy,
 		})
 	if err != nil {

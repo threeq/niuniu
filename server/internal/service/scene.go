@@ -123,10 +123,19 @@ type SkillDecl struct {
 // owner-scoped rows in the target tables, idempotent via (owner, slug).
 type SceneAssets struct {
 	EnvPresets       []EnvPresetAsset       `json:"env_presets,omitempty" yaml:"env_presets,omitempty"`
+	Providers        []ProviderAsset        `json:"providers,omitempty" yaml:"providers,omitempty"`
 	ProjectTemplates []ProjectTemplateAsset `json:"project_templates,omitempty" yaml:"project_templates,omitempty"`
 	QuickActions     []QuickActionAsset     `json:"quick_actions,omitempty" yaml:"quick_actions,omitempty"`
 	HarnessSpecs     []HarnessSpecAsset     `json:"harness_specs,omitempty" yaml:"harness_specs,omitempty"`
 	Agents           []AgentAsset           `json:"agents,omitempty" yaml:"agents,omitempty"`
+}
+
+// ProviderAsset references a subscription-platform provider (env_providers) by
+// its globally-unique name. On projection the provider's name is recorded in the
+// scene's assets; sceneenv expands it per the workspace's cli_type at spawn time,
+// so the provider's base_url/models/account flow to every agent that mounts it.
+type ProviderAsset struct {
+	Name string `json:"name" yaml:"name"`
 }
 
 type EnvPresetAsset struct {

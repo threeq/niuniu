@@ -55,15 +55,7 @@ type AgentManager struct {
 	mcpWriter     MCPConfigWriter
 	perm          *PermissionService
 	askUser       *AskUserService
-	claudeAccount *ClaudeAccountService
-	codexAccount  *CodexAccountService
-	gitIdentity   *GitIdentityService
-	// claudeAcctByWorkspace records the account ID injected at spawn time
-	// for each running PTY process; consulted by WorkspacesUsingAccount to
-	// gate Delete (C4 / spec IM-7). Guarded by mu.
-	claudeAcctByWorkspace map[int64]int64
-	// codexAcctByWorkspace mirrors claudeAcctByWorkspace for codex spawns.
-	codexAcctByWorkspace map[int64]int64
+	gitIdentity *GitIdentityService
 }
 
 func (m *AgentManager) SetMCPWriter(w MCPConfigWriter) {
@@ -90,17 +82,6 @@ func (m *AgentManager) SetAskUserService(svc *AskUserService) {
 	m.askUser = svc
 }
 
-func (m *AgentManager) SetClaudeAccountService(svc *ClaudeAccountService) {
-	m.claudeAccount = svc
-}
-
-// SetCodexAccountService wires the codex multi-account resolver so PTY spawns
-// for codex workspaces can inject CODEX_HOME=<account.config_dir>. Optional;
-// nil = back-compat path (no env injection, codex uses ~/.codex/).
-func (m *AgentManager) SetCodexAccountService(svc *CodexAccountService) {
-	m.codexAccount = svc
-}
-
 // SetGitIdentityService wires the per-user git author resolver so PTY spawns
 // can inject GIT_AUTHOR_* / GIT_COMMITTER_* env. Optional; when nil the
 // agent inherits the OS-global git config (preserving personal-edition
@@ -115,49 +96,9 @@ func NewAgentManager(q *store.Queries, cfg *config.AgentConfig) *AgentManager {
 		wsConnections:         make(map[int64]int),
 		idleTimers:            make(map[int64]*time.Timer),
 		reviewTimers:          make(map[int64]*time.Timer),
-		claudeAcctByWorkspace: make(map[int64]int64),
-		codexAcctByWorkspace:  make(map[int64]int64),
 		q:                     q,
 		cfg:                   cfg,
 	}
-}
-
-// WorkspacesUsingCodexAccount returns the workspace IDs whose live PTY agent
-// was spawned with CODEX_HOME for the given accountID. Mirrors
-// WorkspacesUsingAccount; registered with CodexAccountService to gate Delete.
-func (m *AgentManager) WorkspacesUsingCodexAccount(accountID int64) []int64 {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	var out []int64
-	for wsID, accID := range m.codexAcctByWorkspace {
-		if accID == accountID {
-			if _, alive := m.processes[wsID]; alive {
-				out = append(out, wsID)
-			}
-		}
-	}
-	return out
-}
-
-// WorkspacesUsingAccount returns the workspace IDs whose live PTY agent was
-// spawned with CLAUDE_CONFIG_DIR for the given accountID. SpawnTrackerFn
-// implementation registered with ClaudeAccountService.
-//
-// Stale entries in claudeAcctByWorkspace are tolerated — the alive check
-// against m.processes filters them out so cleanup is lazy (GC happens on
-// the next spawn for the same workspaceID, which overwrites or deletes).
-func (m *AgentManager) WorkspacesUsingAccount(accountID int64) []int64 {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	var out []int64
-	for wsID, accID := range m.claudeAcctByWorkspace {
-		if accID == accountID {
-			if _, alive := m.processes[wsID]; alive {
-				out = append(out, wsID)
-			}
-		}
-	}
-	return out
 }
 
 // LiveWorkspaceIDs returns the workspace IDs with a live PTY agent process. Used
@@ -258,68 +199,28 @@ func (m *AgentManager) Start(ctx context.Context, workspaceID int64, workDir, in
 	}
 	envSlice := convertEnvVarsToSliceFromStore(envVars)
 
-	// Inject per-CLI account config dir.
-	// Claude path: CLAUDE_CONFIG_DIR from claude_accounts.
-	// Codex path: if a codex_account is bound (M2.5), inject CODEX_HOME=
-	// <account.config_dir>. Otherwise the CLI uses the user's global ~/.codex/
-	// (back-compat — pre-M2.5 workspaces stay working).
-	var spawnAccountID int64
-	var spawnCodexAccountID int64
-	if cliType == "claude" && m.claudeAccount != nil {
-		if acc, accErr := m.claudeAccount.ResolveForWorkspace(ctx, workspaceID, userID); accErr != nil {
-			slog.Warn("agent: resolve claude account failed, spawn without CLAUDE_CONFIG_DIR",
-				"workspaceID", workspaceID, "err", accErr)
-		} else if acc.ConfigDir != "" {
-			if !EnvHasKey(envSlice, "CLAUDE_CONFIG_DIR") {
-				envSlice = append(envSlice, "CLAUDE_CONFIG_DIR="+acc.ConfigDir)
-				spawnAccountID = acc.ID
-			} else {
-				slog.Warn("agent: CLAUDE_CONFIG_DIR already set in env preset; skipping niuniu injection",
-					"workspaceID", workspaceID, "account", acc.ID)
+	// Codex path: pre-create the MCP session token and write .codex/config.toml
+	// BEFORE spawning codex, because codex reads its TOML at startup and does
+	// not auto-reload on file change in PTY mode. Failure to generate the file
+	// does not abort spawn — log+continue and the codex session will simply
+	// have no niuniu-mcp wired in. (Per-account CODEX_HOME switching removed;
+	// codex now uses the host's global ~/.codex/.)
+	if cliType == "codex" && userID > 0 && m.mcpSessions != nil && m.mcpWriter != nil {
+		rawToken, err2 := m.mcpSessions.Create(ctx, workspaceID, MCPSessionTTL)
+		if err2 != nil {
+			slog.Warn("codex: create MCP session token failed",
+				"workspaceID", workspaceID, "err", err2)
+		} else {
+			projectID, _ := m.q.GetProjectIDForWorkspace(ctx, workspaceID)
+			opts := config.MCPGenerateOptions{
+				ProjectID:    projectID,
+				WorkspaceID:  workspaceID,
+				InboxDir:     workDir + "/.team/inboxes",
+				SessionToken: rawToken,
 			}
-			go m.claudeAccount.MarkUsed(context.Background(), acc.ID)
-		}
-	} else if cliType == "codex" {
-		// Resolve codex managed account (if any) and inject CODEX_HOME so the
-		// CLI reads the per-account auth.json + config.toml. nil = back-compat:
-		// no env injection, codex falls back to user's global ~/.codex/.
-		if m.codexAccount != nil {
-			if acc, accErr := m.codexAccount.ResolveForWorkspace(ctx, workspaceID, userID); accErr != nil {
-				slog.Warn("agent: resolve codex account failed, spawn without CODEX_HOME",
-					"workspaceID", workspaceID, "err", accErr)
-			} else if acc != nil && acc.ConfigDir != "" {
-				if !EnvHasKey(envSlice, "CODEX_HOME") {
-					envSlice = append(envSlice, "CODEX_HOME="+acc.ConfigDir)
-					spawnCodexAccountID = acc.ID
-				} else {
-					slog.Warn("agent: CODEX_HOME already set in env preset; skipping niuniu injection",
-						"workspaceID", workspaceID, "account", acc.ID)
-				}
-				go m.codexAccount.MarkUsed(context.Background(), acc.ID)
-			}
-		}
-		// Pre-create the MCP session token and write .codex/config.toml
-		// BEFORE spawning codex, because codex reads its TOML at startup
-		// and does not auto-reload on file change in PTY mode. Failure to
-		// generate the file does not abort spawn — log+continue and the
-		// codex session will simply have no niuniu-mcp wired in.
-		if userID > 0 && m.mcpSessions != nil && m.mcpWriter != nil {
-			rawToken, err2 := m.mcpSessions.Create(ctx, workspaceID, MCPSessionTTL)
-			if err2 != nil {
-				slog.Warn("codex: create MCP session token failed",
-					"workspaceID", workspaceID, "err", err2)
-			} else {
-				projectID, _ := m.q.GetProjectIDForWorkspace(ctx, workspaceID)
-				opts := config.MCPGenerateOptions{
-					ProjectID:    projectID,
-					WorkspaceID:  workspaceID,
-					InboxDir:     workDir + "/.team/inboxes",
-					SessionToken: rawToken,
-				}
-				if err3 := m.mcpWriter.GenerateCodexConfigToml(workDir, opts); err3 != nil {
-					slog.Warn("codex: write .codex/config.toml failed",
-						"workspaceID", workspaceID, "err", err3)
-				}
+			if err3 := m.mcpWriter.GenerateCodexConfigToml(workDir, opts); err3 != nil {
+				slog.Warn("codex: write .codex/config.toml failed",
+					"workspaceID", workspaceID, "err", err3)
 			}
 		}
 	}
@@ -349,17 +250,6 @@ func (m *AgentManager) Start(ctx context.Context, workspaceID int64, workDir, in
 
 	// Store in processes map
 	m.processes[workspaceID] = proc
-	if spawnAccountID > 0 {
-		m.claudeAcctByWorkspace[workspaceID] = spawnAccountID
-	} else {
-		delete(m.claudeAcctByWorkspace, workspaceID)
-	}
-	if spawnCodexAccountID > 0 {
-		m.codexAcctByWorkspace[workspaceID] = spawnCodexAccountID
-	} else {
-		delete(m.codexAcctByWorkspace, workspaceID)
-	}
-
 	// Update workspace agent_status = "running", agent_pid in DB
 	pid := int64(proc.Pid())
 	err = m.q.UpdateAgentStatus(ctx, store.UpdateAgentStatusParams{

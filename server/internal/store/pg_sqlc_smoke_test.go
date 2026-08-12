@@ -487,160 +487,6 @@ func TestPGSmokeLabels(t *testing.T) {
 	mustNoErr(t, "DeleteLabel", func() error { return q.DeleteLabel(ctx, lbl.ID) })
 }
 
-func TestPGSmokeClaudeAccounts(t *testing.T) {
-	raw, q := pgtest.SetupPGDB(t)
-	seed := seedPGSmoke(t, raw)
-	ctx := context.Background()
-	now := time.Now().Unix()
-
-	// CreateClaudeAccount (a user-bound account with a config_dir; the
-	// "default" account uses empty config_dir and is constrained by a
-	// partial unique index)
-	var acctID int64
-	mustNoErr(t, "CreateClaudeAccount", func() error {
-		id, err := q.CreateClaudeAccount(ctx, store.CreateClaudeAccountParams{
-			Name:       "acct-1",
-			Email:      sql.NullString{String: "a@e", Valid: true},
-			ConfigDir:  "/tmp/cfg",
-			Visibility: "public",
-			Status:     "pending",
-			CreatedAt:  now,
-			CreatedBy:  sql.NullInt64{Int64: seed.UserID, Valid: true},
-		})
-		acctID = id
-		return err
-	})
-	// also seed a default account so GetDefaultClaudeAccount has a row
-	mustNoErr(t, "CreateClaudeAccount/seed-default", func() error {
-		_, err := q.CreateClaudeAccount(ctx, store.CreateClaudeAccountParams{
-			Name: "default", ConfigDir: "", Visibility: "public", Status: "active", CreatedAt: now,
-		})
-		return err
-	})
-
-	mustNoErr(t, "GetClaudeAccount", func() error { _, err := q.GetClaudeAccount(ctx, acctID); return err })
-	mustNoErr(t, "GetDefaultClaudeAccount", func() error {
-		_, err := q.GetDefaultClaudeAccount(ctx)
-		return err
-	})
-	mustNoErr(t, "ListClaudeAccountsForCaller/admin", func() error {
-		_, err := q.ListClaudeAccountsForCaller(ctx, store.ListClaudeAccountsForCallerParams{
-			Column1:   int64(1), // admin flag
-			CreatedBy: sql.NullInt64{Int64: seed.UserID, Valid: true},
-		})
-		return err
-	})
-	mustNoErr(t, "ListClaudeAccountsForCaller/non-admin", func() error {
-		_, err := q.ListClaudeAccountsForCaller(ctx, store.ListClaudeAccountsForCallerParams{
-			Column1:   int64(0),
-			CreatedBy: sql.NullInt64{Int64: seed.UserID, Valid: true},
-		})
-		return err
-	})
-	mustNoErr(t, "UpdateClaudeAccountName", func() error {
-		return q.UpdateClaudeAccountName(ctx, store.UpdateClaudeAccountNameParams{Name: "acct-1b", ID: acctID})
-	})
-	mustNoErr(t, "UpdateClaudeAccountVisibility", func() error {
-		return q.UpdateClaudeAccountVisibility(ctx, store.UpdateClaudeAccountVisibilityParams{
-			Visibility: "private", ID: acctID,
-		})
-	})
-	mustNoErr(t, "UpdateClaudeAccountAfterLogin", func() error {
-		return q.UpdateClaudeAccountAfterLogin(ctx, store.UpdateClaudeAccountAfterLoginParams{
-			Email: sql.NullString{String: "b@e", Valid: true}, Status: "active",
-			LastUsedAt: sql.NullInt64{Int64: now, Valid: true}, ID: acctID,
-		})
-	})
-	mustNoErr(t, "UpdateClaudeAccountStatus", func() error {
-		return q.UpdateClaudeAccountStatus(ctx, store.UpdateClaudeAccountStatusParams{Status: "failed", ID: acctID})
-	})
-	mustNoErr(t, "TouchClaudeAccount", func() error {
-		return q.TouchClaudeAccount(ctx, store.TouchClaudeAccountParams{
-			LastUsedAt: sql.NullInt64{Int64: now, Valid: true}, ID: acctID,
-		})
-	})
-	// Active per-owner
-	mustNoErr(t, "SetActiveClaudeAccount", func() error {
-		return q.SetActiveClaudeAccount(ctx, store.SetActiveClaudeAccountParams{
-			OwnerType: "user", OwnerID: seed.UserID, AccountID: acctID,
-		})
-	})
-	mustNoErr(t, "SetActiveClaudeAccount/upsert", func() error {
-		// repeat to exercise ON CONFLICT ... DO UPDATE
-		return q.SetActiveClaudeAccount(ctx, store.SetActiveClaudeAccountParams{
-			OwnerType: "user", OwnerID: seed.UserID, AccountID: acctID,
-		})
-	})
-	mustNoErr(t, "GetActiveClaudeAccount", func() error {
-		_, err := q.GetActiveClaudeAccount(ctx, store.GetActiveClaudeAccountParams{
-			OwnerType: "user", OwnerID: seed.UserID,
-		})
-		return err
-	})
-	mustNoErr(t, "ClearActiveClaudeAccount", func() error {
-		return q.ClearActiveClaudeAccount(ctx, store.ClearActiveClaudeAccountParams{
-			OwnerType: "user", OwnerID: seed.UserID,
-		})
-	})
-	// Workspace claude account
-	mustNoErr(t, "SetWorkspaceClaudeAccount", func() error {
-		return q.SetWorkspaceClaudeAccount(ctx, store.SetWorkspaceClaudeAccountParams{
-			ClaudeAccountID: sql.NullInt64{Int64: acctID, Valid: true}, ID: seed.WorkspaceID,
-		})
-	})
-	mustNoErr(t, "GetWorkspaceClaudeAccount", func() error {
-		_, err := q.GetWorkspaceClaudeAccount(ctx, seed.WorkspaceID)
-		return err
-	})
-	mustNoErr(t, "GetWorkspaceForClaudeResolve", func() error {
-		_, err := q.GetWorkspaceForClaudeResolve(ctx, seed.WorkspaceID)
-		return err
-	})
-	mustNoErr(t, "GetUserRole", func() error { _, err := q.GetUserRole(ctx, seed.UserID); return err })
-	mustNoErr(t, "AppendClaudeAccountAudit", func() error {
-		return q.AppendClaudeAccountAudit(ctx, store.AppendClaudeAccountAuditParams{
-			AccountID:   sql.NullInt64{Int64: acctID, Valid: true},
-			ActorUserID: sql.NullInt64{Int64: seed.UserID, Valid: true},
-			Action:      "smoke", Payload: "{}",
-		})
-	})
-	mustNoErr(t, "ListClaudeAccountAudit", func() error {
-		_, err := q.ListClaudeAccountAudit(ctx, store.ListClaudeAccountAuditParams{
-			AccountID: sql.NullInt64{Int64: acctID, Valid: true},
-			ID:        int64(1 << 30), Limit: 50,
-		})
-		return err
-	})
-	mustNoErr(t, "DeleteClaudeAccount", func() error { return q.DeleteClaudeAccount(ctx, acctID) })
-}
-
-// mustNoErr fails the test on an SQL error and reports which subtest hit it.
-// Errors are not wrapped to match the harness's value-add: when something
-// breaks in PG, the SQLSTATE should appear verbatim.
-func mustNoErr(t *testing.T, name string, fn func() error) {
-	t.Helper()
-	if err := fn(); err != nil {
-		t.Errorf("%s: %v", name, err)
-	}
-}
-
-// ============================================================
-// External integration sqlc smoke tests (plan r2.9, M0.5–M0.8)
-//
-// Catches PG-only PARSE/PLAN errors (SQLSTATE 42P18 / 42601) for every
-// generated method introduced by the M0 store layer:
-//
-//   external_credentials.sql      (M0.5)
-//   project_external_sources.sql  (M0.6)
-//   external_issues.sql           (M0.7)
-//   external_comments.sql + writeback_jobs.sql (M0.8)
-//
-// We exercise the ON CONFLICT … DO UPDATE upsert paths and the
-// sqlc.slice IN-list expansion (which also has to round-trip the
-// PgDB ?→$N rewriter). Behavior is not asserted — only "PG accepted
-// the SQL". sql.ErrNoRows is treated as a PASS for INSERT OR IGNORE.
-// ============================================================
-
 func TestPGSmokeExternalCredentials(t *testing.T) {
 	raw, q := pgtest.SetupPGDB(t)
 	seed := seedPGSmoke(t, raw)
@@ -1094,4 +940,11 @@ func TestProjectDefaultScenesSqlcSmoke(t *testing.T) {
 			ProjectID: seed.ProjectID, SceneID: scene.ID,
 		})
 	})
+}
+
+func mustNoErr(t *testing.T, name string, fn func() error) {
+	t.Helper()
+	if err := fn(); err != nil {
+		t.Errorf("%s: %v", name, err)
+	}
 }

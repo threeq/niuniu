@@ -20,12 +20,6 @@ type MemoryService struct {
 	claudeCmd string
 	extractMu sync.Map // workspace_id -> *sync.Mutex (serializes session extraction)
 
-	// claudeAccount resolves a workspace's bound Claude account so session
-	// extraction spawns the `claude` CLI with the same CLAUDE_CONFIG_DIR the
-	// agent session uses. Optional (nil = no injection); wired via
-	// SetClaudeAccountService.
-	claudeAccount claudeConfigResolver
-
 	// extractState tracks async session-extraction progress per workspace,
 	// in memory, so the UI can render a spinner that survives page reloads.
 	// Guarded by extractStateMu.
@@ -33,23 +27,8 @@ type MemoryService struct {
 	extractStateMu sync.Mutex
 }
 
-// claudeConfigResolver is the minimal slice of *ClaudeAccountService that
-// extraction needs to authenticate the `claude` subprocess like the agent does.
-type claudeConfigResolver interface {
-	ResolveForWorkspace(ctx context.Context, workspaceID, userID int64) (*ResolvedAccount, error)
-}
-
 func NewMemoryService(q *store.Queries, db *sql.DB, claudeCmd string) *MemoryService {
 	return &MemoryService{q: q, db: store.Wrap(db), claudeCmd: claudeCmd}
-}
-
-// SetClaudeAccountService wires the Claude account resolver used to inject
-// CLAUDE_CONFIG_DIR into the session-extraction subprocess. Without it, a bare
-// `claude -p` inherits only the server's raw env and fails with "exit status 1"
-// on hosts where credentials live in a niuniu-managed per-account config dir
-// rather than the default ~/.claude.
-func (s *MemoryService) SetClaudeAccountService(r claudeConfigResolver) {
-	s.claudeAccount = r
 }
 
 // ErrMemoryNotFound is returned when a memory id does not exist.

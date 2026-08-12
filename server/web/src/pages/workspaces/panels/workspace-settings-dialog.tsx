@@ -151,6 +151,28 @@ export function WorkspaceSettingsDialog({ workspace }: WorkspaceSettingsDialogPr
     enabled: open,
   });
 
+  // Subscription-platform providers for direct workspace binding (issue #653).
+  const { data: providers = [] } = useQuery({
+    queryKey: ['env-providers'],
+    queryFn: () => api.listEnvProviders(),
+    enabled: open,
+  });
+  const [boundProviderId, setBoundProviderId] = useState<number | null>(null);
+  const [savingProvider, setSavingProvider] = useState(false);
+  useEffect(() => {
+    if (open) setBoundProviderId(workspace.env_provider_id ?? null);
+  }, [open, workspace.env_provider_id]);
+  const changeProvider = async (id: number | null) => {
+    setBoundProviderId(id);
+    setSavingProvider(true);
+    try {
+      await api.setWorkspaceEnvProvider(workspace.id, id);
+      queryClient.invalidateQueries({ queryKey: ['workspace', workspace.id] });
+    } finally {
+      setSavingProvider(false);
+    }
+  };
+
   useEffect(() => {
     if (!open) return;
     setName(workspace.name);
@@ -483,6 +505,30 @@ export function WorkspaceSettingsDialog({ workspace }: WorkspaceSettingsDialogPr
 
           {/* Env vars */}
           <div>
+            {/* Direct subscription-platform provider binding (issue #653): the
+                common path — pick a provider here, no scene needed. */}
+            <div className="mb-3">
+              <label className="block text-sm font-medium text-foreground mb-1">
+                {t('panels.workspaceSettings.envProvider')}
+              </label>
+              <select
+                value={boundProviderId ?? 0}
+                onChange={(e) => changeProvider(e.target.value === '0' ? null : Number(e.target.value))}
+                disabled={savingProvider}
+                className="w-full rounded-md border border-border bg-background px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-info"
+              >
+                <option value={0}>{t('panels.workspaceSettings.envProviderNone')}</option>
+                {providers.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.name}{Object.keys(p.base_urls ?? {}).length ? ` · ${Object.keys(p.base_urls).join('/')}` : ''}{p.model ? ` · ${p.model}` : ''}
+                  </option>
+                ))}
+              </select>
+              <p className="mt-1 text-xs text-muted-foreground">
+                {t('panels.workspaceSettings.envProviderHint')}
+              </p>
+            </div>
+
             <div className="flex items-center justify-between mb-1">
               <label className="block text-sm font-medium text-foreground">{t('panels.workspaceSettings.envVars')}</label>
               <div className="flex items-center gap-2">

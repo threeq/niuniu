@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"testing"
 
@@ -24,6 +25,26 @@ func (f fakeSceneEnvQuerier) ListWorkspaceEnv(context.Context, int64) ([]store.W
 
 func (f fakeSceneEnvQuerier) GetProjection(context.Context, int64) (store.WorkspaceSceneProjection, error) {
 	return f.proj, nil
+}
+
+func (fakeSceneEnvQuerier) ListEnvAccounts(context.Context) ([]store.EnvAccount, error) {
+	return nil, nil
+}
+
+func (fakeSceneEnvQuerier) ListEnvProviders(context.Context) ([]store.EnvProvider, error) {
+	return nil, nil
+}
+
+func (fakeSceneEnvQuerier) GetEnvProvider(context.Context, int64) (store.EnvProvider, error) {
+	return store.EnvProvider{}, sql.ErrNoRows
+}
+
+func (fakeSceneEnvQuerier) GetWorkspaceCliType(context.Context, int64) (string, error) {
+	return "claude", nil
+}
+
+func (fakeSceneEnvQuerier) GetWorkspaceEnvProviderID(context.Context, int64) (int64, error) {
+	return 0, nil
 }
 
 func TestSceneEnvResolve_DecodesRealProjectionJSON(t *testing.T) {

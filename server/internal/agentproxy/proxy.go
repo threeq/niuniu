@@ -174,26 +174,6 @@ type SessionStateRecorder interface {
 	DriftMessage(ctx context.Context, workspaceID int64, sessionID string) (string, error)
 }
 
-// ClaudeAccountResolver is the minimal interface agentproxy depends on for
-// resolving the effective Claude account at spawn time. Defining it here
-// avoids an import cycle (service imports agentproxy in workspace.go).
-//
-// Returns (accountID, configDir, error). configDir == "" means "use Claude
-// CLI's native default ~/.claude/" (no env injection). accountID is used by
-// MarkUsed to update last_used_at.
-type ClaudeAccountResolver interface {
-	ResolveForWorkspace(ctx context.Context, workspaceID, userID int64) (accountID int64, configDir string, err error)
-	MarkUsed(ctx context.Context, accountID int64)
-}
-
-// CodexAccountResolver is the codex equivalent of ClaudeAccountResolver.
-// Returns (accountID, configDir, error). configDir == "" means "no managed
-// account; codex CLI uses its native ~/.codex/" (no CODEX_HOME injection).
-type CodexAccountResolver interface {
-	ResolveForWorkspace(ctx context.Context, workspaceID, userID int64) (accountID int64, configDir string, err error)
-	MarkUsed(ctx context.Context, accountID int64)
-}
-
 // GitIdentityResolver is the minimal interface agentproxy depends on for
 // per-user git author attribution. Implemented by service.GitIdentityService.
 // Returns ("","",nil) when the user has no identity to inject (zero / unknown
@@ -242,42 +222,9 @@ type AgentProxy struct {
 	sessionStateSvc   SessionStateRecorder // optional; nil = no-op
 	workspaceAlertSvc WorkspaceAlertResolver
 	stopCh            chan struct{}         // closed by Stop() to terminate gcInflightLoop
-	claudeAccount     ClaudeAccountResolver // optional; nil = no env injection
-	codexAccount      CodexAccountResolver  // optional; nil = no CODEX_HOME injection (codex uses ~/.codex/)
 	serverSettings    ServerSettingsReader  // optional; admin-tunable K/V reader
 	gitIdentity       GitIdentityResolver   // optional; nil = no GIT_AUTHOR_* injection
 	permissionGate    PermissionGate        // optional; nil = codex approval bridge auto-denies (safe default)
-}
-
-// SetClaudeAccountService injects the resolver. Called from server.New after
-// service.ClaudeAccountService is constructed (it implicitly satisfies the
-// ClaudeAccountResolver interface — Go's structural typing means no explicit
-// adapter is needed as long as the method signatures match).
-//
-// NOTE: service.ClaudeAccountService.ResolveForWorkspace returns
-// *service.ResolvedAccount, not agentproxy.ResolvedClaudeAccount, so the
-// concrete type doesn't directly satisfy the interface here. Pass an
-// adapter from server.New (see server.go wire-up). To avoid that boilerplate,
-// the concrete *service.ClaudeAccountService cannot be used directly — the
-// adapter is intentional to keep the import graph one-way.
-func (p *AgentProxy) SetClaudeAccountService(r ClaudeAccountResolver) {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	p.claudeAccount = r
-	for _, s := range p.sessions {
-		s.claudeAccount = r
-	}
-}
-
-// SetCodexAccountService injects the codex resolver. Same lifecycle as the
-// claude variant — called from server.New with a *service.CodexAccountAgentProxyAdapter.
-func (p *AgentProxy) SetCodexAccountService(r CodexAccountResolver) {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	p.codexAccount = r
-	for _, s := range p.sessions {
-		s.codexAccount = r
-	}
 }
 
 // SetPermissionGate wires the codex approval-bridge so approval/request
@@ -292,24 +239,6 @@ func (p *AgentProxy) SetPermissionGate(g PermissionGate) {
 	}
 }
 
-// WorkspacesUsingCodexAccount mirrors WorkspacesUsingAccount for codex spawns.
-// Used by CodexAccountService.RegisterSpawnTracker to gate Delete.
-func (p *AgentProxy) WorkspacesUsingCodexAccount(accountID int64) []int64 {
-	p.mu.RLock()
-	defer p.mu.RUnlock()
-	var out []int64
-	for wsID, s := range p.sessions {
-		s.procMu.Lock()
-		alive := s.alive
-		acctID := s.codexAccountID
-		s.procMu.Unlock()
-		if alive && acctID == accountID {
-			out = append(out, wsID)
-		}
-	}
-	return out
-}
-
 // SetGitIdentityResolver wires the per-user git author resolver. Optional;
 // when nil the agent inherits OS-global git config (preserving personal-
 // edition behavior). Newly-spawned sessions pick up the resolver via the
@@ -321,43 +250,6 @@ func (p *AgentProxy) SetGitIdentityResolver(r GitIdentityResolver) {
 	p.gitIdentity = r
 	for _, s := range p.sessions {
 		s.gitIdentity = r
-	}
-}
-
-// WorkspacesUsingAccount returns workspace IDs whose live agentproxy session
-// has CLAUDE_CONFIG_DIR for the given accountID injected into the running
-// child process. Implements service.SpawnTrackerFn signature for
-// ClaudeAccountService.RegisterSpawnTracker (C4 / spec IM-7).
-//
-// Filters by `s.alive` so only sessions with a running CLI process are
-// counted; idle sessions whose process has exited are excluded.
-func (p *AgentProxy) WorkspacesUsingAccount(accountID int64) []int64 {
-	p.mu.RLock()
-	defer p.mu.RUnlock()
-	var out []int64
-	for wsID, s := range p.sessions {
-		s.procMu.Lock()
-		alive := s.alive
-		acctID := s.claudeAccountID
-		s.procMu.Unlock()
-		if alive && acctID == accountID {
-			out = append(out, wsID)
-		}
-	}
-	return out
-}
-
-// ClearWorkspaceSession kills the live process (if any) and zeroes the
-// in-memory session ID for the given workspace. Called by
-// ClaudeAccountService when it clears the DB session after a failed
-// project-dir migration on account switch, so the next spawn starts
-// fresh instead of passing --resume with a stale ID.
-func (p *AgentProxy) ClearWorkspaceSession(ctx context.Context, workspaceID int64) {
-	p.mu.RLock()
-	s := p.sessions[workspaceID]
-	p.mu.RUnlock()
-	if s != nil {
-		s.ClearSession(ctx)
 	}
 }
 
@@ -576,14 +468,6 @@ type WorkspaceSession struct {
 	// intentionally locks to *session start* identity.
 	userID int64
 
-	// claudeAccount resolves CLAUDE_CONFIG_DIR for spawned processes.
-	// nil = no env injection (legacy behavior).
-	claudeAccount ClaudeAccountResolver
-
-	// codexAccount resolves CODEX_HOME for spawned codex processes.
-	// nil = no env injection (legacy behavior; codex uses ~/.codex/).
-	codexAccount CodexAccountResolver
-
 	// permissionGate bridges codex `approval/request` notifications to niuniu
 	// PermissionService. nil = auto-deny (safe default; PTY/managed niuniu
 	// deployments always wire this from server.New).
@@ -593,15 +477,6 @@ type WorkspaceSession struct {
 	// GIT_AUTHOR_*/GIT_COMMITTER_* into the Claude CLI subprocess env.
 	// Optional; nil = inherit OS-global git config.
 	gitIdentity GitIdentityResolver
-
-	// claudeAccountID is the resolved account ID injected into the live child
-	// process's CLAUDE_CONFIG_DIR (0 = none). Used by AgentProxy.WorkspacesUsingAccount
-	// to gate ClaudeAccountService.Delete (C4 / spec IM-7).
-	claudeAccountID int64
-
-	// codexAccountID is the resolved codex account ID injected into the live
-	// child process's CODEX_HOME (0 = none). Mirrors claudeAccountID.
-	codexAccountID int64
 
 	// serverSettings is the ServerSettingsReader injected from AgentProxy. The
 	// autohost LLM judge that consumed it was removed; the seam is kept wired
@@ -701,8 +576,6 @@ func (p *AgentProxy) GetOrStartSession(ctx context.Context, workspaceID int64, u
 		inflight:          NewInflightTracker(),
 		parent:            p,
 		userID:            userID,
-		claudeAccount:     p.claudeAccount,
-		codexAccount:      p.codexAccount,
 		permissionGate:    p.permissionGate,
 		serverSettings:    p.serverSettings,
 		gitIdentity:       p.gitIdentity,
@@ -2222,23 +2095,8 @@ func (s *WorkspaceSession) ensureProcess(ctx context.Context, workDir string) er
 	// Resolve internally degrades to default row on any failure (spec §解析链),
 	// so a hard error here only happens for catastrophic DB issues — log + skip
 	// injection rather than crash spawn.
-	s.claudeAccountID = 0
+	// Claude uses the host's global ~/.claude/ (per-account switching removed).
 	var accountConfigDir string
-	if s.claudeAccount != nil {
-		if accID, configDir, accErr := s.claudeAccount.ResolveForWorkspace(cmdCtx, s.workspaceID, s.userID); accErr != nil {
-			slog.Warn("agent: resolve claude account failed, spawn without CLAUDE_CONFIG_DIR",
-				"workspaceID", s.workspaceID, "err", accErr)
-		} else if configDir != "" {
-			if !adapter.EnvHasKey(os.Environ(), "CLAUDE_CONFIG_DIR") && !adapterEnvHasKey(workspaceEnv, "CLAUDE_CONFIG_DIR") {
-				accountConfigDir = configDir
-				s.claudeAccountID = accID
-			} else {
-				slog.Warn("agent: CLAUDE_CONFIG_DIR already set in env preset; skipping niuniu injection",
-					"workspaceID", s.workspaceID, "account", accID)
-			}
-			go s.claudeAccount.MarkUsed(context.Background(), accID)
-		}
-	}
 
 	// Inject per-user GIT_AUTHOR_*/GIT_COMMITTER_* so commits Claude makes
 	// in the chat session are attributed to the niuniu user that started it.
@@ -2702,19 +2560,6 @@ func (s *WorkspaceSession) handleEvent(ctx context.Context, ev ParsedEvent, msgI
 		// Forward the observation to the claude-usage panel so it can show the
 		// authoritative reset time (the only data source that has it — Anthropic
 		// doesn't expose a queryable endpoint we can reach).
-		// claudeAccountID is written under s.procMu in ensureProcess; read it
-		// under the same lock to avoid a data race with concurrent restarts.
-		if s.parent != nil {
-			s.parent.mu.RLock()
-			recorder := s.parent.usageRecorder
-			s.parent.mu.RUnlock()
-			s.procMu.Lock()
-			acctID := s.claudeAccountID
-			s.procMu.Unlock()
-			if recorder != nil && acctID != 0 && ev.RateLimitResetsAt > 0 {
-				recorder.RecordRateLimit(acctID, ev.RateLimitType, ev.RateLimitResetsAt, ev.RateLimitStatus)
-			}
-		}
 		if ev.RateLimitStatus == "rejected" || ev.RateLimitStatus == "allowed_warning" {
 			sysEv := NewOutputEvent(EventSystemInfo, "Rate limit: "+ev.RateLimitStatus, msgId, "system", s.workspaceID)
 			s.persistAndBroadcast(ctx, sysEv, agentID)

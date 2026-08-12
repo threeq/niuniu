@@ -46,7 +46,6 @@ type WorkspaceService struct {
 	perm          *PermissionService    // wired via SetPermissionService
 	askUser       *AskUserService       // wired via SetAskUserService
 	mcpGen        *MCPConfigGenerator   // wired via SetMCPGenerator
-	claudeAccount *ClaudeAccountService // wired via SetClaudeAccountService
 	sceneLayers   *SceneLayerService    // wired via SetSceneLayerService
 	sceneProj     *SceneProjector       // wired via SetSceneProjector
 	eventBus      *event.Bus            // wired via SetEventBus (optional; nil in tests)
@@ -114,14 +113,6 @@ func (s *WorkspaceService) SetMCPGenerator(g *MCPConfigGenerator) {
 	s.mcpGen = g
 }
 
-// SetClaudeAccountService injects the claude account service so Create can
-// resolve the configDir for the workspace's bound account when generating
-// .mcp.json. Optional; when unset, resolveClaudeConfigDir returns "" and the
-// MCP registry falls back to the default ~/.claude home.
-func (s *WorkspaceService) SetClaudeAccountService(c *ClaudeAccountService) {
-	s.claudeAccount = c
-}
-
 // SetSceneLayerService wires the scene layer service so Create can ensure
 // every new workspace has an empty base layer (and prefills project-default
 // scenes when a project_id is provided). Optional — when unset, base-layer
@@ -134,22 +125,6 @@ func (s *WorkspaceService) SetSceneLayerService(sl *SceneLayerService) {
 // projection after writing through to the base layer. Optional.
 func (s *WorkspaceService) SetSceneProjector(sp *SceneProjector) {
 	s.sceneProj = sp
-}
-
-// resolveClaudeConfigDir returns the isolated configDir for the given claude
-// account ID, or "" for default account (use $HOME). When the service is
-// unwired (test path) or the account lookup fails, returns "" so the caller
-// transparently falls back to the operator's default account.
-func (s *WorkspaceService) resolveClaudeConfigDir(accountID int64) string {
-	if accountID == 0 || s.claudeAccount == nil {
-		return ""
-	}
-	acc, err := s.claudeAccount.GetByID(context.Background(), accountID)
-	if err != nil {
-		slog.Warn("resolveClaudeConfigDir failed", "account_id", accountID, "err", err)
-		return ""
-	}
-	return acc.ConfigDir
 }
 
 func (s *WorkspaceService) List(ctx context.Context) ([]store.Workspace, error) {
@@ -693,10 +668,6 @@ type CreateWorkspaceInput struct {
 	OwnerType       string
 	OwnerID         int64
 	CreatedBy       *int64 // nullable; nil + owner_type='user' falls back to OwnerID
-	ClaudeAccountID *int64 // if set, bind this account to the workspace at creation
-	// CodexAccountID binds a managed codex account at creation (M2.5). Only
-	// honored when CliType='codex'. nil = no binding (codex uses ~/.codex/).
-	CodexAccountID *int64
 	// MCPServers is the workspace-scoped list of extra MCP server names to
 	// surface to Claude (names only; resolved against the bound claude
 	// account's registry at .mcp.json generation time).
@@ -895,27 +866,6 @@ func (s *WorkspaceService) Create(ctx context.Context, input CreateWorkspaceInpu
 		os.RemoveAll(tempDir)
 		return nil, fmt.Errorf("create workspace record: %w", err)
 	}
-	if input.ClaudeAccountID != nil {
-		if err := s.q.SetWorkspaceClaudeAccount(ctx, store.SetWorkspaceClaudeAccountParams{
-			ClaudeAccountID: sql.NullInt64{Int64: *input.ClaudeAccountID, Valid: true},
-			ID:              workspace.ID,
-		}); err != nil {
-			slog.Warn("workspace: failed to bind claude account at creation",
-				"workspaceID", workspace.ID, "accountID", *input.ClaudeAccountID, "err", err)
-		}
-	}
-	// Codex account binding (M2.5). Only honored for codex workspaces; service
-	// trusts the api layer to have nil'd it out for claude already.
-	if input.CodexAccountID != nil && input.CliType == "codex" {
-		if err := s.q.SetWorkspaceCodexAccount(ctx, store.SetWorkspaceCodexAccountParams{
-			CodexAccountID: sql.NullInt64{Int64: *input.CodexAccountID, Valid: true},
-			ID:             workspace.ID,
-		}); err != nil {
-			slog.Warn("workspace: failed to bind codex account at creation",
-				"workspaceID", workspace.ID, "accountID", *input.CodexAccountID, "err", err)
-		}
-	}
-
 	// Persist the workspace-scoped MCP server name list. JSON-encoded so the
 	// column shape stays stable across SQLite (TEXT) and Postgres (JSONB);
 	// CreateWorkspace omits the column from its INSERT so we explicitly
@@ -991,11 +941,7 @@ func (s *WorkspaceService) Create(ctx context.Context, input CreateWorkspaceInpu
 	// Write the initial agent config. Failure is non-fatal: the spawn path
 	// regenerates the same config with a live session token as a safety net.
 	if s.mcpGen != nil {
-		var accountID int64
-		if input.ClaudeAccountID != nil {
-			accountID = *input.ClaudeAccountID
-		}
-		configDir := s.resolveClaudeConfigDir(accountID)
+		configDir := ""
 		opts := config.MCPGenerateOptions{
 			WorkspaceID: workspace.ID,
 			InboxDir:    filepath.Join(wsDir, ".team", "inboxes"),
@@ -1194,6 +1140,19 @@ func (s *WorkspaceService) Create(ctx context.Context, input CreateWorkspaceInpu
 	if s.onCreated != nil {
 		ws := result.Workspace
 		go s.onCreated(context.Background(), ws)
+	}
+
+	// Inherit the project's default Provider (projects.env_provider_id) so a
+	// workspace created from an issue under a project gets the right subscription
+	// platform automatically. Best-effort: a lookup/write failure just leaves the
+	// workspace without a provider binding (the user can set one in settings).
+	if input.IssueID != nil {
+		if pid, err := s.q.GetProjectEnvProviderByIssueID(ctx, *input.IssueID); err == nil && pid > 0 {
+			if err := s.SetEnvProvider(ctx, result.Workspace.ID, pid); err != nil {
+				slog.Warn("workspace.Create: inherit project provider failed",
+					"workspace_id", result.Workspace.ID, "provider_id", pid, "error", err)
+			}
+		}
 	}
 
 	return result, nil
@@ -2239,6 +2198,21 @@ func (s *WorkspaceService) SetWorkspaceEnvVars(ctx context.Context, workspaceID 
 		s.reprojectOnPermissionModeChange(ctx, workspaceID)
 	}
 	return nil
+}
+
+// SetEnvProvider binds (or unbinds, when providerID=0) a subscription-platform
+// provider directly to the workspace. At spawn, sceneenv.Resolve expands the
+// bound provider per the workspace's cli_type — the common "this workspace uses
+// DeepSeek" path that needs no scene.
+func (s *WorkspaceService) SetEnvProvider(ctx context.Context, workspaceID, providerID int64) error {
+	var v sql.NullInt64
+	if providerID > 0 {
+		v = sql.NullInt64{Int64: providerID, Valid: true}
+	}
+	return s.q.SetWorkspaceEnvProvider(ctx, store.SetWorkspaceEnvProviderParams{
+		ID:            workspaceID,
+		EnvProviderID: v,
+	})
 }
 
 // WorktreeChangesSummary holds per-worktree change counts

@@ -11,7 +11,7 @@ import (
 
 func TestPluginInstallGlobalScopeRequiresAdminInTeamMode(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	h := NewPluginInstallHandler(nil, nil, nil, nil, nil, true)
+	h := NewPluginInstallHandler(nil, nil, nil, nil, true)
 	router := gin.New()
 	router.POST("/plugins/install", func(c *gin.Context) {
 		c.Set("auth_role", "member")
@@ -34,7 +34,7 @@ func TestPluginInstallGlobalScopeRequiresAdminInTeamMode(t *testing.T) {
 
 func TestPluginMarketplaceGlobalScopeRequiresAdminBeforeManager(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	h := NewPluginInstallHandler(nil, nil, nil, nil, nil, true)
+	h := NewPluginInstallHandler(nil, nil, nil, nil, true)
 	router := gin.New()
 	router.POST("/plugins/marketplaces", func(c *gin.Context) {
 		c.Set("auth_role", "member")

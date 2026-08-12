@@ -24,10 +24,6 @@ type WorkspaceHandler struct {
 	Q        *store.Queries
 	DB       *sql.DB // used for batch owner-name lookup on list endpoints
 	Authz    *service.Authz
-	// CodexAccount is used at Create time to verify the caller can see the
-	// codex_account_id they're trying to bind (mirror of the SetWorkspaceBinding
-	// visibility gate). Optional; nil disables the check (back-compat for tests).
-	CodexAccount *service.CodexAccountService
 	// RepoSvc + Perm power the studio "from local directory" flow (issues
 	// #232/#235): auto-init/bind the directory as a repo and preset the git Bash
 	// allowlist. Optional; nil makes CreateFromDirectory 500 (mis-wired server).
@@ -54,10 +50,6 @@ type CreateWorkspaceRequest struct {
 	Name            string                       `json:"name"`
 	Repos           []RepoBranchRequest          `json:"repos"`
 	Owner           *CreateWorkspaceOwnerRequest `json:"owner"`
-	ClaudeAccountID *int64                       `json:"claude_account_id"` // nil = use owner's active account
-	// CodexAccountID binds the new codex workspace to a managed codex account.
-	// Ignored for cli_type='claude'. nil = use host's global ~/.codex/ (M2.5).
-	CodexAccountID *int64   `json:"codex_account_id"`
 	MCPServers     []string `json:"mcp_servers,omitempty"` // workspace-scoped MCP server names
 	// CliType picks the agent CLI for the workspace. "claude" (default) or
 	// "codex". Empty string normalizes to "claude" in the SQL layer.
@@ -586,30 +578,6 @@ func (h *WorkspaceHandler) Create(c *gin.Context) {
 	if userID > 0 {
 		createdByPtr = &userID
 	}
-	claudeAccountID := req.ClaudeAccountID
-	if claudeAccountID == nil {
-		claudeAccountID = resolveDefaultClaudeAccount(c.Request.Context(), h.Q, owner.Type, owner.ID)
-	}
-	// Codex account is only meaningful for codex workspaces; the service
-	// layer drops it for claude workspaces. nil = no managed binding.
-	// Visibility check (review I1): mirror SetWorkspaceBinding so a member
-	// can't bind a private account they wouldn't otherwise see.
-	codexAccountID := req.CodexAccountID
-	if req.CliType != "codex" {
-		codexAccountID = nil
-	}
-	if codexAccountID != nil && h.CodexAccount != nil {
-		_, role := callerFromContext(c)
-		if _, accErr := h.CodexAccount.CanAccessCodexAccount(c.Request.Context(),
-			service.NewCallerInfo(userID, role), *codexAccountID); accErr != nil {
-			if errors.Is(accErr, service.ErrCodexAccountNotFound) || errors.Is(accErr, service.ErrCodexNotVisible) {
-				c.JSON(http.StatusForbidden, gin.H{"error": "codex_account_not_visible"})
-				return
-			}
-			c.JSON(http.StatusInternalServerError, gin.H{"error": accErr.Error()})
-			return
-		}
-	}
 	result, err := h.Svc.Create(c.Request.Context(), service.CreateWorkspaceInput{
 		IssueID:         req.IssueID,
 		ProjectID:       req.ProjectID,
@@ -618,8 +586,6 @@ func (h *WorkspaceHandler) Create(c *gin.Context) {
 		OwnerType:       owner.Type,
 		OwnerID:         owner.ID,
 		CreatedBy:       createdByPtr,
-		ClaudeAccountID: claudeAccountID,
-		CodexAccountID:  codexAccountID,
 		MCPServers:      req.MCPServers,
 		CliType:         req.CliType,
 		NoRepo:          req.NoRepo,
@@ -770,14 +736,12 @@ func (h *WorkspaceHandler) CreateFromDirectory(c *gin.Context) {
 	if userID > 0 {
 		createdByPtr = &userID
 	}
-	claudeAccountID := resolveDefaultClaudeAccount(c.Request.Context(), h.Q, owner.Type, owner.ID)
 	result, err := h.Svc.Create(c.Request.Context(), service.CreateWorkspaceInput{
 		Name:            req.Name,
 		Repos:           []service.RepoBranch{{RepoID: repo.ID, Branch: ""}},
 		OwnerType:       owner.Type,
 		OwnerID:         owner.ID,
 		CreatedBy:       createdByPtr,
-		ClaudeAccountID: claudeAccountID,
 		CliType:         req.CliType,
 		IsStudio:        true,
 		Language:        c.GetHeader("X-Niuniu-Language"),
@@ -918,26 +882,6 @@ func (h *WorkspaceHandler) CreateForIssue(c *gin.Context) {
 	if userID > 0 {
 		createdByPtrForIssue = &userID
 	}
-	claudeAccountID := req.ClaudeAccountID
-	if claudeAccountID == nil {
-		claudeAccountID = resolveDefaultClaudeAccount(c.Request.Context(), h.Q, owner.Type, owner.ID)
-	}
-	codexAccountID := req.CodexAccountID
-	if req.CliType != "codex" {
-		codexAccountID = nil
-	}
-	if codexAccountID != nil && h.CodexAccount != nil {
-		_, role := callerFromContext(c)
-		if _, accErr := h.CodexAccount.CanAccessCodexAccount(c.Request.Context(),
-			service.NewCallerInfo(userID, role), *codexAccountID); accErr != nil {
-			if errors.Is(accErr, service.ErrCodexAccountNotFound) || errors.Is(accErr, service.ErrCodexNotVisible) {
-				c.JSON(http.StatusForbidden, gin.H{"error": "codex_account_not_visible"})
-				return
-			}
-			c.JSON(http.StatusInternalServerError, gin.H{"error": accErr.Error()})
-			return
-		}
-	}
 	result, err := h.Svc.Create(c.Request.Context(), service.CreateWorkspaceInput{
 		IssueID:         &issueID,
 		Name:            req.Name,
@@ -945,8 +889,6 @@ func (h *WorkspaceHandler) CreateForIssue(c *gin.Context) {
 		OwnerType:       owner.Type,
 		OwnerID:         owner.ID,
 		CreatedBy:       createdByPtrForIssue,
-		ClaudeAccountID: claudeAccountID,
-		CodexAccountID:  codexAccountID,
 		MCPServers:      req.MCPServers,
 		CliType:         req.CliType,
 		Language:        c.GetHeader("X-Niuniu-Language"),
@@ -1487,6 +1429,40 @@ func (h *WorkspaceHandler) SetEnv(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"env": req.Env})
 }
 
+// SetEnvProvider binds (or unbinds, when 0/null) a subscription-platform
+// provider directly to the workspace, so its base_url/models/account reach the
+// agent at spawn without mounting a scene.
+func (h *WorkspaceHandler) SetEnvProvider(c *gin.Context) {
+	userID := c.GetInt64("auth_user_id")
+	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		BadRequest(c, "invalid workspace ID")
+		return
+	}
+	if userID > 0 && h.Authz != nil {
+		if _, err := h.Authz.CanAccessWorkspace(c.Request.Context(), userID, id); err != nil {
+			writeAuthzError(c, err)
+			return
+		}
+	}
+	var req struct {
+		EnvProviderID *int64 `json:"env_provider_id"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		BadRequest(c, err.Error())
+		return
+	}
+	var pid int64
+	if req.EnvProviderID != nil {
+		pid = *req.EnvProviderID
+	}
+	if err := h.Svc.SetEnvProvider(c.Request.Context(), id, pid); err != nil {
+		InternalError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"env_provider_id": pid})
+}
+
 // GetByIssue returns the workspace linked to an issue
 // @Summary      Get workspace by issue
 // @Description  Get workspace linked to a specific issue
@@ -1888,20 +1864,6 @@ func (h *WorkspaceHandler) OverviewCreators(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"data": creators})
-}
-
-// resolveDefaultClaudeAccount returns the owner's active claude_account_id, or nil if unavailable.
-func resolveDefaultClaudeAccount(ctx context.Context, q *store.Queries, ownerType string, ownerID int64) *int64 {
-	if q == nil {
-		return nil
-	}
-	id, err := q.GetActiveClaudeAccount(ctx, store.GetActiveClaudeAccountParams{
-		OwnerType: ownerType, OwnerID: ownerID,
-	})
-	if err != nil {
-		return nil
-	}
-	return &id
 }
 
 type overviewCreatorsResponse struct {

@@ -1,16 +1,14 @@
+import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useQuery } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
-import { Plus, Trash2, ExternalLink } from 'lucide-react';
+import { Plus, Trash2, ExternalLink, ChevronDown, ChevronRight } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Badge } from '@/components/ui/badge';
-import { mcpApi } from '@/lib/api';
 import { listDataSources } from '@/lib/data-sources-api';
-import { getActiveClaudeAccount, listClaudeAccounts } from '@/lib/claude-account-api';
-import { useAuthStore } from '@/stores/auth-store';
 import type { KnownMCP } from '@/types/api';
 import type { AdvancedDraft, DataSourceRow, EnvPresetRow, MatchRuleRow, MCPRow } from './scene-editor-helpers';
 
@@ -40,6 +38,7 @@ function Section({
   onAdd,
   addLabel,
   disabled,
+  collapsible,
   children,
 }: {
   title: string;
@@ -47,20 +46,33 @@ function Section({
   onAdd?: () => void;
   addLabel?: string;
   disabled?: boolean;
+  collapsible?: boolean;
   children: React.ReactNode;
 }) {
+  const [collapsed, setCollapsed] = useState(false);
+  const header = (
+    <div className="flex items-center justify-between">
+      <h3
+        className={`text-sm font-semibold text-warm-text ${collapsible ? 'cursor-pointer select-none' : ''}`}
+        onClick={collapsible ? () => setCollapsed((v) => !v) : undefined}
+      >
+        {collapsible && (
+          <span className="inline-block w-4 text-warm-text-muted">{collapsed ? '▶' : '▼'}</span>
+        )}
+        {title}
+      </h3>
+      {!collapsed && onAdd && (
+        <Button type="button" variant="outline" size="sm" onClick={onAdd} disabled={disabled}>
+          <Plus className="h-4 w-4 mr-1" /> {addLabel}
+        </Button>
+      )}
+    </div>
+  );
   return (
     <section className="space-y-2 rounded-lg border border-warm-border p-4">
-      <div className="flex items-center justify-between">
-        <h3 className="text-sm font-semibold text-warm-text">{title}</h3>
-        {onAdd && (
-          <Button type="button" variant="outline" size="sm" onClick={onAdd} disabled={disabled}>
-            <Plus className="h-4 w-4 mr-1" /> {addLabel}
-          </Button>
-        )}
-      </div>
-      {hint && <p className="text-xs text-warm-text-muted">{hint}</p>}
-      {children}
+      {header}
+      {!collapsed && hint && <p className="text-xs text-warm-text-muted">{hint}</p>}
+      {!collapsed && children}
     </section>
   );
 }
@@ -93,30 +105,17 @@ export function SceneAdvancedEditor({ value, onChange, disabled }: SceneAdvanced
   const { t } = useTranslation('scenes');
   const patch = (p: Partial<AdvancedDraft>) => onChange({ ...value, ...p });
 
-  const userId = useAuthStore((s) => s.user?.id);
-
   // Locally-installed MCP servers (from the owner's active Claude account, with a
   // fall back to the first account). Used to populate the picker; the scene still
   // only stores the MCP name, so a free-typed name for a not-yet-installed server
   // is also accepted.
   const { data: mcpAvailable = [] } = useQuery({
-    queryKey: ['scene-mcp-available', userId],
-    enabled: !!userId,
+    queryKey: ['scene-mcp-available'],
     queryFn: async (): Promise<KnownMCP[]> => {
-      let accountId: number | null = null;
-      try {
-        const active = await getActiveClaudeAccount('user', userId!);
-        accountId = active.account?.id ?? null;
-      } catch {
-        accountId = null;
-      }
-      if (accountId == null) {
-        const accounts = await listClaudeAccounts().catch(() => []);
-        accountId = accounts[0]?.id ?? null;
-      }
-      if (accountId == null) return [];
-      const resp = await mcpApi.listAvailable(accountId).catch(() => ({ items: [] as KnownMCP[] }));
-      return resp.items;
+      // Per-account MCP discovery was removed with the multi-account system;
+      // the picker now relies on free-typed names (the scene only stores the
+      // MCP name anyway, so a not-yet-installed server is accepted).
+      return [];
     },
   });
   const mcpByName = new Map(mcpAvailable.map((m) => [m.name, m]));
@@ -172,6 +171,7 @@ export function SceneAdvancedEditor({ value, onChange, disabled }: SceneAdvanced
   const removeRule = (i: number) => patch({ matchRules: value.matchRules.filter((_, idx) => idx !== i) });
 
   // -- env presets ----------------------------------------------------------
+  const [collapsedPresets, setCollapsedPresets] = useState<Set<number>>(new Set());
   const addPreset = () => patch({ envPresets: [...value.envPresets, { slug: '', name: '', env: [] }] });
   const setPreset = (i: number, p: Partial<EnvPresetRow>) =>
     patch({ envPresets: value.envPresets.map((row, idx) => (idx === i ? { ...row, ...p } : row)) });
@@ -505,66 +505,84 @@ export function SceneAdvancedEditor({ value, onChange, disabled }: SceneAdvanced
         )}
       </Section>
 
-      {/* Env presets */}
+      {/* Env presets (editable; data flows to env_presets table; collapsible) */}
       <Section
         title={t('editor.adv_env_title')}
         hint={t('editor.adv_env_hint')}
         onAdd={addPreset}
         addLabel={t('editor.adv_env_add')}
         disabled={disabled}
+        collapsible
       >
+
         {value.envPresets.length === 0 ? (
           <p className="text-xs text-warm-text-muted py-1">{t('editor.adv_env_empty')}</p>
         ) : (
           <div className="space-y-3">
-            {value.envPresets.map((preset, pi) => (
+            {value.envPresets.map((preset, pi) => {
+              const isCollapsed = collapsedPresets.has(pi);
+              return (
               <div key={pi} className="rounded-md border border-warm-border p-3 space-y-2">
-                <div className="flex gap-2">
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setCollapsedPresets((prev) => { const n = new Set(prev); n.has(pi) ? n.delete(pi) : n.add(pi); return n; })}
+                    className="text-warm-text-muted hover:text-warm-text shrink-0"
+                  >
+                    {isCollapsed ? <ChevronRight className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                  </button>
                   <Input
                     value={preset.slug}
                     onChange={(e) => setPreset(pi, { slug: e.target.value })}
                     placeholder={t('editor.adv_env_slug')}
                     disabled={disabled}
-                    className="font-mono text-xs"
+                    className="font-mono text-xs flex-1"
                   />
                   <Input
                     value={preset.name}
                     onChange={(e) => setPreset(pi, { name: e.target.value })}
                     placeholder={t('editor.adv_env_name')}
                     disabled={disabled}
+                    className="flex-1"
                   />
+                  <span className="text-xs text-warm-text-muted shrink-0">{preset.env.length}</span>
                   <RemoveButton onClick={() => removePreset(pi)} disabled={disabled} label={t('editor.remove')} />
                 </div>
-                {preset.env.length === 0 ? (
-                  <p className="text-xs text-warm-text-muted">{t('editor.adv_env_vars_empty')}</p>
-                ) : (
-                  <div className="space-y-2">
-                    {preset.env.map((v, vi) => (
-                      <div key={vi} className="flex gap-2">
-                        <Input
-                          value={v.key}
-                          onChange={(e) => setVar(pi, vi, { key: e.target.value })}
-                          placeholder={t('editor.adv_env_key')}
-                          disabled={disabled}
-                          className="font-mono text-xs"
-                        />
-                        <Input
-                          value={v.value}
-                          onChange={(e) => setVar(pi, vi, { value: e.target.value })}
-                          placeholder={t('editor.adv_env_value')}
-                          disabled={disabled}
-                          className="font-mono text-xs"
-                        />
-                        <RemoveButton onClick={() => removeVar(pi, vi)} disabled={disabled} label={t('editor.remove')} />
+                {!isCollapsed && (
+                  <>
+                    {preset.env.length === 0 ? (
+                      <p className="text-xs text-warm-text-muted">{t('editor.adv_env_vars_empty')}</p>
+                    ) : (
+                      <div className="space-y-2">
+                        {preset.env.map((v, vi) => (
+                          <div key={vi} className="flex gap-2">
+                            <Input
+                              value={v.key}
+                              onChange={(e) => setVar(pi, vi, { key: e.target.value })}
+                              placeholder={t('editor.adv_env_key')}
+                              disabled={disabled}
+                              className="font-mono text-xs"
+                            />
+                            <Input
+                              value={v.value}
+                              onChange={(e) => setVar(pi, vi, { value: e.target.value })}
+                              placeholder={t('editor.adv_env_value')}
+                              disabled={disabled}
+                              className="font-mono text-xs"
+                            />
+                            <RemoveButton onClick={() => removeVar(pi, vi)} disabled={disabled} label={t('editor.remove')} />
+                          </div>
+                        ))}
                       </div>
-                    ))}
-                  </div>
+                    )}
+                    <Button type="button" variant="outline" size="sm" onClick={() => addVar(pi)} disabled={disabled}>
+                      <Plus className="h-4 w-4 mr-1" /> {t('editor.adv_env_add_var')}
+                    </Button>
+                  </>
                 )}
-                <Button type="button" variant="outline" size="sm" onClick={() => addVar(pi)} disabled={disabled}>
-                  <Plus className="h-4 w-4 mr-1" /> {t('editor.adv_env_add_var')}
-                </Button>
               </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </Section>

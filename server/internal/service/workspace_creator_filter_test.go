@@ -128,3 +128,5 @@ func setEqInt64(a, b []int64) bool {
 	}
 	return true
 }
+
+func int64Ptr(i int64) *int64 { return &i }

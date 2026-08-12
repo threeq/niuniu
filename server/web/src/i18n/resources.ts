@@ -9,8 +9,6 @@ import zhCNSchedules from './locales/zh-CN/schedules.json'
 import zhCNOrgs from './locales/zh-CN/orgs.json'
 import zhCNLogin from './locales/zh-CN/login.json'
 import zhCNDialogs from './locales/zh-CN/dialogs.json'
-import zhCNClaudeAccounts from './locales/zh-CN/claude-accounts.json'
-import zhCNCodexAccounts from './locales/zh-CN/codex-accounts.json'
 import zhCNPresets from './locales/zh-CN/presets.json'
 import zhCNWizard from './locales/zh-CN/wizard.json'
 import zhCNIssues from './locales/zh-CN/issues.json'
@@ -31,8 +29,6 @@ import enSchedules from './locales/en/schedules.json'
 import enOrgs from './locales/en/orgs.json'
 import enLogin from './locales/en/login.json'
 import enDialogs from './locales/en/dialogs.json'
-import enClaudeAccounts from './locales/en/claude-accounts.json'
-import enCodexAccounts from './locales/en/codex-accounts.json'
 import enPresets from './locales/en/presets.json'
 import enWizard from './locales/en/wizard.json'
 import enIssues from './locales/en/issues.json'
@@ -53,8 +49,6 @@ import zhTWSchedules from './locales/zh-TW/schedules.json'
 import zhTWOrgs from './locales/zh-TW/orgs.json'
 import zhTWLogin from './locales/zh-TW/login.json'
 import zhTWDialogs from './locales/zh-TW/dialogs.json'
-import zhTWClaudeAccounts from './locales/zh-TW/claude-accounts.json'
-import zhTWCodexAccounts from './locales/zh-TW/codex-accounts.json'
 import zhTWPresets from './locales/zh-TW/presets.json'
 import zhTWWizard from './locales/zh-TW/wizard.json'
 import zhTWIssues from './locales/zh-TW/issues.json'
@@ -68,21 +62,21 @@ export const resources = {
   'zh-CN': { auth: zhCNAuth, common: zhCNCommon, nav: zhCNNav, settings: zhCNSettings,
     workspaces: zhCNWorkspaces, projects: zhCNProjects, repositories: zhCNRepositories,
     schedules: zhCNSchedules, orgs: zhCNOrgs, login: zhCNLogin, dialogs: zhCNDialogs,
-    'claude-accounts': zhCNClaudeAccounts, 'codex-accounts': zhCNCodexAccounts,
+   
     presets: zhCNPresets, wizard: zhCNWizard, issues: zhCNIssues, scenes: zhCNScenes,
     data: zhCNData, dashboards: zhCNDashboards, assistant: zhCNAssistant,
     knowledge: zhCNKnowledge },
   en: { auth: enAuth, common: enCommon, nav: enNav, settings: enSettings,
     workspaces: enWorkspaces, projects: enProjects, repositories: enRepositories,
     schedules: enSchedules, orgs: enOrgs, login: enLogin, dialogs: enDialogs,
-    'claude-accounts': enClaudeAccounts, 'codex-accounts': enCodexAccounts,
+   
     presets: enPresets, wizard: enWizard, issues: enIssues, scenes: enScenes,
     data: enData, dashboards: enDashboards, assistant: enAssistant,
     knowledge: enKnowledge },
   'zh-TW': { auth: zhTWAuth, common: zhTWCommon, nav: zhTWNav, settings: zhTWSettings,
     workspaces: zhTWWorkspaces, projects: zhTWProjects, repositories: zhTWRepositories,
     schedules: zhTWSchedules, orgs: zhTWOrgs, login: zhTWLogin, dialogs: zhTWDialogs,
-    'claude-accounts': zhTWClaudeAccounts, 'codex-accounts': zhTWCodexAccounts,
+   
     presets: zhTWPresets, wizard: zhTWWizard, issues: zhTWIssues, scenes: zhTWScenes,
     data: zhTWData, dashboards: zhTWDashboards, assistant: zhTWAssistant,
     knowledge: zhTWKnowledge },
@@ -90,7 +84,7 @@ export const resources = {
 
 export const NAMESPACES = [
   'auth', 'common', 'nav', 'settings', 'workspaces', 'projects',
-  'repositories', 'schedules', 'orgs', 'login', 'dialogs', 'claude-accounts', 'codex-accounts',
+  'repositories', 'schedules', 'orgs', 'login', 'dialogs',
   'presets', 'wizard', 'issues', 'scenes', 'data', 'dashboards', 'assistant', 'knowledge',
 ] as const
 export type Namespace = typeof NAMESPACES[number]

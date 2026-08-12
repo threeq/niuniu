@@ -117,54 +117,6 @@ type BlackboardEntry struct {
 	CreatedAt     time.Time      `json:"created_at"`
 }
 
-type ClaudeAccount struct {
-	ID         int64          `json:"id"`
-	Name       string         `json:"name"`
-	Email      sql.NullString `json:"email"`
-	ConfigDir  string         `json:"config_dir"`
-	Visibility string         `json:"visibility"`
-	Status     string         `json:"status"`
-	CreatedAt  int64          `json:"created_at"`
-	LastUsedAt sql.NullInt64  `json:"last_used_at"`
-	CreatedBy  sql.NullInt64  `json:"created_by"`
-}
-
-type ClaudeAccountAuditLog struct {
-	ID          int64         `json:"id"`
-	AccountID   sql.NullInt64 `json:"account_id"`
-	ActorUserID sql.NullInt64 `json:"actor_user_id"`
-	Action      string        `json:"action"`
-	Payload     string        `json:"payload"`
-	CreatedAt   time.Time     `json:"created_at"`
-}
-
-type ClaudeActiveAccount struct {
-	OwnerType string `json:"owner_type"`
-	OwnerID   int64  `json:"owner_id"`
-	AccountID int64  `json:"account_id"`
-}
-
-type CodexAccount struct {
-	ID         int64          `json:"id"`
-	Name       string         `json:"name"`
-	Email      sql.NullString `json:"email"`
-	ConfigDir  string         `json:"config_dir"`
-	Visibility string         `json:"visibility"`
-	Status     string         `json:"status"`
-	CreatedAt  int64          `json:"created_at"`
-	LastUsedAt sql.NullInt64  `json:"last_used_at"`
-	CreatedBy  sql.NullInt64  `json:"created_by"`
-}
-
-type CodexAccountAuditLog struct {
-	ID          int64         `json:"id"`
-	AccountID   sql.NullInt64 `json:"account_id"`
-	ActorUserID sql.NullInt64 `json:"actor_user_id"`
-	Action      string        `json:"action"`
-	Payload     string        `json:"payload"`
-	CreatedAt   time.Time     `json:"created_at"`
-}
-
 type Column struct {
 	ID               int64          `json:"id"`
 	ProjectID        int64          `json:"project_id"`
@@ -277,6 +229,19 @@ type DefaultProjectBlueprint struct {
 	UpdatedAt   time.Time `json:"updated_at"`
 }
 
+type EnvAccount struct {
+	ID          int64     `json:"id"`
+	Name        string    `json:"name"`
+	Platform    string    `json:"platform"`
+	Description string    `json:"description"`
+	ApiKey      string    `json:"api_key"`
+	OwnerType   string    `json:"owner_type"`
+	OwnerID     int64     `json:"owner_id"`
+	Slug        string    `json:"slug"`
+	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
+}
+
 type EnvPreset struct {
 	ID          int64     `json:"id"`
 	Name        string    `json:"name"`
@@ -287,6 +252,26 @@ type EnvPreset struct {
 	Slug        string    `json:"slug"`
 	CreatedAt   time.Time `json:"created_at"`
 	UpdatedAt   time.Time `json:"updated_at"`
+}
+
+type EnvProvider struct {
+	ID            int64     `json:"id"`
+	Name          string    `json:"name"`
+	Platform      string    `json:"platform"`
+	Description   string    `json:"description"`
+	BaseUrls      string    `json:"base_urls"`
+	ApiKey        string    `json:"api_key"`
+	Model         string    `json:"model"`
+	HaikuModel    string    `json:"haiku_model"`
+	SonnetModel   string    `json:"sonnet_model"`
+	OpusModel     string    `json:"opus_model"`
+	SubagentModel string    `json:"subagent_model"`
+	ExtraEnv      string    `json:"extra_env"`
+	OwnerType     string    `json:"owner_type"`
+	OwnerID       int64     `json:"owner_id"`
+	Slug          string    `json:"slug"`
+	CreatedAt     time.Time `json:"created_at"`
+	UpdatedAt     time.Time `json:"updated_at"`
 }
 
 type ExternalApiAudit struct {
@@ -729,6 +714,7 @@ type Project struct {
 	Color               sql.NullString `json:"color"`
 	MemorySweepCron     string         `json:"memory_sweep_cron"`
 	DefaultCliType      string         `json:"default_cli_type"`
+	EnvProviderID       sql.NullInt64  `json:"env_provider_id"`
 	CleanupEnabled      int64          `json:"cleanup_enabled"`
 	CleanupInactiveDays int64          `json:"cleanup_inactive_days"`
 	CleanupStatuses     string         `json:"cleanup_statuses"`
@@ -941,15 +927,14 @@ type Workspace struct {
 	IsTemporary          int64          `json:"is_temporary"`
 	IsArchived           int64          `json:"is_archived"`
 	ArchivedAt           sql.NullTime   `json:"archived_at"`
-	ClaudeAccountID      sql.NullInt64  `json:"claude_account_id"`
 	McpServers           string         `json:"mcp_servers"`
 	CliType              string         `json:"cli_type"`
-	CodexAccountID       sql.NullInt64  `json:"codex_account_id"`
 	CodexSandboxMode     string         `json:"codex_sandbox_mode"`
 	CodexApprovalPolicy  string         `json:"codex_approval_policy"`
 	IsStudio             int64          `json:"is_studio"`
 	StrictMcpConfig      int64          `json:"strict_mcp_config"`
 	Language             string         `json:"language"`
+	EnvProviderID        sql.NullInt64  `json:"env_provider_id"`
 }
 
 type WorkspaceCost struct {
