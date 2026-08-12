@@ -204,7 +204,7 @@ function ProviderCard({ provider, onEdit, onDelete }: {
   )
 }
 
-export function EnvSettings() {
+export function EnvSettings({ mode = 'all' }: { mode?: 'all' | 'presets' | 'providers' }) {
   const { t } = useTranslation('settings')
   const queryClient = useQueryClient()
   const currentUser = useAuthStore((s) => s.user)
@@ -429,7 +429,7 @@ export function EnvSettings() {
   return (
     <div className="space-y-4">
       {/* Subscription platform providers (unified config → per-agent env) */}
-      <div>
+      <div className={mode === 'presets' ? 'hidden' : ''}>
         <div className="flex items-center justify-between">
           <div className="min-w-0">
             <h3 className="text-sm font-medium text-foreground">{t('env.providersTitle')}</h3>
@@ -463,7 +463,7 @@ export function EnvSettings() {
       </div>
 
       {/* Subscription platform accounts */}
-      <div className="border-t border-border pt-4">
+      <div className={mode === 'presets' ? 'border-t border-border pt-4 hidden' : 'border-t border-border pt-4'}>
         <div className="flex items-center justify-between">
           <div className="min-w-0">
             <h3 className="text-sm font-medium text-foreground">{t('env.accountsTitle')}</h3>
@@ -496,7 +496,7 @@ export function EnvSettings() {
       </div>
 
       {/* Env presets — advanced/raw env (Provider is the primary path above) */}
-      <div className="border-t border-border pt-4">
+      <div className={mode === 'providers' ? 'border-t border-border pt-4 hidden' : 'border-t border-border pt-4'}>
         <div className="flex items-center justify-between">
           <div>
             <h3 className="text-sm font-medium text-foreground">{t('env.presetsAdvancedTitle')}</h3>

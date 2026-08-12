@@ -229,6 +229,7 @@
     "general": "General",
     "systemDeps": "System Dependencies",
     "env": "Environment Variables",
+    "providers": "Platforms",
     "gitIdentity": "Git",
     "users": "Users",
     "security": "Security",

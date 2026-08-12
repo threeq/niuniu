@@ -229,6 +229,7 @@
     "general": "通用",
     "systemDeps": "系统依赖",
     "env": "环境变量",
+    "providers": "订阅平台",
     "gitIdentity": "Git",
     "users": "用户",
     "security": "安全",

@@ -11,6 +11,7 @@ import {
   MonitorCog,
   Plug,
   Settings2,
+  Server,
   ShieldCheck,
   SlidersHorizontal,
   UserCog,
@@ -40,7 +41,7 @@ import { useAuthStore } from '@/stores/auth-store'
 import { useConfigStore } from '@/stores/config-store'
 import { useLicenseStore } from '@/stores/license-store'
 
-type SettingsTab = 'general' | 'users' | 'security' | 'env' | 'git-identity' | 'mobile-access' | 'system-deps' | 'integrations' | 'license' | 'orchestration' | 'blueprints' | 'imbot' | 'about' | 'claude'
+type SettingsTab = 'general' | 'users' | 'security' | 'env' | 'providers' | 'git-identity' | 'mobile-access' | 'system-deps' | 'integrations' | 'license' | 'orchestration' | 'blueprints' | 'imbot' | 'about' | 'claude'
 
 interface TabVisibilityCtx {
   authEnabled: boolean
@@ -54,6 +55,7 @@ const tabs: { id: SettingsTab; labelKey: string; icon?: LucideIcon; visible?: (c
   { id: 'general', labelKey: 'tabs.general', icon: SlidersHorizontal },
   { id: 'system-deps', labelKey: 'tabs.systemDeps', icon: Cpu },
   { id: 'env', labelKey: 'tabs.env', icon: Variable },
+  { id: 'providers', labelKey: 'tabs.providers', icon: Server },
   { id: 'git-identity', labelKey: 'tabs.gitIdentity', icon: GitBranch },
   { id: 'users', labelKey: 'tabs.users', icon: UserCog, visible: ({ authEnabled, isAdmin }) => authEnabled && isAdmin },
   { id: 'security', labelKey: 'tabs.security', icon: ShieldCheck, visible: ({ authEnabled }) => authEnabled },
@@ -70,7 +72,7 @@ const navGroups: { id: string; labelKey: string; tabIds: SettingsTab[] }[] = [
   { id: 'personal', labelKey: 'groups.personal', tabIds: ['general', 'security'] },
   { id: 'team', labelKey: 'groups.team', tabIds: ['users'] },
   { id: 'agents', labelKey: 'groups.agents', tabIds: ['claude', 'integrations', 'orchestration', 'blueprints', 'imbot'] },
-  { id: 'system', labelKey: 'groups.system', tabIds: ['system-deps', 'env', 'git-identity', 'license', 'about'] },
+  { id: 'system', labelKey: 'groups.system', tabIds: ['system-deps', 'env', 'providers', 'git-identity', 'license', 'about'] },
 ]
 
 // Map legacy ?tab values to their current home so old bookmarks/links don't
@@ -223,7 +225,8 @@ export function SettingsPage({ children, orgsActive = false }: SettingsPageProps
               <>
                 {activeTab === 'general' && <GeneralSettings />}
                 {activeTab === 'system-deps' && <SystemDepsSettings />}
-                {activeTab === 'env' && <EnvSettings />}
+                {activeTab === 'env' && <EnvSettings mode="presets" />}
+                {activeTab === 'providers' && <EnvSettings mode="providers" />}
                 {activeTab === 'git-identity' && (
                   <>
                     <GitIdentitySettings />
