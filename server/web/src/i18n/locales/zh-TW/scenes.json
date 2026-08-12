@@ -126,7 +126,7 @@
     "adv_match_args": "引數（JSON 物件，可選）",
     "adv_env_title": "環境變數預設",
     "adv_env_hint": "掛載該場景時匯入的環境變數預設組。",
-    "adv_env_providers_hint": "直接掛載訂閱平台 Provider：其 base_url / 模型 / API Key 會在 Agent 啟動時按該工作空間的 Agent 類型自動展開為對應環境變數。",
+    "adv_env_providers_hint": "直接掛載訂閱平臺 Provider：其 base_url / 模型 / API Key 會在 Agent 啟動時按該工作空間的 Agent 型別自動展開為對應環境變數。",
     "adv_env_providers_empty": "暫無 Provider，請先在「設定 → 環境變數」中配置。",
     "adv_env_add": "新增預設",
     "adv_env_empty": "暫無環境變數預設。",
