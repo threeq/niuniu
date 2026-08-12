@@ -412,11 +412,8 @@ func New(cfg *config.Config, db *sql.DB, frontendFS fs.FS) *Server {
 		slog.Warn("seed quick actions failed", "error", err)
 	}
 
-	// Env preset service and handler
+	// Env preset service and handler — no more auto-seeded preset values.
 	s.envPresetSvc = service.NewEnvPresetService(s.queries, db, authz)
-	if err := s.envPresetSvc.SeedDefaults(context.Background()); err != nil {
-		slog.Warn("seed env presets failed", "error", err)
-	}
 	s.envPresetHandler = api.NewEnvPresetHandler(s.envPresetSvc)
 	s.envPresetHandler.Authz = authz
 	// One-shot AI helper subprocesses (goal suggest/classify, column-op suggest)
@@ -425,25 +422,35 @@ func New(cfg *config.Config, db *sql.DB, frontendFS fs.FS) *Server {
 	agentproxy.OneShotProviderEnvFunc = s.envPresetSvc.ResolveOneShotEnv
 	s.envPresetHandler.DB = db
 
-	// Env account service and handler (subscription-platform credentials
-	// referenced by env presets via ${ACCOUNT:<name>}).
+	// Env account + provider services. Seed defaults ONLY on the very first run
+	// (fresh install with empty tables). Once seeded (or on an existing install
+	// that already has data), mark done so user-deleted items never come back.
 	s.envAccountSvc = service.NewEnvAccountService(s.queries, db, authz)
-	if err := s.envAccountSvc.SeedDefaults(context.Background()); err != nil {
-		slog.Warn("seed env accounts failed", "error", err)
-	}
 	s.envAccountHandler = api.NewEnvAccountHandler(s.envAccountSvc)
 	s.envAccountHandler.Authz = authz
 	s.envAccountHandler.DB = db
 
-	// Env provider service and handler (unified subscription-platform configs
-	// that expand to per-agent env vars; see EnvProviderService.Expand).
 	s.envProviderSvc = service.NewEnvProviderService(s.queries, db, authz)
-	if err := s.envProviderSvc.SeedDefaults(context.Background()); err != nil {
-		slog.Warn("seed env providers failed", "error", err)
-	}
 	s.envProviderHandler = api.NewEnvProviderHandler(s.envProviderSvc, s.envPresetSvc, s.envAccountSvc)
 	s.envProviderHandler.Authz = authz
 	s.envProviderHandler.DB = db
+
+	if !store.HasEnvSeedRun(db) {
+		existingProviders, _ := s.queries.ListEnvProviders(context.Background())
+		existingAccounts, _ := s.queries.ListEnvAccounts(context.Background())
+		if len(existingProviders) == 0 && len(existingAccounts) == 0 {
+			// Truly fresh install — seed defaults for the first time.
+			if err := s.envAccountSvc.SeedDefaults(context.Background()); err != nil {
+				slog.Warn("seed env accounts failed", "error", err)
+			}
+			if err := s.envProviderSvc.SeedDefaults(context.Background()); err != nil {
+				slog.Warn("seed env providers failed", "error", err)
+			}
+		}
+		// Mark done regardless: existing installs (with data) skip seeding;
+		// fresh installs just seeded. Either way, never re-seed again.
+		store.MarkEnvSeedDone(db)
+	}
 
 	// Scene services (M1 — see docs/superpowers/specs/2026-05-17-scene-based-mcp-plugin-management-design.md).
 	// Order: SceneService → SceneSeeder seeds builtins from embedded YAML →
