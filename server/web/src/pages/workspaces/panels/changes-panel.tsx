@@ -90,10 +90,14 @@ function TreeFileRow({
       title={file.path}
       style={{ paddingLeft: `${8 + depth * 16}px` }}
       className={cn(
-        'flex w-full items-center gap-2 py-1 pr-3 text-left text-[13px] transition-colors',
+        'flex w-full items-center gap-1.5 py-1 pr-3 text-left text-[13px] transition-colors',
         selected ? 'bg-brand-soft' : 'hover:bg-accent',
       )}
     >
+      {/* Spacer matches the chevron slot on dir rows so the file icon / badge
+          column lines up vertically with the folder-icon column on sibling dirs
+          at the same depth. */}
+      <span className="w-3 shrink-0" aria-hidden />
       <span
         className={cn(
           'grid h-[18px] w-[18px] shrink-0 place-items-center rounded-md text-[10px] font-semibold',
