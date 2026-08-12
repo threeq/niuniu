@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
-import { Plus, Trash2, Pencil, ChevronDown, ChevronRight, Package, KeyRound, Server } from 'lucide-react'
+import { Plus, Trash2, Pencil, ChevronDown, ChevronRight, Package, KeyRound, Server, Copy } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import {
@@ -122,10 +122,11 @@ function AccountCard({ account, onEdit, onDelete }: { account: EnvAccount; onEdi
   )
 }
 
-function ProviderCard({ provider, onEdit, onDelete }: {
+function ProviderCard({ provider, onEdit, onDelete, onDuplicate }: {
   provider: EnvProvider
   onEdit: (p: EnvProvider) => void
   onDelete: (id: number) => void
+  onDuplicate: (p: EnvProvider) => void
 }) {
   const { t } = useTranslation('settings')
   const [showPreview, setShowPreview] = useState(false)
@@ -140,6 +141,7 @@ function ProviderCard({ provider, onEdit, onDelete }: {
 
   return (
     <div className="border border-border rounded-lg p-4">
+      {/* Row 1: name, platform, model, account */}
       <div className="flex items-center justify-between gap-2">
         <button
           onClick={() => setShowPreview((v) => !v)}
@@ -150,15 +152,17 @@ function ProviderCard({ provider, onEdit, onDelete }: {
           {provider.platform && (
             <span className="text-xs text-muted-foreground truncate">{provider.platform}</span>
           )}
-          {Object.entries(provider.base_urls ?? {}).map(([proto, url]) => (
-            <span key={proto} className="text-xs text-muted-foreground font-mono truncate">{proto}: {url}</span>
-          ))}
           {provider.model && (
             <span className="text-xs text-muted-foreground truncate">model: {provider.model}</span>
           )}
+          {provider.api_key && (
+            <span className="text-xs text-muted-foreground font-mono truncate">{provider.api_key}</span>
+          )}
         </button>
         <div className="flex items-center gap-1 flex-shrink-0 ml-2">
-
+          <button onClick={() => onDuplicate(provider)} className="p-1 text-muted-foreground hover:text-info" title={t('env.providerDuplicate')}>
+            <Copy className="h-3.5 w-3.5" />
+          </button>
           <button onClick={() => onEdit(provider)} className="p-1 text-muted-foreground hover:text-info">
             <Pencil className="h-3.5 w-3.5" />
           </button>
@@ -172,6 +176,14 @@ function ProviderCard({ provider, onEdit, onDelete }: {
             <Trash2 className="h-3.5 w-3.5" />
           </button>
         </div>
+      </div>
+      {/* Row 2+: base_urls per protocol */}
+      <div className="mt-1 ml-6 space-y-0.5">
+        {Object.entries(provider.base_urls ?? {}).map(([proto, url]) => (
+          <div key={proto} className="text-xs text-muted-foreground font-mono break-all">
+            {proto}: {url}
+          </div>
+        ))}
       </div>
 
       {showPreview && (
@@ -364,6 +376,17 @@ export function EnvSettings({ mode = 'all' }: { mode?: 'all' | 'presets' | 'prov
     setProvOwner({ type: 'user', id: currentUser?.id ?? 0 })
     setProviderDialogOpen(true)
   }
+  const openDuplicateProviderDialog = (p: EnvProvider) => {
+    setEditingProvider(null)
+    setProvName(p.name + ' (copy)'); setProvPlatform(p.platform); setProvDesc(p.description)
+    setProvBaseUrls(Object.entries(p.base_urls ?? {}).map(([protocol, url]) => ({ protocol, url })))
+    setProvApiKey(p.api_key)
+    setProvModel(p.model); setProvHaiku(p.haiku_model); setProvSonnet(p.sonnet_model)
+    setProvOpus(p.opus_model); setProvSubagent(p.subagent_model)
+    setProvExtra(Object.entries(p.extra_env ?? {}).map(([key, value]) => ({ key, value })))
+    setProviderDialogOpen(true)
+  }
+
   const openEditProviderDialog = (p: EnvProvider) => {
     setEditingProvider(p)
     setProvName(p.name); setProvPlatform(p.platform); setProvDesc(p.description); setProvBaseUrls(Object.entries(p.base_urls ?? {}).map(([protocol, url]) => ({ protocol, url }))); setProvApiKey(p.api_key)
@@ -454,6 +477,7 @@ export function EnvSettings({ mode = 'all' }: { mode?: 'all' | 'presets' | 'prov
                 key={p.id}
                 provider={p}
                 onEdit={openEditProviderDialog}
+                onDuplicate={openDuplicateProviderDialog}
                 onDelete={(id) => deleteProviderMutation.mutate(id)}
                 
               />
