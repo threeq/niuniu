@@ -56,6 +56,40 @@ func (h *KnowledgeBaseHandler) caller(c *gin.Context) (int64, service.OwnerRef, 
 	return uid, service.OwnerRef{Type: "user", ID: uid}, true
 }
 
+// kbOwner resolves (uid, owner-of-this-KB) for a KB-id request. It gates access
+// via Authz.CanAccessKB so org-owned KBs are reachable to any org member, not
+// just the creator's personal owner. Falls back to the caller's personal owner
+// when auth is off (single-user personal edition) — there every KB is personal.
+func (h *KnowledgeBaseHandler) kbOwner(c *gin.Context, id int64) (int64, service.OwnerRef, bool) {
+	uid := c.GetInt64("auth_user_id")
+	if uid <= 0 {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthenticated"})
+		return 0, service.OwnerRef{}, false
+	}
+	if h.Authz != nil {
+		owner, err := h.Authz.CanAccessKB(c.Request.Context(), uid, id)
+		if err != nil {
+			writeAuthzError(c, err)
+			return 0, service.OwnerRef{}, false
+		}
+		return uid, owner, true
+	}
+	return uid, service.OwnerRef{Type: "user", ID: uid}, true
+}
+
+// accessibleOwnerRefs expands the caller's accessible owners (personal space +
+// member orgs) into OwnerRef values for cross-owner listing.
+func accessibleOwnerRefs(o *service.AccessibleOwners) []service.OwnerRef {
+	if o == nil {
+		return nil
+	}
+	refs := []service.OwnerRef{{Type: "user", ID: o.UserID}}
+	for _, oid := range o.OrgIDs {
+		refs = append(refs, service.OwnerRef{Type: "org", ID: oid})
+	}
+	return refs
+}
+
 func kbIDParam(c *gin.Context, key string) (int64, bool) {
 	id, err := strconv.ParseInt(c.Param(key), 10, 64)
 	if err != nil || id <= 0 {
@@ -261,21 +295,40 @@ func (h *KnowledgeBaseHandler) startIngest(ctx context.Context, owner service.Ow
 // ---- CRUD ------------------------------------------------------------------
 
 func (h *KnowledgeBaseHandler) List(c *gin.Context) {
-	_, owner, ok := h.caller(c)
+	uid, _, ok := h.caller(c)
 	if !ok {
 		return
 	}
 	ctx := c.Request.Context()
-	kbs, err := h.kb.ListKBs(ctx, owner)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
+	// List across every owner the caller can access (personal space + member
+	// orgs) so an org member sees org-level KBs, not just their personal ones.
+	var kbs []store.KnowledgeBase
+	extras := map[int64]kbExtra{}
+	bindings := map[int64][]gin.H{}
+	addOwner := func(o service.OwnerRef) {
+		if list, err := h.kb.ListKBs(ctx, o); err == nil {
+			kbs = append(kbs, list...)
+		}
+		// Batch helpers are owner-scoped; merge by KB id (globally unique).
+		for id, e := range h.readExtraBatch(ctx, o) {
+			extras[id] = e
+		}
+		for id, b := range h.loadBindingsBatch(ctx, o) {
+			bindings[id] = b
+		}
 	}
-	// Batch the extra columns + bindings (2 queries total) instead of 2 queries
-	// per KB, so the panel polling every couple seconds while a corpus ingests
-	// stays at O(1) round-trips rather than O(N).
-	extras := h.readExtraBatch(ctx, owner)
-	bindings := h.loadBindingsBatch(ctx, owner)
+	if h.Authz != nil {
+		owners, aerr := h.Authz.Accessible(ctx, uid)
+		if aerr != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": aerr.Error()})
+			return
+		}
+		for _, o := range accessibleOwnerRefs(owners) {
+			addOwner(o)
+		}
+	} else {
+		addOwner(service.OwnerRef{Type: "user", ID: uid})
+	}
 	items := make([]gin.H, len(kbs))
 	for i, kb := range kbs {
 		e, hit := extras[kb.ID]
@@ -300,10 +353,14 @@ type createKBBody struct {
 	MirrorURLs     []string        `json:"mirror_urls"`
 	PresetID       string          `json:"preset_id"`
 	Bindings       []kbBindingBody `json:"bindings"`
+	Owner          *struct {
+		Type string `json:"type"`
+		ID   int64  `json:"id"`
+	} `json:"owner,omitempty"`
 }
 
 func (h *KnowledgeBaseHandler) Create(c *gin.Context) {
-	_, owner, ok := h.caller(c)
+	uid, _, ok := h.caller(c)
 	if !ok {
 		return
 	}
@@ -313,6 +370,18 @@ func (h *KnowledgeBaseHandler) Create(c *gin.Context) {
 		return
 	}
 	ctx := c.Request.Context()
+	// Default to the caller's personal space; an explicit owner in the body lets
+	// org members create an org-level team KB. EnsureOwnerWritable gates it.
+	owner := service.OwnerRef{Type: "user", ID: uid}
+	if b.Owner != nil && b.Owner.Type != "" && !(b.Owner.Type == "user" && b.Owner.ID == 0) {
+		owner = service.OwnerRef{Type: b.Owner.Type, ID: b.Owner.ID}
+	}
+	if h.Authz != nil {
+		if err := h.Authz.EnsureOwnerWritable(ctx, uid, owner); err != nil {
+			writeAuthzError(c, err)
+			return
+		}
+	}
 
 	// Map the UI's source kinds onto the backend kinds. "upload" is a local KB
 	// whose dataset dir is filled later via the files endpoint. "mcp" is an
@@ -400,11 +469,11 @@ func (h *KnowledgeBaseHandler) Create(c *gin.Context) {
 }
 
 func (h *KnowledgeBaseHandler) Get(c *gin.Context) {
-	_, owner, ok := h.caller(c)
+	id, ok := kbIDParam(c, "id")
 	if !ok {
 		return
 	}
-	id, ok := kbIDParam(c, "id")
+	_, owner, ok := h.kbOwner(c, id)
 	if !ok {
 		return
 	}
@@ -424,11 +493,11 @@ type updateKBBody struct {
 }
 
 func (h *KnowledgeBaseHandler) Update(c *gin.Context) {
-	_, owner, ok := h.caller(c)
+	id, ok := kbIDParam(c, "id")
 	if !ok {
 		return
 	}
-	id, ok := kbIDParam(c, "id")
+	_, owner, ok := h.kbOwner(c, id)
 	if !ok {
 		return
 	}
@@ -463,11 +532,11 @@ func (h *KnowledgeBaseHandler) Update(c *gin.Context) {
 }
 
 func (h *KnowledgeBaseHandler) Delete(c *gin.Context) {
-	_, owner, ok := h.caller(c)
+	id, ok := kbIDParam(c, "id")
 	if !ok {
 		return
 	}
-	id, ok := kbIDParam(c, "id")
+	_, owner, ok := h.kbOwner(c, id)
 	if !ok {
 		return
 	}
@@ -483,11 +552,11 @@ type retryKBBody struct {
 }
 
 func (h *KnowledgeBaseHandler) Retry(c *gin.Context) {
-	_, owner, ok := h.caller(c)
+	id, ok := kbIDParam(c, "id")
 	if !ok {
 		return
 	}
-	id, ok := kbIDParam(c, "id")
+	_, owner, ok := h.kbOwner(c, id)
 	if !ok {
 		return
 	}
@@ -516,11 +585,11 @@ func (h *KnowledgeBaseHandler) Retry(c *gin.Context) {
 const kbMaxUploadBytes = 8 << 20
 
 func (h *KnowledgeBaseHandler) Upload(c *gin.Context) {
-	_, owner, ok := h.caller(c)
+	id, ok := kbIDParam(c, "id")
 	if !ok {
 		return
 	}
-	id, ok := kbIDParam(c, "id")
+	_, owner, ok := h.kbOwner(c, id)
 	if !ok {
 		return
 	}
@@ -580,11 +649,11 @@ func (h *KnowledgeBaseHandler) Upload(c *gin.Context) {
 // ---- browse + search -------------------------------------------------------
 
 func (h *KnowledgeBaseHandler) ListDocuments(c *gin.Context) {
-	_, owner, ok := h.caller(c)
+	id, ok := kbIDParam(c, "id")
 	if !ok {
 		return
 	}
-	id, ok := kbIDParam(c, "id")
+	_, owner, ok := h.kbOwner(c, id)
 	if !ok {
 		return
 	}
@@ -615,11 +684,11 @@ func (h *KnowledgeBaseHandler) ListDocuments(c *gin.Context) {
 }
 
 func (h *KnowledgeBaseHandler) Search(c *gin.Context) {
-	_, owner, ok := h.caller(c)
+	id, ok := kbIDParam(c, "id")
 	if !ok {
 		return
 	}
-	id, ok := kbIDParam(c, "id")
+	_, owner, ok := h.kbOwner(c, id)
 	if !ok {
 		return
 	}
@@ -766,8 +835,14 @@ func (h *KnowledgeBaseHandler) AddProjectKB(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	// Ownership gate on the KB.
-	if _, err := h.kb.GetKB(c.Request.Context(), owner, b.KBID); err != nil {
+	// Ownership gate on the KB: caller must be able to access the KB's owner
+	// (org members can bind an org-level KB; personal-only without authz).
+	if h.Authz != nil {
+		if _, err := h.Authz.CanAccessKB(c.Request.Context(), uid, b.KBID); err != nil {
+			writeAuthzError(c, err)
+			return
+		}
+	} else if _, err := h.kb.GetKB(c.Request.Context(), owner, b.KBID); err != nil {
 		h.mapErr(c, err)
 		return
 	}

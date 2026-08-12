@@ -617,7 +617,7 @@ CREATE TABLE IF NOT EXISTS env_presets (
 -- ============================================================
 CREATE TABLE IF NOT EXISTS env_accounts (
     id          BIGSERIAL PRIMARY KEY,
-    name        TEXT NOT NULL UNIQUE,
+    name        TEXT NOT NULL,
     platform    TEXT NOT NULL DEFAULT '',
     description TEXT NOT NULL DEFAULT '',
     api_key     TEXT NOT NULL DEFAULT '',
@@ -636,7 +636,7 @@ CREATE INDEX IF NOT EXISTS idx_env_accounts_owner_slug ON env_accounts(owner_typ
 -- ============================================================
 CREATE TABLE IF NOT EXISTS env_providers (
     id            BIGSERIAL PRIMARY KEY,
-    name          TEXT NOT NULL UNIQUE,
+    name          TEXT NOT NULL,
     platform      TEXT NOT NULL DEFAULT '',
     description   TEXT NOT NULL DEFAULT '',
     base_urls     TEXT NOT NULL DEFAULT '{}',  -- JSON: Record<protocol, base_url>

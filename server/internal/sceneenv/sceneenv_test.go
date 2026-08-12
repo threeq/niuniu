@@ -29,11 +29,15 @@ func (f fakeQuerier) GetProjection(_ context.Context, _ int64) (store.WorkspaceS
 	return f.projection, f.projErr
 }
 
-func (f fakeQuerier) ListEnvAccounts(_ context.Context) ([]store.EnvAccount, error) {
+func (f fakeQuerier) GetWorkspace(_ context.Context, _ int64) (store.Workspace, error) {
+	return store.Workspace{}, nil // personal owner (OwnerID=0) — tests inject accounts directly
+}
+
+func (f fakeQuerier) ListEnvAccountsForOwners(_ context.Context, _ store.ListEnvAccountsForOwnersParams) ([]store.EnvAccount, error) {
 	return f.accounts, nil
 }
 
-func (f fakeQuerier) ListEnvProviders(_ context.Context) ([]store.EnvProvider, error) {
+func (f fakeQuerier) ListEnvProvidersForOwners(_ context.Context, _ store.ListEnvProvidersForOwnersParams) ([]store.EnvProvider, error) {
 	return f.providers, nil
 }
 

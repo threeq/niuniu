@@ -2370,6 +2370,8 @@ func dropLegacyUniqueConstraints(db *sql.DB) {
 	} else {
 		dropProjectsNameUniqueSQLite(db)
 		dropRepositoriesPathUniqueSQLite(db)
+		dropEnvAccountsNameUniqueSQLite(db)
+		dropEnvProvidersNameUniqueSQLite(db)
 	}
 }
 
@@ -2398,6 +2400,23 @@ func dropLegacyUniqueConstraintsPostgres(db *sql.DB) {
 	if cnt > 0 {
 		if _, err := db.Exec(`ALTER TABLE repositories DROP CONSTRAINT IF EXISTS repositories_path_key`); err != nil {
 			slog.Warn("drop repositories_path_key failed", "error", err)
+		}
+	}
+
+	// env_accounts.name / env_providers.name global unique (pre-owner-scope).
+	// Dropped so each (owner_type, owner_id) can reuse a name; per-owner
+	// uniqueness is enforced by idx_*_owner_name_unique (owner_schema.go).
+	for _, tbl := range []string{"env_accounts", "env_providers"} {
+		_ = db.QueryRow(`
+			SELECT COUNT(*) FROM information_schema.table_constraints tc
+			JOIN information_schema.constraint_column_usage ccu
+			  ON tc.constraint_name = ccu.constraint_name
+			WHERE tc.table_name = $1 AND ccu.column_name = 'name'
+			  AND tc.constraint_type = 'UNIQUE'`, tbl).Scan(&cnt)
+		if cnt > 0 {
+			if _, err := db.Exec(`ALTER TABLE ` + tbl + ` DROP CONSTRAINT IF EXISTS ` + tbl + `_name_key`); err != nil {
+				slog.Warn("drop global name unique failed", "table", tbl, "error", err)
+			}
 		}
 	}
 }
@@ -2524,6 +2543,146 @@ func dropRepositoriesPathUniqueSQLite(db *sql.DB) {
 	for _, stmt := range idxStmts {
 		if _, err := db.Exec(stmt); err != nil {
 			slog.Warn("dropRepositoriesPathUniqueSQLite: recreate index failed", "error", err, "stmt", stmt)
+		}
+	}
+}
+
+// dropEnvAccountsNameUniqueSQLite rebuilds env_accounts without the legacy
+// global column-level UNIQUE on name, so each (owner_type, owner_id) can reuse
+// a name. Per-owner uniqueness is enforced by idx_env_accounts_owner_name_unique.
+func dropEnvAccountsNameUniqueSQLite(db *sql.DB) {
+	var ddl string
+	if err := db.QueryRow(`SELECT sql FROM sqlite_master WHERE type='table' AND name='env_accounts'`).Scan(&ddl); err != nil {
+		return
+	}
+	if !strings.Contains(ddl, "UNIQUE") {
+		return // already clean
+	}
+
+	if _, err := db.Exec(`PRAGMA foreign_keys = OFF`); err != nil {
+		slog.Warn("dropEnvAccountsNameUniqueSQLite: disable FK failed", "error", err)
+		return
+	}
+	defer db.Exec(`PRAGMA foreign_keys = ON`) //nolint:errcheck
+
+	tx, err := db.Begin()
+	if err != nil {
+		slog.Warn("dropEnvAccountsNameUniqueSQLite: begin tx failed", "error", err)
+		return
+	}
+
+	stmts := []string{
+		`CREATE TABLE env_accounts_new (
+			id          INTEGER PRIMARY KEY AUTOINCREMENT,
+			name        TEXT NOT NULL,
+			platform    TEXT NOT NULL DEFAULT '',
+			description TEXT NOT NULL DEFAULT '',
+			api_key     TEXT NOT NULL DEFAULT '',
+			owner_type  TEXT NOT NULL DEFAULT 'user' CHECK (owner_type IN ('user','org')),
+			owner_id    INTEGER NOT NULL DEFAULT 0,
+			slug        TEXT NOT NULL DEFAULT '',
+			created_at  TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			updated_at  TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+		)`,
+		`INSERT INTO env_accounts_new SELECT id, name, platform, description, api_key, owner_type, owner_id, slug, created_at, updated_at FROM env_accounts`,
+		`DROP TABLE env_accounts`,
+		`ALTER TABLE env_accounts_new RENAME TO env_accounts`,
+	}
+
+	for _, stmt := range stmts {
+		if _, err := tx.Exec(stmt); err != nil {
+			_ = tx.Rollback()
+			slog.Warn("dropEnvAccountsNameUniqueSQLite: step failed", "error", err)
+			return
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		slog.Warn("dropEnvAccountsNameUniqueSQLite: commit failed", "error", err)
+		return
+	}
+
+	idxStmts := []string{
+		`CREATE INDEX IF NOT EXISTS idx_env_accounts_owner_slug ON env_accounts(owner_type, owner_id, slug)`,
+		`CREATE UNIQUE INDEX IF NOT EXISTS idx_env_accounts_owner_name_unique ON env_accounts(owner_type, owner_id, name)`,
+	}
+	for _, stmt := range idxStmts {
+		if _, err := db.Exec(stmt); err != nil {
+			slog.Warn("dropEnvAccountsNameUniqueSQLite: recreate index failed", "error", err, "stmt", stmt)
+		}
+	}
+}
+
+// dropEnvProvidersNameUniqueSQLite rebuilds env_providers without the legacy
+// global column-level UNIQUE on name. The dead migration-added "protocol"
+// column (migrate.go addColumnIfNotExists) is dropped here and re-added on the
+// next boot; sqlc never reads it, so no data loss.
+func dropEnvProvidersNameUniqueSQLite(db *sql.DB) {
+	var ddl string
+	if err := db.QueryRow(`SELECT sql FROM sqlite_master WHERE type='table' AND name='env_providers'`).Scan(&ddl); err != nil {
+		return
+	}
+	if !strings.Contains(ddl, "UNIQUE") {
+		return // already clean
+	}
+
+	if _, err := db.Exec(`PRAGMA foreign_keys = OFF`); err != nil {
+		slog.Warn("dropEnvProvidersNameUniqueSQLite: disable FK failed", "error", err)
+		return
+	}
+	defer db.Exec(`PRAGMA foreign_keys = ON`) //nolint:errcheck
+
+	tx, err := db.Begin()
+	if err != nil {
+		slog.Warn("dropEnvProvidersNameUniqueSQLite: begin tx failed", "error", err)
+		return
+	}
+
+	stmts := []string{
+		`CREATE TABLE env_providers_new (
+			id             INTEGER PRIMARY KEY AUTOINCREMENT,
+			name           TEXT NOT NULL,
+			platform       TEXT NOT NULL DEFAULT '',
+			description    TEXT NOT NULL DEFAULT '',
+			base_urls      TEXT NOT NULL DEFAULT '{}',
+			api_key        TEXT NOT NULL DEFAULT '',
+			model          TEXT NOT NULL DEFAULT '',
+			haiku_model    TEXT NOT NULL DEFAULT '',
+			sonnet_model   TEXT NOT NULL DEFAULT '',
+			opus_model     TEXT NOT NULL DEFAULT '',
+			subagent_model TEXT NOT NULL DEFAULT '',
+			extra_env      TEXT NOT NULL DEFAULT '{}',
+			owner_type     TEXT NOT NULL DEFAULT 'user' CHECK (owner_type IN ('user','org')),
+			owner_id       INTEGER NOT NULL DEFAULT 0,
+			slug           TEXT NOT NULL DEFAULT '',
+			created_at     TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			updated_at     TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+		)`,
+		`INSERT INTO env_providers_new (id, name, platform, description, base_urls, api_key, model, haiku_model, sonnet_model, opus_model, subagent_model, extra_env, owner_type, owner_id, slug, created_at, updated_at) SELECT id, name, platform, description, base_urls, api_key, model, haiku_model, sonnet_model, opus_model, subagent_model, extra_env, owner_type, owner_id, slug, created_at, updated_at FROM env_providers`,
+		`DROP TABLE env_providers`,
+		`ALTER TABLE env_providers_new RENAME TO env_providers`,
+	}
+
+	for _, stmt := range stmts {
+		if _, err := tx.Exec(stmt); err != nil {
+			_ = tx.Rollback()
+			slog.Warn("dropEnvProvidersNameUniqueSQLite: step failed", "error", err)
+			return
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		slog.Warn("dropEnvProvidersNameUniqueSQLite: commit failed", "error", err)
+		return
+	}
+
+	idxStmts := []string{
+		`CREATE INDEX IF NOT EXISTS idx_env_providers_owner_slug ON env_providers(owner_type, owner_id, slug)`,
+		`CREATE UNIQUE INDEX IF NOT EXISTS idx_env_providers_owner_name_unique ON env_providers(owner_type, owner_id, name)`,
+	}
+	for _, stmt := range idxStmts {
+		if _, err := db.Exec(stmt); err != nil {
+			slog.Warn("dropEnvProvidersNameUniqueSQLite: recreate index failed", "error", err, "stmt", stmt)
 		}
 	}
 }

@@ -27,11 +27,15 @@ func (f fakeSceneEnvQuerier) GetProjection(context.Context, int64) (store.Worksp
 	return f.proj, nil
 }
 
-func (fakeSceneEnvQuerier) ListEnvAccounts(context.Context) ([]store.EnvAccount, error) {
+func (fakeSceneEnvQuerier) GetWorkspace(context.Context, int64) (store.Workspace, error) {
+	return store.Workspace{}, nil
+}
+
+func (fakeSceneEnvQuerier) ListEnvAccountsForOwners(_ context.Context, _ store.ListEnvAccountsForOwnersParams) ([]store.EnvAccount, error) {
 	return nil, nil
 }
 
-func (fakeSceneEnvQuerier) ListEnvProviders(context.Context) ([]store.EnvProvider, error) {
+func (fakeSceneEnvQuerier) ListEnvProvidersForOwners(_ context.Context, _ store.ListEnvProvidersForOwnersParams) ([]store.EnvProvider, error) {
 	return nil, nil
 }
 
