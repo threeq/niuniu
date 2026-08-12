@@ -644,6 +644,7 @@
     "newProvider": "新建 Provider",
     "noProviders": "暫無 Provider",
     "providerDeleteConfirm": "確定要刪除 Provider「{{name}}」嗎？",
+    "providerDuplicate": "複製",
     "providerImportTitle": "匯入為預設",
     "providerImportDesc": "把該 Provider 的配置按 Agent 型別轉換為環境變數，生成一個可掛載到場景/工作空間的預設。",
     "providerCliTypeLabel": "目標 Agent 型別",

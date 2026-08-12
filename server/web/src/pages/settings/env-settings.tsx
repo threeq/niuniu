@@ -67,7 +67,7 @@ function PresetCard({ preset, onEdit, onDelete }: { preset: EnvPreset; onEdit: (
             <div key={key} className="flex items-center gap-2 text-xs font-mono">
               <span className="text-success font-medium">{key}</span>
               <span className="text-muted-foreground">=</span>
-              <span className="text-foreground">{value}</span>
+              <span className="text-foreground">{maskKey(value)}</span>
             </div>
           ))}
         </div>
@@ -156,7 +156,7 @@ function ProviderCard({ provider, onEdit, onDelete, onDuplicate }: {
             <span className="text-xs text-muted-foreground truncate">model: {provider.model}</span>
           )}
           {provider.api_key && (
-            <span className="text-xs text-muted-foreground font-mono truncate">{provider.api_key}</span>
+            <span className="text-xs text-muted-foreground font-mono truncate">{maskKey(provider.api_key)}</span>
           )}
         </button>
         <div className="flex items-center gap-1 flex-shrink-0 ml-2">
