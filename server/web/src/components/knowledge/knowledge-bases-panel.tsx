@@ -12,6 +12,7 @@ import {
   FolderOpen,
   Upload,
   Globe,
+  Plug,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { confirm } from '@/lib/confirm'
@@ -28,6 +29,7 @@ import {
   DialogFooter,
 } from '@/components/ui/dialog'
 import { api } from '@/lib/api'
+import { integrationApi } from '@/lib/integration-api'
 import { useConfigStore } from '@/stores/config-store'
 import { DirectoryPicker } from '@/components/shared/directory-picker'
 import type { Project } from '@/types/api'
@@ -47,12 +49,13 @@ import {
 } from '@/lib/kb-api'
 import { KnowledgeBaseBrowserDialog } from './knowledge-base-browser-dialog'
 
-const SOURCE_KINDS: KBSourceKind[] = ['local', 'upload', 'url']
+const SOURCE_KINDS: KBSourceKind[] = ['local', 'upload', 'url', 'mcp']
 
 const SOURCE_ICON: Record<KBSourceKind, typeof FolderOpen> = {
   local: FolderOpen,
   upload: Upload,
   url: Globe,
+  mcp: Plug,
 }
 
 export function KnowledgeBasesPanel() {
@@ -347,6 +350,10 @@ function KnowledgeBaseForm({ editing, onClose }: FormProps) {
   const [url, setUrl] = useState(
     editing?.source_kind === 'url' ? editing.source_location : '',
   )
+  const [mcpEndpoint, setMcpEndpoint] = useState(
+    editing?.source_kind === 'mcp' ? editing.source_location : '',
+  )
+  const [mcpToken, setMcpToken] = useState('')
   const [presetId, setPresetId] = useState('')
   const [mirrorUrls, setMirrorUrls] = useState<string[]>([])
   const [files, setFiles] = useState<File[]>([])
@@ -387,8 +394,10 @@ function KnowledgeBaseForm({ editing, onClose }: FormProps) {
         return url.trim().length > 0
       case 'upload':
         return files.length > 0
+      case 'mcp':
+        return mcpEndpoint.trim().length > 0 && mcpToken.trim().length > 0
     }
-  }, [name, isEdit, sourceKind, localPath, url, files])
+  }, [name, isEdit, sourceKind, localPath, url, files, mcpEndpoint, mcpToken])
 
   const save = useMutation({
     mutationFn: async () => {
@@ -408,7 +417,9 @@ function KnowledgeBaseForm({ editing, onClose }: FormProps) {
             ? localPath.trim()
             : sourceKind === 'url'
               ? url.trim()
-              : undefined,
+              : sourceKind === 'mcp'
+                ? mcpEndpoint.trim()
+                : undefined,
         mirror_urls:
           sourceKind === 'url' && mirrorUrls.length > 0 ? mirrorUrls : undefined,
         preset_id: sourceKind === 'url' && presetId ? presetId : undefined,
@@ -418,6 +429,15 @@ function KnowledgeBaseForm({ editing, onClose }: FormProps) {
       // now so the backend can start ingesting.
       if (sourceKind === 'upload' && files.length > 0) {
         await uploadKnowledgeBaseFiles(created.id, files)
+      }
+      // mcp kind: the API token lives in credstore under the per-KB alias the
+      // projection resolves into the projected MCP server's auth header.
+      if (sourceKind === 'mcp') {
+        await integrationApi.createCredential({
+          provider: 'knowledge-base',
+          alias: `kb-${created.id}`,
+          config: { token: mcpToken.trim() },
+        })
       }
       return created
     },
@@ -470,7 +490,7 @@ function KnowledgeBaseForm({ editing, onClose }: FormProps) {
         {/* Source picker — segmented control. Immutable after creation. */}
         <div className="flex flex-col gap-2">
           <Label>{t('dialog.sourceKindLabel')}</Label>
-          <div className="grid grid-cols-3 gap-2">
+          <div className="grid grid-cols-2 gap-2">
             {SOURCE_KINDS.map((k) => {
               const Icon = SOURCE_ICON[k]
               const active = sourceKind === k
@@ -596,6 +616,40 @@ function KnowledgeBaseForm({ editing, onClose }: FormProps) {
                   {t('dialog.urlMirrorHint', { count: mirrorUrls.length })}
                 </p>
               )}
+            </div>
+          </>
+        )}
+
+        {!isEdit && sourceKind === 'mcp' && (
+          <>
+            <div className="flex flex-col gap-2">
+              <Label htmlFor="kb-mcp-endpoint">
+                {t('dialog.mcpEndpointLabel')}
+              </Label>
+              <Input
+                id="kb-mcp-endpoint"
+                value={mcpEndpoint}
+                placeholder="https://kb.example.com/mcp"
+                onChange={(e) => setMcpEndpoint(e.target.value)}
+                className="font-mono text-xs"
+              />
+              <p className="text-xs text-warm-text-muted">
+                {t('dialog.mcpEndpointHint')}
+              </p>
+            </div>
+            <div className="flex flex-col gap-2">
+              <Label htmlFor="kb-mcp-token">{t('dialog.mcpTokenLabel')}</Label>
+              <Input
+                id="kb-mcp-token"
+                type="password"
+                value={mcpToken}
+                placeholder={t('dialog.mcpTokenPh')}
+                onChange={(e) => setMcpToken(e.target.value)}
+                className="font-mono text-xs"
+              />
+              <p className="text-xs text-warm-text-muted">
+                {t('dialog.mcpTokenHint')}
+              </p>
             </div>
           </>
         )}

@@ -9,8 +9,9 @@ import { Textarea } from '@/components/ui/textarea';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Badge } from '@/components/ui/badge';
 import { listDataSources } from '@/lib/data-sources-api';
+import { listKnowledgeBases } from '@/lib/kb-api';
 import type { KnownMCP } from '@/types/api';
-import type { AdvancedDraft, DataSourceRow, EnvPresetRow, MatchRuleRow, MCPRow } from './scene-editor-helpers';
+import type { AdvancedDraft, DataSourceRow, EnvPresetRow, KBRow, MatchRuleRow, MCPRow } from './scene-editor-helpers';
 
 interface SceneAdvancedEditorProps {
   value: AdvancedDraft;
@@ -129,6 +130,15 @@ export function SceneAdvancedEditor({ value, onChange, disabled }: SceneAdvanced
   });
   const dsByName = new Map(dataSources.map((d) => [d.name, d]));
 
+  // The owner's knowledge bases (managed under the top-level Knowledge bases
+  // entry). A scene selects KBs by name; mcp-kind KBs are projected as inline
+  // MCP servers at apply time, local/url KBs are reached via kb_search/mount.
+  const { data: knowledgeBases = [] } = useQuery({
+    queryKey: ['knowledge-bases'],
+    queryFn: () => listKnowledgeBases(),
+  });
+  const kbByName = new Map(knowledgeBases.map((k) => [k.name, k]));
+
   // -- mcp ------------------------------------------------------------------
   const addMcp = () => patch({ mcp: [...value.mcp, { name: '', configRaw: '' }] });
   const setMcp = (i: number, p: Partial<MCPRow>) =>
@@ -154,6 +164,14 @@ export function SceneAdvancedEditor({ value, onChange, disabled }: SceneAdvanced
     patch({ dataSources: value.dataSources.map((row, idx) => (idx === i ? { ...row, ...p } : row)) });
   const removeDS = (i: number) =>
     patch({ dataSources: value.dataSources.filter((_, idx) => idx !== i) });
+
+  // -- knowledge bases -------------------------------------------------------
+  const addKB = () =>
+    patch({ knowledgeBases: [...value.knowledgeBases, { name: '', purpose: '', optional: false }] });
+  const setKB = (i: number, p: Partial<KBRow>) =>
+    patch({ knowledgeBases: value.knowledgeBases.map((row, idx) => (idx === i ? { ...row, ...p } : row)) });
+  const removeKB = (i: number) =>
+    patch({ knowledgeBases: value.knowledgeBases.filter((_, idx) => idx !== i) });
 
   // -- disabled tool groups -------------------------------------------------
   const toggleToolGroup = (id: string, on: boolean) =>
@@ -446,6 +464,82 @@ export function SceneAdvancedEditor({ value, onChange, disabled }: SceneAdvanced
         </Button>
       </Section>
 
+      {/* Knowledge bases (知识库) - select the owner's KBs by name. An mcp-kind
+          KB is projected as an inline MCP server; local/url KBs are reached via
+          kb_search / workspace mount. */}
+      <Section
+        title={t('editor.adv_kb_title')}
+        hint={t('editor.adv_kb_hint')}
+        onAdd={addKB}
+        addLabel={t('editor.adv_kb_add')}
+        disabled={disabled}
+      >
+        {value.knowledgeBases.length === 0 ? (
+          <p className="text-xs text-warm-text-muted py-1">{t('editor.adv_kb_empty')}</p>
+        ) : (
+          <div className="space-y-3">
+            {value.knowledgeBases.map((row, i) => {
+              const found = row.name ? kbByName.get(row.name) : undefined;
+              const unknownName = row.name && !found;
+              return (
+                <div key={i} className="rounded-md border border-warm-border p-3 space-y-2">
+                  <div className="flex gap-2">
+                    <select
+                      value={row.name}
+                      onChange={(e) => setKB(i, { name: e.target.value })}
+                      disabled={disabled}
+                      className="h-9 flex-1 rounded-md border border-input bg-background px-3 py-1 text-sm disabled:opacity-50"
+                    >
+                      <option value="" disabled>
+                        {t('editor.adv_kb_select')}
+                      </option>
+                      {knowledgeBases.map((k) => (
+                        <option key={k.id} value={k.name}>
+                          {k.name} ({k.source_kind})
+                        </option>
+                      ))}
+                      {unknownName && <option value={row.name}>{row.name}</option>}
+                    </select>
+                    {found ? (
+                      <Badge variant="secondary" className="shrink-0 text-xs">
+                        {found.source_kind}
+                      </Badge>
+                    ) : null}
+                    <RemoveButton onClick={() => removeKB(i)} disabled={disabled} label={t('editor.remove')} />
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <Input
+                      value={row.purpose}
+                      onChange={(e) => setKB(i, { purpose: e.target.value })}
+                      placeholder={t('editor.adv_kb_purpose')}
+                      disabled={disabled}
+                    />
+                    <label className="flex items-center gap-2 text-xs text-warm-text shrink-0 cursor-pointer">
+                      <Checkbox
+                        checked={row.optional}
+                        onCheckedChange={(c) => setKB(i, { optional: c === true })}
+                        disabled={disabled}
+                      />
+                      {t('editor.adv_optional')}
+                    </label>
+                  </div>
+                  {unknownName && (
+                    <p className="text-xs text-warning">
+                      {t('editor.adv_kb_missing', { name: row.name })}
+                    </p>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+        <Button asChild variant="outline" size="sm">
+          <Link to="/knowledge-bases">
+            <ExternalLink className="h-4 w-4 mr-1" aria-hidden /> {t('editor.adv_kb_manage')}
+          </Link>
+        </Button>
+      </Section>
+
       {/* Match rules */}
       <Section
         title={t('editor.adv_match_title')}
@@ -526,7 +620,7 @@ export function SceneAdvancedEditor({ value, onChange, disabled }: SceneAdvanced
                 <div className="flex items-center gap-2">
                   <button
                     type="button"
-                    onClick={() => setCollapsedPresets((prev) => { const n = new Set(prev); n.has(pi) ? n.delete(pi) : n.add(pi); return n; })}
+                    onClick={() => setCollapsedPresets((prev) => { const n = new Set(prev); if (n.has(pi)) { n.delete(pi) } else { n.add(pi) } return n; })}
                     className="text-warm-text-muted hover:text-warm-text shrink-0"
                   >
                     {isCollapsed ? <ChevronRight className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}

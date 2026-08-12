@@ -13,6 +13,7 @@ import type {
   SceneProviderAsset,
   SceneAssets,
   SceneDataSourceRef,
+  SceneKBRef,
 } from '@/types/api';
 import type { OwnerRef } from '@/types/org';
 
@@ -59,6 +60,13 @@ export interface DataSourceRow {
   optional: boolean;
 }
 
+/** Row model for a selected knowledge base, referenced by per-owner name. */
+export interface KBRow {
+  name: string;
+  purpose: string;
+  optional: boolean;
+}
+
 /**
  * Structured draft backing the "advanced definition" editor. Replaces the old
  * raw-JSON textarea: each field maps to a dedicated UI section. The only
@@ -74,6 +82,9 @@ export interface AdvancedDraft {
   /** Required data sources (数据源) — the scene's "credential" section now binds
    *  to configured data sources, mirroring a project's external sources. */
   dataSources: DataSourceRow[];
+  /** Selected knowledge bases (by per-owner name). mcp-kind KBs are projected
+   *  as inline MCP servers at apply time. */
+  knowledgeBases: KBRow[];
   matchBaseWeight: string;
   matchRules: MatchRuleRow[];
   envPresets: EnvPresetRow[];
@@ -107,6 +118,7 @@ export function emptyAdvancedDraft(): AdvancedDraft {
     plugins: [],
     prompts: [],
     dataSources: [],
+    knowledgeBases: [],
     matchBaseWeight: '',
     matchRules: [],
     envPresets: [],
@@ -148,6 +160,11 @@ export function advancedDraftFromDefinition(def: SceneDefinition): AdvancedDraft
       kind: d.kind ?? '',
       purpose: d.purpose ?? '',
       optional: !!d.optional,
+    })),
+    knowledgeBases: (def.knowledge_bases ?? []).map((k) => ({
+      name: k.name,
+      purpose: k.purpose ?? '',
+      optional: !!k.optional,
     })),
     requiredCredentialsPassthrough: def.required_credentials ?? [],
     skillsPassthrough: def.skills ?? [],
@@ -233,6 +250,15 @@ export function assembleSceneDefinition(
       return ref;
     });
 
+  const knowledge_bases: SceneKBRef[] = draft.knowledgeBases
+    .filter((k) => k.name.trim())
+    .map((k) => {
+      const ref: SceneKBRef = { name: k.name.trim() };
+      if (k.purpose.trim()) ref.purpose = k.purpose.trim();
+      if (k.optional) ref.optional = true;
+      return ref;
+    });
+
   const match: SceneMatch = {
     rules: draft.matchRules
       .filter((r) => r.signal.trim())
@@ -299,6 +325,7 @@ export function assembleSceneDefinition(
     // configures data sources instead.
     required_credentials: draft.requiredCredentialsPassthrough,
     required_data_sources,
+    ...(knowledge_bases.length > 0 ? { knowledge_bases } : {}),
     ...(disableToolGroups.length > 0 ? { disable_tool_groups: disableToolGroups } : {}),
     match,
     assets,

@@ -1422,6 +1422,15 @@ export interface SceneDataSourceRef {
   optional?: boolean;
 }
 
+/** A knowledge base a scene selects, referenced by its per-owner Name. An
+ *  mcp-kind KB is projected as an inline MCP server; local/url KBs are reached
+ *  via kb_search / workspace mount. */
+export interface SceneKBRef {
+  name: string;
+  purpose?: string;
+  optional?: boolean;
+}
+
 export interface SceneMatchRule {
   signal: string;
   args?: Record<string, unknown>;
@@ -1486,6 +1495,9 @@ export interface SceneDefinition {
   prompts: ScenePrompt[];
   required_credentials: SceneRequiredCredential[];
   required_data_sources?: SceneDataSourceRef[];
+  /** Knowledge bases the scene selects (by per-owner Name). mcp-kind KBs are
+   *  projected as inline MCP servers at apply time. */
+  knowledge_bases?: SceneKBRef[];
   /** Built-in niuniu MCP tool groups to hide from the agent in this scene
    *  (e.g. 'multi-agent', 'harness'). Maps to niuniu-mcp --disable-tool-groups. */
   disable_tool_groups?: string[];

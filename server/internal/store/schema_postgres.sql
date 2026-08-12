@@ -1489,7 +1489,7 @@ CREATE TABLE IF NOT EXISTS knowledge_bases (
     owner_id      BIGINT NOT NULL DEFAULT 0,
     name          TEXT NOT NULL,
     description   TEXT NOT NULL DEFAULT '',
-    source_kind   TEXT NOT NULL DEFAULT 'local' CHECK (source_kind IN ('local','url','repo')),
+    source_kind   TEXT NOT NULL DEFAULT 'local' CHECK (source_kind IN ('local','url','repo','mcp')),
     source_addr   TEXT NOT NULL DEFAULT '',
     source_config TEXT NOT NULL DEFAULT '{}',
     status        TEXT NOT NULL DEFAULT 'enabled', -- added by migrate.go for existing DBs

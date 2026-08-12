@@ -58,7 +58,7 @@ type IngestResult struct {
 
 func validKBSourceKind(k string) bool {
 	switch k {
-	case KBSourceLocal, KBSourceURL, KBSourceRepo:
+	case KBSourceLocal, KBSourceURL, KBSourceRepo, KBSourceMcp:
 		return true
 	}
 	return false

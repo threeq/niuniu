@@ -8,7 +8,6 @@ import type { Scene, SceneSource } from '@/types/api';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { SceneCard } from './components/scene-card';
-import { KBMcpDialog } from './components/kb-mcp-dialog';
 
 type SourceFilter = 'all' | SceneSource;
 
@@ -22,7 +21,6 @@ export function SceneListPage() {
   const [search, setSearch] = useState('');
   const [tagFilter, setTagFilter] = useState<string>('');
   const [sourceFilter, setSourceFilter] = useState<SourceFilter>('all');
-  const [kbDialogOpen, setKbDialogOpen] = useState(false);
 
   const allTags = useMemo(() => {
     const set = new Set<string>();
@@ -58,9 +56,11 @@ export function SceneListPage() {
             <p className="text-sm text-warm-text-muted mt-1">{t('list.subtitle')}</p>
           </div>
           <div className="flex items-center gap-2 shrink-0">
-            <Button variant="outline" onClick={() => setKbDialogOpen(true)}>
-              <Database className="w-4 h-4 mr-1" aria-hidden />
-              {t('kb.launch')}
+            <Button asChild variant="outline">
+              <Link to="/knowledge-bases">
+                <Database className="w-4 h-4 mr-1" aria-hidden />
+                {t('list.manageKb')}
+              </Link>
             </Button>
             <Button asChild>
               <Link to="/scenes/new">
@@ -70,8 +70,6 @@ export function SceneListPage() {
             </Button>
           </div>
         </header>
-
-        <KBMcpDialog open={kbDialogOpen} onOpenChange={setKbDialogOpen} />
 
         <div className="flex flex-wrap items-center gap-2">
           <div className="relative flex-1 min-w-[200px]">

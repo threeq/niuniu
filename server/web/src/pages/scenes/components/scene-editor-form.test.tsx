@@ -102,6 +102,7 @@ describe('assembleSceneDefinition', () => {
     plugins: [{ source: 'exa@claude-plugins-official', ref: '', optional: true }],
     prompts: [{ id: 'p1', title: 'T', body: 'B' }],
     dataSources: [{ name: 'warehouse', kind: 'postgres', purpose: 'analytics', optional: false }],
+    knowledgeBases: [{ name: 'remote-kb', purpose: 'search', optional: false }],
     matchBaseWeight: '',
     matchRules: [{ signal: 's', weight: '5', argsRaw: '' }],
     envPresets: [{ slug: 'e1', name: 'Preset 1', env: [{ key: 'A', value: '1' }] }],

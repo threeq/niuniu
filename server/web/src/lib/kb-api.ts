@@ -23,8 +23,11 @@ import { getAccessToken } from '@/stores/auth-store'
  *  - `url`    : a network address downloaded asynchronously by the backend
  *               (#500). http(s) direct links + zip/tar.gz archives; optional
  *               mirror fallbacks for in-China reachability.
+ *  - `mcp`    : an external knowledge-base MCP endpoint. No local corpus — the
+ *               KB is a remote search endpoint projected as an inline MCP server
+ *               when selected by a scene. The API token lives in credstore.
  */
-export type KBSourceKind = 'local' | 'upload' | 'url'
+export type KBSourceKind = 'local' | 'upload' | 'url' | 'mcp'
 
 /** Enabled KBs are visible to bound agents; disabled ones are kept but inert. */
 export type KBStatus = 'enabled' | 'disabled'

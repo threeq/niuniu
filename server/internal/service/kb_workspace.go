@@ -111,6 +111,12 @@ func (s *KBService) MountKB(ctx context.Context, owner OwnerRef, workspaceID, kb
 	if err != nil {
 		return WorkspaceKBMount{}, err
 	}
+	if kb.SourceKind == KBSourceMcp {
+		// mcp-kind KBs are remote search endpoints with no local corpus, so they
+		// cannot be materialized into the workspace tree. They are exposed to the
+		// agent by selecting them in a scene (projected as an inline MCP server).
+		return WorkspaceKBMount{}, fmt.Errorf("mcp-kind knowledge base cannot be mounted to a workspace; add it via a scene instead")
+	}
 	ws, err := s.q.GetWorkspace(ctx, workspaceID)
 	if err != nil {
 		return WorkspaceKBMount{}, fmt.Errorf("workspace not found: %w", err)
