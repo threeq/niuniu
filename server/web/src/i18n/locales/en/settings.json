@@ -644,6 +644,7 @@
     "newProvider": "New Provider",
     "noProviders": "No providers",
     "providerDeleteConfirm": "Delete provider \"{{name}}\"?",
+    "providerDuplicate": "Duplicate",
     "providerImportTitle": "Import as Preset",
     "providerImportDesc": "Convert this provider's config into environment variables for an Agent type, producing a preset you can mount in scenes/workspaces.",
     "providerCliTypeLabel": "Target Agent type",
