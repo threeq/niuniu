@@ -2,7 +2,6 @@ import { useTranslation } from 'react-i18next';
 import { CredentialList } from '@/components/integrations/CredentialList';
 import { ProviderList } from '@/components/integrations/ProviderList';
 import { DataSourcesPanel } from '@/components/integrations/data-sources-panel';
-import { KnowledgeBasesPanel } from '@/components/knowledge/knowledge-bases-panel';
 
 // Two boards on this page:
 //   1. Providers   — "where can I connect, with what auth scheme, and what
@@ -23,7 +22,6 @@ export function IntegrationsPage() {
       <ProviderList />
       <CredentialList />
       <DataSourcesPanel />
-      <KnowledgeBasesPanel />
     </div>
   );
 }

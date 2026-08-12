@@ -1,5 +1,5 @@
 import { useMemo } from 'react';
-import { FolderTree, GitCompareArrows, CircleDot, Archive, Sparkles, Pin, Presentation, Loader2 } from 'lucide-react';
+import { FolderTree, GitCompareArrows, CircleDot, Archive, Sparkles, Pin, Presentation, Loader2, Library } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { cn } from '@/lib/utils';
 import { useWorkspacePanelStore, type PanelId } from '@/stores/workspace-panel-store';
@@ -22,6 +22,7 @@ const allPanelButtons: { id: PanelId; icon: React.ComponentType<{ className?: st
   { id: 'artifact', icon: Presentation, i18nKey: 'toolbar.panels.artifact' },
   { id: 'issue', icon: CircleDot, i18nKey: 'toolbar.panels.issue' },
   { id: 'pinned', icon: Pin, i18nKey: 'toolbar.panels.pinned' },
+  { id: 'kbs', icon: Library, i18nKey: 'toolbar.panels.kbs' },
 ];
 
 export function WorkspaceToolbar({ workspace }: WorkspaceToolbarProps) {

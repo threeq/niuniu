@@ -17,6 +17,7 @@ const navLinks = [
   { to: '/projects', labelKey: 'menu.projects' },
   { to: '/workspaces', labelKey: 'menu.workspaces' },
   { to: '/repositories', labelKey: 'menu.repositories' },
+  { to: '/knowledge-bases', labelKey: 'menu.knowledgeBases' },
   { to: '/scenes', labelKey: 'menu.scenes' },
   { to: '/settings/harness', labelKey: 'menu.harness' },
   { to: '/settings/agents', labelKey: 'menu.agents' },

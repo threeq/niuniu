@@ -1490,6 +1490,7 @@ CREATE TABLE IF NOT EXISTS knowledge_bases (
     source_kind   TEXT NOT NULL DEFAULT 'local' CHECK (source_kind IN ('local','url','repo')),
     source_addr   TEXT NOT NULL DEFAULT '',
     source_config TEXT NOT NULL DEFAULT '{}',
+    status        TEXT NOT NULL DEFAULT 'enabled', -- added by migrate.go for existing DBs
     created_at    TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at    TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     UNIQUE(owner_type, owner_id, name)
@@ -1523,6 +1524,23 @@ CREATE TABLE IF NOT EXISTS kb_bindings (
     UNIQUE(kb_id, target_type, target_id)
 );
 CREATE INDEX IF NOT EXISTS idx_kb_bindings_target ON kb_bindings(target_type, target_id);
+
+-- workspace_kbs: explicit per-workspace knowledge-base mounts (KB as a
+-- first-class citizen, mirroring worktrees). Mounting a KB materializes its
+-- source content read-only into <workspace>/datasets/<kb>/ (visible in the
+-- workspace file tree) and replaces project-level implicit inheritance for
+-- workspace agent visibility. Owner is inherited via workspaces /
+-- knowledge_bases -> no owner columns.
+CREATE TABLE IF NOT EXISTS workspace_kbs (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    workspace_id INTEGER NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+    kb_id        INTEGER NOT NULL REFERENCES knowledge_bases(id) ON DELETE CASCADE,
+    dataset_path TEXT NOT NULL DEFAULT '',
+    created_at   TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(workspace_id, kb_id)
+);
+CREATE INDEX IF NOT EXISTS idx_workspace_kbs_workspace ON workspace_kbs(workspace_id);
+CREATE INDEX IF NOT EXISTS idx_workspace_kbs_kb ON workspace_kbs(kb_id);
 
 -- ============================================================
 -- IM Bot remote channels (Epic #555). im_bot_channels is owner-level: a bot is

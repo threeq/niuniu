@@ -754,6 +754,118 @@ func (h *KnowledgeBaseHandler) AddProjectKB(c *gin.Context) {
 	c.Status(http.StatusCreated)
 }
 
+// ---- workspace mounting (KB as a first-class citizen) ----------------------
+// These routes mount/unmount/sync knowledge bases PER workspace (workspace_kbs),
+// materializing the KB content read-only into <workspace>/datasets/<name>/ so
+// the workspace file tree and agent can use it directly — mirroring how a repo
+// is checked out as a worktree. See service/kb_workspace.go.
+
+type mountWorkspaceKBBody struct {
+	KBID int64 `json:"kb_id" binding:"required"`
+}
+
+// wsKBParts resolves the caller + workspace id + the workspace's owner from the
+// route, enforcing access. Returns the workspace owner (not the personal owner)
+// so KB operations are scoped to the workspace's real tenant.
+func (h *KnowledgeBaseHandler) wsKBParts(c *gin.Context) (int64, service.OwnerRef, int64, bool) {
+	uid := c.GetInt64("auth_user_id")
+	if uid <= 0 {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthenticated"})
+		return 0, service.OwnerRef{}, 0, false
+	}
+	wsID, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil || wsID <= 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid workspace id"})
+		return 0, service.OwnerRef{}, 0, false
+	}
+	owner, aerr := h.Authz.CanAccessWorkspace(c.Request.Context(), uid, wsID)
+	if aerr != nil {
+		writeAuthzError(c, aerr)
+		return 0, service.OwnerRef{}, 0, false
+	}
+	return uid, owner, wsID, true
+}
+
+// ListWorkspaceKBs returns the KBs mounted to a workspace (name, source kind and
+// the read-only dataset path inside the workspace tree).
+func (h *KnowledgeBaseHandler) ListWorkspaceKBs(c *gin.Context) {
+	_, owner, wsID, ok := h.wsKBParts(c)
+	if !ok {
+		return
+	}
+	mounts, err := h.kb.ListWorkspaceKBs(c.Request.Context(), owner, wsID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"items": mounts})
+}
+
+// MountWorkspaceKB mounts a KB to a workspace (materialize + auto-ingest).
+func (h *KnowledgeBaseHandler) MountWorkspaceKB(c *gin.Context) {
+	uid, owner, wsID, ok := h.wsKBParts(c)
+	if !ok {
+		return
+	}
+	if err := h.Authz.EnsureOwnerWritable(c.Request.Context(), uid, owner); err != nil {
+		writeAuthzError(c, err)
+		return
+	}
+	var b mountWorkspaceKBBody
+	if err := c.ShouldBindJSON(&b); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	mount, err := h.kb.MountKB(c.Request.Context(), owner, wsID, b.KBID)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusCreated, mount)
+}
+
+// SyncWorkspaceKB re-materializes a mounted KB's dataset dir and re-ingests it.
+func (h *KnowledgeBaseHandler) SyncWorkspaceKB(c *gin.Context) {
+	uid, owner, wsID, ok := h.wsKBParts(c)
+	if !ok {
+		return
+	}
+	if err := h.Authz.EnsureOwnerWritable(c.Request.Context(), uid, owner); err != nil {
+		writeAuthzError(c, err)
+		return
+	}
+	kbid, ok := kbIDParam(c, "kbid")
+	if !ok {
+		return
+	}
+	if err := h.kb.SyncWorkspaceKB(c.Request.Context(), owner, wsID, kbid); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"ok": true})
+}
+
+// UnmountWorkspaceKB unmounts a KB from a workspace and removes its dataset dir.
+func (h *KnowledgeBaseHandler) UnmountWorkspaceKB(c *gin.Context) {
+	uid, owner, wsID, ok := h.wsKBParts(c)
+	if !ok {
+		return
+	}
+	if err := h.Authz.EnsureOwnerWritable(c.Request.Context(), uid, owner); err != nil {
+		writeAuthzError(c, err)
+		return
+	}
+	kbid, ok := kbIDParam(c, "kbid")
+	if !ok {
+		return
+	}
+	if err := h.kb.UnmountKB(c.Request.Context(), owner, wsID, kbid); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	c.Status(http.StatusNoContent)
+}
+
 func (h *KnowledgeBaseHandler) RemoveProjectKB(c *gin.Context) {
 	uid, _, ok := h.caller(c)
 	if !ok {

@@ -40,6 +40,7 @@ const ProjectLayout = lazyNamed(() => import('./pages/projects/project-layout'),
 const RepositoryListPage = lazyNamed(() => import('./pages/repositories/repository-list-page'), 'RepositoryListPage');
 const RepositoryDetailPage = lazyNamed(() => import('./pages/repositories'), 'RepositoryDetailPage');
 const RepositoryLayout = lazyNamed(() => import('./pages/repositories/repository-layout'), 'RepositoryLayout');
+const KnowledgeBasesPage = lazyNamed(() => import('./pages/knowledge-bases/knowledge-bases-page'), 'KnowledgeBasesPage');
 const SettingsPage = lazyNamed(() => import('./pages/settings'), 'SettingsPage');
 const SchedulesPage = lazyNamed(() => import('./pages/schedules'), 'SchedulesPage');
 const SceneListPage = lazyNamed(() => import('./pages/scenes/scene-list-page'), 'SceneListPage');
@@ -200,6 +201,15 @@ const repositoryDetailRoute = createRoute({
   component: RepositoryDetailPage,
 });
 
+// Knowledge bases are a first-class resource like repositories: a top-level
+// entry (mirroring /repositories) instead of being buried under
+// /settings/integrations. The page hosts the full create/manage/browse panel.
+const knowledgeBasesRoute = createRoute({
+  getParentRoute: () => layoutRoute,
+  path: '/knowledge-bases',
+  component: KnowledgeBasesPage,
+});
+
 // Legacy ?tab= values for tabs that were promoted out of /settings to their
 // own top-level routes. Old bookmarks / desktop tray entries land on the new
 // home instead of silently falling back to "general".
@@ -345,6 +355,7 @@ const routeTree = rootRoute.addChildren([
       repositoriesIndexRoute,
       repositoryDetailRoute,
     ]),
+    knowledgeBasesRoute,
     settingsRoute,
     schedulesRoute,
     scenesRoute,

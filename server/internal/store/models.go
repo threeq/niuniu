@@ -574,6 +574,7 @@ type KnowledgeBase struct {
 	SourceKind   string    `json:"source_kind"`
 	SourceAddr   string    `json:"source_addr"`
 	SourceConfig string    `json:"source_config"`
+	Status       string    `json:"status"`
 	CreatedAt    time.Time `json:"created_at"`
 	UpdatedAt    time.Time `json:"updated_at"`
 }
@@ -955,6 +956,14 @@ type WorkspaceEnv struct {
 	Value       string    `json:"value"`
 	CreatedAt   time.Time `json:"created_at"`
 	UpdatedAt   time.Time `json:"updated_at"`
+}
+
+type WorkspaceKb struct {
+	ID          int64     `json:"id"`
+	WorkspaceID int64     `json:"workspace_id"`
+	KbID        int64     `json:"kb_id"`
+	DatasetPath string    `json:"dataset_path"`
+	CreatedAt   time.Time `json:"created_at"`
 }
 
 type WorkspaceLocalRunner struct {

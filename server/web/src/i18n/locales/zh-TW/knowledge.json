@@ -113,5 +113,21 @@
     "cancel": "取消",
     "empty": "此目錄下沒有子資料夾",
     "error": "無法讀取目錄"
+  },
+  "workspaceMount": {
+    "title": "已掛載的知識庫",
+    "description": "將知識庫掛載到本工作空間。每個掛載的知識庫會以只讀方式複製到工作空間檔案樹中的 <datasets/<name>/> 並自動入庫，智慧體可直接瀏覽與檢索。",
+    "allMounted": "所有知識庫均已掛載",
+    "pick": "選擇要掛載的知識庫…",
+    "mount": "掛載",
+    "none": "本工作空間尚未掛載任何知識庫。",
+    "noKbs": "暫無可用知識庫。請先在“設定 → 整合”中建立。",
+    "unmount": "解除安裝",
+    "unmountConfirm": "從本工作空間解除安裝知識庫“{{name}}”？檔案樹中的只讀副本會被移除，源知識庫不受影響。",
+    "sync": "同步",
+    "syncing": "同步中…",
+    "mounting": "掛載中…",
+    "datasetPath": "datasets/{{name}}",
+    "readOnly": "只讀"
   }
 }

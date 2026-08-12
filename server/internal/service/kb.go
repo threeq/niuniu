@@ -214,10 +214,17 @@ func (s *KBService) ResolveDatasetDirs(ctx context.Context, owner OwnerRef, proj
 	return out, nil
 }
 
-// WorkspaceDatasetDirs resolves ResolveDatasetDirs for a workspace by id,
-// looking up the workspace owner and its project binding first. This is the
-// entry point the agent-spawn path calls (via the KBDatasetResolver shim) so the
-// exposed set always reflects the workspace's current KB bindings.
+// WorkspaceDatasetDirs resolves the read-only dataset dirs a workspace agent may
+// Read/Grep/Glob. This is the entry point the agent-spawn path calls (via the
+// KBDatasetResolver shim) so the exposed set always reflects the workspace's
+// current KB mounts.
+//
+// KB is a first-class workspace citizen: the PRIMARY source of truth is the
+// workspace's explicit mounts (workspace_kbs), whose materialized dirs live
+// inside the workspace tree at <workspace>/datasets/<name>/ (visible in the file
+// tree). Only when a workspace has NO explicit mounts do we fall back to the
+// legacy project-implicit inheritance (project-bound KBs, resolved at their
+// source root) so existing workspaces keep working until they mount explicitly.
 func (s *KBService) WorkspaceDatasetDirs(ctx context.Context, workspaceID int64) ([]KBDatasetDir, error) {
 	ws, err := s.q.GetWorkspace(ctx, workspaceID)
 	if err != nil {
@@ -227,8 +234,47 @@ func (s *KBService) WorkspaceDatasetDirs(ctx context.Context, workspaceID int64)
 	if err := owner.Validate(); err != nil {
 		return nil, err
 	}
-	// A project-less workspace (GetProjectIDForWorkspace returns 0 or errors)
-	// sees no bound KB — mirror ListVisibleKBs' nil-project behavior.
+	// Decide the fallback on whether ANY explicit mount row exists — NOT on how
+	// many are enabled. ListWorkspaceKBs filters disabled KBs, so a workspace
+	// whose mounted KBs are all disabled would otherwise spuriously fall back to
+	// project-bound KBs it never chose. Explicit mounts (even all-disabled) mean
+	// the workspace opted out of project inheritance; only a workspace with zero
+	// workspace_kbs rows falls back.
+	raw, err := s.q.ListWorkspaceKBsForWorkspace(ctx, workspaceID)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]KBDatasetDir, 0, len(raw))
+	for _, r := range raw {
+		// Re-load the KB to honor tenant isolation + the disabled filter (the raw
+		// workspace_kbs row carries no owner/status). A disabled or cross-owner KB
+		// is skipped, not a fallback trigger.
+		kb, err := s.GetKB(ctx, owner, r.KbID)
+		if err != nil {
+			continue
+		}
+		if kb.Status == "disabled" {
+			continue
+		}
+		if r.DatasetPath == "" {
+			continue
+		}
+		if _, err := os.Stat(r.DatasetPath); err != nil {
+			continue // dataset dir not materialized yet: skip
+		}
+		out = append(out, KBDatasetDir{
+			KBID:        kb.ID,
+			Name:        kb.Name,
+			Description: kb.Description,
+			Root:        r.DatasetPath,
+		})
+	}
+	if len(raw) > 0 {
+		return out, nil
+	}
+	// No explicit mounts: fall back to project-bound KBs (backward compat). A
+	// project-less workspace (GetProjectIDForWorkspace returns 0 or errors) sees
+	// no bound KB — mirror ListVisibleKBs' nil-project behavior.
 	projectID, _ := s.q.GetProjectIDForWorkspace(ctx, workspaceID)
 	return s.ResolveDatasetDirs(ctx, owner, projectID)
 }

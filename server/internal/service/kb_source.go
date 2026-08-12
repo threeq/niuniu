@@ -110,6 +110,40 @@ type kbFile struct {
 	rel string // forward-slash path relative to root (stable across platforms)
 }
 
+// copyDirContent recursively copies every entry under src into dst (a fresh
+// materialized dataset dir), skipping hidden entries (dotfiles, .git) the same
+// way gatherTextFiles does. The destination is a read-only workspace mount; the
+// caller enforces read-only at the agent boundary. Best-effort per file: an
+// unreadable entry is skipped, not fatal, so a single broken file never aborts
+// a mount.
+func copyDirContent(src, dst string) error {
+	return filepath.WalkDir(src, func(p string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return nil // tolerate unreadable entries; skip them
+		}
+		name := d.Name()
+		if p != src && strings.HasPrefix(name, ".") {
+			if d.IsDir() {
+				return fs.SkipDir
+			}
+			return nil
+		}
+		rel, rerr := filepath.Rel(src, p)
+		if rerr != nil {
+			return nil
+		}
+		target := filepath.Join(dst, rel)
+		if d.IsDir() {
+			return os.MkdirAll(target, 0o755)
+		}
+		data, rerr := os.ReadFile(p)
+		if rerr != nil {
+			return nil
+		}
+		return os.WriteFile(target, data, 0o644)
+	})
+}
+
 // gatherTextFiles walks root and returns text files (by extension), skipping
 // hidden entries (dotfiles, .git, etc.). rel paths use forward slashes.
 func gatherTextFiles(root string) ([]kbFile, error) {
