@@ -108,7 +108,7 @@ export function WorkspaceSettingsDialog({ workspace }: WorkspaceSettingsDialogPr
   const [open, setOpen] = useState(false);
   const [name, setName] = useState(workspace.name);
   const [envVars, setEnvVars] = useState<{ key: string; value: string }[]>([]);
-  const [showSecrets, setShowSecrets] = useState<Record<number, boolean>>({});
+  const [editingSecrets, setEditingSecrets] = useState<Record<number, boolean>>({});
   const [agentFields, setAgentFields] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
   const queryClient = useQueryClient();
@@ -598,25 +598,33 @@ export function WorkspaceSettingsDialog({ workspace }: WorkspaceSettingsDialogPr
                       className="flex-1 min-w-0 rounded border border-border px-2 py-1 text-xs font-mono focus:outline-none focus:ring-1 focus:ring-info"
                     />
                     <span className="text-muted-foreground/70 text-xs">=</span>
-                    <div className="relative flex-1 min-w-0">
-                      <input
-                        type={isSecretKey(item.key) ? (showSecrets[index] ? 'text' : 'password') : 'text'}
-                        value={item.value}
-                        onChange={(e) => updateEnvVar(index, 'value', e.target.value)}
-                        placeholder="value"
-                        autoComplete="off"
-                        className="w-full rounded border border-border px-2 py-1 pr-7 text-xs font-mono focus:outline-none focus:ring-1 focus:ring-info"
-                      />
-                      {isSecretKey(item.key) && (
+                    {isSecretKey(item.key) && !editingSecrets[index] ? (
+                      <div className="relative flex-1 min-w-0">
+                        <div className="w-full rounded border border-border px-2 py-1 pr-7 text-xs font-mono text-muted-foreground select-none">
+                          {item.value ? '••••••' : <span className="italic opacity-60">empty</span>}
+                        </div>
                         <button
                           type="button"
-                          onClick={() => setShowSecrets((prev) => ({ ...prev, [index]: !prev[index] }))}
+                          onClick={() => {
+                            setEnvVars((prev) => prev.map((v, i) => (i === index ? { ...v, value: '' } : v)));
+                            setEditingSecrets((prev) => ({ ...prev, [index]: true }));
+                          }}
                           className="absolute right-1 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                          title="Clear and edit"
                         >
-                          {showSecrets[index] ? '🙈' : '👁'}
+                          ✏️
                         </button>
-                      )}
-                    </div>
+                      </div>
+                    ) : (
+                      <input
+                        type="text"
+                        value={item.value}
+                        onChange={(e) => updateEnvVar(index, 'value', e.target.value)}
+                        placeholder={isSecretKey(item.key) ? 'Enter new value' : 'value'}
+                        autoComplete="off"
+                        className="flex-1 min-w-0 rounded border border-border px-2 py-1 text-xs font-mono focus:outline-none focus:ring-1 focus:ring-info"
+                      />
+                    )}
                     <button
                       onClick={() => removeEnvVar(index)}
                       className="p-1 text-gray-400 hover:text-red-500"
