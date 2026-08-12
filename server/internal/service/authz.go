@@ -55,6 +55,7 @@ const (
 	ownerTableScenes       ownerTable = "scenes"
 	ownerTableDashboards   ownerTable = "dashboards"
 	ownerTableSavedQueries ownerTable = "saved_queries"
+	ownerTableKnowledgeBases ownerTable = "knowledge_bases"
 )
 
 // CanAccessScene verifies userID may access the scene. Builtin scenes
@@ -231,6 +232,20 @@ func (a *Authz) CanAccessEnvProvider(ctx context.Context, userID, id int64) (Own
 	}
 	if owner.Type == "user" && owner.ID == 0 {
 		return owner, nil
+	}
+	if err := a.checkAccess(ctx, userID, owner); err != nil {
+		return OwnerRef{}, err
+	}
+	return owner, nil
+}
+
+// CanAccessKB verifies userID may access the knowledge_base with the given id
+// (owner-based, mirroring CanAccessEnvProvider). KBs have no system-wide
+// (owner_id=0) rows, so every KB is personal or org-owned.
+func (a *Authz) CanAccessKB(ctx context.Context, userID, id int64) (OwnerRef, error) {
+	owner, err := a.loadOwner(ctx, ownerTableKnowledgeBases, id)
+	if err != nil {
+		return OwnerRef{}, err
 	}
 	if err := a.checkAccess(ctx, userID, owner); err != nil {
 		return OwnerRef{}, err

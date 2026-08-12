@@ -259,9 +259,16 @@ func (h *EnvProviderHandler) Env(c *gin.Context) {
 		NotFound(c, "ENV_PROVIDER")
 		return
 	}
-	accounts, _ := h.accountSvc.List(c.Request.Context())
+	var accounts []store.EnvAccount
+	if userID > 0 {
+		accounts, _ = h.accountSvc.ListForUser(c.Request.Context(), userID)
+	} else {
+		accounts, _ = h.accountSvc.List(c.Request.Context())
+	}
 	// Preview resolves an account ref to the real key so the user sees what the
-	// agent will actually use (masked in the UI).
+	// agent will actually use (masked in the UI). Scope accounts to the caller's
+	// accessible owners (personal + member orgs + system defaults) — matches
+	// sceneenv.Resolve so the preview never resolves another tenant's account.
 	env := h.svc.Expand(c.Request.Context(), provider, c.DefaultQuery("cli_type", ""), accounts, false)
 	c.JSON(http.StatusOK, env)
 }

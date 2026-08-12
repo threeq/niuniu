@@ -95,6 +95,13 @@ func addOwnerModel(db *sql.DB, fk string) {
 		ON quick_actions(owner_type, owner_id, label)`)
 	execOrError(db, `CREATE UNIQUE INDEX IF NOT EXISTS idx_env_presets_owner_name_unique
 		ON env_presets(owner_type, owner_id, name)`)
+	// env_accounts / env_providers: per-owner name uniqueness so each org can
+	// have its own "DeepSeek"/"Anthropic" account+provider. The legacy global
+	// column-level UNIQUE is dropped on existing DBs by dropLegacyUniqueConstraints.
+	execOrError(db, `CREATE UNIQUE INDEX IF NOT EXISTS idx_env_accounts_owner_name_unique
+		ON env_accounts(owner_type, owner_id, name)`)
+	execOrError(db, `CREATE UNIQUE INDEX IF NOT EXISTS idx_env_providers_owner_name_unique
+		ON env_providers(owner_type, owner_id, name)`)
 	// idx_teams_owner_name_unique and idx_harnesses_owner_name_unique removed in
 	// Phase 7: those tables are dropped by drop_legacy_phase7_v1 migration.
 	// harness_specs owner-scope index removed: it is a single global library now.

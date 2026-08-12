@@ -30,8 +30,14 @@ import (
 type Querier interface {
 	ListWorkspaceEnv(ctx context.Context, workspaceID int64) ([]store.WorkspaceEnv, error)
 	GetProjection(ctx context.Context, workspaceID int64) (store.WorkspaceSceneProjection, error)
-	ListEnvAccounts(ctx context.Context) ([]store.EnvAccount, error)
-	ListEnvProviders(ctx context.Context) ([]store.EnvProvider, error)
+	GetWorkspace(ctx context.Context, id int64) (store.Workspace, error)
+	// ListEnvAccountsForOwners / ListEnvProvidersForOwners scope to the owner
+	// (personal id + member orgs + system-wide owner_id=0 defaults). Resolve uses
+	// these instead of the global ListEnv* so a workspace only ever resolves
+	// ${ACCOUNT:<name>} against its own owner's accounts — never another
+	// tenant's. See Resolve.
+	ListEnvAccountsForOwners(ctx context.Context, arg store.ListEnvAccountsForOwnersParams) ([]store.EnvAccount, error)
+	ListEnvProvidersForOwners(ctx context.Context, arg store.ListEnvProvidersForOwnersParams) ([]store.EnvProvider, error)
 	GetEnvProvider(ctx context.Context, id int64) (store.EnvProvider, error)
 	GetWorkspaceCliType(ctx context.Context, workspaceID int64) (string, error)
 	GetWorkspaceEnvProviderID(ctx context.Context, workspaceID int64) (int64, error)
@@ -126,7 +132,24 @@ func Resolve(ctx context.Context, q Querier, wsID int64) ([]store.WorkspaceEnv, 
 	if err != nil {
 		return nil, err
 	}
-	accounts, _ := q.ListEnvAccounts(ctx)
+	// Scope accounts/providers to the workspace's owner so ${ACCOUNT:<name>}
+	// resolves only against this owner's accounts (+ system-wide owner_id=0
+	// defaults), never another tenant's. For an org-owned workspace we pass
+	// OwnerID=0 + OrgIds=[orgID] (matches defaults + that org only); for a
+	// personal workspace OwnerID=ws.OwnerID + no orgs (personal + defaults).
+	ws, werr := q.GetWorkspace(ctx, wsID)
+	var accountParams store.ListEnvAccountsForOwnersParams
+	var providerParams store.ListEnvProvidersForOwnersParams
+	if werr == nil && ws.OwnerType == "org" {
+		accountParams.OwnerID = 0
+		accountParams.OrgIds = []int64{ws.OwnerID}
+		providerParams.OwnerID = 0
+		providerParams.OrgIds = []int64{ws.OwnerID}
+	} else if werr == nil {
+		accountParams.OwnerID = ws.OwnerID
+		providerParams.OwnerID = ws.OwnerID
+	}
+	accounts, _ := q.ListEnvAccountsForOwners(ctx, accountParams)
 	cliType, _ := q.GetWorkspaceCliType(ctx, wsID)
 	scene := SceneVars(ctx, q, wsID)
 	merged := map[string]string{}
@@ -143,7 +166,7 @@ func Resolve(ctx context.Context, q Querier, wsID int64) ([]store.WorkspaceEnv, 
 	// Scene providers (by name).
 	if names := SceneProviders(ctx, q, wsID); len(names) > 0 {
 		var providers []store.EnvProvider
-		if p, perr := q.ListEnvProviders(ctx); perr == nil {
+		if p, perr := q.ListEnvProvidersForOwners(ctx, providerParams); perr == nil {
 			providers = p
 		}
 		for _, name := range names {
