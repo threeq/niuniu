@@ -4,6 +4,9 @@ SELECT * FROM projects WHERE status = ? ORDER BY created_at DESC;
 -- name: GetProject :one
 SELECT * FROM projects WHERE id = ?;
 
+-- name: SetProjectEnvProvider :exec
+UPDATE projects SET env_provider_id = ? WHERE id = ?;
+
 -- name: GetProjectByOwnerAndName :one
 -- Project names are unique per owner (idx_projects_owner_name_unique), not
 -- globally. Scope the lookup by owner so one owner's project never blocks

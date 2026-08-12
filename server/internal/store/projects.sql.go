@@ -247,6 +247,20 @@ func (q *Queries) ListProjects(ctx context.Context, status string) ([]Project, e
 	return items, nil
 }
 
+const setProjectEnvProvider = `-- name: SetProjectEnvProvider :exec
+UPDATE projects SET env_provider_id = ? WHERE id = ?
+`
+
+type SetProjectEnvProviderParams struct {
+	EnvProviderID sql.NullInt64 `json:"env_provider_id"`
+	ID            int64         `json:"id"`
+}
+
+func (q *Queries) SetProjectEnvProvider(ctx context.Context, arg SetProjectEnvProviderParams) error {
+	_, err := q.db.ExecContext(ctx, setProjectEnvProvider, arg.EnvProviderID, arg.ID)
+	return err
+}
+
 const updateProject = `-- name: UpdateProject :one
 UPDATE projects SET name = ?, description = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? RETURNING id, name, description, status, owner_type, owner_id, color, memory_sweep_cron, default_cli_type, env_provider_id, cleanup_enabled, cleanup_inactive_days, cleanup_statuses, created_at, updated_at
 `

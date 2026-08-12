@@ -448,6 +448,7 @@ func (s *Server) setupRoutes() {
 		projects.PUT("/:id/status", s.projectHandler.UpdateStatus)
 		projects.PUT("/:id/color", s.projectHandler.UpdateColor)
 		projects.PUT("/:id/default-cli-type", s.projectHandler.UpdateDefaultCliType)
+		projects.PUT("/:id/env-provider", s.projectHandler.UpdateEnvProvider)
 
 		// Column routes under project
 		projects.GET("/:id/columns", s.kanbanHandler.ListColumns)
@@ -1020,7 +1021,6 @@ func (s *Server) setupRoutes() {
 		envProviders.PUT("/:id", s.envProviderHandler.Update)
 		envProviders.DELETE("/:id", s.envProviderHandler.Delete)
 		envProviders.GET("/:id/env", s.envProviderHandler.Env)
-		envProviders.POST("/:id/import", s.envProviderHandler.Import)
 	}
 
 	// Scenes (M1 — scene-based MCP/plugin management).

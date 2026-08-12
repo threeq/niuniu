@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
-import { Plus, Trash2, Pencil, ChevronDown, ChevronRight, Package, KeyRound, Server, CheckSquare } from 'lucide-react'
+import { Plus, Trash2, Pencil, ChevronDown, ChevronRight, Package, KeyRound, Server } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import {
@@ -122,11 +122,10 @@ function AccountCard({ account, onEdit, onDelete }: { account: EnvAccount; onEdi
   )
 }
 
-function ProviderCard({ provider, onEdit, onDelete, onImport }: {
+function ProviderCard({ provider, onEdit, onDelete }: {
   provider: EnvProvider
   onEdit: (p: EnvProvider) => void
   onDelete: (id: number) => void
-  onImport: (p: EnvProvider) => void
 }) {
   const { t } = useTranslation('settings')
   const [showPreview, setShowPreview] = useState(false)
@@ -159,10 +158,7 @@ function ProviderCard({ provider, onEdit, onDelete, onImport }: {
           )}
         </button>
         <div className="flex items-center gap-1 flex-shrink-0 ml-2">
-          <Button size="sm" variant="outline" onClick={() => onImport(provider)}>
-            <CheckSquare className="h-3.5 w-3.5 mr-1" />
-            {t('env.providerImportBtn')}
-          </Button>
+
           <button onClick={() => onEdit(provider)} className="p-1 text-muted-foreground hover:text-info">
             <Pencil className="h-3.5 w-3.5" />
           </button>
@@ -393,29 +389,6 @@ export function EnvSettings() {
   }
   const isSavingProvider = createProviderMutation.isPending || updateProviderMutation.isPending
 
-  // Import provider → preset
-  const [importTarget, setImportTarget] = useState<EnvProvider | null>(null)
-  const [importCliType, setImportCliType] = useState<ProviderCliType>('claude')
-  const [importPresetName, setImportPresetName] = useState('')
-  const [importOverwrite, setImportOverwrite] = useState(false)
-  const importMutation = useMutation({
-    mutationFn: () => api.importProvider(importTarget!.id, {
-      cli_type: importCliType,
-      preset_name: importPresetName || undefined,
-      overwrite: importOverwrite,
-    }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['env-presets'] })
-      setImportTarget(null)
-    },
-  })
-  const openImportDialog = (p: EnvProvider) => {
-    setImportTarget(p)
-    setImportCliType('claude')
-    setImportPresetName(p.name)
-    setImportOverwrite(false)
-  }
-
   const openCreateDialog = () => {
     setEditingPreset(null)
     setName('')
@@ -482,7 +455,7 @@ export function EnvSettings() {
                 provider={p}
                 onEdit={openEditProviderDialog}
                 onDelete={(id) => deleteProviderMutation.mutate(id)}
-                onImport={openImportDialog}
+                
               />
             ))}
           </div>
@@ -877,43 +850,6 @@ export function EnvSettings() {
         </DialogContent>
       </Dialog>
 
-      {/* Import Provider → Preset Dialog */}
-      <Dialog open={!!importTarget} onOpenChange={(o) => !o && setImportTarget(null)}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle>{t('env.providerImportTitle')}</DialogTitle>
-            <DialogDescription>{t('env.providerImportDesc')}</DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4">
-            <div>
-              <label className="block text-sm font-medium text-foreground mb-1">{t('env.providerCliTypeLabel')}</label>
-              <select
-                value={importCliType}
-                onChange={(e) => setImportCliType(e.target.value as ProviderCliType)}
-                className="w-full rounded border border-border bg-background px-2 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
-              >
-                {PROVIDER_CLI_TYPES.map((c) => (
-                  <option key={c} value={c}>{t(`env.providerCliType${c.charAt(0).toUpperCase()}${c.slice(1)}`)}</option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-foreground mb-1">{t('env.providerPresetNameLabel')}</label>
-              <Input value={importPresetName} onChange={(e) => setImportPresetName(e.target.value)} />
-            </div>
-            <label className="flex items-center gap-2 text-sm text-foreground">
-              <input type="checkbox" checked={importOverwrite} onChange={(e) => setImportOverwrite(e.target.checked)} className="h-4 w-4" />
-              {t('env.providerOverwriteLabel')}
-            </label>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setImportTarget(null)}>{t('common:actions.cancel')}</Button>
-            <Button onClick={() => importMutation.mutate()} disabled={importMutation.isPending || !importPresetName.trim()}>
-              {importMutation.isPending ? t('common:actions.saving') : t('env.providerImportBtn')}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
     </div>
   )
 }

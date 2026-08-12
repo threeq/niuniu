@@ -461,6 +461,40 @@ func (h *ProjectHandler) UpdateDefaultCliType(c *gin.Context) {
 	c.JSON(http.StatusOK, toProjectResponse(project))
 }
 
+// UpdateEnvProvider sets the project's default subscription-platform provider.
+// New workspaces created from issues under this project inherit it.
+func (h *ProjectHandler) UpdateEnvProvider(c *gin.Context) {
+	userID := c.GetInt64("auth_user_id")
+	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		BadRequest(c, "invalid project ID")
+		return
+	}
+	if userID > 0 && h.Authz != nil {
+		if _, err := h.Authz.CanAccessProject(c.Request.Context(), userID, id); err != nil {
+			writeAuthzError(c, err)
+			return
+		}
+	}
+	var req struct {
+		EnvProviderID *int64 `json:"env_provider_id"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		BadRequest(c, "invalid body")
+		return
+	}
+	var pid int64
+	if req.EnvProviderID != nil {
+		pid = *req.EnvProviderID
+	}
+	project, err := h.svc.UpdateEnvProvider(c.Request.Context(), id, pid)
+	if err != nil {
+		InternalError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, toProjectResponse(project))
+}
+
 // Update updates an existing project
 // @Summary      Update a project
 // @Description  Update project details

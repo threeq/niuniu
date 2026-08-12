@@ -569,12 +569,13 @@ export const api = {
     api.delete(`/env-providers/${id}`),
   getProviderEnv: (id: number, cliType?: string): Promise<Record<string, string>> =>
     api.get<Record<string, string>>(`/env-providers/${id}/env`, { params: cliType ? { cli_type: cliType } : {} }),
-  importProvider: (id: number, data: { cli_type?: string; preset_name?: string; overwrite?: boolean; owner?: { type: string; id: number } }): Promise<{ preset_id: number; preset_name: string; updated?: boolean }> =>
-    api.post(`/env-providers/${id}/import`, data),
-
   // Workspace direct provider binding (issue #653 simplification)
   setWorkspaceEnvProvider: (workspaceId: string, providerId: number | null): Promise<{ env_provider_id: number }> =>
     api.put(`/workspaces/${workspaceId}/env-provider`, { env_provider_id: providerId }),
+
+  // Project default provider binding (inherited by new workspaces)
+  setProjectEnvProvider: (projectId: string, providerId: number | null): Promise<unknown> =>
+    api.put(`/projects/${projectId}/env-provider`, { env_provider_id: providerId }),
 
   // Attachments
   uploadAttachment: async (workspaceId: string, file: File): Promise<{ name: string; path: string; size: number; mimeType: string; originalSize?: number; optimized?: boolean }> => {

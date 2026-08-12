@@ -173,6 +173,7 @@ type ProjectResponse struct {
 	Owner        OwnerDTO                   `json:"owner"`
 	Color        *string                    `json:"color" example:"emerald"`
 	DefaultCliType string                   `json:"default_cli_type" example:"claude"`
+	EnvProviderID  *int64                    `json:"env_provider_id,omitempty"`
 	IssueStats   []ColumnIssueStat          `json:"issue_stats,omitempty"`
 	WsStats      []WsStatusStat             `json:"ws_stats,omitempty"`
 	Repositories []ProjectRepositoryBinding `json:"repositories,omitempty"`
@@ -220,6 +221,11 @@ func toProjectRepositoryBindings(bs []service.ProjectRepoBinding) []ProjectRepos
 }
 
 func toProjectResponse(p store.Project) ProjectResponse {
+	var envProviderID *int64
+	if p.EnvProviderID.Valid {
+		v := p.EnvProviderID.Int64
+		envProviderID = &v
+	}
 	var desc *string
 	if p.Description.Valid {
 		desc = &p.Description.String
@@ -237,6 +243,7 @@ func toProjectResponse(p store.Project) ProjectResponse {
 		Owner:          ownerDTOFromRef(p.OwnerType, p.OwnerID),
 		Color:          color,
 		DefaultCliType: normalizeCliType(p.DefaultCliType),
+		EnvProviderID:  envProviderID,
 		CreatedAt:      p.CreatedAt,
 		UpdatedAt:      p.UpdatedAt,
 	}

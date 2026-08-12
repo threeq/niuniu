@@ -1142,6 +1142,19 @@ func (s *WorkspaceService) Create(ctx context.Context, input CreateWorkspaceInpu
 		go s.onCreated(context.Background(), ws)
 	}
 
+	// Inherit the project's default Provider (projects.env_provider_id) so a
+	// workspace created from an issue under a project gets the right subscription
+	// platform automatically. Best-effort: a lookup/write failure just leaves the
+	// workspace without a provider binding (the user can set one in settings).
+	if input.IssueID != nil {
+		if pid, err := s.q.GetProjectEnvProviderByIssueID(ctx, *input.IssueID); err == nil && pid > 0 {
+			if err := s.SetEnvProvider(ctx, result.Workspace.ID, pid); err != nil {
+				slog.Warn("workspace.Create: inherit project provider failed",
+					"workspace_id", result.Workspace.ID, "provider_id", pid, "error", err)
+			}
+		}
+	}
+
 	return result, nil
 }
 

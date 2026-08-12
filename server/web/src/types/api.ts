@@ -18,6 +18,7 @@ export interface Project extends BaseEntity {
   status: 'active' | 'hidden';
   color?: string | null;            // palette key like 'emerald'，null/缺失为未设
   default_cli_type?: 'claude' | 'codex' | 'qwen' | 'omp' | 'goose';  // 项目默认 agent，新建工作区时预选
+  env_provider_id?: number | null;  // 默认 Provider，工作空间继承
   issue_stats?: { column_name: string; count: number }[];
   ws_stats?: { status: string; count: number }[];
   owner?: import('./org').OwnerRef;
