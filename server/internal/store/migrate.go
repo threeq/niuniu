@@ -2682,6 +2682,17 @@ func markMigration(w *DB, key string) {
 	}
 }
 
+// HasEnvSeedRun reports whether the one-time env defaults seeding has completed.
+// Once true, SeedDefaults is never called again — user-deleted items stay deleted.
+func HasEnvSeedRun(db *sql.DB) bool {
+	return migrationApplied(Wrap(db), "env_seed_v1_done")
+}
+
+// MarkEnvSeedDone records that the one-time env defaults seeding has completed.
+func MarkEnvSeedDone(db *sql.DB) {
+	markMigration(Wrap(db), "env_seed_v1_done")
+}
+
 // widenTokenColumnsPostgres widens token/duration columns from int4 to BIGINT
 // on Postgres. Fresh installs already create them as BIGINT (schema_postgres.sql);
 // this only matters for a DB that created the tables from an earlier int4 build.
