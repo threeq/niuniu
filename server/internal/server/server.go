@@ -1016,9 +1016,11 @@ func New(cfg *config.Config, db *sql.DB, frontendFS fs.FS) *Server {
 	// boot after SeedDefaults (idempotent UPDATE by category+name) so it covers both a
 	// fresh install (specs just seeded) and an upgrade. code_probe_only is migrate-only
 	// (not in sqlc), so this is anchored raw SQL on the driver-aware *store.DB.
+	// harness_specs is a single GLOBAL library (no owner_type/owner_id columns —
+	// see owner_schema.go), so the UPDATE must not filter on owner columns.
 	if _, err := store.Wrap(db).ExecContext(context.Background(),
 		`UPDATE harness_specs SET code_probe_only = 1
-		 WHERE owner_type = 'user' AND owner_id = 0 AND category = 'quality'
+		 WHERE category = 'quality'
 		   AND name IN ('build-test-pass', 'test-coverage')`); err != nil {
 		slog.Warn("mark code-class floor specs failed", "error", err)
 	}
