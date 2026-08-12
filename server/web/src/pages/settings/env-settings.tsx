@@ -67,7 +67,7 @@ function PresetCard({ preset, onEdit, onDelete }: { preset: EnvPreset; onEdit: (
             <div key={key} className="flex items-center gap-2 text-xs font-mono">
               <span className="text-success font-medium">{key}</span>
               <span className="text-muted-foreground">=</span>
-              <span className="text-foreground">{maskKey(value)}</span>
+              <span className="text-foreground">{isSecretKey(key) ? maskKey(value) : value}</span>
             </div>
           ))}
         </div>
@@ -78,6 +78,12 @@ function PresetCard({ preset, onEdit, onDelete }: { preset: EnvPreset; onEdit: (
 
 // Mask a stored API key so it is never shown in full: keep the first 4 and
 // last 4 characters, collapse the middle to "…". Empty/short keys stay as-is.
+// isSecretKey reports whether an env var key name suggests it holds a secret.
+function isSecretKey(key: string): boolean {
+  const k = key.toUpperCase();
+  return /TOKEN|API_KEY|SECRET|PASSWORD|CREDENTIAL|AUTH_TOKEN/.test(k);
+}
+
 function maskKey(key: string): string {
   if (!key) return ''
   if (key.length <= 12) return '••••••'
