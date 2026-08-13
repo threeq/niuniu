@@ -73,22 +73,46 @@ func (s *WorkspaceSession) getOrStartGooseBackend(ctx context.Context, workDir s
 	// and pass them to the goose backend so it inherits the user's configured
 	// provider / account credentials. Best-effort: a resolve failure leaves
 	// the backend running with its own config defaults.
+	//
+	// goose does NOT read generic OPENAI_BASE_URL/OPENAI_API_KEY for custom
+	// OpenAI-compatible endpoints — it needs the GOOSE_PROVIDER__* triad
+	// (TYPE/HOST/API_KEY). We translate the provider expansion's OPENAI_* vars
+	// into goose's native vars here. See:
+	//   https://goose-docs.ai/docs/guides/environment-variables
 	var envSlice []string
 	var model string
-	if envVars, envErr := sceneenv.Resolve(ctx, s.q, s.workspaceID); envErr != nil {
+	hasCustomEndpoint := false
+	envVars, envErr := sceneenv.Resolve(ctx, s.q, s.workspaceID)
+	if envErr != nil {
 		slog.Warn("goose: resolve workspace env failed", "workspaceID", s.workspaceID, "err", envErr)
-	} else {
-		for _, e := range envVars {
-			// NIUNIU_* are niuniu-internal control keys — never leak them to the
-			// agent process (consistent with injectCLIEnv in adapter/spawn.go).
-			if strings.HasPrefix(e.Key, "NIUNIU_") {
-				if e.Key == "NIUNIU_MODEL" && e.Value != "" {
-					model = e.Value
-				}
-				continue
+	}
+	for _, e := range envVars {
+		// NIUNIU_* are niuniu-internal control keys — never leak them to the
+		// agent process (consistent with injectCLIEnv in adapter/spawn.go).
+		if strings.HasPrefix(e.Key, "NIUNIU_") {
+			if e.Key == "NIUNIU_MODEL" && e.Value != "" {
+				model = e.Value
 			}
+			continue
+		}
+		switch e.Key {
+		case "OPENAI_BASE_URL":
+			envSlice = append(envSlice, "GOOSE_PROVIDER__TYPE=openai")
+			envSlice = append(envSlice, "GOOSE_PROVIDER__HOST="+e.Value)
+			hasCustomEndpoint = true
+		case "OPENAI_API_KEY":
+			envSlice = append(envSlice, "GOOSE_PROVIDER__API_KEY="+e.Value)
+		case "OPENAI_MODEL":
+			if model == "" {
+				model = e.Value
+			}
+			// goose reads GOOSE_MODEL, set below via opts.Model → buildEnv
+		default:
 			envSlice = append(envSlice, e.Key+"="+e.Value)
 		}
+	}
+	if hasCustomEndpoint {
+		envSlice = append(envSlice, "GOOSE_PROVIDER=openai")
 	}
 
 	opts := goose.Options{

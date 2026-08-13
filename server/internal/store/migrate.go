@@ -262,6 +262,25 @@ func Migrate(db *sql.DB) {
 		}
 	}
 
+	// Backfill OpenAI-compatible base_url into default-seeded env_providers that
+	// only carry the anthropic endpoint. This lets codex/qwen/omp/goose workspaces
+	// consume the same provider config (ExpandProvider looks up base_urls["openai"]).
+	// Only touches rows whose base_urls lacks "openai" — user-customized providers
+	// are left alone. substr/|| works on both SQLite and PostgreSQL.
+	openaiEndpoints := map[string]string{
+		"通义千问": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+		"Kimi":  "https://api.moonshot.cn/v1",
+		"火山方舟": "https://ark.cn-beijing.volces.com/api/v3",
+		"MiniMax": "https://api.minimaxi.com/v1",
+	}
+	for name, url := range openaiEndpoints {
+		q := `UPDATE env_providers SET base_urls = substr(base_urls, 1, length(base_urls) - 1) || ',"openai":"' || ? || '"}'` +
+			` WHERE name = ? AND base_urls NOT LIKE '%openai%' AND base_urls LIKE '{%}'`
+		if _, err := db.Exec(q, url, name); err != nil {
+			slog.Warn("backfill env_providers openai base_url failed", "name", name, "error", err)
+		}
+	}
+
 	if !migrationApplied(w, "workspaces_created_by_backfill_v1") {
 		if _, err := w.ExecContext(context.Background(),
 			`UPDATE workspaces SET created_by = owner_id

@@ -133,7 +133,7 @@ func (s *EnvProviderService) SeedDefaults(ctx context.Context) error {
 		},
 		{
 			Name: "MiniMax", Platform: "minimax",
-			BaseUrls: `{"anthropic":"https://api.minimaxi.com/anthropic"}`,
+			BaseUrls: `{"anthropic":"https://api.minimaxi.com/anthropic","openai":"https://api.minimaxi.com/v1"}`,
 			Model: "MiniMax-M2.7", HaikuModel: "MiniMax-M2.7", SonnetModel: "MiniMax-M2.7", OpusModel: "MiniMax-M2.7",
 			ApiKey: "${ACCOUNT:MiniMax}",
 		},
@@ -148,20 +148,20 @@ func (s *EnvProviderService) SeedDefaults(ctx context.Context) error {
 		},
 		{
 			Name: "通义千问", Platform: "qwen",
-			BaseUrls: `{"anthropic":"https://coding.dashscope.aliyuncs.com/apps/anthropic"}`,
+			BaseUrls: `{"anthropic":"https://coding.dashscope.aliyuncs.com/apps/anthropic","openai":"https://dashscope.aliyuncs.com/compatible-mode/v1"}`,
 			Model: "qwen3.6-plus", HaikuModel: "qwen3.6-plus", SonnetModel: "qwen3.6-plus", OpusModel: "qwen3.6-plus",
 			SubagentModel: "qwen3.6-plus", ApiKey: "${ACCOUNT:通义千问}",
 		},
 		{
 			Name: "Kimi", Platform: "moonshot",
-			BaseUrls: `{"anthropic":"https://api.moonshot.cn/anthropic"}`,
+			BaseUrls: `{"anthropic":"https://api.moonshot.cn/anthropic","openai":"https://api.moonshot.cn/v1"}`,
 			Model: "kimi-k2.6", HaikuModel: "kimi-k2.6", SonnetModel: "kimi-k2.6", OpusModel: "kimi-k2.6",
 			SubagentModel: "kimi-k2.6", ApiKey: "${ACCOUNT:Kimi}",
 			ExtraEnv: `{"ENABLE_TOOL_SEARCH":"false"}`,
 		},
 		{
 			Name: "火山方舟", Platform: "volcengine-ark",
-			BaseUrls: `{"anthropic":"https://ark.cn-beijing.volces.com/api/coding"}`,
+			BaseUrls: `{"anthropic":"https://ark.cn-beijing.volces.com/api/coding","openai":"https://ark.cn-beijing.volces.com/api/v3"}`,
 			Model: "deepseek-v4-pro", HaikuModel: "deepseek-v4-flash", SonnetModel: "deepseek-v4-pro", OpusModel: "deepseek-v4-pro",
 			SubagentModel: "deepseek-v4-pro", ApiKey: "${ACCOUNT:火山方舟}",
 		},
