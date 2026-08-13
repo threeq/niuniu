@@ -10,6 +10,7 @@ import (
 	"github.com/niuniu-dev/niuniu/internal/agentbackend"
 	"github.com/niuniu-dev/niuniu/internal/agentbackend/goose"
 	"github.com/niuniu-dev/niuniu/internal/config"
+	"github.com/niuniu-dev/niuniu/internal/sceneenv"
 	"github.com/niuniu-dev/niuniu/internal/store"
 )
 
@@ -67,10 +68,29 @@ func (s *WorkspaceSession) getOrStartGooseBackend(ctx context.Context, workDir s
 	}
 	s.mu.Unlock()
 
+	// Resolve workspace env vars (provider API keys, model, NIUNIU_* controls)
+	// and pass them to the goose backend so it inherits the user's configured
+	// provider / account credentials. Best-effort: a resolve failure leaves
+	// the backend running with its own config defaults.
+	var envSlice []string
+	var model string
+	if envVars, envErr := sceneenv.Resolve(ctx, s.q, s.workspaceID); envErr != nil {
+		slog.Warn("goose: resolve workspace env failed", "workspaceID", s.workspaceID, "err", envErr)
+	} else {
+		for _, e := range envVars {
+			envSlice = append(envSlice, e.Key+"="+e.Value)
+			if e.Key == "NIUNIU_MODEL" && e.Value != "" {
+				model = e.Value
+			}
+		}
+	}
+
 	opts := goose.Options{
 		Command: s.cfg.Agent.GooseCli.Command, // default "goose"
 		Args:    s.cfg.Agent.GooseCli.Args,
 		WorkDir: workDir,
+		Env:     envSlice,
+		Model:   model,
 		// Provider/Model are workspace-level; goose falls back to its own config
 		// (OpenRouter/Ollama/compatible endpoints for domestic models).
 		ResolvePermission: s.gooseResolvePermission,

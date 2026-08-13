@@ -8,6 +8,7 @@ import (
 
 	"github.com/niuniu-dev/niuniu/internal/agentbackend"
 	"github.com/niuniu-dev/niuniu/internal/agentbackend/omp"
+	"github.com/niuniu-dev/niuniu/internal/sceneenv"
 	"github.com/niuniu-dev/niuniu/internal/store"
 )
 
@@ -65,10 +66,29 @@ func (s *WorkspaceSession) getOrStartOMPBackend(ctx context.Context, workDir str
 	}
 	s.mu.Unlock()
 
+	// Resolve workspace env vars (provider API keys, model, NIUNIU_* controls)
+	// and pass them to the omp backend so it inherits the user's configured
+	// provider / account credentials. Best-effort: a resolve failure leaves
+	// the backend running with its own config defaults.
+	var envSlice []string
+	var model string
+	if envVars, envErr := sceneenv.Resolve(ctx, s.q, s.workspaceID); envErr != nil {
+		slog.Warn("omp: resolve workspace env failed", "workspaceID", s.workspaceID, "err", envErr)
+	} else {
+		for _, e := range envVars {
+			envSlice = append(envSlice, e.Key+"="+e.Value)
+			if e.Key == "NIUNIU_MODEL" && e.Value != "" {
+				model = e.Value
+			}
+		}
+	}
+
 	var be agentbackend.Backend = omp.New(omp.Options{
 		Command: s.cfg.Agent.OmpCli.Command, // default "omp"
 		Args:    s.cfg.Agent.OmpCli.Args,
 		WorkDir: workDir,
+		Env:     envSlice,
+		Model:   model,
 		// Provider/Model are workspace-level; omp falls back to its own config.
 		ResolvePermission: s.ompResolvePermission,
 	})
