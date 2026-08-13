@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"log/slog"
+	"strings"
 	"time"
 
 	"github.com/niuniu-dev/niuniu/internal/agentbackend"
@@ -76,10 +77,15 @@ func (s *WorkspaceSession) getOrStartOMPBackend(ctx context.Context, workDir str
 		slog.Warn("omp: resolve workspace env failed", "workspaceID", s.workspaceID, "err", envErr)
 	} else {
 		for _, e := range envVars {
-			envSlice = append(envSlice, e.Key+"="+e.Value)
-			if e.Key == "NIUNIU_MODEL" && e.Value != "" {
-				model = e.Value
+			// NIUNIU_* are niuniu-internal control keys — never leak them to the
+			// agent process (consistent with injectCLIEnv in adapter/spawn.go).
+			if strings.HasPrefix(e.Key, "NIUNIU_") {
+				if e.Key == "NIUNIU_MODEL" && e.Value != "" {
+					model = e.Value
+				}
+				continue
 			}
+			envSlice = append(envSlice, e.Key+"="+e.Value)
 		}
 	}
 
