@@ -54,16 +54,23 @@ export function useFileUpload(workspaceId: string) {
     const items = e.clipboardData?.items;
     if (!items) return;
     for (const item of Array.from(items)) {
-      if (item.type.startsWith('image/')) {
+      // File is directly pasted (e.g. Ctrl+C/V from Finder/Explorer/Outlook).
+      // item.kind is 'file' when the clipboard holds a binary file reference.
+      if (item.kind === 'file') {
         e.preventDefault();
         const file = item.getAsFile();
         if (file) {
-          // Normalize non-standard MIME subtypes used by some Linux/macOS tools
-          // e.g. image/x-png → png, image/x-bmp → bmp
-          let ext = item.type.split('/')[1] || 'png';
-          if (ext.startsWith('x-')) ext = ext.slice(2);
-          const namedFile = new File([file], `paste-${Date.now()}.${ext}`, { type: item.type });
-          uploadFile(namedFile);
+          if (item.type.startsWith('image/')) {
+            // Normalize non-standard MIME subtypes used by some Linux/macOS tools
+            // e.g. image/x-png → png, image/x-bmp → bmp
+            let ext = item.type.split('/')[1] || 'png';
+            if (ext.startsWith('x-')) ext = ext.slice(2);
+            const namedFile = new File([file], `paste-${Date.now()}.${ext}`, { type: item.type });
+            uploadFile(namedFile);
+          } else {
+            // Non-image files (documents, code, PDFs, etc.) — upload as-is.
+            uploadFile(file);
+          }
         }
         return;
       }
