@@ -3,11 +3,16 @@ package agentproxy
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"log/slog"
+	"os"
+	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/niuniu-dev/niuniu/internal/agentbackend"
 	"github.com/niuniu-dev/niuniu/internal/agentbackend/omp"
+	"github.com/niuniu-dev/niuniu/internal/sceneenv"
 	"github.com/niuniu-dev/niuniu/internal/store"
 )
 
@@ -65,10 +70,72 @@ func (s *WorkspaceSession) getOrStartOMPBackend(ctx context.Context, workDir str
 	}
 	s.mu.Unlock()
 
+	// Resolve workspace env vars (provider API keys, model, NIUNIU_* controls)
+	// and pass them to the omp backend so it inherits the user's configured
+	// provider / account credentials. Best-effort: a resolve failure leaves
+	// the backend running with its own config defaults.
+	//
+	// omp does NOT read generic OPENAI_BASE_URL/OPENAI_API_KEY for custom
+	// OpenAI-compatible endpoints, nor OMP_MODEL for model selection. Custom
+	// endpoints require a models.yml provider definition (loaded via
+	// PI_CODING_AGENT_DIR), and model selection requires the --model CLI flag.
+	// See: https://github.com/can1357/oh-my-pi/blob/main/docs/environment-variables.md
+	var envSlice []string
+	var model string
+	openaiBaseURL, openaiAPIKey := "", ""
+	envVars, envErr := sceneenv.Resolve(ctx, s.q, s.workspaceID)
+	if envErr != nil {
+		slog.Warn("omp: resolve workspace env failed", "workspaceID", s.workspaceID, "err", envErr)
+	}
+	for _, e := range envVars {
+		// NIUNIU_* are niuniu-internal control keys — never leak them to the
+		// agent process (consistent with injectCLIEnv in adapter/spawn.go).
+		if strings.HasPrefix(e.Key, "NIUNIU_") {
+			if e.Key == "NIUNIU_MODEL" && e.Value != "" {
+				model = e.Value
+			}
+			continue
+		}
+		// Capture the OpenAI-protocol endpoint to generate a models.yml custom
+		// provider (omp can't consume these as raw env vars).
+		switch e.Key {
+		case "OPENAI_BASE_URL":
+			openaiBaseURL = e.Value
+		case "OPENAI_API_KEY":
+			openaiAPIKey = e.Value
+		case "OPENAI_MODEL":
+			if model == "" {
+				model = e.Value
+			}
+		default:
+			envSlice = append(envSlice, e.Key+"="+e.Value)
+		}
+	}
+
+	// If the workspace has a custom OpenAI-compatible endpoint, materialize it
+	// as an omp models.yml provider definition + select the model via --model.
+	// PI_CODING_AGENT_DIR scopes this to the workspace so it never clobbers the
+	// user's global ~/.omp/agent config.
+	var args []string
+	args = append(args, s.cfg.Agent.OmpCli.Args...)
+	if openaiBaseURL != "" && openaiAPIKey != "" {
+		agentDir := filepath.Join(workDir, ".omp", "agent")
+		if err := os.MkdirAll(agentDir, 0o755); err != nil {
+			slog.Warn("omp: create agent dir failed", "dir", agentDir, "err", err)
+		} else if writeOMPModelsYML(agentDir, openaiBaseURL, openaiAPIKey, model) {
+			envSlice = append(envSlice, "PI_CODING_AGENT_DIR="+agentDir)
+			if model != "" {
+				args = append(args, "--model", model)
+			}
+		}
+	}
+
 	var be agentbackend.Backend = omp.New(omp.Options{
 		Command: s.cfg.Agent.OmpCli.Command, // default "omp"
-		Args:    s.cfg.Agent.OmpCli.Args,
+		Args:    args,
 		WorkDir: workDir,
+		Env:     envSlice,
+		Model:   model,
 		// Provider/Model are workspace-level; omp falls back to its own config.
 		ResolvePermission: s.ompResolvePermission,
 	})
@@ -195,4 +262,33 @@ func (s *WorkspaceSession) signalOMPTurnDone(ctx context.Context, msgId string, 
 		default:
 		}
 	}
+}
+
+// writeOMPModelsYML materializes a custom OpenAI-compatible provider as an omp
+// models.yml in the given agent dir. omp reads models.yml from PI_CODING_AGENT_DIR
+// (set by the caller). The provider is a single OpenAI Chat Completions endpoint
+// with the API key inline (auth: apiKey), so omp needs no separate OAuth/login.
+// Model id falls back to "default" so omp always has a selectable model.
+//
+// Schema: https://github.com/can1357/oh-my-pi/blob/main/packages/coding-agent/src/config/models-config-schema-bundle.ts
+func writeOMPModelsYML(agentDir, baseURL, apiKey, model string) bool {
+	if model == "" {
+		model = "default"
+	}
+	content := fmt.Sprintf(`providers:
+  niuniu:
+    baseUrl: %q
+    apiKey: %q
+    api: openai-completions
+    auth: apiKey
+    models:
+      - id: %q
+        name: %q
+`, baseURL, apiKey, model, model)
+	path := filepath.Join(agentDir, "models.yml")
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		slog.Warn("omp: write models.yml failed", "path", path, "err", err)
+		return false
+	}
+	return true
 }
