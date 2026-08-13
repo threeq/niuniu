@@ -1116,6 +1116,24 @@ func New(cfg *config.Config, db *sql.DB, frontendFS fs.FS) *Server {
 	s.eventsHandler.Authz = authz
 	s.agentProxy.SetEventBus(s.eventBus)
 
+	// Bridge permission / ask-user events from the event bus to the SessionHub
+	// so the frontend's /ws/sse channel receives them in real-time. Without this
+	// bridge, the agent-sse-store never sees permission_request/permission_decided
+	// events, and the in-chat permission prompt cards only appear on page refresh
+	// (when the REST load() fallback in ChatPanel's useEffect runs).
+	permCh := s.eventBus.Subscribe()
+	proxyHub := s.agentProxy.GetHub()
+	go func() {
+		defer s.eventBus.Unsubscribe(permCh)
+		for evt := range permCh {
+			switch evt.Type {
+			case event.EventPermissionRequest, event.EventPermissionDecided,
+				event.EventAskUserRequest, event.EventAskUserDecided:
+				proxyHub.Broadcast(evt.WorkspaceId, evt)
+			}
+		}
+	}()
+
 	// Notify handler (WebSocket push notifications)
 	s.notifyHandler = api.NewNotifyHandler(s.notifyHub)
 	s.notifyHandler.Authz = authz
