@@ -509,10 +509,17 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
         >
           <div className="h-1 w-8 rounded-full bg-border group-hover:bg-muted-foreground/50 transition-colors" />
         </div>
-        {store.attachments.length > 0 && (
+        {(store.attachments.length > 0 || store.pendingAttachments.length > 0) && (
           <div className="flex flex-wrap gap-1.5 px-3 pt-2">
             {store.attachments.map((a) => (
               <AttachmentTag key={a.path} attachment={a} onRemove={() => store.removeAttachment(a.path)} />
+            ))}
+            {store.pendingAttachments.map((p) => (
+              <AttachmentTag
+                key={`pending:${p.name}`}
+                attachment={{ path: '', type: 'upload', name: p.name, size: p.size }}
+                loading
+              />
             ))}
           </div>
         )}

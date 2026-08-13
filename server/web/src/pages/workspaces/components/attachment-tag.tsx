@@ -1,4 +1,4 @@
-import { X } from 'lucide-react';
+import { X, Loader2 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { cn } from '@/lib/utils';
 import type { ChatAttachment } from '@/types/api';
@@ -24,11 +24,26 @@ function formatSize(bytes: number): string {
 interface AttachmentTagProps {
   attachment: ChatAttachment;
   onRemove?: () => void;
+  /** While true, renders a spinner + "Uploading…" placeholder instead of file details. */
+  loading?: boolean;
 }
 
-export function AttachmentTag({ attachment, onRemove }: AttachmentTagProps) {
+export function AttachmentTag({ attachment, onRemove, loading }: AttachmentTagProps) {
   const { t } = useTranslation('workspaces');
   const isRef = attachment.type === 'ref';
+
+  if (loading) {
+    return (
+      <span className="inline-flex items-center gap-1.5 rounded-md border border-border bg-muted px-2 py-0.5 text-xs text-muted-foreground animate-pulse">
+        <Loader2 className="h-3 w-3 animate-spin" />
+        <span className="max-w-[180px] truncate">{attachment.name}</span>
+        {attachment.size != null && (
+          <span>{formatSize(attachment.size)}</span>
+        )}
+      </span>
+    );
+  }
+
   return (
     <span
       className={cn(
