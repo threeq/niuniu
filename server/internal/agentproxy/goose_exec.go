@@ -215,6 +215,13 @@ func (s *WorkspaceSession) handleGooseEvent(ctx context.Context, ev agentbackend
 		done.DurationMs = ev.DurationMs
 		done.InputTokens = ev.InputTokens
 		done.OutputTokens = ev.OutputTokens
+		// Feed the context-window occupancy (drives the usage pill + any future
+		// compaction heuristic) the same way the Claude path does.
+		if ev.InputTokens+ev.CacheReadTokens > 0 {
+			s.mu.Lock()
+			s.lastContextTokens = ev.InputTokens + ev.CacheReadTokens
+			s.mu.Unlock()
+		}
 		s.persistAndBroadcast(ctx, done, 0)
 		s.recordGooseCost(ctx, ev)
 	case agentbackend.EventError:

@@ -904,26 +904,47 @@ type ClaudeStatusRateWindow struct {
 	Overage  string `json:"overage_status,omitempty"`
 }
 
-// contextWindowSize returns the max context tokens for a given model name.
-// Default is 1M (1,048,576) matching Claude's extended context models.
+// contextWindowSize returns the max context tokens for a given model name, 0
+// when unknown. Substring matching (not exact) so vendor suffixes / snapshot
+// dates still hit. Order matters: check vendor-specific patterns before the
+// generic Claude family, and check [1m]-style long-window markers first within
+// a vendor. Curated from each platform's docs / LiteLLM's
+// model_prices_and_context_window.json — extend as new models ship.
 func contextWindowSize(model string) int {
-	model = strings.ToLower(model)
+	m := strings.ToLower(model)
 	switch {
-	// Haiku models: 200K
-	case strings.Contains(model, "haiku"):
-		return 200_000
-	// Sonnet models: 200K (base), but claude-sonnet-4 with extended = 1M
-	case strings.Contains(model, "sonnet") && !strings.Contains(model, "3.5"):
-		return 200_000
-	// Claude 3.5 Sonnet: 200K
-	case strings.Contains(model, "3.5") || strings.Contains(model, "3-5"):
-		return 200_000
-	// Opus models: 200K (base), opus-4 with extended = 1M
-	case strings.Contains(model, "opus"):
-		return 200_000
-	default:
-		// Default: 1M for unknown / latest models
+	// Explicit long-window marker wins (e.g. deepseek-v4-pro[1m], glm-5.1[1m]).
+	case strings.Contains(m, "[1m]"), strings.HasSuffix(m, "-1m"):
 		return 1_000_000
+	// Claude family: 200K base (extended-window models carry the 1M marker above).
+	case strings.Contains(m, "haiku"), strings.Contains(m, "sonnet"), strings.Contains(m, "opus"),
+		strings.Contains(m, "claude"):
+		return 200_000
+	// DeepSeek: 128K base (V3.x/R1).
+	case strings.Contains(m, "deepseek"):
+		return 128_000
+	// Qwen / 通义: 262K (4x of 65,536).
+	case strings.Contains(m, "qwen"), strings.Contains(m, "qwq"):
+		return 262_144
+	// Kimi / Moonshot: 262K.
+	case strings.Contains(m, "kimi"), strings.Contains(m, "moonshot"):
+		return 262_144
+	// GLM / 智谱: 200K base (glm-4.5/5.x).
+	case strings.Contains(m, "glm"), strings.Contains(m, "chatglm"):
+		return 200_000
+	// MiniMax M-series: 1M.
+	case strings.Contains(m, "minimax"):
+		return 1_000_000
+	// GPT / OpenAI: GPT-5 family 400K, GPT-4.x 128K.
+	case strings.Contains(m, "gpt-5"), strings.Contains(m, "gpt5"):
+		return 400_000
+	case strings.Contains(m, "gpt-4"), strings.Contains(m, "gpt4"), strings.Contains(m, "o3"), strings.Contains(m, "o4"):
+		return 128_000
+	// Gemma / Gemini: 1M / 2M — default to 1M.
+	case strings.Contains(m, "gemini"), strings.Contains(m, "gemma"):
+		return 1_000_000
+	default:
+		return 0
 	}
 }
 
@@ -2414,12 +2435,23 @@ func (s *WorkspaceSession) handleEvent(ctx context.Context, ev ParsedEvent, msgI
 			done.CacheCreationTokens = ev.CacheCreationTokens
 			done.CacheReadTokens = ev.CacheReadTokens
 			// NOTE: context-window occupancy (s.lastContextTokens, drives
-			// auto-compaction) is intentionally NOT updated here. The result
-			// event's usage is the turn-CUMULATIVE total (it shares the object
-			// with num_turns / total_cost_usd), so its cache_read sums every
-			// request in an agentic tool loop and wildly overstates the live
-			// context. Occupancy is taken from message_start instead, which
-			// reports a single request's prompt size (see handleStreamEvent).
+			// auto-compaction) is taken from message_start (a single request's
+			// prompt size, see handleStreamEvent). The result event's usage is
+			// the turn-CUMULATIVE total (it shares the object with num_turns /
+			// total_cost_usd), so its cache_read sums every request in an agentic
+			// tool loop and overstates the live context. EXCEPT when the endpoint
+			// never emitted a usable message_start (some Anthropic-compatible
+			// providers — 火山方舟/百炼 gateways — omit stream usage): then the
+			// result sum is the ONLY signal available, and a bounded overestimate
+			// beats a permanently-0 pill. Use input+cache_read only (skip
+			// cache_creation, the double-counted part).
+			if ev.InputTokens+ev.CacheReadTokens > 0 {
+				s.mu.Lock()
+				if s.lastContextTokens == 0 {
+					s.lastContextTokens = ev.InputTokens + ev.CacheReadTokens
+				}
+				s.mu.Unlock()
+			}
 			if ev.OutputTokens > 0 {
 				s.mu.Lock()
 				s.lastOutputTokens = ev.OutputTokens

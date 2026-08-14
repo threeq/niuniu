@@ -116,6 +116,7 @@ type Backend struct {
 	lastCostUSD  float64
 	lastInTokens int
 	lastOutTokens int
+	lastCachedTokens int
 
 	seq atomic.Int64 // request id counter
 }
@@ -385,6 +386,7 @@ func (b *Backend) handleSessionEvent(raw []byte, upd sessionUpdate) {
 			b.lastCostUSD = ev.Usage.CostUsd
 			b.lastInTokens = ev.Usage.InputTokens
 			b.lastOutTokens = ev.Usage.OutputTokens
+			b.lastCachedTokens = ev.Usage.CachedInputTokens
 			b.mu.Unlock()
 		}
 	case "permission_request":
@@ -413,6 +415,7 @@ func (b *Backend) doneEvent(kind agentbackend.EventType, errText string) agentba
 		ev.NumTurns = 1
 		ev.InputTokens = b.lastInTokens
 		ev.OutputTokens = b.lastOutTokens
+		ev.CacheReadTokens = b.lastCachedTokens
 	}
 	return ev
 }

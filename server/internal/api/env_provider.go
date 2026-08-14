@@ -38,6 +38,7 @@ type CreateEnvProviderRequest struct {
 	OpusModel     string            `json:"opus_model"`
 	SubagentModel string            `json:"subagent_model"`
 	ExtraEnv      map[string]string `json:"extra_env"`
+	ContextWindow int64             `json:"context_window"`
 	Owner         *struct {
 		Type string `json:"type"`
 		ID   int64  `json:"id"`
@@ -56,6 +57,7 @@ type UpdateEnvProviderRequest struct {
 	OpusModel     string            `json:"opus_model"`
 	SubagentModel string            `json:"subagent_model"`
 	ExtraEnv      map[string]string `json:"extra_env"`
+	ContextWindow int64             `json:"context_window"`
 }
 
 // validateProvider checks the provider payload: api_key, when set, must be a
@@ -164,7 +166,8 @@ func (h *EnvProviderHandler) Create(c *gin.Context) {
 		BaseUrls: string(baseURLs), ApiKey: req.ApiKey, Model: req.Model,
 		HaikuModel: req.HaikuModel, SonnetModel: req.SonnetModel, OpusModel: req.OpusModel,
 		SubagentModel: req.SubagentModel, ExtraEnv: string(extra),
-		OwnerType: owner.Type, OwnerID: owner.ID,
+		ContextWindow: req.ContextWindow,
+		OwnerType:     owner.Type, OwnerID: owner.ID,
 	})
 	if err != nil {
 		if isUniqueViolation(err) {
@@ -206,6 +209,7 @@ func (h *EnvProviderHandler) Update(c *gin.Context) {
 		BaseUrls: string(baseURLs), ApiKey: req.ApiKey, Model: req.Model,
 		HaikuModel: req.HaikuModel, SonnetModel: req.SonnetModel, OpusModel: req.OpusModel,
 		SubagentModel: req.SubagentModel, ExtraEnv: string(extra),
+		ContextWindow: req.ContextWindow,
 	}); err != nil {
 		slog.Warn("UpdateEnvProvider failed", "id", id, "error", err)
 		if isUniqueViolation(err) {
@@ -289,6 +293,7 @@ type EnvProviderResponse struct {
 	OpusModel     string            `json:"opus_model"`
 	SubagentModel string            `json:"subagent_model"`
 	ExtraEnv      map[string]string `json:"extra_env"`
+	ContextWindow int64             `json:"context_window"`
 	Owner         OwnerDTO          `json:"owner"`
 	CreatedAt     string            `json:"created_at"`
 	UpdatedAt     string            `json:"updated_at"`
@@ -304,7 +309,8 @@ func toEnvProviderResponse(p store.EnvProvider) EnvProviderResponse {
 		BaseUrls: baseURLs, ApiKey: p.ApiKey, Model: p.Model,
 		HaikuModel: p.HaikuModel, SonnetModel: p.SonnetModel, OpusModel: p.OpusModel,
 		SubagentModel: p.SubagentModel, ExtraEnv: extra,
-		Owner: ownerDTOFromRef(p.OwnerType, p.OwnerID),
+		ContextWindow: p.ContextWindow,
+		Owner:         ownerDTOFromRef(p.OwnerType, p.OwnerID),
 		CreatedAt: p.CreatedAt.Format(time.RFC3339),
 		UpdatedAt: p.UpdatedAt.Format(time.RFC3339),
 	}

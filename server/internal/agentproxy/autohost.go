@@ -10,6 +10,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/niuniu-dev/niuniu/internal/sceneenv"
 	"github.com/niuniu-dev/niuniu/internal/store"
 )
 
@@ -211,13 +212,15 @@ func (s *WorkspaceSession) readAutohostStringEnv(ctx context.Context, key, def s
 // default. Only non-negative integers are accepted so a typo doesn't disable
 // the feature silently.
 func (s *WorkspaceSession) readAutohostIntEnv(ctx context.Context, key string, def int) int {
-	rows, err := s.q.GetWorkspaceEnv(ctx, store.GetWorkspaceEnvParams{
-		WorkspaceID: s.workspaceID,
-		Key:         key,
-	})
-	if err == nil && len(rows) > 0 {
-		if n, err := strconv.Atoi(strings.TrimSpace(rows[0].Value)); err == nil && n >= 0 {
-			return n
+	if s.q != nil {
+		rows, err := s.q.GetWorkspaceEnv(ctx, store.GetWorkspaceEnvParams{
+			WorkspaceID: s.workspaceID,
+			Key:         key,
+		})
+		if err == nil && len(rows) > 0 {
+			if n, err := strconv.Atoi(strings.TrimSpace(rows[0].Value)); err == nil && n >= 0 {
+				return n
+			}
 		}
 	}
 	if v := os.Getenv(key); v != "" {
@@ -226,6 +229,26 @@ func (s *WorkspaceSession) readAutohostIntEnv(ctx context.Context, key string, d
 		}
 	}
 	return def
+}
+
+// resolvedEnvValue looks up one key from the FULL resolved env (bound provider
+// + scene + workspace_env, see sceneenv.Resolve). Used for control keys a
+// provider expansion injects — they never exist as raw workspace_env rows.
+// Returns "" when absent.
+func (s *WorkspaceSession) resolvedEnvValue(ctx context.Context, key string) string {
+	if s.q == nil {
+		return ""
+	}
+	envVars, err := sceneenv.Resolve(ctx, s.q, s.workspaceID)
+	if err != nil {
+		return ""
+	}
+	for _, e := range envVars {
+		if e.Key == key {
+			return e.Value
+		}
+	}
+	return ""
 }
 
 // autohostShouldStop returns true when the agent's last text appears to

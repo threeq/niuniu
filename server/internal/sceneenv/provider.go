@@ -12,6 +12,7 @@ package sceneenv
 import (
 	"encoding/json"
 	"log/slog"
+	"strconv"
 
 	"github.com/niuniu-dev/niuniu/internal/store"
 )
@@ -62,10 +63,28 @@ func ExpandProvider(p store.EnvProvider, cliType string, accounts []store.EnvAcc
 	if baseURL == "" {
 		return map[string]string{}
 	}
-	if protocol == ProviderProtocolOpenAI {
-		return expandOpenAI(p, baseURL, cliType, accounts, preserveRef)
+	var extra map[string]string
+	if p.ExtraEnv != "" {
+		_ = json.Unmarshal([]byte(p.ExtraEnv), &extra)
 	}
-	return expandAnthropic(p, baseURL, accounts, preserveRef)
+	var out map[string]string
+	if protocol == ProviderProtocolOpenAI {
+		out = expandOpenAI(p, baseURL, cliType, accounts, preserveRef)
+	} else {
+		out = expandAnthropic(p, baseURL, accounts, preserveRef)
+	}
+	// The provider's context_window (tokens; 0 = unknown) becomes the
+	// NIUNIU_AUTO_COMPACT_BUDGET control key so the usage pill and auto-compaction
+	// measure occupancy against the real window of the provider's model instead
+	// of the 1M default. Applied BEFORE extra_env so a user-set value still wins.
+	if p.ContextWindow > 0 {
+		out["NIUNIU_AUTO_COMPACT_BUDGET"] = strconv.FormatInt(p.ContextWindow, 10)
+	}
+	// extra_env has the highest priority (final overlay).
+	for k, v := range extra {
+		out[k] = v
+	}
+	return out
 }
 
 // decodeBaseURLs parses a provider's stored base_urls JSON (Record<protocol,

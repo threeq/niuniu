@@ -184,6 +184,9 @@ type usage struct {
 	CostUsd      float64 `json:"costUsd,omitempty"`
 	InputTokens  int     `json:"inputTokens,omitempty"`
 	OutputTokens int     `json:"outputTokens,omitempty"`
+	// Cached portion of the prompt when the agent reports it (OpenAI-compatible
+	// backends expose it; local ones may not — 0 then).
+	CachedInputTokens int `json:"cachedInputTokens,omitempty"`
 }
 
 // requestPermission mirrors the payload of a permission_request event.

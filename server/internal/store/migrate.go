@@ -284,6 +284,28 @@ func Migrate(db *sql.DB) {
 		}
 	}
 
+	// env_providers.context_window: the model's context-window size in tokens
+	// (0 = unknown). Drives NIUNIU_AUTO_COMPACT_BUDGET expansion so the usage
+	// pill and auto-compaction measure occupancy against the real window of the
+	// subscription-platform model instead of the 1M default.
+	addColumnIfNotExists(db, "env_providers", "context_window", "INTEGER NOT NULL DEFAULT 0")
+	// Backfill seed values for default providers that still carry 0 (rows the
+	// user has already customized keep their value). Map key = provider name.
+	contextWindows := map[string]int64{
+		"智谱":   200_000,
+		"MiniMax":  1_000_000,
+		"DeepSeek": 128_000,
+		"通义千问": 262_144,
+		"Kimi":  262_144,
+		"火山方舟": 128_000,
+	}
+	for name, tokens := range contextWindows {
+		q := `UPDATE env_providers SET context_window = ? WHERE name = ? AND context_window = 0`
+		if _, err := w.ExecContext(context.Background(), q, tokens, name); err != nil {
+			slog.Warn("backfill env_providers context_window failed", "name", name, "error", err)
+		}
+	}
+
 	if !migrationApplied(w, "workspaces_created_by_backfill_v1") {
 		if _, err := w.ExecContext(context.Background(),
 			`UPDATE workspaces SET created_by = owner_id

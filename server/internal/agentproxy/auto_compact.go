@@ -3,6 +3,8 @@ package agentproxy
 import (
 	"context"
 	"log/slog"
+	"strconv"
+	"strings"
 )
 
 // Auto context compaction: users rarely run /compact themselves, so a long
@@ -48,10 +50,32 @@ func (s *WorkspaceSession) autoCompactEnabled(ctx context.Context) bool {
 	return s.readAutohostIntEnv(ctx, "NIUNIU_AUTO_COMPACT", 1) != 0
 }
 
-// autoCompactBudget returns the context-window token budget. Honors workspace
-// env NIUNIU_AUTO_COMPACT_BUDGET; falls back to autoCompactDefaultBudget.
+// autoCompactBudget returns the context-window token budget. Resolution order:
+//   1. workspace env NIUNIU_AUTO_COMPACT_BUDGET (explicit override, also read
+//      by the process-env fallback inside readAutohostIntEnv)
+//   2. the bound provider's context_window, injected by ExpandProvider as the
+//      same NIUNIU_AUTO_COMPACT_BUDGET key in the resolved env (sceneenv.Resolve)
+//   3. model lookup from s.modelName (provider unset → guess by model family)
+//   4. autoCompactDefaultBudget (1M)
+//
+// The pill (GetClaudeStatus) and the auto-compaction trigger both divide by
+// this, so they always measure against the same budget.
 func (s *WorkspaceSession) autoCompactBudget(ctx context.Context) int {
-	return s.readAutohostIntEnv(ctx, "NIUNIU_AUTO_COMPACT_BUDGET", autoCompactDefaultBudget)
+	if n := s.readAutohostIntEnv(ctx, "NIUNIU_AUTO_COMPACT_BUDGET", 0); n > 0 {
+		return n
+	}
+	if v := s.resolvedEnvValue(ctx, "NIUNIU_AUTO_COMPACT_BUDGET"); v != "" {
+		if n, err := strconv.Atoi(strings.TrimSpace(v)); err == nil && n > 0 {
+			return n
+		}
+	}
+	s.mu.Lock()
+	model := s.modelName
+	s.mu.Unlock()
+	if n := contextWindowSize(model); n > 0 {
+		return n
+	}
+	return autoCompactDefaultBudget
 }
 
 // autoCompactPercent returns the trigger threshold as a percent of budget.

@@ -118,6 +118,11 @@ type Event struct {
 	DurationMs   int64
 	InputTokens  int
 	OutputTokens int
+	// CacheReadTokens is the cached portion of the prompt (OpenAI-compatible
+	// `cached_input_tokens` / ACP `cachedInputTokens`) when the backend reports
+	// it; 0 otherwise. InputTokens+CacheReadTokens approximates one request's
+	// full prompt size — the live context occupancy signal.
+	CacheReadTokens int
 }
 
 // PermissionRequest is a runtime→host UI/permission request (omp
