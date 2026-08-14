@@ -738,26 +738,13 @@ func migrateScheduleActionKind(db *sql.DB) error {
 	return err
 }
 
-// addWorkspaceClaudeAccountColumn adds the claude_account_id column to workspaces
-// if it doesn't already exist. NULL = follow owner's active claude account.
-// Driver-aware: SQLite uses INTEGER, PostgreSQL uses BIGINT.
-func addWorkspaceClaudeAccountColumn(db *sql.DB) error {
-	exists, err := columnExists(db, "workspaces", "claude_account_id")
-	if err != nil {
-		return err
-	}
-	if exists {
-		return nil
-	}
-	intType := "INTEGER"
-	if Driver == "postgres" {
-		intType = "BIGINT"
-	}
-	_, err = db.Exec(fmt.Sprintf(
-		"ALTER TABLE workspaces ADD COLUMN claude_account_id %s REFERENCES claude_accounts(id) ON DELETE SET NULL",
-		intType,
-	))
-	return err
+// addWorkspaceClaudeAccountColumn is a no-op. The multi-account Claude
+// subsystem was removed (issue #653); migrate.go drops workspaces.claude_account_id
+// and the claude_accounts table. Re-adding the column here would FK-reference a
+// table that no longer exists → SQLSTATE 42P01 → fatal DB-open on every restart
+// after the #653 drop ran. Kept as a stub so the Open() call sequence is stable.
+func addWorkspaceClaudeAccountColumn(_ *sql.DB) error {
+	return nil
 }
 
 // addWorkspaceCliTypeColumn adds the cli_type column to workspaces so each
@@ -779,28 +766,12 @@ func addWorkspaceCliTypeColumn(db *sql.DB) error {
 	return err
 }
 
-// addWorkspaceCodexAccountColumn adds the codex_account_id column to workspaces
-// so codex workspaces can pin to a specific managed codex account. NULL means
-// fall back to the user's global ~/.codex/ auth (back-compat for pre-M2.5 rows).
-// Driver-aware (SQLite INTEGER vs PG BIGINT). FK to codex_accounts(id) with
-// SET NULL on delete so deleting an account does not orphan the workspace row.
-func addWorkspaceCodexAccountColumn(db *sql.DB) error {
-	exists, err := columnExists(db, "workspaces", "codex_account_id")
-	if err != nil {
-		return err
-	}
-	if exists {
-		return nil
-	}
-	intType := "INTEGER"
-	if Driver == "postgres" {
-		intType = "BIGINT"
-	}
-	_, err = db.Exec(fmt.Sprintf(
-		"ALTER TABLE workspaces ADD COLUMN codex_account_id %s REFERENCES codex_accounts(id) ON DELETE SET NULL",
-		intType,
-	))
-	return err
+// addWorkspaceCodexAccountColumn is a no-op. The multi-account Codex subsystem
+// was removed (issue #653); migrate.go drops workspaces.codex_account_id and the
+// codex_accounts table. See addWorkspaceClaudeAccountColumn for why re-adding is
+// fatal. Kept as a stub so the Open() call sequence is stable.
+func addWorkspaceCodexAccountColumn(_ *sql.DB) error {
+	return nil
 }
 
 // addWorkspaceCodexSandboxColumns adds the codex_sandbox_mode and
