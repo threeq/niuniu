@@ -276,7 +276,10 @@ func Migrate(db *sql.DB) {
 	for name, url := range openaiEndpoints {
 		q := `UPDATE env_providers SET base_urls = substr(base_urls, 1, length(base_urls) - 1) || ',"openai":"' || ? || '"}'` +
 			` WHERE name = ? AND base_urls NOT LIKE '%openai%' AND base_urls LIKE '{%}'`
-		if _, err := db.Exec(q, url, name); err != nil {
+		// Use the driver-aware *store.DB wrapper (w) so the "?" placeholders are
+		// rewritten to "$N" on Postgres — raw db.Exec(q,...) on a bare *sql.DB
+		// crashes pgx at PARSE time (the rewrite only happens in ExecContext).
+		if _, err := w.ExecContext(context.Background(), q, url, name); err != nil {
 			slog.Warn("backfill env_providers openai base_url failed", "name", name, "error", err)
 		}
 	}
