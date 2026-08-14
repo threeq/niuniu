@@ -329,3 +329,35 @@ func TestSubstituteAccounts_SceneValueSubstituted(t *testing.T) {
 		t.Error("input slice was mutated")
 	}
 }
+
+func TestExpandProvider_ContextWindowBudget(t *testing.T) {
+	// A provider with context_window set expands to the NIUNIU_AUTO_COMPACT_BUDGET
+	// control key on BOTH protocols, so the usage pill and auto-compaction
+	// measure against the provider's real window.
+	p := store.EnvProvider{
+		Name: "火山方舟", BaseUrls: `{"anthropic":"https://ark.cn-beijing.volces.com/api/coding","openai":"https://ark.cn-beijing.volces.com/api/v3"}`,
+		ApiKey: "sk-test", Model: "deepseek-v4-pro", ContextWindow: 128_000,
+	}
+	for _, cli := range []string{"claude", "codex"} {
+		got := ExpandProvider(p, cli, nil, true)
+		if got["NIUNIU_AUTO_COMPACT_BUDGET"] != "128000" {
+			t.Errorf("cli %q: budget not expanded: %q", cli, got["NIUNIU_AUTO_COMPACT_BUDGET"])
+		}
+	}
+
+	// Zero (unknown) must NOT emit the key — the fallback chain in
+	// autoCompactBudget (model lookup → 1M default) applies instead.
+	p.ContextWindow = 0
+	got := ExpandProvider(p, "claude", nil, true)
+	if _, ok := got["NIUNIU_AUTO_COMPACT_BUDGET"]; ok {
+		t.Errorf("context_window=0 should not emit budget: %q", got["NIUNIU_AUTO_COMPACT_BUDGET"])
+	}
+
+	// extra_env still overrides the generated budget (user-set wins).
+	p.ContextWindow = 128_000
+	p.ExtraEnv = `{"NIUNIU_AUTO_COMPACT_BUDGET":"64000"}`
+	got = ExpandProvider(p, "claude", nil, true)
+	if got["NIUNIU_AUTO_COMPACT_BUDGET"] != "64000" {
+		t.Errorf("extra_env should override generated budget: %q", got["NIUNIU_AUTO_COMPACT_BUDGET"])
+	}
+}

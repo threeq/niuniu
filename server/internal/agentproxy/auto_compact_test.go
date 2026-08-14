@@ -406,3 +406,75 @@ func TestGetClaudeStatus_DenominatorTracksConfiguredBudget(t *testing.T) {
 		t.Fatalf("used_percentage = %.4f, want 70.0 against the 200k budget", st.ContextWindow.UsedPercentage)
 	}
 }
+
+func TestContextWindowSize(t *testing.T) {
+	cases := []struct {
+		model string
+		want  int
+	}{
+		{"claude-sonnet-4-5-20250929", 200_000},
+		{"claude-haiku-4-5", 200_000},
+		{"deepseek-v4-pro[1m]", 1_000_000},
+		{"deepseek-v4-pro", 128_000},
+		{"deepseek-v4-flash", 128_000},
+		{"qwen3.6-plus", 262_144},
+		{"kimi-k2.6", 262_144},
+		{"glm-5.1", 200_000},
+		{"MiniMax-M2.7", 1_000_000},
+		{"totally-unknown-model", 0},
+		{"", 0},
+	}
+	for _, c := range cases {
+		if got := contextWindowSize(c.model); got != c.want {
+			t.Errorf("contextWindowSize(%q) = %d, want %d", c.model, got, c.want)
+		}
+	}
+}
+
+// TestAutoCompactBudget_FallbackChain pins the denominator resolution order:
+// explicit env override > provider-injected (resolved env) > model lookup > 1M.
+func TestAutoCompactBudget_FallbackChain(t *testing.T) {
+	s, _ := newCondTestSession(t)
+	// No env anywhere + unknown model → 1M default.
+	s.modelName = "totally-unknown"
+	if got := s.autoCompactBudget(context.Background()); got != autoCompactDefaultBudget {
+		t.Fatalf("default budget = %d, want %d", got, autoCompactDefaultBudget)
+	}
+	// No env + a known model → model lookup (no DB rows needed).
+	s.modelName = "deepseek-v4-pro"
+	if got := s.autoCompactBudget(context.Background()); got != 128_000 {
+		t.Fatalf("model-lookup budget = %d, want 128000", got)
+	}
+}
+
+// TestHandleEvent_ResultFallbackFillsZeroOccupancy pins the provider-gap
+// fallback: when the endpoint never emits a usable message_start (火山方舟/
+// 百炼 gateways omit stream usage), the result event's input+cache_read is the
+// only signal — it must fill a ZERO occupancy (but still never overwrite a
+// live message_start value).
+func TestHandleEvent_ResultFallbackFillsZeroOccupancy(t *testing.T) {
+	s, _ := newCondTestSession(t)
+	s.hub = NewSessionHub()
+	t.Cleanup(s.hub.Stop)
+	s.cliType = "claude"
+	ctx := context.Background()
+
+	// No message_start at all — occupancy starts at 0.
+	s.handleEvent(ctx, resultEvent(3000, 4000, 0, 500), "msg-1")
+	s.mu.Lock()
+	occ := s.lastContextTokens
+	s.mu.Unlock()
+	if occ != 7000 {
+		t.Fatalf("result fallback must fill zero occupancy with input+cache_read = 7000, got %d", occ)
+	}
+
+	// Once a real message_start arrives it takes over again (authoritative).
+	s.handleEvent(ctx, messageStartEvent(1000, 1000, 0, 1), "msg-2")
+	s.handleEvent(ctx, resultEvent(9999, 9999, 0, 1), "msg-2")
+	s.mu.Lock()
+	occ = s.lastContextTokens
+	s.mu.Unlock()
+	if occ != 2000 {
+		t.Fatalf("message_start must win over later result: got %d, want 2000", occ)
+	}
+}

@@ -305,6 +305,9 @@ func (b *Backend) handleSessionEvent(raw []byte) {
 			if ev.Telemetry.OutputTokens != nil {
 				done.OutputTokens = *ev.Telemetry.OutputTokens
 			}
+			if ev.Telemetry.CachedTokens != nil {
+				done.CacheReadTokens = *ev.Telemetry.CachedTokens
+			}
 		}
 		b.finishTurn(done)
 	}

@@ -83,6 +83,7 @@ type sessionEvent struct {
 		DurationMS   *int64   `json:"durationMs,omitempty"`
 		InputTokens  *int     `json:"inputTokens,omitempty"`
 		OutputTokens *int     `json:"outputTokens,omitempty"`
+		CachedTokens *int     `json:"cachedTokens,omitempty"`
 	} `json:"telemetry,omitempty"`
 	Error string `json:"error,omitempty"`
 }
