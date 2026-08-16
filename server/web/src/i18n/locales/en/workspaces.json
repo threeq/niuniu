@@ -500,6 +500,7 @@
       "attachment": "Attach",
       "queue": "Queue",
       "send": "Send",
+      "sending": "Sending...",
       "stopAgent": "Stop agent",
       "noChanges": "No changes",
       "fileChanges": "{{count}} file",

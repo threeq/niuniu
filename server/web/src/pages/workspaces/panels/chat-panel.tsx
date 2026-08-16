@@ -67,6 +67,10 @@ export function ChatPanel({ workspace, readOnly }: ChatPanelProps) {
   const queryClient = useQueryClient();
   const [events, setEvents] = useState<TimelineEvent[]>([]);
   const [sessionState, setSessionState] = useState<'idle' | 'running' | 'waiting_confirm'>('idle');
+  // True while the send POST is in flight (optimistic bubble shown, agent not
+  // yet running). Drives the send button's in-progress look so a slow network
+  // doesn't feel like a dead click.
+  const [sending, setSending] = useState(false);
   const [cliType, setCliType] = useState(workspace.cli_type ?? 'claude');
   const [contextPercent, setContextPercent] = useState<number | undefined>(undefined);
   const [hasMore, setHasMore] = useState(false);
@@ -757,6 +761,7 @@ export function ChatPanel({ workspace, readOnly }: ChatPanelProps) {
       };
       setEvents((prev) => [...prev, userEvent]);
 
+      setSending(true);
       try {
         const body: { content: string; attachments?: ChatAttachment[] } = { content };
         if (attachments.length > 0) body.attachments = attachments;
@@ -771,6 +776,8 @@ export function ChatPanel({ workspace, readOnly }: ChatPanelProps) {
         attachmentStore.clearAttachments();
       } catch {
         // API error — session stays idle, no state change needed
+      } finally {
+        setSending(false);
       }
     },
     [workspaceId, handleBuiltinCommand, attachmentStore, queryClient, cliType],
@@ -998,6 +1005,7 @@ export function ChatPanel({ workspace, readOnly }: ChatPanelProps) {
           workDir={workDir}
           onSend={handleSend}
           sessionState={sessionState}
+          sending={sending}
           contextPercent={contextPercent}
           totalChanges={changesSummary}
           onToggleChanges={() => togglePanel('changes')}

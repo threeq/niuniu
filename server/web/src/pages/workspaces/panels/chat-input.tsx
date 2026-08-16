@@ -44,6 +44,10 @@ export interface ChatInputProps {
   workDir?: string;
   onSend: (content: string, attachments: ChatAttachment[]) => void;
   sessionState: 'idle' | 'running' | 'waiting_confirm';
+  // True while the send POST is in flight (parent's optimistic bubble is up,
+  // agent not yet running) — shows a spinner so a slow network doesn't feel
+  // like a dead click.
+  sending?: boolean;
   contextPercent?: number;
   totalChanges?: { files: number; additions: number; deletions: number };
   onToggleChanges?: () => void;
@@ -64,6 +68,7 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
   workDir,
   onSend,
   sessionState,
+  sending = false,
   contextPercent,
   totalChanges,
   onToggleChanges,
@@ -620,14 +625,21 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
             far right regardless of how the left group wraps. */}
         <button
           onClick={handleSend}
+          disabled={sending}
           className={cn(
             'flex shrink-0 items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium transition-colors',
             sessionState === 'running'
               ? 'bg-warning text-white hover:bg-warning/90'
               : 'bg-info text-white hover:bg-info/90',
+            sending && 'opacity-80 cursor-wait',
           )}
         >
-          {sessionState === 'running' ? (
+          {sending ? (
+            <>
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              {t('panels.chatInput.sending')}
+            </>
+          ) : sessionState === 'running' ? (
             <>
               <ListPlus className="h-3.5 w-3.5" />
               {t('panels.chatInput.queue')}
