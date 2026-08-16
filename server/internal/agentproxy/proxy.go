@@ -221,10 +221,10 @@ type AgentProxy struct {
 	rateLimitSched    RateLimitScheduler   // optional; nil = no auto-resume schedule
 	sessionStateSvc   SessionStateRecorder // optional; nil = no-op
 	workspaceAlertSvc WorkspaceAlertResolver
-	stopCh            chan struct{}         // closed by Stop() to terminate gcInflightLoop
-	serverSettings    ServerSettingsReader  // optional; admin-tunable K/V reader
-	gitIdentity       GitIdentityResolver   // optional; nil = no GIT_AUTHOR_* injection
-	permissionGate    PermissionGate        // optional; nil = codex approval bridge auto-denies (safe default)
+	stopCh            chan struct{}        // closed by Stop() to terminate gcInflightLoop
+	serverSettings    ServerSettingsReader // optional; admin-tunable K/V reader
+	gitIdentity       GitIdentityResolver  // optional; nil = no GIT_AUTHOR_* injection
+	permissionGate    PermissionGate       // optional; nil = codex approval bridge auto-denies (safe default)
 }
 
 // SetPermissionGate wires the codex approval-bridge so approval/request
@@ -308,11 +308,11 @@ type WorkspaceSession struct {
 	eventBus         *event.Bus
 	notifyHub        *notify.NotificationHub
 	debouncer        *notify.Debouncer
-	isTemporary      bool             // true for temporary workspaces (legacy: task analysis removed)
+	isTemporary      bool              // true for temporary workspaces (legacy: task analysis removed)
 	mcpWriter        MCPConfigWriter   // generates .mcp.json for this workspace
 	kbResolver       KBDatasetResolver // resolves bound KB read-only dataset dirs (KB base4)
 	memoryFileWriter MemoryFileWriter  // generates .learnings.generated.md
-	sessionToken     string           // raw MCP session token written into .mcp.json env
+	sessionToken     string            // raw MCP session token written into .mcp.json env
 
 	mu             sync.Mutex
 	running        bool               // true while a message is being processed
@@ -929,7 +929,10 @@ func contextWindowSize(model string) int {
 	// Kimi / Moonshot: 262K.
 	case strings.Contains(m, "kimi"), strings.Contains(m, "moonshot"):
 		return 262_144
-	// GLM / 智谱: 200K base (glm-4.5/5.x).
+	// GLM / 智谱: GLM-5.x ships a 1M window (user-verified on 火山方舟
+	// glm-5.2); GLM-4.x stays 200K.
+	case strings.Contains(m, "glm-5"), strings.Contains(m, "glm5"):
+		return 1_000_000
 	case strings.Contains(m, "glm"), strings.Contains(m, "chatglm"):
 		return 200_000
 	// MiniMax M-series: 1M.
@@ -2376,6 +2379,15 @@ func (s *WorkspaceSession) handleEvent(ctx context.Context, ev ParsedEvent, msgI
 		s.handleStreamEvent(ctx, ev, msgId)
 
 	case "assistant":
+		// Assistant lines carry one request's usage even when the gateway omits
+		// stream usage (火山方舟/百炼). Same per-request authority as
+		// message_start — see handleStreamEvent for why the cumulative result
+		// event is NOT allowed to write this field.
+		if ctxTokens := ev.InputTokens + ev.CacheReadTokens + ev.CacheCreationTokens; ctxTokens > 0 {
+			s.mu.Lock()
+			s.lastContextTokens = ctxTokens
+			s.mu.Unlock()
+		}
 		s.mu.Lock()
 		has := s.hasStreamEvents
 		s.mu.Unlock()

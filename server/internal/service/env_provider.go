@@ -130,14 +130,15 @@ func (s *EnvProviderService) SeedDefaults(ctx context.Context) error {
 		{
 			Name: "智谱", Platform: "zhipu",
 			BaseUrls: `{"anthropic":"https://open.bigmodel.cn/api/anthropic"}`,
-			Model: "glm-5.1", HaikuModel: "glm-4.5-air", SonnetModel: "glm-5-turbo", OpusModel: "glm-5.1",
-			ContextWindow: 200_000,
+			Model:    "glm-5.1", HaikuModel: "glm-4.5-air", SonnetModel: "glm-5-turbo", OpusModel: "glm-5.1",
+			// GLM-5.x ships a 1M window (glm-4.5's 200K default does not apply).
+			ContextWindow: 1_000_000,
 			ApiKey:        "${ACCOUNT:智谱}",
 		},
 		{
 			Name: "MiniMax", Platform: "minimax",
 			BaseUrls: `{"anthropic":"https://api.minimaxi.com/anthropic","openai":"https://api.minimaxi.com/v1"}`,
-			Model: "MiniMax-M2.7", HaikuModel: "MiniMax-M2.7", SonnetModel: "MiniMax-M2.7", OpusModel: "MiniMax-M2.7",
+			Model:    "MiniMax-M2.7", HaikuModel: "MiniMax-M2.7", SonnetModel: "MiniMax-M2.7", OpusModel: "MiniMax-M2.7",
 			ContextWindow: 1_000_000,
 			ApiKey:        "${ACCOUNT:MiniMax}",
 		},
@@ -146,27 +147,27 @@ func (s *EnvProviderService) SeedDefaults(ctx context.Context) error {
 			// DeepSeek exposes both an Anthropic-compatible and an OpenAI-compatible
 			// endpoint, so one provider serves Claude (anthropic) and Codex/Qwen (openai).
 			BaseUrls: `{"anthropic":"https://api.deepseek.com/anthropic","openai":"https://api.deepseek.com/v1"}`,
-			Model: "deepseek-v4-pro[1m]", HaikuModel: "deepseek-v4-flash", SonnetModel: "deepseek-v4-pro[1m]", OpusModel: "deepseek-v4-pro[1m]",
+			Model:    "deepseek-v4-pro[1m]", HaikuModel: "deepseek-v4-flash", SonnetModel: "deepseek-v4-pro[1m]", OpusModel: "deepseek-v4-pro[1m]",
 			SubagentModel: "deepseek-v4-flash", ContextWindow: 1_000_000, ApiKey: "${ACCOUNT:DeepSeek}",
 			ExtraEnv: `{"CLAUDE_CODE_EFFORT_LEVEL":"max"}`,
 		},
 		{
 			Name: "通义千问", Platform: "qwen",
 			BaseUrls: `{"anthropic":"https://coding.dashscope.aliyuncs.com/apps/anthropic","openai":"https://dashscope.aliyuncs.com/compatible-mode/v1"}`,
-			Model: "qwen3.6-plus", HaikuModel: "qwen3.6-plus", SonnetModel: "qwen3.6-plus", OpusModel: "qwen3.6-plus",
+			Model:    "qwen3.6-plus", HaikuModel: "qwen3.6-plus", SonnetModel: "qwen3.6-plus", OpusModel: "qwen3.6-plus",
 			SubagentModel: "qwen3.6-plus", ContextWindow: 262_144, ApiKey: "${ACCOUNT:通义千问}",
 		},
 		{
 			Name: "Kimi", Platform: "moonshot",
 			BaseUrls: `{"anthropic":"https://api.moonshot.cn/anthropic","openai":"https://api.moonshot.cn/v1"}`,
-			Model: "kimi-k2.6", HaikuModel: "kimi-k2.6", SonnetModel: "kimi-k2.6", OpusModel: "kimi-k2.6",
+			Model:    "kimi-k2.6", HaikuModel: "kimi-k2.6", SonnetModel: "kimi-k2.6", OpusModel: "kimi-k2.6",
 			SubagentModel: "kimi-k2.6", ContextWindow: 262_144, ApiKey: "${ACCOUNT:Kimi}",
 			ExtraEnv: `{"ENABLE_TOOL_SEARCH":"false"}`,
 		},
 		{
 			Name: "火山方舟", Platform: "volcengine-ark",
 			BaseUrls: `{"anthropic":"https://ark.cn-beijing.volces.com/api/coding","openai":"https://ark.cn-beijing.volces.com/api/v3"}`,
-			Model: "deepseek-v4-pro", HaikuModel: "deepseek-v4-flash", SonnetModel: "deepseek-v4-pro", OpusModel: "deepseek-v4-pro",
+			Model:    "deepseek-v4-pro", HaikuModel: "deepseek-v4-flash", SonnetModel: "deepseek-v4-pro", OpusModel: "deepseek-v4-pro",
 			SubagentModel: "deepseek-v4-pro", ContextWindow: 128_000, ApiKey: "${ACCOUNT:火山方舟}",
 		},
 	}

@@ -230,6 +230,18 @@ func resultEvent(input, cacheRead, cacheCreate, output int) ParsedEvent {
 	}
 }
 
+// assistantUsageEvent builds an "assistant" ParsedEvent whose usage mirrors the
+// per-request values the CLI attaches to message.usage on assistant lines (the
+// only per-request signal when a gateway omits stream usage — e.g. 火山方舟).
+func assistantUsageEvent(input, cacheRead, cacheCreate int) ParsedEvent {
+	return ParsedEvent{
+		Type:                "assistant",
+		InputTokens:         input,
+		CacheReadTokens:     cacheRead,
+		CacheCreationTokens: cacheCreate,
+	}
+}
+
 // TestHandleEvent_MessageStartDrivesAutoCompaction is the integration test: it
 // pushes real message_start stream events through the actual event handler, then
 // asserts the heuristic reads occupancy correctly. The wire the goal cares about:
@@ -298,6 +310,50 @@ func TestHandleEvent_MessageStartDrivesAutoCompaction(t *testing.T) {
 	s.mu.Unlock()
 	if suppressed {
 		t.Fatal(">=30%% reduction below threshold must clear the suppressed flag (re-arm)")
+	}
+}
+
+// TestHandleEvent_AssistantUsageDrivesOccupancy pins the 火山方舟 fix: when the
+// gateway omits stream usage entirely (no message_start), the CLI still attaches
+// per-request usage to each assistant line's message.usage. That value is one
+// request's true prompt size and must drive the occupancy gauge — the
+// turn-cumulative result event must not override it with its summed total
+// (the 3.4M-in-a-200k-window bug).
+func TestHandleEvent_AssistantUsageDrivesOccupancy(t *testing.T) {
+	s, _ := newCondTestSession(t)
+	s.hub = NewSessionHub()
+	t.Cleanup(s.hub.Stop)
+	s.cliType = "claude"
+	ctx := context.Background()
+
+	// Gateway omits stream usage: assistant lines are the only per-request
+	// signal. 2581 + 80128 = 82709 — the real last-request occupancy observed
+	// from a 火山+glm session.
+	s.handleEvent(ctx, assistantUsageEvent(2581, 80128, 0), "msg-1")
+	s.mu.Lock()
+	occ := s.lastContextTokens
+	s.mu.Unlock()
+	if occ != 82709 {
+		t.Fatalf("assistant usage must drive occupancy = 82709, got %d", occ)
+	}
+
+	// The turn's result (cumulative sum over ~40 tool round-trips) must not
+	// replace the live per-request value.
+	s.handleEvent(ctx, resultEvent(90000, 3312000, 0, 4000), "msg-1")
+	s.mu.Lock()
+	occ = s.lastContextTokens
+	s.mu.Unlock()
+	if occ != 82709 {
+		t.Fatalf("turn-cumulative result must not override assistant occupancy: got %d, want 82709", occ)
+	}
+
+	// A subsequent assistant line updates occupancy to the new request's size.
+	s.handleEvent(ctx, assistantUsageEvent(966, 79168, 0), "msg-2")
+	s.mu.Lock()
+	occ = s.lastContextTokens
+	s.mu.Unlock()
+	if occ != 80134 {
+		t.Fatalf("next assistant usage must update occupancy = 80134, got %d", occ)
 	}
 }
 
@@ -419,7 +475,11 @@ func TestContextWindowSize(t *testing.T) {
 		{"deepseek-v4-flash", 128_000},
 		{"qwen3.6-plus", 262_144},
 		{"kimi-k2.6", 262_144},
-		{"glm-5.1", 200_000},
+		// GLM-5.x ships a 1M window (user-verified on 火山方舟 glm-5.2); GLM-4.x
+		// stays 200K.
+		{"glm-5.2", 1_000_000},
+		{"glm-5.1", 1_000_000},
+		{"chatglm-4.9", 200_000},
 		{"MiniMax-M2.7", 1_000_000},
 		{"totally-unknown-model", 0},
 		{"", 0},

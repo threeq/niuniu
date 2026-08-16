@@ -8,7 +8,6 @@ import (
 	"log/slog"
 	"regexp"
 	"strings"
-
 )
 
 // fkType returns "BIGINT" for PostgreSQL (to match BIGSERIAL PKs) or "INTEGER" for SQLite.
@@ -268,9 +267,9 @@ func Migrate(db *sql.DB) {
 	// Only touches rows whose base_urls lacks "openai" — user-customized providers
 	// are left alone. substr/|| works on both SQLite and PostgreSQL.
 	openaiEndpoints := map[string]string{
-		"通义千问": "https://dashscope.aliyuncs.com/compatible-mode/v1",
-		"Kimi":  "https://api.moonshot.cn/v1",
-		"火山方舟": "https://ark.cn-beijing.volces.com/api/v3",
+		"通义千问":    "https://dashscope.aliyuncs.com/compatible-mode/v1",
+		"Kimi":    "https://api.moonshot.cn/v1",
+		"火山方舟":    "https://ark.cn-beijing.volces.com/api/v3",
 		"MiniMax": "https://api.minimaxi.com/v1",
 	}
 	for name, url := range openaiEndpoints {
@@ -291,19 +290,29 @@ func Migrate(db *sql.DB) {
 	addColumnIfNotExists(db, "env_providers", "context_window", "INTEGER NOT NULL DEFAULT 0")
 	// Backfill seed values for default providers that still carry 0 (rows the
 	// user has already customized keep their value). Map key = provider name.
+	// 智谱's seeded model is glm-5.2[1m] — a 1M window, NOT glm-4's 200K.
 	contextWindows := map[string]int64{
-		"智谱":   200_000,
+		"智谱":       1_000_000,
 		"MiniMax":  1_000_000,
 		"DeepSeek": 128_000,
-		"通义千问": 262_144,
-		"Kimi":  262_144,
-		"火山方舟": 128_000,
+		"通义千问":     262_144,
+		"Kimi":     262_144,
+		"火山方舟":     128_000,
 	}
 	for name, tokens := range contextWindows {
 		q := `UPDATE env_providers SET context_window = ? WHERE name = ? AND context_window = 0`
 		if _, err := w.ExecContext(context.Background(), q, tokens, name); err != nil {
 			slog.Warn("backfill env_providers context_window failed", "name", name, "error", err)
 		}
+	}
+	// Correct rows the earlier backfill mis-sized: a model whose name carries the
+	// [1m] long-window marker is explicitly 1M, so its stored context_window
+	// must not sit at a family default below that (智谱 glm-5.2[1m] was written
+	// as 200000). Idempotent — re-runs match nothing once values are correct.
+	if _, err := w.ExecContext(context.Background(),
+		`UPDATE env_providers SET context_window = 1000000
+		 WHERE model LIKE '%[1m]%' AND context_window < 1000000`); err != nil {
+		slog.Warn("fix env_providers [1m] context_window failed", "error", err)
 	}
 
 	if !migrationApplied(w, "workspaces_created_by_backfill_v1") {
@@ -2000,7 +2009,6 @@ func migrateExternalProviderDropProviderCheckSQLite(db *sql.DB) {
 		nil,
 	)
 }
-
 
 // reconcileWorkspacesFKsSQLite rebuilds the workspaces table on SQLite when
 // the workspaces row in sqlite_master is missing the canonical `created_by ...

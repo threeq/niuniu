@@ -41,6 +41,17 @@ func ParseStreamLine(line string) (ParsedEvent, error) {
 		}
 
 	case "assistant":
+		// Assistant lines carry message.usage with ONE request's token counts
+		// (input + cache read/creation). This is the same per-request signal as
+		// stream message_start, and the only one available when an
+		// Anthropic-compatible gateway omits stream usage (火山方舟/百炼) — the
+		// CLI attaches it to the completed assistant message regardless.
+		if u := raw.Message.Usage; u != nil {
+			ev.InputTokens = u.InputTokens
+			ev.OutputTokens = u.OutputTokens
+			ev.CacheCreationTokens = u.CacheCreationInputTokens
+			ev.CacheReadTokens = u.CacheReadInputTokens
+		}
 		if raw.Message.Content.Text != "" {
 			ev.TextBlocks = append(ev.TextBlocks, TextBlock{Text: raw.Message.Content.Text})
 		}
