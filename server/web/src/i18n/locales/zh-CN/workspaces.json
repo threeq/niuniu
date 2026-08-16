@@ -500,6 +500,7 @@
       "attachment": "附件",
       "queue": "排队",
       "send": "发送",
+      "sending": "发送中...",
       "stopAgent": "停止 Agent",
       "noChanges": "暂无变更",
       "fileChanges": "{{count}} 个文件",
