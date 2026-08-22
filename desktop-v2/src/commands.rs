@@ -260,6 +260,8 @@ pub fn toggle_main_window(app: &tauri::AppHandle) {
 
 /// AI 直达：显示/隐藏 hub（并联动服务窗口可见性）。
 pub fn toggle_ai_window(app: &tauri::AppHandle) {
+    let lang = app.state::<AppMeta>().lang.clone();
+    ensure_aux_window(app, "ai-hub", |a| windows::create_ai_hub_window(a, &lang));
     if let Some(win) = app.get_webview_window("ai-hub") {
         if win.is_visible().unwrap_or(false) {
             let _ = win.hide();
@@ -274,6 +276,8 @@ pub fn toggle_ai_window(app: &tauri::AppHandle) {
 /// AI 直达：抬升 hub（只显示，不 toggle——对应 v1 OpenAIWindow）。
 /// 用于 SSE `open_ai_window` 信号和托盘菜单：已可见时聚焦而非隐藏。
 pub fn open_ai_window(app: &tauri::AppHandle) {
+    let lang = app.state::<AppMeta>().lang.clone();
+    ensure_aux_window(app, "ai-hub", |a| windows::create_ai_hub_window(a, &lang));
     if let Some(win) = app.get_webview_window("ai-hub") {
         let _ = win.show();
         let _ = win.set_focus();
@@ -281,7 +285,19 @@ pub fn open_ai_window(app: &tauri::AppHandle) {
     }
 }
 
+/// 确保 aux 窗口已创建（首次打开时懒建，避免在 setup 里连建多 webview 死锁）。
+fn ensure_aux_window(app: &tauri::AppHandle, label: &str, create: impl FnOnce(&tauri::AppHandle) -> tauri::Result<tauri::WebviewWindow>) {
+    if app.get_webview_window(label).is_some() {
+        return;
+    }
+    if let Ok(w) = create(app) {
+        windows::register_close_to_tray(&w, app);
+    }
+}
+
 pub fn open_picker(app: &tauri::AppHandle) {
+    let lang = app.state::<AppMeta>().lang.clone();
+    ensure_aux_window(app, "picker", |a| windows::create_picker_window(a, &lang));
     if let Some(win) = app.get_webview_window("picker") {
         let _ = win.show();
         let _ = win.set_focus();
@@ -324,6 +340,8 @@ pub fn open_mobile_access(app: &tauri::AppHandle) {
 }
 
 pub fn open_runners(app: &tauri::AppHandle) {
+    let lang = app.state::<AppMeta>().lang.clone();
+    ensure_aux_window(app, "runners", |a| windows::create_runners_window(a, &lang));
     if let Some(win) = app.get_webview_window("runners") {
         let _ = win.show();
         let _ = win.set_focus();
