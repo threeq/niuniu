@@ -1,22 +1,19 @@
-//! 全局快捷键：主窗口切换 + AI 直达切换两个全局组合键，按 config 注册。
+//! 全局快捷键：主窗口切换 + AI 直达切换 + 连接位置快捷键（Ctrl/Cmd+Shift+1..9
+//! 开第 N 个已保存连接、0 切换 picker），按 config 注册。
 //!
-//! tauri-plugin-global-shortcut 2.x 的 `register` 只接受组合键（handler 是插件级
-//! 唯一的），因此这里在 `plugin()` 里装一个全局分发 handler，根据触发键与当前
-//! config 的组合串匹配来路由动作。注册失败（组合被其它应用占用）时静默跳过。
+//! 用 `on_shortcut`（注册时直接绑 per-shortcut handler），不靠 `sc.to_string()` 字符串
+//! 匹配——global-hotkey 的 Display 产出 "shift+control+a"（小写、control 非 ctrl、顺序
+//! shift 在前），与 config 的 "Ctrl+Shift+A" 比字符串永不相等。on_shortcut 经
+//! HotKeyId 派发（tauri-plugin-global-shortcut lib.rs 的 dispatch 按 id 查表调
+//! shortcut.handler），无格式依赖。
 
-use tauri::Manager;
-use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
+use tauri_plugin_global_shortcut::GlobalShortcutExt;
 
 use crate::config::{default_ai_accelerator, default_window_accelerator};
-use crate::state::CfgState;
-
-/// 规范化加速器串（global-hotkey 解析器对大小写宽容，这里统一小写）。
-fn normalize(accel: &str) -> String {
-    accel.trim().to_lowercase()
-}
 
 /// 位置连接快捷键的修饰符前缀：macOS 用 Cmd+Shift，其余 Ctrl+Shift
-/// （与 v1 connhotkey.go connHotkeyModifierPrefix 一致）。
+/// （与 v1 connhotkey.go connHotkeyModifierPrefix 一致）。global-hotkey from_str
+/// 大小写不敏感，这里用小写。
 fn conn_prefix() -> &'static str {
     if cfg!(target_os = "macos") { "cmd+shift+" } else { "ctrl+shift+" }
 }
@@ -24,46 +21,17 @@ fn conn_prefix() -> &'static str {
 /// AI 直达快捷键的冲突回退候选（v1 hotkey_alt_windows.go / hotkey_darwin.go）。
 /// Ctrl/Cmd+Shift+A 在 Windows 常被微信/QQ/搜狗/截图占用，依次尝试备选。
 fn ai_candidates() -> Vec<String> {
-    let primary = normalize(&default_ai_accelerator());
+    let primary = default_ai_accelerator();
     if cfg!(target_os = "macos") {
-        vec![primary, "cmd+option+a".into(), "cmd+control+a".into()]
+        vec![primary, "Cmd+Option+A".into(), "Cmd+Control+A".into()]
     } else {
-        vec![primary, "ctrl+alt+a".into(), "ctrl+shift+space".into()]
+        vec![primary, "Ctrl+Alt+A".into(), "Ctrl+Shift+Space".into()]
     }
 }
 
-/// 构造 global-shortcut 插件：单一 handler 按触发组合路由到窗口动作。
+/// 构造 global-shortcut 插件。handler 走 per-shortcut on_shortcut，插件级无 handler。
 pub fn plugin() -> tauri::plugin::TauriPlugin<tauri::Wry> {
-    tauri_plugin_global_shortcut::Builder::new()
-        .with_handler(|app, sc, ev| {
-            if ev.state() != ShortcutState::Pressed {
-                return;
-            }
-            let cfg = app.state::<CfgState>().snapshot();
-            let s = normalize(&sc.to_string());
-            let win = normalize(&cfg.hotkey.toggle_window);
-            let ai_candidates = ai_candidates();
-            if !win.is_empty() && s == win {
-                crate::commands::toggle_main_window(app);
-                return;
-            }
-            if cfg.hotkey.toggle_ai_enabled && ai_candidates.iter().any(|c| c == &s) {
-                crate::commands::toggle_ai_window(app);
-                return;
-            }
-            // 位置连接快捷键 ctrl/cmd+shift+1..9 + 0(picker)
-            let prefix = conn_prefix();
-            if let Some(rest) = s.strip_prefix(prefix) {
-                if rest == "0" {
-                    crate::commands::toggle_picker(app);
-                } else if let Ok(n) = rest.parse::<u32>() {
-                    if (1..=9).contains(&n) {
-                        crate::commands::connect_by_position(app, n);
-                    }
-                }
-            }
-        })
-        .build()
+    tauri_plugin_global_shortcut::Builder::new().build()
 }
 
 /// 按当前 config 应用快捷键：先注销全部再注册，幂等。
@@ -78,8 +46,9 @@ pub fn apply_hotkeys(app: &tauri::AppHandle, cfg: &crate::config::DesktopConfig)
         } else {
             cfg.hotkey.toggle_window.clone()
         };
-        let accel = normalize(&accel);
-        if let Err(e) = gs.register(accel.as_str()) {
+        if let Err(e) = gs.on_shortcut(accel.as_str(), |app, _sc, _ev| {
+            crate::commands::toggle_main_window(app);
+        }) {
             eprintln!("register window hotkey {accel} failed: {e}");
         }
     }
@@ -88,7 +57,9 @@ pub fn apply_hotkeys(app: &tauri::AppHandle, cfg: &crate::config::DesktopConfig)
     if cfg.hotkey.toggle_ai_enabled {
         let mut bound = false;
         for c in ai_candidates() {
-            if gs.register(c.as_str()).is_ok() {
+            if gs.on_shortcut(c.as_str(), |app, _sc, _ev| {
+                crate::commands::toggle_ai_window(app);
+            }).is_ok() {
                 bound = true;
                 break;
             }
@@ -98,12 +69,31 @@ pub fn apply_hotkeys(app: &tauri::AppHandle, cfg: &crate::config::DesktopConfig)
         }
     }
 
-    // 位置连接快捷键 Ctrl/Cmd+Shift+1..9 + 0（固定，非配置项；单个被占则跳过）。
+    // 位置连接快捷键 Ctrl/Cmd+Shift+1..9（开第 N 个已保存连接）+ 0（toggle picker）。
+    // 固定键，非配置项；单个被 OS 占则跳过。位置每次按键实时从 config 快照解析。
     let prefix = conn_prefix();
-    for n in 0u32..=9 {
+    for n in 1u32..=9 {
         let spec = format!("{prefix}{n}");
-        if let Err(e) = gs.register(spec.as_str()) {
+        if let Err(e) = gs.on_shortcut(spec.as_str(), move |app, _sc, _ev| {
+            crate::commands::connect_by_position(app, n);
+        }) {
             eprintln!("register connection hotkey {spec} failed: {e}");
         }
+    }
+    let zero = format!("{prefix}0");
+    if let Err(e) = gs.on_shortcut(zero.as_str(), |app, _sc, _ev| {
+        crate::commands::toggle_picker(app);
+    }) {
+        eprintln!("register picker hotkey {zero} failed: {e}");
+    }
+}
+
+/// 当前已注册快捷键的展示标签（供 ai.html 显示 AI 快捷键）。读 config，空则用默认。
+#[allow(dead_code)]
+pub fn ai_hotkey_label(cfg: &crate::config::DesktopConfig) -> String {
+    if cfg.hotkey.toggle_ai.trim().is_empty() {
+        default_ai_accelerator()
+    } else {
+        cfg.hotkey.toggle_ai.clone()
     }
 }
