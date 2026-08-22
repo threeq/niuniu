@@ -175,6 +175,29 @@ The UI label was renamed; data/code layers were intentionally NOT renamed
 | 工作流 / Workflow | `project_templates`, `template_id`, `ProjectTemplate`, `/api/project-templates/*` |
 | 项目模板 / Project template | `project_blueprints`, `ProjectBlueprint`, `/api/project-blueprints` |
 
+## Git workflow — branch & push discipline (mandatory)
+
+Hard rule — do not bypass. Prevents unconfirmed changes from landing on `main`
+or the remote.
+
+- **Never merge into `main` and push `origin` directly.** Do not perform any
+  operation that writes the current dev branch into `main` (local or remote) —
+  e.g. `git push <dev>:main`, or merging `<dev>` into `main` in the main
+  checkout then pushing — **unless the user explicitly confirms it this turn**.
+- **Merging into `main` (local or remote) requires prior confirmation.** First
+  report the plan (source branch, target branch, `--no-ff`?, push?), then wait
+  for the user to agree. On conflict: stop immediately and report the conflict
+  details — **do not force-resolve, do not discard any change**.
+- **Pushing `origin` requires prior confirmation**, regardless of whether the
+  target is `main` or a dev branch. Default: commit only to the local dev
+  branch (e.g. `ws-<id>/main`); do not push.
+- **Prefer dev branches.** Routine wrap-up keeps changes on the current
+  worktree's dev branch. Syncing main's latest goes main → worktree dev branch
+  ("merge main latest into the current worktree"), never the reverse into main.
+- The kanban "完成" column requires "merged to the target branch" — here the
+  **target branch defaults to the current dev branch**. Landing an issue on
+  `main` needs additional explicit confirmation.
+
 ## Contributing
 
 See `CONTRIBUTING.md`. Scope changes to the personal edition; open an issue first
