@@ -161,11 +161,23 @@ pub fn default_ai_accelerator() -> String {
     }
 }
 
-/// ~/.niuniu
+/// ~/.niuniu。绝对路径，多级回退（home_dir → USERPROFILE → HOME → exe 同目录），
+/// 避免 GUI 启动上下文未继承 USERPROFILE 时回退到相对 CWD 导致日志/数据写到不可预期处。
 pub fn data_dir() -> PathBuf {
-    dirs::home_dir()
-        .unwrap_or_else(|| PathBuf::from("."))
-        .join(".niuniu")
+    if let Some(h) = dirs::home_dir() {
+        return h.join(".niuniu");
+    }
+    if let Some(h) = std::env::var_os("USERPROFILE").map(PathBuf::from) {
+        return h.join(".niuniu");
+    }
+    if let Some(h) = std::env::var_os("HOME").map(PathBuf::from) {
+        return h.join(".niuniu");
+    }
+    // 兜底：可执行文件旁的 .niuniu 目录（绝对路径，绝不回退到 "."）。
+    if let Some(exe) = std::env::current_exe().ok().and_then(|p| p.parent().map(PathBuf::from)) {
+        return exe.join(".niuniu");
+    }
+    PathBuf::from(".niuniu")
 }
 
 /// ~/.niuniu/desktop
