@@ -283,6 +283,12 @@ func (h *WorkspaceSceneHandler) Detach(c *gin.Context) {
 // rather than running the side-effectful Apply pipeline (which would invoke
 // plugin install + .mcp.json + CLAUDE.md writes inside a GET handler). Use
 // POST /scene-projection/recompute to force a recompute. Code-review #18.
+//
+// Reopening a workspace additionally reconciles the cached plugin install
+// statuses against the on-disk installed state (a local stat, no install
+// spawned): a scene skill that is now safely installed — by an earlier Apply's
+// auto-install or by a manual `claude plugin install` — stops surfacing as
+// pending/failed, so the projection banner disappears once everything is in.
 func (h *WorkspaceSceneHandler) GetProjection(c *gin.Context) {
 	userID := c.GetInt64("auth_user_id")
 	wsID, err := strconv.ParseInt(c.Param("id"), 10, 64)
@@ -308,6 +314,9 @@ func (h *WorkspaceSceneHandler) GetProjection(c *gin.Context) {
 			MissingRuntimes:    []string{},
 		})
 		return
+	}
+	if reconciled, _, rerr := h.projector.ReconcileInstallStatus(c.Request.Context(), wsID); rerr == nil && reconciled != nil {
+		row.InstallFailures = service.InstallResultsToJSON(reconciled)
 	}
 	c.JSON(http.StatusOK, decodeStoredProjection(row))
 }

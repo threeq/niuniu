@@ -10,7 +10,15 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"time"
 )
+
+// pluginInstallTimeout bounds each single `claude plugin install` / `codex
+// plugin add` invocation. A hung marketplace, registry, or network must not
+// block its caller forever — the scene Apply pipeline auto-installs plugins
+// synchronously during workspace create / scene attach, and the SPA's manual
+// install click would otherwise spin indefinitely too.
+const pluginInstallTimeout = 3 * time.Minute
 
 // PluginInstallStatus is the outcome of attempting to apply a single plugin
 // declaration. Values are stable wire enums used by the SPA banner.
@@ -107,12 +115,11 @@ func NewPluginInstaller(claudeBin string) *PluginInstaller {
 // workspace_scene_projection.install_failures so the banner can surface
 // retry CTAs.
 //
-// IMPORTANT: only call this from user-initiated install paths (e.g. the
-// /api/workspaces/:id/scene/plugins/install handler). The scene Apply
-// pipeline does NOT call Apply directly — it calls Plan to compute the
-// pending list without touching disk / network. Installing plugins
-// silently when a workspace is created or a scene is attached crosses
-// the user's "running shell commands on my machine without asking" line.
+// Install is idempotent: installOne pre-flights an on-disk check and resolves
+// already-present plugins to "skipped" without touching disk / network. Scene
+// Apply uses this to auto-install scene-provided skills (enabling the scene
+// is the user's explicit action); the /api/workspaces/:id/scene/plugins/install
+// handler uses it for manual retries of failed rows.
 func (pi *PluginInstaller) Apply(ctx context.Context, configDir string, plugins []PluginDecl) []PluginInstallResult {
 	return pi.ApplyForCLI(ctx, "claude", configDir, plugins)
 }
@@ -136,11 +143,9 @@ func (pi *PluginInstaller) ApplyForCLI(ctx context.Context, cliType, configDir s
 
 // Plan is the dry-run sibling of Apply: it inspects which plugins are
 // already on disk (via IsInstalled) and marks the rest as Pending — without
-// invoking `claude plugin install`. SceneProjector.Apply calls Plan instead
-// of Apply so that scene attach / workspace create never runs network/CLI
-// side-effects on the user's machine; the user has to click "Install" in
-// the SPA (which calls POST /api/workspaces/:id/scene/plugins/install) to
-// actually install.
+// invoking `claude plugin install`. Used by the manual InstallPlugins path to
+// rebuild the full per-plugin picture (unchanged rows keep their status) and
+// by GetProjection's reconcile to converge a stale cache against disk.
 func (pi *PluginInstaller) Plan(ctx context.Context, configDir string, plugins []PluginDecl) []PluginInstallResult {
 	return pi.PlanForCLI(ctx, "claude", configDir, plugins)
 }
@@ -323,7 +328,9 @@ func (pi *PluginInstaller) installOne(ctx context.Context, cliType, configDir st
 	if p.Ref != "" {
 		args = append(args, "--ref", p.Ref)
 	}
-	cmd := exec.CommandContext(ctx, pi.resolveBinary(spec), args...)
+	cmdCtx, cancel := context.WithTimeout(ctx, pluginInstallTimeout)
+	defer cancel()
+	cmd := exec.CommandContext(cmdCtx, pi.resolveBinary(spec), args...)
 	if configDir != "" {
 		cmd.Env = append(os.Environ(), spec.envVar+"="+configDir)
 	}
@@ -475,4 +482,17 @@ func InstallResultsToJSON(in []PluginInstallResult) string {
 	}
 	b, _ := json.Marshal(in)
 	return string(b)
+}
+
+// DecodeInstallResults parses a persisted install_failures column back into a
+// result slice, tolerating empty / malformed values (treated as none).
+func DecodeInstallResults(raw string) []PluginInstallResult {
+	if raw == "" {
+		return nil
+	}
+	var out []PluginInstallResult
+	if err := json.Unmarshal([]byte(raw), &out); err != nil {
+		return nil
+	}
+	return out
 }

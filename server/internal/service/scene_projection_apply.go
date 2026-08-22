@@ -40,6 +40,11 @@ type SceneProjector struct {
 	notifyHub     *notify.NotificationHub
 	extCred       *ExternalCredentialService // optional, decrypts ${cred:...} placeholders
 	localRunner   *LocalRunnerService        // optional, Epic #526 子B — prompt fragment injection
+
+	// installCheck resolves whether a plugin is currently present on disk.
+	// Defaults to pluginInst.IsInstalled; overridable in tests to exercise
+	// ReconcileInstallStatus without a real plugin cache under the user's home.
+	installCheck func(ctx context.Context, configDir string, p PluginDecl) (bool, error)
 }
 
 // SetLocalRunner wires the local-runner service so Apply can splice the
@@ -315,13 +320,17 @@ func (p *SceneProjector) Apply(ctx context.Context, wsID int64) (*ApplyResult, e
 	//     CLI), so — like agents — they apply automatically on scene-enable.
 	p.materializeWorkspaceSkills(ws, wsDir, proj)
 
-	// 4. Plugin install PLAN (no side-effects). The user must click "Install"
-	//    in the SPA — which calls POST /api/workspaces/:id/scene/plugins/install
-	//    — to actually run `claude plugin install`. Apply never spawns the CLI
-	//    on its own (user feedback 2026-05-20: installing on workspace create
-	//    crosses the "run shell commands on my machine without asking" line).
-	//    The result of Plan goes into install_failures with status=pending|
-	//    skipped|failed so the SPA can show a per-plugin install list.
+	// 4. Auto-install scene-declared plugins — the scene's own skills (e.g.
+	//    document-skills@anthropic-agent-skills) plus any other plugins it
+	//    brings. Enabling a scene IS the user's explicit action, so the plugins
+	//    it declares are installed here automatically; there is no separate
+	//    "Install" click in the SPA. `claude plugin install` is idempotent and
+	//    pre-flighted by a local installed check, so already-installed plugins
+	//    resolve to "skipped" on later Applies without network/CLI work, and a
+	//    per-install timeout keeps a hung marketplace from blocking Apply. The
+	//    results (installed / skipped / failed) are persisted below; the SPA
+	//    banner surfaces only genuine failures — once everything is safely
+	//    installed there is nothing left for the banner to show.
 	var installPlan []PluginInstallResult
 	if p.pluginInst != nil && len(proj.Plugins) > 0 {
 		if ws.CliType == "codex" {
@@ -340,7 +349,7 @@ func (p *SceneProjector) Apply(ctx context.Context, wsID int64) (*ApplyResult, e
 				})
 			}
 		} else {
-			installPlan = p.pluginInst.Plan(ctx, configDir, proj.Plugins)
+			installPlan = p.pluginInst.ApplyForCLI(ctx, "claude", configDir, proj.Plugins)
 			// Model A: enable the scene's plugins at the workspace project level so a
 			// globally-installed-but-disabled plugin turns on only for this workspace.
 			if p.mcpGen != nil {
@@ -607,6 +616,75 @@ func filterDismissedResults(in []PluginInstallResult, dismissed []string) []Plug
 		out = append(out, r)
 	}
 	return out
+}
+
+// ReconcileInstallStatus re-checks the cached plugin install statuses against
+// the on-disk installed state (a local stat — no install is spawned) and
+// returns the reconciled list plus whether anything changed. Rows whose plugin
+// is now present on disk are flipped to "skipped" and their stale stderr
+// dropped. Once every scene-declared skill is safely installed, the SPA has
+// no pending/failed row left and the projection banner disappears.
+//
+// Called by GET /scene-projection so reopening a workspace converges the
+// banner against reality: an earlier failed auto-install may have succeeded on
+// a later Apply, or the user may have installed the plugin by hand in a
+// terminal (the SkillsGate-style workflow). Codex workspaces are skipped — their
+// plugins are never installed via the CLI, so there is nothing to reconcile.
+func (p *SceneProjector) ReconcileInstallStatus(ctx context.Context, wsID int64) ([]PluginInstallResult, bool, error) {
+	ws, err := p.q.GetWorkspace(ctx, wsID)
+	if err != nil {
+		return nil, false, fmt.Errorf("load workspace: %w", err)
+	}
+	row, err := p.q.GetProjection(ctx, wsID)
+	if err != nil {
+		// No cached projection row — nothing to reconcile.
+		return nil, false, nil
+	}
+	failures := DecodeInstallResults(row.InstallFailures)
+	if len(failures) == 0 || ws.CliType == "codex" {
+		return failures, false, nil
+	}
+	configDir := p.resolveConfigDir(ws)
+	changed := false
+	for i := range failures {
+		r := &failures[i]
+		if r.Status == PluginInstallStatusInstalled || r.Status == PluginInstallStatusSkipped {
+			continue
+		}
+		installed, err := p.pluginInstalled(ctx, configDir, PluginDecl{Source: r.Source, Ref: r.Ref})
+		if err != nil || !installed {
+			continue
+		}
+		r.Status = PluginInstallStatusSkipped
+		r.Stderr = ""
+		changed = true
+	}
+	if changed {
+		if err := p.q.UpsertProjection(ctx, store.UpsertProjectionParams{
+			WorkspaceID:         wsID,
+			Digest:              row.Digest,
+			ProjectedDefinition: row.ProjectedDefinition,
+			MissingCredentials:  row.MissingCredentials,
+			InstallFailures:     InstallResultsToJSON(failures),
+			RestartRequired:     row.RestartRequired,
+		}); err != nil {
+			slog.Warn("scene projector: reconcile install status persist failed", "workspace_id", wsID, "err", err)
+		}
+	}
+	return failures, changed, nil
+}
+
+// pluginInstalled reports whether a plugin is present on disk for the given
+// configDir, honoring the installCheck test seam when set and falling back to
+// pluginInst.IsInstalled (a local stat). A nil installer means "not installed".
+func (p *SceneProjector) pluginInstalled(ctx context.Context, configDir string, decl PluginDecl) (bool, error) {
+	if p.installCheck != nil {
+		return p.installCheck(ctx, configDir, decl)
+	}
+	if p.pluginInst == nil {
+		return false, nil
+	}
+	return p.pluginInst.IsInstalled(ctx, configDir, decl)
 }
 
 func mustMarshal(v any) string {
