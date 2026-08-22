@@ -523,6 +523,10 @@ V2_TRIPLE = $(V2_TRIPLE_$(GOOS)_$(GOARCH))
 # cargo 解析：Windows 上 chocolatey make 用 /usr/bin/sh 跑 recipe，其 PATH 常缺
 # rustup 默认安装位 ~/.cargo/bin（go 在而 cargo 不在），先 command -v 再回退。
 CARGO := $(shell command -v cargo 2>/dev/null || echo "$$HOME/.cargo/bin/cargo")
+RUSTUP := $(shell command -v rustup 2>/dev/null || echo "$$HOME/.cargo/bin/rustup")
+# 跨平台 target 自动补装（幂等）；rustup 不存在或离线时静默跳过，
+# 缺 target 的报错由后续 cargo build 给出（E0463 自带 rustup target add 提示）。
+RUSTUP_TARGET_ADD = $(RUSTUP) target add
 
 .PHONY: build-personal-v2-current build-personal-v2-all \
 	build-personal-v2-windows build-personal-v2-darwin build-personal-v2-linux \
@@ -538,10 +542,11 @@ build-personal-v2-current:
 
 build-personal-v2-all: build-personal-v2-windows build-personal-v2-darwin build-personal-v2-linux
 
-# 跨平台构建：需要对应 Rust target 已 `rustup target add <triple>`。
+# 跨平台构建：构建前自动 `rustup target add <triple>` 补装缺的 Rust target。
 build-personal-v2-windows:
 	$(MAKE) _personal-prepare GOOS=windows GOARCH=amd64 EXT=.exe
 	$(MAKE) _personal-prepare-v2 GOOS=windows GOARCH=amd64 EXT=.exe
+	-@$(RUSTUP_TARGET_ADD) x86_64-pc-windows-msvc 2>/dev/null || true
 	cd desktop-v2 && $(CARGO) build --release --target x86_64-pc-windows-msvc
 	mkdir -p bin
 	cp desktop-v2/target/x86_64-pc-windows-msvc/release/niuniu-desktop-v2.exe bin/niuniu-desktop-v2-$(VERSION)-windows-amd64.exe
@@ -549,14 +554,17 @@ build-personal-v2-windows:
 build-personal-v2-darwin:
 	$(MAKE) _personal-prepare GOOS=darwin GOARCH=arm64 EXT=
 	$(MAKE) _personal-prepare-v2 GOOS=darwin GOARCH=arm64 EXT=
+	-@$(RUSTUP_TARGET_ADD) aarch64-apple-darwin 2>/dev/null || true
 	cd desktop-v2 && $(CARGO) build --release --target aarch64-apple-darwin
 	$(MAKE) _personal-prepare GOOS=darwin GOARCH=amd64 EXT=
 	$(MAKE) _personal-prepare-v2 GOOS=darwin GOARCH=amd64 EXT=
+	-@$(RUSTUP_TARGET_ADD) x86_64-apple-darwin 2>/dev/null || true
 	cd desktop-v2 && $(CARGO) build --release --target x86_64-apple-darwin
 
 build-personal-v2-linux:
 	$(MAKE) _personal-prepare GOOS=linux GOARCH=amd64 EXT=
 	$(MAKE) _personal-prepare-v2 GOOS=linux GOARCH=amd64 EXT=
+	-@$(RUSTUP_TARGET_ADD) x86_64-unknown-linux-gnu 2>/dev/null || true
 	cd desktop-v2 && $(CARGO) build --release --target x86_64-unknown-linux-gnu
 
 dev-desktop-v2:
