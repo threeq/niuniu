@@ -569,6 +569,7 @@ pub fn activate_ai_service(app: tauri::AppHandle, id: String) -> Result<AIActiva
                 .title(format!("{} · {}", i18n::ai_title(&lang), name))
                 .decorations(false)
                 .visible(false)
+                .data_directory(crate::config::data_dir().join("webview2"))
                 .build()
                 .map_err(|e| e.to_string())?;
                 ai.service_windows.insert(label.clone(), created.clone());
