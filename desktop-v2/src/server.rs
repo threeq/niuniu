@@ -27,41 +27,105 @@ pub struct ServerHandle {
 
 // ─── 二进制定位 ────────────────────────────────────────────────────────────
 
-/// 解析 niuniu-server 侧车路径。候选顺序：
-/// 1. 打包产物：可执行文件旁 / Contents/MacOS 下的去 triple 名；
-/// 2. 开发：<crate>/binaries/<去 triple 名>（make _personal-prepare-v2 拷入）；
-/// 3. 开发：<crate>/binaries/<target-triple 名>（手工按 triple 放置）。
-/// 不依赖 tauri externalBin（构建期不做文件存在性校验，toolchain 差异也不影响）。
-pub fn server_binary_path() -> Result<PathBuf, String> {
-    let ext = if cfg!(windows) { ".exe" } else { "" };
-    let plain_name = format!("niuniu-server{ext}");
+// 内嵌的 server/mcp sidecar（编译期由 make _personal-prepare-v2 staging 到 binaries/，
+// build.rs 探测后开启 have_embedded_sidecars）。单文件分发，对齐 v1 go:embed。
+#[cfg(have_embedded_sidecars)]
+const EMBED_SERVER: &[u8] = include_bytes!(if cfg!(target_os = "windows") {
+    "../binaries/niuniu-server.exe"
+} else {
+    "../binaries/niuniu-server"
+});
+#[cfg(have_embedded_sidecars)]
+const EMBED_MCP: &[u8] = include_bytes!(if cfg!(target_os = "windows") {
+    "../binaries/niuniu-mcp.exe"
+} else {
+    "../binaries/niuniu-mcp"
+});
 
-    if let Ok(exe) = std::env::current_exe() {
-        if let Some(dir) = exe.parent() {
-            let p = dir.join(&plain_name);
-            if p.exists() {
-                return Ok(p);
-            }
-            // macOS .app bundle：sidecar 放 Contents/MacOS
-            let mac = dir.join("Contents").join("MacOS").join(&plain_name);
-            if mac.exists() {
-                return Ok(mac);
-            }
+/// 内嵌 sidecar 的解压目录：~/.niuniu/desktop-v2/sidecars/（绝对、跨构建稳定、
+/// 与 v1 的 user-cache 解压同构）。server 与 mcp 同目录，server 通过
+/// os.Executable()+dirname 找到 mcp。
+#[cfg(have_embedded_sidecars)]
+fn embedded_sidecar_dir() -> Result<PathBuf, String> {
+    let base = crate::config::data_dir().join("desktop-v2").join("sidecars");
+    let _ = std::fs::create_dir_all(&base);
+
+    // 指纹由 build.rs 在编译期计算（EMBEDDED_SIDE_FP），匹配则跳过解压。
+    let fp = env!("EMBEDDED_SIDE_FP");
+    let marker = base.join(".fp");
+    let server_name = if cfg!(windows) { "niuniu-server.exe" } else { "niuniu-server" };
+    let mcp_name = if cfg!(windows) { "niuniu-mcp.exe" } else { "niuniu-mcp" };
+    let server_path = base.join(server_name);
+    let mcp_path = base.join(mcp_name);
+
+    let already_current = std::fs::read_to_string(&marker).ok().as_deref() == Some(fp)
+        && server_path.exists()
+        && mcp_path.exists();
+    if !already_current {
+        write_atomic(&server_path, EMBED_SERVER)?;
+        write_atomic(&mcp_path, EMBED_MCP)?;
+        let _ = std::fs::write(&marker, fp);
+        // unix 可执行位
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let _ = std::fs::set_permissions(&server_path, std::fs::Permissions::from_mode(0o755));
+            let _ = std::fs::set_permissions(&mcp_path, std::fs::Permissions::from_mode(0o755));
         }
     }
-    let crate_dir = std::env::var("CARGO_MANIFEST_DIR").unwrap_or_default();
-    let p = PathBuf::from(&crate_dir).join("binaries").join(&plain_name);
-    if p.exists() {
-        return Ok(p);
+    Ok(server_path)
+}
+
+/// 原子写：先写 .tmp 再 rename，避免崩溃留下半截文件。
+#[cfg(have_embedded_sidecars)]
+fn write_atomic(path: &Path, data: &[u8]) -> Result<(), String> {
+    if let Some(dir) = path.parent() {
+        let _ = std::fs::create_dir_all(dir);
     }
-    let triple = tauri::utils::platform::target_triple().unwrap_or_default();
-    let p = PathBuf::from(&crate_dir)
-        .join("binaries")
-        .join(format!("niuniu-server-{triple}{ext}"));
-    if p.exists() {
-        return Ok(p);
+    let tmp = path.with_extension("tmp");
+    std::fs::write(&tmp, data).map_err(|e| format!("write {}: {e}", path.display()))?;
+    std::fs::rename(&tmp, path).map_err(|e| format!("rename {}: {e}", path.display()))?;
+    Ok(())
+}
+
+/// 解析 niuniu-server 侧车路径。优先内嵌（单文件分发，解压到 ~/.niuniu/desktop-v2/sidecars/）；
+/// 无内嵌时回退到外部文件查找（开发：CARGO_MANIFEST_DIR/binaries/；产物：exe 旁）。
+pub fn server_binary_path() -> Result<PathBuf, String> {
+    #[cfg(have_embedded_sidecars)]
+    {
+        return embedded_sidecar_dir();
     }
-    Err(format!("niuniu-server sidecar not found (looked for {plain_name} near exe / in binaries/)"))
+    #[cfg(not(have_embedded_sidecars))]
+    {
+        let ext = if cfg!(windows) { ".exe" } else { "" };
+        let plain_name = format!("niuniu-server{ext}");
+
+        if let Ok(exe) = std::env::current_exe() {
+            if let Some(dir) = exe.parent() {
+                let p = dir.join(&plain_name);
+                if p.exists() {
+                    return Ok(p);
+                }
+                let mac = dir.join("Contents").join("MacOS").join(&plain_name);
+                if mac.exists() {
+                    return Ok(mac);
+                }
+            }
+        }
+        let crate_dir = std::env::var("CARGO_MANIFEST_DIR").unwrap_or_default();
+        let p = PathBuf::from(&crate_dir).join("binaries").join(&plain_name);
+        if p.exists() {
+            return Ok(p);
+        }
+        let triple = tauri::utils::platform::target_triple().unwrap_or_default();
+        let p = PathBuf::from(&crate_dir)
+            .join("binaries")
+            .join(format!("niuniu-server-{triple}{ext}"));
+        if p.exists() {
+            return Ok(p);
+        }
+        Err(format!("niuniu-server sidecar not found (looked for {plain_name} near exe / in binaries/)"))
+    }
 }
 
 // ─── 探测：已有 server 是否在跑（复用而非自产） ────────────────────────────
