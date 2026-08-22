@@ -66,20 +66,13 @@ pub fn run() {
             let flags = app.state::<AppMeta>().flags.clone();
             boot_log("setup: begin");
 
-            // 主窗口（loading splash，随后导航到本地 server）
+            // 主窗口（loading splash，随后导航到本地 server）。aux 窗口（picker/
+            // ai-hub/runners）不在 setup 里建——Tauri v2 在 run() 事件循环启动前
+            // 连续创建多个 webview 窗口会因 WebView2 初始化需要消息泵而死锁
+            // （实测第 4 个 build() 挂住主线程）。改为首次打开时懒创建。
             boot_log("setup: create main window");
             let main_win = windows::create_main_window(&handle, &lang, flags.start_minimized)?;
             windows::register_close_to_tray(&main_win, &handle);
-            // picker / ai-hub / runners 全部隐藏创建，按需打开（方案 A: 绝不抢首启）
-            boot_log("setup: create picker window");
-            let picker = windows::create_picker_window(&handle, &lang)?;
-            windows::register_close_to_tray(&picker, &handle);
-            boot_log("setup: create ai-hub window");
-            let hub = windows::create_ai_hub_window(&handle, &lang)?;
-            windows::register_close_to_tray(&hub, &handle);
-            boot_log("setup: create runners window");
-            let runners = windows::create_runners_window(&handle, &lang)?;
-            windows::register_close_to_tray(&runners, &handle);
 
             // 托盘
             boot_log("setup: build tray");
