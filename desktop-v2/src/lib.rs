@@ -101,6 +101,7 @@ pub fn run() {
             commands::add_connection,
             commands::remove_connection,
             commands::move_connection,
+            commands::set_default_connection,
             commands::connect_by_id,
             commands::connect_from_picker,
             commands::connect_to_address,
@@ -143,6 +144,7 @@ fn boot(app: &tauri::AppHandle) {
         let st = app.state::<ServerState>();
         st.lock().addr = Some(dev_url_host_port(&flags.dev_url));
         commands::navigate_main_to_server(app);
+        sse::start(app.clone());
         return;
     }
 

@@ -114,6 +114,12 @@ pub fn runners_title(lang: &str) -> String {
     format!("{} - {}", brand(lang), t(lang, "runners"))
 }
 
+/// 托盘菜单用的「执行器管理」裸标签（不带品牌前缀，对应 v1 app.go 的
+/// i18n.T(lang, KeyRunners)）。
+pub fn t_runners(lang: &str) -> &'static str {
+    if lang == "zh" { "执行器管理" } else { "Runner Manage" }
+}
+
 /// 远端连接窗口标题。
 pub fn remote_title(lang: &str, name: &str, host_port: &str) -> String {
     format!("{} · {} · {} ({})", brand(lang), t(lang, "remote"), name, host_port)

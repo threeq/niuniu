@@ -46,13 +46,20 @@ impl Discovery {
         thread::spawn(move || loop {
             match receiver.recv_timeout(Duration::from_millis(500)) {
                 Ok(ServiceEvent::ServiceResolved(info)) => {
-                    let host = info.get_hostname().trim_end_matches('.').to_string();
+                    let host = info.get_addresses_v4().into_iter().next()
+                        .map(|a| a.to_string())
+                        .filter(|s| !s.is_empty())
+                        .unwrap_or_else(|| {
+                            info.get_hostname().trim_end_matches('.').to_string()
+                        });
+                    // TXT 记录里的 version=...（server/internal/discovery/mdns.go 广播）
+                    let version = info.get_property_val_str("version").map(|s| s.to_string());
                     let inst = Instance {
                         fullname: info.get_fullname().to_string(),
                         hostname: host.clone(),
                         host,
                         port: info.get_port(),
-                        version: None,
+                        version,
                     };
                     if let Ok(mut m) = map.lock() {
                         m.insert(inst.fullname.clone(), inst);

@@ -15,6 +15,23 @@ fn normalize(accel: &str) -> String {
     accel.trim().to_lowercase()
 }
 
+/// 位置连接快捷键的修饰符前缀：macOS 用 Cmd+Shift，其余 Ctrl+Shift
+/// （与 v1 connhotkey.go connHotkeyModifierPrefix 一致）。
+fn conn_prefix() -> &'static str {
+    if cfg!(target_os = "macos") { "cmd+shift+" } else { "ctrl+shift+" }
+}
+
+/// AI 直达快捷键的冲突回退候选（v1 hotkey_alt_windows.go / hotkey_darwin.go）。
+/// Ctrl/Cmd+Shift+A 在 Windows 常被微信/QQ/搜狗/截图占用，依次尝试备选。
+fn ai_candidates() -> Vec<String> {
+    let primary = normalize(&default_ai_accelerator());
+    if cfg!(target_os = "macos") {
+        vec![primary, "cmd+option+a".into(), "cmd+control+a".into()]
+    } else {
+        vec![primary, "ctrl+alt+a".into(), "ctrl+shift+space".into()]
+    }
+}
+
 /// 构造 global-shortcut 插件：单一 handler 按触发组合路由到窗口动作。
 pub fn plugin() -> tauri::plugin::TauriPlugin<tauri::Wry> {
     tauri_plugin_global_shortcut::Builder::new()
@@ -23,13 +40,27 @@ pub fn plugin() -> tauri::plugin::TauriPlugin<tauri::Wry> {
                 return;
             }
             let cfg = app.state::<CfgState>().snapshot();
-            let win = normalize(&cfg.hotkey.toggle_window);
-            let ai = normalize(&cfg.hotkey.toggle_ai);
             let s = normalize(&sc.to_string());
+            let win = normalize(&cfg.hotkey.toggle_window);
+            let ai_candidates = ai_candidates();
             if !win.is_empty() && s == win {
                 crate::commands::toggle_main_window(app);
-            } else if !ai.is_empty() && s == ai {
+                return;
+            }
+            if cfg.hotkey.toggle_ai_enabled && ai_candidates.iter().any(|c| c == &s) {
                 crate::commands::toggle_ai_window(app);
+                return;
+            }
+            // 位置连接快捷键 ctrl/cmd+shift+1..9 + 0(picker)
+            let prefix = conn_prefix();
+            if let Some(rest) = s.strip_prefix(prefix) {
+                if rest == "0" {
+                    crate::commands::toggle_picker(app);
+                } else if let Ok(n) = rest.parse::<u32>() {
+                    if (1..=9).contains(&n) {
+                        crate::commands::connect_by_position(app, n);
+                    }
+                }
             }
         })
         .build()
@@ -53,16 +84,26 @@ pub fn apply_hotkeys(app: &tauri::AppHandle, cfg: &crate::config::DesktopConfig)
         }
     }
 
-    // AI 直达切换（本 issue 规定 Ctrl/Cmd+Shift+A）
+    // AI 直达切换：依次尝试候选组合，第一个被 OS 接受的即生效（v1 RegisterAI）。
     if cfg.hotkey.toggle_ai_enabled {
-        let accel = if cfg.hotkey.toggle_ai.trim().is_empty() {
-            default_ai_accelerator()
-        } else {
-            cfg.hotkey.toggle_ai.clone()
-        };
-        let accel = normalize(&accel);
-        if let Err(e) = gs.register(accel.as_str()) {
-            eprintln!("register AI hotkey {accel} failed: {e}");
+        let mut bound = false;
+        for c in ai_candidates() {
+            if gs.register(c.as_str()).is_ok() {
+                bound = true;
+                break;
+            }
+        }
+        if !bound {
+            eprintln!("register AI hotkey: all candidates rejected");
+        }
+    }
+
+    // 位置连接快捷键 Ctrl/Cmd+Shift+1..9 + 0（固定，非配置项；单个被占则跳过）。
+    let prefix = conn_prefix();
+    for n in 0u32..=9 {
+        let spec = format!("{prefix}{n}");
+        if let Err(e) = gs.register(spec.as_str()) {
+            eprintln!("register connection hotkey {spec} failed: {e}");
         }
     }
 }

@@ -107,7 +107,7 @@ pub struct LegacyRelayConfig {
     pub lan_host_enabled: bool,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct DesktopConfig {
     pub connections: Vec<Connection>,
@@ -122,6 +122,22 @@ pub struct DesktopConfig {
     pub ai: AIConfig,
     #[serde(rename = "relay", skip_serializing_if = "is_empty_legacy")]
     pub legacy_relay: LegacyRelayConfig,
+}
+
+/// 与 Wails 版一致：全新安装默认开启通知（v1 config.go LoadFrom 预置 true）。
+impl Default for DesktopConfig {
+    fn default() -> Self {
+        Self {
+            connections: Vec::new(),
+            notifications: true,
+            start_on_login: false,
+            window_state: WindowState::default(),
+            hotkey: HotkeyConfig::default(),
+            skipped_version: String::new(),
+            ai: AIConfig::default(),
+            legacy_relay: LegacyRelayConfig::default(),
+        }
+    }
 }
 
 fn is_empty_legacy(r: &LegacyRelayConfig) -> bool {
