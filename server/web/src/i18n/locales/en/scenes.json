@@ -216,7 +216,7 @@
     "collapse": "Hide",
     "expand": "Show plugin notice",
     "pending_plugins_title": "Plugins pending install",
-    "pending_plugins": "Plugins declared by the scenes attached to this workspace are not fully auto-installed yet:",
+    "pending_plugins": "Scenes attached to this workspace declared these plugins (skill plugins auto-install; external-service plugins need a manual confirm):",
     "go_bind": "Bind",
     "retry_install": "Retry install",
     "install_one": "Install",

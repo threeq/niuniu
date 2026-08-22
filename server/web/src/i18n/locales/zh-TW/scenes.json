@@ -218,7 +218,7 @@
     "collapse": "隱藏",
     "expand": "展開外掛提示",
     "pending_plugins_title": "外掛待安裝",
-    "pending_plugins": "此工作空間已附加的場景宣告瞭以下外掛，尚未完成自動安裝：",
+    "pending_plugins": "此工作空間已附加的場景宣告瞭以下外掛（skill 型已自動安裝，外部服務外掛需手動確認）：",
     "install_one": "安裝",
     "install_all": "全部安裝（{{count}}）",
     "install_success_one": "已安裝",

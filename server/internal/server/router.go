@@ -1117,6 +1117,16 @@ func (s *Server) setupRoutes() {
 	api.POST("/plugins/uninstall", s.pluginInstallHandler.Uninstall)
 	api.POST("/plugins/check-installed", s.pluginInstallHandler.CheckInstalled)
 	api.POST("/plugins/marketplaces", s.pluginInstallHandler.AddMarketplace)
+	// Cross-agent skill management console (issue #666): catalog + install/
+	// enable state per agent/scope. Install != enable - installs land in the
+	// niuniu store (or the claude plugin cache) disabled by default; enable
+	// turns them on globally or per workspace (scenes do the latter).
+	api.GET("/skills", s.skillsHandler.List)
+	api.POST("/skills/install", s.skillsHandler.Install)
+	api.POST("/skills/enable", s.skillsHandler.Enable)
+	api.POST("/skills/disable", s.skillsHandler.Disable)
+	api.POST("/skills/update", s.skillsHandler.Update)
+	api.POST("/skills/uninstall", s.skillsHandler.Uninstall)
 	// Per-project default-scene prefill list.
 	projScenes := api.Group("/projects/:id")
 	{

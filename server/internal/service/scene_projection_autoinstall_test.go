@@ -33,7 +33,7 @@ func writeFakeCLI(t *testing.T, body string) string {
 // behavior: scene Apply for a claude workspace actually runs the installer for
 // scene-declared plugins (status installed/skipped/failed — never the manual
 // "pending" state), instead of just planning and waiting for an SPA click.
-func TestApply_AutoInstallsScenePlugins(t *testing.T) {
+func TestApply_AutoInstallsSceneSkillPlugins(t *testing.T) {
 	ctx := context.Background()
 	db := setupSceneTestDB(t)
 	dataDir := t.TempDir()
@@ -44,7 +44,7 @@ func TestApply_AutoInstallsScenePlugins(t *testing.T) {
 
 	sceneSvc := NewSceneService(db)
 	scene, err := sceneSvc.Create(ctx, OwnerRef{Type: "user", ID: 1}, "demo", "Demo", "", nil, &SceneDefinition{
-		Plugins: []PluginDecl{{Source: "document-skills@fake-skills-mp"}},
+		Plugins: []PluginDecl{{Source: "document-skills@anthropic-agent-skills"}},
 	})
 	require.NoError(t, err)
 
@@ -54,7 +54,7 @@ func TestApply_AutoInstallsScenePlugins(t *testing.T) {
 
 	require.Len(t, got.InstallFailures, 1, "scene-declared plugin must be attempted")
 	row := got.InstallFailures[0]
-	assert.Equal(t, "document-skills@fake-skills-mp", row.Source)
+	assert.Equal(t, "document-skills@anthropic-agent-skills", row.Source)
 	// Auto-install means the fake installer ran (exits 0) → "installed"; it must
 	// NOT have been left in the manual "pending" state.
 	assert.Equal(t, PluginInstallStatusInstalled, row.Status)
@@ -220,4 +220,36 @@ func TestDecodeInstallResults(t *testing.T) {
 	require.Len(t, got, 1)
 	assert.Equal(t, "a@mp", got[0].Source)
 	assert.Equal(t, PluginInstallStatusFailed, got[0].Status)
+}
+
+// TestApply_McpPluginsStayExplicit asserts external-service MCP plugins
+// (slack@claude-plugins-official etc.) keep the explicit install-click flow:
+// Apply only PLANs them to pending, never runs the installer.
+func TestApply_McpPluginsStayExplicit(t *testing.T) {
+	ctx := context.Background()
+	db := setupSceneTestDB(t)
+	dataDir := t.TempDir()
+	ws := createTestWorkspace(t, db, dataDir)
+
+	// The fake CLI records invocations; an MCP plugin install must never run it.
+	logFile := filepath.Join(t.TempDir(), "invoked")
+	projector := NewSceneProjector(db, dataDir, nil,
+		NewPluginInstaller(writeFakeCLI(t, "echo x >> "+logFile)), nil, nil)
+	svc := NewSceneLayerService(db, projector)
+
+	sceneSvc := NewSceneService(db)
+	scene, err := sceneSvc.Create(ctx, OwnerRef{Type: "user", ID: 1}, "demo", "Demo", "", nil, &SceneDefinition{
+		Plugins: []PluginDecl{{Source: "slack@claude-plugins-official"}},
+	})
+	require.NoError(t, err)
+
+	got, err := svc.Attach(ctx, ws.ID, scene.ID, nil)
+	require.NoError(t, err)
+	require.Len(t, got.InstallFailures, 1)
+	assert.Equal(t, PluginInstallStatusPending, got.InstallFailures[0].Status,
+		"MCP plugins must stay pending for the explicit install click")
+
+	if b, err := os.ReadFile(logFile); err == nil && len(b) > 0 {
+		t.Fatal("installer must not be invoked for MCP plugins")
+	}
 }

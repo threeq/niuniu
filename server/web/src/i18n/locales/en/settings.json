@@ -228,6 +228,7 @@
   "tabs": {
     "general": "General",
     "systemDeps": "System Dependencies",
+    "skills": "Skills",
     "env": "Environment Variables",
     "providers": "Platforms",
     "gitIdentity": "Git",
@@ -243,6 +244,36 @@
     "blueprints": "Project templates",
     "imbot": "IM bots",
     "about": "About"
+  },
+  "skills": {
+    "title": "Skill Management",
+    "subtitle": "Install, enable, update and uninstall Agent Skills across agents (Claude Code / Codex / Qwen / OMP / Goose). Install != enable: a global install stays disabled by default until you turn it on globally or for a specific workspace.",
+    "scopeGlobal": "Global (per Agent)",
+    "scopeWorkspace": "Workspace",
+    "workspacePlaceholder": "Pick a workspace…",
+    "pickWorkspaceHint": "Pick a workspace first to manage its enabled skills.",
+    "searchPlaceholder": "Search skills…",
+    "loading": "Loading…",
+    "empty": "No skills",
+    "colSkill": "Skill",
+    "colDescription": "Description",
+    "colActions": "Actions",
+    "sourceBuiltin": "builtin",
+    "sourceMarketplace": "marketplace",
+    "sourceUser": "user",
+    "inStore": "in store",
+    "updatable": "updatable",
+    "install": "Install",
+    "update": "Update",
+    "uninstall": "Uninstall",
+    "modelHint": "A switch enables/disables the skill for that agent at the current scope. Scene-declared skills enable automatically in their workspace; a skill already enabled globally is not re-installed per workspace.",
+    "toasts": {
+      "installed": "Installed to the global store (disabled by default)",
+      "updated": "Updated to the latest version",
+      "uninstalled": "Uninstalled",
+      "actionFailed": "Action failed: {{error}}",
+      "toggleFailed": "Toggle failed: {{error}}"
+    }
   },
   "imbot": {
     "title": "IM bots",
