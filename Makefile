@@ -520,6 +520,10 @@ V2_TRIPLE_linux_amd64   = x86_64-unknown-linux-gnu
 V2_TRIPLE_linux_arm64   = aarch64-unknown-linux-gnu
 V2_TRIPLE = $(V2_TRIPLE_$(GOOS)_$(GOARCH))
 
+# cargo 解析：Windows 上 chocolatey make 用 /usr/bin/sh 跑 recipe，其 PATH 常缺
+# rustup 默认安装位 ~/.cargo/bin（go 在而 cargo 不在），先 command -v 再回退。
+CARGO := $(shell command -v cargo 2>/dev/null || echo "$$HOME/.cargo/bin/cargo")
+
 .PHONY: build-personal-v2-current build-personal-v2-all \
 	build-personal-v2-windows build-personal-v2-darwin build-personal-v2-linux \
 	dev-desktop-v2 _personal-prepare-v2
@@ -528,7 +532,7 @@ V2_TRIPLE = $(V2_TRIPLE_$(GOOS)_$(GOARCH))
 build-personal-v2-current:
 	$(MAKE) _personal-prepare GOOS=$(shell go env GOOS) GOARCH=$(shell go env GOARCH) EXT=$(EXE_SUFFIX)
 	$(MAKE) _personal-prepare-v2 GOOS=$(shell go env GOOS) GOARCH=$(shell go env GOARCH) EXT=$(EXE_SUFFIX)
-	cd desktop-v2 && cargo build --release
+	cd desktop-v2 && $(CARGO) build --release
 	mkdir -p bin
 	cp desktop-v2/target/release/niuniu-desktop-v2$(EXE_SUFFIX) bin/niuniu-desktop-v2-$(VERSION)$(EXE_SUFFIX)
 
@@ -538,27 +542,27 @@ build-personal-v2-all: build-personal-v2-windows build-personal-v2-darwin build-
 build-personal-v2-windows:
 	$(MAKE) _personal-prepare GOOS=windows GOARCH=amd64 EXT=.exe
 	$(MAKE) _personal-prepare-v2 GOOS=windows GOARCH=amd64 EXT=.exe
-	cd desktop-v2 && cargo build --release --target x86_64-pc-windows-msvc
+	cd desktop-v2 && $(CARGO) build --release --target x86_64-pc-windows-msvc
 	mkdir -p bin
 	cp desktop-v2/target/x86_64-pc-windows-msvc/release/niuniu-desktop-v2.exe bin/niuniu-desktop-v2-$(VERSION)-windows-amd64.exe
 
 build-personal-v2-darwin:
 	$(MAKE) _personal-prepare GOOS=darwin GOARCH=arm64 EXT=
 	$(MAKE) _personal-prepare-v2 GOOS=darwin GOARCH=arm64 EXT=
-	cd desktop-v2 && cargo build --release --target aarch64-apple-darwin
+	cd desktop-v2 && $(CARGO) build --release --target aarch64-apple-darwin
 	$(MAKE) _personal-prepare GOOS=darwin GOARCH=amd64 EXT=
 	$(MAKE) _personal-prepare-v2 GOOS=darwin GOARCH=amd64 EXT=
-	cd desktop-v2 && cargo build --release --target x86_64-apple-darwin
+	cd desktop-v2 && $(CARGO) build --release --target x86_64-apple-darwin
 
 build-personal-v2-linux:
 	$(MAKE) _personal-prepare GOOS=linux GOARCH=amd64 EXT=
 	$(MAKE) _personal-prepare-v2 GOOS=linux GOARCH=amd64 EXT=
-	cd desktop-v2 && cargo build --release --target x86_64-unknown-linux-gnu
+	cd desktop-v2 && $(CARGO) build --release --target x86_64-unknown-linux-gnu
 
 dev-desktop-v2:
 	$(MAKE) _personal-prepare-current
 	$(MAKE) _personal-prepare-v2 GOOS=$(shell go env GOOS) GOARCH=$(shell go env GOARCH) EXT=$(EXE_SUFFIX)
-	cd desktop-v2 && cargo run
+	cd desktop-v2 && $(CARGO) run
 
 # 把 _personal-prepare 产出的 server/mcp 二进制拷为 Tauri 侧车（以去 triple 名
 # 为主 —— server_binary_path 先按 exe 旁/plain 名解析，toolchain 差异不影响；
