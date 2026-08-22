@@ -2,8 +2,11 @@
 	build build-win build-linux build-mcp \
 	build-personal build-personal-current build-personal-all \
 	build-personal-windows build-personal-darwin build-personal-linux \
+	build-personal-v2-current build-personal-v2-all \
+	build-personal-v2-windows build-personal-v2-darwin build-personal-v2-linux \
+	dev-desktop-v2 \
 	package-personal-darwin \
-	_personal-prepare _personal-prepare-current \
+	_personal-prepare _personal-prepare-current _personal-prepare-v2 \
 	gen-windows-resources ensure-goversioninfo \
 	clean test test-coverage test-services test-handlers test-desktop test-pg test-pg-smoke docs sqlc sqlc-lint \
 	builtin-scenes-sync builtin-skills-sync \
@@ -505,6 +508,70 @@ package-personal-darwin: build-personal-darwin
 		--arch amd64 \
 		--artifact-base niuniu-desktop-$(VERSION) \
 		--output-dir bin
+
+# ─── desktop-v2（Tauri v2 壳层，issue #670）────────────────────────────────
+# 复用 _personal-prepare 构建 Go server/mcp 侧车，按 Rust target triple 拷进
+# desktop-v2/binaries/，再 cargo build。desktop-v2 是独立新目录，不替换
+# desktop/（Wails v3 版保留）。
+V2_TRIPLE_windows_amd64 = x86_64-pc-windows-msvc
+V2_TRIPLE_darwin_arm64  = aarch64-apple-darwin
+V2_TRIPLE_darwin_amd64  = x86_64-apple-darwin
+V2_TRIPLE_linux_amd64   = x86_64-unknown-linux-gnu
+V2_TRIPLE_linux_arm64   = aarch64-unknown-linux-gnu
+V2_TRIPLE = $(V2_TRIPLE_$(GOOS)_$(GOARCH))
+
+.PHONY: build-personal-v2-current build-personal-v2-all \
+	build-personal-v2-windows build-personal-v2-darwin build-personal-v2-linux \
+	dev-desktop-v2 _personal-prepare-v2
+
+# 当前主机构建（Windows 产出 .exe）。侧车就位后 cargo build --release。
+build-personal-v2-current:
+	$(MAKE) _personal-prepare GOOS=$(shell go env GOOS) GOARCH=$(shell go env GOARCH) EXT=$(EXE_SUFFIX)
+	$(MAKE) _personal-prepare-v2 GOOS=$(shell go env GOOS) GOARCH=$(shell go env GOARCH) EXT=$(EXE_SUFFIX)
+	cd desktop-v2 && cargo build --release
+	cp desktop-v2/target/release/niuniu-desktop-v2$(EXE_SUFFIX) bin/niuniu-desktop-v2-$(VERSION)$(EXE_SUFFIX)
+
+build-personal-v2-all: build-personal-v2-windows build-personal-v2-darwin build-personal-v2-linux
+
+# 跨平台构建：需要对应 Rust target 已 `rustup target add <triple>`。
+build-personal-v2-windows:
+	$(MAKE) _personal-prepare GOOS=windows GOARCH=amd64 EXT=.exe
+	$(MAKE) _personal-prepare-v2 GOOS=windows GOARCH=amd64 EXT=.exe
+	cd desktop-v2 && cargo build --release --target x86_64-pc-windows-msvc
+	cp desktop-v2/target/x86_64-pc-windows-msvc/release/niuniu-desktop-v2.exe bin/niuniu-desktop-v2-$(VERSION)-windows-amd64.exe
+
+build-personal-v2-darwin:
+	$(MAKE) _personal-prepare GOOS=darwin GOARCH=arm64 EXT=
+	$(MAKE) _personal-prepare-v2 GOOS=darwin GOARCH=arm64 EXT=
+	cd desktop-v2 && cargo build --release --target aarch64-apple-darwin
+	$(MAKE) _personal-prepare GOOS=darwin GOARCH=amd64 EXT=
+	$(MAKE) _personal-prepare-v2 GOOS=darwin GOARCH=amd64 EXT=
+	cd desktop-v2 && cargo build --release --target x86_64-apple-darwin
+
+build-personal-v2-linux:
+	$(MAKE) _personal-prepare GOOS=linux GOARCH=amd64 EXT=
+	$(MAKE) _personal-prepare-v2 GOOS=linux GOARCH=amd64 EXT=
+	cd desktop-v2 && cargo build --release --target x86_64-unknown-linux-gnu
+
+dev-desktop-v2:
+	$(MAKE) _personal-prepare-current
+	$(MAKE) _personal-prepare-v2 GOOS=$(shell go env GOOS) GOARCH=$(shell go env GOARCH) EXT=$(EXE_SUFFIX)
+	cd desktop-v2 && cargo run
+
+# 把 _personal-prepare 产出的 server/mcp 二进制拷为 Tauri 侧车（以去 triple 名
+# 为主 —— server_binary_path 先按 exe 旁/plain 名解析，toolchain 差异不影响；
+# 若有三方 triple 映射则额外多拷一份 triple 名以备将来 externalBin 打包用）。
+_personal-prepare-v2:
+	@mkdir -p desktop-v2/binaries; \
+	cp desktop/internal/bundle/server-bin/$(GOOS)-$(GOARCH)/niuniu-server$(EXT) desktop-v2/binaries/niuniu-server$(EXT); \
+	cp desktop/internal/bundle/server-bin/$(GOOS)-$(GOARCH)/niuniu-mcp$(EXT) desktop-v2/binaries/niuniu-mcp$(EXT); \
+	echo "staged sidecars: desktop-v2/binaries/niuniu-server$(EXT) (+niuniu-mcp)"; \
+	TRIPLE="$(V2_TRIPLE)"; \
+	if [ -n "$$TRIPLE" ]; then \
+		cp desktop/internal/bundle/server-bin/$(GOOS)-$(GOARCH)/niuniu-server$(EXT) desktop-v2/binaries/niuniu-server-$$TRIPLE$(EXT); \
+		cp desktop/internal/bundle/server-bin/$(GOOS)-$(GOARCH)/niuniu-mcp$(EXT) desktop-v2/binaries/niuniu-mcp-$$TRIPLE$(EXT); \
+		echo "  + triple name niuniu-server-$$TRIPLE$(EXT)"; \
+	fi
 
 # Internal: build server for target platform, copy to desktop/internal/bundle/server-bin/<os>-<arch>/
 # Remove any existing output first — `go build -o <path>` refuses to overwrite

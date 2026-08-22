@@ -1,0 +1,27 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "牛牛桌面版 v2 默认能力：核心窗口/IPC + 通知 + 全局快捷键 + 打开外部链接 + 剪贴板",
+  "windows": ["main", "picker", "ai-hub", "conn-*", "ai-service-*", "runners"],
+  "permissions": [
+    "core:default",
+    "core:window:allow-show",
+    "core:window:allow-hide",
+    "core:window:allow-close",
+    "core:window:allow-set-focus",
+    "core:window:allow-start-dragging",
+    "core:window:allow-toggle-maximize",
+    "core:window:allow-set-fullscreen",
+    "core:window:allow-minimize",
+    "core:window:allow-unminimize",
+    "core:window:allow-set-size",
+    "core:window:allow-set-position",
+    "core:window:allow-scale-factor",
+    "core:webview:allow-create-webview-window",
+    "notification:default",
+    "global-shortcut:default",
+    "opener:default",
+    "clipboard-manager:allow-write-text",
+    "clipboard-manager:allow-read-text"
+  ]
+}

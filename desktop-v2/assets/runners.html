@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>执行器管理</title>
+  <style>
+    :root { --bg:#0b1220; --fg:#e6ecf5; --mut:#8a97ad; --line:#223049; --ac:#3b82f6; }
+    * { box-sizing: border-box; }
+    html, body { height: 100%; margin: 0; }
+    body {
+      background: var(--bg); color: var(--fg); display: flex; align-items: center;
+      justify-content: center; font-family: system-ui, -apple-system, sans-serif;
+    }
+    .card { text-align: center; max-width: 480px; padding: 32px; }
+    .ico { font-size: 40px; margin-bottom: 16px; }
+    h1 { font-size: 18px; font-weight: 600; margin: 0 0 10px; }
+    p { font-size: 13px; color: var(--mut); line-height: 1.7; margin: 0; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="ico">🚧</div>
+    <h1>执行器管理</h1>
+    <p>
+      desktop-v2（Tauri 壳层）尚未移植「本地 Runner 管理」子系统。<br>
+      该功能属于 Wails 版 #526 的本地执行器聚合能力，将在后续版本回归。<br>
+      您仍可在主窗口使用工作空间内的全部 Agent 功能。
+    </p>
+  </div>
+</body>
+</html>
