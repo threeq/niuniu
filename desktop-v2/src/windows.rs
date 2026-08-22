@@ -9,6 +9,15 @@ use crate::config::DesktopConfig;
 use crate::i18n;
 use crate::state::{ConnInfo, RebuildingState};
 
+/// WebView2 用户数据目录：固定到 ~/.niuniu/webview2（绝对路径，跨构建稳定，
+/// 对齐 v1 main.go 的 WebviewUserDataPath）。避免启动上下文未继承 LOCALAPPDATA
+/// 时 Tauri 解析失败、wry 回退到 CWD 下 <exename>.WebView2。
+fn webview_data_dir() -> std::path::PathBuf {
+    let p = crate::config::data_dir().join("webview2");
+    let _ = std::fs::create_dir_all(&p);
+    p
+}
+
 /// 主窗口初始加载页：data URL 旋转加载页（服务就绪后 navigate 到本地 SPA）。
 pub fn create_main_window(app: &tauri::AppHandle, lang: &str, hidden: bool) -> tauri::Result<WebviewWindow> {
     let title = i18n::local_title(lang);
@@ -17,6 +26,7 @@ pub fn create_main_window(app: &tauri::AppHandle, lang: &str, hidden: bool) -> t
         .inner_size(1440.0, 900.0)
         .min_inner_size(800.0, 600.0)
         .visible(!hidden)
+        .data_directory(webview_data_dir())
         .build()?;
     Ok(win)
 }
@@ -27,6 +37,7 @@ pub fn create_picker_window(app: &tauri::AppHandle, lang: &str) -> tauri::Result
         .title(i18n::manage_title(lang))
         .inner_size(1280.0, 800.0)
         .visible(false)
+        .data_directory(webview_data_dir())
         .build()
 }
 
@@ -36,6 +47,7 @@ pub fn create_ai_hub_window(app: &tauri::AppHandle, lang: &str) -> tauri::Result
         .title(i18n::ai_title(lang))
         .inner_size(980.0, 720.0)
         .visible(false)
+        .data_directory(webview_data_dir())
         .build()
 }
 
@@ -45,6 +57,7 @@ pub fn create_runners_window(app: &tauri::AppHandle, lang: &str) -> tauri::Resul
         .title(i18n::runners_title(lang))
         .inner_size(900.0, 640.0)
         .visible(false)
+        .data_directory(webview_data_dir())
         .build()
 }
 
@@ -68,6 +81,7 @@ pub fn open_connection_window(
         .title(i18n::remote_title(lang, &info.name, &format!("{}:{}", info.host, info.port)))
         .inner_size(1280.0, 840.0)
         .visible(false)
+        .data_directory(webview_data_dir())
         .build()?;
     // 远程窗口 X 关闭 = 真关闭（与本地主窗口的 close→hide 不同）：清理 ConnState
     // 并重建托盘，避免幽灵项（对应 v1 connwin.go createAndRegisterConnWindow 的
