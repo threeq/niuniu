@@ -27,20 +27,9 @@ type adminSettingSpec struct {
 	Default  string
 }
 
-// keyAssistantEnabled gates the 牛牛助手 nav entry. Personal edition always shows
-// it; team edition hides it by default ("0") until an admin flips this to "1"
-// in Settings → 通用. Exposed read-only in the /config snapshot (config.go) so
-// every member's SPA can decide whether to render the entry.
-const keyAssistantEnabled = "features.assistant_enabled"
-
 // adminSettingKeys is the whitelist of admin-settable server keys. New keys
 // must be added here explicitly together with their validator.
 var adminSettingKeys = map[string]adminSettingSpec{
-	// 牛牛助手 capability toggle (team edition). "1"=visible, "0"=hidden (default).
-	keyAssistantEnabled: {
-		Validate: boolFlag,
-		Default:  "0",
-	},
 	// Orchestration cost guardrails (spec 2026-06-08): runtime-tunable from the
 	// settings page. Stored as ints on the existing GetInt rail; budget is whole
 	// USD, warn ratio is whole percent 0..100 (guard divides by 100). 0 disables
@@ -67,14 +56,6 @@ var adminSettingKeys = map[string]adminSettingSpec{
 		},
 		Default: "80",
 	},
-}
-
-// boolFlag validates a whitelisted setting stored as the string "0" or "1".
-func boolFlag(v string) error {
-	if v != "0" && v != "1" {
-		return errors.New(`must be "0" or "1"`)
-	}
-	return nil
 }
 
 // nonNegativeInt validates a whitelisted setting that must parse as an integer >= 0.

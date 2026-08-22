@@ -1,9 +1,8 @@
 import { Link, useNavigate, useRouterState } from '@tanstack/react-router';
-import { Bell, Bot, LogOut, Settings, Sparkles, Zap } from 'lucide-react';
+import { Bell, Bot, LogOut, Settings, Zap } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useQuery } from '@tanstack/react-query';
 import { cn } from '@/lib/utils';
-import { api } from '@/lib/api';
 import { openAIWindow } from '@/lib/shell';
 import { IME_BRAND_FOCUS_ID } from '@/lib/ime-caret-fix';
 import { useWorkspaces } from '@/lib/hooks/use-workspaces';
@@ -44,18 +43,11 @@ export function GlobalNav() {
   });
   const showDashboards = (dashboards?.length ?? 0) > 0;
 
-  // 牛牛助手 entry visibility (#520 follow-up): personal edition always shows it;
-  // team edition hides it until an admin flips assistant_enabled in Settings → 通用.
-  // Gate on configLoaded so team edition doesn't flash the entry before /api/health
-  // resolves (personalMode defaults true until then).
+  // Edition detection for the AI 直达 entry: gate on configLoaded so team
+  // edition doesn't flash it before /api/health resolves (personalMode
+  // defaults true until then).
   const personalMode = useConfigStore((s) => s.personalMode);
   const configLoaded = useConfigStore((s) => s.loaded);
-  const { data: appConfig } = useQuery({
-    queryKey: ['app-config'],
-    queryFn: () => api.get<{ assistant_enabled?: boolean }>('/config'),
-    staleTime: 30_000,
-  });
-  const showAssistant = configLoaded && (personalMode || appConfig?.assistant_enabled === true);
 
   function handleLogout() {
     const refreshToken = useAuthStore.getState().refreshToken;
@@ -107,24 +99,6 @@ export function GlobalNav() {
             each link. The vertical padding gives them room inside the scroll
             box; the matching negative margin keeps the header height unchanged. */}
         <nav className="flex items-center gap-1 min-w-0 overflow-x-auto py-1.5 -my-1.5">
-          {/* Pinned office-assistant entry (#388) — distinct from the kanban
-              nav. Personal edition is assistant-first (root redirects to it) and
-              always shows it; team edition hides it by default until an admin
-              enables the capability in Settings → 通用 (#520 follow-up). */}
-          {showAssistant && (
-            <Link
-              to="/assistant"
-              className={cn(
-                'relative flex shrink-0 items-center gap-1 px-3 py-1 rounded-md text-sm font-medium transition-colors',
-                currentPath === '/assistant'
-                  ? 'bg-info/15 text-info'
-                  : 'text-info hover:bg-info/10',
-              )}
-            >
-              <Sparkles className="w-3.5 h-3.5" />
-              {t('menu.assistant')}
-            </Link>
-          )}
           {navLinks.map(({ to, labelKey }) => {
             const isActive = currentPath === to || currentPath.startsWith(to + '/');
             const showBadge = to === '/workspaces' && activeCount > 0;

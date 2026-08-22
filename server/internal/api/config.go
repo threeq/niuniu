@@ -10,9 +10,8 @@ import (
 )
 
 // serverSettingsReader is the read-only slice of *service.ServerSettingsService
-// the config snapshot needs to surface admin-toggled capability flags (e.g.
-// assistant_enabled). Kept as an interface so unit tests can inject a fake
-// without a DB.
+// the config snapshot needs to surface admin-toggled capability flags. Kept as
+// an interface so unit tests can inject a fake without a DB.
 type serverSettingsReader interface {
 	GetInt(ctx context.Context, key string, def int) int
 }
@@ -32,25 +31,14 @@ type ConfigHandler struct {
 	// (no reporter) and in handler unit tests that don't exercise the wire-up.
 	OnTelemetryToggle func(bool)
 
-	// Settings backs read-only capability flags exposed in the snapshot (e.g.
-	// assistant_enabled, which admins toggle via /admin/settings). nil in unit
-	// tests → flags read as their zero/false default.
+	// Settings backs read-only capability flags exposed in the snapshot. nil in
+	// unit tests → flags read as their zero/false default.
 	Settings serverSettingsReader
 }
 
 // NewConfigHandler wires the handler with the production config.Save persister.
 func NewConfigHandler(cfg *config.Config) *ConfigHandler {
 	return &ConfigHandler{Cfg: cfg, Save: config.Save}
-}
-
-// assistantEnabled reports whether the 牛牛助手 nav entry capability is switched
-// on. Read-only mirror of the admin-settable keyAssistantEnabled flag; false
-// when no Settings backend is wired (unit tests) or the key is unset (default).
-func (h *ConfigHandler) assistantEnabled(ctx context.Context) bool {
-	if h.Settings == nil {
-		return false
-	}
-	return h.Settings.GetInt(ctx, keyAssistantEnabled, 0) > 0
 }
 
 // snapshot is the shared GET/PUT response shape. telemetry_enabled is exposed
@@ -77,9 +65,6 @@ func (h *ConfigHandler) snapshot(ctx context.Context) gin.H {
 			"vscode_remote_url": h.Cfg.Editor.VSCodeRemoteURL,
 		},
 		"telemetry_enabled": h.Cfg.Telemetry.Enabled,
-		// assistant_enabled gates the 牛牛助手 nav entry in team edition (personal
-		// edition always shows it). Admin-toggled via /admin/settings; read-only here.
-		"assistant_enabled": h.assistantEnabled(ctx),
 	}
 }
 

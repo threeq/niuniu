@@ -18,12 +18,9 @@ var ErrProjectNoColumns = errors.New("project has no columns")
 // project's task). Callers surface it as a de-jargonized "not found".
 var ErrTaskNotInProject = errors.New("task not in project")
 
-// AssistantDispatchService is the project-parameterized routing core extracted
-// from the WebUI assistant handler (api/assistant.go). Historically the handler
-// hard-wired every task into the per-owner "牛牛助手" project via
-// ensureAssistantProject; W2 generalizes that into RouteInProject(projectID,…)
-// so any project — the WebUI assistant project, or an IM-bot-bound engineering /
-// office project — reuses the exact same "continue-or-create issue+workspace"
+// AssistantDispatchService is the project-parameterized routing core. RouteInProject(projectID,…)
+// generalizes "continue-or-create issue+workspace" so any project — a
+// managed-task backing project, or an IM-bot-bound engineering / office project
 // logic. The WebUI handler now delegates issue+workspace creation here, and the
 // IM inbound pipeline (IMBotService.HandleInbound) calls RouteInProject with the
 // channel's bound project.
@@ -77,10 +74,10 @@ type RouteHint struct {
 
 // PlanCreateOpts are the lower-level knobs for CreatePlanInProject.
 type PlanCreateOpts struct {
-	Language        string
-	NoRepo          bool
-	Repos           []RepoBranch
-	CreatedBy       *int64
+	Language  string
+	NoRepo    bool
+	Repos     []RepoBranch
+	CreatedBy *int64
 	// PermissionMode overrides the created workspace's NIUNIU_PERMISSION_MODE
 	// ("" => "autohost"). See RouteHint.PermissionMode.
 	PermissionMode string
@@ -134,10 +131,10 @@ func (s *AssistantDispatchService) RouteInProject(ctx context.Context, owner Own
 		return PlanTarget{}, err
 	}
 	return s.CreatePlanInProject(ctx, owner, projectID, columnID, text, hint.TitleHint, 0, PlanCreateOpts{
-		Language:        hint.Language,
-		NoRepo:          len(repos) == 0,
-		Repos:           repos,
-		PermissionMode:  hint.PermissionMode,
+		Language:       hint.Language,
+		NoRepo:         len(repos) == 0,
+		Repos:          repos,
+		PermissionMode: hint.PermissionMode,
 	})
 }
 
@@ -168,15 +165,15 @@ func (s *AssistantDispatchService) CreatePlanInProject(ctx context.Context, owne
 
 	issueID := issue.ID
 	in := CreateWorkspaceInput{
-		IssueID:         &issueID,
-		Name:            title,
-		OwnerType:       owner.Type,
-		OwnerID:         owner.ID,
-		CreatedBy:       opts.CreatedBy,
-		NoRepo:          opts.NoRepo,
-		Repos:           opts.Repos,
-		Language:        opts.Language,
-		PermissionMode:  opts.PermissionMode,
+		IssueID:        &issueID,
+		Name:           title,
+		OwnerType:      owner.Type,
+		OwnerID:        owner.ID,
+		CreatedBy:      opts.CreatedBy,
+		NoRepo:         opts.NoRepo,
+		Repos:          opts.Repos,
+		Language:       opts.Language,
+		PermissionMode: opts.PermissionMode,
 	}
 	result, err := s.workspace.Create(ctx, in)
 	if err != nil {
@@ -222,12 +219,12 @@ func (s *AssistantDispatchService) StartWorkspaceForExistingIssue(ctx context.Co
 	}
 	issueRef := issue.ID
 	result, err := s.workspace.Create(ctx, CreateWorkspaceInput{
-		IssueID:         &issueRef,
-		Name:            issue.Title,
-		OwnerType:       owner.Type,
-		OwnerID:         owner.ID,
-		NoRepo:          len(repos) == 0,
-		Repos:           repos,
+		IssueID:   &issueRef,
+		Name:      issue.Title,
+		OwnerType: owner.Type,
+		OwnerID:   owner.ID,
+		NoRepo:    len(repos) == 0,
+		Repos:     repos,
 	})
 	if err != nil {
 		return PlanTarget{}, err
@@ -395,7 +392,7 @@ func DeriveTaskTitle(description string) string {
 		title = string(runes[:maxRunes]) + "…"
 	}
 	if title == "" {
-		title = "牛牛助手任务"
+		title = "新任务"
 	}
 	return title
 }

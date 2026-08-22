@@ -216,9 +216,9 @@ func (s *Server) setupRoutes() {
 		mcpGroup.GET("/workspaces/:id/harness/checks", s.harnessHandler.ListChecks)
 		mcpGroup.POST("/workspaces/:id/harness/pre-commit-check", s.harnessHandler.PreCommitCheck)
 
-		// Managed tasks — the conversational assistant agent posts here (via the
-		// create_managed_task tool) to provision a recurring task in one call:
-		// backing issue + no-repo workspace + bound cron schedule.
+		// Managed tasks — the agent posts here (via the create_managed_task tool)
+		// to provision a recurring task in one call: backing issue + no-repo
+		// workspace + bound cron schedule.
 		mcpGroup.POST("/managed-tasks", s.assistantHandler.CreateManagedTask)
 
 		// Inbox (moved from niuniu-mcp binary; see service.InboxService)
@@ -530,16 +530,6 @@ func (s *Server) setupRoutes() {
 		projects.POST("/:id/cleanup/run", s.cleanupHandler.RunCleanupOnce)
 
 	}
-
-	// Conversational office assistant (#388): one-sentence → issue + no-repo
-	// workspace + goal_condition. The SPA then subscribes to the returned
-	// workspace via agent-sse-store and sends the description as the first turn.
-	api.POST("/assistant/quick-create", s.assistantHandler.QuickCreate)
-	// Multi-plan dispatcher (#396): route a message to an existing plan or a new
-	// one, list the owner's plans, and permanently delete a plan.
-	api.POST("/assistant/dispatch", s.assistantHandler.Dispatch)
-	api.GET("/assistant/plans", s.assistantHandler.ListPlans)
-	api.DELETE("/assistant/plans/:issueId", s.assistantHandler.DeletePlan)
 
 	// Lifecycle groups (registered before /columns group to avoid /:id conflict)
 	api.GET("/columns/lifecycle-groups", s.kanbanHandler.ListLifecycleGroups)

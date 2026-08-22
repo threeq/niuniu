@@ -55,9 +55,10 @@ type AssistantManagedTaskResponse struct {
 // One call provisions a complete recurring managed task: a backing issue (with
 // goal_condition for autohost self-completion) + a no-repo workspace bound to
 // it + a cron workspace_schedule that delivers the recurring instruction to that
-// workspace's agent on every tick. Reuses the assistant project plumbing so the
-// task also shows up as a plan in 牛牛助手 and a row on the /schedules page
-// (GC2 + GC5). When the schedule fires the agent runs to completion and emits
+// workspace's agent on every tick. Reuses the backing-project plumbing so the
+// task also shows up as a plan in the 定时任务 project and a row on the
+// /schedules page (GC2 + GC5). When the schedule fires the agent runs to
+// completion and emits
 // agent_done, which fans out to both the in-app notify hub and (in the personal
 // edition) the OS notification (GC3/GC4/GC6).
 func (h *AssistantHandler) CreateManagedTask(c *gin.Context) {

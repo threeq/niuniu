@@ -15,7 +15,6 @@ import zhCNIssues from './locales/zh-CN/issues.json'
 import zhCNScenes from './locales/zh-CN/scenes.json'
 import zhCNData from './locales/zh-CN/data.json'
 import zhCNDashboards from './locales/zh-CN/dashboards.json'
-import zhCNAssistant from './locales/zh-CN/assistant.json'
 import zhCNKnowledge from './locales/zh-CN/knowledge.json'
 
 import enAuth from './locales/en/auth.json'
@@ -35,7 +34,6 @@ import enIssues from './locales/en/issues.json'
 import enScenes from './locales/en/scenes.json'
 import enData from './locales/en/data.json'
 import enDashboards from './locales/en/dashboards.json'
-import enAssistant from './locales/en/assistant.json'
 import enKnowledge from './locales/en/knowledge.json'
 
 import zhTWAuth from './locales/zh-TW/auth.json'
@@ -55,7 +53,6 @@ import zhTWIssues from './locales/zh-TW/issues.json'
 import zhTWScenes from './locales/zh-TW/scenes.json'
 import zhTWData from './locales/zh-TW/data.json'
 import zhTWDashboards from './locales/zh-TW/dashboards.json'
-import zhTWAssistant from './locales/zh-TW/assistant.json'
 import zhTWKnowledge from './locales/zh-TW/knowledge.json'
 
 export const resources = {
@@ -64,27 +61,27 @@ export const resources = {
     schedules: zhCNSchedules, orgs: zhCNOrgs, login: zhCNLogin, dialogs: zhCNDialogs,
    
     presets: zhCNPresets, wizard: zhCNWizard, issues: zhCNIssues, scenes: zhCNScenes,
-    data: zhCNData, dashboards: zhCNDashboards, assistant: zhCNAssistant,
+        data: zhCNData, dashboards: zhCNDashboards,
     knowledge: zhCNKnowledge },
   en: { auth: enAuth, common: enCommon, nav: enNav, settings: enSettings,
     workspaces: enWorkspaces, projects: enProjects, repositories: enRepositories,
     schedules: enSchedules, orgs: enOrgs, login: enLogin, dialogs: enDialogs,
    
     presets: enPresets, wizard: enWizard, issues: enIssues, scenes: enScenes,
-    data: enData, dashboards: enDashboards, assistant: enAssistant,
+        data: enData, dashboards: enDashboards,
     knowledge: enKnowledge },
   'zh-TW': { auth: zhTWAuth, common: zhTWCommon, nav: zhTWNav, settings: zhTWSettings,
     workspaces: zhTWWorkspaces, projects: zhTWProjects, repositories: zhTWRepositories,
     schedules: zhTWSchedules, orgs: zhTWOrgs, login: zhTWLogin, dialogs: zhTWDialogs,
    
     presets: zhTWPresets, wizard: zhTWWizard, issues: zhTWIssues, scenes: zhTWScenes,
-    data: zhTWData, dashboards: zhTWDashboards, assistant: zhTWAssistant,
+        data: zhTWData, dashboards: zhTWDashboards,
     knowledge: zhTWKnowledge },
 } as const
 
 export const NAMESPACES = [
   'auth', 'common', 'nav', 'settings', 'workspaces', 'projects',
   'repositories', 'schedules', 'orgs', 'login', 'dialogs',
-  'presets', 'wizard', 'issues', 'scenes', 'data', 'dashboards', 'assistant', 'knowledge',
+  'presets', 'wizard', 'issues', 'scenes', 'data', 'dashboards', 'knowledge',
 ] as const
 export type Namespace = typeof NAMESPACES[number]

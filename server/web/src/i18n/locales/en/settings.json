@@ -487,13 +487,6 @@
       "saved": "Telemetry preference saved",
       "saveFailed": "Could not save telemetry preference: {{error}}"
     },
-    "assistant": {
-      "title": "Niuniu Assistant",
-      "description": "When enabled, the \"Niuniu Assistant\" entry appears in the top navigation for every team member. Hidden by default; only admins can enable it.",
-      "toggleLabel": "Enable the Niuniu Assistant entry",
-      "saved": "Assistant setting saved",
-      "saveFailed": "Could not save assistant setting: {{error}}"
-    },
     "autostart": {
       "title": "Start with computer",
       "description": "Automatically launch Niuniu when you sign in to this computer.",
