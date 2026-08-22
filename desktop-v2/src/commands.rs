@@ -364,13 +364,22 @@ pub fn hard_reset_main(app: &tauri::AppHandle) {
 
 /// 主窗口导航到本地 server（带快捷键 hash）。
 pub fn navigate_main_to_server(app: &tauri::AppHandle) {
-    let Some(addr) = app.state::<ServerState>().addr() else { return };
+    let Some(addr) = app.state::<ServerState>().addr() else {
+        crate::boot_log("navigate: no addr set, skipping");
+        return;
+    };
     let cfg = app.state::<CfgState>().snapshot();
     let url = windows::with_hotkey_hash(&format!("http://{addr}/"), &cfg);
-    if let Some(win) = app.get_webview_window("main") {
-        if let Ok(u) = url::Url::parse(&url) {
-            let _ = win.navigate(u);
-        }
+    crate::boot_log(format!("navigate: target url = {url}"));
+    match app.get_webview_window("main") {
+        Some(win) => match url::Url::parse(&url) {
+            Ok(u) => match win.navigate(u) {
+                Ok(_) => crate::boot_log("navigate: win.navigate Ok"),
+                Err(e) => crate::boot_log(format!("navigate: win.navigate ERR {e}")),
+            },
+            Err(e) => crate::boot_log(format!("navigate: url parse ERR {e}")),
+        },
+        None => crate::boot_log("navigate: get_webview_window('main') = None"),
     }
 }
 
