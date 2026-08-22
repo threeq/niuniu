@@ -68,6 +68,10 @@ beforeEach(() => {
         output_tokens: 0,
         cache_creation_tokens: 0,
         cache_read_tokens: 0,
+        is_stuck: false,
+        is_archived: false,
+        changes_count: 0,
+        ahead_count: 0,
       },
     ],
   })
