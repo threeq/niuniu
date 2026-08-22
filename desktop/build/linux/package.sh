@@ -1,16 +1,24 @@
 #!/usr/bin/env bash
-# Package a Wails Linux binary into a distributable tar.gz archive with a
-# .desktop file and icon, so users can extract and run it directly.
+# Package a Wails Linux binary into a portable AppImage — a single self-mounting
+# executable users can `chmod +x` and double-click to run, with launcher
+# integration baked in. This is the Linux equivalent of the macOS .dmg.
 #
 # Output:
-#   <output-dir>/<artifact-base>-linux-<arch>.tar.gz   (final distribution artifact)
+#   <output-dir>/<artifact-base>-linux-<arch>.AppImage   (final distribution artifact)
 #
-# The tar.gz contains:
-#   niuniu-desktop-<version>/
-#   ├── niuniu-desktop          (the binary)
-#   ├── niuniu-desktop.desktop  (desktop entry, users can copy to ~/.local/share/applications/)
-#   ├── icon.png                (app icon, 256px PNG)
-#   └── install.sh              (quick install script)
+# An AppImage is built from an AppDir staging directory:
+#   AppDir/
+#   ├── niuniu-desktop           (the ELF binary produced by go build)
+#   ├── niuniu-desktop.desktop   (desktop entry — drives launcher integration)
+#   ├── niuniu-desktop.png       (app icon, named to match the desktop Icon=)
+#   └── AppRun                   (bootstrap: cd's into the mounted AppDir, exec)
+# then appimagetool bundles AppDir into the single .AppImage file.
+#
+# Note: this bundles the app binary only — GTK/WebKit2GTK come from the user's
+# system, same contract as a .deb or Wails' own `wails3 package`. The build host
+# must have appimagetool (auto-downloaded to <output-dir> if not found) and, on
+# FUSE-less hosts (e.g. GitHub Actions containers), it is run with
+# APPIMAGE_EXTRACT_AND_RUN=1.
 
 set -euo pipefail
 
@@ -56,65 +64,71 @@ done
 
 mkdir -p "$OUTDIR"
 
-PKG_DIR="$OUTDIR/${ARTIFACT_BASE}-linux-${ARCH}"
-TGZ_PATH="$OUTDIR/${ARTIFACT_BASE}-linux-${ARCH}.tar.gz"
+APPDIR="$OUTDIR/AppDir"
+APPIMAGE_PATH="$OUTDIR/${ARTIFACT_BASE}-linux-${ARCH}.AppImage"
+ICON_NAME="niuniu-desktop"
 
-rm -rf "$PKG_DIR" "$TGZ_PATH"
-mkdir -p "$PKG_DIR"
+# ── Locate appimagetool (prefer env override, then PATH, then download) ──────
+APPIMAGETOOL="${APPIMAGETOOL:-}"
+if [[ -z "$APPIMAGETOOL" ]]; then
+    if command -v appimagetool >/dev/null 2>&1; then
+        APPIMAGETOOL="$(command -v appimagetool)"
+    else
+        TOOL_PATH="$OUTDIR/.appimagetool-x86_64.AppImage"
+        if [[ ! -f "$TOOL_PATH" ]]; then
+            echo "==> Downloading appimagetool ..."
+            curl -fL -o "$TOOL_PATH" \
+                "https://github.com/AppImage/appimagetool/releases/download/1.9.1/appimagetool-x86_64.AppImage"
+        fi
+        chmod +x "$TOOL_PATH"
+        APPIMAGETOOL="$TOOL_PATH"
+    fi
+fi
+echo "==> Using appimagetool: $APPIMAGETOOL"
 
-# ── Binary ──────────────────────────────────────────────────────────────
-cp "$BINARY" "$PKG_DIR/niuniu-desktop"
-chmod +x "$PKG_DIR/niuniu-desktop"
+# ── Build the AppDir staging directory ───────────────────────────────────────
+rm -rf "$APPDIR" "$APPIMAGE_PATH"
+mkdir -p "$APPDIR"
 
-# ── Icon ────────────────────────────────────────────────────────────────
-cp "$ICON" "$PKG_DIR/icon.png"
+# Binary
+cp "$BINARY" "$APPDIR/niuniu-desktop"
+chmod +x "$APPDIR/niuniu-desktop"
 
-# ── .desktop file ───────────────────────────────────────────────────────
-# Users can copy this to ~/.local/share/applications/ for system integration.
-cat > "$PKG_DIR/niuniu-desktop.desktop" <<DESKTOP
+# Icon — named <Icon=value>.png so appimagetool picks it up as the app icon
+cp "$ICON" "$APPDIR/${ICON_NAME}.png"
+
+# .desktop entry — Icon= has no extension (AppImage convention); appimagetool
+# rewrites Exec= to point at the bundled AppImage at package time.
+cat > "$APPDIR/niuniu-desktop.desktop" <<DESKTOP
 [Desktop Entry]
 Version=1.0
 Type=Application
 Name=${DISPLAY_NAME}
 Comment=AI Workstation — run parallel AI agent sessions
-Exec=/opt/niuniu-desktop/niuniu-desktop
-Icon=/opt/niuniu-desktop/icon.png
+Exec=niuniu-desktop
+Icon=${ICON_NAME}
 Categories=Development;Utility;
 Terminal=false
 StartupWMClass=niuniu-desktop
 DESKTOP
 
-# ── Install script ──────────────────────────────────────────────────────
-cat > "$PKG_DIR/install.sh" <<'INSTALL'
+# AppRun bootstrap — the AppImage is mounted read-only at an arbitrary path, so
+# cd into the AppDir before exec so the binary finds its sibling files.
+cat > "$APPDIR/AppRun" <<'RUN'
 #!/usr/bin/env bash
-# Quick install: copies the binary and icon to /opt/niuniu-desktop/ and
-# registers the .desktop file so it appears in the app launcher.
-set -euo pipefail
+HERE="$(cd "$(dirname "$(readlink -f "$0")")" && pwd)"
+cd "$HERE"
+exec ./niuniu-desktop "$@"
+RUN
+chmod +x "$APPDIR/AppRun"
 
-INSTALL_DIR="/opt/niuniu-desktop"
-SRC_DIR="$(cd "$(dirname "$0")" && pwd)"
-
-echo "==> Installing Niuniu Desktop to ${INSTALL_DIR}"
-sudo mkdir -p "${INSTALL_DIR}"
-sudo cp "${SRC_DIR}/niuniu-desktop" "${INSTALL_DIR}/"
-sudo cp "${SRC_DIR}/icon.png" "${INSTALL_DIR}/"
-sudo chmod +x "${INSTALL_DIR}/niuniu-desktop"
-
-# Update the .desktop file paths to point to the installed location
-sed "s|/opt/niuniu-desktop|${INSTALL_DIR}|g" "${SRC_DIR}/niuniu-desktop.desktop" > /tmp/niuniu-desktop.desktop
-mkdir -p ~/.local/share/applications
-cp /tmp/niuniu-desktop.desktop ~/.local/share/applications/
-rm -f /tmp/niuniu-desktop.desktop
-
-echo "==> Done. Find 'Niuniu Desktop' in your app launcher, or run:"
-echo "    ${INSTALL_DIR}/niuniu-desktop"
-INSTALL
-chmod +x "$PKG_DIR/install.sh"
-
-# ── Create tar.gz ───────────────────────────────────────────────────────
-echo "==> Creating ${TGZ_PATH} ..."
-tar -czf "$TGZ_PATH" -C "$OUTDIR" "$(basename "$PKG_DIR")"
+# ── Bundle with appimagetool ─────────────────────────────────────────────────
+# APPIMAGE_EXTRACT_AND_RUN=1 lets the AppImage-form appimagetool run on FUSE-less
+# hosts (GitHub Actions containers). Harmless if appimagetool is a native exe.
+echo "==> Creating ${APPIMAGE_PATH} ..."
+APPIMAGE_EXTRACT_AND_RUN=1 "$APPIMAGETOOL" "$APPDIR" "$APPIMAGE_PATH"
 
 echo "==> Built:"
-echo "    ${TGZ_PATH}"
-echo "    Size: $(du -h "$TGZ_PATH" | cut -f1)"
+echo "    ${APPIMAGE_PATH}"
+echo "    Size: $(du -h "$APPIMAGE_PATH" | cut -f1)"
+echo "    Users: chmod +x and run, or use AppImageLauncher for menu integration."

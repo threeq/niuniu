@@ -454,9 +454,10 @@ build-personal-linux:
 	cd desktop && GOOS=linux GOARCH=amd64 go build $(DESKTOP_LDFLAGS) \
 		-o ../bin/niuniu-desktop-$(VERSION)-linux-amd64 ./cmd/personal
 
-# Linux tar.gz packaging. Wraps the bare ELF binary produced by build-* into a
-# tar.gz archive with a .desktop file, icon, and install script so users can
-# extract and run it directly. Requires a Linux host (or any host with tar).
+# Linux AppImage packaging. Wraps the bare ELF binary produced by build-* into a
+# single portable .AppImage (chmod +x and run, launcher integration included) —
+# the Linux equivalent of the macOS .dmg. Requires a Linux host; appimagetool is
+# auto-downloaded by the script if not installed.
 package-personal-linux: build-personal-linux
 	bash desktop/build/linux/package.sh \
 		--binary bin/niuniu-desktop-$(VERSION)-linux-amd64 \
