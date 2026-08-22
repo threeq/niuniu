@@ -11,17 +11,8 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use crate::config;
-
 /// 服务端就绪握手超时（冷启动含 schema 初始化 / 杀软扫描，放宽到 60s）。
 const READY_TIMEOUT: Duration = Duration::from_secs(60);
-
-/// 正在运行的 server 信息（复用或自产）。
-#[derive(Debug, Clone)]
-pub struct RunningServer {
-    pub addr: String,
-    pub source: String,
-}
 
 /// 我们自产的 server 子进程句柄。Shutdown 幂等。
 pub struct ServerHandle {
@@ -75,27 +66,8 @@ pub fn server_binary_path() -> Result<PathBuf, String> {
 
 // ─── 探测：已有 server 是否在跑（复用而非自产） ────────────────────────────
 
-/// 探测已运行的 server。优先级：config.yaml 端口 → 默认端口。返回健康可用的
-/// 地址即复用；否则返回 None 由调用方自产。
-pub fn probe_running_server() -> Option<RunningServer> {
-    let data = config::data_dir();
-    // 1) ~/.niuniu/config.yaml 里的 server.port
-    if let Some(port) = read_configured_port(&data) {
-        let addr = format!("127.0.0.1:{port}");
-        if health_check(&addr).is_ok() {
-            return Some(RunningServer { addr, source: "configport".into() });
-        }
-    }
-    // 2) 默认端口
-    let addr = format!("127.0.0.1:{}", config::DEFAULT_PORT);
-    if health_check(&addr).is_ok() {
-        return Some(RunningServer { addr, source: "defaultport".into() });
-    }
-    None
-}
-
 /// 极小 YAML 扫描：读 server: 块下的 port 字段，不引入 YAML 依赖。
-fn read_configured_port(data_dir: &Path) -> Option<u16> {
+pub(crate) fn read_configured_port(data_dir: &Path) -> Option<u16> {
     let raw = std::fs::read_to_string(data_dir.join("config.yaml")).ok()?;
     let mut in_server = false;
     for line in raw.lines() {
