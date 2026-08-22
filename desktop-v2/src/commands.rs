@@ -249,6 +249,20 @@ pub fn open_picker(app: &tauri::AppHandle) {
     }
 }
 
+/// 移动接入：主窗口导航到 Settings → 移动接入（对应 Wails tray「移动接入…」）。
+pub fn open_mobile_access(app: &tauri::AppHandle) {
+    let Some(addr) = app.state::<ServerState>().addr() else { return };
+    let cfg = app.state::<CfgState>().snapshot();
+    let url = windows::with_hotkey_hash(&format!("http://{addr}/settings?tab=mobile-access"), &cfg);
+    if let Some(win) = app.get_webview_window("main") {
+        let _ = win.show();
+        let _ = win.unminimize();
+        if let Ok(u) = url::Url::parse(&url) {
+            let _ = win.navigate(u);
+        }
+    }
+}
+
 pub fn open_runners(app: &tauri::AppHandle) {
     if let Some(win) = app.get_webview_window("runners") {
         let _ = win.show();

@@ -529,6 +529,7 @@ build-personal-v2-current:
 	$(MAKE) _personal-prepare GOOS=$(shell go env GOOS) GOARCH=$(shell go env GOARCH) EXT=$(EXE_SUFFIX)
 	$(MAKE) _personal-prepare-v2 GOOS=$(shell go env GOOS) GOARCH=$(shell go env GOARCH) EXT=$(EXE_SUFFIX)
 	cd desktop-v2 && cargo build --release
+	mkdir -p bin
 	cp desktop-v2/target/release/niuniu-desktop-v2$(EXE_SUFFIX) bin/niuniu-desktop-v2-$(VERSION)$(EXE_SUFFIX)
 
 build-personal-v2-all: build-personal-v2-windows build-personal-v2-darwin build-personal-v2-linux
@@ -538,6 +539,7 @@ build-personal-v2-windows:
 	$(MAKE) _personal-prepare GOOS=windows GOARCH=amd64 EXT=.exe
 	$(MAKE) _personal-prepare-v2 GOOS=windows GOARCH=amd64 EXT=.exe
 	cd desktop-v2 && cargo build --release --target x86_64-pc-windows-msvc
+	mkdir -p bin
 	cp desktop-v2/target/x86_64-pc-windows-msvc/release/niuniu-desktop-v2.exe bin/niuniu-desktop-v2-$(VERSION)-windows-amd64.exe
 
 build-personal-v2-darwin:

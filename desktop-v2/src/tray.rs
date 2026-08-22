@@ -38,6 +38,9 @@ pub fn build_tray(app: &AppHandle) -> tauri::Result<TrayIcon> {
             "runners" => {
                 crate::commands::open_runners(app);
             }
+            "mobile" => {
+                crate::commands::open_mobile_access(app);
+            }
             "conn-focus" => {
                 if let Some(key) = event.id().as_ref().strip_prefix("conn-focus:") {
                     crate::commands::focus_connection(app, key);
@@ -94,12 +97,14 @@ pub fn build_menu(app: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
     let ai = MenuItem::with_id(app, "ai", format!("{}…", i18n::ai_title(&lang)), true, None::<&str>)?;
     let runners = MenuItem::with_id(app, "runners", format!("{}…", i18n::runners_title(&lang)), true, None::<&str>)?;
     let picker = MenuItem::with_id(app, "picker", "连接其他节点 / 管理连接…", true, None::<&str>)?;
+    let mobile = MenuItem::with_id(app, "mobile", "移动接入…", true, None::<&str>)?;
     let sep2 = PredefinedMenuItem::separator(app)?;
     let quit = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
 
     // 远端连接子菜单
     let conns = app.state::<ConnState>().snapshot();
     let sep3 = PredefinedMenuItem::separator(app)?;
+    let sep4 = PredefinedMenuItem::separator(app)?;
     let mut items: Vec<&dyn IsMenuItem<tauri::Wry>> =
         vec![&show, &reload, &rebuild, &restart, &sep1, &ai, &runners, &picker];
     let mut subs: Vec<Submenu<tauri::Wry>> = Vec::new();
@@ -114,6 +119,8 @@ pub fn build_menu(app: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
         }
         items.extend(subs.iter().map(|s| s as &dyn IsMenuItem<tauri::Wry>));
     }
+    items.push(&sep4);
+    items.push(&mobile);
     items.push(&sep2);
     items.push(&quit);
 
