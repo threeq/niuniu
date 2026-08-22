@@ -16,8 +16,8 @@ import (
 // the user can switch drives (filepath.Dir("C:\\") is "C:\\" itself, a dead end).
 const drivesMarker = "::drives"
 
-// FSHandler exposes a read-only local-directory browser, used by the office
-// assistant's knowledge-base folder picker (the browser can't reveal absolute
+// FSHandler exposes a read-only local-directory browser, used by the
+// knowledge-base folder picker (the browser can't reveal absolute
 // paths, so the picker walks the server's filesystem instead).
 //
 // Personal edition ONLY: the server runs on the user's own machine, so listing

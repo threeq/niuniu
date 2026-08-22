@@ -27,14 +27,14 @@ func TestListProjects(t *testing.T) {
 	p1, err := q.CreateProject(context.Background(), store.CreateProjectParams{
 		Name:        "Project 1",
 		Description: sql.NullString{String: "Description 1", Valid: true},
-			OwnerType: "user",
+		OwnerType:   "user",
 	})
 	require.NoError(t, err)
 
 	p2, err := q.CreateProject(context.Background(), store.CreateProjectParams{
 		Name:        "Project 2",
 		Description: sql.NullString{String: "Description 2", Valid: true},
-			OwnerType: "user",
+		OwnerType:   "user",
 	})
 	require.NoError(t, err)
 
@@ -83,7 +83,7 @@ func TestGetProject(t *testing.T) {
 	p1, err := q.CreateProject(context.Background(), store.CreateProjectParams{
 		Name:        "Project 1",
 		Description: sql.NullString{String: "Description 1", Valid: true},
-			OwnerType: "user",
+		OwnerType:   "user",
 	})
 	require.NoError(t, err)
 
@@ -189,9 +189,9 @@ func TestCreateProject_DuplicateNameReturnsTakenCode(t *testing.T) {
 		return w
 	}
 
-	require.Equal(t, http.StatusCreated, post("牛牛助手").Code)
+	require.Equal(t, http.StatusCreated, post("测试项目").Code)
 
-	w := post("牛牛助手")
+	w := post("测试项目")
 	assert.Equal(t, http.StatusBadRequest, w.Code)
 
 	var resp struct {
@@ -202,7 +202,7 @@ func TestCreateProject_DuplicateNameReturnsTakenCode(t *testing.T) {
 	}
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
 	assert.Equal(t, "PROJECT_NAME_TAKEN", resp.Error.Code)
-	assert.Contains(t, resp.Error.Message, "牛牛助手", "error must name the conflicting project")
+	assert.Contains(t, resp.Error.Message, "测试项目", "error must name the conflicting project")
 }
 
 func TestUpdateProject(t *testing.T) {
@@ -214,7 +214,7 @@ func TestUpdateProject(t *testing.T) {
 	p1, err := q.CreateProject(context.Background(), store.CreateProjectParams{
 		Name:        "Original Name",
 		Description: sql.NullString{String: "Original Description", Valid: true},
-			OwnerType: "user",
+		OwnerType:   "user",
 	})
 	require.NoError(t, err)
 
@@ -295,7 +295,7 @@ func TestDeleteProject(t *testing.T) {
 	p1, err := q.CreateProject(context.Background(), store.CreateProjectParams{
 		Name:        "To Delete",
 		Description: sql.NullString{String: "", Valid: false},
-			OwnerType: "user",
+		OwnerType:   "user",
 	})
 	require.NoError(t, err)
 
@@ -330,7 +330,7 @@ func TestListProjectsWithStats(t *testing.T) {
 	p1, err := q.CreateProject(ctx, store.CreateProjectParams{
 		Name:        "Stats Project",
 		Description: sql.NullString{String: "test", Valid: true},
-			OwnerType: "user",
+		OwnerType:   "user",
 	})
 	require.NoError(t, err)
 
@@ -355,11 +355,11 @@ func TestListProjectsWithStats(t *testing.T) {
 	require.NoError(t, err)
 
 	_, err = q.CreateWorkspace(ctx, store.CreateWorkspaceParams{
-		IssueID: sql.NullInt64{Int64: issue2.ID, Valid: true},
-		Name:    "WS 1",
-		Path:    t.TempDir(),
-		Status:  "running",
-			OwnerType: "user",
+		IssueID:   sql.NullInt64{Int64: issue2.ID, Valid: true},
+		Name:      "WS 1",
+		Path:      t.TempDir(),
+		Status:    "running",
+		OwnerType: "user",
 	})
 	require.NoError(t, err)
 
@@ -398,7 +398,7 @@ func TestListProjectsWithStats(t *testing.T) {
 		_, err := q.CreateProject(ctx, store.CreateProjectParams{
 			Name:        "Empty",
 			Description: sql.NullString{Valid: false},
-					OwnerType: "user",
+			OwnerType:   "user",
 		})
 		require.NoError(t, err)
 

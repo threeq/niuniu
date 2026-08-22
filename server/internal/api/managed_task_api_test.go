@@ -3,7 +3,7 @@ package api
 import "testing"
 
 // TestManagedTaskCronContract guards the cron expressions the create_managed_task
-// tool description tells the assistant agent to emit (GC1: AI derives cron from
+// tool description tells the agent to emit (GC1: AI derives cron from
 // natural language). validateCronExpr is the same parser the handler enforces, so
 // these must parse, and obviously-wrong inputs must be rejected.
 func TestManagedTaskCronContract(t *testing.T) {

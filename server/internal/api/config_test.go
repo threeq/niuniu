@@ -1,7 +1,6 @@
 package api
 
 import (
-	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -177,40 +176,5 @@ func TestConfigHandler_RejectsBadVSCodeMode(t *testing.T) {
 	}
 	if *saves != 0 {
 		t.Fatalf("Save called %d times on a rejected PUT, want 0", *saves)
-	}
-}
-
-// fakeSettingsReader is a DB-free serverSettingsReader for the assistant flag test.
-type fakeSettingsReader struct{ val int }
-
-func (f fakeSettingsReader) GetInt(_ context.Context, _ string, _ int) int { return f.val }
-
-// GET /api/config exposes assistant_enabled: false when no Settings backend is
-// wired (unit/default), true when the admin flag reads > 0.
-func TestConfigHandler_AssistantEnabledFlag(t *testing.T) {
-	cfg := &config.Config{}
-	h, _ := newConfigTestHandler(cfg)
-	r := configRouter(h)
-
-	decode := func() map[string]any {
-		w := httptest.NewRecorder()
-		r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/api/config", nil))
-		if w.Code != http.StatusOK {
-			t.Fatalf("GET status = %d, want 200", w.Code)
-		}
-		var got map[string]any
-		if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
-			t.Fatalf("decode: %v", err)
-		}
-		return got
-	}
-
-	if got := decode(); got["assistant_enabled"] != false {
-		t.Fatalf("default assistant_enabled = %v, want false", got["assistant_enabled"])
-	}
-
-	h.Settings = fakeSettingsReader{val: 1}
-	if got := decode(); got["assistant_enabled"] != true {
-		t.Fatalf("enabled assistant_enabled = %v, want true", got["assistant_enabled"])
 	}
 }

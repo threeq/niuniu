@@ -14,7 +14,7 @@ import (
 )
 
 // TestRouteInProject_Generalization proves the W2 core: routing creates the
-// issue+workspace in the *given* project (not a hard-wired assistant project),
+// issue+workspace in the *given* project (not a hard-wired backing project),
 // and an explicit active-issue hint continues that same task instead of forking
 // a new one. This is the isolation + continue guarantee behind the IM inbound
 // loop, exercised end to end against real Kanban + Workspace services.
@@ -33,7 +33,7 @@ func TestRouteInProject_Generalization(t *testing.T) {
 	require.NoError(t, os.MkdirAll(cfg.BaseDir, 0o755))
 	wsSvc := NewWorkspaceService(q, db, cfg, dataDir, nil, nil)
 	kanban := NewKanbanService(db, q, NewIssueActivityService(q), nil, nil)
-	disp := NewAssistantDispatchService(kanban, wsSvc, q, nil) // nil classifier
+	disp := NewDispatchService(kanban, wsSvc, q, nil) // nil classifier
 
 	ctx := context.Background()
 	owner := OwnerRef{Type: "user", ID: 1}

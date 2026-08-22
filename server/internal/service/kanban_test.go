@@ -721,7 +721,7 @@ func TestKanbanService_CreateProjectWithDefaults_SeedsFiveColumns(t *testing.T) 
 
 // TestKanbanService_CreateProject_NameUniquePerOwner guards the multi-tenant
 // contract: project names are unique per owner (idx_projects_owner_name_unique),
-// NOT globally. One owner having a "牛牛助手" project must not block a different
+// NOT globally. One owner having a "测试项目" project must not block a different
 // owner from creating their own — the regression behind the team-edition
 // assistant failing with "项目名字已经存在" for a project the user can't see
 // (it lived under another owner). Same owner + same name still conflicts.
@@ -729,23 +729,23 @@ func TestKanbanService_CreateProject_NameUniquePerOwner(t *testing.T) {
 	svc, _, ctx := setupKanbanTest(t)
 
 	// Owner A creates the project.
-	_, err := svc.CreateProjectWithDefaults(ctx, "牛牛助手", "desc", "user", 1)
+	_, err := svc.CreateProjectWithDefaults(ctx, "测试项目", "desc", "user", 1)
 	require.NoError(t, err)
 
 	// A different owner (here an org) reuses the same name — must succeed.
-	_, err = svc.CreateProjectWithDefaults(ctx, "牛牛助手", "desc", "org", 7)
+	_, err = svc.CreateProjectWithDefaults(ctx, "测试项目", "desc", "org", 7)
 	require.NoError(t, err, "a different owner must be able to reuse the name")
 
 	// Same owner + same name still conflicts.
-	_, err = svc.CreateProjectWithDefaults(ctx, "牛牛助手", "desc", "user", 1)
+	_, err = svc.CreateProjectWithDefaults(ctx, "测试项目", "desc", "user", 1)
 	require.ErrorIs(t, err, service.ErrProjectNameExists, "same owner duplicate must be rejected")
 
 	// CreateProjectWithColumns (blueprint path) shares the same owner-scoped
 	// contract: a different owner reuses the name; same owner conflicts.
 	seeds := []service.ColumnSeed{{Name: "待办", Position: 0, OpPrimitive: "none"}}
-	_, err = svc.CreateProjectWithColumns(ctx, "牛牛助手", "desc", "user", 2, seeds)
+	_, err = svc.CreateProjectWithColumns(ctx, "测试项目", "desc", "user", 2, seeds)
 	require.NoError(t, err, "blueprint path: a different owner must be able to reuse the name")
-	_, err = svc.CreateProjectWithColumns(ctx, "牛牛助手", "desc", "user", 2, seeds)
+	_, err = svc.CreateProjectWithColumns(ctx, "测试项目", "desc", "user", 2, seeds)
 	require.ErrorIs(t, err, service.ErrProjectNameExists, "blueprint path: same owner duplicate must be rejected")
 }
 

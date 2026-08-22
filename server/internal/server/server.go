@@ -153,7 +153,7 @@ type Server struct {
 	issueCommentHandler     *api.IssueCommentHandler
 	issueTimelineHandler    *api.IssueTimelineHandler
 	kanbanHandler           *api.KanbanHandler
-	assistantHandler        *api.AssistantHandler
+	managedTaskHandler      *api.ManagedTaskHandler
 	epicExecHandler         *api.EpicExecutionHandler
 	workspaceHandler        *api.WorkspaceHandler
 	tokenUsageHandler       *api.TokenUsageHandler
@@ -182,8 +182,8 @@ type Server struct {
 	configHandler           *api.ConfigHandler
 	eventsHandler           *api.EventsHandler
 	envPresetHandler        *api.EnvPresetHandler
-	envAccountHandler        *api.EnvAccountHandler
-	envProviderHandler       *api.EnvProviderHandler
+	envAccountHandler       *api.EnvAccountHandler
+	envProviderHandler      *api.EnvProviderHandler
 	sceneHandler            *api.SceneHandler
 	workspaceSceneHandler   *api.WorkspaceSceneHandler
 	pluginInstallHandler    *api.PluginInstallHandler
@@ -484,31 +484,6 @@ func New(cfg *config.Config, db *sql.DB, frontendFS fs.FS) *Server {
 	}
 	s.projectBlueprintHandler = api.NewProjectBlueprintHandler(s.projectBlueprintSvc, authz)
 
-	// First-run "open and go" seed (personal / single-user edition only). A
-	// fresh install ships with an empty board, which strands non-technical
-	// users before they can run anything. Seed one ready-to-use office project
-	// (default scene = office-doc) so an office task runs out of the box.
-	// Gated to !Auth.Enabled (personal); idempotent + non-fatal. Runs after the
-	// scene seeder (above) so office-doc exists for the default-scene attach.
-	// Design: docs/superpowers/specs/2026-06-14-personal-local-sandbox-hardening-design.md.
-	if !cfg.Auth.Enabled {
-		username := cfg.Auth.SingleUser.Username
-		if username == "" {
-			username = "local"
-		}
-		var ownerID int64
-		if err := store.Wrap(db).QueryRowContext(context.Background(),
-			`SELECT id FROM users WHERE username = ?`, username).Scan(&ownerID); err != nil {
-			slog.Warn("onboarding seed: resolve local owner failed", "username", username, "error", err)
-		} else {
-			seeder := service.NewOnboardingSeeder(db, s.kanbanSvc, s.projectBlueprintSvc, true,
-				service.OwnerRef{Type: "user", ID: ownerID})
-			if err := seeder.Run(context.Background()); err != nil {
-				slog.Warn("onboarding seed failed", "error", err)
-			}
-		}
-	}
-
 	// Per-user git authorship (Phase 0):
 	// docs/superpowers/specs/2026-05-19-per-user-git-identity-design.md
 	// The service resolves users.{display_name,email,username} so PTY spawns
@@ -636,9 +611,10 @@ func New(cfg *config.Config, db *sql.DB, frontendFS fs.FS) *Server {
 	s.kanbanHandler = api.NewKanbanHandler(s.kanbanSvc, s.issueChecklistSvc)
 	s.kanbanHandler.Authz = authz
 
-	// Conversational office assistant (#388): one-sentence → issue + no-repo
-	// workspace + goal_condition, all over the existing kanban/workspace services.
-	s.assistantHandler = api.NewAssistantHandler(s.kanbanSvc, s.workspaceSvc, s.projectSvc, authz, s.queries, s.agentProxy, service.NewAssistantRouter(), s.projectBlueprintSvc)
+	// Managed-task handler (定时任务): backs the create_managed_task MCP tool —
+	// provisions a recurring no-repo workspace + cron schedule over the existing
+	// kanban/workspace services.
+	s.managedTaskHandler = api.NewManagedTaskHandler(s.kanbanSvc, s.workspaceSvc, s.projectSvc, authz, s.queries, s.projectBlueprintSvc)
 
 	// Label service + handler (Task 10) and issue subresource handler (Task 12).
 	// LabelService takes the raw *sql.DB (it wraps once internally); the issue
@@ -787,7 +763,7 @@ func New(cfg *config.Config, db *sql.DB, frontendFS fs.FS) *Server {
 	s.gitOpsHandler.Authz = authz
 	s.directoryHandler = api.NewDirectoryHandler(s.directorySvc)
 	s.systemDepsHandler = api.NewSystemDepsHandler(s.systemDepsSvc, !s.cfg.Auth.Enabled)
-	// Local-directory browser for the assistant's knowledge-base picker —
+	// Local-directory browser for the knowledge-base folder picker —
 	// personal edition only (server runs on the user's own machine).
 	s.fsHandler = api.NewFSHandler(!s.cfg.Auth.Enabled)
 	s.agentProxyHandler = api.NewAgentProxyHandler(s.agentProxy, s.workspaceSvc)
@@ -1100,8 +1076,8 @@ func New(cfg *config.Config, db *sql.DB, frontendFS fs.FS) *Server {
 
 	// Config handler (GET/PUT /api/config). Owns the live cfg + config.Save.
 	s.configHandler = api.NewConfigHandler(cfg)
-	// Back the read-only capability flags in the /config snapshot (e.g.
-	// assistant_enabled) with the admin-settings store.
+	// Back the read-only capability flags in the /config snapshot with the
+	// admin-settings store.
 	s.configHandler.Settings = s.serverSettingsSvc
 	// Wire the telemetry opt-out toggle to the running reporter so flipping it in
 	// Settings stops/resumes reporting immediately (next tick) without a restart
@@ -1173,11 +1149,11 @@ func New(cfg *config.Config, db *sql.DB, frontendFS fs.FS) *Server {
 		s.scheduler.OnScheduleChanged(context.Background(), scheduleID, deleted)
 	})
 	s.scheduleHandler.SetTriggerNow(s.scheduler.TriggerNow)
-	// The conversational assistant creates managed-task schedules directly
-	// (via create_managed_task); wire it to the same scheduler registration
-	// path so new tasks fire without a server restart.
-	s.assistantHandler.SetDB(db)
-	s.assistantHandler.SetScheduleChanged(func(scheduleID int64, deleted bool) {
+	// The managed-task path creates schedules directly (via
+	// create_managed_task); wire it to the same scheduler registration path so
+	// new tasks fire without a server restart.
+	s.managedTaskHandler.SetDB(db)
+	s.managedTaskHandler.SetScheduleChanged(func(scheduleID int64, deleted bool) {
 		s.scheduler.OnScheduleChanged(context.Background(), scheduleID, deleted)
 	})
 	// Auto-resume on rate limit: agentproxy calls back into the scheduler to
@@ -1391,8 +1367,8 @@ func New(cfg *config.Config, db *sql.DB, frontendFS fs.FS) *Server {
 	// via the generalized RouteInProject, deliver to the workspace agent, and
 	// write permission-button decisions back through PermissionService. The
 	// dispatch service reuses the shared kanban/workspace services and its own
-	// classifier instance (same as the WebUI assistant).
-	imbotDispatch := service.NewAssistantDispatchService(s.kanbanSvc, s.workspaceSvc, s.queries, service.NewAssistantRouter())
+	// classifier instance.
+	imbotDispatch := service.NewDispatchService(s.kanbanSvc, s.workspaceSvc, s.queries, service.NewPlanRouter())
 	s.imbotSvc.SetInbound(imbotDispatch, s.agentProxy, s.permService)
 	// Let a user answer an agent's ask_user question by tapping an option button in
 	// the chat (the outbound question card carries option buttons).
@@ -1400,7 +1376,7 @@ func New(cfg *config.Config, db *sql.DB, frontendFS fs.FS) *Server {
 	s.imbotConnMgr = imbot.NewConnectorManager(s.imbotSvc, imbotAdapters, s.imbotSvc.HandleInbound)
 	s.imbotSvc.SetConnectorManager(s.imbotConnMgr)
 	s.imbotHandler = api.NewIMBotHandler(s.imbotSvc, s.authzSvc, s.db)
-	// Wire the AI-onboarding dispatch + deliverer (T3): the same AssistantDispatchService
+	// Wire the AI-onboarding dispatch + deliverer (T3): the same DispatchService
 	// and AgentProxy that the inbound IM pipeline uses, so StartOnboarding creates a
 	// real issue+workspace and delivers the kickoff prompt through the same path.
 	s.imbotHandler.SetDispatch(imbotDispatch)

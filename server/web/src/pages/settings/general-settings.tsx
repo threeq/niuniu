@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { Bell, BellOff, Volume2, VolumeX, Play, Monitor, Globe, Languages, Power, Minimize2, BarChart3, Sparkles, Keyboard } from 'lucide-react'
+import { Bell, BellOff, Volume2, VolumeX, Play, Monitor, Globe, Languages, Power, Minimize2, BarChart3, Keyboard } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
@@ -17,7 +17,6 @@ import {
   type SoundName,
 } from '@/stores/notification-settings-store'
 import { useConfigStore } from '@/stores/config-store'
-import { useAuthStore } from '@/stores/auth-store'
 import { useLanguageStore } from '@/stores/language-store'
 import { SUPPORTED_LANGUAGES, LANGUAGE_LABELS, type Language } from '@/i18n'
 import { isDesktopShell } from '@/lib/desktop-runner-context'
@@ -235,10 +234,6 @@ export function GeneralSettings() {
   // resolves, so without it team edition would briefly flash the section.
   const personalMode = useConfigStore((s) => s.personalMode)
   const configLoaded = useConfigStore((s) => s.loaded)
-  // 牛牛助手 capability is a team-edition, admin-only instance toggle. Personal
-  // edition always shows the entry, so the section is hidden there.
-  const isAdmin = useAuthStore((s) => s.user)?.role === 'admin'
-  const showAssistantToggle = configLoaded && !personalMode && isAdmin
   const [switching, setSwitching] = useState(false)
 
   const queryClient = useQueryClient()
@@ -323,32 +318,6 @@ export function GeneralSettings() {
     },
   })
 
-  // 牛牛助手 nav-entry capability (team edition). Stored as the admin-settable
-  // "features.assistant_enabled" server setting ("1"/"0"); the nav reads the
-  // effective value from /config. Only queried for admins in team edition.
-  const ASSISTANT_KEY = 'features.assistant_enabled'
-  const { data: assistantSetting } = useQuery({
-    queryKey: ['admin-setting', ASSISTANT_KEY],
-    queryFn: () => api.get<{ key: string; value: string }>(`/admin/settings/${ASSISTANT_KEY}`),
-    enabled: showAssistantToggle,
-  })
-  const assistantEnabled = assistantSetting?.value === '1'
-  const saveAssistantMutation = useMutation({
-    mutationFn: (enabled: boolean) =>
-      api.put(`/admin/settings/${ASSISTANT_KEY}`, { value: enabled ? '1' : '0' }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['admin-setting', ASSISTANT_KEY] })
-      // The global nav reads assistant_enabled from /config — refresh it so the
-      // entry appears/disappears without a reload.
-      queryClient.invalidateQueries({ queryKey: ['app-config'] })
-      toast.success(t('general.assistant.saved'))
-    },
-    onError: (err) => {
-      queryClient.invalidateQueries({ queryKey: ['admin-setting', ASSISTANT_KEY] })
-      toast.error(t('general.assistant.saveFailed', { error: (err as Error).message }))
-    },
-  })
-
   const handleTestSound = () => {
     playNotificationSound(soundName, volume)
   }
@@ -411,29 +380,6 @@ export function GeneralSettings() {
               onCheckedChange={(v) => saveTelemetryMutation.mutate(v)}
               disabled={saveTelemetryMutation.isPending}
               aria-label={t('general.telemetry.toggleLabel')}
-            />
-          </div>
-        </div>
-      )}
-
-      {/* 牛牛助手 capability (team edition, admin only). Hidden by default;
-          enabling it surfaces the assistant entry in the top nav for everyone. */}
-      {showAssistantToggle && (
-        <div className="space-y-4">
-          <div>
-            <h2 className="text-lg font-medium text-foreground">{t('general.assistant.title')}</h2>
-            <p className="text-sm text-muted-foreground mt-1">{t('general.assistant.description')}</p>
-          </div>
-          <div className="flex items-center justify-between py-2 px-4 rounded-lg border border-border bg-card">
-            <div className="flex items-center gap-3">
-              <Sparkles className={cn('h-4 w-4', assistantEnabled ? 'text-info' : 'text-muted-foreground')} />
-              <p className="text-sm font-medium text-foreground">{t('general.assistant.toggleLabel')}</p>
-            </div>
-            <Switch
-              checked={assistantEnabled}
-              onCheckedChange={(v) => saveAssistantMutation.mutate(v)}
-              disabled={saveAssistantMutation.isPending}
-              aria-label={t('general.assistant.toggleLabel')}
             />
           </div>
         </div>

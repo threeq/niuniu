@@ -487,13 +487,6 @@
       "saved": "遥测偏好已保存",
       "saveFailed": "无法保存遥测偏好：{{error}}"
     },
-    "assistant": {
-      "title": "牛牛助手",
-      "description": "开启后，顶部导航栏会显示「牛牛助手」入口，团队所有成员均可访问。默认隐藏，仅管理员可开启。",
-      "toggleLabel": "启用牛牛助手入口",
-      "saved": "牛牛助手设置已保存",
-      "saveFailed": "无法保存牛牛助手设置：{{error}}"
-    },
     "autostart": {
       "title": "随电脑自动启动",
       "description": "登录此电脑时自动启动 Niuniu。",

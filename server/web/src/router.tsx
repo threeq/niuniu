@@ -9,9 +9,8 @@ import { shouldDivertToSystemDeps } from './lib/system-deps-gate';
 // --- Eager pages -----------------------------------------------------------
 // Kept in the initial bundle because they are the above-the-fold entry points
 // (one of these is always the first painted screen): the team-edition login,
-// the team landing (/workspaces) and the personal landing (/assistant).
+// the team and personal landing (/workspaces).
 import { LoginPage } from './pages/login/login-page';
-import { AssistantPage } from './pages/assistant/assistant-page';
 import { WorkspaceListPage } from './pages/workspaces/workspace-list-page';
 
 // --- Lazy pages ------------------------------------------------------------
@@ -114,21 +113,8 @@ const indexRoute = createRoute({
     if (await shouldDivertToSystemDeps()) {
       throw redirect({ to: '/settings', search: { tab: 'system-deps' } });
     }
-    // Personal edition is assistant-first: land non-technical users on the
-    // conversational entry. Team edition keeps the kanban/workspaces home.
-    if (!(await isAuthEnabled())) {
-      throw redirect({ to: '/assistant' });
-    }
     throw redirect({ to: '/workspaces' });
   },
-});
-
-// Conversational office-assistant entry point (#388). Pinned above the kanban
-// nav; reuses agent-sse-store to stream the agent's plan + artifacts.
-const assistantRoute = createRoute({
-  getParentRoute: () => layoutRoute,
-  path: '/assistant',
-  component: AssistantPage,
 });
 
 const workspacesRoute = createRoute({
@@ -343,7 +329,6 @@ const routeTree = rootRoute.addChildren([
   imbotOnboardingRoute,
   layoutRoute.addChildren([
     indexRoute,
-    assistantRoute,
     workspacesRoute,
     workspacesOverviewRoute,
     workspaceDetailRoute,

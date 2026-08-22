@@ -35,7 +35,7 @@ func TestProjectUniqueViolationIsClassified(t *testing.T) {
 
 	q := store.New(db)
 	ctx := context.Background()
-	params := store.CreateProjectParams{Name: "牛牛助手", OwnerType: "org", OwnerID: 7}
+	params := store.CreateProjectParams{Name: "测试项目", OwnerType: "org", OwnerID: 7}
 
 	_, err = q.CreateProject(ctx, params)
 	require.NoError(t, err)
@@ -48,6 +48,6 @@ func TestProjectUniqueViolationIsClassified(t *testing.T) {
 		"isUniqueViolation must classify the duplicate so create maps it to ErrProjectNameExists; got: %v", err)
 
 	// A different owner reusing the name must still be allowed at the DB level.
-	_, err = q.CreateProject(ctx, store.CreateProjectParams{Name: "牛牛助手", OwnerType: "user", OwnerID: 1})
+	_, err = q.CreateProject(ctx, store.CreateProjectParams{Name: "测试项目", OwnerType: "user", OwnerID: 1})
 	require.NoError(t, err, "a different owner must be able to reuse the name")
 }

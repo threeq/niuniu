@@ -1742,7 +1742,7 @@ func nullFloat64Val(nf sql.NullFloat64) float64 {
 // on an issue without touching its other fields. The condition is injected into
 // the autohost watchdog's continue prompt so the agent self-judges completion
 // and emits the [AUTOHOST_DONE] sentinel — see docs CLAUDE.md "Autohost
-// sentinel-based completion". Used by the conversational assistant quick-create
+// sentinel-based completion". Used by the managed-task provisioning path
 // flow (#388).
 func (s *KanbanService) SetIssueGoalCondition(ctx context.Context, issueID int64, condition string) error {
 	return s.q.UpdateIssueGoalCondition(ctx, store.UpdateIssueGoalConditionParams{

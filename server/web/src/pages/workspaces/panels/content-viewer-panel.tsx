@@ -207,7 +207,7 @@ function FileHeaderActions({
     setSubmitting(true);
     try {
       await api.post(`/workspaces/${workspaceId}/artifacts`, { path, title: name });
-      await queryClient.invalidateQueries({ queryKey: ['assistant-artifacts', workspaceId] });
+      await queryClient.invalidateQueries({ queryKey: ['workspace-artifacts', workspaceId] });
       toast.success(t('filePreview.submitArtifactDone', { name }));
     } catch (err) {
       const msg = err instanceof ApiError ? err.message : t('filePreview.submitArtifactFailed');
