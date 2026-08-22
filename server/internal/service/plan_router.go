@@ -12,7 +12,7 @@ import (
 	"time"
 )
 
-// AssistantRouter performs one-shot intent routing for the conversational
+// PlanRouter performs one-shot intent routing for the conversational
 // office assistant: given the user's new message and the list of their current
 // plans (open issues in the 办公助手 project), it asks an LLM whether the
 // message continues an existing plan or warrants a brand-new one.
@@ -21,7 +21,7 @@ import (
 // harness ai_judge checker (no SDK dependency). The API key is read from
 // ANTHROPIC_API_KEY at call time; when absent the caller applies a
 // deterministic fallback instead (continue the active plan, else new).
-type AssistantRouter struct {
+type PlanRouter struct {
 	httpClient *http.Client
 	endpoint   string
 	apiKey     string
@@ -36,9 +36,9 @@ const (
 	assistantRouterTimeoutSec = 20
 )
 
-// NewAssistantRouter builds a router with the default HTTP client + endpoint.
-func NewAssistantRouter() *AssistantRouter {
-	return &AssistantRouter{
+// NewPlanRouter builds a router with the default HTTP client + endpoint.
+func NewPlanRouter() *PlanRouter {
+	return &PlanRouter{
 		httpClient: &http.Client{},
 		endpoint:   assistantRouterEndpoint,
 		model:      assistantRouterModel,
@@ -46,14 +46,14 @@ func NewAssistantRouter() *AssistantRouter {
 }
 
 // WithEndpoint overrides the API endpoint (tests point this at a stub).
-func (r *AssistantRouter) WithEndpoint(url string) *AssistantRouter { r.endpoint = url; return r }
+func (r *PlanRouter) WithEndpoint(url string) *PlanRouter { r.endpoint = url; return r }
 
 // WithAPIKey overrides the API key (tests inject a fixed value).
-func (r *AssistantRouter) WithAPIKey(key string) *AssistantRouter { r.apiKey = key; return r }
+func (r *PlanRouter) WithAPIKey(key string) *PlanRouter { r.apiKey = key; return r }
 
-// AssistantPlanSummary is the minimal view of an existing plan the router needs
+// PlanSummary is the minimal view of an existing plan the router needs
 // to decide routing.
-type AssistantPlanSummary struct {
+type PlanSummary struct {
 	PlanID int64
 	Title  string
 }
@@ -87,7 +87,7 @@ type routerVerdict struct {
 // Classify asks the model to route `message` against `plans`. Returns
 // ErrRouterUnavailable on any failure so the caller can fall back. When `plans`
 // is empty the caller should skip this entirely (always new).
-func (r *AssistantRouter) Classify(ctx context.Context, plans []AssistantPlanSummary, message string) (DispatchDecision, error) {
+func (r *PlanRouter) Classify(ctx context.Context, plans []PlanSummary, message string) (DispatchDecision, error) {
 	apiKey := r.apiKey
 	if apiKey == "" {
 		apiKey = os.Getenv("ANTHROPIC_API_KEY")

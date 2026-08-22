@@ -219,7 +219,7 @@ func (s *Server) setupRoutes() {
 		// Managed tasks — the agent posts here (via the create_managed_task tool)
 		// to provision a recurring task in one call: backing issue + no-repo
 		// workspace + bound cron schedule.
-		mcpGroup.POST("/managed-tasks", s.assistantHandler.CreateManagedTask)
+		mcpGroup.POST("/managed-tasks", s.managedTaskHandler.CreateManagedTask)
 
 		// Inbox (moved from niuniu-mcp binary; see service.InboxService)
 		mcpGroup.POST("/inbox/send", s.teamHandler.InboxSend)

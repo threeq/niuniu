@@ -8,7 +8,7 @@ import { ArtifactPreviewPanel, type ArtifactFile, type ArtifactPanelVariant } fr
 interface ArtifactPanelContainerProps {
   workspaceId: string;
   /** `viewer` (default, workspace) opens clicks in the content viewer; `inline`
-   *  (牛牛助手) previews the selected deliverable below the list. */
+   *  previews the selected deliverable below the list. */
   variant?: ArtifactPanelVariant;
 }
 
@@ -48,7 +48,7 @@ async function fetchManifest(workspaceId: string): Promise<ArtifactFile[]> {
 export function ArtifactPanelContainer({ workspaceId, variant }: ArtifactPanelContainerProps) {
   const { t } = useTranslation('workspaces');
   const queryClient = useQueryClient();
-  const queryKey = ['assistant-artifacts', workspaceId];
+  const queryKey = ['workspace-artifacts', workspaceId];
   const { data, isLoading } = useQuery({
     queryKey,
     queryFn: () => fetchManifest(workspaceId),
@@ -62,7 +62,7 @@ export function ArtifactPanelContainer({ workspaceId, variant }: ArtifactPanelCo
     const refresh = () => {
       if (timerRef.current) clearTimeout(timerRef.current);
       timerRef.current = setTimeout(() => {
-        queryClient.invalidateQueries({ queryKey: ['assistant-artifacts', workspaceId] });
+        queryClient.invalidateQueries({ queryKey: ['workspace-artifacts', workspaceId] });
       }, 800);
     };
     const unsub = useAgentSSEStore.getState().addHandler(workspaceId, (msg) => {

@@ -153,7 +153,7 @@ type Server struct {
 	issueCommentHandler     *api.IssueCommentHandler
 	issueTimelineHandler    *api.IssueTimelineHandler
 	kanbanHandler           *api.KanbanHandler
-	assistantHandler        *api.AssistantHandler
+	managedTaskHandler      *api.ManagedTaskHandler
 	epicExecHandler         *api.EpicExecutionHandler
 	workspaceHandler        *api.WorkspaceHandler
 	tokenUsageHandler       *api.TokenUsageHandler
@@ -613,9 +613,8 @@ func New(cfg *config.Config, db *sql.DB, frontendFS fs.FS) *Server {
 
 	// Managed-task handler (定时任务): backs the create_managed_task MCP tool —
 	// provisions a recurring no-repo workspace + cron schedule over the existing
-	// kanban/workspace services. The conversational /assistant entry point has
-	// been removed; this handler now only serves managed-task provisioning.
-	s.assistantHandler = api.NewAssistantHandler(s.kanbanSvc, s.workspaceSvc, s.projectSvc, authz, s.queries, s.projectBlueprintSvc)
+	// kanban/workspace services.
+	s.managedTaskHandler = api.NewManagedTaskHandler(s.kanbanSvc, s.workspaceSvc, s.projectSvc, authz, s.queries, s.projectBlueprintSvc)
 
 	// Label service + handler (Task 10) and issue subresource handler (Task 12).
 	// LabelService takes the raw *sql.DB (it wraps once internally); the issue
@@ -764,7 +763,7 @@ func New(cfg *config.Config, db *sql.DB, frontendFS fs.FS) *Server {
 	s.gitOpsHandler.Authz = authz
 	s.directoryHandler = api.NewDirectoryHandler(s.directorySvc)
 	s.systemDepsHandler = api.NewSystemDepsHandler(s.systemDepsSvc, !s.cfg.Auth.Enabled)
-	// Local-directory browser for the assistant's knowledge-base picker —
+	// Local-directory browser for the knowledge-base folder picker —
 	// personal edition only (server runs on the user's own machine).
 	s.fsHandler = api.NewFSHandler(!s.cfg.Auth.Enabled)
 	s.agentProxyHandler = api.NewAgentProxyHandler(s.agentProxy, s.workspaceSvc)
@@ -1153,8 +1152,8 @@ func New(cfg *config.Config, db *sql.DB, frontendFS fs.FS) *Server {
 	// The managed-task path creates schedules directly (via
 	// create_managed_task); wire it to the same scheduler registration path so
 	// new tasks fire without a server restart.
-	s.assistantHandler.SetDB(db)
-	s.assistantHandler.SetScheduleChanged(func(scheduleID int64, deleted bool) {
+	s.managedTaskHandler.SetDB(db)
+	s.managedTaskHandler.SetScheduleChanged(func(scheduleID int64, deleted bool) {
 		s.scheduler.OnScheduleChanged(context.Background(), scheduleID, deleted)
 	})
 	// Auto-resume on rate limit: agentproxy calls back into the scheduler to
@@ -1368,8 +1367,8 @@ func New(cfg *config.Config, db *sql.DB, frontendFS fs.FS) *Server {
 	// via the generalized RouteInProject, deliver to the workspace agent, and
 	// write permission-button decisions back through PermissionService. The
 	// dispatch service reuses the shared kanban/workspace services and its own
-	// classifier instance (same as the WebUI assistant).
-	imbotDispatch := service.NewAssistantDispatchService(s.kanbanSvc, s.workspaceSvc, s.queries, service.NewAssistantRouter())
+	// classifier instance.
+	imbotDispatch := service.NewDispatchService(s.kanbanSvc, s.workspaceSvc, s.queries, service.NewPlanRouter())
 	s.imbotSvc.SetInbound(imbotDispatch, s.agentProxy, s.permService)
 	// Let a user answer an agent's ask_user question by tapping an option button in
 	// the chat (the outbound question card carries option buttons).
@@ -1377,7 +1376,7 @@ func New(cfg *config.Config, db *sql.DB, frontendFS fs.FS) *Server {
 	s.imbotConnMgr = imbot.NewConnectorManager(s.imbotSvc, imbotAdapters, s.imbotSvc.HandleInbound)
 	s.imbotSvc.SetConnectorManager(s.imbotConnMgr)
 	s.imbotHandler = api.NewIMBotHandler(s.imbotSvc, s.authzSvc, s.db)
-	// Wire the AI-onboarding dispatch + deliverer (T3): the same AssistantDispatchService
+	// Wire the AI-onboarding dispatch + deliverer (T3): the same DispatchService
 	// and AgentProxy that the inbound IM pipeline uses, so StartOnboarding creates a
 	// real issue+workspace and delivers the kickoff prompt through the same path.
 	s.imbotHandler.SetDispatch(imbotDispatch)

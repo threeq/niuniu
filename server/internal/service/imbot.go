@@ -96,7 +96,7 @@ type IMBotService struct {
 }
 
 // TaskRouter decides continue-vs-new in a project and provisions the
-// issue+workspace when new. *AssistantDispatchService satisfies it; the seam
+// issue+workspace when new. *DispatchService satisfies it; the seam
 // lets tests inject a fake without spinning up real workspace creation.
 type TaskRouter interface {
 	RouteInProject(ctx context.Context, owner OwnerRef, projectID int64, text string, hint RouteHint) (PlanTarget, error)
@@ -124,7 +124,7 @@ type AskUserDecider interface {
 }
 
 // TaskDeleter deletes an issue and its backing workspace within a project (the
-// /delete command). *AssistantDispatchService satisfies it — the same object
+// /delete command). *DispatchService satisfies it — the same object
 // wired as the TaskRouter — so SetInbound captures it without extra wiring; the
 // seam also lets tests inject a fake. stop, when non-nil, terminates each
 // workspace's running agent session before its on-disk cleanup.
@@ -134,7 +134,7 @@ type TaskDeleter interface {
 
 // IssueWorkspaceStarter provisions a backing workspace for an existing issue in a
 // project (the IM `#<id>` "start work on a kanban issue" path).
-// *AssistantDispatchService satisfies it — the same object wired as the
+// *DispatchService satisfies it — the same object wired as the
 // TaskRouter — so SetInbound captures it via a capability assertion.
 type IssueWorkspaceStarter interface {
 	StartWorkspaceForExistingIssue(ctx context.Context, owner OwnerRef, projectID, issueID int64) (PlanTarget, error)
@@ -263,7 +263,7 @@ func chatDTO(r store.ImBotChat) IMBotChatDTO {
 // full secret — only the identity (app_id / token / client_id / corp:agent), so
 // two channels for the same app collide while different apps do not. Returns ""
 // when the identity fields are absent (unknown type / empty cred), which the
-// caller treats as "no fingerprint" (skips the dedupe check, leaves column '').
+// caller treats as "no fingerprint" (skips the dedupe check, leaves column ”).
 func credentialFingerprint(channelType string, cred map[string]any) string {
 	get := func(k string) string {
 		if cred == nil {

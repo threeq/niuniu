@@ -18,7 +18,7 @@ var ErrProjectNoColumns = errors.New("project has no columns")
 // project's task). Callers surface it as a de-jargonized "not found".
 var ErrTaskNotInProject = errors.New("task not in project")
 
-// AssistantDispatchService is the project-parameterized routing core. RouteInProject(projectID,…)
+// DispatchService is the project-parameterized routing core. RouteInProject(projectID,…)
 // generalizes "continue-or-create issue+workspace" so any project — a
 // managed-task backing project, or an IM-bot-bound engineering / office project
 // logic. The WebUI handler now delegates issue+workspace creation here, and the
@@ -30,16 +30,16 @@ var ErrTaskNotInProject = errors.New("task not in project")
 // of an import cycle. Message delivery to the agent session is the caller's job
 // (WebUI relies on the client's POST /workspaces/:id/messages; IM does its own
 // agentproxy.Deliver right after routing).
-type AssistantDispatchService struct {
+type DispatchService struct {
 	kanban     *KanbanService
 	workspace  *WorkspaceService
 	q          *store.Queries
-	classifier *AssistantRouter // optional; nil = deterministic new-or-active only
+	classifier *PlanRouter // optional; nil = deterministic new-or-active only
 }
 
-// NewAssistantDispatchService wires the routing core. classifier may be nil.
-func NewAssistantDispatchService(kanban *KanbanService, workspace *WorkspaceService, q *store.Queries, classifier *AssistantRouter) *AssistantDispatchService {
-	return &AssistantDispatchService{kanban: kanban, workspace: workspace, q: q, classifier: classifier}
+// NewDispatchService wires the routing core. classifier may be nil.
+func NewDispatchService(kanban *KanbanService, workspace *WorkspaceService, q *store.Queries, classifier *PlanRouter) *DispatchService {
+	return &DispatchService{kanban: kanban, workspace: workspace, q: q, classifier: classifier}
 }
 
 // PlanTarget is the resolved destination of a routed message: the issue +
@@ -88,7 +88,7 @@ type PlanCreateOpts struct {
 // destination column is the project's first (lowest-position) lane and repos are
 // derived from the project's attachments (no repos => a no-repo office workspace),
 // so callers need only supply the project id + text.
-func (s *AssistantDispatchService) RouteInProject(ctx context.Context, owner OwnerRef, projectID int64, text string, hint RouteHint) (PlanTarget, error) {
+func (s *DispatchService) RouteInProject(ctx context.Context, owner OwnerRef, projectID int64, text string, hint RouteHint) (PlanTarget, error) {
 	if !hint.ForceNew {
 		// 1. Explicit active task (thread / pointer) — continue it, no classifier.
 		if hint.ActiveIssueID > 0 {
@@ -102,9 +102,9 @@ func (s *AssistantDispatchService) RouteInProject(ctx context.Context, owner Own
 			return PlanTarget{}, err
 		}
 		if len(plans) > 0 && s.classifier != nil {
-			summaries := make([]AssistantPlanSummary, 0, len(plans))
+			summaries := make([]PlanSummary, 0, len(plans))
 			for _, p := range plans {
-				summaries = append(summaries, AssistantPlanSummary{PlanID: p.IssueID, Title: p.Title})
+				summaries = append(summaries, PlanSummary{PlanID: p.IssueID, Title: p.Title})
 			}
 			if d, cerr := s.classifier.Classify(ctx, summaries, text); cerr == nil {
 				if d.Action == DispatchContinue {
@@ -142,8 +142,8 @@ func (s *AssistantDispatchService) RouteInProject(ctx context.Context, owner Own
 // project/column: create the issue, set its goal_condition (autohost
 // self-completion), and create the backing workspace. This is the generalized
 // body of the old api/assistant.go createPlan — the WebUI handler now calls it
-// with the assistant project (NoRepo=true), IM calls it with the bound project.
-func (s *AssistantDispatchService) CreatePlanInProject(ctx context.Context, owner OwnerRef, projectID, columnID int64, description, titleHint string, parentIssueID int64, opts PlanCreateOpts) (PlanTarget, error) {
+// with the backing project (NoRepo=true), IM calls it with the bound project.
+func (s *DispatchService) CreatePlanInProject(ctx context.Context, owner OwnerRef, projectID, columnID int64, description, titleHint string, parentIssueID int64, opts PlanCreateOpts) (PlanTarget, error) {
 	title := strings.TrimSpace(titleHint)
 	if title == "" {
 		title = DeriveTaskTitle(description)
@@ -197,7 +197,7 @@ func (s *AssistantDispatchService) CreatePlanInProject(ctx context.Context, owne
 // issue must live in projectID (ErrTaskNotInProject otherwise) so a shared bot can
 // never start work on another project's issue. Column/repos are derived from the
 // issue's project exactly as CreatePlanInProject does for a new task.
-func (s *AssistantDispatchService) StartWorkspaceForExistingIssue(ctx context.Context, owner OwnerRef, projectID, issueID int64) (PlanTarget, error) {
+func (s *DispatchService) StartWorkspaceForExistingIssue(ctx context.Context, owner OwnerRef, projectID, issueID int64) (PlanTarget, error) {
 	// Reuse an existing workspace-backed plan (idempotent re-start).
 	if t, ok := s.planForIssue(ctx, projectID, issueID); ok {
 		return t, nil
@@ -248,7 +248,7 @@ func (s *AssistantDispatchService) StartWorkspaceForExistingIssue(ctx context.Co
 // safe for tasks with no live agent. Workspace removal is destructive and
 // unconditional (force semantics): the command is an explicit "throw this task
 // away", so uncommitted-change protection is intentionally not applied here.
-func (s *AssistantDispatchService) DeleteTask(ctx context.Context, projectID, issueID int64, stop func(context.Context, int64)) error {
+func (s *DispatchService) DeleteTask(ctx context.Context, projectID, issueID int64, stop func(context.Context, int64)) error {
 	issue, err := s.q.GetIssue(ctx, issueID)
 	if err != nil {
 		return err
@@ -278,7 +278,7 @@ func (s *AssistantDispatchService) DeleteTask(ctx context.Context, projectID, is
 // planForIssue resolves an issue in the project to its plan target (issue +
 // workspace), reporting ok=false if the issue is not in the project or has no
 // workspace.
-func (s *AssistantDispatchService) planForIssue(ctx context.Context, projectID, issueID int64) (PlanTarget, bool) {
+func (s *DispatchService) planForIssue(ctx context.Context, projectID, issueID int64) (PlanTarget, bool) {
 	issue, err := s.q.GetIssue(ctx, issueID)
 	if err != nil {
 		return PlanTarget{}, false
@@ -302,7 +302,7 @@ func (s *AssistantDispatchService) planForIssue(ctx context.Context, projectID, 
 
 // listProjectPlans returns the project's issues that have a backing workspace,
 // newest-activity first — the candidate set for the classifier.
-func (s *AssistantDispatchService) listProjectPlans(ctx context.Context, projectID int64) ([]PlanTarget, error) {
+func (s *DispatchService) listProjectPlans(ctx context.Context, projectID int64) ([]PlanTarget, error) {
 	// Single JOIN (issue + its primary workspace) instead of an N+1
 	// ListIssuesByProject-then-GetWorkspacesByIssue-per-issue loop, which under
 	// SQLite's single writer contends with agent/UI traffic on busy projects.
@@ -325,7 +325,7 @@ func (s *AssistantDispatchService) listProjectPlans(ctx context.Context, project
 
 // firstColumn returns the id of the project's lowest-position column (the "待办"
 // lane in the default seed) where new tasks are parked.
-func (s *AssistantDispatchService) firstColumn(ctx context.Context, projectID int64) (int64, error) {
+func (s *DispatchService) firstColumn(ctx context.Context, projectID int64) (int64, error) {
 	columns, err := s.q.ListColumnsByProject(ctx, projectID)
 	if err != nil {
 		return 0, err
@@ -345,7 +345,7 @@ func (s *AssistantDispatchService) firstColumn(ctx context.Context, projectID in
 // projectRepoBranches builds the RepoBranch list for a project's attached
 // repositories (each forked from its configured default branch). An empty result
 // means the project has no repos, so the caller creates a no-repo workspace.
-func (s *AssistantDispatchService) projectRepoBranches(ctx context.Context, projectID int64) ([]RepoBranch, error) {
+func (s *DispatchService) projectRepoBranches(ctx context.Context, projectID int64) ([]RepoBranch, error) {
 	rows, err := s.q.ListProjectRepositories(ctx, projectID)
 	if err != nil {
 		return nil, err

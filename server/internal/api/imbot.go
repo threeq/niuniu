@@ -19,9 +19,9 @@ import (
 
 // IMBotHandler binds the project-scoped IM channel + chat endpoints.
 type IMBotHandler struct {
-	svc      *service.IMBotService
-	authz    *service.Authz
-	db       *sql.DB // for ParseOwnerFilter (org-by-slug resolution) on owner-level routes
+	svc       *service.IMBotService
+	authz     *service.Authz
+	db        *sql.DB                  // for ParseOwnerFilter (org-by-slug resolution) on owner-level routes
 	dispatch  service.TaskRouter       // for StartOnboarding (Endpoint A)
 	deliverer service.MessageDeliverer // for StartOnboarding (Endpoint A)
 }
@@ -32,7 +32,7 @@ func NewIMBotHandler(svc *service.IMBotService, authz *service.Authz, db *sql.DB
 }
 
 // SetDispatch wires the task router for the AI-onboarding start endpoint.
-// Called from server.go after the AssistantDispatchService is constructed.
+// Called from server.go after the DispatchService is constructed.
 func (h *IMBotHandler) SetDispatch(d service.TaskRouter) { h.dispatch = d }
 
 // SetDeliverer wires the message deliverer for the AI-onboarding start endpoint.

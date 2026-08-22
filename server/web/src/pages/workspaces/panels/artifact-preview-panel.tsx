@@ -18,7 +18,7 @@ export interface ArtifactFile {
 /**
  * - `viewer` (workspace 产物 panel): clicking opens the deliverable in the
  *   workspace's central content viewer.
- * - `inline` (牛牛助手 产物 panel): there is no content viewer, so clicking
+ * - `inline` (artifact panel): there is no content viewer, so clicking
  *   selects the row and previews its content inline below the list.
  */
 export type ArtifactPanelVariant = 'viewer' | 'inline';
@@ -84,7 +84,7 @@ export function ArtifactPreviewPanel({ workspaceId, artifacts, variant = 'viewer
     setRemovingPath(a.path);
     try {
       await api.delete(`/workspaces/${workspaceId}/artifacts?path=${encodeURIComponent(a.path)}`);
-      await queryClient.invalidateQueries({ queryKey: ['assistant-artifacts', workspaceId] });
+      await queryClient.invalidateQueries({ queryKey: ['workspace-artifacts', workspaceId] });
       toast.success(t('artifactPreview.removeDone', { name: a.name }));
     } catch (err) {
       const msg = err instanceof ApiError ? err.message : t('artifactPreview.removeFailed');

@@ -13,12 +13,12 @@ import (
 	"github.com/niuniu-dev/niuniu/internal/store"
 )
 
-// AssistantManagedTaskRequest is the one-call payload the conversational
+// ManagedTaskRequest is the one-call payload the conversational
 // assistant agent posts (via the create_managed_task MCP tool) to stand up a
 // recurring "managed task". The agent translates the user's natural-language
 // timing into a standard 5-field cron expression itself, so the user never
 // fills in a technical field (goal_condition GC1).
-type AssistantManagedTaskRequest struct {
+type ManagedTaskRequest struct {
 	// Description is the imperative recurring instruction delivered to the
 	// agent on every tick (e.g. "整理下载文件夹中的文件并生成整理报告").
 	Description string `json:"description" binding:"required"`
@@ -38,9 +38,9 @@ type AssistantManagedTaskRequest struct {
 	Owner           *CreateWorkspaceOwnerRequest `json:"owner,omitempty"`
 }
 
-// AssistantManagedTaskResponse hands back the ids the SPA / agent need to
+// ManagedTaskResponse hands back the ids the SPA / agent need to
 // reference the new managed task (its backing plan + the bound cron schedule).
-type AssistantManagedTaskResponse struct {
+type ManagedTaskResponse struct {
 	ScheduleID  int64      `json:"schedule_id"`
 	IssueID     int64      `json:"issue_id"`
 	WorkspaceID int64      `json:"workspace_id"`
@@ -61,11 +61,11 @@ type AssistantManagedTaskResponse struct {
 // completion and emits
 // agent_done, which fans out to both the in-app notify hub and (in the personal
 // edition) the OS notification (GC3/GC4/GC6).
-func (h *AssistantHandler) CreateManagedTask(c *gin.Context) {
+func (h *ManagedTaskHandler) CreateManagedTask(c *gin.Context) {
 	userID := c.GetInt64("auth_user_id")
 	ctx := c.Request.Context()
 
-	var req AssistantManagedTaskRequest
+	var req ManagedTaskRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		BadRequest(c, err.Error())
 		return
@@ -81,7 +81,7 @@ func (h *AssistantHandler) CreateManagedTask(c *gin.Context) {
 		return
 	}
 
-	owner, ok := h.resolveAssistantOwner(c, userID, req.Owner)
+	owner, ok := h.resolveOwner(c, userID, req.Owner)
 	if !ok {
 		return
 	}
@@ -139,7 +139,7 @@ func (h *AssistantHandler) CreateManagedTask(c *gin.Context) {
 		h.scheduleChanged(schedule.ID, false)
 	}
 
-	c.JSON(http.StatusCreated, AssistantManagedTaskResponse{
+	c.JSON(http.StatusCreated, ManagedTaskResponse{
 		ScheduleID:  schedule.ID,
 		IssueID:     plan.IssueID,
 		WorkspaceID: plan.WorkspaceID,
@@ -160,7 +160,7 @@ func (h *AssistantHandler) CreateManagedTask(c *gin.Context) {
 //     mid-conversation tasks are grouped); otherwise it's a top-level task.
 //
 // currentWsID is the agent's own workspace (from its MCP token); 0 when absent.
-func (h *AssistantHandler) resolveManagedTaskTarget(ctx context.Context, userID int64, owner service.OwnerRef, goalCondition, nameHint string, attachToCurrent bool, currentWsID int64, language string) (AssistantPlanDTO, error) {
+func (h *ManagedTaskHandler) resolveManagedTaskTarget(ctx context.Context, userID int64, owner service.OwnerRef, goalCondition, nameHint string, attachToCurrent bool, currentWsID int64, language string) (ManagedTaskPlanDTO, error) {
 	current, hasCurrent := h.currentTaskIssue(ctx, currentWsID)
 
 	// Attach the schedule to the current task in place. Point the issue's
@@ -169,13 +169,13 @@ func (h *AssistantHandler) resolveManagedTaskTarget(ctx context.Context, userID 
 	// task's original one-shot goal.
 	if attachToCurrent && hasCurrent {
 		if err := h.Kanban.SetIssueGoalCondition(ctx, current.ID, goalCondition); err != nil {
-			return AssistantPlanDTO{}, err
+			return ManagedTaskPlanDTO{}, err
 		}
 		title := current.Title
 		if title == "" {
 			title = strings.TrimSpace(nameHint)
 		}
-		return AssistantPlanDTO{
+		return ManagedTaskPlanDTO{
 			IssueID:     current.ID,
 			WorkspaceID: currentWsID,
 			ProjectID:   current.ProjectID,
@@ -199,7 +199,7 @@ func (h *AssistantHandler) resolveManagedTaskTarget(ctx context.Context, userID 
 // currentTaskIssue resolves the issue backing the agent's current workspace.
 // hasCurrent is false when there's no workspace context or it can't be resolved
 // (best-effort: a missing current task simply falls back to creating a new one).
-func (h *AssistantHandler) currentTaskIssue(ctx context.Context, currentWsID int64) (service.IssueDetail, bool) {
+func (h *ManagedTaskHandler) currentTaskIssue(ctx context.Context, currentWsID int64) (service.IssueDetail, bool) {
 	if currentWsID <= 0 || h.Workspace == nil || h.Kanban == nil {
 		return service.IssueDetail{}, false
 	}

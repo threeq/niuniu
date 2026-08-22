@@ -11,7 +11,7 @@ import (
 // seedDeletableTask creates a project/column/issue plus a no-repo workspace
 // backed by that issue (cleanup = plain directory removal, deterministic in
 // tests) and returns the ids. It shares the WorkspaceService's DB so the
-// AssistantDispatchService under test sees the same rows.
+// DispatchService under test sees the same rows.
 func seedDeletableTask(t *testing.T, ctx context.Context, q *store.Queries, ws *WorkspaceService, title string) (projectID, issueID, wsID int64) {
 	t.Helper()
 	proj, err := q.CreateProject(ctx, store.CreateProjectParams{Name: title + "-proj", OwnerType: "user", OwnerID: 1})
@@ -34,7 +34,7 @@ func TestAssistantDispatch_DeleteTask(t *testing.T) {
 	db.SetMaxOpenConns(1)
 	q := store.New(db)
 	kanban := NewKanbanService(db, q, nil, nil, nil)
-	disp := NewAssistantDispatchService(kanban, wsSvc, q, nil)
+	disp := NewDispatchService(kanban, wsSvc, q, nil)
 
 	projectID, issueID, wsID := seedDeletableTask(t, ctx, q, wsSvc, "任务")
 
@@ -59,7 +59,7 @@ func TestAssistantDispatch_DeleteTask_CrossProjectRejected(t *testing.T) {
 	db.SetMaxOpenConns(1)
 	q := store.New(db)
 	kanban := NewKanbanService(db, q, nil, nil, nil)
-	disp := NewAssistantDispatchService(kanban, wsSvc, q, nil)
+	disp := NewDispatchService(kanban, wsSvc, q, nil)
 
 	_, issueID, wsID := seedDeletableTask(t, ctx, q, wsSvc, "任务")
 	otherProj, err := q.CreateProject(ctx, store.CreateProjectParams{Name: "other", OwnerType: "user", OwnerID: 1})

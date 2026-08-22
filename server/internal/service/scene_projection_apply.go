@@ -32,14 +32,14 @@ import (
 // CRUD (SceneLayerService does); it merely receives an already-mutated
 // workspace, recomputes, and writes side-effects.
 type SceneProjector struct {
-	q             *store.Queries
-	db            *store.DB
-	dataDir       string
-	mcpGen        *MCPConfigGenerator
-	pluginInst    *PluginInstaller
-	notifyHub     *notify.NotificationHub
-	extCred       *ExternalCredentialService // optional, decrypts ${cred:...} placeholders
-	localRunner   *LocalRunnerService        // optional, Epic #526 子B — prompt fragment injection
+	q           *store.Queries
+	db          *store.DB
+	dataDir     string
+	mcpGen      *MCPConfigGenerator
+	pluginInst  *PluginInstaller
+	notifyHub   *notify.NotificationHub
+	extCred     *ExternalCredentialService // optional, decrypts ${cred:...} placeholders
+	localRunner *LocalRunnerService        // optional, Epic #526 子B — prompt fragment injection
 
 	// installCheck resolves whether a plugin is currently present on disk.
 	// Defaults to pluginInst.IsInstalled; overridable in tests to exercise
@@ -65,13 +65,13 @@ func NewSceneProjector(
 ) *SceneProjector {
 	return &SceneProjector{
 		// store.NewQueries — driver-aware; see CLAUDE.md "Driver-aware DB access".
-		q:             store.NewQueries(db),
-		db:            store.Wrap(db),
-		dataDir:       dataDir,
-		mcpGen:        mcpGen,
-		pluginInst:    pluginInst,
-		notifyHub:     notifyHub,
-		extCred:       extCred,
+		q:          store.NewQueries(db),
+		db:         store.Wrap(db),
+		dataDir:    dataDir,
+		mcpGen:     mcpGen,
+		pluginInst: pluginInst,
+		notifyHub:  notifyHub,
+		extCred:    extCred,
 	}
 }
 
@@ -260,10 +260,10 @@ func (p *SceneProjector) Apply(ctx context.Context, wsID int64) (*ApplyResult, e
 	//    shape as workspace_mcp.go; the projection's MCPNames becomes extras.
 	if p.mcpGen != nil {
 		// harness/gate tools are git-bound. An office scene hides them by default
-		// because the assistant is no-repo, but the user may manually bind a repo
+		// because a no-repo workspace, but the user may manually bind a repo
 		// to this workspace — then they clearly want git workflows, so keep the
 		// harness group whenever a worktree actually exists. multi-agent stays
-		// hidden regardless (the assistant is single-agent with or without a repo).
+		// hidden regardless (a no-repo workspace is single-agent with or without a repo).
 		disableGroups := proj.DisableToolGroups
 		if wts, werr := p.q.ListWorktrees(ctx, ws.ID); werr == nil && len(wts) > 0 {
 			disableGroups = dropToolGroup(disableGroups, sceneToolGroupHarness)
