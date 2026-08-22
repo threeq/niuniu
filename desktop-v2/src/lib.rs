@@ -7,6 +7,7 @@ mod config;
 mod discovery;
 mod hotkeys;
 mod i18n;
+mod probe;
 mod sse;
 mod server;
 mod state;
@@ -144,8 +145,14 @@ fn boot(app: &tauri::AppHandle) {
         return;
     }
 
-    // 复用已运行的 server（config 端口 → 默认端口）
-    if let Some(rs) = server::probe_running_server() {
+    // 复用已运行的 server（lockfile/config 端口/默认端口）；不可达则拒绝。
+    let decision = probe::decide();
+    if !decision.refuse.is_empty() {
+        eprintln!("refusing to launch: {}", decision.refuse);
+        windows::show_startup_error(app, &decision.refuse);
+        return;
+    }
+    if let Some(rs) = decision.reuse {
         eprintln!("reusing existing server at {} (source {})", rs.addr, rs.source);
         {
             let st = app.state::<ServerState>();
