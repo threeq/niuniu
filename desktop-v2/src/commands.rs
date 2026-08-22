@@ -95,21 +95,29 @@ pub fn add_connection(app: tauri::AppHandle, name: String, host: String, port: u
     ))
 }
 
-/// 删除连接。
+/// 删除连接（同时关闭其已打开的窗口，对应 v1 connwin.go RemoveConnection）。
 #[tauri::command]
 pub fn remove_connection(app: tauri::AppHandle, id: String) -> Result<(), String> {
-    let mut removed = false;
+    let mut removed_key: Option<String> = None;
     {
         let st = app.state::<CfgState>();
         let mut cfg = st.lock();
         if let Some(pos) = cfg.connections.iter().position(|c| c.id == id) {
-            cfg.connections.remove(pos);
-            removed = true;
+            let c = cfg.connections.remove(pos);
+            removed_key = Some(config::key_for(&c.host, c.port));
         }
     }
-    if removed {
-        save_cfg(&app);
-        crate::tray::rebuild_tray(&app);
+    if let Some(key) = removed_key {
+        // 关闭已打开的窗口（关闭钩子会清理 ConnState 并 rebuild tray）。
+        let label = format!("conn-{key}");
+        if let Some(win) = app.get_webview_window(&label) {
+            let _ = win.close();
+        } else {
+            // 没开窗口：直接落盘 + 重建。
+            save_cfg(&app);
+            app.state::<ConnState>().remove(&key);
+            crate::tray::rebuild_tray(&app);
+        }
     }
     Ok(())
 }
@@ -131,6 +139,20 @@ pub fn move_connection(app: tauri::AppHandle, id: String, delta: i32) -> Result<
     }
     save_cfg(&app);
     crate::tray::rebuild_tray(&app);
+    Ok(())
+}
+
+/// 设置默认连接（对应 v1 SetDefaultConnection）。
+#[tauri::command]
+pub fn set_default_connection(app: tauri::AppHandle, id: String) -> Result<(), String> {
+    {
+        let st = app.state::<CfgState>();
+        let mut cfg = st.lock();
+        for c in cfg.connections.iter_mut() {
+            c.is_default = c.id == id;
+        }
+    }
+    save_cfg(&app);
     Ok(())
 }
 
@@ -162,9 +184,16 @@ pub fn connect_from_picker(app: tauri::AppHandle, id: String) -> Result<bool, St
     Ok(ok)
 }
 
-/// 直连 host:port（不做保存）。
+/// 直连 host:port；若与某已保存连接匹配则复用其名称（对应 v1 ConnectToAddress）。
 pub fn connect_to_address_internal(app: &tauri::AppHandle, host: &str, port: u16) -> Result<bool, String> {
-    let name = host.to_string();
+    let name = app
+        .state::<CfgState>()
+        .snapshot()
+        .connections
+        .iter()
+        .find(|c| c.host == host && c.port == port)
+        .map(|c| c.name.clone())
+        .unwrap_or_else(|| host.to_string());
     connect_internal(app, &config::key_for(host, port), &ConnInfo {
         name,
         host: host.to_string(),
@@ -242,11 +271,42 @@ pub fn toggle_ai_window(app: &tauri::AppHandle) {
     }
 }
 
+/// AI 直达：抬升 hub（只显示，不 toggle——对应 v1 OpenAIWindow）。
+/// 用于 SSE `open_ai_window` 信号和托盘菜单：已可见时聚焦而非隐藏。
+pub fn open_ai_window(app: &tauri::AppHandle) {
+    if let Some(win) = app.get_webview_window("ai-hub") {
+        let _ = win.show();
+        let _ = win.set_focus();
+        update_ai_service_visibility(app);
+    }
+}
+
 pub fn open_picker(app: &tauri::AppHandle) {
     if let Some(win) = app.get_webview_window("picker") {
         let _ = win.show();
         let _ = win.set_focus();
     }
+}
+
+/// picker toggle（Ctrl/Cmd+Shift+0）：可见则隐藏，否则打开。对应 v1 TogglePickerWindow。
+pub fn toggle_picker(app: &tauri::AppHandle) {
+    if let Some(win) = app.get_webview_window("picker") {
+        if win.is_visible().unwrap_or(false) {
+            let _ = win.hide();
+        } else {
+            let _ = win.show();
+            let _ = win.set_focus();
+        }
+    }
+}
+
+/// 位置快捷键：打开已保存连接列表中第 pos 个（1-based）。越界静默 no-op。
+/// 每次按键实时快照列表（对应 v1 connhotkey.go connectByPosition）。
+pub fn connect_by_position(app: &tauri::AppHandle, pos: u32) {
+    let conns = app.state::<CfgState>().snapshot().connections;
+    let Some(conn) = conns.get(pos as usize - 1) else { return };
+    let id = conn.id.clone();
+    let _ = connect_by_id_internal(app, &id);
 }
 
 /// 移动接入：主窗口导航到 Settings → 移动接入（对应 Wails tray「移动接入…」）。
@@ -355,6 +415,30 @@ pub fn hard_reset_main(app: &tauri::AppHandle) {
                 let _ = win.navigate(u);
             }
         }
+    }
+    {
+        let rb = app.state::<crate::state::RebuildingState>();
+        *rb.inner.lock().unwrap() = false;
+    }
+}
+
+/// 重建远端连接窗口：销毁旧窗口 → 同 key 新建 → 连接 splash 自跳。
+/// 对应 v1 HardResetConnection（卡死 webview 的恢复路径）。
+pub fn hard_reset_connection(app: &tauri::AppHandle, key: &str) {
+    let lang = app.state::<AppMeta>().lang.clone();
+    let info = app.state::<ConnState>().snapshot().get(key).cloned();
+    let Some(info) = info else { return };
+    {
+        let rb = app.state::<crate::state::RebuildingState>();
+        *rb.inner.lock().unwrap() = true;
+    }
+    let label = format!("conn-{key}");
+    if let Some(old) = app.get_webview_window(&label) {
+        let _ = old.destroy();
+    }
+    app.state::<ConnState>().remove(key);
+    if windows::open_connection_window(app, &lang, key, &info).is_ok() {
+        crate::tray::rebuild_tray(app);
     }
     {
         let rb = app.state::<crate::state::RebuildingState>();
@@ -549,6 +633,7 @@ pub fn add_ai_service(app: tauri::AppHandle, name: String, url: String) -> Resul
     if url.is_empty() {
         return Err("url is required".into());
     }
+    let name = if name.trim().is_empty() { url.clone() } else { name };
     let id = new_id("ai");
     {
         let st = app.state::<CfgState>();
@@ -575,8 +660,30 @@ pub fn remove_ai_service(app: tauri::AppHandle, id: String) {
             changed = true;
         } else if !cfg.ai.hidden_builtins.iter().any(|h| h == &id) {
             // 内置服务：隐藏（不可删除）
-            cfg.ai.hidden_builtins.push(id);
+            cfg.ai.hidden_builtins.push(id.clone());
             changed = true;
+        }
+        // 清除指向已移除服务的悬空引用（对应 v1 aiwin.go RemoveAIService）。
+        if cfg.ai.default_service_id == id {
+            cfg.ai.default_service_id.clear();
+            changed = true;
+        }
+        if cfg.ai.last_service_id == id {
+            cfg.ai.last_service_id.clear();
+            changed = true;
+        }
+    }
+    // 关闭该服务已打开的 dock 窗口，并清掉 active。
+    {
+        let label = format!("ai-service-{id}");
+        if let Some(win) = app.get_webview_window(&label) {
+            let _ = win.close();
+        }
+        let st = app.state::<AiState>();
+        let mut ai = st.lock();
+        ai.service_windows.remove(&format!("ai-service-{id}"));
+        if ai.active.as_deref() == Some(id.as_str()) {
+            ai.active = None;
         }
     }
     if changed {
@@ -597,6 +704,9 @@ pub fn get_ai_prompts(app: tauri::AppHandle) -> Vec<config::AIPrompt> {
 
 #[tauri::command]
 pub fn add_ai_prompt(app: tauri::AppHandle, title: String, content: String, tags: Vec<String>) -> Result<String, String> {
+    if title.trim().is_empty() && content.trim().is_empty() {
+        return Err("title or content is required".into());
+    }
     let tags = normalize_tags(tags);
     let id = new_id("p");
     {

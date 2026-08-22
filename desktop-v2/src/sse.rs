@@ -51,15 +51,22 @@ fn stream_once(app: &tauri::AppHandle, addr: &str) -> Result<(), String> {
 }
 
 fn handle_event(app: &tauri::AppHandle, event: &str, data: &str) {
-    let wsid: i64 = serde_json::from_str::<serde_json::Value>(data)
-        .ok()
-        .and_then(|v| v.get("workspace_id").and_then(|x| x.as_i64()))
-        .unwrap_or(0);
+    // 服务端 event 类型用 camelCase workspaceId（见 server/internal/event/types.go），
+    // 与 Wails 版 internal/connection/sse.go 一致；勿用 snake_case。
+    let v: serde_json::Value = serde_json::from_str(data).unwrap_or(serde_json::Value::Null);
+    let wsid: i64 = v.get("workspaceId").and_then(|x| x.as_i64()).unwrap_or(0);
+    let content: String = v
+        .get("error")
+        .or_else(|| v.get("message"))
+        .and_then(|x| x.as_str())
+        .unwrap_or("")
+        .to_string();
 
     match event {
-        // SPA 顶部「AI 直达」按钮 → 抬升原生 AI hub 窗口
+        // SPA 顶部「AI 直达」按钮 → 抬升（而非 toggle）原生 AI hub 窗口。
+        // v1 OpenAIWindow 永远 show，不会把已开的 hub 关掉。
         "open_ai_window" => {
-            crate::commands::toggle_ai_window(app);
+            crate::commands::open_ai_window(app);
         }
         "agent_done" => {
             let focused = app
@@ -76,12 +83,12 @@ fn handle_event(app: &tauri::AppHandle, event: &str, data: &str) {
             }
         }
         "agent_failed" => {
-            let _ = app
-                .notification()
-                .builder()
-                .title("牛牛")
-                .body(format!("Workspace {wsid} 失败"))
-                .show();
+            let body = if content.is_empty() {
+                format!("Workspace {wsid} 失败")
+            } else {
+                format!("Workspace {wsid} 失败：{content}")
+            };
+            let _ = app.notification().builder().title("牛牛").body(body).show();
         }
         _ => {}
     }

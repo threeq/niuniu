@@ -69,9 +69,29 @@ pub fn open_connection_window(
         .inner_size(1280.0, 840.0)
         .visible(false)
         .build()?;
+    // 远程窗口 X 关闭 = 真关闭（与本地主窗口的 close→hide 不同）：清理 ConnState
+    // 并重建托盘，避免幽灵项（对应 v1 connwin.go createAndRegisterConnWindow 的
+    // WindowClosing 钩子）。重建流程经 RebuildingState 放行。
+    register_conn_close_cleanup(&win, app, key);
     let _ = win.show();
     let _ = win.set_focus();
     Ok(win)
+}
+
+/// 远程连接窗口关闭 → 从 ConnState 移除 + 重建托盘。不 prevent_close（远程窗口真关闭）。
+fn register_conn_close_cleanup(window: &WebviewWindow, app: &tauri::AppHandle, key: &str) {
+    let app = app.clone();
+    let key = key.to_string();
+    window.on_window_event(move |event| {
+        if let WindowEvent::CloseRequested { .. } = event {
+            if *app.state::<RebuildingState>().inner.lock().unwrap() {
+                return; // 重建流程：放行真关闭，不在此清理
+            }
+            app.state::<crate::state::ConnState>().remove(&key);
+            crate::tray::rebuild_tray(&app);
+            // 不调用 api.prevent_close()：远程窗口允许真关闭
+        }
+    });
 }
 
 /// 为窗口注册「关闭 → 隐藏到托盘」行为。rebuilding 状态为 true 时放行真正关闭
