@@ -135,10 +135,11 @@ pub fn run() {
 fn boot(app: &tauri::AppHandle) {
     let flags = app.state::<AppMeta>().flags.clone();
     let data_dir = app.state::<AppMeta>().data_dir.clone();
+    boot_log("boot begin");
 
     // dev-url 模式：跳过探测/spawn，直接打开指定 URL（对应 Wails --dev-url）
     if !flags.dev_url.is_empty() {
-        eprintln!("dev-url mode: {}", flags.dev_url);
+        boot_log(format!("dev-url mode: {}", flags.dev_url));
         let st = app.state::<ServerState>();
         st.lock().addr = Some(dev_url_host_port(&flags.dev_url));
         commands::navigate_main_to_server(app);
@@ -147,13 +148,18 @@ fn boot(app: &tauri::AppHandle) {
 
     // 复用已运行的 server（lockfile/config 端口/默认端口）；不可达则拒绝。
     let decision = probe::decide();
+    boot_log(format!(
+        "probe.decide: refuse='{}' reuse={}",
+        decision.refuse,
+        decision.reuse.as_ref().map(|r| format!("{}@{}", r.source, r.addr)).unwrap_or_else(|| "none".into())
+    ));
     if !decision.refuse.is_empty() {
-        eprintln!("refusing to launch: {}", decision.refuse);
+        boot_log(format!("refusing to launch: {}", decision.refuse));
         windows::show_startup_error(app, &decision.refuse);
         return;
     }
     if let Some(rs) = decision.reuse {
-        eprintln!("reusing existing server at {} (source {})", rs.addr, rs.source);
+        boot_log(format!("reusing existing server at {} (source {})", rs.addr, rs.source));
         {
             let st = app.state::<ServerState>();
             let mut s = st.lock();
@@ -163,6 +169,7 @@ fn boot(app: &tauri::AppHandle) {
         commands::navigate_main_to_server(app);
         tray::rebuild_tray(app);
         sse::start(app.clone());
+        boot_log("reuse path done");
         return;
     }
 
@@ -170,22 +177,39 @@ fn boot(app: &tauri::AppHandle) {
     match server::spawn(&data_dir) {
         Ok(h) => {
             let addr = h.addr.clone();
-            eprintln!("embedded server ready at {addr}");
+            boot_log(format!("embedded server ready at {addr}"));
             {
                 let st = app.state::<ServerState>();
                 let mut s = st.lock();
                 s.handle = Some(std::sync::Arc::new(h));
-                s.addr = Some(addr);
+                s.addr = Some(addr.clone());
             }
             commands::navigate_main_to_server(app);
             tray::rebuild_tray(app);
             sse::start(app.clone());
+            boot_log("spawn path done");
         }
         Err(e) => {
-            eprintln!("server spawn failed: {e}");
+            boot_log(format!("server spawn failed: {e}"));
             windows::show_startup_error(app, &e);
         }
     }
+}
+
+/// 启动追踪日志：GUI 子系统无 stderr，写入 ~/.niuniu/logs/desktop-v2-boot.log
+/// 供定位「卡 splash」时确认 probe/spawn/navigate 各步是否执行。
+pub fn boot_log(msg: impl AsRef<str>) {
+    use std::io::Write;
+    let path = config::data_dir().join("logs").join("desktop-v2-boot.log");
+    if let Some(dir) = path.parent() {
+        let _ = std::fs::create_dir_all(dir);
+    }
+    let ts = chrono::Local::now().format("%H:%M:%S%.3f");
+    let line = format!("[{ts}] {}\n", msg.as_ref());
+    if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(&path) {
+        let _ = f.write_all(line.as_bytes());
+    }
+    eprintln!("{}", line.trim());
 }
 
 /// 退出：优雅关闭自产 server（stdin EOF 触发 heartbeat 退出）。
