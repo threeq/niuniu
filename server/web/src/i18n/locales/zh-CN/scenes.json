@@ -218,7 +218,7 @@
     "collapse": "隐藏",
     "expand": "展开插件提示",
     "pending_plugins_title": "插件待安装",
-    "pending_plugins": "此工作空间已附加的场景声明了以下插件，尚未完成自动安装：",
+    "pending_plugins": "此工作空间已附加的场景声明了以下插件（skill 型已自动安装，外部服务插件需手动确认）：",
     "install_one": "安装",
     "install_all": "全部安装（{{count}}）",
     "install_success_one": "已安装",

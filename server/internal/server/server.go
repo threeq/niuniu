@@ -87,6 +87,7 @@ type Server struct {
 	sceneMatcher         *service.SceneMatcher
 	pluginInstaller      *service.PluginInstaller
 	marketplaceManager   *service.MarketplaceManager
+	skillManager         *service.SkillManager
 	agentRegistry        *registry.AgentRegistry
 	agentRegistryHandler *api.AgentRegistryHandler
 	scheduler            *scheduler.Scheduler
@@ -186,6 +187,7 @@ type Server struct {
 	sceneHandler            *api.SceneHandler
 	workspaceSceneHandler   *api.WorkspaceSceneHandler
 	pluginInstallHandler    *api.PluginInstallHandler
+	skillsHandler           *api.SkillsHandler
 	projectSceneHandler     *api.ProjectSceneHandler
 	projectBlueprintHandler *api.ProjectBlueprintHandler
 	authHandler             *api.AuthHandler
@@ -598,6 +600,9 @@ func New(cfg *config.Config, db *sql.DB, frontendFS fs.FS) *Server {
 	s.pluginInstallHandler = api.NewPluginInstallHandler(
 		s.pluginInstaller, s.marketplaceManager, authz, s.queries, cfg.Auth.Enabled,
 	)
+	// Cross-agent skill management console (issue #666, SkillsGate-style).
+	s.skillManager = service.NewSkillManager(db, cfg.DataDir, s.pluginInstaller)
+	s.skillsHandler = api.NewSkillsHandler(s.skillManager, authz)
 	// Plumb layer service + projector into WorkspaceService so the create path
 	// can install the empty base layer + prefill any project-default scenes.
 	s.workspaceSvc.SetSceneLayerService(s.sceneLayerSvc)

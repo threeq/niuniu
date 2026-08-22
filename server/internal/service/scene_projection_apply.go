@@ -320,17 +320,14 @@ func (p *SceneProjector) Apply(ctx context.Context, wsID int64) (*ApplyResult, e
 	//     CLI), so — like agents — they apply automatically on scene-enable.
 	p.materializeWorkspaceSkills(ws, wsDir, proj)
 
-	// 4. Auto-install scene-declared plugins — the scene's own skills (e.g.
-	//    document-skills@anthropic-agent-skills) plus any other plugins it
-	//    brings. Enabling a scene IS the user's explicit action, so the plugins
-	//    it declares are installed here automatically; there is no separate
-	//    "Install" click in the SPA. `claude plugin install` is idempotent and
-	//    pre-flighted by a local installed check, so already-installed plugins
-	//    resolve to "skipped" on later Applies without network/CLI work, and a
-	//    per-install timeout keeps a hung marketplace from blocking Apply. The
-	//    results (installed / skipped / failed) are persisted below; the SPA
-	//    banner surfaces only genuine failures — once everything is safely
-	//    installed there is nothing left for the banner to show.
+	// 4. Scene plugin install. Skill-type plugins (document-skills@anthropic-
+	//    agent-skills - pure Agent Skills bundles) AUTO-install here: enabling
+	//    the scene is the user's explicit action, install is idempotent and
+	//    pre-flighted by a local installed check, and a per-install timeout
+	//    keeps a hung marketplace from blocking Apply. External-service MCP
+	//    plugins (slack@…, atlassian@…) keep the explicit install-click flow -
+	//    they are PLANned to pending/skipped for the SPA banner (user feedback
+	//    2026-05-20: wiring external services must stay a deliberate click).
 	var installPlan []PluginInstallResult
 	if p.pluginInst != nil && len(proj.Plugins) > 0 {
 		if ws.CliType == "codex" {
@@ -349,7 +346,31 @@ func (p *SceneProjector) Apply(ctx context.Context, wsID int64) (*ApplyResult, e
 				})
 			}
 		} else {
-			installPlan = p.pluginInst.ApplyForCLI(ctx, "claude", configDir, proj.Plugins)
+			skillPlugins, mcpPlugins := splitSkillPlugins(proj.Plugins)
+			if len(skillPlugins) > 0 {
+				results := p.pluginInst.ApplyForCLI(ctx, "claude", configDir, skillPlugins)
+				installPlan = append(installPlan, results...)
+				// Freshly installed skill plugins stay DISABLED globally
+				// (issue #666): enabledPlugins=false lands in the home
+				// settings.json, and the Model A write below flips the
+				// workspace settings to true - so the plugin turns on only for
+				// the workspaces whose scene declares it. Already-installed
+				// plugins are left untouched (the user may have enabled them
+				// globally on purpose).
+				for _, r := range results {
+					if r.Status != PluginInstallStatusInstalled {
+						continue
+					}
+					if err := setPluginEnabledInHomeSettings(r.Source, false); err != nil {
+						slog.Warn("scene projector: default-disable fresh skill plugin failed",
+							"workspace_id", wsID, "source", r.Source, "err", err)
+					}
+				}
+			}
+			if len(mcpPlugins) > 0 {
+				installPlan = append(installPlan,
+					p.pluginInst.Plan(ctx, configDir, mcpPlugins)...)
+			}
 			// Model A: enable the scene's plugins at the workspace project level so a
 			// globally-installed-but-disabled plugin turns on only for this workspace.
 			if p.mcpGen != nil {

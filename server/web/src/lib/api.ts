@@ -65,6 +65,9 @@ import type {
   ProjectDefaultScene,
   CreateSceneRequest,
   UpdateSceneRequest,
+  SkillInfo,
+  SkillTargetRequest,
+  SkillActionResult,
 } from '../types/api'
 import type { Org, OrgMember, OrgAuditEntry, User, OwnerRef } from '../types/org'
 import type {
@@ -1134,4 +1137,29 @@ export const adminSettingsApi = {
     api.get<ServerSetting>(`/admin/settings/${encodeURIComponent(key)}`),
   put: (key: string, value: string) =>
     api.put<ServerSetting>(`/admin/settings/${encodeURIComponent(key)}`, { value }),
+};
+
+// ---------------------------------------------------------------------------
+// Skill management (issue #666 - cross-agent skill console). Backend handlers
+// in server/internal/api/skills.go. Install != enable: installs land in the
+// store (or plugin cache) disabled by default; enable is per agent x scope.
+// ---------------------------------------------------------------------------
+export const skillApi = {
+  /** Catalog + install/enable state; workspace_id adds that workspace's scope. */
+  list: (workspaceId?: number) =>
+    api.get<SkillInfo[]>('/skills', {
+      params: workspaceId && workspaceId > 0 ? { workspace_id: workspaceId } : undefined,
+    }),
+  /** Global install: store copy (builtin) / plugin install default-disabled (marketplace). */
+  install: (name: string) => api.post<{ ok: boolean }>('/skills/install', { name }),
+  /** Make the skill agent-visible at the given targets. */
+  enable: (body: SkillTargetRequest) =>
+    api.post<{ results: SkillActionResult[] }>('/skills/enable', body),
+  /** Remove agent visibility at the targets (installs are kept). */
+  disable: (body: SkillTargetRequest) =>
+    api.post<{ results: SkillActionResult[] }>('/skills/disable', body),
+  /** Refresh the store + every enabled copy with the latest payload. */
+  update: (name: string) => api.post<{ ok: boolean }>('/skills/update', { name }),
+  /** Remove globally: store + all enabled copies / plugin uninstall. */
+  uninstall: (name: string) => api.post<{ ok: boolean }>('/skills/uninstall', { name }),
 };

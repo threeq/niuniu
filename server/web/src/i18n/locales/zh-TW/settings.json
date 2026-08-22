@@ -228,6 +228,7 @@
   "tabs": {
     "general": "通用",
     "systemDeps": "系統依賴",
+    "skills": "Skill 管理",
     "env": "環境變數",
     "providers": "訂閱平臺",
     "gitIdentity": "Git",
@@ -243,6 +244,36 @@
     "blueprints": "專案模板",
     "imbot": "IM 機器人",
     "about": "關於"
+  },
+  "skills": {
+    "title": "Skill 管理",
+    "subtitle": "跨 agent（Claude Code / Codex / Qwen / OMP / Goose）管理 Agent Skill 的安裝、啟用、更新與解除安裝。安裝 ≠ 啟用：全域性安裝後預設不生效，按需在全域性或具體工作空間開啟。",
+    "scopeGlobal": "全域性（按 Agent）",
+    "scopeWorkspace": "工作空間",
+    "workspacePlaceholder": "選擇工作空間…",
+    "pickWorkspaceHint": "請先選擇一個工作空間，再管理該工作空間內啟用的 skill。",
+    "searchPlaceholder": "搜尋 skill…",
+    "loading": "載入中…",
+    "empty": "暫無 skill",
+    "colSkill": "Skill",
+    "colDescription": "描述",
+    "colActions": "操作",
+    "sourceBuiltin": "內建",
+    "sourceMarketplace": "市場",
+    "sourceUser": "使用者",
+    "inStore": "已入庫",
+    "updatable": "可更新",
+    "install": "安裝",
+    "update": "更新",
+    "uninstall": "解除安裝",
+    "modelHint": "開關 = 在當前範圍啟用/停用該 agent 的 skill。場景宣告的 skill 會在對應工作空間自動啟用；全域性已啟用的 skill 不會再向工作空間重複安裝。",
+    "toasts": {
+      "installed": "已安裝到全域性庫（預設未啟用）",
+      "updated": "已更新到最新版本",
+      "uninstalled": "已解除安裝",
+      "actionFailed": "操作失敗：{{error}}",
+      "toggleFailed": "切換失敗：{{error}}"
+    }
   },
   "imbot": {
     "title": "IM 機器人",

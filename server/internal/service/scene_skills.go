@@ -1,8 +1,8 @@
 // Package service: vendored-skill projection.
 //
 // A scene may declare `skills:` — vendored (in-repo) Claude skills it projects
-// into the workspace's <wsDir>/.claude/skills/<name>/ directory so the agent
-// auto-discovers them (Claude Code reads SKILL.md frontmatter from there) and
+// into the workspace's per-CLI skills dir (<wsDir>/.<cli>/skills/<name>/) so the agent
+// auto-discovers them (each agent reads SKILL.md from its own skills dir) and
 // double-lingual trigger keywords activate on demand.
 //
 // Unlike plugins (which run `claude plugin install` — network + CLI — and are
@@ -43,21 +43,25 @@ const builtinSkillsRoot = "builtin_skills"
 const niuniuManagedSkillMarker = ".niuniu-managed"
 
 // materializeWorkspaceSkills copies each scene-declared skill's vendored payload
-// into <wsDir>/.claude/skills/<name>/, stamped with a .niuniu-managed marker so
-// it is cleaned up on the next recompute. It first removes all previously
-// niuniu-managed skill dirs so that skills from detached scenes disappear; skills
-// the user authored themselves (no marker) are left untouched. Codex workspaces
-// have no .claude/skills discovery, so only the cleanup runs there.
+// into the workspace's per-CLI skills dir (<wsDir>/.<cli>/skills/<name>/),
+// stamped with a .niuniu-managed marker so it is cleaned up on the next
+// recompute. It first removes all previously niuniu-managed skill dirs across
+// every agent's skills dir so skills from detached scenes - and a switched
+// CliType - leave no residue; skills the user authored themselves (no marker)
+// are left untouched.
 func (p *SceneProjector) materializeWorkspaceSkills(ws store.Workspace, wsDir string, proj *Projection) {
-	skillsDir := filepath.Join(wsDir, ".claude", "skills")
-	// Always clear stale niuniu-managed skills first (user skills are preserved).
-	if err := cleanManagedSkillsDir(skillsDir); err != nil {
-		slog.Warn("materialize skills: cleanup failed", "workspace_id", ws.ID, "err", err)
+	// Always clear stale niuniu-managed skills across every agent dir first
+	// (user skills are preserved).
+	for _, agent := range SkillAgents {
+		if err := cleanManagedSkillsDir(filepath.Join(wsDir, skillDirFor(agent))); err != nil {
+			slog.Warn("materialize skills: cleanup failed", "workspace_id", ws.ID, "err", err)
+		}
 	}
 
-	if ws.CliType == "codex" || len(proj.Skills) == 0 {
+	if len(proj.Skills) == 0 {
 		return
 	}
+	skillsDir := filepath.Join(wsDir, skillDirFor(ws.CliType))
 	if err := os.MkdirAll(skillsDir, 0o755); err != nil {
 		slog.Warn("materialize skills: mkdir failed", "workspace_id", ws.ID, "err", err)
 		return
@@ -66,6 +70,13 @@ func (p *SceneProjector) materializeWorkspaceSkills(ws store.Workspace, wsDir st
 		name := strings.TrimSpace(ref.Name)
 		if !isSafeSkillName(name) {
 			slog.Warn("materialize skills: unsafe skill name skipped", "workspace_id", ws.ID, "name", ref.Name)
+			continue
+		}
+		// Global-first dedup (issue #666): a skill already ENABLED in the
+		// agent's global skills dir needs no workspace-local copy - the agent
+		// discovers it globally, and the duplicate would only bloat the
+		// workspace. Only skills with no global enable materialize locally.
+		if SkillGlobalEnabled(ws.CliType, name) {
 			continue
 		}
 		src := path.Join(builtinSkillsRoot, name)

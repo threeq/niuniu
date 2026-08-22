@@ -1591,6 +1591,56 @@ export interface ApplyResult {
   missing_runtimes?: string[];
 }
 
+/* ---------------------------------------------------------------------------
+ * Skill management (issue #666 - cross-agent skill console, SkillsGate-style).
+ * Install != enable: a global install lands in niuniu's store (or the claude
+ * plugin cache) DISABLED by default; enable turns it on per agent, globally
+ * or scoped to a workspace.
+ * ------------------------------------------------------------------------- */
+
+/** One enable location: an agent CLI at a scope. */
+export interface SkillTarget {
+  agent: 'claude' | 'codex' | 'qwen' | 'omp' | 'goose';
+  scope: 'global' | 'workspace';
+}
+
+/** Where a skill is currently ENABLED (agent-visible). */
+export interface SkillInstallState {
+  agent: string;
+  scope: 'global' | 'workspace';
+  /** Carries the niuniu-managed marker (safe to disable/uninstall). */
+  managed: boolean;
+  /** Builtin payload differs from the enabled copy (update available). */
+  update?: boolean;
+}
+
+/** One skill in the catalog / discovered on disk. */
+export interface SkillInfo {
+  name: string;
+  description?: string;
+  version?: string;
+  /** builtin = vendored in niuniu; marketplace = claude plugin skill; user = discovered, not in catalog. */
+  source: 'builtin' | 'marketplace' | 'user';
+  plugin_source?: string;
+  /** Installed into the niuniu store / claude plugin cache - NOT yet enabled anywhere. */
+  global_installed: boolean;
+  installed: SkillInstallState[];
+}
+
+/** Body for the enable / disable endpoints: one skill, one or more targets. */
+export interface SkillTargetRequest {
+  name: string;
+  workspace_id?: number;
+  targets: SkillTarget[];
+}
+
+/** Per-target outcome of an enable / disable call. */
+export interface SkillActionResult {
+  target: SkillTarget;
+  ok: boolean;
+  error?: string;
+}
+
 export interface RankedScene {
   scene: Scene;
   score: number;

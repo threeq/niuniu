@@ -14,6 +14,7 @@ import {
   Server,
   ShieldCheck,
   SlidersHorizontal,
+  Sparkles,
   UserCog,
   Variable,
   Workflow,
@@ -29,6 +30,7 @@ import { GitCredentialsSettings } from './git-credentials-settings'
 import { GitIdentitySettings } from './git-identity-settings'
 import { LicenseSettings } from './license-settings'
 import { MobileAccessSettings } from './mobile-access'
+import { SkillSettings } from './skill-settings'
 import { SystemDepsSettings } from './system-deps-settings'
 import { UsersSettings } from './users-settings'
 import { IntegrationsPage } from './integrations'
@@ -41,7 +43,7 @@ import { useAuthStore } from '@/stores/auth-store'
 import { useConfigStore } from '@/stores/config-store'
 import { useLicenseStore } from '@/stores/license-store'
 
-type SettingsTab = 'general' | 'users' | 'security' | 'env' | 'providers' | 'git-identity' | 'mobile-access' | 'system-deps' | 'integrations' | 'license' | 'orchestration' | 'blueprints' | 'imbot' | 'about' | 'claude'
+type SettingsTab = 'general' | 'users' | 'security' | 'env' | 'providers' | 'git-identity' | 'mobile-access' | 'system-deps' | 'skills' | 'integrations' | 'license' | 'orchestration' | 'blueprints' | 'imbot' | 'about' | 'claude'
 
 interface TabVisibilityCtx {
   authEnabled: boolean
@@ -54,6 +56,7 @@ interface TabVisibilityCtx {
 const tabs: { id: SettingsTab; labelKey: string; icon?: LucideIcon; visible?: (ctx: TabVisibilityCtx) => boolean; hiddenInTabBar?: boolean }[] = [
   { id: 'general', labelKey: 'tabs.general', icon: SlidersHorizontal },
   { id: 'system-deps', labelKey: 'tabs.systemDeps', icon: Cpu },
+  { id: 'skills', labelKey: 'tabs.skills', icon: Sparkles },
   { id: 'env', labelKey: 'tabs.env', icon: Variable },
   { id: 'providers', labelKey: 'tabs.providers', icon: Server },
   { id: 'git-identity', labelKey: 'tabs.gitIdentity', icon: GitBranch },
@@ -71,7 +74,7 @@ const tabs: { id: SettingsTab; labelKey: string; icon?: LucideIcon; visible?: (c
 const navGroups: { id: string; labelKey: string; tabIds: SettingsTab[] }[] = [
   { id: 'personal', labelKey: 'groups.personal', tabIds: ['general', 'security'] },
   { id: 'team', labelKey: 'groups.team', tabIds: ['users'] },
-  { id: 'agents', labelKey: 'groups.agents', tabIds: ['claude', 'integrations', 'orchestration', 'blueprints', 'imbot'] },
+  { id: 'agents', labelKey: 'groups.agents', tabIds: ['claude', 'skills', 'integrations', 'orchestration', 'blueprints', 'imbot'] },
   { id: 'system', labelKey: 'groups.system', tabIds: ['system-deps', 'env', 'providers', 'git-identity', 'license', 'about'] },
 ]
 
@@ -225,6 +228,7 @@ export function SettingsPage({ children, orgsActive = false }: SettingsPageProps
               <>
                 {activeTab === 'general' && <GeneralSettings />}
                 {activeTab === 'system-deps' && <SystemDepsSettings />}
+                {activeTab === 'skills' && <SkillSettings />}
                 {activeTab === 'env' && <EnvSettings mode="presets" />}
                 {activeTab === 'providers' && <EnvSettings mode="providers" />}
                 {activeTab === 'git-identity' && (

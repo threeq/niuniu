@@ -95,13 +95,26 @@ func TestMaterializeWorkspaceSkills_CopyAndDetach(t *testing.T) {
 	assert.FileExists(t, filepath.Join(userSkill, "SKILL.md"))
 }
 
-func TestMaterializeWorkspaceSkills_CodexSkips(t *testing.T) {
+// TestMaterializeWorkspaceSkills_PerCliDir asserts skills materialize into the
+// workspace CLI's own skills dir (codex -> .codex/skills), matching the
+// cross-agent skill convention, and that a stale managed dir under another
+// CLI's dir is cleaned up.
+func TestMaterializeWorkspaceSkills_PerCliDir(t *testing.T) {
 	p := &SceneProjector{}
 	wsDir := t.TempDir()
-	p.materializeWorkspaceSkills(store.Workspace{ID: 2, CliType: "codex"}, wsDir,
+	p.materializeWorkspaceSkills(store.Workspace{ID: 3, CliType: "codex"}, wsDir,
 		&Projection{Skills: []SkillDecl{{Name: "fireworks-tech-graph"}}})
-	assert.NoDirExists(t, filepath.Join(wsDir, ".claude", "skills", "fireworks-tech-graph"),
-		"codex workspaces must not materialize Claude skills")
+	assert.FileExists(t, filepath.Join(wsDir, ".codex", "skills", "fireworks-tech-graph", "SKILL.md"),
+		"codex workspaces materialize skills into .codex/skills")
+	assert.NoDirExists(t, filepath.Join(wsDir, ".claude", "skills", "fireworks-tech-graph"))
+
+	// A stale managed dir under claude's dir disappears on the next apply.
+	stale := filepath.Join(wsDir, ".claude", "skills", "fireworks-tech-graph")
+	require.NoError(t, os.MkdirAll(stale, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(stale, niuniuManagedSkillMarker), []byte("managed_by: niuniu\n"), 0o644))
+	p.materializeWorkspaceSkills(store.Workspace{ID: 3, CliType: "codex"}, wsDir,
+		&Projection{Skills: []SkillDecl{{Name: "fireworks-tech-graph"}}})
+	assert.NoDirExists(t, stale, "stale managed dir under a non-active CLI must be cleaned")
 }
 
 // TestGeoAuditSceneSeedsWithSkill asserts the geo-audit builtin scene seeds and
