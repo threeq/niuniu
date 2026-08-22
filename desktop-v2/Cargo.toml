@@ -47,3 +47,7 @@ windows-sys = { version = "0.52", features = [
 codegen-units = 1
 lto = true
 strip = true
+
+[lints.rust]
+# build.rs 在 release+sidecar 已 staging 时开启的自定义 cfg。
+unexpected_cfgs = { level = "warn", check-cfg = ["cfg(have_embedded_sidecars)"] }

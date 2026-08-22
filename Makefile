@@ -532,56 +532,43 @@ RUSTUP_TARGET_ADD = $(RUSTUP) target add
 	build-personal-v2-windows build-personal-v2-darwin build-personal-v2-linux \
 	dev-desktop-v2 _personal-prepare-v2
 
-# 当前主机构建（Windows 产出 .exe）。侧车就位后 cargo build --release。
-# sidecar 拷到 exe 同目录（target 与 bin），server_binary_path 第 1 候选命中，
-# 否则 release exe 从 bin/ 双击启动会因找不到 niuniu-server 而 spawn 失败。
+# 当前主机构建（Windows 产出 .exe）。sidecar 由 _personal-prepare-v2 staging 到
+# binaries/，cargo build 时 build.rs 探测后用 include_bytes! 内嵌进 exe——单文件产物，
+# 对齐 v1（go:embed）。不再需要 exe 旁放 sidecar。
 build-personal-v2-current:
 	$(MAKE) _personal-prepare GOOS=$(shell go env GOOS) GOARCH=$(shell go env GOARCH) EXT=$(EXE_SUFFIX)
 	$(MAKE) _personal-prepare-v2 GOOS=$(shell go env GOOS) GOARCH=$(shell go env GOARCH) EXT=$(EXE_SUFFIX)
 	cd desktop-v2 && $(CARGO) build --release
-	cp desktop-v2/binaries/niuniu-server$(EXE_SUFFIX) desktop-v2/target/release/
-	cp desktop-v2/binaries/niuniu-mcp$(EXE_SUFFIX) desktop-v2/target/release/
 	mkdir -p bin
 	cp desktop-v2/target/release/niuniu-desktop-v2$(EXE_SUFFIX) bin/niuniu-desktop-v2-$(VERSION)$(EXE_SUFFIX)
-	cp desktop-v2/binaries/niuniu-server$(EXE_SUFFIX) bin/niuniu-server$(EXE_SUFFIX)
-	cp desktop-v2/binaries/niuniu-mcp$(EXE_SUFFIX) bin/niuniu-mcp$(EXE_SUFFIX)
 
 build-personal-v2-all: build-personal-v2-windows build-personal-v2-darwin build-personal-v2-linux
 
 # 跨平台构建：构建前自动 `rustup target add <triple>` 补装缺的 Rust target。
+# sidecar 内嵌进 exe（单文件产物）。
 build-personal-v2-windows:
 	$(MAKE) _personal-prepare GOOS=windows GOARCH=amd64 EXT=.exe
 	$(MAKE) _personal-prepare-v2 GOOS=windows GOARCH=amd64 EXT=.exe
 	-@$(RUSTUP_TARGET_ADD) x86_64-pc-windows-msvc 2>/dev/null || true
 	cd desktop-v2 && $(CARGO) build --release --target x86_64-pc-windows-msvc
-	cp desktop-v2/binaries/niuniu-server.exe desktop-v2/target/x86_64-pc-windows-msvc/release/
-	cp desktop-v2/binaries/niuniu-mcp.exe desktop-v2/target/x86_64-pc-windows-msvc/release/
 	mkdir -p bin
 	cp desktop-v2/target/x86_64-pc-windows-msvc/release/niuniu-desktop-v2.exe bin/niuniu-desktop-v2-$(VERSION)-windows-amd64.exe
-	cp desktop-v2/binaries/niuniu-server.exe bin/niuniu-server.exe
-	cp desktop-v2/binaries/niuniu-mcp.exe bin/niuniu-mcp.exe
 
 build-personal-v2-darwin:
 	$(MAKE) _personal-prepare GOOS=darwin GOARCH=arm64 EXT=
 	$(MAKE) _personal-prepare-v2 GOOS=darwin GOARCH=arm64 EXT=
 	-@$(RUSTUP_TARGET_ADD) aarch64-apple-darwin 2>/dev/null || true
 	cd desktop-v2 && $(CARGO) build --release --target aarch64-apple-darwin
-	cp desktop-v2/binaries/niuniu-server desktop-v2/target/aarch64-apple-darwin/release/
-	cp desktop-v2/binaries/niuniu-mcp desktop-v2/target/aarch64-apple-darwin/release/
 	$(MAKE) _personal-prepare GOOS=darwin GOARCH=amd64 EXT=
 	$(MAKE) _personal-prepare-v2 GOOS=darwin GOARCH=amd64 EXT=
 	-@$(RUSTUP_TARGET_ADD) x86_64-apple-darwin 2>/dev/null || true
 	cd desktop-v2 && $(CARGO) build --release --target x86_64-apple-darwin
-	cp desktop-v2/binaries/niuniu-server desktop-v2/target/x86_64-apple-darwin/release/
-	cp desktop-v2/binaries/niuniu-mcp desktop-v2/target/x86_64-apple-darwin/release/
 
 build-personal-v2-linux:
 	$(MAKE) _personal-prepare GOOS=linux GOARCH=amd64 EXT=
 	$(MAKE) _personal-prepare-v2 GOOS=linux GOARCH=amd64 EXT=
 	-@$(RUSTUP_TARGET_ADD) x86_64-unknown-linux-gnu 2>/dev/null || true
 	cd desktop-v2 && $(CARGO) build --release --target x86_64-unknown-linux-gnu
-	cp desktop-v2/binaries/niuniu-server desktop-v2/target/x86_64-unknown-linux-gnu/release/
-	cp desktop-v2/binaries/niuniu-mcp desktop-v2/target/x86_64-unknown-linux-gnu/release/
 
 dev-desktop-v2:
 	$(MAKE) _personal-prepare-current
