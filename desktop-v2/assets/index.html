@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Niuniu</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <h1>Niuniu</h1>
+      <p class="subtitle">Connect to a Niuniu backend</p>
+    </div>
+
+    <div class="section">
+      <h2>Saved Connections</h2>
+      <div id="saved-list" class="conn-list">
+        <p class="empty">Loading...</p>
+      </div>
+    </div>
+
+    <div class="section">
+      <h2>Discovered on Network</h2>
+      <div id="discovered-list" class="conn-list">
+        <p class="empty">Scanning...</p>
+      </div>
+    </div>
+
+    <div class="section">
+      <h2>Manual Connection</h2>
+      <form id="manual-form" class="manual-form">
+        <input type="text" id="input-name" placeholder="Name (optional)">
+        <div class="row">
+          <input type="text" id="input-host" placeholder="Host or URL (e.g. 192.168.1.5 or https://niuniu.example.com)" required>
+          <input type="number" id="input-port" placeholder="Port (optional)">
+        </div>
+        <button type="submit">Connect</button>
+      </form>
+    </div>
+  </div>
+
+  <script>
+    // desktop-v2（Tauri）：命令经 window.__TAURI__.core.invoke 调用。
+    function callShell(cmd, args) {
+      return window.__TAURI__.core.invoke(cmd, args || {});
+    }
+
+    const GetConnections = () => callShell('get_connections');
+    const GetDiscoveredInstances = () => callShell('get_discovered_instances');
+    const GetActiveConnections = () => callShell('get_active_connections');
+    const AddConnection = (name, host, port) => callShell('add_connection', { name, host, port });
+    const RemoveConnection = (id) => callShell('remove_connection', { id });
+    const MoveConnection = (id, delta) => callShell('move_connection', { id, delta });
+    const ConnectByID = (id) => callShell('connect_by_id', { id });
+    const ConnectFromPicker = (id) => callShell('connect_from_picker', { id });
+    const ConnectToAddress = (host, port) => callShell('connect_to_address', { host, port });
+    const ConnectToAddressFromPicker = (host, port) => callShell('connect_to_address_from_picker', { host, port });
+    const RefreshTrayMenu = () => callShell('refresh_tray_menu');
+
+    function esc(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+
+    // Display address: omit the port when it's unset (0/blank) so domain-only
+    // connections render cleanly (e.g. "https://niuniu.example.com").
+    function fmtAddr(host, port) { return port ? host + ':' + port : host; }
+
+    function renderConnItem(label, detail, onClick, extra) {
+      const div = document.createElement('div');
+      div.className = 'conn-item' + (extra?.discovered ? ' discovered' : '');
+      div.addEventListener('click', onClick);
+      const info = document.createElement('div');
+      info.className = 'conn-info';
+      const strong = document.createElement('strong');
+      strong.textContent = label;
+      const span = document.createElement('span');
+      span.textContent = detail;
+      info.appendChild(strong);
+      info.appendChild(span);
+      div.appendChild(info);
+      if (extra?.badge) {
+        const b = document.createElement('span');
+        b.className = 'badge' + (extra.badge === 'Active' ? ' active' : '');
+        b.textContent = extra.badge;
+        div.appendChild(b);
+      }
+      // Reorder controls: list order maps 1:1 to the Ctrl/Cmd+Shift+1..9 open
+      // hotkeys, so moving an item up/down changes which digit targets it.
+      if (extra?.onMove) {
+        const mkMove = (sym, title, delta, enabled) => {
+          const b = document.createElement('button');
+          b.className = 'btn-move';
+          b.textContent = sym;
+          b.title = title;
+          if (enabled) {
+            b.addEventListener('click', (e) => { e.stopPropagation(); extra.onMove(delta); });
+          } else {
+            b.disabled = true;
+          }
+          return b;
+        };
+        div.appendChild(mkMove('▲', 'Move up', -1, extra.canMoveUp));
+        div.appendChild(mkMove('▼', 'Move down', 1, extra.canMoveDown));
+      }
+      if (extra?.onRemove) {
+        const btn = document.createElement('button');
+        btn.className = 'btn-remove';
+        btn.textContent = '×';
+        btn.addEventListener('click', (e) => { e.stopPropagation(); extra.onRemove(); });
+        div.appendChild(btn);
+      }
+      return div;
+    }
+
+    async function loadConnections() {
+      try {
+        const [saved, activeKeys] = await Promise.all([
+          GetConnections(),
+          GetActiveConnections().catch(() => []),
+        ]);
+        const activeSet = new Set(activeKeys || []);
+        const list = document.getElementById('saved-list');
+        list.innerHTML = '';
+        if (!saved || saved.length === 0) {
+          list.innerHTML = '<p class="empty">No saved connections</p>';
+          return;
+        }
+        saved.forEach((c, i) => {
+          const key = c.host + ':' + c.port;
+          const isActive = activeSet.has(key);
+          let badge = null;
+          if (isActive) badge = 'Active';
+          else if (c.is_default) badge = 'Default';
+          list.appendChild(renderConnItem(
+            c.name || c.host, fmtAddr(c.host, c.port),
+            () => ConnectFromPicker(c.id).then(ok => { if (ok) setTimeout(loadConnections, 500); }),
+            {
+              badge: badge,
+              onRemove: () => removeConnection(c.id),
+              onMove: (delta) => moveConnection(c.id, delta),
+              canMoveUp: i > 0,
+              canMoveDown: i < saved.length - 1,
+            }
+          ));
+        });
+      } catch (e) { console.error('Failed to load connections:', e); }
+    }
+
+    async function loadDiscovered() {
+      try {
+        const instances = await GetDiscoveredInstances();
+        const list = document.getElementById('discovered-list');
+        list.innerHTML = '';
+        if (!instances || instances.length === 0) {
+          list.innerHTML = '<p class="empty">No backends found on network</p>';
+          return;
+        }
+        instances.forEach(i => {
+          const detail = i.host + ':' + i.port + (i.version ? ' — v' + i.version : '');
+          list.appendChild(renderConnItem(
+            i.hostname || i.host, detail,
+            () => ConnectToAddressFromPicker(i.host, i.port).then(ok => { if (ok) setTimeout(loadConnections, 500); }),
+            { discovered: true }
+          ));
+        });
+      } catch (e) { console.error('Failed to load discovered:', e); }
+    }
+
+    async function removeConnection(id) {
+      try {
+        await RemoveConnection(id);
+        loadConnections();
+      } catch (e) { console.error('RemoveConnection failed:', e); }
+    }
+
+    async function moveConnection(id, delta) {
+      try {
+        await MoveConnection(id, delta);
+        loadConnections();
+      } catch (e) { console.error('MoveConnection failed:', e); }
+    }
+
+    document.getElementById('manual-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const name = document.getElementById('input-name').value.trim();
+      const host = document.getElementById('input-host').value.trim();
+      const portStr = document.getElementById('input-port').value.trim();
+      // Port is optional: blank → 0, meaning "use the URL/scheme default" so a
+      // domain (e.g. https://niuniu.example.com) connects without a port.
+      const port = portStr ? parseInt(portStr, 10) : 0;
+      if (!host) return;
+      try {
+        await AddConnection(name || host, host, port);
+        await ConnectToAddressFromPicker(host, port);
+        // Picker is auto-hidden on success; on failure it stays visible for retry
+        document.getElementById('input-name').value = '';
+        document.getElementById('input-host').value = '';
+        document.getElementById('input-port').value = '';
+        setTimeout(loadConnections, 500);
+      } catch (e) { console.error('Connection failed:', e); }
+    });
+
+    loadConnections().catch(e => {
+      document.getElementById('saved-list').innerHTML = '<p class="empty">Error: ' + e.message + '</p>';
+    });
+    loadDiscovered().catch(e => {
+      document.getElementById('discovered-list').innerHTML = '<p class="empty">Error: ' + e.message + '</p>';
+    });
+    setInterval(loadDiscovered, 30000);
+    setInterval(loadConnections, 5000);
+  </script>
+</body>
+</html>

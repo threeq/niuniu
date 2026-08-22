@@ -1,0 +1,11 @@
+# Rust / Tauri
+/target/
+/gen/schemas/
+/gen/android/
+
+# 构建期拷贝进来的 Go server 侧车二进制（由 make build-personal-v2-* 生成）
+/binaries/niuniu-server*
+/binaries/niuniu-mcp*
+
+# 本地运行产物
+*.log

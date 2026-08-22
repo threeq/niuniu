@@ -25,7 +25,8 @@ WebSocket/SSE. No data leaves your machine unless you connect an external source
 | Path | Stack | Purpose |
 |------|-------|---------|
 | `server/` | Go 1.25 + React 19 SPA at `server/web/` | HTTP/WS/SSE backend, sqlc store, MCP server, embedded SPA |
-| `desktop/` | Go + Wails v3 (own `go.mod`) | Native desktop — `cmd/personal` bundles a local server + remote picker |
+| `desktop/` | Go + Wails v3 (own `go.mod`) | Native desktop（Wails 版，保留）— `cmd/personal` bundles a local server + remote picker |
+| `desktop-v2/` | Rust + Tauri v2 (own Cargo) | Native desktop v2（issue #670 迁移 Tauri）— 独立新目录，不替换 `desktop/`；复用 `_personal-prepare` 产出的 Go server 侧车 |
 | `mobile/` | React Native + Expo Router | iOS/Android client |
 | `go-shared/` | Go (own `go.mod`) | Cross-binary shared libs (`lanproto/`, `relayproto/`, `pairingcrypto/`, `tokenbind/`, `version/`) |
 
@@ -53,7 +54,9 @@ handlers), `service/` (business logic), `store/` (sqlc-generated), plus
 | `make sqlc` | Regenerate `internal/store/*.sql.go` from `queries/*.sql` |
 | `make schema-diff` | Verify SQLite/PG schema parity (run after any DDL change) |
 | `make docs` | Regenerate Swagger |
-| `make build-personal[-current\|-windows\|-darwin\|-linux]` | Bundled desktop build |
+| `make build-personal[-current\|-windows\|-darwin\|-linux]` | Bundled desktop build（Wails） |
+| `make build-personal-v2[-current\|-all\|-windows\|-darwin\|-linux]` | Tauri v2 桌面构建（`desktop-v2/`，先 `_personal-prepare` 再 cargo） |
+| `make dev-desktop-v2` | `desktop-v2` 开发运行（`cargo run`，含侧车 staging） |
 | `make package-personal-darwin` | macOS `.app` + `.dmg` (needs macOS host) |
 
 Backend one-offs (from `server/`): `go run ./cmd/niuniu`, `go run ./cmd/niuniu-mcp`,
