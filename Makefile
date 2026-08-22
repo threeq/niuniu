@@ -73,7 +73,16 @@ LINUX_ARM64_ENV = CGO_ENABLED=1 CC="zig cc -target aarch64-linux-musl" GOOS=linu
 # the toolchain — the recipe still passes GOOS/GOARCH explicitly.
 BUNDLE_CGO_linux_amd64   = CGO_ENABLED=1 CC="zig cc -target x86_64-linux-musl"
 BUNDLE_CGO_linux_arm64   = CGO_ENABLED=1 CC="zig cc -target aarch64-linux-musl"
-BUNDLE_CGO_windows_amd64 = CGO_ENABLED=1 CC="zig cc"
+# Windows MUST pin -mcpu=baseline: zig cc without an explicit -target compiles
+# for the BUILD HOST's native CPU. On CI (AVX-512-capable Xeon) that let zig
+# emit AVX-512 instructions into the vendored libwebp, which crashed with
+# STATUS_ILLEGAL_INSTRUCTION (0xC000001D) on end-user CPUs without AVX-512
+# (e.g. i9-13900HX) - killing the embedded server on every >100KB image
+# upload that entered the WebP optimization pipeline (v0.8.6). Baseline ==
+# x86-64 SSE2 floor, matching Go's default GOAMD64=v1. Explicit -target
+# (Linux below) already defaults to baseline, so only the native Windows
+# build needed the pin.
+BUNDLE_CGO_windows_amd64 = CGO_ENABLED=1 CC="zig cc -mcpu=baseline"
 BUNDLE_CGO_darwin_arm64  = CGO_ENABLED=1 CGO_CFLAGS="-arch arm64" CGO_LDFLAGS="-arch arm64"
 BUNDLE_CGO_darwin_amd64  = CGO_ENABLED=1 CGO_CFLAGS="-arch x86_64" CGO_LDFLAGS="-arch x86_64"
 BUNDLE_CGO = $(if $(BUNDLE_CGO_$(GOOS)_$(GOARCH)),$(BUNDLE_CGO_$(GOOS)_$(GOARCH)),CGO_ENABLED=1)
