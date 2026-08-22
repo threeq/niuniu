@@ -167,14 +167,14 @@ jobs:
         run: cd server/web && pnpm install --frozen-lockfile && pnpm build
       - uses: mlugg/setup-zig@v2
         with: { version: 0.16.0 }
-      - name: make build-personal-linux
-        run: VERSION="$TAG" make build-personal-linux
-      - name: Upload Linux binary
+      - name: make package-personal-linux
+        run: VERSION="$TAG" make package-personal-linux
+      - name: Upload Linux tar.gz
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          gh release upload "$TAG" --clobber bin/niuniu-desktop-*-linux-amd64
+          gh release upload "$TAG" --clobber bin/niuniu-desktop-*-linux-amd64.tar.gz
 
   publish:
     name: Publish release
