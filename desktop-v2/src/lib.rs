@@ -64,34 +64,44 @@ pub fn run() {
             let handle = app.handle().clone();
             let lang = app.state::<AppMeta>().lang.clone();
             let flags = app.state::<AppMeta>().flags.clone();
+            boot_log("setup: begin");
 
             // 主窗口（loading splash，随后导航到本地 server）
+            boot_log("setup: create main window");
             let main_win = windows::create_main_window(&handle, &lang, flags.start_minimized)?;
             windows::register_close_to_tray(&main_win, &handle);
             // picker / ai-hub / runners 全部隐藏创建，按需打开（方案 A: 绝不抢首启）
+            boot_log("setup: create picker window");
             let picker = windows::create_picker_window(&handle, &lang)?;
             windows::register_close_to_tray(&picker, &handle);
+            boot_log("setup: create ai-hub window");
             let hub = windows::create_ai_hub_window(&handle, &lang)?;
             windows::register_close_to_tray(&hub, &handle);
+            boot_log("setup: create runners window");
             let runners = windows::create_runners_window(&handle, &lang)?;
             windows::register_close_to_tray(&runners, &handle);
 
             // 托盘
+            boot_log("setup: build tray");
             let _tray = tray::build_tray(&handle)?;
+            boot_log("setup: tray built");
 
             // 全局快捷键（按 config 注册）
             let cfg = app.state::<CfgState>().snapshot();
             hotkeys::apply_hotkeys(&handle, &cfg);
+            boot_log("setup: hotkeys applied");
 
             // mDNS 发现（失败降级为空列表）
             match discovery::Discovery::start() {
                 Ok(d) => *app.state::<DiscoverState>().inner.lock().unwrap() = Some(d),
                 Err(e) => eprintln!("mDNS discovery disabled: {e}"),
             }
+            boot_log("setup: discovery started");
 
             // 后台 boot：探测/复用/自产 server → 主窗口导航 → SSE
             let app2 = handle.clone();
             std::thread::spawn(move || boot(&app2));
+            boot_log("setup: boot thread spawned");
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -199,7 +209,8 @@ fn boot(app: &tauri::AppHandle) {
 }
 
 /// 启动追踪日志：GUI 子系统无 stderr，写入 ~/.niuniu/logs/desktop-v2-boot.log
-/// 供定位「卡 splash」时确认 probe/spawn/navigate 各步是否执行。
+/// 供定位「卡 splash」时确认 setup/probe/spawn/navigate 各步是否执行。
+/// 路径绝对（见 config::data_dir 多级回退），首行写出本文件路径便于定位。
 pub fn boot_log(msg: impl AsRef<str>) {
     use std::io::Write;
     let path = config::data_dir().join("logs").join("desktop-v2-boot.log");
@@ -210,6 +221,10 @@ pub fn boot_log(msg: impl AsRef<str>) {
     let line = format!("[{ts}] {}\n", msg.as_ref());
     if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(&path) {
         let _ = f.write_all(line.as_bytes());
+        // 首次写入时同步写出本文件绝对路径，便于用户/定位时找到它。
+        if std::fs::metadata(&path).map(|m| m.len() < 200).unwrap_or(true) {
+            let _ = writeln!(f, "[boot-log path] {}", path.display());
+        }
     }
     eprintln!("{}", line.trim());
 }
