@@ -535,12 +535,18 @@ RUSTUP_TARGET_ADD = $(RUSTUP) target add
 # 当前主机构建（Windows 产出 .exe）。sidecar 由 _personal-prepare-v2 staging 到
 # binaries/，cargo build 时 build.rs 探测后用 include_bytes! 内嵌进 exe——单文件产物，
 # 对齐 v1（go:embed）。不再需要 exe 旁放 sidecar。
+# 显式 --target triple（Windows=x86_64-pc-windows-msvc）：webview2-com-sys 仅在
+# msvc target_env 下静态链 WebView2LoaderStatic.lib；宿主若默认 GNU 工具链
+# （如本机 stable-x86_64-pc-windows-gnu），裸 cargo build 会链 WebView2Loader.dll，
+# 单拷 exe 缺 DLL 直接 0xC0000135。显式 triple 不看宿主默认工具链，任何机器都
+# 产出无需 DLL 的单文件 exe。
 build-personal-v2-current:
 	$(MAKE) _personal-prepare GOOS=$(shell go env GOOS) GOARCH=$(shell go env GOARCH) EXT=$(EXE_SUFFIX)
 	$(MAKE) _personal-prepare-v2 GOOS=$(shell go env GOOS) GOARCH=$(shell go env GOARCH) EXT=$(EXE_SUFFIX)
-	cd desktop-v2 && $(CARGO) build --release
-	mkdir -p bin
-	cp desktop-v2/target/release/niuniu-desktop-v2$(EXE_SUFFIX) bin/niuniu-desktop-v2-$(VERSION)$(EXE_SUFFIX)
+	@TRIPLE="$(V2_TRIPLE_$(shell go env GOOS)_$(shell go env GOARCH))"; \
+	$(RUSTUP_TARGET_ADD) $$TRIPLE >/dev/null 2>&1 || true; \
+	cd desktop-v2 && $(CARGO) build --release --target $$TRIPLE && \
+	mkdir -p ../bin && cp target/$$TRIPLE/release/niuniu-desktop-v2$(EXE_SUFFIX) ../bin/niuniu-desktop-v2-$(VERSION)$(EXE_SUFFIX)
 
 build-personal-v2-all: build-personal-v2-windows build-personal-v2-darwin build-personal-v2-linux
 
@@ -570,10 +576,14 @@ build-personal-v2-linux:
 	-@$(RUSTUP_TARGET_ADD) x86_64-unknown-linux-gnu 2>/dev/null || true
 	cd desktop-v2 && $(CARGO) build --release --target x86_64-unknown-linux-gnu
 
+# dev 同样显式 triple（见 build-personal-v2-current 注释）：保证 dev 与发布构建
+# 同工具链行为（Windows 上 msvc，无 WebView2Loader.dll 依赖）。
 dev-desktop-v2:
 	$(MAKE) _personal-prepare-current
 	$(MAKE) _personal-prepare-v2 GOOS=$(shell go env GOOS) GOARCH=$(shell go env GOARCH) EXT=$(EXE_SUFFIX)
-	cd desktop-v2 && $(CARGO) run
+	@TRIPLE="$(V2_TRIPLE_$(shell go env GOOS)_$(shell go env GOARCH))"; \
+	$(RUSTUP_TARGET_ADD) $$TRIPLE >/dev/null 2>&1 || true; \
+	cd desktop-v2 && $(CARGO) run --target $$TRIPLE
 
 # 把 _personal-prepare 产出的 server/mcp 二进制拷为 Tauri 侧车（以去 triple 名
 # 为主 —— server_binary_path 先按 exe 旁/plain 名解析，toolchain 差异不影响；
