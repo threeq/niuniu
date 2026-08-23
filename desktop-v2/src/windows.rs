@@ -25,9 +25,9 @@ const SPLASH_BG: tauri::utils::config::Color = tauri::utils::config::Color(0x11,
 const PICKER_BG: tauri::utils::config::Color = tauri::utils::config::Color(0x0A, 0x0A, 0x0A, 0xFF);
 const HUB_BG: tauri::utils::config::Color = tauri::utils::config::Color(0x0B, 0x12, 0x20, 0xFF);
 
-/// 应用图标（512x512 appicon.png，编译期内嵌）。供主窗口标题栏与系统托盘使用，
-/// 高分辨率源对齐 v1（Wails 用 appIconPNG），避免 default_window_icon 在高 DPI
-/// 下渲染模糊。
+/// 应用图标（512x512 appicon.png，编译期内嵌）。供全部窗口标题栏/任务栏与系统
+/// 托盘使用，高分辨率源对齐 v1（Wails 的 app 级 Icon 对所有窗口生效），避免
+/// default_window_icon（icons/icon.ico 仅 32x32）在高 DPI 下渲染模糊。
 pub fn app_icon() -> tauri::image::Image<'static> {
     tauri::image::Image::from_bytes(include_bytes!("../assets/appicon.png"))
         .expect("embedded assets/appicon.png must be a valid PNG")
@@ -55,6 +55,7 @@ pub fn create_picker_window(app: &tauri::AppHandle, lang: &str) -> tauri::Result
         .title(i18n::manage_title(lang))
         .inner_size(1280.0, 800.0)
         .visible(false)
+        .icon(app_icon())?
         .background_color(PICKER_BG)
         .data_directory(webview_data_dir())
         .build()
@@ -74,6 +75,7 @@ pub fn create_ai_hub_window(app: &tauri::AppHandle, lang: &str) -> tauri::Result
         .title(i18n::ai_title(lang))
         .inner_size(980.0, 720.0)
         .visible(false)
+        .icon(app_icon())?
         .background_color(HUB_BG)
         .data_directory(webview_data_dir())
         .build()?;
@@ -99,6 +101,7 @@ pub fn create_runners_window(app: &tauri::AppHandle, lang: &str) -> tauri::Resul
         .title(i18n::runners_title(lang))
         .inner_size(900.0, 640.0)
         .visible(false)
+        .icon(app_icon())?
         .background_color(HUB_BG)
         .data_directory(webview_data_dir())
         .build()
@@ -148,6 +151,8 @@ pub fn open_connection_window(
                 // 清理 ConnState 并重建托盘，避免幽灵项（对应 v1 connwin.go
                 // createAndRegisterConnWindow 的 WindowClosing 钩子）。
                 register_conn_close_cleanup(&win, &app, &key);
+                // 建后补挂高清图标（闭包返回 ()，builder 链上的 ? 传播不了）。
+                let _ = win.set_icon(app_icon());
                 let _ = win.show();
                 let _ = win.set_focus();
             }
