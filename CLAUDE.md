@@ -201,6 +201,22 @@ or the remote.
   **target branch defaults to the current dev branch**. Landing an issue on
   `main` needs additional explicit confirmation.
 
+## Kanban discipline (mandatory)
+
+Hard rule — do not bypass. Keeps the board a faithful record of real work.
+
+- **When the current task is done, only adjust the CURRENT issue's status**
+  (e.g. `advance_issue` to 完成). Do **not** create a new issue for the work
+  that was just performed, and do **not** create/move/edit/delete any other
+  issue as a side effect of finishing work.
+- **Operating on other issues** (`batch_create_issues`, `advance_issue`,
+  `delete_issue`, `update_issue` on issues other than the current one) is only
+  allowed when the current issue is **explicitly a control/orchestration task**
+  (e.g. an Epic or dispatch task whose defined purpose is managing other
+  issues).
+- If follow-up work is genuinely needed, mention it in the final report to the
+  user instead of silently opening board issues.
+
 ## Contributing
 
 See `CONTRIBUTING.md`. Scope changes to the personal edition; open an issue first

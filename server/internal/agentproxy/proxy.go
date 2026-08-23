@@ -365,6 +365,17 @@ type WorkspaceSession struct {
 	// making Stop look like a no-op. Reset to false on SendLoop entry. s.mu.
 	stopRequested bool
 
+	// schedulerDriven marks a SendLoop whose initial message came from the cron
+	// scheduler (DeliverFromScheduler). A scheduled turn is one-shot by
+	// semantics: when the loop ends cleanly, the long-lived process is reaped
+	// instead of waiting for the 30min idle reaper — a schedule cadence faster
+	// than idleTimeout (e.g. every 15min) resets the reaper on every turn, so
+	// the process (and its --resume session) would otherwise live forever and
+	// grow monotonically (memory-death on small hosts; self.niu6ai.com
+	// 2026-08-23). Cleared when the loop ends so a later interactive send is
+	// not misclassified. s.mu.
+	schedulerDriven bool
+
 	// Per-turn accumulators (reset each Send)
 	assistantTextBlocks []string // separate text blocks split by tool calls
 	lastBlockWasTool    bool     // tracks whether to start a new text block
@@ -721,6 +732,45 @@ func (p *AgentProxy) Deliver(ctx context.Context, workspaceID int64, workDir, co
 	}
 	go sess.SendLoop(context.Background(), workDir, content, attachments)
 	slog.Info("deliver: started send loop", "workspaceID", workspaceID)
+	return
+}
+
+// DeliverFromScheduler is Deliver for scheduler-triggered messages: identical
+// queueing semantics, but a loop it starts is one-shot — when the turn ends
+// cleanly (queue empty, no autohost continue, no resume pending) the long-lived
+// process is reaped instead of lingering for the 30min idle reaper. A schedule
+// cadence faster than idleTimeout resets that reaper on every turn, so without
+// this the scheduled agent's process (and its --resume session) lives forever
+// and grows monotonically — the self.niu6ai.com swap-death incident.
+// If the session is BUSY (an interactive loop is running), the message queues
+// behind it exactly like Deliver — the flag is not set, the user's loop keeps
+// its keep-warm semantics.
+func (p *AgentProxy) DeliverFromScheduler(ctx context.Context, workspaceID int64, workDir, content, attachments string) (queued bool, queueID int64, err error) {
+	if workDir == "" || content == "" {
+		return
+	}
+	sess, err := p.GetOrStartSession(ctx, workspaceID, 0)
+	if err != nil || sess == nil {
+		err = fmt.Errorf("agent session unavailable: %w", err)
+		slog.Warn("deliver(scheduler): agent session unavailable", "workspaceID", workspaceID, "error", err)
+		return
+	}
+	queued, queueID, err = sess.Enqueue(ctx, content, attachments)
+	if err != nil {
+		slog.Warn("deliver(scheduler): enqueue failed", "workspaceID", workspaceID, "error", err)
+		return
+	}
+	if queued {
+		slog.Info("deliver(scheduler): message queued (session running)", "workspaceID", workspaceID)
+		return
+	}
+	// Idle — this loop belongs to the scheduler. Mark BEFORE starting the loop
+	// so finalizeSendLoopTurn (its terminal path) reliably sees the flag.
+	sess.mu.Lock()
+	sess.schedulerDriven = true
+	sess.mu.Unlock()
+	go sess.SendLoop(context.Background(), workDir, content, attachments)
+	slog.Info("deliver(scheduler): started one-shot send loop (process reaped at clean end)", "workspaceID", workspaceID)
 	return
 }
 
@@ -1725,11 +1775,26 @@ func (s *WorkspaceSession) finalizeSendLoopTurn(ctx context.Context, isError boo
 	// —— autohost 判定真正完成 (met / sentinel) 后立即流转, 残留 stale wakeup 不挡。
 	s.mu.Lock()
 	scheduledWait := s.autohostScheduledWait
+	schedulerDriven := s.schedulerDriven
 	s.mu.Unlock()
 	if !isError && !autohostTerminalStop && (scheduledWait || s.hasPendingFutureWakeup()) {
 		slog.Info("agent finalizeSendLoopTurn: deferring done — paced autohost wait / pending wakeup",
 			"workspaceID", s.workspaceID, "scheduledWait", scheduledWait)
 		return
+	}
+	// A scheduler-driven loop is one-shot: the turn is done, nothing queued, no
+	// resume pending — reap the long-lived process now instead of leaving it to
+	// the 30min idle reaper, which a sub-idleTimeout schedule cadence (e.g.
+	// every 15min) would keep resetting forever. Applies to both clean and
+	// error ends: an erroring scheduled agent must not squat on memory either.
+	// Clear the flag FIRST so the kill (which unblocks turnDone) cannot race a
+	// concurrent reader into seeing a stale one-shot marker.
+	if schedulerDriven {
+		s.mu.Lock()
+		s.schedulerDriven = false
+		s.mu.Unlock()
+		s.killProcess()
+		slog.Info("agent finalizeSendLoopTurn: reaped scheduler-driven process", "workspaceID", s.workspaceID)
 	}
 	// The loop is genuinely ending (idle/attention) — clear the compact-turn
 	// marker so a stale flag can't make a later autohost session spuriously
