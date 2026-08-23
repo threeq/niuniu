@@ -109,7 +109,7 @@ pub fn remove_connection(app: tauri::AppHandle, id: String) -> Result<(), String
     }
     if let Some(key) = removed_key {
         // 关闭已打开的窗口（关闭钩子会清理 ConnState 并 rebuild tray）。
-        let label = format!("conn-{key}");
+        let label = config::window_label_for_key(&key);
         if let Some(win) = app.get_webview_window(&label) {
             let _ = win.close();
         } else {
@@ -376,7 +376,7 @@ pub fn open_runners(app: &tauri::AppHandle) {
 }
 
 pub fn focus_connection(app: &tauri::AppHandle, key: &str) {
-    let label = format!("conn-{key}");
+    let label = config::window_label_for_key(key);
     if let Some(win) = app.get_webview_window(&label) {
         let _ = win.show();
         if !cfg!(target_os = "macos") {
@@ -386,14 +386,14 @@ pub fn focus_connection(app: &tauri::AppHandle, key: &str) {
 }
 
 pub fn reload_connection(app: &tauri::AppHandle, key: &str) {
-    let label = format!("conn-{key}");
+    let label = config::window_label_for_key(key);
     if let Some(win) = app.get_webview_window(&label) {
         let _ = win.eval("location.reload(true)");
     }
 }
 
 pub fn close_connection(app: &tauri::AppHandle, key: &str) {
-    let label = format!("conn-{key}");
+    let label = config::window_label_for_key(key);
     if let Some(win) = app.get_webview_window(&label) {
         let _ = win.close();
     }
@@ -478,7 +478,7 @@ pub fn hard_reset_connection(app: &tauri::AppHandle, key: &str) {
         let rb = app.state::<crate::state::RebuildingState>();
         *rb.inner.lock().unwrap() = true;
     }
-    let label = format!("conn-{key}");
+    let label = config::window_label_for_key(key);
     if let Some(old) = app.get_webview_window(&label) {
         let _ = old.destroy();
     }

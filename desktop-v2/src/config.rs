@@ -226,9 +226,66 @@ pub fn save_to(cfg: &DesktopConfig, path: &Path) {
     let _ = fs::rename(&tmp, path);
 }
 
-/// 连接主键 "host:port"。
+/// 连接主键：规范化的 host[:port]（剥 scheme、剥默认端口），同 origin 共用一个 key。
+/// 对应 v1 desktop/internal/connection/manager.go KeyFor。
 pub fn key_for(host: &str, port: u16) -> String {
-    format!("{host}:{port}")
+    let u = normalize_base_url(host, port);
+    match u.find("://") {
+        Some(i) => u[i + 3..].to_string(),
+        None => u,
+    }
+}
+
+/// 把用户输入的地址规范化成 base URL。host 可以是裸主机/IP、host:port 或完整
+/// URL；port>0 仅在 host 未带端口时生效；scheme 取 host 中的，缺省 http
+/// （443 时 https）；scheme 默认端口（443/80）省略。对应 v1 NormalizeBaseURL。
+pub fn normalize_base_url(host: &str, port: u16) -> String {
+    let mut h = host.trim().to_string();
+    let mut scheme = String::new();
+    if let Some(i) = h.find("://") {
+        scheme = h[..i].to_lowercase();
+        h = h[i + 3..].to_string();
+    }
+    // 只保留 origin：剥 path/query/fragment
+    if let Some(i) = h.find(['/', '?', '#']) {
+        h.truncate(i);
+    }
+    // 尾部 :<数字> 端口剥出（忽略 IPv6 括号形式，与 v1 一致）
+    let (mut host_part, mut port_part) = (h.clone(), String::new());
+    if !h.contains(']') {
+        if let Some(idx) = h.rfind(':') {
+            let cand = &h[idx + 1..];
+            if !cand.is_empty() && cand.bytes().all(|b| b.is_ascii_digit()) {
+                host_part = h[..idx].to_string();
+                port_part = cand.to_string();
+            }
+        }
+    }
+    if port_part.is_empty() && port > 0 {
+        port_part = port.to_string();
+    }
+    if scheme.is_empty() {
+        scheme = if port_part == "443" { "https".into() } else { "http".into() };
+    }
+    // scheme 默认端口不落 URL
+    if (scheme == "https" && port_part == "443") || (scheme == "http" && port_part == "80") {
+        port_part.clear();
+    }
+    if port_part.is_empty() {
+        format!("{scheme}://{host_part}")
+    } else {
+        format!("{scheme}://{host_part}:{port_part}")
+    }
+}
+
+/// 连接窗口 label 的安全形态：tauri 窗口 label 只允许字母数字和 - / : _，
+/// 域名里的 "." 非法（InvalidWindowLabel → 建窗静默失败）。把 key 里的非法
+/// 字符替换成 "_"。规范 key 下仅 "." 会出现。
+pub fn window_label_for_key(key: &str) -> String {
+    format!("conn-{}", key.chars().map(|c| match c {
+        'a'..='z' | 'A'..='Z' | '0'..='9' | '-' | '/' | ':' | '_' => c,
+        _ => '_',
+    }).collect::<String>())
 }
 
 /// 旧版（Wails 时代）在 ~/.niuniu/desktop/config.json 里可能残留明文 relay
@@ -243,4 +300,56 @@ pub fn scrub_legacy_relay_password() {
     eprintln!("clearing legacy plaintext relay password from desktop config");
     cfg.legacy_relay = LegacyRelayConfig::default();
     save_to(&cfg, &path);
+}
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// 与 v1 desktop/internal/connection/manager_test.go 对齐的用例。
+    #[test]
+    fn normalize_base_url_matches_v1() {
+        let cases = [
+            // 裸 host + 显式端口（传统 LAN 形态）
+            ("192.168.1.5", 3000, "http://192.168.1.5:3000"),
+            // 域名无端口 → http 默认，不补端口
+            ("niuniu.example.com", 0, "http://niuniu.example.com"),
+            // 完整 https URL 带 :443 → 默认端口去掉
+            ("https://niuniu.dujiaoshou.pro:443", 443, "https://niuniu.dujiaoshou.pro"),
+            // 完整 https URL 无端口 → 尊重 scheme
+            ("https://niuniu.example.com", 0, "https://niuniu.example.com"),
+            // https URL 非默认端口 → 保留
+            ("https://niuniu.example.com:8443", 0, "https://niuniu.example.com:8443"),
+            // 无 scheme 但端口 443 → 推断 https
+            ("niuniu.example.com", 443, "https://niuniu.example.com"),
+            // URL 带路径 → 只留 origin
+            ("http://x.example.com:8080/foo", 0, "http://x.example.com:8080"),
+            // host 内嵌端口时 port 参数忽略
+            ("192.168.1.5:9000", 3000, "http://192.168.1.5:9000"),
+            // 尾斜杠容忍
+            ("https://niuniu.example.com/", 0, "https://niuniu.example.com"),
+        ];
+        for (host, port, want) in cases {
+            assert_eq!(normalize_base_url(host, port), want, "normalize_base_url({host:?},{port})");
+        }
+    }
+
+    #[test]
+    fn key_for_strips_scheme_and_default_port() {
+        assert_eq!(key_for("192.168.1.5", 3000), "192.168.1.5:3000");
+        assert_eq!(key_for("https://niuniu.dujiaoshou.pro:443", 443), "niuniu.dujiaoshou.pro");
+        assert_eq!(key_for("niuniu.example.com", 0), "niuniu.example.com");
+        // 同 origin 不同输入形态共享 key
+        assert_eq!(key_for("https://niuniu.example.com", 0), key_for("https://niuniu.example.com/", 0));
+    }
+
+    /// tauri 窗口 label 只允许字母数字与 - / : _，域名中的 "." 必须替换，
+    /// 否则 InvalidWindowLabel 建窗静默失败（Ctrl+Shift+数字「不显示窗口」根因）。
+    #[test]
+    fn window_label_is_tauri_safe() {
+        assert_eq!(window_label_for_key("192.168.1.5:3000"), "conn-192_168_1_5:3000");
+        assert_eq!(window_label_for_key("self.niu6ai.com"), "conn-self_niu6ai_com");
+        assert_eq!(window_label_for_key("localhost:3000"), "conn-localhost:3000");
+    }
 }

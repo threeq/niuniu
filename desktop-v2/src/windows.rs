@@ -95,7 +95,7 @@ pub fn open_connection_window(
     key: &str,
     info: &ConnInfo,
 ) -> tauri::Result<()> {
-    let label = format!("conn-{key}");
+    let label = crate::config::window_label_for_key(key);
     if let Some(win) = app.get_webview_window(&label) {
         // 已存在：恢复并聚焦（纯窗口操作，无 webview 创建，可同步）
         let _ = win.show();
@@ -104,14 +104,17 @@ pub fn open_connection_window(
     }
     let app = app.clone();
     let lang = lang.to_string();
+    let label = label.clone();
     let key = key.to_string();
     let info = info.clone();
     std::thread::spawn(move || {
-        let label = format!("conn-{key}");
-        let target = format!("http://{}:{}/", info.host, info.port);
+        // 目标 URL 走 normalize_base_url：host 可能是完整 URL（scheme 进 URL），
+        // 端口 0 表示 scheme 默认（443/80 省略），对应 v1 BuildURL。
+        let base = crate::config::normalize_base_url(&info.host, info.port);
+        let target = format!("{base}/");
         let url = connecting_splash_url(&lang, &info.name, &target);
         let built = WebviewWindowBuilder::new(&app, &label, WebviewUrl::External(url))
-            .title(i18n::remote_title(&lang, &info.name, &format!("{}:{}", info.host, info.port)))
+            .title(i18n::remote_title(&lang, &info.name, &base))
             .inner_size(1280.0, 840.0)
             .visible(false)
             .background_color(SPLASH_BG)
