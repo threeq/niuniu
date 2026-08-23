@@ -549,23 +549,22 @@ fn position_service_window(app: &tauri::AppHandle) {
 /// （挪屏幕外但保持显示——SW_HIDE 会让 WebView2 挂起合成，再显示回来是空白，
 /// v1 aiembed_windows.go 实测踩坑点）。非 Windows 回退普通 show/hide。
 fn update_ai_service_visibility(app: &tauri::AppHandle) {
-    let hub_visible = app
-        .get_webview_window("ai-hub")
-        .map(|w| w.is_visible().unwrap_or(false))
-        .unwrap_or(false);
+    let hub = app.get_webview_window("ai-hub");
+    let hub_visible = hub.as_ref().map(|w| w.is_visible().unwrap_or(false)).unwrap_or(false);
     let st = app.state::<AiState>();
     let ai = st.lock();
     let show_any = hub_visible && !ai.overlay_open;
     let active = ai.active.clone();
     let stage = ai.stage;
     if ai_embed::AI_EMBED_SUPPORTED {
+        let Some(hub) = hub else { return };
         let windows: Vec<(String, tauri::WebviewWindow)> =
             ai.service_windows.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
         drop(ai);
         let _ = app.run_on_main_thread(move || {
             for (id, win) in windows {
                 if show_any && Some(id) == active {
-                    ai_embed::reveal_over_stage(&win, stage);
+                    ai_embed::reveal_over_stage(&hub, &win, stage);
                 } else {
                     ai_embed::stash_offscreen(&win, stage);
                 }
@@ -644,6 +643,16 @@ pub fn activate_ai_service(app: tauri::AppHandle, id: String) -> Result<AIActiva
                     let _ = app2.state::<AiState>().lock().service_windows.remove(&format!("ai-service-{id2}"));
                 }
             });
+        }
+        // 幂等再 own 一次：窗口可能经历过注销/复建（CloseRequested 移除后再
+        // activate 走不到建窗分支的 own），确保 owner 关系在。
+        if ai_embed::AI_EMBED_SUPPORTED {
+            if let Some(hub) = app.get_webview_window("ai-hub") {
+                let (hub2, win2) = (hub, win.clone());
+                let _ = app.run_on_main_thread(move || {
+                    ai_embed::dock_over_stage(&hub2, &win2);
+                });
+            }
         }
         position_service_window(&app);
         {
@@ -741,6 +750,37 @@ fn hub_visible(app: &tauri::AppHandle) -> bool {
     app.get_webview_window("ai-hub")
         .map(|w| w.is_visible().unwrap_or(false))
         .unwrap_or(false)
+}
+
+/// hub 移动/缩放跟随：只重贴当前在台上的服务窗口（reveal 状态），stash 中的
+/// （加载中/覆盖层下）留在屏幕外，下次揭示时自然落到新位置——拖动中把 stash
+/// 窗口拽进视野会闪出加载页。对应 v1 repositionActiveAIService。
+pub fn reposition_active_ai_service(app: &tauri::AppHandle) {
+    if !ai_embed::AI_EMBED_SUPPORTED {
+        return;
+    }
+    let hub = app.get_webview_window("ai-hub");
+    let Some(hub) = hub else { return };
+    let hub_visible_now = hub.is_visible().unwrap_or(false);
+    let (active, stage, overlay) = {
+        let st = app.state::<AiState>();
+        let ai = st.lock();
+        (ai.active.clone(), ai.stage, ai.overlay_open)
+    };
+    let Some(active) = active else { return };
+    // hub 隐藏或覆盖层打开时台上没有窗口，无需跟随。
+    if !hub_visible_now || overlay {
+        return;
+    }
+    let win = {
+        let st = app.state::<AiState>();
+        let ai = st.lock();
+        ai.service_windows.get(&format!("ai-service-{active}")).cloned()
+    };
+    let Some(win) = win else { return };
+    let _ = app.run_on_main_thread(move || {
+        ai_embed::position_window(&hub, &win, stage);
+    });
 }
 
 #[tauri::command]
