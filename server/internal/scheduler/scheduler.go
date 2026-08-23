@@ -423,7 +423,13 @@ func (s *Scheduler) trigger(scheduleID, workspaceID int64) {
 		messageContent = buildDiscoveryPrompt(messageContent, reportRel)
 	}
 
-	queued, _, err := s.proxy.Deliver(ctx, workspaceID, ws.Path, messageContent, "")
+	// DeliverFromScheduler (not Deliver): a scheduled turn is one-shot — the
+	// started SendLoop reaps the long-lived agent process at its clean end
+	// instead of leaving it to the 30min idle reaper, which this schedule's own
+	// cadence (15min < idleTimeout) would keep resetting forever. Without this,
+	// the process + its --resume session live indefinitely and grow on every
+	// tick (swap-death on small hosts).
+	queued, _, err := s.proxy.DeliverFromScheduler(ctx, workspaceID, ws.Path, messageContent, "")
 	if err != nil {
 		log.Error("scheduler: deliver message", "err", err)
 		s.recordRun(scheduleID, workspaceID, "failed", "deliver failed: "+err.Error(), triggeredBy)
