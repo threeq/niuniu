@@ -1,6 +1,15 @@
 //! 牛牛桌面版 v2（Tauri）—— 模块聚合 + 启动装配 + 后台 boot 序列。
 //! 壳层职责与 Wails 版 cmd/personal 对应；Go server 作为子进程保留。
 
+#[cfg(windows)]
+mod ai_embed_windows;
+#[cfg(not(windows))]
+mod ai_embed_other;
+#[cfg(windows)]
+use ai_embed_windows as ai_embed;
+#[cfg(not(windows))]
+use ai_embed_other as ai_embed;
+
 mod ai;
 mod commands;
 mod config;
