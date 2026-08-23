@@ -60,15 +60,26 @@ pub fn create_picker_window(app: &tauri::AppHandle, lang: &str) -> tauri::Result
         .build()
 }
 
-/// AI 直达窗口：内嵌 /ai.html。
+/// AI 直达窗口：内嵌 /ai.html。注册 hub 移动/缩放跟随——停靠的服务窗口是
+/// owned 顶层窗口，不会自动跟着 owner 走，hub 每次移动/缩放都要按 stage 矩形
+/// 重贴（对应 v1 main.go 的 WindowDidMove/WindowDidResize →
+/// repositionActiveAIService；Tauri 的 Moved/Resized 事件逐次触发无 debounce，
+/// 拖动过程中即跟随）。
 pub fn create_ai_hub_window(app: &tauri::AppHandle, lang: &str) -> tauri::Result<WebviewWindow> {
-    WebviewWindowBuilder::new(app, "ai-hub", WebviewUrl::App("ai.html".into()))
+    let win = WebviewWindowBuilder::new(app, "ai-hub", WebviewUrl::App("ai.html".into()))
         .title(i18n::ai_title(lang))
         .inner_size(980.0, 720.0)
         .visible(false)
         .background_color(HUB_BG)
         .data_directory(webview_data_dir())
-        .build()
+        .build()?;
+    let app2 = app.clone();
+    win.on_window_event(move |event| {
+        if matches!(event, WindowEvent::Moved(_) | WindowEvent::Resized(_)) {
+            crate::commands::reposition_active_ai_service(&app2);
+        }
+    });
+    Ok(win)
 }
 
 /// 执行器管理窗口（占位页；执行器子系统 v2 尚未移植）。

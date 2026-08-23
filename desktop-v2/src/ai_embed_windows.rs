@@ -52,9 +52,9 @@ fn client_origin(hwnd: HWND) -> (i32, i32) {
     (pt.x, pt.y)
 }
 
-/// 把 child 变成 hub 的 frameless OWNED 顶层窗口（浮在 hub 上、无任务栏按钮、
-/// 无边框）。不移动不显示——揭示走 reveal，隐藏走 stash。
-pub fn own(hub_hwnd: HWND, child_hwnd: HWND) {
+/// 剥掉 child 的边框/标题样式并设为无任务栏 toolwindow（幂等，可重复调用）。
+/// 不动 owner——owner 关系只在 own() 里设一次。
+fn strip_frame(child_hwnd: HWND) {
     // SAFETY: 常规 Win32 样式操作；句柄由调用方保证有效（None 时上游已跳过）。
     unsafe {
         let style = GetWindowLongPtrW(child_hwnd, GWL_STYLE) as usize;
@@ -71,9 +71,6 @@ pub fn own(hub_hwnd: HWND, child_hwnd: HWND) {
             ((ex & !(WS_EX_APPWINDOW.0 as usize)) | WS_EX_TOOLWINDOW.0 as usize) as isize,
         );
 
-        // GWLP_HWNDPARENT 在顶层窗口上设的是 OWNER（名字误导，不是父子关系）。
-        SetWindowLongPtrW(child_hwnd, GWLP_HWNDPARENT, hub_hwnd.0 as isize);
-
         // SWP_FRAMECHANGED 让样式剥离生效；不移动/缩放/置顶/激活。
         let _ = SetWindowPos(
             child_hwnd,
@@ -84,6 +81,17 @@ pub fn own(hub_hwnd: HWND, child_hwnd: HWND) {
             0,
             SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED | SWP_NOSIZE | SWP_NOMOVE,
         );
+    }
+}
+
+/// 把 child 变成 hub 的 frameless OWNED 顶层窗口（浮在 hub 上、无任务栏按钮、
+/// 无边框）。不移动不显示——揭示走 reveal，隐藏走 stash。
+pub fn own(hub_hwnd: HWND, child_hwnd: HWND) {
+    strip_frame(child_hwnd);
+    // SAFETY: GWLP_HWNDPARENT 在顶层窗口上设的是 OWNER（名字误导，不是父子
+    // 关系）：服务窗口永远浮在 hub 之上、无任务栏按钮、随 hub 最小化。
+    unsafe {
+        SetWindowLongPtrW(child_hwnd, GWLP_HWNDPARENT, hub_hwnd.0 as isize);
     }
 }
 
@@ -113,7 +121,13 @@ pub fn position(hub_hwnd: HWND, child_hwnd: HWND, x: i32, y: i32, w: i32, h: i32
 /// stash 期间窗口客户尺寸可能过期（hub 被缩放/最大化时 WebView2 会推迟/跳过那次
 /// resize，按旧尺寸渲染留下黑边），所以分两步：先 h+1 再落回 h，强制产生一次
 /// 非零 delta 的 WM_SIZE 让 WebView2 按当前 stage 尺寸重排。
+///
+/// 每次揭示前都重新剥一遍边框样式：tao 的 to_window_styles() 无条件带
+/// WS_CAPTION|WS_SYSMENU（MARKER_DECORATIONS 只在尺寸计算分支检查），任何一次
+/// set_window_flags（show/maximize 等）都会把标题栏写回来，own() 只在建窗时剥
+/// 一次不够——实测表现为停靠窗口带白边标题栏。
 pub fn reveal(hub_hwnd: HWND, child_hwnd: HWND, x: i32, y: i32, w: i32, h: i32) {
+    strip_frame(child_hwnd);
     let (ox, oy) = client_origin(hub_hwnd);
     let (px, py) = (ox + x, oy + y);
     // SAFETY: ShowWindow/SetWindowPos/SetFocus 常规用法；句柄有效。
@@ -133,6 +147,7 @@ pub fn reveal(hub_hwnd: HWND, child_hwnd: HWND, x: i32, y: i32, w: i32, h: i32) 
 pub fn stash(child_hwnd: HWND, w: i32, h: i32) {
     let w = if w <= 0 { 1 } else { w };
     let h = if h <= 0 { 1 } else { h };
+    strip_frame(child_hwnd); // tao 可能在任意时机写回边框样式，进屏幕前再剥一次
     // SAFETY: 先挪屏幕外（新建窗口还隐藏时无害），再确保显示——窗口绝不会在
     // 默认屏内位置闪一下才被挪走。
     unsafe {
@@ -164,19 +179,16 @@ pub fn dock_over_stage(hub: &WebviewWindow, child: &WebviewWindow) {
     own(hh, ch);
 }
 
-/// reveal 的窗口封装（hub HWND 从 GWLP_HWNDPARENT owner 读回，调用方无需再传 hub）。
-pub fn reveal_over_stage(child: &WebviewWindow, stage: (i32, i32, i32, i32)) {
+/// reveal 的窗口封装（hub HWND 显式传入——不读 GWLP_HWNDPARENT：own() 经
+/// run_on_main_thread 异步派发，reveal 可能在 own 落地前执行，读回 0 会让
+/// 揭示被静默跳过、旧服务留在台上）。
+pub fn reveal_over_stage(hub: &WebviewWindow, child: &WebviewWindow, stage: (i32, i32, i32, i32)) {
     let (x, y, w, h) = stage;
     if w <= 0 || h <= 0 {
         return;
     }
-    let Some(ch) = hwnd_of(child) else { return };
-    // SAFETY: 只读 owner 句柄。
-    let hub_raw = unsafe { GetWindowLongPtrW(ch, GWLP_HWNDPARENT) };
-    if hub_raw == 0 {
-        return;
-    }
-    reveal(HWND(hub_raw as _), ch, x, y, w, h);
+    let (Some(hh), Some(ch)) = (hub_hwnd(hub), hwnd_of(child)) else { return };
+    reveal(hh, ch, x, y, w, h);
 }
 
 /// position 的窗口封装。
