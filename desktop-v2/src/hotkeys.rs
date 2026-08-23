@@ -7,9 +7,16 @@
 //! HotKeyId 派发（tauri-plugin-global-shortcut lib.rs 的 dispatch 按 id 查表调
 //! shortcut.handler），无格式依赖。
 
-use tauri_plugin_global_shortcut::GlobalShortcutExt;
+use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
 
 use crate::config::{default_ai_accelerator, default_window_accelerator};
+
+/// 只在按下沿触发：global-hotkey 对一次物理按键会先发 Pressed、松开时再发
+/// Released，handler 若不过滤状态会把 toggle 类动作连打两次（按下即又被松开
+/// 事件关闭，表现为「按了没反应」）。 Released 一律忽略。
+fn pressed(ev: ShortcutState) -> bool {
+    ev == ShortcutState::Pressed
+}
 
 /// 位置连接快捷键的修饰符前缀：macOS 用 Cmd+Shift，其余 Ctrl+Shift
 /// （与 v1 connhotkey.go connHotkeyModifierPrefix 一致）。global-hotkey from_str
@@ -47,7 +54,7 @@ pub fn apply_hotkeys(app: &tauri::AppHandle, cfg: &crate::config::DesktopConfig)
             cfg.hotkey.toggle_window.clone()
         };
         if let Err(e) = gs.on_shortcut(accel.as_str(), |app, _sc, _ev| {
-            crate::commands::toggle_main_window(app);
+            if pressed(_ev.state) { crate::commands::toggle_main_window(app); }
         }) {
             eprintln!("register window hotkey {accel} failed: {e}");
         }
@@ -58,7 +65,7 @@ pub fn apply_hotkeys(app: &tauri::AppHandle, cfg: &crate::config::DesktopConfig)
         let mut bound = false;
         for c in ai_candidates() {
             if gs.on_shortcut(c.as_str(), |app, _sc, _ev| {
-                crate::commands::toggle_ai_window(app);
+                if pressed(_ev.state) { crate::commands::toggle_ai_window(app); }
             }).is_ok() {
                 bound = true;
                 break;
@@ -75,14 +82,14 @@ pub fn apply_hotkeys(app: &tauri::AppHandle, cfg: &crate::config::DesktopConfig)
     for n in 1u32..=9 {
         let spec = format!("{prefix}{n}");
         if let Err(e) = gs.on_shortcut(spec.as_str(), move |app, _sc, _ev| {
-            crate::commands::connect_by_position(app, n);
+            if pressed(_ev.state) { crate::commands::connect_by_position(app, n); }
         }) {
             eprintln!("register connection hotkey {spec} failed: {e}");
         }
     }
     let zero = format!("{prefix}0");
     if let Err(e) = gs.on_shortcut(zero.as_str(), |app, _sc, _ev| {
-        crate::commands::toggle_picker(app);
+        if pressed(_ev.state) { crate::commands::toggle_picker(app); }
     }) {
         eprintln!("register picker hotkey {zero} failed: {e}");
     }

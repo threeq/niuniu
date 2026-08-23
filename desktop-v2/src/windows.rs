@@ -18,6 +18,13 @@ fn webview_data_dir() -> std::path::PathBuf {
     p
 }
 
+/// RGBA 窗口底色：WebView2 默认白底，webview 首帧渲染前会白屏一闪。设成各页面
+/// 自身背景色（splash #111111 / picker #0a0a0a / ai·runners #0b1220），窗口出现
+/// 到首帧之间无感。
+const SPLASH_BG: tauri::utils::config::Color = tauri::utils::config::Color(0x11, 0x11, 0x11, 0xFF);
+const PICKER_BG: tauri::utils::config::Color = tauri::utils::config::Color(0x0A, 0x0A, 0x0A, 0xFF);
+const HUB_BG: tauri::utils::config::Color = tauri::utils::config::Color(0x0B, 0x12, 0x20, 0xFF);
+
 /// 应用图标（512x512 appicon.png，编译期内嵌）。供主窗口标题栏与系统托盘使用，
 /// 高分辨率源对齐 v1（Wails 用 appIconPNG），避免 default_window_icon 在高 DPI
 /// 下渲染模糊。
@@ -36,6 +43,7 @@ pub fn create_main_window(app: &tauri::AppHandle, lang: &str, hidden: bool) -> t
         .center()
         .visible(!hidden)
         .icon(app_icon())?
+        .background_color(SPLASH_BG)
         .data_directory(webview_data_dir())
         .build()?;
     Ok(win)
@@ -47,6 +55,7 @@ pub fn create_picker_window(app: &tauri::AppHandle, lang: &str) -> tauri::Result
         .title(i18n::manage_title(lang))
         .inner_size(1280.0, 800.0)
         .visible(false)
+        .background_color(PICKER_BG)
         .data_directory(webview_data_dir())
         .build()
 }
@@ -57,6 +66,7 @@ pub fn create_ai_hub_window(app: &tauri::AppHandle, lang: &str) -> tauri::Result
         .title(i18n::ai_title(lang))
         .inner_size(980.0, 720.0)
         .visible(false)
+        .background_color(HUB_BG)
         .data_directory(webview_data_dir())
         .build()
 }
@@ -67,39 +77,60 @@ pub fn create_runners_window(app: &tauri::AppHandle, lang: &str) -> tauri::Resul
         .title(i18n::runners_title(lang))
         .inner_size(900.0, 640.0)
         .visible(false)
+        .background_color(HUB_BG)
         .data_directory(webview_data_dir())
         .build()
 }
 
 /// 远端连接窗口：加载 connecting 过渡页（页面自身轮询健康后跳转到目标）。
+///
+/// 新建 webview 窗口必须在独立线程：快捷键 handler 在主线程的 WM_HOTKEY
+/// wndproc 里执行、托盘菜单在主线程事件回调里执行，主线程同步 build() 时
+/// WebView2 的异步初始化需要消息泵，嵌在回调里会把整个事件循环挂死（表现为
+/// Ctrl+Shift+数字「无效」）。线程内 build() 经事件循环 proxy 派发，主线程
+/// 空闲时完成创建，show/focus 消息排队在其后按序执行。
 pub fn open_connection_window(
     app: &tauri::AppHandle,
     lang: &str,
     key: &str,
     info: &ConnInfo,
-) -> tauri::Result<WebviewWindow> {
+) -> tauri::Result<()> {
     let label = format!("conn-{key}");
     if let Some(win) = app.get_webview_window(&label) {
-        // 已存在：恢复并聚焦
+        // 已存在：恢复并聚焦（纯窗口操作，无 webview 创建，可同步）
         let _ = win.show();
         let _ = win.set_focus();
-        return Ok(win);
+        return Ok(());
     }
-    let target = format!("http://{}:{}/", info.host, info.port);
-    let url = connecting_splash_url(lang, &info.name, &target);
-    let win = WebviewWindowBuilder::new(app, &label, WebviewUrl::External(url))
-        .title(i18n::remote_title(lang, &info.name, &format!("{}:{}", info.host, info.port)))
-        .inner_size(1280.0, 840.0)
-        .visible(false)
-        .data_directory(webview_data_dir())
-        .build()?;
-    // 远程窗口 X 关闭 = 真关闭（与本地主窗口的 close→hide 不同）：清理 ConnState
-    // 并重建托盘，避免幽灵项（对应 v1 connwin.go createAndRegisterConnWindow 的
-    // WindowClosing 钩子）。重建流程经 RebuildingState 放行。
-    register_conn_close_cleanup(&win, app, key);
-    let _ = win.show();
-    let _ = win.set_focus();
-    Ok(win)
+    let app = app.clone();
+    let lang = lang.to_string();
+    let key = key.to_string();
+    let info = info.clone();
+    std::thread::spawn(move || {
+        let label = format!("conn-{key}");
+        let target = format!("http://{}:{}/", info.host, info.port);
+        let url = connecting_splash_url(&lang, &info.name, &target);
+        let built = WebviewWindowBuilder::new(&app, &label, WebviewUrl::External(url))
+            .title(i18n::remote_title(&lang, &info.name, &format!("{}:{}", info.host, info.port)))
+            .inner_size(1280.0, 840.0)
+            .visible(false)
+            .background_color(SPLASH_BG)
+            .data_directory(webview_data_dir())
+            .build();
+        match built {
+            Ok(win) => {
+                // 远程窗口 X 关闭 = 真关闭（与本地主窗口的 close->hide 不同）：
+                // 清理 ConnState 并重建托盘，避免幽灵项（对应 v1 connwin.go
+                // createAndRegisterConnWindow 的 WindowClosing 钩子）。
+                register_conn_close_cleanup(&win, &app, &key);
+                let _ = win.show();
+                let _ = win.set_focus();
+            }
+            // 连按两次快捷键的竞态：第二个线程撞已存在 label 报错，忽略即可。
+            Err(e) => eprintln!("create connection window {label} failed: {e}"),
+        }
+    });
+    Ok(())
 }
 
 /// 远程连接窗口关闭 → 从 ConnState 移除 + 重建托盘。不 prevent_close（远程窗口真关闭）。
