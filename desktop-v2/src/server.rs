@@ -29,18 +29,15 @@ pub struct ServerHandle {
 
 // 内嵌的 server/mcp sidecar（编译期由 make _personal-prepare-v2 staging 到 binaries/，
 // build.rs 探测后开启 have_embedded_sidecars）。单文件分发，对齐 v1 go:embed。
-#[cfg(have_embedded_sidecars)]
-const EMBED_SERVER: &[u8] = include_bytes!(if cfg!(target_os = "windows") {
-    "../binaries/niuniu-server.exe"
-} else {
-    "../binaries/niuniu-server"
-});
-#[cfg(have_embedded_sidecars)]
-const EMBED_MCP: &[u8] = include_bytes!(if cfg!(target_os = "windows") {
-    "../binaries/niuniu-mcp.exe"
-} else {
-    "../binaries/niuniu-mcp"
-});
+// include_bytes! 必须是字符串字面量，故按 target_os 用 cfg 选不同字面量路径。
+#[cfg(all(have_embedded_sidecars, target_os = "windows"))]
+const EMBED_SERVER: &[u8] = include_bytes!("../binaries/niuniu-server.exe");
+#[cfg(all(have_embedded_sidecars, target_os = "windows"))]
+const EMBED_MCP: &[u8] = include_bytes!("../binaries/niuniu-mcp.exe");
+#[cfg(all(have_embedded_sidecars, not(target_os = "windows")))]
+const EMBED_SERVER: &[u8] = include_bytes!("../binaries/niuniu-server");
+#[cfg(all(have_embedded_sidecars, not(target_os = "windows")))]
+const EMBED_MCP: &[u8] = include_bytes!("../binaries/niuniu-mcp");
 
 /// 内嵌 sidecar 的解压目录：~/.niuniu/desktop-v2/sidecars/（绝对、跨构建稳定、
 /// 与 v1 的 user-cache 解压同构）。server 与 mcp 同目录，server 通过
