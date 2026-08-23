@@ -521,28 +521,30 @@ pub fn navigate_main_to_server(app: &tauri::AppHandle) {
 
 // ─── AI 直达 ──────────────────────────────────────────────────────────────
 
-/// stage 停靠：全部按当前 stage 矩形贴位（hub 拖动/缩放后由 set_ai_stage_rect /
-/// 前端 ResizeObserver 触发重贴）。非 Windows 无嵌入路径，no-op。Win32 HWND
-/// 操作经 run_on_main_thread 派发到主线程执行。
+/// stage 停靠：只把「当前应在台上」的窗口按 stage 矩形重贴（hub 拖动/缩放后
+/// 由 set_ai_stage_rect / 前端 ResizeObserver 触发）。stash 中的窗口（加载中/
+/// 覆盖层下）绝不能贴回 stage——它们停留在屏幕外，拖动中贴回会在 hub 旧位置
+/// 闪现（用户实测回归）。对应 v1 SetAIStageRect 只动 revealTargetLocked。
+/// 非 Windows 无嵌入路径，no-op。Win32 HWND 操作经 run_on_main_thread 派发。
 fn position_service_window(app: &tauri::AppHandle) {
     if !ai_embed::AI_EMBED_SUPPORTED {
         return;
     }
     let stage = app.state::<AiState>().lock().stage;
     let hub = app.get_webview_window("ai-hub");
-    let windows: Vec<tauri::WebviewWindow> = {
+    let win = {
         let st = app.state::<AiState>();
         let ai = st.lock();
-        match &hub {
-            Some(_) => ai.service_windows.values().cloned().collect(),
-            None => return,
+        match (&hub, &ai.active) {
+            (Some(_), Some(active)) if hub_visible(&app) && !ai.overlay_open => {
+                ai.service_windows.get(&format!("ai-service-{active}")).cloned()
+            }
+            _ => None,
         }
     };
-    let Some(hub) = hub else { return };
+    let (Some(hub), Some(win)) = (hub, win) else { return };
     let _ = app.run_on_main_thread(move || {
-        for w in &windows {
-            ai_embed::position_window(&hub, w, stage);
-        }
+        ai_embed::position_window(&hub, &win, stage);
     });
 }
 
@@ -651,6 +653,8 @@ pub fn activate_ai_service(app: tauri::AppHandle, id: String) -> Result<AIActiva
         // 幂等再 own 一次：窗口可能经历过注销/复建（CloseRequested 移除后再
         // activate 走不到建窗分支的 own），确保 owner 关系在。
         if ai_embed::AI_EMBED_SUPPORTED {
+            // 旧版本建的池窗口可能带默认 DWM 阴影 inset（黑边），补关一次。
+            let _ = win.set_shadow(false);
             if let Some(hub) = app.get_webview_window("ai-hub") {
                 let (hub2, win2) = (hub, win.clone());
                 let _ = app.run_on_main_thread(move || {
@@ -695,6 +699,11 @@ pub fn activate_ai_service(app: tauri::AppHandle, id: String) -> Result<AIActiva
         ))
         .title(format!("{} · {}", i18n::ai_title(&lang), name))
         .decorations(false)
+        // 无框窗口默认带 DWM「无装饰阴影」：tao 的 WM_NCCALCSIZE 会按
+        // SM_CXSIZEFRAME+SM_CXPADDEDBORDER 把客户区四周内缩（150% DPI 下约
+        // 20px），webview 填的是缩过的客户区而窗口外框是 stage 尺寸 → 网页
+        // 四周等宽黑边、内容等比缩小。停靠窗口必须零 inset。
+        .shadow(false)
         .visible(false)
         .data_directory(crate::config::data_dir().join("webview2"))
         .on_page_load(move |_w, payload| {
