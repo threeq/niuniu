@@ -42,6 +42,14 @@ windows-sys = { version = "0.52", features = [
   "Win32_UI_Shell",
   "Win32_System_Threading",
 ] }
+# 与 tauri 2.11 同版本 windows crate（其 hwnd() 返回 windows::HWND），
+# AI 服务窗口嵌入停靠（ai_embed_windows.rs）用。
+windows = { version = "0.61", features = [
+  "Win32_Foundation",
+  "Win32_Graphics_Gdi",
+  "Win32_UI_Input_KeyboardAndMouse",
+  "Win32_UI_WindowsAndMessaging",
+] }
 
 [profile.release]
 codegen-units = 1

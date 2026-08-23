@@ -8,6 +8,7 @@ use serde::Serialize;
 use tauri::Manager;
 
 use crate::ai;
+use crate::ai_embed;
 use crate::config;
 use crate::i18n;
 use crate::server;
@@ -516,19 +517,37 @@ pub fn navigate_main_to_server(app: &tauri::AppHandle) {
 
 // ─── AI 直达 ──────────────────────────────────────────────────────────────
 
-/// 服务窗口按 stage 定位（frameless 贴合 hub stage）。
-fn position_service_window(app: &tauri::AppHandle, win: &tauri::WebviewWindow) {
-    let st = app.state::<AiState>();
-    let stage = st.lock().stage;
-    let (x, y, w, h) = stage;
-    if w > 0 && h > 0 {
-        let _ = win.set_position(tauri::PhysicalPosition::new(x, y));
-        let _ = win.set_size(tauri::PhysicalSize::new(w as u32, h as u32));
+/// stage 停靠：全部按当前 stage 矩形贴位（hub 拖动/缩放后由 set_ai_stage_rect /
+/// 前端 ResizeObserver 触发重贴）。非 Windows 无嵌入路径，no-op。Win32 HWND
+/// 操作经 run_on_main_thread 派发到主线程执行。
+fn position_service_window(app: &tauri::AppHandle) {
+    if !ai_embed::AI_EMBED_SUPPORTED {
+        return;
     }
+    let stage = app.state::<AiState>().lock().stage;
+    let hub = app.get_webview_window("ai-hub");
+    let windows: Vec<tauri::WebviewWindow> = {
+        let st = app.state::<AiState>();
+        let ai = st.lock();
+        match &hub {
+            Some(_) => ai.service_windows.values().cloned().collect(),
+            None => return,
+        }
+    };
+    let Some(hub) = hub else { return };
+    let _ = app.run_on_main_thread(move || {
+        for w in &windows {
+            ai_embed::position_window(&hub, w, stage);
+        }
+    });
 }
 
 /// 服务窗口可见性 = hub 窗口实际可见 && 无覆盖层 && 是当前激活服务。
 /// hub 可见性实时查窗口，避免「hub 未打开但服务窗口乱跳」的启动态竞态。
+///
+/// Windows 嵌入路径：激活服务 reveal（上 stage + 置顶 + 焦点），其余 stash
+/// （挪屏幕外但保持显示——SW_HIDE 会让 WebView2 挂起合成，再显示回来是空白，
+/// v1 aiembed_windows.go 实测踩坑点）。非 Windows 回退普通 show/hide。
 fn update_ai_service_visibility(app: &tauri::AppHandle) {
     let hub_visible = app
         .get_webview_window("ai-hub")
@@ -538,11 +557,27 @@ fn update_ai_service_visibility(app: &tauri::AppHandle) {
     let ai = st.lock();
     let show_any = hub_visible && !ai.overlay_open;
     let active = ai.active.clone();
-    for (id, win) in ai.service_windows.iter() {
-        if show_any && Some(id.clone()) == active {
-            let _ = win.show();
-        } else {
-            let _ = win.hide();
+    let stage = ai.stage;
+    if ai_embed::AI_EMBED_SUPPORTED {
+        let windows: Vec<(String, tauri::WebviewWindow)> =
+            ai.service_windows.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
+        drop(ai);
+        let _ = app.run_on_main_thread(move || {
+            for (id, win) in windows {
+                if show_any && Some(id) == active {
+                    ai_embed::reveal_over_stage(&win, stage);
+                } else {
+                    ai_embed::stash_offscreen(&win, stage);
+                }
+            }
+        });
+    } else {
+        for (id, win) in ai.service_windows.iter() {
+            if show_any && Some(id.clone()) == active {
+                let _ = win.show();
+            } else {
+                let _ = win.hide();
+            }
         }
     }
 }
@@ -610,7 +645,7 @@ pub fn activate_ai_service(app: tauri::AppHandle, id: String) -> Result<AIActiva
                 }
             });
         }
-        position_service_window(&app, &win);
+        position_service_window(&app);
         {
             let st = app.state::<AiState>();
             st.lock().active = Some(id);
@@ -619,7 +654,7 @@ pub fn activate_ai_service(app: tauri::AppHandle, id: String) -> Result<AIActiva
         update_ai_service_visibility(&app);
         {
             let st = app.state::<AiState>();
-            if hub_visible(&app) && !st.lock().overlay_open {
+            if !ai_embed::AI_EMBED_SUPPORTED && hub_visible(&app) && !st.lock().overlay_open {
                 let _ = win.set_focus();
             }
         }
@@ -634,6 +669,11 @@ pub fn activate_ai_service(app: tauri::AppHandle, id: String) -> Result<AIActiva
     let app2 = app.clone();
     std::thread::spawn(move || {
         let label = format!("ai-service-{id}");
+        // 页面加载完成 → 通知 hub 揭幕（对应 v1 onAIServiceNavigated →
+        // ExecJS window.onServiceLoaded）。v2 初版漏了这条链路，前端只能靠
+        // 2.5s 兜底定时器。on_page_load 只能在 builder 上注册。
+        let app4 = app2.clone();
+        let id3 = id.clone();
         let built = tauri::WebviewWindowBuilder::new(&app2, &label, tauri::WebviewUrl::External(
             match url::Url::parse(&url) {
                 Ok(u) => u,
@@ -644,6 +684,16 @@ pub fn activate_ai_service(app: tauri::AppHandle, id: String) -> Result<AIActiva
         .decorations(false)
         .visible(false)
         .data_directory(crate::config::data_dir().join("webview2"))
+        .on_page_load(move |_w, payload| {
+            if let tauri::webview::PageLoadEvent::Finished = payload.event() {
+                let active = app4.state::<AiState>().lock().active.clone();
+                if active.as_deref() == Some(id3.as_str()) {
+                    if let Some(hub) = app4.get_webview_window("ai-hub") {
+                        let _ = hub.eval("window.onServiceLoaded && window.onServiceLoaded()");
+                    }
+                }
+            }
+        })
         .build();
         match built {
             Ok(win) => {
@@ -661,11 +711,22 @@ pub fn activate_ai_service(app: tauri::AppHandle, id: String) -> Result<AIActiva
                     let st = app2.state::<AiState>();
                     st.lock().service_windows.insert(label, win.clone());
                 }
-                position_service_window(&app2, &win);
+                // Windows：先 own（owner=hub + 无框 + 无任务栏按钮），再按
+                // stage reveal/stash。Win32 调度统一派发主线程。
+                if ai_embed::AI_EMBED_SUPPORTED {
+                    if let Some(hub) = app2.get_webview_window("ai-hub") {
+                        let hub2 = hub;
+                        let win2 = win.clone();
+                        let _ = app2.run_on_main_thread(move || {
+                            ai_embed::dock_over_stage(&hub2, &win2);
+                        });
+                    }
+                }
+                position_service_window(&app2);
                 update_ai_service_visibility(&app2);
                 {
                     let st = app2.state::<AiState>();
-                    if hub_visible(&app2) && !st.lock().overlay_open {
+                    if !ai_embed::AI_EMBED_SUPPORTED && hub_visible(&app2) && !st.lock().overlay_open {
                         let _ = win.set_focus();
                     }
                 }
@@ -689,12 +750,17 @@ pub fn set_ai_stage_rect(app: tauri::AppHandle, x: i32, y: i32, w: i32, h: i32) 
         let mut st = st.lock();
         st.stage = (x, y, w, h);
     }
-    let st = app.state::<AiState>();
-    let ai = st.lock();
-    if let Some(active) = &ai.active {
-        if let Some(win) = ai.service_windows.get(&format!("ai-service-{active}")) {
-            let _ = win.set_position(tauri::PhysicalPosition::new(x, y));
-            let _ = win.set_size(tauri::PhysicalSize::new(w as u32, h as u32));
+    if ai_embed::AI_EMBED_SUPPORTED {
+        // 停靠路径：激活服务按新 stage 重贴（client-origin → 屏幕坐标在嵌入层做）。
+        position_service_window(&app);
+    } else {
+        let st = app.state::<AiState>();
+        let ai = st.lock();
+        if let Some(active) = &ai.active {
+            if let Some(win) = ai.service_windows.get(&format!("ai-service-{active}")) {
+                let _ = win.set_position(tauri::PhysicalPosition::new(x, y));
+                let _ = win.set_size(tauri::PhysicalSize::new(w as u32, h as u32));
+            }
         }
     }
 }
@@ -762,11 +828,13 @@ pub fn remove_ai_service(app: tauri::AppHandle, id: String) {
             changed = true;
         }
     }
-    // 关闭该服务已打开的 dock 窗口，并清掉 active。
+    // 关闭该服务已打开的 dock 窗口，并清掉 active。destroy 而非 close：close 会被
+    // CloseRequested 的 prevent_close 拦截，而 stash 语义下被遗弃的窗口会在屏幕外
+    // 永久保持渲染（合成不挂起），白白耗资源。
     {
         let label = format!("ai-service-{id}");
         if let Some(win) = app.get_webview_window(&label) {
-            let _ = win.close();
+            let _ = win.destroy();
         }
         let st = app.state::<AiState>();
         let mut ai = st.lock();
