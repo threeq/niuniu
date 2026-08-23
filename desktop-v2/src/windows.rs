@@ -18,6 +18,14 @@ fn webview_data_dir() -> std::path::PathBuf {
     p
 }
 
+/// 应用图标（512x512 appicon.png，编译期内嵌）。供主窗口标题栏与系统托盘使用，
+/// 高分辨率源对齐 v1（Wails 用 appIconPNG），避免 default_window_icon 在高 DPI
+/// 下渲染模糊。
+pub fn app_icon() -> tauri::image::Image<'static> {
+    tauri::image::Image::from_bytes(include_bytes!("../assets/appicon.png"))
+        .expect("embedded assets/appicon.png must be a valid PNG")
+}
+
 /// 主窗口初始加载页：data URL 旋转加载页（服务就绪后 navigate 到本地 SPA）。
 pub fn create_main_window(app: &tauri::AppHandle, lang: &str, hidden: bool) -> tauri::Result<WebviewWindow> {
     let title = i18n::local_title(lang);
@@ -25,7 +33,9 @@ pub fn create_main_window(app: &tauri::AppHandle, lang: &str, hidden: bool) -> t
         .title(title)
         .inner_size(1440.0, 900.0)
         .min_inner_size(800.0, 600.0)
+        .center()
         .visible(!hidden)
+        .icon(app_icon())?
         .data_directory(webview_data_dir())
         .build()?;
     Ok(win)

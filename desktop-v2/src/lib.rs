@@ -43,11 +43,9 @@ pub fn run() {
 
     tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
-            // 第二次启动：抬升已存在实例的主窗口
-            if let Some(win) = app.get_webview_window("main") {
-                let _ = win.show();
-                let _ = win.unminimize();
-            }
+            // 第二次启动：检测到已有实例 → 抬升「牛牛 · 本地」主窗口到前台
+            // （show + unminimize + set_focus，macOS 跳过 focus 避免死锁）。
+            crate::commands::show_main_window(app);
         }))
         .plugin(hotkeys::plugin())
         .plugin(tauri_plugin_notification::init())

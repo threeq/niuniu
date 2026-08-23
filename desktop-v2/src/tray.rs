@@ -17,9 +17,8 @@ fn conn_hotkey_label(pos: u32) -> String {
 /// 构建托盘（首次）或重建菜单。id "main-tray" 复用。
 pub fn build_tray(app: &AppHandle) -> tauri::Result<TrayIcon> {
     let menu = build_menu(app)?;
-    let icon = app.default_window_icon().cloned().ok_or_else(|| {
-        tauri::Error::AssetNotFound("icon".to_string())
-    })?;
+    // 用内嵌 512 appicon.png（高 DPI 清晰，对齐 v1），而非 default_window_icon。
+    let icon = crate::windows::app_icon();
 
     let tray = TrayIconBuilder::with_id("main-tray")
         .icon(icon)
