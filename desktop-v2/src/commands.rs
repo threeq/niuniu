@@ -258,60 +258,86 @@ pub fn toggle_main_window(app: &tauri::AppHandle) {
     }
 }
 
-/// AI 直达：显示/隐藏 hub（并联动服务窗口可见性）。
+/// AI 直达：显示/隐藏 hub（并联动服务窗口可见性）。首次打开经独立线程建窗
+/// （主线程同步建 webview 会死锁，见 spawn_aux_window）。
 pub fn toggle_ai_window(app: &tauri::AppHandle) {
-    let lang = app.state::<AppMeta>().lang.clone();
-    ensure_aux_window(app, "ai-hub", |a| windows::create_ai_hub_window(a, &lang));
-    if let Some(win) = app.get_webview_window("ai-hub") {
-        if win.is_visible().unwrap_or(false) {
-            let _ = win.hide();
-        } else {
-            let _ = win.show();
-            let _ = win.set_focus();
+    match app.get_webview_window("ai-hub") {
+        Some(win) => {
+            if win.is_visible().unwrap_or(false) {
+                let _ = win.hide();
+            } else {
+                let _ = win.show();
+                let _ = win.set_focus();
+            }
+            update_ai_service_visibility(app);
         }
-        update_ai_service_visibility(app);
+        None => {
+            let lang = app.state::<AppMeta>().lang.clone();
+            spawn_aux_window(app, move |a| windows::create_ai_hub_window(a, &lang));
+        }
     }
 }
 
 /// AI 直达：抬升 hub（只显示，不 toggle——对应 v1 OpenAIWindow）。
 /// 用于 SSE `open_ai_window` 信号和托盘菜单：已可见时聚焦而非隐藏。
 pub fn open_ai_window(app: &tauri::AppHandle) {
-    let lang = app.state::<AppMeta>().lang.clone();
-    ensure_aux_window(app, "ai-hub", |a| windows::create_ai_hub_window(a, &lang));
-    if let Some(win) = app.get_webview_window("ai-hub") {
-        let _ = win.show();
-        let _ = win.set_focus();
-        update_ai_service_visibility(app);
+    match app.get_webview_window("ai-hub") {
+        Some(win) => {
+            let _ = win.show();
+            let _ = win.set_focus();
+            update_ai_service_visibility(app);
+        }
+        None => {
+            let lang = app.state::<AppMeta>().lang.clone();
+            spawn_aux_window(app, move |a| windows::create_ai_hub_window(a, &lang));
+        }
     }
 }
 
-/// 确保 aux 窗口已创建（首次打开时懒建，避免在 setup 里连建多 webview 死锁）。
-fn ensure_aux_window(app: &tauri::AppHandle, label: &str, create: impl FnOnce(&tauri::AppHandle) -> tauri::Result<tauri::WebviewWindow>) {
-    if app.get_webview_window(label).is_some() {
-        return;
-    }
-    if let Ok(w) = create(app) {
-        windows::register_close_to_tray(&w, app);
-    }
+/// 确保 aux 窗口（picker/ai-hub/runners）存在并在独立线程创建+显示。
+/// webview 创建绝不能在主线程同步执行：快捷键 handler 在主线程 WM_HOTKEY
+/// wndproc 里跑、托盘菜单在主线程事件回调里跑、同步 command 也在主线程跑，
+/// build() 里 WebView2 的异步初始化需要消息泵，嵌在回调里会挂死整个事件
+/// 循环（表现为「AI 直达一开就卡死」）。线程内 build() 经事件循环 proxy
+/// 派发，主线程空闲时完成创建，show/focus 消息排队按序执行。
+fn spawn_aux_window(
+    app: &tauri::AppHandle,
+    create: impl FnOnce(&tauri::AppHandle) -> tauri::Result<tauri::WebviewWindow> + Send + 'static,
+) {
+    let app = app.clone();
+    std::thread::spawn(move || {
+        if let Ok(w) = create(&app) {
+            windows::register_close_to_tray(&w, &app);
+            let _ = w.show();
+            let _ = w.set_focus();
+        }
+    });
 }
 
 pub fn open_picker(app: &tauri::AppHandle) {
-    let lang = app.state::<AppMeta>().lang.clone();
-    ensure_aux_window(app, "picker", |a| windows::create_picker_window(a, &lang));
     if let Some(win) = app.get_webview_window("picker") {
         let _ = win.show();
         let _ = win.set_focus();
+        return;
     }
+    let lang = app.state::<AppMeta>().lang.clone();
+    spawn_aux_window(app, move |a| windows::create_picker_window(a, &lang));
 }
 
 /// picker toggle（Ctrl/Cmd+Shift+0）：可见则隐藏，否则打开。对应 v1 TogglePickerWindow。
 pub fn toggle_picker(app: &tauri::AppHandle) {
-    if let Some(win) = app.get_webview_window("picker") {
-        if win.is_visible().unwrap_or(false) {
-            let _ = win.hide();
-        } else {
-            let _ = win.show();
-            let _ = win.set_focus();
+    match app.get_webview_window("picker") {
+        Some(win) => {
+            if win.is_visible().unwrap_or(false) {
+                let _ = win.hide();
+            } else {
+                let _ = win.show();
+                let _ = win.set_focus();
+            }
+        }
+        None => {
+            let lang = app.state::<AppMeta>().lang.clone();
+            spawn_aux_window(app, move |a| windows::create_picker_window(a, &lang));
         }
     }
 }
@@ -340,12 +366,13 @@ pub fn open_mobile_access(app: &tauri::AppHandle) {
 }
 
 pub fn open_runners(app: &tauri::AppHandle) {
-    let lang = app.state::<AppMeta>().lang.clone();
-    ensure_aux_window(app, "runners", |a| windows::create_runners_window(a, &lang));
     if let Some(win) = app.get_webview_window("runners") {
         let _ = win.show();
         let _ = win.set_focus();
+        return;
     }
+    let lang = app.state::<AppMeta>().lang.clone();
+    spawn_aux_window(app, move |a| windows::create_runners_window(a, &lang));
 }
 
 pub fn focus_connection(app: &tauri::AppHandle, key: &str) {
@@ -423,21 +450,22 @@ pub fn hard_reset_main(app: &tauri::AppHandle) {
     if let Some(old) = app.get_webview_window("main") {
         let _ = old.destroy();
     }
-    if let Ok(win) = windows::create_main_window(app, &lang, false) {
-        crate::windows::register_close_to_tray(&win, app);
-        let _ = win.show();
-        if let Some(addr) = addr {
-            let cfg = app.state::<CfgState>().snapshot();
-            let url = windows::with_hotkey_hash(&format!("http://{addr}/"), &cfg);
-            if let Ok(u) = url::Url::parse(&url) {
-                let _ = win.navigate(u);
+    // 新建 webview 在独立线程（托盘回调在主线程，同步 build() 会死锁）。
+    let app2 = app.clone();
+    std::thread::spawn(move || {
+        if let Ok(win) = windows::create_main_window(&app2, &lang, false) {
+            crate::windows::register_close_to_tray(&win, &app2);
+            let _ = win.show();
+            if let Some(addr) = addr {
+                let cfg = app2.state::<CfgState>().snapshot();
+                let url = windows::with_hotkey_hash(&format!("http://{addr}/"), &cfg);
+                if let Ok(u) = url::Url::parse(&url) {
+                    let _ = win.navigate(u);
+                }
             }
         }
-    }
-    {
-        let rb = app.state::<crate::state::RebuildingState>();
-        *rb.inner.lock().unwrap() = false;
-    }
+        *app2.state::<crate::state::RebuildingState>().inner.lock().unwrap() = false;
+    });
 }
 
 /// 重建远端连接窗口：销毁旧窗口 → 同 key 新建 → 连接 splash 自跳。
@@ -455,9 +483,10 @@ pub fn hard_reset_connection(app: &tauri::AppHandle, key: &str) {
         let _ = old.destroy();
     }
     app.state::<ConnState>().remove(key);
-    if windows::open_connection_window(app, &lang, key, &info).is_ok() {
-        crate::tray::rebuild_tray(app);
-    }
+    // 新建 webview 在独立线程（open_connection_window 内部 spawn），此处只需
+    // 重建托盘；destroy() 不触发 CloseRequested，RebuildingState 可先行复位。
+    let _ = windows::open_connection_window(app, &lang, key, &info);
+    crate::tray::rebuild_tray(app);
     {
         let rb = app.state::<crate::state::RebuildingState>();
         *rb.inner.lock().unwrap() = false;
@@ -542,6 +571,11 @@ pub struct AIActivateView {
 }
 
 /// 激活某 AI 服务：创建/复用并 dock 服务窗口。
+///
+/// LRU 池命中：纯窗口操作（定位/显隐/聚焦），可同步。池未命中：新建 webview
+/// 必须在独立线程——本命令是同步 command，在主线程执行，主线程 build() 会因
+/// WebView2 异步初始化需要消息泵而挂死整个事件循环。active 先行置位，线程内
+/// 完成创建+登记+定位+显隐；返回 loaded=false，前端保持 splash 到页面加载完。
 #[tauri::command]
 pub fn activate_ai_service(app: tauri::AppHandle, id: String) -> Result<AIActivateView, String> {
     let lang = app.state::<AppMeta>().lang.clone();
@@ -557,53 +591,89 @@ pub fn activate_ai_service(app: tauri::AppHandle, id: String) -> Result<AIActiva
     save_cfg(&app);
 
     let label = format!("ai-service-{id}");
-    let (win, loaded) = {
+    let pooled = {
         let st = app.state::<AiState>();
-        let mut ai = st.lock();
-        match ai.service_windows.get(&label) {
-            Some(w) => (w.clone(), true),
-            None => {
-                let created = tauri::WebviewWindowBuilder::new(&app, &label, tauri::WebviewUrl::External(
-                    url::Url::parse(&url).map_err(|e| e.to_string())?,
-                ))
-                .title(format!("{} · {}", i18n::ai_title(&lang), name))
-                .decorations(false)
-                .visible(false)
-                .data_directory(crate::config::data_dir().join("webview2"))
-                .build()
-                .map_err(|e| e.to_string())?;
-                ai.service_windows.insert(label.clone(), created.clone());
-                (created, false)
+        let ai = st.lock();
+        ai.service_windows.get(&label).cloned()
+    };
+
+    // 池命中：立即揭示（页面/登录态/滚动位置全保留）。
+    if let Some(win) = pooled {
+        // 关闭服务窗口 = 隐藏（不真正关闭），并从登记表移除以便下次重建
+        {
+            let app2 = app.clone();
+            let id2 = id.clone();
+            win.on_window_event(move |event| {
+                if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                    api.prevent_close();
+                    let _ = app2.state::<AiState>().lock().service_windows.remove(&format!("ai-service-{id2}"));
+                }
+            });
+        }
+        position_service_window(&app, &win);
+        {
+            let st = app.state::<AiState>();
+            st.lock().active = Some(id);
+        }
+        // 服务窗口显隐交给 update_ai_service_visibility（hub 可见才显示）。
+        update_ai_service_visibility(&app);
+        {
+            let st = app.state::<AiState>();
+            if hub_visible(&app) && !st.lock().overlay_open {
+                let _ = win.set_focus();
             }
         }
-    };
-    // 关闭服务窗口 = 隐藏（不真正关闭），并从登记表移除以便下次重建
-    {
-        let app2 = app.clone();
-        let id2 = id.clone();
-        win.on_window_event(move |event| {
-            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
-                api.prevent_close();
-                let _ = app2.state::<AiState>().lock().service_windows.remove(&format!("ai-service-{id2}"));
-            }
-        });
+        return Ok(AIActivateView { loaded: true });
     }
 
-    position_service_window(&app, &win);
+    // 新服务：独立线程建窗（主线程同步 build() 死锁）。
     {
         let st = app.state::<AiState>();
-        let mut st = st.lock();
-        st.active = Some(id);
+        st.lock().active = Some(id.clone());
     }
-    // 服务窗口显隐交给 update_ai_service_visibility（hub 可见才显示）。
-    update_ai_service_visibility(&app);
-    {
-        let st = app.state::<AiState>();
-        if hub_visible(&app) && !st.lock().overlay_open {
-            let _ = win.set_focus();
+    let app2 = app.clone();
+    std::thread::spawn(move || {
+        let label = format!("ai-service-{id}");
+        let built = tauri::WebviewWindowBuilder::new(&app2, &label, tauri::WebviewUrl::External(
+            match url::Url::parse(&url) {
+                Ok(u) => u,
+                Err(_) => return,
+            },
+        ))
+        .title(format!("{} · {}", i18n::ai_title(&lang), name))
+        .decorations(false)
+        .visible(false)
+        .data_directory(crate::config::data_dir().join("webview2"))
+        .build();
+        match built {
+            Ok(win) => {
+                {
+                    let app3 = app2.clone();
+                    let id2 = id.clone();
+                    win.on_window_event(move |event| {
+                        if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                            api.prevent_close();
+                            let _ = app3.state::<AiState>().lock().service_windows.remove(&format!("ai-service-{id2}"));
+                        }
+                    });
+                }
+                {
+                    let st = app2.state::<AiState>();
+                    st.lock().service_windows.insert(label, win.clone());
+                }
+                position_service_window(&app2, &win);
+                update_ai_service_visibility(&app2);
+                {
+                    let st = app2.state::<AiState>();
+                    if hub_visible(&app2) && !st.lock().overlay_open {
+                        let _ = win.set_focus();
+                    }
+                }
+            }
+            Err(e) => eprintln!("create ai service window {label} failed: {e}"),
         }
-    }
-    Ok(AIActivateView { loaded })
+    });
+    Ok(AIActivateView { loaded: false })
 }
 
 fn hub_visible(app: &tauri::AppHandle) -> bool {
