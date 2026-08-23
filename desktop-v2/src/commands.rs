@@ -308,7 +308,11 @@ fn spawn_aux_window(
     let app = app.clone();
     std::thread::spawn(move || {
         if let Ok(w) = create(&app) {
-            windows::register_close_to_tray(&w, &app);
+            // ai-hub 在 create_ai_hub_window 里自带关闭钩子（X = 隐藏 + stash
+            // 停靠的服务窗口），再叠通用 close-to-tray 会双 prevent_close。
+            if w.label() != "ai-hub" {
+                windows::register_close_to_tray(&w, &app);
+            }
             let _ = w.show();
             let _ = w.set_focus();
         }
@@ -548,7 +552,7 @@ fn position_service_window(app: &tauri::AppHandle) {
 /// Windows 嵌入路径：激活服务 reveal（上 stage + 置顶 + 焦点），其余 stash
 /// （挪屏幕外但保持显示——SW_HIDE 会让 WebView2 挂起合成，再显示回来是空白，
 /// v1 aiembed_windows.go 实测踩坑点）。非 Windows 回退普通 show/hide。
-fn update_ai_service_visibility(app: &tauri::AppHandle) {
+pub fn update_ai_service_visibility(app: &tauri::AppHandle) {
     let hub = app.get_webview_window("ai-hub");
     let hub_visible = hub.as_ref().map(|w| w.is_visible().unwrap_or(false)).unwrap_or(false);
     let st = app.state::<AiState>();

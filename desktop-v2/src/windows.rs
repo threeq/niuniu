@@ -60,9 +60,13 @@ pub fn create_picker_window(app: &tauri::AppHandle, lang: &str) -> tauri::Result
         .build()
 }
 
-/// AI 直达窗口：内嵌 /ai.html。注册 hub 移动/缩放跟随——停靠的服务窗口是
-/// owned 顶层窗口，不会自动跟着 owner 走，hub 每次移动/缩放都要按 stage 矩形
-/// 重贴（对应 v1 main.go 的 WindowDidMove/WindowDidResize →
+/// AI 直达窗口：内嵌 /ai.html。hub 自带关闭钩子（spawn_aux_window 对 ai-hub
+/// 跳过通用的 close-to-tray）：X = 隐藏到托盘，且必须联动 stash 全部停靠的
+/// 服务窗口——它们是 owned 顶层窗口，Windows 上 owner 被 SW_HIDE 隐藏时
+/// owned 窗口不会跟着隐藏，不联动的话关掉 hub 后 AI 网页会孤零零留在屏幕上
+/// （对应 v1 main.go 的 WindowClosing → Cancel + Hide + setHubVisible(false)）。
+/// 另注册 hub 移动/缩放跟随——服务窗口不会自动跟着 owner 走，hub 每次移动/
+/// 缩放都要按 stage 矩形重贴（对应 v1 WindowDidMove/WindowDidResize →
 /// repositionActiveAIService；Tauri 的 Moved/Resized 事件逐次触发无 debounce，
 /// 拖动过程中即跟随）。
 pub fn create_ai_hub_window(app: &tauri::AppHandle, lang: &str) -> tauri::Result<WebviewWindow> {
@@ -74,10 +78,17 @@ pub fn create_ai_hub_window(app: &tauri::AppHandle, lang: &str) -> tauri::Result
         .data_directory(webview_data_dir())
         .build()?;
     let app2 = app.clone();
-    win.on_window_event(move |event| {
-        if matches!(event, WindowEvent::Moved(_) | WindowEvent::Resized(_)) {
+    let w2 = win.clone();
+    win.on_window_event(move |event| match event {
+        WindowEvent::Moved(_) | WindowEvent::Resized(_) => {
             crate::commands::reposition_active_ai_service(&app2);
         }
+        WindowEvent::CloseRequested { api, .. } => {
+            api.prevent_close();
+            let _ = w2.hide();
+            crate::commands::update_ai_service_visibility(&app2);
+        }
+        _ => {}
     });
     Ok(win)
 }
