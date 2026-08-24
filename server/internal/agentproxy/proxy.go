@@ -436,6 +436,17 @@ type WorkspaceSession struct {
 	// 0 = no bound provider (scene-only env), so nothing to mark.
 	activeProviderID int64
 
+	// restartForProviderFallback is set by the 429 detector when it kills the
+	// process because a healthy same-group fallback provider is available.
+	// SendLoop reads+clears it after the turn: when set, the SAME message is
+	// re-run on the restarted process (which now uses the fallback env) instead
+	// of failing the turn. Guarded by s.mu.
+	restartForProviderFallback bool
+	// providerFallbackRetries counts consecutive re-runs for one message so a
+	// pathological 429 loop cannot spin forever. Reset on each real user message.
+	// Guarded by s.mu.
+	providerFallbackRetries int
+
 	// Auto-compaction state (see auto_compact.go). lastContextTokens is the live
 	// context-window occupancy (uncached input + cache read + cache creation)
 	// taken from each message_start event (one API request's prompt size) — the
@@ -1631,6 +1642,7 @@ func (s *WorkspaceSession) SendLoop(ctx context.Context, workDir, content, attac
 	// Initial content is externally sourced — reset autohost counters.
 	s.autohostReset()
 	s.autohostResetErrors()
+	s.resetProviderFallbackRetries()
 	s.mu.Lock()
 	s.autohostGoalHint = content
 	s.mu.Unlock()
@@ -1682,7 +1694,33 @@ func (s *WorkspaceSession) SendLoop(ctx context.Context, workDir, content, attac
 		s.mu.Lock()
 		wasError := s.lastTurnError
 		lastResult := s.lastTurnResult
+		restartFB := s.restartForProviderFallback
+		s.restartForProviderFallback = false
 		s.mu.Unlock()
+		// Provider-fallback restart: a 429 marked the active provider and a
+		// healthy same-group member was available, so the process was killed and
+		// must be respawned with the fallback env. Re-run the SAME message on the
+		// restarted process instead of failing the turn — this is what makes "one
+		// provider rate-limited → the task continues on the next one" work in
+		// interactive sessions too (not just autohost recovery). Bounded to avoid
+		// a pathological 429 loop spinning forever.
+		if restartFB {
+			s.mu.Lock()
+			s.providerFallbackRetries++
+			retries := s.providerFallbackRetries
+			s.mu.Unlock()
+			if retries <= maxProviderFallbackRestarts {
+				s.emitAutohostSystemInfo(ctx, "♻️ 当前订阅平台 Provider 触发限流（429），已自动切换到组内备援 provider，正在重新执行任务…")
+				slog.Info("agent sendLoop: re-running message with group fallback provider",
+					"workspaceID", s.workspaceID, "retry", retries)
+				// Re-run the same content as a system-rendered turn (not a new
+				// "You" bubble); ensureProcess respawns with the fallback env.
+				injected = true
+				continue
+			}
+			slog.Warn("agent sendLoop: provider fallback restart budget exhausted",
+				"workspaceID", s.workspaceID, "retries", retries)
+		}
 		if wasError {
 			// Auto-recover when autohost is on and error budget remains;
 			// otherwise drop into attention.
@@ -1721,8 +1759,9 @@ func (s *WorkspaceSession) SendLoop(ctx context.Context, workDir, content, attac
 			content = next
 			attachmentsJSON = nextAttach
 			injected = false
-			// Real user/external input — reset auto-continue counter.
+			// Real user/external input — reset auto-continue + fallback counters.
 			s.autohostReset()
+			s.resetProviderFallbackRetries()
 			continue
 		}
 
@@ -1747,6 +1786,7 @@ func (s *WorkspaceSession) SendLoop(ctx context.Context, workDir, content, attac
 			attachmentsJSON = nextAttach
 			injected = false
 			s.autohostReset()
+			s.resetProviderFallbackRetries()
 			continue
 		}
 
@@ -2279,8 +2319,21 @@ func (s *WorkspaceSession) ensureProcess(ctx context.Context, workDir string) er
 		defer recoverSessionGoroutine("processMonitor", s.workspaceID)
 		waitErr := cmd.Wait()
 		s.procMu.Lock()
-		s.alive = false
+		// Whether THIS process is still the session's current one. After a
+		// provider-fallback restart (or any kill followed by an immediate
+		// respawn), s.cmd points to a NEWER process. A replaced process's
+		// monitor must be a complete no-op: it must not clobber s.alive (the new
+		// process set it true), must not broadcast a spurious exit error, must
+		// not mark the turn as errored, and must not signal the new turn's
+		// turnDone (that would prematurely unblock it).
+		isCurrent := s.cmd == cmd
+		if isCurrent {
+			s.alive = false
+		}
 		s.procMu.Unlock()
+		if !isCurrent {
+			return
+		}
 
 		// Log exit details including exit code and stderr
 		exitCode := -1
@@ -2337,10 +2390,10 @@ func (s *WorkspaceSession) ensureProcess(ctx context.Context, workDir string) er
 
 		// Signal done so Send() unblocks. running/status is loop-scoped (owned by
 		// SendLoop), so it is intentionally NOT cleared here.
+		s.emitBgTaskNotify()
 		s.mu.Lock()
 		ch := s.turnDone
 		s.mu.Unlock()
-		s.emitBgTaskNotify()
 		if ch != nil {
 			select {
 			case ch <- struct{}{}:
@@ -2415,6 +2468,23 @@ func (s *WorkspaceSession) processLine(ctx context.Context, line string) {
 	s.handleEvent(ctx, ev, msgId)
 }
 
+// maxProviderFallbackRestarts bounds how many times a single message is
+// re-run after consecutive 429 rate-limit provider-fallback restarts. The
+// natural loop already terminates when every group member is marked
+// rate-limited (ActiveProvider returns no usable member), so this is a
+// defensive ceiling for pathological cases (e.g. a gateway re-reporting a
+// later reset time).
+const maxProviderFallbackRestarts = 4
+
+// resetProviderFallbackRetries zeroes the per-message fallback re-run counter.
+// Called whenever a REAL user/external message begins (loop start / dequeue),
+// so the budget applies to one message, not a whole session.
+func (s *WorkspaceSession) resetProviderFallbackRetries() {
+	s.mu.Lock()
+	s.providerFallbackRetries = 0
+	s.mu.Unlock()
+}
+
 // maybeMarkRateLimitedProvider scans each raw output line for a third-party
 // subscription-platform 429 quota rejection (智谱 / 阿里百炼 / ...). When one is
 // found, the provider this session was spawned with is marked rate-limited
@@ -2460,9 +2530,11 @@ func (s *WorkspaceSession) maybeMarkRateLimitedProvider(ctx context.Context, lin
 	// HEALTHY same-group member now resolves (and it is not just the equally-
 	// limited bound provider), end this failed turn by killing the process
 	// (mirroring the inactivity-watchdog pattern): the process monitor marks the
-	// turn as an error and unblocks the Send, and the next turn's ensureProcess
-	// sees alive=false and respawns with the fallback env. Without a healthy
-	// fallback there is nothing to switch to — leave the process alone.
+	// turn as an error and unblocks the Send. SendLoop sees
+	// restartForProviderFallback and re-runs the SAME message on the respawned
+	// process (which now uses the fallback env — ensureProcess resolves
+	// ActiveProvider again). Without a healthy fallback there is nothing to
+	// switch to — leave the process alone.
 	s.mu.Lock()
 	active := s.activeProviderID
 	s.mu.Unlock()
@@ -2473,6 +2545,7 @@ func (s *WorkspaceSession) maybeMarkRateLimitedProvider(ctx context.Context, lin
 			s.lastTurnError = true
 			s.lastTurnResult = fmt.Sprintf("provider %s rate-limited (429); restarting with group fallback %s",
 				name, fb.Name)
+			s.restartForProviderFallback = true
 			s.mu.Unlock()
 			slog.Info("agent: provider fallback available, restarting process",
 				"workspaceID", s.workspaceID, "from_provider", active, "to_provider", fb.ID)
@@ -3135,7 +3208,9 @@ func (s *WorkspaceSession) Send(ctx context.Context, workDir, content, attachmen
 	s.thinkingLastFlush = time.Time{}
 	s.thinkingMsgID = ""
 	s.lastPhaseComplete = ""
-	s.turnDone = make(chan struct{}, 1)
+	// turnDone is created later, AFTER ensureProcess (see below): a stale
+	// process-monitor exit signal from a previously-killed process must never
+	// land on this turn's channel.
 	msgId := uuid.NewString()
 	userMsgId := uuid.NewString()
 	s.turnMsgId = msgId
@@ -3268,6 +3343,20 @@ func (s *WorkspaceSession) Send(ctx context.Context, workDir, content, attachmen
 		s.hub.Broadcast(s.workspaceID, errEv)
 		return err
 	}
+
+	// Allocate the per-turn completion channel only now, AFTER ensureProcess has
+	// (re)spawned the process. A provider-fallback restart kills the old process
+	// and immediately respawns; the old process's monitor goroutine fires a
+	// stale turnDone signal shortly after its cmd.Wait() returns. If this turn's
+	// channel already existed at that point (created before ensureProcess), the
+	// stale signal would prematurely unblock the NEW turn. Creating it here —
+	// after the respawn, with s.cmd already reassigned — plus the
+	// "still current process" guard in the monitor (see processMonitor) closes
+	// that race: any signal arriving before this point hits the PREVIOUS turn's
+	// dead channel.
+	s.mu.Lock()
+	s.turnDone = make(chan struct{}, 1)
+	s.mu.Unlock()
 
 	// Write message to stdin as JSON
 	inputMsg := map[string]interface{}{
