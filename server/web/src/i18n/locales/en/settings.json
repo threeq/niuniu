@@ -725,7 +725,7 @@
       "extraEnvLabel": "Extra environment variables",
       "extraEnvHint": "Merged last — overrides generated variables or adds platform-specific ones.",
       "groupLabel": "Group",
-      "groupPlaceholder": "e.g. 智谱 (empty = standalone)",
+      "groupPlaceholder": "e.g. my-group (empty = standalone)",
       "groupHint": "Providers in the same group back each other up: when one is rate-limited (429) its reset time is marked automatically, and the system falls back to another member of the group until it recovers. Empty = standalone, not part of any fallback group."
     }
   },
