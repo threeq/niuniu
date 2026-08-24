@@ -67,6 +67,26 @@ func (f fakeQuerier) GetWorkspaceEnvProviderID(_ context.Context, _ int64) (int6
 	return 0, nil
 }
 
+func (f fakeQuerier) SetProviderCooldown(_ context.Context, arg store.SetProviderCooldownParams) error {
+	for i := range f.providers {
+		if f.providers[i].ID == arg.ID {
+			f.providers[i].CooldownUntil = arg.CooldownUntil
+			return nil
+		}
+	}
+	return sql.ErrNoRows
+}
+
+func (f fakeQuerier) ClearProviderCooldown(_ context.Context, id int64) error {
+	for i := range f.providers {
+		if f.providers[i].ID == id {
+			f.providers[i].CooldownUntil = sql.NullTime{}
+			return nil
+		}
+	}
+	return sql.ErrNoRows
+}
+
 func envMap(rows []store.WorkspaceEnv) map[string]string {
 	m := map[string]string{}
 	for _, r := range rows {

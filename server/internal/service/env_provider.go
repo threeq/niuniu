@@ -73,6 +73,7 @@ func (s *EnvProviderService) Create(ctx context.Context, p store.EnvProvider) (s
 		SubagentModel: p.SubagentModel,
 		ExtraEnv:      p.ExtraEnv,
 		ContextWindow: p.ContextWindow,
+		GroupName:     p.GroupName,
 		OwnerType:     p.OwnerType,
 		OwnerID:       p.OwnerID,
 	})
@@ -93,7 +94,15 @@ func (s *EnvProviderService) Update(ctx context.Context, id int64, p store.EnvPr
 		SubagentModel: p.SubagentModel,
 		ExtraEnv:      p.ExtraEnv,
 		ContextWindow: p.ContextWindow,
+		GroupName:     p.GroupName,
 	})
+}
+
+// ClearCooldown removes a provider's rate-limit cooldown so it becomes eligible
+// again immediately (e.g. the user re-keyed the account or the platform reset
+// earlier than the parsed 429 reset time). No-op when there is no cooldown.
+func (s *EnvProviderService) ClearCooldown(ctx context.Context, id int64) error {
+	return s.q.ClearProviderCooldown(ctx, id)
 }
 
 func (s *EnvProviderService) Delete(ctx context.Context, id int64) error {

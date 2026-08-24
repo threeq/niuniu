@@ -255,24 +255,26 @@ type EnvPreset struct {
 }
 
 type EnvProvider struct {
-	ID            int64     `json:"id"`
-	Name          string    `json:"name"`
-	Platform      string    `json:"platform"`
-	Description   string    `json:"description"`
-	BaseUrls      string    `json:"base_urls"`
-	ApiKey        string    `json:"api_key"`
-	Model         string    `json:"model"`
-	HaikuModel    string    `json:"haiku_model"`
-	SonnetModel   string    `json:"sonnet_model"`
-	OpusModel     string    `json:"opus_model"`
-	SubagentModel string    `json:"subagent_model"`
-	ExtraEnv      string    `json:"extra_env"`
-	ContextWindow int64     `json:"context_window"`
-	OwnerType     string    `json:"owner_type"`
-	OwnerID       int64     `json:"owner_id"`
-	Slug          string    `json:"slug"`
-	CreatedAt     time.Time `json:"created_at"`
-	UpdatedAt     time.Time `json:"updated_at"`
+	ID            int64        `json:"id"`
+	Name          string       `json:"name"`
+	Platform      string       `json:"platform"`
+	Description   string       `json:"description"`
+	BaseUrls      string       `json:"base_urls"`
+	ApiKey        string       `json:"api_key"`
+	Model         string       `json:"model"`
+	HaikuModel    string       `json:"haiku_model"`
+	SonnetModel   string       `json:"sonnet_model"`
+	OpusModel     string       `json:"opus_model"`
+	SubagentModel string       `json:"subagent_model"`
+	ExtraEnv      string       `json:"extra_env"`
+	ContextWindow int64        `json:"context_window"`
+	GroupName     string       `json:"group_name"`
+	CooldownUntil sql.NullTime `json:"cooldown_until"`
+	OwnerType     string       `json:"owner_type"`
+	OwnerID       int64        `json:"owner_id"`
+	Slug          string       `json:"slug"`
+	CreatedAt     time.Time    `json:"created_at"`
+	UpdatedAt     time.Time    `json:"updated_at"`
 }
 
 type ExternalApiAudit struct {

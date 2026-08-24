@@ -1072,6 +1072,9 @@ export interface EnvProvider {
   opus_model: string
   subagent_model: string
   extra_env: Record<string, string>
+  context_window?: number
+  group_name: string
+  cooldown_until: string // RFC3339; "" = healthy (not rate-limited)
   owner?: { type: string; id: number; name?: string; slug?: string }
   created_at: string
   updated_at: string
@@ -1089,6 +1092,8 @@ export interface CreateEnvProviderData {
   opus_model?: string
   subagent_model?: string
   extra_env?: Record<string, string>
+  context_window?: number
+  group_name?: string
   owner?: { type: string; id: number }
 }
 

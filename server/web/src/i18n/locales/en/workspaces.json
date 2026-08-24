@@ -726,6 +726,7 @@
       "envProvider": "Subscription platform provider",
       "envProviderNone": "No binding (use scene/manual env)",
       "envProviderHint": "Pick a provider directly — its base_url / models / API key expand into environment variables for this workspace's Agent type at spawn, no scene needed.",
+      "envProviderLimited": " (rate-limited)",
       "importPreset": "Import from preset",
       "loadingPresets": "Loading...",
       "noPresets": "No presets",

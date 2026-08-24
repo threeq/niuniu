@@ -128,11 +128,12 @@ function AccountCard({ account, onEdit, onDelete }: { account: EnvAccount; onEdi
   )
 }
 
-function ProviderCard({ provider, onEdit, onDelete, onDuplicate }: {
+function ProviderCard({ provider, onEdit, onDelete, onDuplicate, onClearCooldown }: {
   provider: EnvProvider
   onEdit: (p: EnvProvider) => void
   onDelete: (id: number) => void
   onDuplicate: (p: EnvProvider) => void
+  onClearCooldown: (id: number) => void
 }) {
   const { t } = useTranslation('settings')
   const [showPreview, setShowPreview] = useState(false)
@@ -145,9 +146,17 @@ function ProviderCard({ provider, onEdit, onDelete, onDuplicate }: {
 
   const cliLabel = (c: string) => t(`env.providerCliType${c.charAt(0).toUpperCase()}${c.slice(1)}`)
 
+  // cooldown_until is RFC3339; only render the "rate-limited" state while it is
+  // still in the future (the backend treats a past value as healthy).
+  const inCooldown = (() => {
+    if (!provider.cooldown_until) return false
+    const ts = new Date(provider.cooldown_until).getTime()
+    return Number.isFinite(ts) && ts > Date.now()
+  })()
+
   return (
     <div className="border border-border rounded-lg p-4">
-      {/* Row 1: name, platform, model, account */}
+      {/* Row 1: name, platform, model, account, group */}
       <div className="flex items-center justify-between gap-2">
         <button
           onClick={() => setShowPreview((v) => !v)}
@@ -160,6 +169,9 @@ function ProviderCard({ provider, onEdit, onDelete, onDuplicate }: {
           )}
           {provider.model && (
             <span className="text-xs text-muted-foreground truncate">model: {provider.model}</span>
+          )}
+          {provider.group_name && (
+            <span className="text-xs text-muted-foreground truncate">{t('env.providerGroup', { group: provider.group_name })}</span>
           )}
           {provider.api_key && (
             <span className="text-xs text-muted-foreground font-mono truncate">{maskKey(provider.api_key)}</span>
@@ -183,7 +195,24 @@ function ProviderCard({ provider, onEdit, onDelete, onDuplicate }: {
           </button>
         </div>
       </div>
-      {/* Row 2+: base_urls per protocol */}
+      {/* Row 2: rate-limit cooldown state + manual clear */}
+      {inCooldown && (
+        <div className="mt-2 ml-6 flex items-center gap-2 text-xs">
+          <span className="text-destructive">
+            {t('env.providerLimitedUntil', { time: new Date(provider.cooldown_until).toLocaleString() })}
+          </span>
+          <button
+            onClick={async () => {
+              if (!(await confirm(t('env.providerClearCooldownConfirm')))) return
+              onClearCooldown(provider.id)
+            }}
+            className="text-info hover:text-info/80 underline underline-offset-2"
+          >
+            {t('env.providerClearCooldown')}
+          </button>
+        </div>
+      )}
+      {/* Row 3+: base_urls per protocol */}
       <div className="mt-1 ml-6 space-y-0.5">
         {Object.entries(provider.base_urls ?? {}).map(([proto, url]) => (
           <div key={proto} className="text-xs text-muted-foreground font-mono break-all">
@@ -353,6 +382,7 @@ export function EnvSettings({ mode = 'all' }: { mode?: 'all' | 'presets' | 'prov
   const [provOpus, setProvOpus] = useState('')
   const [provSubagent, setProvSubagent] = useState('')
   const [provExtra, setProvExtra] = useState<{ key: string; value: string }[]>([])
+  const [provGroup, setProvGroup] = useState('')
   const [provOwner, setProvOwner] = useState<OwnerRef>({ type: 'user', id: currentUser?.id ?? 0 })
 
   const createProviderMutation = useMutation({
@@ -373,12 +403,16 @@ export function EnvSettings({ mode = 'all' }: { mode?: 'all' | 'presets' | 'prov
     mutationFn: (id: number) => api.deleteEnvProvider(id),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['env-providers'] }),
   })
+  const clearCooldownMutation = useMutation({
+    mutationFn: (id: number) => api.clearProviderCooldown(id),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['env-providers'] }),
+  })
 
   const openCreateProviderDialog = () => {
     setEditingProvider(null)
     setProvName(''); setProvPlatform(''); setProvDesc(''); setProvBaseUrls([]); setProvApiKey('')
     setProvModel(''); setProvHaiku(''); setProvSonnet(''); setProvOpus(''); setProvSubagent('')
-    setProvExtra([])
+    setProvExtra([]); setProvGroup('')
     setProvOwner({ type: 'user', id: currentUser?.id ?? 0 })
     setProviderDialogOpen(true)
   }
@@ -390,6 +424,7 @@ export function EnvSettings({ mode = 'all' }: { mode?: 'all' | 'presets' | 'prov
     setProvModel(p.model); setProvHaiku(p.haiku_model); setProvSonnet(p.sonnet_model)
     setProvOpus(p.opus_model); setProvSubagent(p.subagent_model)
     setProvExtra(Object.entries(p.extra_env ?? {}).map(([key, value]) => ({ key, value })))
+    setProvGroup(p.group_name ?? '')
     setProviderDialogOpen(true)
   }
 
@@ -398,6 +433,7 @@ export function EnvSettings({ mode = 'all' }: { mode?: 'all' | 'presets' | 'prov
     setProvName(p.name); setProvPlatform(p.platform); setProvDesc(p.description); setProvBaseUrls(Object.entries(p.base_urls ?? {}).map(([protocol, url]) => ({ protocol, url }))); setProvApiKey(p.api_key)
     setProvModel(p.model); setProvHaiku(p.haiku_model); setProvSonnet(p.sonnet_model); setProvOpus(p.opus_model); setProvSubagent(p.subagent_model)
     setProvExtra(Object.entries(p.extra_env ?? {}).map(([key, value]) => ({ key, value })))
+    setProvGroup(p.group_name ?? '')
     setProviderDialogOpen(true)
   }
   const handleSaveProvider = () => {
@@ -411,6 +447,7 @@ export function EnvSettings({ mode = 'all' }: { mode?: 'all' | 'presets' | 'prov
       api_key: provApiKey,
       model: provModel, haiku_model: provHaiku, sonnet_model: provSonnet, opus_model: provOpus, subagent_model: provSubagent,
       extra_env: extra,
+      group_name: provGroup.trim(),
       owner: editingProvider ? undefined : provOwner,
     }
     if (editingProvider) updateProviderMutation.mutate({ id: editingProvider.id, data })
@@ -485,7 +522,7 @@ export function EnvSettings({ mode = 'all' }: { mode?: 'all' | 'presets' | 'prov
                 onEdit={openEditProviderDialog}
                 onDuplicate={openDuplicateProviderDialog}
                 onDelete={(id) => deleteProviderMutation.mutate(id)}
-                
+                onClearCooldown={(id) => clearCooldownMutation.mutate(id)}
               />
             ))}
           </div>
@@ -754,6 +791,11 @@ export function EnvSettings({ mode = 'all' }: { mode?: 'all' | 'presets' | 'prov
             <div>
               <label className="block text-sm font-medium text-foreground mb-1">{t('env.provider.descLabel')}</label>
               <Input value={provDesc} onChange={(e) => setProvDesc(e.target.value)} placeholder={t('env.provider.descPlaceholder')} />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-foreground mb-1">{t('env.provider.groupLabel')}</label>
+              <Input value={provGroup} onChange={(e) => setProvGroup(e.target.value)} placeholder={t('env.provider.groupPlaceholder')} />
+              <p className="mt-1 text-xs text-muted-foreground">{t('env.provider.groupHint')}</p>
             </div>
             <div>
               <div className="flex items-center justify-between mb-1">

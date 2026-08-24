@@ -669,6 +669,10 @@
     "noProviders": "暫無 Provider",
     "providerDeleteConfirm": "確定要刪除 Provider「{{name}}」嗎？",
     "providerDuplicate": "複製",
+    "providerGroup": "分組：{{group}}",
+    "providerLimitedUntil": "限流中，恢復時間 {{time}}",
+    "providerClearCooldown": "清除限流",
+    "providerClearCooldownConfirm": "確定清除該 Provider 的限流標記嗎？清除後立即可用。",
     "providerImportTitle": "匯入為預設",
     "providerImportDesc": "把該 Provider 的配置按 Agent 型別轉換為環境變數，生成一個可掛載到場景/工作空間的預設。",
     "providerCliTypeLabel": "目標 Agent 型別",
@@ -712,7 +716,10 @@
       "opusModelLabel": "旗艦模型（opus）",
       "subagentModelLabel": "子 Agent 模型（subagent）",
       "extraEnvLabel": "附加環境變數",
-      "extraEnvHint": "合併到最後，可覆蓋生成的變數或補充平臺特有變數。"
+      "extraEnvHint": "合併到最後，可覆蓋生成的變數或補充平臺特有變數。",
+      "groupLabel": "分組",
+      "groupPlaceholder": "例如 智譜（留空=獨立）",
+      "groupHint": "同分組的 Provider 互為備援：某個被限流（429）時自動標記恢復時間，恢復前自動切換到組內其他 Provider。留空表示獨立，不參與備援。"
     }
   },
   "harness": {

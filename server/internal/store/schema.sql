@@ -662,6 +662,9 @@ CREATE TABLE IF NOT EXISTS env_providers (
     opus_model    TEXT NOT NULL DEFAULT '',
     subagent_model TEXT NOT NULL DEFAULT '',
     extra_env     TEXT NOT NULL DEFAULT '{}',  -- JSON: Record<string, string> passthrough
+    context_window INTEGER NOT NULL DEFAULT 0, -- model context window in tokens (0 = unknown)
+    group_name    TEXT NOT NULL DEFAULT '',   -- fallback group; empty = standalone
+    cooldown_until TIMESTAMP,                 -- rate-limit reset time; provider is skipped while in the future (NULL = healthy)
     owner_type    TEXT NOT NULL DEFAULT 'user' CHECK (owner_type IN ('user','org')),
     owner_id      INTEGER NOT NULL DEFAULT 0,
     slug          TEXT NOT NULL DEFAULT '',

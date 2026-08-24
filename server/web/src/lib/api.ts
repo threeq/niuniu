@@ -570,6 +570,8 @@ export const api = {
     api.put(`/env-providers/${id}`, data),
   deleteEnvProvider: (id: number): Promise<void> =>
     api.delete(`/env-providers/${id}`),
+  clearProviderCooldown: (id: number): Promise<void> =>
+    api.delete(`/env-providers/${id}/cooldown`),
   getProviderEnv: (id: number, cliType?: string): Promise<Record<string, string>> =>
     api.get<Record<string, string>>(`/env-providers/${id}/env`, { params: cliType ? { cli_type: cliType } : {} }),
   // Workspace direct provider binding (issue #653 simplification)

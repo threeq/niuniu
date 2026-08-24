@@ -315,6 +315,16 @@ func Migrate(db *sql.DB) {
 		slog.Warn("fix env_providers [1m] context_window failed", "error", err)
 	}
 
+	// Provider grouping + rate-limit cooldown (issue: 订阅平台 provider 分组支持).
+	// group_name: providers sharing a non-empty group_name are interchangeable
+	// fallbacks — when one is rate-limited, resolution picks another member of
+	// the same group. cooldown_until: the parsed reset time of a 429 quota
+	// error; while it is in the future the provider is skipped by
+	// sceneenv.ActiveProvider. NULL = healthy. Fresh DBs get both from
+	// schema.sql; existing DBs need the columns added here.
+	addColumnIfNotExists(db, "env_providers", "group_name", "TEXT NOT NULL DEFAULT ''")
+	addColumnIfNotExists(db, "env_providers", "cooldown_until", "TIMESTAMP")
+
 	if !migrationApplied(w, "workspaces_created_by_backfill_v1") {
 		if _, err := w.ExecContext(context.Background(),
 			`UPDATE workspaces SET created_by = owner_id

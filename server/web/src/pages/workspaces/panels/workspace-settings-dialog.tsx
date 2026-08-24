@@ -529,6 +529,7 @@ export function WorkspaceSettingsDialog({ workspace }: WorkspaceSettingsDialogPr
                 {providers.map((p) => (
                   <option key={p.id} value={p.id}>
                     {p.name}{Object.keys(p.base_urls ?? {}).length ? ` · ${Object.keys(p.base_urls).join('/')}` : ''}{p.model ? ` · ${p.model}` : ''}
+                    {p.cooldown_until && new Date(p.cooldown_until).getTime() > Date.now() ? t('panels.workspaceSettings.envProviderLimited') : ''}
                   </option>
                 ))}
               </select>

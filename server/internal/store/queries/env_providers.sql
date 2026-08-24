@@ -14,15 +14,26 @@ ORDER BY created_at DESC;
 SELECT * FROM env_providers WHERE id = ?;
 
 -- name: CreateEnvProvider :one
-INSERT INTO env_providers (name, platform, description, base_urls, api_key, model, haiku_model, sonnet_model, opus_model, subagent_model, extra_env, context_window, owner_type, owner_id, slug)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+INSERT INTO env_providers (name, platform, description, base_urls, api_key, model, haiku_model, sonnet_model, opus_model, subagent_model, extra_env, context_window, group_name, owner_type, owner_id, slug)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 RETURNING *;
 
 -- name: UpdateEnvProvider :exec
 UPDATE env_providers
 SET name = ?, platform = ?, description = ?, base_urls = ?, api_key = ?, model = ?,
-    haiku_model = ?, sonnet_model = ?, opus_model = ?, subagent_model = ?, extra_env = ?, context_window = ?, slug = ?, updated_at = CURRENT_TIMESTAMP
+    haiku_model = ?, sonnet_model = ?, opus_model = ?, subagent_model = ?, extra_env = ?, context_window = ?, group_name = ?, slug = ?, updated_at = CURRENT_TIMESTAMP
 WHERE id = ?;
+
+-- name: SetProviderCooldown :exec
+-- Marks a provider as rate-limited until the given reset time (cooldown_until).
+-- While the value is in the future, sceneenv.ActiveProvider skips the provider
+-- and falls back to another member of its group.
+UPDATE env_providers SET cooldown_until = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?;
+
+-- name: ClearProviderCooldown :exec
+-- Clears a provider's rate-limit cooldown (user-initiated reset, or when the
+-- stored value has passed and the provider should be retried immediately).
+UPDATE env_providers SET cooldown_until = NULL, updated_at = CURRENT_TIMESTAMP WHERE id = ?;
 
 -- name: DeleteEnvProvider :exec
 DELETE FROM env_providers WHERE id = ?;
