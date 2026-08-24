@@ -151,10 +151,9 @@ function detectArch(): string {
   return ''
 }
 
-// Pick a download asset matching the current platform. Mirrors
-// updater.findPlatformAsset on the Go side (desktop/internal/updater/
-// updater.go): match os+arch first, fall back to os-only. Empty when no
-// asset matches — caller should fall back to the release html_url.
+// Pick a download asset matching the current platform: os+arch first, os-only
+// fallback (same matching the retired Wails updater used). Empty when no asset
+// matches — caller should fall back to the release html_url.
 export function findPlatformAsset(assets: ReleaseAsset[]): string {
   const os = detectOS()
   if (!os) return ''

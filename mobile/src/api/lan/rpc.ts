@@ -1,7 +1,7 @@
 /**
  * lanEncryptedRPC — send one encrypted RPC over a LAN yamux stream.
  *
- * Protocol (matches desktop/internal/lanhost/server.go handleEncryptedRPCStream):
+ * Protocol (matches server/internal/lanhost/server.go handleEncryptedRPCStream):
  *   1. Open a yamux stream on the tunnel.
  *   2. Write len-prefixed stream-header JSON: {"stream_type":"encrypted_rpc","mobile_id":"..."}
  *   3. Write len-prefixed Noise-encrypted inner envelope (method/path/headers/body).

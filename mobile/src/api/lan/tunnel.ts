@@ -7,7 +7,7 @@
  * streams and exchange encrypted RPC frames without a separate connection per
  * request.
  *
- * Protocol (matches desktop/internal/lanhost/server.go handleLanTunnel):
+ * Protocol (matches server/internal/lanhost/server.go handleLanTunnel):
  *   1. WebSocket upgrade to `ws://{host}:{port}/lan-tunnel`
  *   2. Send JSON: `{"mobile_xpub_b64": "<base64 X25519 pubkey>"}`
  *   3. Send binary: Noise KK msg1 (initiator writeMessage)

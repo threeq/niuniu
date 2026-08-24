@@ -26,8 +26,8 @@
 | `mobile/assets/adaptive-icon.png` | EN 1024 | rasterized |
 | `mobile/assets/splash-icon.png` | EN 1024 | rasterized |
 | `mobile/assets/favicon.png` | EN 48 | rasterized |
-| `desktop/cmd/personal/appicon.png` | EN 512 | Wails appicon |
-| `desktop/cmd/personal/build/icon.{ico,icns}` | EN | 安装包打包 |
+| `desktop-v2/assets/appicon.png` | EN 512 | Tauri appicon |
+| `desktop-v2/icons/icon.{ico,icns}` | EN | 安装包打包 |
 | `website/public/favicon.svg` | 双语 | marketing 品牌 |
 | `website/public/favicon.ico` | 双语 | marketing 品牌 |
 

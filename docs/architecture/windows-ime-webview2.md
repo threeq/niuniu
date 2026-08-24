@@ -59,7 +59,9 @@
   （`CreateCoreWebView2Controller(e.hwnd, ...)`），无 composition controller。
 - Wails 激活路径：`wails/v3@v3.0.0-alpha.74/pkg/application/webview_window_windows.go`
   —— `WM_ACTIVATE` (1432) 不调 Focus；`WM_SETFOCUS` (1499) 调 `w.focus()`→`chromium.Focus()`→`MoveFocus`。
-- niuniu 窗口创建：`desktop/cmd/personal/main.go`
-  （`WebviewWindowOptions` 仅设跨平台字段，无 `Windows{}` 宿主选项）。
+  （历史记录：Wails 版已移除，迁移后 IME 问题由 desktop-v2/Tauri 的 WebView2
+  宿主自然规避，SPA 兜底仍保留。）
+- 旧版 niuniu 窗口创建：`desktop/cmd/personal/main.go`（Wails 版，已删除；
+  对应现为 `desktop-v2/src/windows.rs`）。
 </content>
 </invoke>

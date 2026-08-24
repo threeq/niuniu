@@ -1,14 +1,11 @@
-.PHONY: dev dev-backend dev-frontend dev-desktop \
+.PHONY: dev dev-backend dev-frontend \
 	build build-win build-linux build-mcp \
 	build-personal build-personal-current build-personal-all \
 	build-personal-windows build-personal-darwin build-personal-linux \
-	build-personal-v2-current build-personal-v2-all \
-	build-personal-v2-windows build-personal-v2-darwin build-personal-v2-linux \
+	package-personal-darwin package-personal-linux \
 	dev-desktop-v2 \
-	package-personal-darwin \
 	_personal-prepare _personal-prepare-current _personal-prepare-v2 \
-	gen-windows-resources ensure-goversioninfo \
-	clean test test-coverage test-services test-handlers test-desktop test-pg test-pg-smoke docs sqlc sqlc-lint \
+	clean test test-coverage test-services test-handlers test-pg test-pg-smoke docs sqlc sqlc-lint \
 	builtin-scenes-sync builtin-skills-sync \
 	dev-relay dev-relay-web build-relay test-relay test-all \
 	relay-docker relay-compose-up relay-compose-down relay-compose-logs
@@ -40,23 +37,9 @@ SERVER_LDFLAGS_COMMON = $(STRIP_LDFLAGS) \
 	-X main.Version=$(VERSION)
 SERVER_LDFLAGS = -ldflags "$(SERVER_LDFLAGS_COMMON)"
 
-# Desktop ldflags: inject version into the updater (release-poll target) AND
-# into cmd/personal.personalVersion (used by probe.Decide for personal↔server
-# version-compat check). On Windows we also pass -H windowsgui to hide the
-# console window the linker would otherwise attach.
-DESKTOP_LDFLAGS_COMMON = $(STRIP_LDFLAGS) \
-	-X github.com/niuniu-dev/niuniu-desktop/internal/updater.Version=$(VERSION) \
-	-X main.personalVersion=$(VERSION)
-ifeq ($(OS),Windows_NT)
-DESKTOP_LDFLAGS = -ldflags "$(DESKTOP_LDFLAGS_COMMON) -H windowsgui"
-else
-DESKTOP_LDFLAGS = -ldflags "$(DESKTOP_LDFLAGS_COMMON)"
-endif
-
-# Wails desktop needs CGO (AppKit bindings). On a macOS host, building the
-# non-host arch is a cross-compile and Go implicitly turns CGO off; Xcode clang
-# also needs `-arch <target>` to emit code for the right slice. Pin both arches
-# symmetrically so a build off either Apple Silicon or Intel works.
+# macOS cgo env for the niuniu-server/mcp sidecars bundled into the desktop-v2
+# app (_personal-prepare): build the non-host arch as a cross-compile; Xcode
+# clang needs `-arch <target>` to emit code for the right slice.
 DARWIN_ARM64_ENV = CGO_ENABLED=1 CGO_CFLAGS="-arch arm64" CGO_LDFLAGS="-arch arm64" GOOS=darwin GOARCH=arm64
 DARWIN_AMD64_ENV = CGO_ENABLED=1 CGO_CFLAGS="-arch x86_64" CGO_LDFLAGS="-arch x86_64" GOOS=darwin GOARCH=amd64
 
@@ -68,12 +51,12 @@ DARWIN_AMD64_ENV = CGO_ENABLED=1 CGO_CFLAGS="-arch x86_64" CGO_LDFLAGS="-arch x8
 LINUX_AMD64_ENV = CGO_ENABLED=1 CC="zig cc -target x86_64-linux-musl" GOOS=linux GOARCH=amd64
 LINUX_ARM64_ENV = CGO_ENABLED=1 CC="zig cc -target aarch64-linux-musl" GOOS=linux GOARCH=arm64
 
-# cgo env for the bundled niuniu-server/niuniu-mcp built into the personal
-# desktop app (_personal-prepare), selected by $(GOOS)_$(GOARCH). Same WebP/cgo
-# requirement as above. Linux is cross-compiled with zig cc (static musl);
-# Windows uses zig cc natively (no mingw needed); macOS builds natively on its
-# own runner with clang, pinning -arch for the non-host slice. These set only
-# the toolchain — the recipe still passes GOOS/GOARCH explicitly.
+# cgo env for the bundled niuniu-server/niuniu-mcp sidecars built into the
+# desktop-v2 app (_personal-prepare), selected by $(GOOS)_$(GOARCH). Same
+# WebP/cgo requirement as above. Linux is cross-compiled with zig cc (static
+# musl); Windows uses zig cc natively (no mingw needed); macOS builds natively
+# on its own runner with clang, pinning -arch for the non-host slice. These set
+# only the toolchain — the recipe still passes GOOS/GOARCH explicitly.
 BUNDLE_CGO_linux_amd64   = CGO_ENABLED=1 CC="zig cc -target x86_64-linux-musl"
 BUNDLE_CGO_linux_arm64   = CGO_ENABLED=1 CC="zig cc -target aarch64-linux-musl"
 # Windows MUST pin -mcpu=baseline: zig cc without an explicit -target compiles
@@ -90,65 +73,15 @@ BUNDLE_CGO_darwin_arm64  = CGO_ENABLED=1 CGO_CFLAGS="-arch arm64" CGO_LDFLAGS="-
 BUNDLE_CGO_darwin_amd64  = CGO_ENABLED=1 CGO_CFLAGS="-arch x86_64" CGO_LDFLAGS="-arch x86_64"
 BUNDLE_CGO = $(if $(BUNDLE_CGO_$(GOOS)_$(GOARCH)),$(BUNDLE_CGO_$(GOOS)_$(GOARCH)),CGO_ENABLED=1)
 
-# goversioninfo (Windows resource compiler for Go).
-# Generates resource_windows_amd64.syso from versioninfo.json + icon.ico so
-# `go build` auto-embeds the icon into the .exe (file-explorer / start-menu
-# icon). The runtime window/taskbar icon is set separately via the embedded
-# appicon.png passed to application.Options.Icon.
-GO_BIN := $(shell go env GOPATH 2>/dev/null)/bin
-ifeq ($(OS),Windows_NT)
-GOVERSIONINFO_BIN := $(GO_BIN)/goversioninfo.exe
-else
-GOVERSIONINFO_BIN := $(GO_BIN)/goversioninfo
-endif
-
-ensure-goversioninfo:
-	@if [ ! -x "$(GOVERSIONINFO_BIN)" ]; then \
-		echo "Installing goversioninfo to $(GOVERSIONINFO_BIN) ..."; \
-		go install github.com/josephspurrier/goversioninfo/cmd/goversioninfo@latest; \
-	fi
-
-# Parse $(VERSION) (e.g. "v0.2.0-27-g99dee791-dirty", "v1.0.7", "dev") into
-# the four-part numeric tuple that Windows FixedFileInfo requires. Falls
-# back to 0.0.0.0 when VERSION doesn't match semver — but we still pass the
-# full VERSION string into StringFileInfo's FileVersion/ProductVersion so
-# users see "v0.2.0-27-g99dee791" in the file Properties dialog. Filling
-# these out matters for AV reputation: empty/zero version blocks contribute
-# to Heur.Generic heuristic scores, especially on 360 / 火绒 / Defender.
-VER_MAJOR := $(shell echo "$(VERSION)" | sed -n 's/^v\?\([0-9][0-9]*\)\..*/\1/p')
-VER_MINOR := $(shell echo "$(VERSION)" | sed -n 's/^v\?[0-9][0-9]*\.\([0-9][0-9]*\)\..*/\1/p')
-VER_PATCH := $(shell echo "$(VERSION)" | sed -n 's/^v\?[0-9][0-9]*\.[0-9][0-9]*\.\([0-9][0-9]*\).*/\1/p')
-VER_BUILD := $(shell echo "$(VERSION)" | sed -n 's/^v\?[0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*-\([0-9][0-9]*\)-.*/\1/p')
-VER_MAJOR := $(if $(VER_MAJOR),$(VER_MAJOR),0)
-VER_MINOR := $(if $(VER_MINOR),$(VER_MINOR),0)
-VER_PATCH := $(if $(VER_PATCH),$(VER_PATCH),0)
-VER_BUILD := $(if $(VER_BUILD),$(VER_BUILD),0)
-
-GOVERSIONINFO_VER_FLAGS = \
-	-ver-major=$(VER_MAJOR) -ver-minor=$(VER_MINOR) \
-	-ver-patch=$(VER_PATCH) -ver-build=$(VER_BUILD) \
-	-product-ver-major=$(VER_MAJOR) -product-ver-minor=$(VER_MINOR) \
-	-product-ver-patch=$(VER_PATCH) -product-ver-build=$(VER_BUILD) \
-	-file-version=$(VERSION) -product-version=$(VERSION)
-
-# Generate the Windows resource (.syso) file for the desktop binary. The
-# `-platform-specific=true` flag names the output `resource_windows_amd64.syso`
-# so it is auto-included only on windows-amd64 builds and ignored on other GOOS.
-# Version flags override the (intentionally zero) defaults in versioninfo.json
-# at build time so the artifact carries its real version in the PE header.
-gen-windows-resources: ensure-goversioninfo
-	cd desktop/cmd/personal && "$(GOVERSIONINFO_BIN)" -platform-specific=true -icon build/icon.ico $(GOVERSIONINFO_VER_FLAGS) versioninfo.json
-
 # UPX compression — OFF by default (install: choco/brew/apt install upx).
 #
 # WARNING: UPX-packed Windows binaries are a top trigger for Chinese AV
 # heuristics (360, 火绒, 腾讯) and Microsoft Defender — the UPX unpack stub
 # itself matches generic-trojan signatures (e.g. Heur.Generic.H8oAgTEA).
-# Wails/Go binaries are especially prone because they already have an
-# unusual section layout. So local packaging AND the shipped release
-# artifacts (build-personal-*) all ship UNCOMPRESSED; the durable fix for
-# the residual false positives is an Authenticode code-signing cert, not
-# compression.
+# Go binaries are especially prone because they already have an unusual
+# section layout. So local packaging AND the shipped release artifacts all
+# ship UNCOMPRESSED; the durable fix for the residual false positives is an
+# Authenticode code-signing cert, not compression.
 #
 # Opt in explicitly with `WITH_UPX=1 make build-...` only if you specifically
 # need the smaller size and accept the AV-reputation hit.
@@ -175,9 +108,6 @@ dev-backend:
 dev-frontend:
 	cd server/web && pnpm dev
 
-dev-desktop:
-	cd desktop && wails3 dev
-
 dev-mobile: mobile-install
 	cd mobile && REACT_NATIVE_PACKAGER_HOSTNAME=192.168.3.28 npx expo start
 
@@ -192,7 +122,7 @@ build:
 	cd server && go build $(SERVER_LDFLAGS) -o ../bin/niuniu-mcp-$(VERSION) ./cmd/niuniu-mcp
 	$(call compress,bin/niuniu-server-$(VERSION))
 	$(call compress,bin/niuniu-mcp-$(VERSION))
-	@echo "NOTE: Desktop is now the bundled cmd/personal app — build it explicitly with: make build-personal-current (or build-personal-{windows,darwin,linux})"
+	@echo "NOTE: Desktop (desktop-v2, Tauri) is built separately — make build-personal-v2-current (or build-personal-v2-{windows,darwin,linux})"
 
 build-win:
 	cd server/web && pnpm install && pnpm build
@@ -200,7 +130,7 @@ build-win:
 	cd server && go build $(SERVER_LDFLAGS) -o ../bin/niuniu-mcp-$(VERSION).exe ./cmd/niuniu-mcp
 	$(call compress,bin/niuniu-server-$(VERSION).exe)
 	$(call compress,bin/niuniu-mcp-$(VERSION).exe)
-	@echo "NOTE: Desktop is now the bundled cmd/personal app — build it explicitly with: make build-personal-windows"
+	@echo "NOTE: Desktop (desktop-v2, Tauri) is built separately — make build-personal-v2-windows"
 
 build-linux:
 	cd server/web && pnpm install && pnpm build
@@ -212,7 +142,7 @@ build-linux:
 	$(call compress,bin/niuniu-mcp-$(VERSION)-linux-amd64)
 	$(call compress,bin/niuniu-server-$(VERSION)-linux-arm64)
 	$(call compress,bin/niuniu-mcp-$(VERSION)-linux-arm64)
-	@echo "NOTE: Desktop (Wails) requires CGO and Linux SDK — build on Linux with: make build-personal-linux"
+	@echo "NOTE: Desktop (desktop-v2, Tauri) needs the Linux GTK/WebKit dev packages — build on Linux with: make build-personal-v2-linux"
 
 build-mac:
 	cd server/web && pnpm install && pnpm build
@@ -224,21 +154,15 @@ build-mac:
 	$(call compress,bin/niuniu-mcp-$(VERSION)-darwin-arm64)
 	$(call compress,bin/niuniu-server-$(VERSION)-darwin-amd64)
 	$(call compress,bin/niuniu-mcp-$(VERSION)-darwin-amd64)
-	@echo "NOTE: Desktop (Wails) requires CGO and macOS SDK — build on macOS with: make build-personal-darwin"
+	@echo "NOTE: Desktop (desktop-v2, Tauri) requires macOS SDK — build on macOS with: make build-personal-v2-darwin"
 
 build-mcp:
 	cd server && go build $(SERVER_LDFLAGS) -o ../bin/niuniu-mcp-$(VERSION) ./cmd/niuniu-mcp
 	$(call compress,bin/niuniu-mcp-$(VERSION))
 
-# Desktop build = the bundled cmd/personal app. cmd/connect (the old remote-only
-# picker) has been merged into cmd/personal and retired, so build-personal-* are
-# the only desktop build targets — see further below.
-
 # Clean build artifacts
 clean:
-	rm -rf bin/ server/web/dist/ desktop/build/bin/
-	find desktop/internal/bundle/server-bin -type f ! -name '.gitkeep' -delete 2>/dev/null || true
-	rm -f desktop/cmd/personal/resource_*.syso
+	rm -rf bin/ server/web/dist/ desktop-v2/binaries/niuniu-server* desktop-v2/binaries/niuniu-mcp* desktop-v2/binaries/staging/
 
 # Testing targets
 test:
@@ -253,9 +177,6 @@ test-services:
 
 test-handlers:
 	cd server && go test -v ./internal/api/...
-
-test-desktop:
-	cd desktop && go test -v -race ./internal/...
 
 # Run the full server test suite with the PG harness enabled. SQLite paths
 # still run (test files are dual-driver where applicable); PG-only smoke
@@ -415,7 +336,8 @@ builtin-skills-sync:
 	@echo "  OK — $$(find server/internal/service/builtin_skills -type f | wc -l) skill files synced"
 
 # ─── Personal edition ────────────────────────────────────────────────
-# Opt-in bundle: embeds server into a Wails shell. Does NOT run in `make build`.
+# Opt-in bundle: embeds server into the desktop-v2 (Tauri) shell as sidecars.
+# Does NOT run in `make build`.
 
 ifeq ($(OS),Windows_NT)
 EXE_SUFFIX := .exe
@@ -423,96 +345,17 @@ else
 EXE_SUFFIX :=
 endif
 
-build-personal: build-personal-current
+build-personal: build-personal-v2-current
+build-personal-current: build-personal-v2-current
+build-personal-all: build-personal-v2-all
+build-personal-windows: build-personal-v2-windows
+build-personal-darwin: build-personal-v2-darwin
+build-personal-linux: build-personal-v2-linux
 
-# On Windows hosts, generate the .syso resource so `make build-personal-current`
-# also gets the .exe icon embedded. Non-Windows hosts skip the prereq because
-# the .syso wouldn't be linked into a darwin/linux binary anyway and we don't
-# want to install goversioninfo on machines that won't use it.
-ifeq ($(OS),Windows_NT)
-build-personal-current: gen-windows-resources _personal-prepare-current
-else
-build-personal-current: _personal-prepare-current
-endif
-	cd desktop && go build $(DESKTOP_LDFLAGS) \
-		-o ../bin/niuniu-desktop-$(VERSION)$(EXE_SUFFIX) ./cmd/personal
-	$(call compress,bin/niuniu-desktop-$(VERSION)$(EXE_SUFFIX))
-
-build-personal-all: build-personal-windows build-personal-darwin build-personal-linux
-
-build-personal-windows: gen-windows-resources
-	$(MAKE) _personal-prepare GOOS=windows GOARCH=amd64 EXT=.exe
-	cd desktop && GOOS=windows GOARCH=amd64 go build \
-		-ldflags "$(DESKTOP_LDFLAGS_COMMON) -H windowsgui" \
-		-o ../bin/niuniu-desktop-$(VERSION)-windows-amd64.exe ./cmd/personal
-	# NO UPX here on purpose. This .exe IS the artifact shipped to end users
-	# (CI uploads it straight to the public release), and UPX packing is the
-	# top trigger for Chinese AV (360 / 火绒 / 腾讯) + Microsoft Defender
-	# generic-trojan heuristics (see the UPX warning block above). Matches
-	# build-personal-darwin / build-personal-linux, which also skip
-	# compression. The durable fix for the residual false positives is an
-	# Authenticode code-signing cert, not compression.
-
-build-personal-darwin:
-	$(MAKE) _personal-prepare GOOS=darwin GOARCH=arm64 EXT=
-	cd desktop && $(DARWIN_ARM64_ENV) go build $(DESKTOP_LDFLAGS) \
-		-o ../bin/niuniu-desktop-$(VERSION)-darwin-arm64 ./cmd/personal
-	$(MAKE) _personal-prepare GOOS=darwin GOARCH=amd64 EXT=
-	cd desktop && $(DARWIN_AMD64_ENV) go build $(DESKTOP_LDFLAGS) \
-		-o ../bin/niuniu-desktop-$(VERSION)-darwin-amd64 ./cmd/personal
-
-build-personal-linux:
-	$(MAKE) _personal-prepare GOOS=linux GOARCH=amd64 EXT=
-	cd desktop && GOOS=linux GOARCH=amd64 go build $(DESKTOP_LDFLAGS) \
-		-o ../bin/niuniu-desktop-$(VERSION)-linux-amd64 ./cmd/personal
-
-# Linux AppImage packaging. Wraps the bare ELF binary produced by build-* into a
-# single portable .AppImage (chmod +x and run, launcher integration included) —
-# the Linux equivalent of the macOS .dmg. Requires a Linux host; appimagetool is
-# auto-downloaded by the script if not installed.
-package-personal-linux: build-personal-linux
-	bash desktop/build/linux/package.sh \
-		--binary bin/niuniu-desktop-$(VERSION)-linux-amd64 \
-		--icon desktop/cmd/personal/appicon.png \
-		--display-name "Niuniu Desktop" \
-		--version $(VERSION) \
-		--arch amd64 \
-		--artifact-base niuniu-desktop-$(VERSION) \
-		--output-dir bin
-
-# macOS .app/.dmg packaging. Wraps the bare Mach-O produced by build-* into a
-# directly-runnable .app bundle, then a .dmg disk image with a drag-to-
-# /Applications shortcut. Requires a macOS host (CGO + macOS SDK already
-# required by the Wails build itself; hdiutil + xattr are macOS-only too).
-# Unsigned: first launch requires `xattr -dr com.apple.quarantine` or
-# right-click→Open. Code-signing/notarization is a follow-up.
-#
-# cmd/personal is a regular dock app (the retired cmd/connect was the menu-bar-
-# only LSUIElement variant; it has been merged in and removed).
-package-personal-darwin: build-personal-darwin
-	bash desktop/build/macos/package.sh \
-		--binary bin/niuniu-desktop-$(VERSION)-darwin-arm64 \
-		--icon desktop/cmd/personal/build/icon.icns \
-		--display-name "Niuniu Desktop" \
-		--identifier com.niuniu.personal \
-		--version $(VERSION) \
-		--arch arm64 \
-		--artifact-base niuniu-desktop-$(VERSION) \
-		--output-dir bin
-	bash desktop/build/macos/package.sh \
-		--binary bin/niuniu-desktop-$(VERSION)-darwin-amd64 \
-		--icon desktop/cmd/personal/build/icon.icns \
-		--display-name "Niuniu Desktop" \
-		--identifier com.niuniu.personal \
-		--version $(VERSION) \
-		--arch amd64 \
-		--artifact-base niuniu-desktop-$(VERSION) \
-		--output-dir bin
-
-# ─── desktop-v2（Tauri v2 壳层，issue #670）────────────────────────────────
-# 复用 _personal-prepare 构建 Go server/mcp 侧车，按 Rust target triple 拷进
-# desktop-v2/binaries/，再 cargo build。desktop-v2 是独立新目录，不替换
-# desktop/（Wails v3 版保留）。
+# ─── desktop-v2（Tauri v2 桌面壳层，唯一桌面版）──────────────────────────
+# _personal-prepare 构建 Go server/mcp 侧车，按 Rust target triple 拷进
+# desktop-v2/binaries/，再 cargo build。原 Wails 版 desktop/ 已移除（issue
+# #674 收尾）。
 V2_TRIPLE_windows_amd64 = x86_64-pc-windows-msvc
 V2_TRIPLE_darwin_arm64  = aarch64-apple-darwin
 V2_TRIPLE_darwin_amd64  = x86_64-apple-darwin
@@ -530,6 +373,7 @@ RUSTUP_TARGET_ADD = $(RUSTUP) target add
 
 .PHONY: build-personal-v2-current build-personal-v2-all \
 	build-personal-v2-windows build-personal-v2-darwin build-personal-v2-linux \
+	package-personal-v2-darwin package-personal-v2-linux \
 	dev-desktop-v2 _personal-prepare-v2
 
 # 当前主机构建（Windows 产出 .exe）。sidecar 由 _personal-prepare-v2 staging 到
@@ -565,16 +409,60 @@ build-personal-v2-darwin:
 	$(MAKE) _personal-prepare-v2 GOOS=darwin GOARCH=arm64 EXT=
 	-@$(RUSTUP_TARGET_ADD) aarch64-apple-darwin 2>/dev/null || true
 	cd desktop-v2 && $(CARGO) build --release --target aarch64-apple-darwin
+	mkdir -p bin
+	cp desktop-v2/target/aarch64-apple-darwin/release/niuniu-desktop-v2 bin/niuniu-desktop-v2-$(VERSION)-darwin-arm64
 	$(MAKE) _personal-prepare GOOS=darwin GOARCH=amd64 EXT=
 	$(MAKE) _personal-prepare-v2 GOOS=darwin GOARCH=amd64 EXT=
 	-@$(RUSTUP_TARGET_ADD) x86_64-apple-darwin 2>/dev/null || true
 	cd desktop-v2 && $(CARGO) build --release --target x86_64-apple-darwin
+	cp desktop-v2/target/x86_64-apple-darwin/release/niuniu-desktop-v2 bin/niuniu-desktop-v2-$(VERSION)-darwin-amd64
 
 build-personal-v2-linux:
 	$(MAKE) _personal-prepare GOOS=linux GOARCH=amd64 EXT=
 	$(MAKE) _personal-prepare-v2 GOOS=linux GOARCH=amd64 EXT=
 	-@$(RUSTUP_TARGET_ADD) x86_64-unknown-linux-gnu 2>/dev/null || true
 	cd desktop-v2 && $(CARGO) build --release --target x86_64-unknown-linux-gnu
+	mkdir -p bin
+	cp desktop-v2/target/x86_64-unknown-linux-gnu/release/niuniu-desktop-v2 bin/niuniu-desktop-v2-$(VERSION)-linux-amd64
+
+# macOS .app/.dmg 打包（desktop-v2/build/macos/package.sh，自 Wails 版移入）：
+# 把 cargo 产出的 Mach-O 包成 .app + 拖拽安装 .dmg；签名/公证由脚本按
+# MACOS_SIGN_IDENTITY / APPLE_API_* 环境变量自动启用（CI 从 secrets 注入）。
+package-personal-v2-darwin: build-personal-v2-darwin
+	bash desktop-v2/build/macos/package.sh \
+		--binary bin/niuniu-desktop-v2-$(VERSION)-darwin-arm64 \
+		--icon desktop-v2/icons/icon.icns \
+		--display-name "Niuniu Desktop" \
+		--identifier com.niuniu.personal \
+		--version $(VERSION) \
+		--arch arm64 \
+		--artifact-base niuniu-desktop-v2-$(VERSION) \
+		--output-dir bin
+	bash desktop-v2/build/macos/package.sh \
+		--binary bin/niuniu-desktop-v2-$(VERSION)-darwin-amd64 \
+		--icon desktop-v2/icons/icon.icns \
+		--display-name "Niuniu Desktop" \
+		--identifier com.niuniu.personal \
+		--version $(VERSION) \
+		--arch amd64 \
+		--artifact-base niuniu-desktop-v2-$(VERSION) \
+		--output-dir bin
+
+# Linux AppImage 打包（desktop-v2/build/linux/package.sh）：把 cargo 产出的
+# ELF 包成免安装 .AppImage；appimagetool 未装时脚本自动下载。
+package-personal-v2-linux: build-personal-v2-linux
+	bash desktop-v2/build/linux/package.sh \
+		--binary bin/niuniu-desktop-v2-$(VERSION)-linux-amd64 \
+		--icon desktop-v2/icons/icon.png \
+		--display-name "Niuniu Desktop" \
+		--version $(VERSION) \
+		--arch amd64 \
+		--artifact-base niuniu-desktop-v2-$(VERSION) \
+		--output-dir bin
+
+# 兼容别名：老名字指向 v2 打包目标。
+package-personal-darwin: package-personal-v2-darwin
+package-personal-linux: package-personal-v2-linux
 
 # dev 同样显式 triple（见 build-personal-v2-current 注释）：保证 dev 与发布构建
 # 同工具链行为（Windows 上 msvc，无 WebView2Loader.dll 依赖）。
@@ -590,19 +478,20 @@ dev-desktop-v2:
 # 若有三方 triple 映射则额外多拷一份 triple 名以备将来 externalBin 打包用）。
 _personal-prepare-v2:
 	@mkdir -p desktop-v2/binaries; \
-	cp desktop/internal/bundle/server-bin/$(GOOS)-$(GOARCH)/niuniu-server$(EXT) desktop-v2/binaries/niuniu-server$(EXT); \
-	cp desktop/internal/bundle/server-bin/$(GOOS)-$(GOARCH)/niuniu-mcp$(EXT) desktop-v2/binaries/niuniu-mcp$(EXT); \
+	cp desktop-v2/binaries/staging/$(GOOS)-$(GOARCH)/niuniu-server$(EXT) desktop-v2/binaries/niuniu-server$(EXT); \
+	cp desktop-v2/binaries/staging/$(GOOS)-$(GOARCH)/niuniu-mcp$(EXT) desktop-v2/binaries/niuniu-mcp$(EXT); \
 	echo "staged sidecars: desktop-v2/binaries/niuniu-server$(EXT) (+niuniu-mcp)"; \
 	TRIPLE="$(V2_TRIPLE)"; \
 	if [ -n "$$TRIPLE" ]; then \
-		cp desktop/internal/bundle/server-bin/$(GOOS)-$(GOARCH)/niuniu-server$(EXT) desktop-v2/binaries/niuniu-server-$$TRIPLE$(EXT); \
-		cp desktop/internal/bundle/server-bin/$(GOOS)-$(GOARCH)/niuniu-mcp$(EXT) desktop-v2/binaries/niuniu-mcp-$$TRIPLE$(EXT); \
+		cp desktop-v2/binaries/staging/$(GOOS)-$(GOARCH)/niuniu-server$(EXT) desktop-v2/binaries/niuniu-server-$$TRIPLE$(EXT); \
+		cp desktop-v2/binaries/staging/$(GOOS)-$(GOARCH)/niuniu-mcp$(EXT) desktop-v2/binaries/niuniu-mcp-$$TRIPLE$(EXT); \
 		echo "  + triple name niuniu-server-$$TRIPLE$(EXT)"; \
 	fi
 
-# Internal: build server for target platform, copy to desktop/internal/bundle/server-bin/<os>-<arch>/
-# Remove any existing output first — `go build -o <path>` refuses to overwrite
-# a non-object file (e.g. the dev stub seeded by Task C4).
+# Internal: build server for target platform, copy to
+# desktop-v2/binaries/staging/<os>-<arch>/（Wails 版 desktop/ 移除后，desktop-v2
+# 自己持有侧车产物目录）. Remove any existing output first — `go build -o <path>`
+# refuses to overwrite a non-object file.
 #
 # pnpm build is skipped when server/web/dist/index.html is newer than every
 # tracked SPA source — that's the difference between a 5-second Go-only
@@ -624,13 +513,13 @@ _personal-prepare:
 		else \
 			echo "_personal-prepare: SPA dist up to date — skipping pnpm build"; \
 		fi
-	mkdir -p desktop/internal/bundle/server-bin/$(GOOS)-$(GOARCH)
-	rm -f desktop/internal/bundle/server-bin/$(GOOS)-$(GOARCH)/niuniu-server$(EXT)
-	rm -f desktop/internal/bundle/server-bin/$(GOOS)-$(GOARCH)/niuniu-mcp$(EXT)
+	mkdir -p desktop-v2/binaries/staging/$(GOOS)-$(GOARCH)
+	rm -f desktop-v2/binaries/staging/$(GOOS)-$(GOARCH)/niuniu-server$(EXT)
+	rm -f desktop-v2/binaries/staging/$(GOOS)-$(GOARCH)/niuniu-mcp$(EXT)
 	cd server && $(BUNDLE_CGO) GOOS=$(GOOS) GOARCH=$(GOARCH) go build $(SERVER_LDFLAGS) \
-		-o ../desktop/internal/bundle/server-bin/$(GOOS)-$(GOARCH)/niuniu-server$(EXT) ./cmd/niuniu
+		-o ../desktop-v2/binaries/staging/$(GOOS)-$(GOARCH)/niuniu-server$(EXT) ./cmd/niuniu
 	cd server && $(BUNDLE_CGO) GOOS=$(GOOS) GOARCH=$(GOARCH) go build $(SERVER_LDFLAGS) \
-		-o ../desktop/internal/bundle/server-bin/$(GOOS)-$(GOARCH)/niuniu-mcp$(EXT) ./cmd/niuniu-mcp
+		-o ../desktop-v2/binaries/staging/$(GOOS)-$(GOARCH)/niuniu-mcp$(EXT) ./cmd/niuniu-mcp
 
 _personal-prepare-current:
 	$(MAKE) _personal-prepare GOOS=$(shell go env GOOS) GOARCH=$(shell go env GOARCH) EXT=$(EXE_SUFFIX)
@@ -681,7 +570,6 @@ test-all:
 	cd relay && go test ./...
 	cd go-shared && go test ./...
 	cd server && go test ./...
-	cd desktop && go test ./...
 
 relay-docker:
 	docker build -f relay/Dockerfile -t niuniu-relay:latest .

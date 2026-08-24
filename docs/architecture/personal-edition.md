@@ -1,19 +1,9 @@
 # Personal edition
 
-`niuniu-desktop` is the single Wails v3 desktop app. It wraps `niuniu-server`
-as a child process (the **local** connection, #0) and — after the 方案 A merge —
-also absorbs the former `cmd/connect` remote picker, so the same binary connects
-to LAN/cloud/remote nodes via the tray and a picker window. `cmd/connect` has
-been retired; only `cmd/personal` remains. Coexists with a standalone
-`niuniu-server`.
-
-**Merged window model** (`cmd/personal/connwin.go`): the local server is
-connection #0 with dedicated lifecycle (boot/RestartServer/HardResetMain, close
-= hide to tray). Remote nodes live in a `connWindows` map keyed by `host:port`,
-only connect (never spawn), and their windows truly close. Native window titles
-and the process app name are brand-prefixed and localized via
-`desktop/internal/i18n` (`{BRAND} · {LOCAL}` / `{BRAND} · {REMOTE} · {name}
-({host:port})` / `{BRAND} · {MANAGE}`; lang resolved once from the OS locale).
+`desktop-v2`（Tauri v2, Rust 壳层）是唯一的桌面应用。它把 `niuniu-server`
+作为子进程管理（**本地**连接 #0），同一 binary 经托盘 + picker 窗口连接
+LAN/云端/远端节点。原 Wails v3 版 `desktop/` 已整体移除（issue #674 收尾）。
+架构详见 `desktop-v2/README.md`。
 
 **Server `--embedded` mode** (`niuniu-server --embedded --addr=127.0.0.1:0`)
 flag handling lives in tiny files under `server/cmd/niuniu/`: `flags.go`,
@@ -32,42 +22,32 @@ falling back to an OS-assigned ephemeral port if it is occupied. This keeps
 the personal-edition URL — and any user config keyed on it (browser storage
 etc.) — stable across launches.
 
-**Desktop bundle** (`desktop/internal/bundle/`): `Spawn(ctx, Spec) (*Handle,
-error)` manages the subprocess. `bundle_unix.go` uses `setpgid` + heartbeat
-pipe + SIGTERM-to-pgroup. `bundle_windows.go` uses
-CREATE_SUSPENDED→Job(KILL_ON_JOB_CLOSE)→Resume + `HideWindow:true` (or the
-GUI parent triggers a console window). Server + MCP binaries are embedded via
-per-platform build tags from `desktop/internal/bundle/server-bin/<goos>-<goarch>/`
-and hash-cached at `os.UserCacheDir()/niuniu-desktop/`, GC'd after 7 days.
+**Sidecar embedding** (`desktop-v2/src/server.rs`): server + MCP binaries are
+staged by the Makefile into `desktop-v2/binaries/`, embedded at compile time
+via `include_bytes!` (build.rs `have_embedded_sidecars`), extracted to
+`~/.niuniu/desktop-v2/sidecars/` with a build-fingerprint marker to skip
+redundant extraction, and spawned with `--embedded`; the parent holds the
+child's stdin so EOF = graceful shutdown.
 
-**Probe** (`desktop/internal/probe/`): `AcquireBootLock` (single-instance,
-held for app lifetime); `Decide(dataDir, version)` uses SQLite exclusive-lock
-probe + `findRunningServerAddr` + `checkHealth` + `versionCompatible`.
-
-**Personal shell** (`desktop/cmd/personal/main.go`): boot-lock → probe.Decide
-→ bundle.Spawn → mainWindow.SetURL → startListeners → maybeShowFirstRunDialog
-→ tray. `RestartServer` is concurrent-call-guarded.
+**Probe** (`desktop-v2/src/probe.rs`): reuse an already-running server when
+health + version are compatible; single-instance via
+tauri-plugin-single-instance.
 
 ## Personal-edition quirks
 
-(These were moved out of CLAUDE.md "Important quirks" because they only
-apply when touching `desktop/cmd/personal/` or `desktop/internal/bundle/`.)
-
-- **Personal embed path**: `//go:embed` resolves relative to the Go source
-  file. Server binaries live at
-  `desktop/internal/bundle/server-bin/<goos>-<goarch>/`. The Makefile's
-  `_personal-prepare` removes the prior output before `go build -o` (Go
-  refuses to overwrite a non-object file).
+- **Sidecar staging**: `make _personal-prepare` builds server/mcp for the
+  target GOOS/GOARCH into `desktop-v2/binaries/staging/<os>-<arch>/` and
+  `_personal-prepare-v2` copies them (plain + triple names) into
+  `desktop-v2/binaries/`. `go build -o` refuses to overwrite a non-object
+  file, so the prior output is removed first.
 - **Personal stdout contract**: in embedded mode, the first stdout line is
   reserved for the ready-handshake JSON. `applyEmbeddedOverrides` forces
   `Log.Output="file"` regardless of user config — do not remove.
-- **Windows GUI subprocess console**: Wails (`-H windowsgui`) spawning console
-  children needs `SysProcAttr.HideWindow=true`. Already in
-  `bundle_windows.go`.
-- **Single-instance via boot-lock**: `AcquireBootLock(~/.niuniu/personal.boot.lock)`.
-  A second personal launch fails to acquire and exits silently.
-- **Personal dev mode**: `niuniu-desktop --dev-url=http://localhost:5173`
-  skips probe+spawn for SPA iteration.
+- **Windows GUI subprocess console**: the desktop shell spawning console
+  children must hide the console window (`CREATE_NO_WINDOW` semantics in
+  `desktop-v2/src/server.rs`).
+- **Single-instance**: a second desktop launch is routed to the existing
+  instance (main window raised) by tauri-plugin-single-instance.
 
 ## 本地沙箱与权限边界
 
@@ -78,7 +58,7 @@ personal/desktop 是**单机、单 OS 用户、本地回环**部署（embedded �
 chroot / 容器 / 命名空间级文件系统 jail。
 
 1. **硬边界（OS 用户账户）**：embedded server 子进程、agent 子进程、所有产物都以
-   启动 Wails 应用的同一 OS 用户身份运行；文件系统权限 = 该用户的权限。agent 进程
+   启动桌面应用的同一 OS 用户身份运行；文件系统权限 = 该用户的权限。agent 进程
    理论上可 `cd` 到该用户可达的任意路径——工作空间目录只是**起始 cwd**，不是 jail。
 2. **软边界（工作空间约定）**：每工作空间一个 owner 维度目录
    （`OwnerRef.WorkspacePath` → `~/.niuniu/users/<id>/workspaces/<wsID>/`），agent 起始

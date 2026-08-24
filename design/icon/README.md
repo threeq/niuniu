@@ -51,7 +51,7 @@ design/icon/
 
 | 类别 | 路径 | 文件数 |
 |---|---|---|
-| 桌面（Wails personal） | `desktop/cmd/personal/{appicon.png, build/icon.{ico,icns}}` | 3 |
+| 桌面（desktop-v2 Tauri） | `desktop-v2/{assets/appicon.png, icons/icon.{ico,icns,png}}` | 4 |
 | Web/PWA | `server/web/public/{icon-{192,512}.png, icon-cn-{192,512}.png, *.svg, apple-touch-icon.png}` | 9 |
 | 移动（Expo） | `mobile/assets/{icon.png, icon-cn.png, adaptive-icon.png, splash-icon.png, favicon.png}` | 5 |
 | 官网（Astro） | `website/public/favicon.{ico,svg}` | 2 |
