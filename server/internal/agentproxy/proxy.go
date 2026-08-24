@@ -1702,24 +1702,38 @@ func (s *WorkspaceSession) SendLoop(ctx context.Context, workDir, content, attac
 		// must be respawned with the fallback env. Re-run the SAME message on the
 		// restarted process instead of failing the turn — this is what makes "one
 		// provider rate-limited → the task continues on the next one" work in
-		// interactive sessions too (not just autohost recovery). Bounded to avoid
-		// a pathological 429 loop spinning forever.
+		// interactive sessions too (not just autohost recovery).
+		//
+		// The re-run only fires when a USABLE provider actually resolves at this
+		// moment: if every member of the group is rate-limited or disabled (or
+		// the detected fallback became unavailable between the 429 and now),
+		// there is nothing to re-run on — fall through to normal error handling
+		// instead of spinning. Bounded additionally to avoid a pathological loop.
 		if restartFB {
 			s.mu.Lock()
-			s.providerFallbackRetries++
-			retries := s.providerFallbackRetries
+			active := s.activeProviderID
 			s.mu.Unlock()
-			if retries <= maxProviderFallbackRestarts {
-				s.emitAutohostSystemInfo(ctx, "♻️ 当前订阅平台 Provider 触发限流（429），已自动切换到组内备援 provider，正在重新执行任务…")
-				slog.Info("agent sendLoop: re-running message with group fallback provider",
-					"workspaceID", s.workspaceID, "retry", retries)
-				// Re-run the same content as a system-rendered turn (not a new
-				// "You" bubble); ensureProcess respawns with the fallback env.
-				injected = true
-				continue
+			fb, ok := sceneenv.ActiveProvider(ctx, s.q, s.workspaceID)
+			if ok && fb.ID != active && !sceneenv.ProviderInCooldown(fb, time.Now()) {
+				s.mu.Lock()
+				s.providerFallbackRetries++
+				retries := s.providerFallbackRetries
+				s.mu.Unlock()
+				if retries <= maxProviderFallbackRestarts {
+					s.emitAutohostSystemInfo(ctx, "♻️ 当前订阅平台 Provider 触发限流（429），已自动切换到组内备援 provider，正在重新执行任务…")
+					slog.Info("agent sendLoop: re-running message with group fallback provider",
+						"workspaceID", s.workspaceID, "retry", retries, "fallback_provider", fb.ID)
+					// Re-run the same content as a system-rendered turn (not a new
+					// "You" bubble); ensureProcess respawns with the fallback env.
+					injected = true
+					continue
+				}
+				slog.Warn("agent sendLoop: provider fallback restart budget exhausted",
+					"workspaceID", s.workspaceID, "retries", retries)
+			} else {
+				slog.Info("agent sendLoop: no usable group provider — not re-running after 429",
+					"workspaceID", s.workspaceID, "active_provider", active, "fallback_ok", ok)
 			}
-			slog.Warn("agent sendLoop: provider fallback restart budget exhausted",
-				"workspaceID", s.workspaceID, "retries", retries)
 		}
 		if wasError {
 			// Auto-recover when autohost is on and error budget remains;
