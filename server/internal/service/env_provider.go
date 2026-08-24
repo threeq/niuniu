@@ -74,12 +74,24 @@ func (s *EnvProviderService) Create(ctx context.Context, p store.EnvProvider) (s
 		ExtraEnv:      p.ExtraEnv,
 		ContextWindow: p.ContextWindow,
 		GroupName:     p.GroupName,
+		GroupPosition: s.nextGroupPosition(ctx, 0, p.GroupName, p.GroupPosition),
 		OwnerType:     p.OwnerType,
 		OwnerID:       p.OwnerID,
 	})
 }
 
 func (s *EnvProviderService) Update(ctx context.Context, id int64, p store.EnvProvider) error {
+	// Group order is managed ONLY by the reorder endpoint — the edit dialog
+	// never changes it. Same group → keep the current position; joining a group
+	// → append to the end (position 0 would jump ahead of ordered members);
+	// leaving a group → 0. The caller's GroupPosition (often a stale value from
+	// the previous group) is deliberately ignored.
+	var pos int64
+	if cur, err := s.q.GetEnvProvider(ctx, id); err == nil && p.GroupName != "" && cur.GroupName == p.GroupName {
+		pos = cur.GroupPosition
+	} else {
+		pos = s.nextGroupPosition(ctx, id, p.GroupName, 0)
+	}
 	return s.q.UpdateEnvProvider(ctx, store.UpdateEnvProviderParams{
 		ID:            id,
 		Name:          p.Name,
@@ -95,9 +107,28 @@ func (s *EnvProviderService) Update(ctx context.Context, id int64, p store.EnvPr
 		ExtraEnv:      p.ExtraEnv,
 		ContextWindow: p.ContextWindow,
 		GroupName:     p.GroupName,
-		GroupPosition: p.GroupPosition,
+		GroupPosition: pos,
 		Enabled:       p.Enabled,
 	})
+}
+
+// nextGroupPosition returns the explicit position when set (>0); otherwise
+// max(group_position)+1 within groupName, so a provider joining a group lands
+// at the END of the manual order — exactly where the settings UI shows it —
+// instead of position 0 (first). excludeID (0 for create, self for update)
+// keeps a member's own old position out of the max when moving within a group.
+func (s *EnvProviderService) nextGroupPosition(ctx context.Context, excludeID int64, groupName string, explicit int64) int64 {
+	if explicit > 0 || groupName == "" {
+		return explicit
+	}
+	max, err := s.q.MaxEnvProviderGroupPosition(ctx, store.MaxEnvProviderGroupPositionParams{
+		GroupName: groupName,
+		ID:        excludeID,
+	})
+	if err != nil {
+		return explicit // best-effort: fall back to the raw value
+	}
+	return max + 1
 }
 
 // ClearCooldown removes a provider's rate-limit cooldown so it becomes eligible

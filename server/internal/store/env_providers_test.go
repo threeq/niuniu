@@ -89,6 +89,51 @@ func TestEnvProviderGroupAndCooldownColumns(t *testing.T) {
 	}
 }
 
+// TestEnvProviderGroupPositionAppend verifies MaxEnvProviderGroupPosition so a
+// provider JOINING a group is appended at the end (max+1) rather than position
+// 0, and that self-exclusion keeps a member's own position out of the max.
+func TestEnvProviderGroupPositionAppend(t *testing.T) {
+	db := openMem(t)
+	defer db.Close()
+	q := NewQueries(db)
+	ctx := context.Background()
+
+	mk := func(name, group string, pos int64) int64 {
+		p, err := q.CreateEnvProvider(ctx, CreateEnvProviderParams{
+			Name: name, Platform: "zhipu", BaseUrls: `{"anthropic":"x"}`,
+			ApiKey: "${ACCOUNT:" + name + "}", GroupName: group,
+			GroupPosition: pos, Enabled: 1, OwnerType: "user", OwnerID: 0,
+		})
+		if err != nil {
+			t.Fatalf("CreateEnvProvider %s: %v", name, err)
+		}
+		return p.ID
+	}
+	a := mk("a", "g", 1)
+	mk("b", "g", 2)
+	mk("standalone", "", 0)
+
+	// Newcomer to group g → appended after position 2.
+	max, err := q.MaxEnvProviderGroupPosition(ctx, MaxEnvProviderGroupPositionParams{GroupName: "g", ID: 0})
+	if err != nil {
+		t.Fatalf("MaxEnvProviderGroupPosition: %v", err)
+	}
+	if max != 2 {
+		t.Fatalf("max position = %d, want 2", max)
+	}
+	// Self-excluded (moving a within its own group) → its own position 1 does
+	// not count, so a would re-land after b.
+	maxSelf, _ := q.MaxEnvProviderGroupPosition(ctx, MaxEnvProviderGroupPositionParams{GroupName: "g", ID: a})
+	if maxSelf != 2 {
+		t.Fatalf("self-excluded max = %d, want 2", maxSelf)
+	}
+	// Empty/unknown group → 0 (first member lands at 1).
+	maxNone, _ := q.MaxEnvProviderGroupPosition(ctx, MaxEnvProviderGroupPositionParams{GroupName: "", ID: 0})
+	if maxNone != 0 {
+		t.Fatalf("ungrouped max = %d, want 0", maxNone)
+	}
+}
+
 // TestEnvProviderCooldownMigration verifies the open-time migration adds
 // group_name + cooldown_until to a legacy env_providers table that predates
 // them (the addColumnIfNotExists path in migrate.go), mirroring the fresh-schema
