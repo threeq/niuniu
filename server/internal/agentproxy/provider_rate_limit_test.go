@@ -65,9 +65,13 @@ func TestMaybeMarkRateLimitedProvider_MarksAndRestartsOnFallback(t *testing.T) {
 
 	s.mu.Lock()
 	terr := s.lastTurnError
+	restartFB := s.restartForProviderFallback
 	s.mu.Unlock()
 	if !terr {
 		t.Error("expected lastTurnError=true so the session restarts onto the fallback")
+	}
+	if !restartFB {
+		t.Error("expected restartForProviderFallback=true so SendLoop re-runs the message on the fallback")
 	}
 }
 
@@ -98,9 +102,13 @@ func TestMaybeMarkRateLimitedProvider_NoGroupMarksButNoKill(t *testing.T) {
 	}
 	s.mu.Lock()
 	terr := s.lastTurnError
+	restartFB := s.restartForProviderFallback
 	s.mu.Unlock()
 	if terr {
 		t.Error("no group → no fallback → must NOT kill/restart")
+	}
+	if restartFB {
+		t.Error("no group → no fallback → must NOT set restartForProviderFallback")
 	}
 }
 
