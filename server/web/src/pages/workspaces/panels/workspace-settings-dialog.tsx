@@ -166,20 +166,39 @@ export function WorkspaceSettingsDialog({ workspace }: WorkspaceSettingsDialogPr
     enabled: open,
   });
   const [boundProviderId, setBoundProviderId] = useState<number | null>(null);
+  const [boundGroup, setBoundGroup] = useState('');
   const [savingProvider, setSavingProvider] = useState(false);
   useEffect(() => {
-    if (open) setBoundProviderId(workspace.env_provider_id ?? null);
-  }, [open, workspace.env_provider_id]);
-  const changeProvider = async (id: number | null) => {
-    setBoundProviderId(id);
+    if (open) {
+      setBoundProviderId(workspace.env_provider_id ?? null);
+      setBoundGroup(workspace.env_provider_group ?? '');
+    }
+  }, [open, workspace.env_provider_id, workspace.env_provider_group]);
+  // The select encodes provider vs group binding: "0" none, "p<id>" provider,
+  // "g<group>" group.
+  const bindingValue = boundGroup ? `g${boundGroup}` : boundProviderId != null ? `p${boundProviderId}` : '0';
+  const changeProvider = async (raw: string) => {
     setSavingProvider(true);
     try {
-      await api.setWorkspaceEnvProvider(workspace.id, id);
+      if (raw.startsWith('g')) {
+        const group = raw.slice(1)
+        setBoundProviderId(null)
+        setBoundGroup(group)
+        await api.setWorkspaceEnvProvider(workspace.id, null, group);
+      } else {
+        const id = raw === '0' ? null : Number(raw.slice(1));
+        setBoundGroup('')
+        setBoundProviderId(id)
+        await api.setWorkspaceEnvProvider(workspace.id, id);
+      }
       queryClient.invalidateQueries({ queryKey: ['workspace', workspace.id] });
     } finally {
       setSavingProvider(false);
     }
   };
+  // Named provider groups for group binding.
+  const namedGroups = [...new Set(providers.map((p) => p.group_name).filter(Boolean))].sort((a, b) =>
+    a.localeCompare(b, 'zh-Hans-CN'))
 
   useEffect(() => {
     if (!open) return;
@@ -520,18 +539,30 @@ export function WorkspaceSettingsDialog({ workspace }: WorkspaceSettingsDialogPr
                 {t('panels.workspaceSettings.envProvider')}
               </label>
               <select
-                value={boundProviderId ?? 0}
-                onChange={(e) => changeProvider(e.target.value === '0' ? null : Number(e.target.value))}
+                value={bindingValue}
+                onChange={(e) => changeProvider(e.target.value)}
                 disabled={savingProvider}
                 className="w-full rounded-md border border-border bg-background px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-info"
               >
-                <option value={0}>{t('panels.workspaceSettings.envProviderNone')}</option>
-                {providers.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.name}{Object.keys(p.base_urls ?? {}).length ? ` · ${Object.keys(p.base_urls).join('/')}` : ''}{p.model ? ` · ${p.model}` : ''}
-                    {p.cooldown_until && new Date(p.cooldown_until).getTime() > Date.now() ? t('panels.workspaceSettings.envProviderLimited') : ''}
-                  </option>
-                ))}
+                <option value="0">{t('panels.workspaceSettings.envProviderNone')}</option>
+                {namedGroups.length > 0 && (
+                  <optgroup label={t('panels.workspaceSettings.envProviderGroups')}>
+                    {namedGroups.map((g) => (
+                      <option key={`g${g}`} value={`g${g}`}>
+                        {t('panels.workspaceSettings.envProviderGroupLabel', { group: g })}
+                      </option>
+                    ))}
+                  </optgroup>
+                )}
+                <optgroup label={t('panels.workspaceSettings.envProviderSingles')}>
+                  {providers.map((p) => (
+                    <option key={p.id} value={`p${p.id}`}>
+                      {p.name}{Object.keys(p.base_urls ?? {}).length ? ` · ${Object.keys(p.base_urls).join('/')}` : ''}{p.model ? ` · ${p.model}` : ''}
+                      {!p.enabled ? t('panels.workspaceSettings.envProviderDisabled') : ''}
+                      {p.cooldown_until && new Date(p.cooldown_until).getTime() > Date.now() ? t('panels.workspaceSettings.envProviderLimited') : ''}
+                    </option>
+                  ))}
+                </optgroup>
               </select>
               <p className="mt-1 text-xs text-muted-foreground">
                 {t('panels.workspaceSettings.envProviderHint')}

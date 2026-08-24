@@ -229,11 +229,16 @@ func Migrate(db *sql.DB) {
 	// Direct subscription-platform provider binding (issue #653 simplification):
 	// a workspace can use a provider without mounting a scene. NULL = no binding.
 	addColumnIfNotExists(db, "workspaces", "env_provider_id", fk+" DEFAULT NULL REFERENCES env_providers(id) ON DELETE SET NULL")
+	// env_provider_group: bind a workspace to a provider GROUP instead of one
+	// provider — resolution picks the group's best usable member in manual
+	// order (group_position). Mutually exclusive with env_provider_id.
+	addColumnIfNotExists(db, "workspaces", "env_provider_group", "TEXT NOT NULL DEFAULT ''")
 
 	// Project-level default provider binding: a new workspace created from an
 	// issue under this project inherits the project's env_provider_id. NULL = no
 	// default (the workspace picks its own or uses none).
 	addColumnIfNotExists(db, "projects", "env_provider_id", fk+" DEFAULT NULL REFERENCES env_providers(id) ON DELETE SET NULL")
+	addColumnIfNotExists(db, "projects", "env_provider_group", "TEXT NOT NULL DEFAULT ''")
 
 	// env_providers.protocol was added to schema.sql for fresh DBs but existing
 	// DBs (created when the table first shipped without it) are missing the

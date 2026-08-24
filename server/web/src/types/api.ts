@@ -19,6 +19,7 @@ export interface Project extends BaseEntity {
   color?: string | null;            // palette key like 'emerald'，null/缺失为未设
   default_cli_type?: 'claude' | 'codex' | 'qwen' | 'omp' | 'goose';  // 项目默认 agent，新建工作区时预选
   env_provider_id?: number | null;  // 默认 Provider，工作空间继承
+  env_provider_group?: string;      // 默认分组绑定，工作空间继承（与 env_provider_id 互斥）
   issue_stats?: { column_name: string; count: number }[];
   ws_stats?: { status: string; count: number }[];
   owner?: import('./org').OwnerRef;
@@ -368,6 +369,8 @@ export interface Workspace {
   cli_type: 'claude' | 'codex' | 'qwen' | 'omp' | 'goose';
   /** Directly-bound subscription-platform provider (issue #653). null = none. */
   env_provider_id?: number | null;
+  /** Provider-group binding ('' = none). Mutually exclusive with env_provider_id. */
+  env_provider_group?: string;
   /** Codex managed account binding (M2.5). null = use global ~/.codex/. */
   codex_account_id?: number | null;
   /** Codex sandbox mode (M2.5). Defaults to 'danger-full-access'. */

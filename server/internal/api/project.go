@@ -477,19 +477,26 @@ func (h *ProjectHandler) UpdateEnvProvider(c *gin.Context) {
 		}
 	}
 	var req struct {
-		EnvProviderID *int64 `json:"env_provider_id"`
+		EnvProviderID    *int64  `json:"env_provider_id"`
+		EnvProviderGroup *string `json:"env_provider_group"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		BadRequest(c, "invalid body")
 		return
 	}
-	var pid int64
-	if req.EnvProviderID != nil {
-		pid = *req.EnvProviderID
+	var project store.Project
+	var perr error
+	if req.EnvProviderGroup != nil && *req.EnvProviderGroup != "" {
+		project, perr = h.svc.UpdateEnvProviderGroup(c.Request.Context(), id, *req.EnvProviderGroup)
+	} else {
+		var pid int64
+		if req.EnvProviderID != nil {
+			pid = *req.EnvProviderID
+		}
+		project, perr = h.svc.UpdateEnvProvider(c.Request.Context(), id, pid)
 	}
-	project, err := h.svc.UpdateEnvProvider(c.Request.Context(), id, pid)
-	if err != nil {
-		InternalError(c, err)
+	if perr != nil {
+		InternalError(c, perr)
 		return
 	}
 	c.JSON(http.StatusOK, toProjectResponse(project))

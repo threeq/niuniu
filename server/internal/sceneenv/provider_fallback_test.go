@@ -294,6 +294,86 @@ func TestActiveProvider_DisabledGroupMemberSkipped(t *testing.T) {
 	}
 }
 
+func TestActiveProvider_GroupBindingPicksBestUsable(t *testing.T) {
+	// Workspace bound to a GROUP (workspaces.env_provider_group) — the group's
+	// best usable member by manual order is used, not any specific provider.
+	pos3 := zhipuProvider(1, "智谱-3", "智谱", sql.NullTime{})
+	pos3.GroupPosition = 3
+	pos1 := zhipuProvider(2, "智谱-1", "智谱", sql.NullTime{})
+	pos1.GroupPosition = 1
+	pos2 := zhipuProvider(3, "智谱-2", "智谱", sql.NullTime{})
+	pos2.GroupPosition = 2
+	q := fakeQuerier{
+		providers:    []store.EnvProvider{pos3, pos1, pos2},
+		groupBinding: "智谱",
+		cliType:      "claude",
+	}
+	got, ok := ActiveProvider(context.Background(), q, 7)
+	if !ok || got.ID != 2 {
+		t.Fatalf("expected lowest-position member (id 2), got %+v ok=%v", got, ok)
+	}
+}
+
+func TestActiveProvider_GroupBindingSkipsDisabledAndCooldown(t *testing.T) {
+	disabled := zhipuProvider(1, "智谱-1", "智谱", sql.NullTime{})
+	disabled.GroupPosition = 1
+	disabled.Enabled = 0
+	cooldownP := zhipuProvider(2, "智谱-2", "智谱", cooldown(time.Now().Add(time.Hour)))
+	cooldownP.GroupPosition = 2
+	healthy := zhipuProvider(3, "智谱-3", "智谱", sql.NullTime{})
+	healthy.GroupPosition = 3
+	q := fakeQuerier{
+		providers:    []store.EnvProvider{disabled, cooldownP, healthy},
+		groupBinding: "智谱",
+		cliType:      "claude",
+	}
+	got, ok := ActiveProvider(context.Background(), q, 7)
+	if !ok || got.ID != 3 {
+		t.Fatalf("expected the only healthy member (id 3), got %+v ok=%v", got, ok)
+	}
+}
+
+func TestActiveProvider_GroupBindingAllDownNotUsable(t *testing.T) {
+	a := zhipuProvider(1, "智谱-1", "智谱", cooldown(time.Now().Add(time.Hour)))
+	b := zhipuProvider(2, "智谱-2", "智谱", cooldown(time.Now().Add(time.Hour)))
+	q := fakeQuerier{
+		providers:    []store.EnvProvider{a, b},
+		groupBinding: "智谱",
+		cliType:      "claude",
+	}
+	if _, ok := ActiveProvider(context.Background(), q, 7); ok {
+		t.Fatal("expected ok=false when every group member is unusable")
+	}
+}
+
+func TestActiveProvider_GroupBindingUnknownGroupNotUsable(t *testing.T) {
+	q := fakeQuerier{providers: []store.EnvProvider{zhipuProvider(1, "智谱-1", "智谱", sql.NullTime{})}, groupBinding: "不存在", cliType: "claude"}
+	if _, ok := ActiveProvider(context.Background(), q, 7); ok {
+		t.Fatal("expected ok=false for an unknown group")
+	}
+}
+
+func TestResolve_GroupBindingExpandsBestMember(t *testing.T) {
+	first := zhipuProvider(1, "智谱-1", "智谱", sql.NullTime{})
+	first.GroupPosition = 1
+	second := zhipuProvider(2, "智谱-2", "智谱", sql.NullTime{})
+	second.GroupPosition = 2
+	q := fakeQuerier{
+		providers:    []store.EnvProvider{first, second},
+		groupBinding: "智谱",
+		accounts:     []store.EnvAccount{{Name: "智谱-1", ApiKey: "sk-1"}},
+		cliType:      "claude",
+	}
+	rows, err := Resolve(context.Background(), q, 7)
+	if err != nil {
+		t.Fatalf("Resolve error: %v", err)
+	}
+	got := envMap(rows)
+	if got["ANTHROPIC_AUTH_TOKEN"] != "sk-1" {
+		t.Errorf("expected group's best member key expanded, got %q", got["ANTHROPIC_AUTH_TOKEN"])
+	}
+}
+
 func TestMarkProviderCooldown_RoundTrip(t *testing.T) {
 	prov := zhipuProvider(1, "智谱-1", "智谱", sql.NullTime{})
 	q := fakeQuerier{providers: []store.EnvProvider{prov}}

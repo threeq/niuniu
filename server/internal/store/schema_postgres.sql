@@ -18,6 +18,7 @@ CREATE TABLE IF NOT EXISTS projects (
     -- an issue. Mirrors workspaces.cli_type's closed set.
     default_cli_type TEXT NOT NULL DEFAULT 'claude' CHECK (default_cli_type IN ('claude','codex','qwen','omp','goose')),
     env_provider_id BIGINT DEFAULT NULL REFERENCES env_providers(id) ON DELETE SET NULL,
+    env_provider_group TEXT NOT NULL DEFAULT '', -- bind to a provider GROUP instead of one provider
     -- Per-project workspace auto-cleanup policy. cleanup_enabled=0 (default) is
     -- OFF; when 1, an hourly sweeper deletes each workspace (and its issue) whose
     -- linked issue falls in one of cleanup_statuses (comma-separated subset of
@@ -251,7 +252,8 @@ CREATE TABLE IF NOT EXISTS workspaces (
     -- the "User Language" directive in generated CLAUDE.md/AGENTS.md and is
     -- inherited by epic-derived child workspaces. '' = unknown (generic directive).
     language TEXT NOT NULL DEFAULT '',
-    env_provider_id BIGINT DEFAULT NULL REFERENCES env_providers(id) ON DELETE SET NULL
+    env_provider_id BIGINT DEFAULT NULL REFERENCES env_providers(id) ON DELETE SET NULL,
+    env_provider_group TEXT NOT NULL DEFAULT '' -- bind to a provider GROUP instead of one provider
 );
 
 -- ============================================================

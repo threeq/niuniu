@@ -18,6 +18,7 @@ type fakeQuerier struct {
 	accounts      []store.EnvAccount
 	providers     []store.EnvProvider
 	boundProvider *store.EnvProvider
+	groupBinding  string // workspaces.env_provider_group ('' = none)
 	cliType       string
 }
 
@@ -30,7 +31,7 @@ func (f fakeQuerier) GetProjection(_ context.Context, _ int64) (store.WorkspaceS
 }
 
 func (f fakeQuerier) GetWorkspace(_ context.Context, _ int64) (store.Workspace, error) {
-	return store.Workspace{}, nil // personal owner (OwnerID=0) — tests inject accounts directly
+	return store.Workspace{EnvProviderGroup: f.groupBinding}, nil // personal owner (OwnerID=0) — tests inject accounts directly
 }
 
 func (f fakeQuerier) ListEnvAccountsForOwners(_ context.Context, _ store.ListEnvAccountsForOwnersParams) ([]store.EnvAccount, error) {

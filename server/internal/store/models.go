@@ -720,6 +720,7 @@ type Project struct {
 	MemorySweepCron     string         `json:"memory_sweep_cron"`
 	DefaultCliType      string         `json:"default_cli_type"`
 	EnvProviderID       sql.NullInt64  `json:"env_provider_id"`
+	EnvProviderGroup    string         `json:"env_provider_group"`
 	CleanupEnabled      int64          `json:"cleanup_enabled"`
 	CleanupInactiveDays int64          `json:"cleanup_inactive_days"`
 	CleanupStatuses     string         `json:"cleanup_statuses"`
@@ -940,6 +941,7 @@ type Workspace struct {
 	StrictMcpConfig      int64          `json:"strict_mcp_config"`
 	Language             string         `json:"language"`
 	EnvProviderID        sql.NullInt64  `json:"env_provider_id"`
+	EnvProviderGroup     string         `json:"env_provider_group"`
 }
 
 type WorkspaceCost struct {

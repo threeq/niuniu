@@ -13,7 +13,14 @@ SELECT cli_type FROM workspaces WHERE id = ?;
 SELECT COALESCE(env_provider_id, 0) AS env_provider_id FROM workspaces WHERE id = ?;
 
 -- name: SetWorkspaceEnvProvider :exec
-UPDATE workspaces SET env_provider_id = ? WHERE id = ?;
+-- Bind (or unbind, when NULL) a specific provider. Clears any group binding
+-- (the two are mutually exclusive).
+UPDATE workspaces SET env_provider_id = ?, env_provider_group = '' WHERE id = ?;
+
+-- name: SetWorkspaceEnvProviderGroup :exec
+-- Bind the workspace to a provider GROUP ('' unbinds). Clears the specific
+-- provider binding (mutually exclusive).
+UPDATE workspaces SET env_provider_group = ?, env_provider_id = NULL WHERE id = ?;
 
 -- name: GetWorkspacesByIssue :many
 SELECT * FROM workspaces WHERE issue_id = ? ORDER BY is_archived ASC, created_at DESC;

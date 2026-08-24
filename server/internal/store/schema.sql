@@ -21,6 +21,7 @@ CREATE TABLE IF NOT EXISTS projects (
     -- project. Inherited by a new workspace's env_provider_id at creation time
     -- (a snapshot; the workspace can override afterward). NULL = no default.
     env_provider_id INTEGER DEFAULT NULL REFERENCES env_providers(id) ON DELETE SET NULL,
+    env_provider_group TEXT NOT NULL DEFAULT '', -- bind to a provider GROUP instead of one provider
     -- Per-project workspace auto-cleanup policy. cleanup_enabled=0 (default) is
     -- OFF; when 1, an hourly sweeper deletes each workspace (and its issue) whose
     -- linked issue falls in one of cleanup_statuses (comma-separated subset of
@@ -258,7 +259,8 @@ CREATE TABLE IF NOT EXISTS workspaces (
     -- uses directly (issue #653 simplification): at spawn, sceneenv.Resolve
     -- expands it per the workspace's cli_type without requiring a scene. NULL
     -- means no direct binding (fall back to scene-declared providers/presets).
-    env_provider_id INTEGER DEFAULT NULL REFERENCES env_providers(id) ON DELETE SET NULL
+    env_provider_id INTEGER DEFAULT NULL REFERENCES env_providers(id) ON DELETE SET NULL,
+    env_provider_group TEXT NOT NULL DEFAULT '' -- bind to a provider GROUP instead of one provider
 );
 
 -- ============================================================
