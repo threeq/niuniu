@@ -558,6 +558,10 @@ func setupDispatchDB(t *testing.T) *store.Queries {
 		t.Fatalf("open sqlite: %v", err)
 	}
 	t.Cleanup(func() { _ = db.Close() })
+	// Pin a single connection: `:memory:` SQLite databases are per-connection,
+	// so a pooled second connection would see an EMPTY database (no tables)
+	// and every query after the first would fail.
+	db.SetMaxOpenConns(1)
 	store.Driver = "sqlite"
 	if err := store.ApplySchema(db); err != nil {
 		t.Fatalf("ApplySchema: %v", err)

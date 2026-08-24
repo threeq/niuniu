@@ -1142,15 +1142,23 @@ func (s *WorkspaceService) Create(ctx context.Context, input CreateWorkspaceInpu
 		go s.onCreated(context.Background(), ws)
 	}
 
-	// Inherit the project's default Provider (projects.env_provider_id) so a
-	// workspace created from an issue under a project gets the right subscription
-	// platform automatically. Best-effort: a lookup/write failure just leaves the
-	// workspace without a provider binding (the user can set one in settings).
+	// Inherit the project's default Provider binding (projects.env_provider_id /
+	// env_provider_group) so a workspace created from an issue under a project
+	// gets the right subscription platform automatically. Best-effort: a
+	// lookup/write failure just leaves the workspace without a provider binding
+	// (the user can set one in settings).
 	if input.IssueID != nil {
-		if pid, err := s.q.GetProjectEnvProviderByIssueID(ctx, *input.IssueID); err == nil && pid > 0 {
-			if err := s.SetEnvProvider(ctx, result.Workspace.ID, pid); err != nil {
-				slog.Warn("workspace.Create: inherit project provider failed",
-					"workspace_id", result.Workspace.ID, "provider_id", pid, "error", err)
+		if row, err := s.q.GetProjectEnvProviderByIssueID(ctx, *input.IssueID); err == nil {
+			if row.EnvProviderGroup != "" {
+				if err := s.SetEnvProviderGroup(ctx, result.Workspace.ID, row.EnvProviderGroup); err != nil {
+					slog.Warn("workspace.Create: inherit project provider group failed",
+						"workspace_id", result.Workspace.ID, "group", row.EnvProviderGroup, "error", err)
+				}
+			} else if row.EnvProviderID > 0 {
+				if err := s.SetEnvProvider(ctx, result.Workspace.ID, row.EnvProviderID); err != nil {
+					slog.Warn("workspace.Create: inherit project provider failed",
+						"workspace_id", result.Workspace.ID, "provider_id", row.EnvProviderID, "error", err)
+				}
 			}
 		}
 	}
@@ -2212,6 +2220,17 @@ func (s *WorkspaceService) SetEnvProvider(ctx context.Context, workspaceID, prov
 	return s.q.SetWorkspaceEnvProvider(ctx, store.SetWorkspaceEnvProviderParams{
 		ID:            workspaceID,
 		EnvProviderID: v,
+	})
+}
+
+// SetEnvProviderGroup binds the workspace to a provider GROUP ('' unbinds)
+// instead of one specific provider. At spawn, sceneenv.ActiveProvider resolves
+// the group's best usable member in manual order, so a rate-limited or disabled
+// member is skipped automatically.
+func (s *WorkspaceService) SetEnvProviderGroup(ctx context.Context, workspaceID int64, group string) error {
+	return s.q.SetWorkspaceEnvProviderGroup(ctx, store.SetWorkspaceEnvProviderGroupParams{
+		ID:                 workspaceID,
+		EnvProviderGroup:   group,
 	})
 }
 

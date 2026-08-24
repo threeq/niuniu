@@ -18,6 +18,7 @@ type fakeQuerier struct {
 	accounts      []store.EnvAccount
 	providers     []store.EnvProvider
 	boundProvider *store.EnvProvider
+	groupBinding  string // workspaces.env_provider_group ('' = none)
 	cliType       string
 }
 
@@ -30,7 +31,7 @@ func (f fakeQuerier) GetProjection(_ context.Context, _ int64) (store.WorkspaceS
 }
 
 func (f fakeQuerier) GetWorkspace(_ context.Context, _ int64) (store.Workspace, error) {
-	return store.Workspace{}, nil // personal owner (OwnerID=0) — tests inject accounts directly
+	return store.Workspace{EnvProviderGroup: f.groupBinding}, nil // personal owner (OwnerID=0) — tests inject accounts directly
 }
 
 func (f fakeQuerier) ListEnvAccountsForOwners(_ context.Context, _ store.ListEnvAccountsForOwnersParams) ([]store.EnvAccount, error) {
@@ -65,6 +66,26 @@ func (f fakeQuerier) GetWorkspaceEnvProviderID(_ context.Context, _ int64) (int6
 		return f.boundProvider.ID, nil
 	}
 	return 0, nil
+}
+
+func (f fakeQuerier) SetProviderCooldown(_ context.Context, arg store.SetProviderCooldownParams) error {
+	for i := range f.providers {
+		if f.providers[i].ID == arg.ID {
+			f.providers[i].CooldownUntil = arg.CooldownUntil
+			return nil
+		}
+	}
+	return sql.ErrNoRows
+}
+
+func (f fakeQuerier) ClearProviderCooldown(_ context.Context, id int64) error {
+	for i := range f.providers {
+		if f.providers[i].ID == id {
+			f.providers[i].CooldownUntil = sql.NullTime{}
+			return nil
+		}
+	}
+	return sql.ErrNoRows
 }
 
 func envMap(rows []store.WorkspaceEnv) map[string]string {
@@ -216,7 +237,7 @@ func TestResolve_BoundProviderExpandedNoScene(t *testing.T) {
 	prov := store.EnvProvider{
 		ID: 5, Name: "DeepSeek",
 		BaseUrls: `{"anthropic":"https://api.deepseek.com/anthropic"}`, ApiKey: "${ACCOUNT:DeepSeek}",
-		Model: "deepseek-v4",
+		Model: "deepseek-v4", Enabled: 1,
 	}
 	q := fakeQuerier{
 		boundProvider: &prov,
@@ -239,7 +260,7 @@ func TestResolve_BoundProviderExpandedNoScene(t *testing.T) {
 func TestResolve_BoundProviderOverriddenByExplicitEnv(t *testing.T) {
 	// Explicit workspace_env wins over the bound provider's generated env.
 	prov := store.EnvProvider{ID: 5, Name: "DeepSeek",
-		BaseUrls: `{"anthropic":"https://api.deepseek.com/anthropic"}`, Model: "deepseek-v4"}
+		BaseUrls: `{"anthropic":"https://api.deepseek.com/anthropic"}`, Model: "deepseek-v4", Enabled: 1}
 	q := fakeQuerier{
 		env:           []store.WorkspaceEnv{{WorkspaceID: 7, Key: "ANTHROPIC_BASE_URL", Value: "https://explicit.override"}},
 		boundProvider: &prov,

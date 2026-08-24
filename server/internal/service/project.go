@@ -208,6 +208,24 @@ func (s *ProjectService) UpdateEnvProvider(ctx context.Context, id, providerID i
 	}); err != nil {
 		return store.Project{}, err
 	}
+	return s.refreshProject(ctx, id)
+}
+
+// UpdateEnvProviderGroup binds (or unbinds, when group="") a provider GROUP as
+// the project default. New workspaces created from issues under this project
+// inherit the group binding (resolution picks the group's best usable member).
+func (s *ProjectService) UpdateEnvProviderGroup(ctx context.Context, id int64, group string) (store.Project, error) {
+	if err := s.q.SetProjectEnvProviderGroup(ctx, store.SetProjectEnvProviderGroupParams{
+		EnvProviderGroup: group,
+		ID:               id,
+	}); err != nil {
+		return store.Project{}, err
+	}
+	return s.refreshProject(ctx, id)
+}
+
+// refreshProject re-fetches the project and fans out a notify update.
+func (s *ProjectService) refreshProject(ctx context.Context, id int64) (store.Project, error) {
 	project, err := s.q.GetProject(ctx, id)
 	if err != nil {
 		return project, err

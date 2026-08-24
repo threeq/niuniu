@@ -229,11 +229,16 @@ func Migrate(db *sql.DB) {
 	// Direct subscription-platform provider binding (issue #653 simplification):
 	// a workspace can use a provider without mounting a scene. NULL = no binding.
 	addColumnIfNotExists(db, "workspaces", "env_provider_id", fk+" DEFAULT NULL REFERENCES env_providers(id) ON DELETE SET NULL")
+	// env_provider_group: bind a workspace to a provider GROUP instead of one
+	// provider — resolution picks the group's best usable member in manual
+	// order (group_position). Mutually exclusive with env_provider_id.
+	addColumnIfNotExists(db, "workspaces", "env_provider_group", "TEXT NOT NULL DEFAULT ''")
 
 	// Project-level default provider binding: a new workspace created from an
 	// issue under this project inherits the project's env_provider_id. NULL = no
 	// default (the workspace picks its own or uses none).
 	addColumnIfNotExists(db, "projects", "env_provider_id", fk+" DEFAULT NULL REFERENCES env_providers(id) ON DELETE SET NULL")
+	addColumnIfNotExists(db, "projects", "env_provider_group", "TEXT NOT NULL DEFAULT ''")
 
 	// env_providers.protocol was added to schema.sql for fresh DBs but existing
 	// DBs (created when the table first shipped without it) are missing the
@@ -314,6 +319,20 @@ func Migrate(db *sql.DB) {
 		 WHERE model LIKE '%[1m]%' AND context_window < 1000000`); err != nil {
 		slog.Warn("fix env_providers [1m] context_window failed", "error", err)
 	}
+
+	// Provider grouping + rate-limit cooldown (issue: 订阅平台 provider 分组支持).
+	// group_name: providers sharing a non-empty group_name are interchangeable
+	// fallbacks — when one is rate-limited, resolution picks another member of
+	// the same group. cooldown_until: the parsed reset time of a 429 quota
+	// error; while it is in the future the provider is skipped by
+	// sceneenv.ActiveProvider. NULL = healthy. group_position: manual order
+	// within a group (smaller = preferred fallback first). enabled: manual
+	// on/off switch (0 = taken out of rotation by the user). Fresh DBs get all
+	// from schema.sql; existing DBs need the columns added here.
+	addColumnIfNotExists(db, "env_providers", "group_name", "TEXT NOT NULL DEFAULT ''")
+	addColumnIfNotExists(db, "env_providers", "group_position", "INTEGER NOT NULL DEFAULT 0")
+	addColumnIfNotExists(db, "env_providers", "enabled", "INTEGER NOT NULL DEFAULT 1")
+	addColumnIfNotExists(db, "env_providers", "cooldown_until", "TIMESTAMP")
 
 	if !migrationApplied(w, "workspaces_created_by_backfill_v1") {
 		if _, err := w.ExecContext(context.Background(),

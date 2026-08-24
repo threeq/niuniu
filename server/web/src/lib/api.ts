@@ -570,15 +570,23 @@ export const api = {
     api.put(`/env-providers/${id}`, data),
   deleteEnvProvider: (id: number): Promise<void> =>
     api.delete(`/env-providers/${id}`),
+  clearProviderCooldown: (id: number): Promise<void> =>
+    api.delete(`/env-providers/${id}/cooldown`),
+  setProviderEnabled: (id: number, enabled: boolean): Promise<void> =>
+    api.post(`/env-providers/${id}/enabled`, { enabled }),
+  reorderProviders: (groupName: string, orderedIds: number[]): Promise<void> =>
+    api.post('/env-providers/reorder', { group_name: groupName, ordered_ids: orderedIds }),
   getProviderEnv: (id: number, cliType?: string): Promise<Record<string, string>> =>
     api.get<Record<string, string>>(`/env-providers/${id}/env`, { params: cliType ? { cli_type: cliType } : {} }),
-  // Workspace direct provider binding (issue #653 simplification)
-  setWorkspaceEnvProvider: (workspaceId: string, providerId: number | null): Promise<{ env_provider_id: number }> =>
-    api.put(`/workspaces/${workspaceId}/env-provider`, { env_provider_id: providerId }),
+  // Workspace provider binding: a specific provider (env_provider_id) or a
+  // provider GROUP (groupName). Mutually exclusive; both absent = unbind.
+  setWorkspaceEnvProvider: (workspaceId: string, providerId: number | null, groupName?: string): Promise<{ env_provider_id: number | null; env_provider_group: string }> =>
+    api.put(`/workspaces/${workspaceId}/env-provider`, groupName ? { env_provider_group: groupName } : { env_provider_id: providerId }),
 
-  // Project default provider binding (inherited by new workspaces)
-  setProjectEnvProvider: (projectId: string, providerId: number | null): Promise<unknown> =>
-    api.put(`/projects/${projectId}/env-provider`, { env_provider_id: providerId }),
+  // Project default provider binding (inherited by new workspaces): a specific
+  // provider or a provider GROUP.
+  setProjectEnvProvider: (projectId: string, providerId: number | null, groupName?: string): Promise<unknown> =>
+    api.put(`/projects/${projectId}/env-provider`, groupName ? { env_provider_group: groupName } : { env_provider_id: providerId }),
 
   // Attachments
   uploadAttachment: async (workspaceId: string, file: File): Promise<{ name: string; path: string; size: number; mimeType: string; originalSize?: number; optimized?: boolean }> => {

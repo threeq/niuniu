@@ -18,6 +18,7 @@ CREATE TABLE IF NOT EXISTS projects (
     -- an issue. Mirrors workspaces.cli_type's closed set.
     default_cli_type TEXT NOT NULL DEFAULT 'claude' CHECK (default_cli_type IN ('claude','codex','qwen','omp','goose')),
     env_provider_id BIGINT DEFAULT NULL REFERENCES env_providers(id) ON DELETE SET NULL,
+    env_provider_group TEXT NOT NULL DEFAULT '', -- bind to a provider GROUP instead of one provider
     -- Per-project workspace auto-cleanup policy. cleanup_enabled=0 (default) is
     -- OFF; when 1, an hourly sweeper deletes each workspace (and its issue) whose
     -- linked issue falls in one of cleanup_statuses (comma-separated subset of
@@ -251,7 +252,8 @@ CREATE TABLE IF NOT EXISTS workspaces (
     -- the "User Language" directive in generated CLAUDE.md/AGENTS.md and is
     -- inherited by epic-derived child workspaces. '' = unknown (generic directive).
     language TEXT NOT NULL DEFAULT '',
-    env_provider_id BIGINT DEFAULT NULL REFERENCES env_providers(id) ON DELETE SET NULL
+    env_provider_id BIGINT DEFAULT NULL REFERENCES env_providers(id) ON DELETE SET NULL,
+    env_provider_group TEXT NOT NULL DEFAULT '' -- bind to a provider GROUP instead of one provider
 );
 
 -- ============================================================
@@ -647,6 +649,11 @@ CREATE TABLE IF NOT EXISTS env_providers (
     opus_model    TEXT NOT NULL DEFAULT '',
     subagent_model TEXT NOT NULL DEFAULT '',
     extra_env     TEXT NOT NULL DEFAULT '{}',  -- JSON: Record<string, string> passthrough
+    context_window BIGINT NOT NULL DEFAULT 0,  -- model context window in tokens (0 = unknown)
+    group_name    TEXT NOT NULL DEFAULT '',   -- fallback group; empty = standalone
+    group_position INTEGER NOT NULL DEFAULT 0, -- manual order within group; smaller = used first for fallback
+    enabled       INTEGER NOT NULL DEFAULT 1,  -- 1 = usable; 0 = manually disabled (out of rotation)
+    cooldown_until TIMESTAMP,                 -- rate-limit reset time; provider is skipped while in the future (NULL = healthy)
     owner_type    TEXT NOT NULL DEFAULT 'user' CHECK (owner_type IN ('user','org')),
     owner_id      BIGINT NOT NULL DEFAULT 0,
     slug          TEXT NOT NULL DEFAULT '',

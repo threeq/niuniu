@@ -73,6 +73,7 @@ func (s *EnvProviderService) Create(ctx context.Context, p store.EnvProvider) (s
 		SubagentModel: p.SubagentModel,
 		ExtraEnv:      p.ExtraEnv,
 		ContextWindow: p.ContextWindow,
+		GroupName:     p.GroupName,
 		OwnerType:     p.OwnerType,
 		OwnerID:       p.OwnerID,
 	})
@@ -93,7 +94,48 @@ func (s *EnvProviderService) Update(ctx context.Context, id int64, p store.EnvPr
 		SubagentModel: p.SubagentModel,
 		ExtraEnv:      p.ExtraEnv,
 		ContextWindow: p.ContextWindow,
+		GroupName:     p.GroupName,
+		GroupPosition: p.GroupPosition,
+		Enabled:       p.Enabled,
 	})
+}
+
+// ClearCooldown removes a provider's rate-limit cooldown so it becomes eligible
+// again immediately (e.g. the user re-keyed the account or the platform reset
+// earlier than the parsed 429 reset time). No-op when there is no cooldown.
+func (s *EnvProviderService) ClearCooldown(ctx context.Context, id int64) error {
+	return s.q.ClearProviderCooldown(ctx, id)
+}
+
+// SetEnabled flips a provider's manual on/off switch. enabled=false takes the
+// provider out of rotation (group fallback and binding both skip it) until the
+// user re-enables it.
+func (s *EnvProviderService) SetEnabled(ctx context.Context, id int64, enabled bool) error {
+	v := int64(0)
+	if enabled {
+		v = 1
+	}
+	return s.q.SetProviderEnabled(ctx, store.SetProviderEnabledParams{ID: id, Enabled: v})
+}
+
+// ReorderGroup sets the manual order of providers within a group from an
+// ordered id list: ordered_ids[i] gets group_position i+1 (smaller = preferred
+// fallback first). Providers in the group not listed keep their current
+// position (ties break by id). Callers are expected to send the full ordered
+// group list.
+func (s *EnvProviderService) ReorderGroup(ctx context.Context, groupName string, orderedIDs []int64) error {
+	if groupName == "" {
+		return nil
+	}
+	for i, id := range orderedIDs {
+		if err := s.q.SetProviderGroupPosition(ctx, store.SetProviderGroupPositionParams{
+			ID:            id,
+			GroupPosition: int64(i + 1),
+		}); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (s *EnvProviderService) Delete(ctx context.Context, id int64) error {

@@ -51,6 +51,14 @@ func (fakeSceneEnvQuerier) GetWorkspaceEnvProviderID(context.Context, int64) (in
 	return 0, nil
 }
 
+func (fakeSceneEnvQuerier) SetProviderCooldown(context.Context, store.SetProviderCooldownParams) error {
+	return nil
+}
+
+func (fakeSceneEnvQuerier) ClearProviderCooldown(context.Context, int64) error {
+	return nil
+}
+
 func TestSceneEnvResolve_DecodesRealProjectionJSON(t *testing.T) {
 	// Build a Projection exactly as Recompute would: fold a scene definition
 	// that declares an env_preset asset.

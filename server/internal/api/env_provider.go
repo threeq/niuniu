@@ -39,7 +39,15 @@ type CreateEnvProviderRequest struct {
 	SubagentModel string            `json:"subagent_model"`
 	ExtraEnv      map[string]string `json:"extra_env"`
 	ContextWindow int64             `json:"context_window"`
-	Owner         *struct {
+	// GroupName groups interchangeable providers: when one member is
+	// rate-limited, resolution falls back to another member of the same group.
+	GroupName string `json:"group_name"`
+	// GroupPosition is the manual order within the group (smaller = preferred
+	// fallback first). 0 = unset (falls back to id order).
+	GroupPosition int64 `json:"group_position"`
+	// Enabled is the manual on/off switch (nil = default on for create).
+	Enabled *bool `json:"enabled"`
+	Owner   *struct {
 		Type string `json:"type"`
 		ID   int64  `json:"id"`
 	} `json:"owner,omitempty"`
@@ -58,6 +66,9 @@ type UpdateEnvProviderRequest struct {
 	SubagentModel string            `json:"subagent_model"`
 	ExtraEnv      map[string]string `json:"extra_env"`
 	ContextWindow int64             `json:"context_window"`
+	GroupName     string            `json:"group_name"`
+	GroupPosition int64             `json:"group_position"`
+	Enabled       *bool             `json:"enabled"`
 }
 
 // validateProvider checks the provider payload: api_key, when set, must be a
@@ -161,12 +172,19 @@ func (h *EnvProviderHandler) Create(c *gin.Context) {
 	}
 	extra, _ := json.Marshal(req.ExtraEnv)
 	baseURLs, _ := json.Marshal(req.BaseUrls)
+	enabled := int64(1)
+	if req.Enabled != nil && !*req.Enabled {
+		enabled = 0
+	}
 	provider, err := h.svc.Create(c.Request.Context(), store.EnvProvider{
 		Name: req.Name, Platform: req.Platform, Description: req.Description,
 		BaseUrls: string(baseURLs), ApiKey: req.ApiKey, Model: req.Model,
 		HaikuModel: req.HaikuModel, SonnetModel: req.SonnetModel, OpusModel: req.OpusModel,
 		SubagentModel: req.SubagentModel, ExtraEnv: string(extra),
 		ContextWindow: req.ContextWindow,
+		GroupName:     req.GroupName,
+		GroupPosition: req.GroupPosition,
+		Enabled:       enabled,
 		OwnerType:     owner.Type, OwnerID: owner.ID,
 	})
 	if err != nil {
@@ -204,12 +222,25 @@ func (h *EnvProviderHandler) Update(c *gin.Context) {
 	}
 	extra, _ := json.Marshal(req.ExtraEnv)
 	baseURLs, _ := json.Marshal(req.BaseUrls)
+	// Preserve the current enabled flag when the payload omits it (a partial
+	// update must not silently re-enable a provider the user disabled).
+	enabled := int64(1)
+	if req.Enabled == nil {
+		if cur, cerr := h.svc.Get(c.Request.Context(), id); cerr == nil {
+			enabled = cur.Enabled
+		}
+	} else if !*req.Enabled {
+		enabled = 0
+	}
 	if err := h.svc.Update(c.Request.Context(), id, store.EnvProvider{
 		Name: req.Name, Platform: req.Platform, Description: req.Description,
 		BaseUrls: string(baseURLs), ApiKey: req.ApiKey, Model: req.Model,
 		HaikuModel: req.HaikuModel, SonnetModel: req.SonnetModel, OpusModel: req.OpusModel,
 		SubagentModel: req.SubagentModel, ExtraEnv: string(extra),
 		ContextWindow: req.ContextWindow,
+		GroupName:     req.GroupName,
+		GroupPosition: req.GroupPosition,
+		Enabled:       enabled,
 	}); err != nil {
 		slog.Warn("UpdateEnvProvider failed", "id", id, "error", err)
 		if isUniqueViolation(err) {
@@ -236,6 +267,85 @@ func (h *EnvProviderHandler) Delete(c *gin.Context) {
 		}
 	}
 	if err := h.svc.Delete(c.Request.Context(), id); err != nil {
+		InternalError(c, err)
+		return
+	}
+	c.Status(http.StatusNoContent)
+}
+
+// ClearCooldown removes a provider's rate-limit cooldown so it becomes eligible
+// again immediately. Exposed for when the platform reset earlier than the 429
+// message's parsed reset time, or the user re-keyed the account.
+func (h *EnvProviderHandler) ClearCooldown(c *gin.Context) {
+	userID := c.GetInt64("auth_user_id")
+	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		BadRequest(c, "invalid env provider ID")
+		return
+	}
+	if userID > 0 && h.Authz != nil {
+		if _, err := h.Authz.CanAccessEnvProvider(c.Request.Context(), userID, id); err != nil {
+			writeAuthzError(c, err)
+			return
+		}
+	}
+	if err := h.svc.ClearCooldown(c.Request.Context(), id); err != nil {
+		InternalError(c, err)
+		return
+	}
+	c.Status(http.StatusNoContent)
+}
+
+// SetEnabled flips a provider's manual on/off switch. Disabled providers are
+// skipped by group fallback and binding until re-enabled.
+func (h *EnvProviderHandler) SetEnabled(c *gin.Context) {
+	userID := c.GetInt64("auth_user_id")
+	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		BadRequest(c, "invalid env provider ID")
+		return
+	}
+	if userID > 0 && h.Authz != nil {
+		if _, err := h.Authz.CanAccessEnvProvider(c.Request.Context(), userID, id); err != nil {
+			writeAuthzError(c, err)
+			return
+		}
+	}
+	var req struct {
+		Enabled bool `json:"enabled"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		BadRequest(c, err.Error())
+		return
+	}
+	if err := h.svc.SetEnabled(c.Request.Context(), id, req.Enabled); err != nil {
+		InternalError(c, err)
+		return
+	}
+	c.Status(http.StatusNoContent)
+}
+
+// ReorderGroup sets the manual order of providers within a group from an
+// ordered id list: ordered_ids[0] becomes the preferred fallback first.
+func (h *EnvProviderHandler) ReorderGroup(c *gin.Context) {
+	userID := c.GetInt64("auth_user_id")
+	var req struct {
+		GroupName  string  `json:"group_name" binding:"required"`
+		OrderedIDs []int64 `json:"ordered_ids" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		BadRequest(c, err.Error())
+		return
+	}
+	if userID > 0 && h.Authz != nil {
+		for _, id := range req.OrderedIDs {
+			if _, err := h.Authz.CanAccessEnvProvider(c.Request.Context(), userID, id); err != nil {
+				writeAuthzError(c, err)
+				return
+			}
+		}
+	}
+	if err := h.svc.ReorderGroup(c.Request.Context(), req.GroupName, req.OrderedIDs); err != nil {
 		InternalError(c, err)
 		return
 	}
@@ -294,6 +404,16 @@ type EnvProviderResponse struct {
 	SubagentModel string            `json:"subagent_model"`
 	ExtraEnv      map[string]string `json:"extra_env"`
 	ContextWindow int64             `json:"context_window"`
+	// GroupName groups interchangeable providers (fallback on rate limit).
+	GroupName string `json:"group_name"`
+	// GroupPosition is the manual order within the group (smaller = preferred
+	// fallback first).
+	GroupPosition int64 `json:"group_position"`
+	// Enabled is the manual on/off switch: false = user disabled the provider.
+	Enabled bool `json:"enabled"`
+	// CooldownUntil is the parsed 429 reset time while the provider is
+	// rate-limited, or "" when healthy. RFC3339.
+	CooldownUntil string `json:"cooldown_until"`
 	Owner         OwnerDTO          `json:"owner"`
 	CreatedAt     string            `json:"created_at"`
 	UpdatedAt     string            `json:"updated_at"`
@@ -304,15 +424,23 @@ func toEnvProviderResponse(p store.EnvProvider) EnvProviderResponse {
 	_ = json.Unmarshal([]byte(p.ExtraEnv), &extra)
 	baseURLs := map[string]string{}
 	_ = json.Unmarshal([]byte(p.BaseUrls), &baseURLs)
+	cooldown := ""
+	if p.CooldownUntil.Valid {
+		cooldown = p.CooldownUntil.Time.Format(time.RFC3339)
+	}
 	return EnvProviderResponse{
 		ID: p.ID, Name: p.Name, Platform: p.Platform, Description: p.Description,
 		BaseUrls: baseURLs, ApiKey: p.ApiKey, Model: p.Model,
 		HaikuModel: p.HaikuModel, SonnetModel: p.SonnetModel, OpusModel: p.OpusModel,
 		SubagentModel: p.SubagentModel, ExtraEnv: extra,
 		ContextWindow: p.ContextWindow,
+		GroupName:     p.GroupName,
+		GroupPosition: p.GroupPosition,
+		Enabled:       p.Enabled != 0,
+		CooldownUntil: cooldown,
 		Owner:         ownerDTOFromRef(p.OwnerType, p.OwnerID),
-		CreatedAt: p.CreatedAt.Format(time.RFC3339),
-		UpdatedAt: p.UpdatedAt.Format(time.RFC3339),
+		CreatedAt:     p.CreatedAt.Format(time.RFC3339),
+		UpdatedAt:     p.UpdatedAt.Format(time.RFC3339),
 	}
 }
 

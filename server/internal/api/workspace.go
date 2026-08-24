@@ -1429,9 +1429,10 @@ func (h *WorkspaceHandler) SetEnv(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"env": req.Env})
 }
 
-// SetEnvProvider binds (or unbinds, when 0/null) a subscription-platform
-// provider directly to the workspace, so its base_url/models/account reach the
-// agent at spawn without mounting a scene.
+// SetEnvProvider binds the workspace to a subscription-platform provider
+// directly (env_provider_id), or to a provider GROUP (env_provider_group), so
+// its base_url/models/account reach the agent at spawn without mounting a
+// scene. The two are mutually exclusive; sending neither unbinds.
 func (h *WorkspaceHandler) SetEnvProvider(c *gin.Context) {
 	userID := c.GetInt64("auth_user_id")
 	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
@@ -1446,10 +1447,19 @@ func (h *WorkspaceHandler) SetEnvProvider(c *gin.Context) {
 		}
 	}
 	var req struct {
-		EnvProviderID *int64 `json:"env_provider_id"`
+		EnvProviderID    *int64  `json:"env_provider_id"`
+		EnvProviderGroup *string `json:"env_provider_group"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		BadRequest(c, err.Error())
+		return
+	}
+	if req.EnvProviderGroup != nil && *req.EnvProviderGroup != "" {
+		if err := h.Svc.SetEnvProviderGroup(c.Request.Context(), id, *req.EnvProviderGroup); err != nil {
+			InternalError(c, err)
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"env_provider_id": nil, "env_provider_group": *req.EnvProviderGroup})
 		return
 	}
 	var pid int64
@@ -1460,7 +1470,7 @@ func (h *WorkspaceHandler) SetEnvProvider(c *gin.Context) {
 		InternalError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"env_provider_id": pid})
+	c.JSON(http.StatusOK, gin.H{"env_provider_id": pid, "env_provider_group": ""})
 }
 
 // GetByIssue returns the workspace linked to an issue

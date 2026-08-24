@@ -174,6 +174,8 @@ type ProjectResponse struct {
 	Color        *string                    `json:"color" example:"emerald"`
 	DefaultCliType string                   `json:"default_cli_type" example:"claude"`
 	EnvProviderID  *int64                    `json:"env_provider_id,omitempty"`
+	// EnvProviderGroup is the provider-group default binding ('' = none).
+	EnvProviderGroup string                   `json:"env_provider_group"`
 	IssueStats   []ColumnIssueStat          `json:"issue_stats,omitempty"`
 	WsStats      []WsStatusStat             `json:"ws_stats,omitempty"`
 	Repositories []ProjectRepositoryBinding `json:"repositories,omitempty"`
@@ -242,10 +244,11 @@ func toProjectResponse(p store.Project) ProjectResponse {
 		Status:         p.Status,
 		Owner:          ownerDTOFromRef(p.OwnerType, p.OwnerID),
 		Color:          color,
-		DefaultCliType: normalizeCliType(p.DefaultCliType),
-		EnvProviderID:  envProviderID,
-		CreatedAt:      p.CreatedAt,
-		UpdatedAt:      p.UpdatedAt,
+		DefaultCliType:    normalizeCliType(p.DefaultCliType),
+		EnvProviderID:     envProviderID,
+		EnvProviderGroup:  p.EnvProviderGroup,
+		CreatedAt:         p.CreatedAt,
+		UpdatedAt:         p.UpdatedAt,
 	}
 }
 
@@ -619,6 +622,10 @@ type WorkspaceResponse struct {
 	// EnvProviderID is the directly-bound subscription-platform provider (issue
 	// #653). nil = no direct binding (env comes from scene/ explicit workspace_env).
 	EnvProviderID       *int64    `json:"env_provider_id,omitempty"`
+	// EnvProviderGroup is the provider-group binding ('' = none). Mutually
+	// exclusive with EnvProviderID; the workspace resolves the group's best
+	// usable member in manual order.
+	EnvProviderGroup    string    `json:"env_provider_group"`
 	CreatedAt           time.Time `json:"created_at" example:"2026-03-17T12:00:00Z"`
 	UpdatedAt           time.Time `json:"updated_at" example:"2026-03-17T12:00:00Z"`
 }
@@ -669,6 +676,7 @@ func toWorkspaceResponse(w store.Workspace) WorkspaceResponse {
 			CodexSandboxMode:    normalizeCodexSandbox(w.CodexSandboxMode),
 		CodexApprovalPolicy: normalizeCodexApproval(w.CodexApprovalPolicy),
 		EnvProviderID:       envProviderID,
+		EnvProviderGroup:    w.EnvProviderGroup,
 		CreatedAt:           w.CreatedAt,
 		UpdatedAt:           w.UpdatedAt,
 	}

@@ -41,6 +41,11 @@ type Querier interface {
 	GetEnvProvider(ctx context.Context, id int64) (store.EnvProvider, error)
 	GetWorkspaceCliType(ctx context.Context, workspaceID int64) (string, error)
 	GetWorkspaceEnvProviderID(ctx context.Context, workspaceID int64) (int64, error)
+	// SetProviderCooldown / ClearProviderCooldown persist a provider's
+	// rate-limit cooldown (see MarkProviderCooldown). *store.Queries satisfies
+	// this.
+	SetProviderCooldown(ctx context.Context, arg store.SetProviderCooldownParams) error
+	ClearProviderCooldown(ctx context.Context, id int64) error
 }
 
 // AccountRefPrefix is the placeholder an env value uses to reference a
@@ -137,29 +142,19 @@ func Resolve(ctx context.Context, q Querier, wsID int64) ([]store.WorkspaceEnv, 
 	// defaults), never another tenant's. For an org-owned workspace we pass
 	// OwnerID=0 + OrgIds=[orgID] (matches defaults + that org only); for a
 	// personal workspace OwnerID=ws.OwnerID + no orgs (personal + defaults).
-	ws, werr := q.GetWorkspace(ctx, wsID)
-	var accountParams store.ListEnvAccountsForOwnersParams
-	var providerParams store.ListEnvProvidersForOwnersParams
-	if werr == nil && ws.OwnerType == "org" {
-		accountParams.OwnerID = 0
-		accountParams.OrgIds = []int64{ws.OwnerID}
-		providerParams.OwnerID = 0
-		providerParams.OrgIds = []int64{ws.OwnerID}
-	} else if werr == nil {
-		accountParams.OwnerID = ws.OwnerID
-		providerParams.OwnerID = ws.OwnerID
-	}
+	accountParams, providerParams := ownerScopeParams(ctx, q, wsID)
 	accounts, _ := q.ListEnvAccountsForOwners(ctx, accountParams)
 	cliType, _ := q.GetWorkspaceCliType(ctx, wsID)
 	scene := SceneVars(ctx, q, wsID)
 	merged := map[string]string{}
 
-	// Lowest: directly-bound provider (no scene required).
-	if pid, perr := q.GetWorkspaceEnvProviderID(ctx, wsID); perr == nil && pid > 0 {
-		if p, gerr := q.GetEnvProvider(ctx, pid); gerr == nil {
-			for k, v := range ExpandProvider(p, cliType, accounts, true) {
-				merged[k] = v
-			}
+	// Lowest: directly-bound provider (no scene required). When that provider is
+	// in a rate-limit cooldown, ActiveProvider substitutes a healthy member of
+	// the same group so the workspace keeps working with an interchangeable
+	// provider until the original recovers.
+	if p, ok := ActiveProvider(ctx, q, wsID); ok {
+		for k, v := range ExpandProvider(p, cliType, accounts, true) {
+			merged[k] = v
 		}
 	}
 

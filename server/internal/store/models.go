@@ -255,24 +255,28 @@ type EnvPreset struct {
 }
 
 type EnvProvider struct {
-	ID            int64     `json:"id"`
-	Name          string    `json:"name"`
-	Platform      string    `json:"platform"`
-	Description   string    `json:"description"`
-	BaseUrls      string    `json:"base_urls"`
-	ApiKey        string    `json:"api_key"`
-	Model         string    `json:"model"`
-	HaikuModel    string    `json:"haiku_model"`
-	SonnetModel   string    `json:"sonnet_model"`
-	OpusModel     string    `json:"opus_model"`
-	SubagentModel string    `json:"subagent_model"`
-	ExtraEnv      string    `json:"extra_env"`
-	ContextWindow int64     `json:"context_window"`
-	OwnerType     string    `json:"owner_type"`
-	OwnerID       int64     `json:"owner_id"`
-	Slug          string    `json:"slug"`
-	CreatedAt     time.Time `json:"created_at"`
-	UpdatedAt     time.Time `json:"updated_at"`
+	ID            int64        `json:"id"`
+	Name          string       `json:"name"`
+	Platform      string       `json:"platform"`
+	Description   string       `json:"description"`
+	BaseUrls      string       `json:"base_urls"`
+	ApiKey        string       `json:"api_key"`
+	Model         string       `json:"model"`
+	HaikuModel    string       `json:"haiku_model"`
+	SonnetModel   string       `json:"sonnet_model"`
+	OpusModel     string       `json:"opus_model"`
+	SubagentModel string       `json:"subagent_model"`
+	ExtraEnv      string       `json:"extra_env"`
+	ContextWindow int64        `json:"context_window"`
+	GroupName     string       `json:"group_name"`
+	GroupPosition int64        `json:"group_position"`
+	Enabled       int64        `json:"enabled"`
+	CooldownUntil sql.NullTime `json:"cooldown_until"`
+	OwnerType     string       `json:"owner_type"`
+	OwnerID       int64        `json:"owner_id"`
+	Slug          string       `json:"slug"`
+	CreatedAt     time.Time    `json:"created_at"`
+	UpdatedAt     time.Time    `json:"updated_at"`
 }
 
 type ExternalApiAudit struct {
@@ -716,6 +720,7 @@ type Project struct {
 	MemorySweepCron     string         `json:"memory_sweep_cron"`
 	DefaultCliType      string         `json:"default_cli_type"`
 	EnvProviderID       sql.NullInt64  `json:"env_provider_id"`
+	EnvProviderGroup    string         `json:"env_provider_group"`
 	CleanupEnabled      int64          `json:"cleanup_enabled"`
 	CleanupInactiveDays int64          `json:"cleanup_inactive_days"`
 	CleanupStatuses     string         `json:"cleanup_statuses"`
@@ -936,6 +941,7 @@ type Workspace struct {
 	StrictMcpConfig      int64          `json:"strict_mcp_config"`
 	Language             string         `json:"language"`
 	EnvProviderID        sql.NullInt64  `json:"env_provider_id"`
+	EnvProviderGroup     string         `json:"env_provider_group"`
 }
 
 type WorkspaceCost struct {

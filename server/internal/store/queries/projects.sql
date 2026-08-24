@@ -5,7 +5,14 @@ SELECT * FROM projects WHERE status = ? ORDER BY created_at DESC;
 SELECT * FROM projects WHERE id = ?;
 
 -- name: SetProjectEnvProvider :exec
-UPDATE projects SET env_provider_id = ? WHERE id = ?;
+-- Bind (or unbind, when NULL) a specific default provider. Clears any group
+-- binding (the two are mutually exclusive).
+UPDATE projects SET env_provider_id = ?, env_provider_group = '' WHERE id = ?;
+
+-- name: SetProjectEnvProviderGroup :exec
+-- Bind the project to a provider GROUP ('' unbinds). Clears the specific
+-- provider binding (mutually exclusive).
+UPDATE projects SET env_provider_group = ?, env_provider_id = NULL WHERE id = ?;
 
 -- name: GetProjectByOwnerAndName :one
 -- Project names are unique per owner (idx_projects_owner_name_unique), not

@@ -114,8 +114,11 @@ export function ProjectSettingsTab({ projectId }: Props) {
     queryFn: () => api.listEnvProviders(),
   });
   const providerMut = useMutation({
-    mutationFn: async (providerId: number | null) =>
-      api.setProjectEnvProvider(String(projectId), providerId),
+    // raw is "0" (none), "p<id>" (single provider), or "g<group>" (group).
+    mutationFn: async (raw: string) => {
+      if (raw.startsWith('g')) return api.setProjectEnvProvider(String(projectId), null, raw.slice(1))
+      return api.setProjectEnvProvider(String(projectId), raw === '0' ? null : Number(raw.slice(1)))
+    },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['project', String(projectId)] });
       qc.invalidateQueries({ queryKey: ['projects'] });
@@ -143,6 +146,15 @@ export function ProjectSettingsTab({ projectId }: Props) {
   if (isLoading || !project) {
     return <div className="p-6 text-sm text-muted-foreground">{t('tabs.settings.loading')}</div>;
   }
+
+  // Named provider groups for group binding (project is non-null here).
+  const namedGroups = [...new Set(providers.map((p) => p.group_name).filter(Boolean))].sort((a, b) =>
+    a.localeCompare(b, 'zh-Hans-CN'))
+  const providerBindingValue = project.env_provider_group
+    ? `g${project.env_provider_group}`
+    : project.env_provider_id != null
+      ? `p${project.env_provider_id}`
+      : '0'
 
   const saveBasic = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -266,17 +278,29 @@ export function ProjectSettingsTab({ projectId }: Props) {
           <div className="grid gap-2">
             <label className="text-sm font-medium">{t('tabs.settings.defaultProvider')}</label>
             <select
-              value={project.env_provider_id ?? 0}
-              onChange={(e) => providerMut.mutate(e.target.value === '0' ? null : Number(e.target.value))}
+              value={providerBindingValue}
+              onChange={(e) => providerMut.mutate(e.target.value)}
               disabled={!isAdmin || providerMut.isPending}
               className="h-9 rounded-md border border-input bg-background px-3 py-1 text-sm"
             >
-              <option value={0}>{t('tabs.settings.defaultProviderNone')}</option>
-              {providers.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.name}{Object.keys(p.base_urls ?? {}).length ? ` · ${Object.keys(p.base_urls).join('/')}` : ''}{p.model ? ` · ${p.model}` : ''}
-                </option>
-              ))}
+              <option value="0">{t('tabs.settings.defaultProviderNone')}</option>
+              {namedGroups.length > 0 && (
+                <optgroup label={t('tabs.settings.defaultProviderGroups')}>
+                  {namedGroups.map((g) => (
+                    <option key={`g${g}`} value={`g${g}`}>
+                      {t('tabs.settings.defaultProviderGroupLabel', { group: g })}
+                    </option>
+                  ))}
+                </optgroup>
+              )}
+              <optgroup label={t('tabs.settings.defaultProviderSingles')}>
+                {providers.map((p) => (
+                  <option key={p.id} value={`p${p.id}`}>
+                    {p.name}{Object.keys(p.base_urls ?? {}).length ? ` · ${Object.keys(p.base_urls).join('/')}` : ''}{p.model ? ` · ${p.model}` : ''}
+                    {!p.enabled ? t('tabs.settings.defaultProviderDisabled') : ''}
+                  </option>
+                ))}
+              </optgroup>
             </select>
             <p className="text-xs text-muted-foreground">{t('tabs.settings.defaultProviderHint')}</p>
           </div>

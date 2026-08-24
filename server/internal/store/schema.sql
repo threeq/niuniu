@@ -21,6 +21,7 @@ CREATE TABLE IF NOT EXISTS projects (
     -- project. Inherited by a new workspace's env_provider_id at creation time
     -- (a snapshot; the workspace can override afterward). NULL = no default.
     env_provider_id INTEGER DEFAULT NULL REFERENCES env_providers(id) ON DELETE SET NULL,
+    env_provider_group TEXT NOT NULL DEFAULT '', -- bind to a provider GROUP instead of one provider
     -- Per-project workspace auto-cleanup policy. cleanup_enabled=0 (default) is
     -- OFF; when 1, an hourly sweeper deletes each workspace (and its issue) whose
     -- linked issue falls in one of cleanup_statuses (comma-separated subset of
@@ -258,7 +259,8 @@ CREATE TABLE IF NOT EXISTS workspaces (
     -- uses directly (issue #653 simplification): at spawn, sceneenv.Resolve
     -- expands it per the workspace's cli_type without requiring a scene. NULL
     -- means no direct binding (fall back to scene-declared providers/presets).
-    env_provider_id INTEGER DEFAULT NULL REFERENCES env_providers(id) ON DELETE SET NULL
+    env_provider_id INTEGER DEFAULT NULL REFERENCES env_providers(id) ON DELETE SET NULL,
+    env_provider_group TEXT NOT NULL DEFAULT '' -- bind to a provider GROUP instead of one provider
 );
 
 -- ============================================================
@@ -662,6 +664,11 @@ CREATE TABLE IF NOT EXISTS env_providers (
     opus_model    TEXT NOT NULL DEFAULT '',
     subagent_model TEXT NOT NULL DEFAULT '',
     extra_env     TEXT NOT NULL DEFAULT '{}',  -- JSON: Record<string, string> passthrough
+    context_window INTEGER NOT NULL DEFAULT 0, -- model context window in tokens (0 = unknown)
+    group_name    TEXT NOT NULL DEFAULT '',   -- fallback group; empty = standalone
+    group_position INTEGER NOT NULL DEFAULT 0, -- manual order within group; smaller = used first for fallback
+    enabled       INTEGER NOT NULL DEFAULT 1,  -- 1 = usable; 0 = manually disabled (out of rotation)
+    cooldown_until TIMESTAMP,                 -- rate-limit reset time; provider is skipped while in the future (NULL = healthy)
     owner_type    TEXT NOT NULL DEFAULT 'user' CHECK (owner_type IN ('user','org')),
     owner_id      INTEGER NOT NULL DEFAULT 0,
     slug          TEXT NOT NULL DEFAULT '',

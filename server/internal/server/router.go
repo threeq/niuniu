@@ -1018,6 +1018,9 @@ func (s *Server) setupRoutes() {
 		envProviders.PUT("/:id", s.envProviderHandler.Update)
 		envProviders.DELETE("/:id", s.envProviderHandler.Delete)
 		envProviders.GET("/:id/env", s.envProviderHandler.Env)
+		envProviders.DELETE("/:id/cooldown", s.envProviderHandler.ClearCooldown)
+		envProviders.POST("/:id/enabled", s.envProviderHandler.SetEnabled)
+		envProviders.POST("/reorder", s.envProviderHandler.ReorderGroup)
 	}
 
 	// Scenes (M1 — scene-based MCP/plugin management).

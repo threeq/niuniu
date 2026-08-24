@@ -429,6 +429,13 @@ type WorkspaceSession struct {
 	lastRateLimit    *event.RateLimitData // from rate_limit_event
 	modelName        string               // from NIUNIU_MODEL env or CLI
 
+	// activeProviderID is the env_providers row this session's process was
+	// spawned with (the bound provider, or a same-group fallback picked by
+	// sceneenv.ActiveProvider when the bound one is in cooldown). Set at spawn;
+	// the 429 rate-limit detector marks THIS provider, never the fallback.
+	// 0 = no bound provider (scene-only env), so nothing to mark.
+	activeProviderID int64
+
 	// Auto-compaction state (see auto_compact.go). lastContextTokens is the live
 	// context-window occupancy (uncached input + cache read + cache creation)
 	// taken from each message_start event (one API request's prompt size) — the
@@ -1994,6 +2001,14 @@ func (s *WorkspaceSession) ensureProcess(ctx context.Context, workDir string) er
 				}
 			}
 		}
+		// Remember which provider this process actually spawned with (bound, or a
+		// same-group fallback) so a later 429 in its output marks that provider —
+		// not the fallback it would resolve to after the mark.
+		if p, ok := sceneenv.ActiveProvider(ctx, s.q, s.workspaceID); ok {
+			s.mu.Lock()
+			s.activeProviderID = p.ID
+			s.mu.Unlock()
+		}
 	}
 
 	adapterExtraArgs := []string{}
@@ -2362,6 +2377,12 @@ func (s *WorkspaceSession) readLoop(ctx context.Context) {
 
 // processLine parses one NDJSON stdout line and dispatches its event.
 func (s *WorkspaceSession) processLine(ctx context.Context, line string) {
+	// Third-party 429 quota detection runs on the RAW line before parsing: the
+	// error text ("Request rejected (429) · ... will reset at ...") reaches us
+	// either as a structured `system` error event or as raw stderr, and only the
+	// raw line carries it in both cases. See maybeMarkRateLimitedProvider.
+	s.maybeMarkRateLimitedProvider(ctx, line)
+
 	cliAdapter := s.cliAdapter
 	if cliAdapter == nil {
 		cliAdapter = adapter.For(adapter.Type(s.cliType))
@@ -2392,6 +2413,80 @@ func (s *WorkspaceSession) processLine(ctx context.Context, line string) {
 	s.mu.Unlock()
 
 	s.handleEvent(ctx, ev, msgId)
+}
+
+// maybeMarkRateLimitedProvider scans each raw output line for a third-party
+// subscription-platform 429 quota rejection (智谱 / 阿里百炼 / ...). When one is
+// found, the provider this session was spawned with is marked rate-limited
+// until the parsed reset time (sceneenv.MarkProviderCooldown), so the next
+// spawn falls back to a healthy member of its group. Best-effort and
+// idempotent: any failure logs and the session continues; a provider already
+// marked for a later/equal reset is not touched.
+func (s *WorkspaceSession) maybeMarkRateLimitedProvider(ctx context.Context, line string) {
+	until, ok := sceneenv.ParseRateLimitReset(line)
+	if !ok {
+		return
+	}
+	s.mu.Lock()
+	pid := s.activeProviderID
+	msgId := s.turnMsgId
+	s.mu.Unlock()
+	if pid <= 0 {
+		return // no bound provider (scene-only env) — nothing to mark
+	}
+
+	// Idempotency: skip when this provider is already marked for a reset at or
+	// after the parsed time (the CLI can emit many 429 lines in one burst).
+	name := fmt.Sprintf("ID %d", pid)
+	if p, err := s.q.GetEnvProvider(ctx, pid); err == nil {
+		if p.Name != "" {
+			name = p.Name
+		}
+		if sceneenv.ProviderInCooldown(p, time.Now()) && !until.After(p.CooldownUntil.Time) {
+			return
+		}
+	}
+
+	if err := sceneenv.MarkProviderCooldown(ctx, s.q, pid, until); err != nil {
+		slog.Warn("agent: mark provider cooldown failed",
+			"workspaceID", s.workspaceID, "provider_id", pid, "err", err)
+		return
+	}
+	slog.Info("agent: provider marked rate-limited from 429 text",
+		"workspaceID", s.workspaceID, "provider_id", pid, "resets_at", until.Format(time.RFC3339))
+
+	// The running process still carries the limited provider's credentials, so
+	// "continue working with the group fallback" requires a restart. When a
+	// HEALTHY same-group member now resolves (and it is not just the equally-
+	// limited bound provider), end this failed turn by killing the process
+	// (mirroring the inactivity-watchdog pattern): the process monitor marks the
+	// turn as an error and unblocks the Send, and the next turn's ensureProcess
+	// sees alive=false and respawns with the fallback env. Without a healthy
+	// fallback there is nothing to switch to — leave the process alone.
+	s.mu.Lock()
+	active := s.activeProviderID
+	s.mu.Unlock()
+	if active > 0 {
+		if fb, ok := sceneenv.ActiveProvider(ctx, s.q, s.workspaceID); ok &&
+			fb.ID != active && !sceneenv.ProviderInCooldown(fb, time.Now()) {
+			s.mu.Lock()
+			s.lastTurnError = true
+			s.lastTurnResult = fmt.Sprintf("provider %s rate-limited (429); restarting with group fallback %s",
+				name, fb.Name)
+			s.mu.Unlock()
+			slog.Info("agent: provider fallback available, restarting process",
+				"workspaceID", s.workspaceID, "from_provider", active, "to_provider", fb.ID)
+			s.killProcess()
+		}
+	}
+
+	// Surface to the UI so the user understands the fallback happened. The
+	// message is intentionally short — the detail lives in the provider list.
+	sysEv := NewOutputEvent(EventSystemInfo,
+		fmt.Sprintf("⚠️ Provider「%s」已触发订阅平台限流（429），恢复时间 %s。未恢复前将自动使用组内其他 provider。",
+			name, until.Local().Format("2006-01-02 15:04:05")),
+		msgId, "system", s.workspaceID)
+	s.persistAndBroadcast(ctx, sysEv, s.resolveAgentID(""))
 }
 
 // handleEvent processes a single parsed event from the long-lived process.
