@@ -243,7 +243,8 @@
     "orchestration": "编排",
     "blueprints": "项目模板",
     "imbot": "IM 机器人",
-    "about": "关于"
+    "about": "关于",
+    "providerUsage": "用量统计"
   },
   "skills": {
     "title": "Skill 管理",
@@ -1170,5 +1171,42 @@
     "filter_all": "全部",
     "filter_installed": "已安装",
     "filter_available": "可用"
+  },
+  "providerUsage": {
+    "title": "订阅平台用量",
+    "description": "按订阅平台查看 Token 消耗（精确到小时），以及限流触发与恢复使用的时间流水。保留最近 3 个月数据。",
+    "rangeLabel": "时间范围",
+    "range": "最近 {{count}} 天",
+    "emptyTitle": "暂无平台用量数据",
+    "emptyDescription": "当工作空间绑定订阅平台 provider 并完成对话后，这里会按小时记录每个平台的 Token 消耗。",
+    "chart": {
+      "title": "每小时 Token 消耗（按平台堆叠）",
+      "titleDaily": "每日 Token 消耗（按平台堆叠）",
+      "grandTotal": "合计 {{value}} tokens",
+      "empty": "所选区间内暂无消耗"
+    },
+    "table": {
+      "title": "各平台汇总",
+      "platform": "平台",
+      "total": "总 Token",
+      "input": "输入",
+      "output": "输出",
+      "cache": "缓存",
+      "turns": "对话次数",
+      "limits": "限流次数",
+      "blocked": "被限时长",
+      "limitedNow": "限流中"
+    },
+    "limits": {
+      "title": "限流日志流水",
+      "description": "触发时间为检测到 429 的时刻；重置时间来自平台返回的提示；恢复使用时间是该平台真正再次被使用的时刻。",
+      "triggeredAt": "触发时间",
+      "resetAt": "平台重置时间",
+      "resumedAt": "恢复使用时间",
+      "duration": "被限时长",
+      "stillLimited": "尚未恢复",
+      "clearedManually": "（手动解除）",
+      "empty": "所选区间内没有限流记录"
+    }
   }
 }

@@ -2069,6 +2069,17 @@ func (s *WorkspaceSession) ensureProcess(ctx context.Context, workDir string) er
 			s.mu.Lock()
 			s.activeProviderID = p.ID
 			s.mu.Unlock()
+			// This provider is being USED right now, so any rate-limit episode
+			// still open against it has ended. Being selected is the only honest
+			// "back in service" signal: reset_at merely makes it eligible, and a
+			// user may not run a turn until much later. Closing here records that
+			// real gap. sceneenv.ActiveProvider only returns a cooled-down
+			// provider when no healthy alternative exists, so a still-limited
+			// provider being forced back into service also (correctly) ends the
+			// episode — it is in use again either way.
+			if !sceneenv.ProviderInCooldown(p, time.Now()) {
+				closeProviderRateLimitEvents(ctx, s.q, p.ID, time.Now(), false)
+			}
 		}
 	}
 
@@ -2573,6 +2584,14 @@ func (s *WorkspaceSession) maybeMarkRateLimitedProvider(ctx context.Context, lin
 	slog.Info("agent: provider marked rate-limited from 429 text",
 		"workspaceID", s.workspaceID, "provider_id", pid, "resets_at", until.Format(time.RFC3339))
 
+	// Open (or extend) this platform's rate-limit episode. cooldown_until on the
+	// provider row is a single mutable cell the next 429 overwrites; this log is
+	// what makes "how often does 百炼 throttle us, and for how long" answerable.
+	// The episode is closed when the provider is actually spawned with again —
+	// see recordProviderResume.
+	openProviderRateLimitEvent(ctx, s.q, pid, s.workspaceID, s.ownerType, s.ownerID,
+		time.Now(), until, line)
+
 	// The running process still carries the limited provider's credentials, so
 	// "continue working with the group fallback" requires a restart. When a
 	// HEALTHY same-group member now resolves (and it is not just the equally-
@@ -2790,6 +2809,15 @@ func (s *WorkspaceSession) handleEvent(ctx context.Context, ev ParsedEvent, msgI
 				}); err != nil {
 					slog.Warn("UpsertWorkspaceTokenHourly failed", "workspaceID", s.workspaceID, "error", err)
 				}
+				// Same hourly totals, keyed by the SUBSCRIPTION PLATFORM this
+				// turn actually ran on, so consumption can be compared across
+				// providers (and against a plan's quota) rather than only per
+				// workspace. Skipped when no provider is bound (host login).
+				s.mu.Lock()
+				usageProviderID := s.activeProviderID
+				s.mu.Unlock()
+				recordProviderTokens(ctx, s.q, usageProviderID, s.ownerType, s.ownerID,
+					time.Now(), ev.InputTokens, ev.OutputTokens, ev.CacheCreationTokens, ev.CacheReadTokens)
 			}
 		}
 

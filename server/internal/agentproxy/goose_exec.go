@@ -256,6 +256,22 @@ func (s *WorkspaceSession) recordGooseCost(ctx context.Context, ev agentbackend.
 	}); err != nil {
 		slog.Warn("goose: UpsertWorkspaceStatsAI failed", "workspaceID", s.workspaceID, "error", err)
 	}
+	// Hourly history, per workspace and per subscription platform. goose's usage
+	// telemetry has no cache breakdown, so the cache columns stay 0 rather than
+	// being guessed.
+	if err := s.q.UpsertWorkspaceTokenHourly(ctx, store.UpsertWorkspaceTokenHourlyParams{
+		WorkspaceID:  s.workspaceID,
+		BucketHour:   time.Now().UTC().Truncate(time.Hour),
+		InputTokens:  int64(ev.InputTokens),
+		OutputTokens: int64(ev.OutputTokens),
+	}); err != nil {
+		slog.Warn("goose: UpsertWorkspaceTokenHourly failed", "workspaceID", s.workspaceID, "error", err)
+	}
+	s.mu.Lock()
+	usageProviderID := s.activeProviderID
+	s.mu.Unlock()
+	recordProviderTokens(ctx, s.q, usageProviderID, s.ownerType, s.ownerID,
+		time.Now(), ev.InputTokens, ev.OutputTokens, 0, 0)
 }
 
 // signalGooseTurnDone marks the turn complete: updates the session columns to

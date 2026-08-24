@@ -428,6 +428,73 @@ CREATE TABLE IF NOT EXISTS workspace_token_hourly (
 CREATE INDEX IF NOT EXISTS idx_workspace_token_hourly_time ON workspace_token_hourly (bucket_hour);
 
 -- ============================================================
+-- Hourly token history at SUBSCRIPTION-PLATFORM (env_providers) grain,
+-- three months retention. workspace_token_hourly answers "which workspace
+-- burned tokens"; this answers "which platform did we burn them ON", so a
+-- user can compare consumption across the platforms and see how much of a
+-- plan's quota each hour used.
+--
+-- owner_type/owner_id are part of the PK (denormalized from the CONSUMING
+-- workspace, like workspace_stats). They cannot be derived by JOINing
+-- env_providers: the seeded default providers are shared rows
+-- (owner_id = 0), so a JOIN would attribute every user's consumption to
+-- owner 0. Keying on the consumer keeps per-owner reporting correct while
+-- still letting several owners share one platform config.
+-- ============================================================
+CREATE TABLE IF NOT EXISTS provider_token_hourly (
+    provider_id           INTEGER NOT NULL REFERENCES env_providers(id) ON DELETE CASCADE,
+    owner_type            TEXT    NOT NULL DEFAULT 'user' CHECK (owner_type IN ('user','org')),
+    owner_id              INTEGER NOT NULL DEFAULT 0,
+    bucket_hour           TIMESTAMP NOT NULL,
+    input_tokens          INTEGER NOT NULL DEFAULT 0,
+    output_tokens         INTEGER NOT NULL DEFAULT 0,
+    cache_creation_tokens INTEGER NOT NULL DEFAULT 0,
+    cache_read_tokens     INTEGER NOT NULL DEFAULT 0,
+    interaction_count     INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (provider_id, owner_type, owner_id, bucket_hour)
+);
+CREATE INDEX IF NOT EXISTS idx_provider_token_hourly_time ON provider_token_hourly (bucket_hour);
+CREATE INDEX IF NOT EXISTS idx_provider_token_hourly_owner ON provider_token_hourly (owner_type, owner_id, bucket_hour);
+
+-- ============================================================
+-- Rate-limit event log (one row per 429 quota rejection), three months
+-- retention. env_providers.cooldown_until is a single mutable cell that the
+-- next 429 overwrites, so it cannot answer "how often does this platform
+-- throttle us and for how long". This table keeps the flow:
+--
+--   triggered_at -> the 429 was detected and the provider went into cooldown
+--   reset_at     -> the reset time parsed out of the platform's error text
+--   resumed_at   -> the provider was actually SELECTED for a spawn again
+--                   (the real "unblocked and back in use" moment, which
+--                   trails reset_at by however long the workspace was idle)
+--
+-- resumed_at stays NULL while the provider is still sidelined, so
+-- "currently limited" is a NULL check and blocked duration is
+-- resumed_at - triggered_at. cleared_manually marks the rows where the user
+-- cut the cooldown short via the provider list instead of waiting.
+-- ============================================================
+CREATE TABLE IF NOT EXISTS provider_rate_limit_events (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    provider_id     INTEGER NOT NULL REFERENCES env_providers(id) ON DELETE CASCADE,
+    -- The workspace whose turn hit the limit. SET NULL so deleting a
+    -- workspace keeps the platform-level history intact.
+    workspace_id    INTEGER REFERENCES workspaces(id) ON DELETE SET NULL,
+    owner_type      TEXT    NOT NULL DEFAULT 'user' CHECK (owner_type IN ('user','org')),
+    owner_id        INTEGER NOT NULL DEFAULT 0,
+    triggered_at    TIMESTAMP NOT NULL,
+    reset_at        TIMESTAMP NOT NULL,
+    resumed_at      TIMESTAMP,
+    cleared_manually INTEGER NOT NULL DEFAULT 0,
+    -- Trimmed excerpt of the platform's 429 text, for diagnosing which quota
+    -- (5-hour / weekly / token-plan) actually tripped.
+    detail          TEXT NOT NULL DEFAULT '',
+    created_at      TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_provider_rate_limit_events_provider ON provider_rate_limit_events (provider_id, triggered_at);
+CREATE INDEX IF NOT EXISTS idx_provider_rate_limit_events_owner ON provider_rate_limit_events (owner_type, owner_id, triggered_at);
+CREATE INDEX IF NOT EXISTS idx_provider_rate_limit_events_open ON provider_rate_limit_events (provider_id, resumed_at);
+
+-- ============================================================
 -- Session state snapshots — captures workspace file/git state when a
 -- Claude session goes idle, so the next --resume can detect external
 -- changes (manual edits, git pull, sibling-process commits) and inject

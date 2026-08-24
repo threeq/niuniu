@@ -435,6 +435,70 @@ export interface TokenUsageSeries {
   buckets: TokenBucket[];
 }
 
+/** One hour of one subscription platform's (env provider's) token consumption. */
+export interface ProviderHourBucket {
+  hour: string;
+  provider_id: number;
+  provider_name: string;
+  provider_platform: string;
+  input_tokens: number;
+  output_tokens: number;
+  cache_creation_tokens: number;
+  cache_read_tokens: number;
+  interaction_count: number;
+}
+
+/**
+ * One platform's totals over the queried window plus its rate-limit tally.
+ * `total_tokens` is computed server-side so every client sorts and labels by the
+ * same definition of "consumption". `open_count` > 0 means the platform is still
+ * throttled, so `blocked_seconds` (closed episodes only) is a lower bound.
+ */
+export interface ProviderUsageTotal {
+  provider_id: number;
+  provider_name: string;
+  provider_platform: string;
+  input_tokens: number;
+  output_tokens: number;
+  cache_creation_tokens: number;
+  cache_read_tokens: number;
+  total_tokens: number;
+  interaction_count: number;
+  rate_limit_count: number;
+  blocked_seconds: number;
+  open_count: number;
+}
+
+export interface ProviderUsageResponse {
+  buckets: ProviderHourBucket[];
+  totals: ProviderUsageTotal[];
+  from: string;
+  to: string;
+}
+
+/**
+ * One 429 lifecycle: throttled at `triggered_at`, the platform promised a reset
+ * at `reset_at`, and we actually used it again at `resumed_at` (null while still
+ * sidelined). `blocked_seconds` is 0 for an open episode.
+ */
+export interface ProviderRateLimitEvent {
+  id: number;
+  provider_id: number;
+  provider_name: string;
+  provider_platform: string;
+  workspace_id: number | null;
+  triggered_at: string;
+  reset_at: string;
+  resumed_at: string | null;
+  cleared_manually: boolean;
+  detail: string;
+  blocked_seconds: number;
+}
+
+export interface ProviderRateLimitEventsResponse {
+  events: ProviderRateLimitEvent[];
+}
+
 export interface WorkspaceOverviewItem {
   workspace_id: number;
   name: string;

@@ -243,7 +243,8 @@
     "orchestration": "Orchestration",
     "blueprints": "Project templates",
     "imbot": "IM bots",
-    "about": "About"
+    "about": "About",
+    "providerUsage": "Usage stats"
   },
   "skills": {
     "title": "Skill Management",
@@ -1170,5 +1171,42 @@
     "filter_all": "All",
     "filter_installed": "Installed",
     "filter_available": "Available"
+  },
+  "providerUsage": {
+    "title": "Subscription platform usage",
+    "description": "Token consumption per subscription platform at hourly granularity, plus a log of when each platform throttled us and when it came back into use. Keeps the last 3 months.",
+    "rangeLabel": "Time range",
+    "range": "Last {{count}} days",
+    "emptyTitle": "No platform usage yet",
+    "emptyDescription": "Once a workspace is bound to a subscription platform provider and runs a turn, its hourly token consumption per platform shows up here.",
+    "chart": {
+      "title": "Hourly token usage (stacked by platform)",
+      "titleDaily": "Daily token usage (stacked by platform)",
+      "grandTotal": "{{value}} tokens total",
+      "empty": "No consumption in the selected range"
+    },
+    "table": {
+      "title": "Per-platform totals",
+      "platform": "Platform",
+      "total": "Total tokens",
+      "input": "Input",
+      "output": "Output",
+      "cache": "Cache",
+      "turns": "Turns",
+      "limits": "Throttles",
+      "blocked": "Blocked",
+      "limitedNow": "Limited"
+    },
+    "limits": {
+      "title": "Rate-limit log",
+      "description": "Triggered is when the 429 was detected; reset is what the platform reported; resumed is when that platform was actually used again.",
+      "triggeredAt": "Triggered",
+      "resetAt": "Platform reset",
+      "resumedAt": "Resumed",
+      "duration": "Blocked for",
+      "stillLimited": "Still limited",
+      "clearedManually": "(cleared manually)",
+      "empty": "No rate limits in the selected range"
+    }
   }
 }

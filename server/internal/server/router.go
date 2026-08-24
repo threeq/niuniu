@@ -304,6 +304,10 @@ func (s *Server) setupRoutes() {
 	api.GET("/users/search", s.usersHandler.Search)
 	// Owner-grain token usage time series (summed across the owner's workspaces).
 	api.GET("/token-usage", s.tokenUsageHandler.OwnerUsage)
+	// Subscription-platform grain: hourly tokens + totals per env provider, and
+	// the 429 rate-limit episode log (trigger / reset / resumed times).
+	api.GET("/provider-usage", s.providerUsageHandler.Usage)
+	api.GET("/provider-usage/rate-limits", s.providerUsageHandler.RateLimitEvents)
 
 	// Org routes
 	// 多租户组织（Tier 1）是功能分级能力：开源个人版禁用（NopGate.FeatureEnabled
