@@ -442,6 +442,13 @@ type WorkspaceSession struct {
 	// re-run on the restarted process (which now uses the fallback env) instead
 	// of failing the turn. Guarded by s.mu.
 	restartForProviderFallback bool
+	// providerFallbackRestarting is set alongside restartForProviderFallback to
+	// tell the OLD readLoop (still draining its buffered output after the kill)
+	// to stop processing lines: those lines belong to the abandoned turn, and
+	// attributing them to the NEW process's provider would wrongly mark a
+	// healthy fallback provider as rate-limited (e.g. marking 火山 when only
+	// 百炼 was limited). Cleared when the new process spawns. Guarded by s.mu.
+	providerFallbackRestarting bool
 	// providerFallbackRetries counts consecutive re-runs for one message so a
 	// pathological 429 loop cannot spin forever. Reset on each real user message.
 	// Guarded by s.mu.
@@ -2325,8 +2332,16 @@ func (s *WorkspaceSession) ensureProcess(ctx context.Context, workDir string) er
 	s.alive = true
 	s.workDir = workDir
 
-	// Start background read loop
-	go s.readLoop(ctx)
+	// Start background read loop. Capture the provider THIS process was spawned
+	// with: every output line is attributed to it, so a stale 429 from a killed
+	// process can never be marked against a different (fallback) provider.
+	// Also clear the fallback-restarting gate so the new process's output is
+	// processed normally.
+	s.mu.Lock()
+	spawnProviderID := s.activeProviderID
+	s.providerFallbackRestarting = false
+	s.mu.Unlock()
+	go s.readLoop(ctx, spawnProviderID)
 
 	// Start process monitor — detects unexpected exit
 	go func() {
@@ -2421,7 +2436,11 @@ func (s *WorkspaceSession) ensureProcess(ctx context.Context, workDir string) er
 
 // readLoop continuously reads stdout NDJSON and dispatches events.
 // Runs in a background goroutine for the lifetime of the process.
-func (s *WorkspaceSession) readLoop(ctx context.Context) {
+// readLoop continuously reads stdout NDJSON and dispatches events. providerID
+// is the env_providers row this process was spawned with (0 = none); it
+// attributes every line so a 429 from a killed process is never marked against
+// a different provider.
+func (s *WorkspaceSession) readLoop(ctx context.Context, providerID int64) {
 	defer recoverSessionGoroutine("readLoop", s.workspaceID)
 	slog.Info("agent readLoop: started", "workspaceID", s.workspaceID)
 	for {
@@ -2430,7 +2449,7 @@ func (s *WorkspaceSession) readLoop(ctx context.Context) {
 		line, readErr := s.reader.ReadString('\n')
 		line = strings.TrimRight(line, "\r\n")
 		if line != "" {
-			s.processLine(ctx, line)
+			s.processLine(ctx, line, providerID)
 		}
 		if readErr != nil {
 			if readErr != io.EOF {
@@ -2442,13 +2461,14 @@ func (s *WorkspaceSession) readLoop(ctx context.Context) {
 	slog.Info("agent readLoop: exited", "workspaceID", s.workspaceID)
 }
 
-// processLine parses one NDJSON stdout line and dispatches its event.
-func (s *WorkspaceSession) processLine(ctx context.Context, line string) {
+// processLine parses one NDJSON stdout line and dispatches its event. providerID
+// is the provider the emitting process was spawned with (for 429 attribution).
+func (s *WorkspaceSession) processLine(ctx context.Context, line string, providerID int64) {
 	// Third-party 429 quota detection runs on the RAW line before parsing: the
 	// error text ("Request rejected (429) · ... will reset at ...") reaches us
 	// either as a structured `system` error event or as raw stderr, and only the
 	// raw line carries it in both cases. See maybeMarkRateLimitedProvider.
-	s.maybeMarkRateLimitedProvider(ctx, line)
+	s.maybeMarkRateLimitedProvider(ctx, line, providerID)
 
 	cliAdapter := s.cliAdapter
 	if cliAdapter == nil {
@@ -2501,23 +2521,37 @@ func (s *WorkspaceSession) resetProviderFallbackRetries() {
 
 // maybeMarkRateLimitedProvider scans each raw output line for a third-party
 // subscription-platform 429 quota rejection (智谱 / 阿里百炼 / ...). When one is
-// found, the provider this session was spawned with is marked rate-limited
-// until the parsed reset time (sceneenv.MarkProviderCooldown), so the next
-// spawn falls back to a healthy member of its group. Best-effort and
-// idempotent: any failure logs and the session continues; a provider already
-// marked for a later/equal reset is not touched.
-func (s *WorkspaceSession) maybeMarkRateLimitedProvider(ctx context.Context, line string) {
+// found, the provider the emitting process was spawned with (providerID) is
+// marked rate-limited until the parsed reset time
+// (sceneenv.MarkProviderCooldown), so the next spawn falls back to a healthy
+// member of its group. Best-effort and idempotent: any failure logs and the
+// session continues; a provider already marked for a later/equal reset is not
+// touched.
+//
+// providerID is the provider id captured when THIS process spawned — NOT the
+// live activeProviderID. After a 429 triggers a fallback restart, the old
+// process's buffered output is still drained by its readLoop; those stale lines
+// must be attributed to the OLD provider (or ignored), never to the newly
+// respawned fallback provider — otherwise a healthy provider (e.g. 火山) gets
+// wrongly marked when only 百炼 was limited.
+func (s *WorkspaceSession) maybeMarkRateLimitedProvider(ctx context.Context, line string, providerID int64) {
+	// Stale-line guard: this line is only actionable if it belongs to the
+	// CURRENT process's provider. A line whose provider differs is leftover
+	// output from a killed/replaced process — ignore it entirely.
+	s.mu.Lock()
+	current := s.activeProviderID
+	restarting := s.providerFallbackRestarting
+	msgId := s.turnMsgId
+	s.mu.Unlock()
+	if providerID <= 0 || providerID != current || restarting {
+		return
+	}
+
 	until, ok := sceneenv.ParseRateLimitReset(line)
 	if !ok {
 		return
 	}
-	s.mu.Lock()
-	pid := s.activeProviderID
-	msgId := s.turnMsgId
-	s.mu.Unlock()
-	if pid <= 0 {
-		return // no bound provider (scene-only env) — nothing to mark
-	}
+	pid := providerID
 
 	// Idempotency: skip when this provider is already marked for a reset at or
 	// after the parsed time (the CLI can emit many 429 lines in one burst).
@@ -2549,22 +2583,21 @@ func (s *WorkspaceSession) maybeMarkRateLimitedProvider(ctx context.Context, lin
 	// process (which now uses the fallback env — ensureProcess resolves
 	// ActiveProvider again). Without a healthy fallback there is nothing to
 	// switch to — leave the process alone.
-	s.mu.Lock()
-	active := s.activeProviderID
-	s.mu.Unlock()
-	if active > 0 {
-		if fb, ok := sceneenv.ActiveProvider(ctx, s.q, s.workspaceID); ok &&
-			fb.ID != active && !sceneenv.ProviderInCooldown(fb, time.Now()) {
-			s.mu.Lock()
-			s.lastTurnError = true
-			s.lastTurnResult = fmt.Sprintf("provider %s rate-limited (429); restarting with group fallback %s",
-				name, fb.Name)
-			s.restartForProviderFallback = true
-			s.mu.Unlock()
-			slog.Info("agent: provider fallback available, restarting process",
-				"workspaceID", s.workspaceID, "from_provider", active, "to_provider", fb.ID)
-			s.killProcess()
-		}
+	if fb, ok := sceneenv.ActiveProvider(ctx, s.q, s.workspaceID); ok &&
+		fb.ID != pid && !sceneenv.ProviderInCooldown(fb, time.Now()) {
+		s.mu.Lock()
+		s.lastTurnError = true
+		s.lastTurnResult = fmt.Sprintf("provider %s rate-limited (429); restarting with group fallback %s",
+			name, fb.Name)
+		s.restartForProviderFallback = true
+		// Gate the OLD readLoop: its remaining buffered lines belong to the
+		// abandoned turn and must not be processed (in particular, another 429
+		// line must not re-mark/re-restart against the new fallback provider).
+		s.providerFallbackRestarting = true
+		s.mu.Unlock()
+		slog.Info("agent: provider fallback available, restarting process",
+			"workspaceID", s.workspaceID, "from_provider", pid, "to_provider", fb.ID)
+		s.killProcess()
 	}
 
 	// Surface to the UI so the user understands the fallback happened. The

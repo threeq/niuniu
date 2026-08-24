@@ -49,7 +49,7 @@ func TestMaybeMarkRateLimitedProvider_MarksAndRestartsOnFallback(t *testing.T) {
 	line := fmt.Sprintf(
 		"✗ Error: API Error: Request rejected (429) · You have exceeded the 5-hour usage quota. It will reset at %s CST.",
 		resetAt.Format("2006-01-02 15:04:05 -0700"))
-	s.maybeMarkRateLimitedProvider(ctx, line)
+	s.maybeMarkRateLimitedProvider(ctx, line, bound.ID)
 
 	got, err := q.GetEnvProvider(ctx, bound.ID)
 	if err != nil {
@@ -94,7 +94,8 @@ func TestMaybeMarkRateLimitedProvider_NoGroupMarksButNoKill(t *testing.T) {
 	s.activeProviderID = bound.ID
 
 	s.maybeMarkRateLimitedProvider(ctx,
-		"✗ Error: API Error: Request rejected (429) · [1308][已达到 5 小时的使用上限。您的限额将在 2026-08-24 00:27:12 重置。]")
+		"✗ Error: API Error: Request rejected (429) · [1308][已达到 5 小时的使用上限。您的限额将在 2026-08-24 00:27:12 重置。]",
+		bound.ID)
 
 	got, _ := q.GetEnvProvider(ctx, bound.ID)
 	if !got.CooldownUntil.Valid {
@@ -124,9 +125,44 @@ func TestMaybeMarkRateLimitedProvider_NonRateLimitLineIsNoop(t *testing.T) {
 	})
 	s.activeProviderID = bound.ID
 
-	s.maybeMarkRateLimitedProvider(ctx, "Here is the analysis of the codebase...")
+	s.maybeMarkRateLimitedProvider(ctx, "Here is the analysis of the codebase...", bound.ID)
 	got, _ := q.GetEnvProvider(ctx, bound.ID)
 	if got.CooldownUntil.Valid {
 		t.Error("non-rate-limit line must not mark cooldown")
+	}
+}
+
+// TestMaybeMarkRateLimitedProvider_StaleLineFromOldProcessIsIgnored reproduces
+// the reported bug: a 429 on 百炼 triggered a fallback restart, but the old
+// process's buffered output drained AFTER the respawn and wrongly marked the
+// NEW (healthy) 火山 provider with the same reset time. A line whose providerID
+// differs from the CURRENT active provider is stale — it must not mark anything.
+func TestMaybeMarkRateLimitedProvider_StaleLineFromOldProcessIsIgnored(t *testing.T) {
+	ctx := context.Background()
+	s := newDispatchTestSession(t)
+	q := s.q
+	bailian, _ := q.CreateEnvProvider(ctx, store.CreateEnvProviderParams{
+		Name: "bailian", Platform: "qwen", BaseUrls: `{"anthropic":"x"}`,
+		ApiKey: "${ACCOUNT:bailian}", Model: "glm-5.2", GroupName: "group1", Enabled: 1, OwnerType: "user", OwnerID: 0,
+	})
+	huoshan, _ := q.CreateEnvProvider(ctx, store.CreateEnvProviderParams{
+		Name: "volcengine-ark", Platform: "volcengine-ark", BaseUrls: `{"anthropic":"x"}`,
+		ApiKey: "${ACCOUNT:huoshan}", Model: "deepseek-v4-flash", GroupName: "group1", Enabled: 1, OwnerType: "user", OwnerID: 0,
+	})
+	ws, _ := q.GetWorkspace(ctx, s.workspaceID)
+	_ = q.SetWorkspaceEnvProvider(ctx, store.SetWorkspaceEnvProviderParams{ID: ws.ID, EnvProviderID: sql.NullInt64{Int64: bailian.ID, Valid: true}})
+	// The session respawned with the FALLBACK provider (huoshan) — the old
+	// process (bailian) is still draining its buffered 429 lines.
+	s.activeProviderID = huoshan.ID
+
+	line := "✗ Error: API Error: Request rejected (429) · You have exceeded the 5-hour usage quota. It will reset at 2026-08-29 11:09:00 +0800 CST."
+	s.maybeMarkRateLimitedProvider(ctx, line, bailian.ID) // stale line attributed to the OLD provider
+
+	got, err := q.GetEnvProvider(ctx, huoshan.ID)
+	if err != nil {
+		t.Fatalf("GetEnvProvider huoshan: %v", err)
+	}
+	if got.CooldownUntil.Valid {
+		t.Fatal("stale line from the old process must NOT mark the current (healthy fallback) provider")
 	}
 }
