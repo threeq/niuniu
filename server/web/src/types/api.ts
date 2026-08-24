@@ -1074,6 +1074,8 @@ export interface EnvProvider {
   extra_env: Record<string, string>
   context_window?: number
   group_name: string
+  group_position: number // manual order within the group; smaller = preferred fallback first
+  enabled: boolean // false = manually disabled (out of rotation)
   cooldown_until: string // RFC3339; "" = healthy (not rate-limited)
   owner?: { type: string; id: number; name?: string; slug?: string }
   created_at: string
@@ -1094,6 +1096,8 @@ export interface CreateEnvProviderData {
   extra_env?: Record<string, string>
   context_window?: number
   group_name?: string
+  group_position?: number
+  enabled?: boolean
   owner?: { type: string; id: number }
 }
 

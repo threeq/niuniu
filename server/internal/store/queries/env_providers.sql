@@ -14,15 +14,25 @@ ORDER BY created_at DESC;
 SELECT * FROM env_providers WHERE id = ?;
 
 -- name: CreateEnvProvider :one
-INSERT INTO env_providers (name, platform, description, base_urls, api_key, model, haiku_model, sonnet_model, opus_model, subagent_model, extra_env, context_window, group_name, owner_type, owner_id, slug)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+INSERT INTO env_providers (name, platform, description, base_urls, api_key, model, haiku_model, sonnet_model, opus_model, subagent_model, extra_env, context_window, group_name, group_position, enabled, owner_type, owner_id, slug)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 RETURNING *;
 
 -- name: UpdateEnvProvider :exec
 UPDATE env_providers
 SET name = ?, platform = ?, description = ?, base_urls = ?, api_key = ?, model = ?,
-    haiku_model = ?, sonnet_model = ?, opus_model = ?, subagent_model = ?, extra_env = ?, context_window = ?, group_name = ?, slug = ?, updated_at = CURRENT_TIMESTAMP
+    haiku_model = ?, sonnet_model = ?, opus_model = ?, subagent_model = ?, extra_env = ?, context_window = ?, group_name = ?, group_position = ?, enabled = ?, slug = ?, updated_at = CURRENT_TIMESTAMP
 WHERE id = ?;
+
+-- name: SetProviderEnabled :exec
+-- Manual on/off switch: enabled=0 takes the provider out of rotation (group
+-- fallback and binding both skip it) until the user re-enables it.
+UPDATE env_providers SET enabled = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?;
+
+-- name: SetProviderGroupPosition :exec
+-- Manual order within a group; smaller = used first as fallback. Reorder is a
+-- dedicated operation so it does not clobber the rest of the provider config.
+UPDATE env_providers SET group_position = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?;
 
 -- name: SetProviderCooldown :exec
 -- Marks a provider as rate-limited until the given reset time (cooldown_until).

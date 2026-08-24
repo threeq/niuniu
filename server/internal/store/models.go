@@ -269,6 +269,8 @@ type EnvProvider struct {
 	ExtraEnv      string       `json:"extra_env"`
 	ContextWindow int64        `json:"context_window"`
 	GroupName     string       `json:"group_name"`
+	GroupPosition int64        `json:"group_position"`
+	Enabled       int64        `json:"enabled"`
 	CooldownUntil sql.NullTime `json:"cooldown_until"`
 	OwnerType     string       `json:"owner_type"`
 	OwnerID       int64        `json:"owner_id"`

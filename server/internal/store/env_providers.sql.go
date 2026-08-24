@@ -23,9 +23,9 @@ func (q *Queries) ClearProviderCooldown(ctx context.Context, id int64) error {
 }
 
 const createEnvProvider = `-- name: CreateEnvProvider :one
-INSERT INTO env_providers (name, platform, description, base_urls, api_key, model, haiku_model, sonnet_model, opus_model, subagent_model, extra_env, context_window, group_name, owner_type, owner_id, slug)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-RETURNING id, name, platform, description, base_urls, api_key, model, haiku_model, sonnet_model, opus_model, subagent_model, extra_env, context_window, group_name, cooldown_until, owner_type, owner_id, slug, created_at, updated_at
+INSERT INTO env_providers (name, platform, description, base_urls, api_key, model, haiku_model, sonnet_model, opus_model, subagent_model, extra_env, context_window, group_name, group_position, enabled, owner_type, owner_id, slug)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+RETURNING id, name, platform, description, base_urls, api_key, model, haiku_model, sonnet_model, opus_model, subagent_model, extra_env, context_window, group_name, group_position, enabled, cooldown_until, owner_type, owner_id, slug, created_at, updated_at
 `
 
 type CreateEnvProviderParams struct {
@@ -42,6 +42,8 @@ type CreateEnvProviderParams struct {
 	ExtraEnv      string `json:"extra_env"`
 	ContextWindow int64  `json:"context_window"`
 	GroupName     string `json:"group_name"`
+	GroupPosition int64  `json:"group_position"`
+	Enabled       int64  `json:"enabled"`
 	OwnerType     string `json:"owner_type"`
 	OwnerID       int64  `json:"owner_id"`
 	Slug          string `json:"slug"`
@@ -62,6 +64,8 @@ func (q *Queries) CreateEnvProvider(ctx context.Context, arg CreateEnvProviderPa
 		arg.ExtraEnv,
 		arg.ContextWindow,
 		arg.GroupName,
+		arg.GroupPosition,
+		arg.Enabled,
 		arg.OwnerType,
 		arg.OwnerID,
 		arg.Slug,
@@ -82,6 +86,8 @@ func (q *Queries) CreateEnvProvider(ctx context.Context, arg CreateEnvProviderPa
 		&i.ExtraEnv,
 		&i.ContextWindow,
 		&i.GroupName,
+		&i.GroupPosition,
+		&i.Enabled,
 		&i.CooldownUntil,
 		&i.OwnerType,
 		&i.OwnerID,
@@ -102,7 +108,7 @@ func (q *Queries) DeleteEnvProvider(ctx context.Context, id int64) error {
 }
 
 const getEnvProvider = `-- name: GetEnvProvider :one
-SELECT id, name, platform, description, base_urls, api_key, model, haiku_model, sonnet_model, opus_model, subagent_model, extra_env, context_window, group_name, cooldown_until, owner_type, owner_id, slug, created_at, updated_at FROM env_providers WHERE id = ?
+SELECT id, name, platform, description, base_urls, api_key, model, haiku_model, sonnet_model, opus_model, subagent_model, extra_env, context_window, group_name, group_position, enabled, cooldown_until, owner_type, owner_id, slug, created_at, updated_at FROM env_providers WHERE id = ?
 `
 
 func (q *Queries) GetEnvProvider(ctx context.Context, id int64) (EnvProvider, error) {
@@ -123,6 +129,8 @@ func (q *Queries) GetEnvProvider(ctx context.Context, id int64) (EnvProvider, er
 		&i.ExtraEnv,
 		&i.ContextWindow,
 		&i.GroupName,
+		&i.GroupPosition,
+		&i.Enabled,
 		&i.CooldownUntil,
 		&i.OwnerType,
 		&i.OwnerID,
@@ -134,7 +142,7 @@ func (q *Queries) GetEnvProvider(ctx context.Context, id int64) (EnvProvider, er
 }
 
 const listEnvProviders = `-- name: ListEnvProviders :many
-SELECT id, name, platform, description, base_urls, api_key, model, haiku_model, sonnet_model, opus_model, subagent_model, extra_env, context_window, group_name, cooldown_until, owner_type, owner_id, slug, created_at, updated_at FROM env_providers ORDER BY name ASC
+SELECT id, name, platform, description, base_urls, api_key, model, haiku_model, sonnet_model, opus_model, subagent_model, extra_env, context_window, group_name, group_position, enabled, cooldown_until, owner_type, owner_id, slug, created_at, updated_at FROM env_providers ORDER BY name ASC
 `
 
 func (q *Queries) ListEnvProviders(ctx context.Context) ([]EnvProvider, error) {
@@ -161,6 +169,8 @@ func (q *Queries) ListEnvProviders(ctx context.Context) ([]EnvProvider, error) {
 			&i.ExtraEnv,
 			&i.ContextWindow,
 			&i.GroupName,
+			&i.GroupPosition,
+			&i.Enabled,
 			&i.CooldownUntil,
 			&i.OwnerType,
 			&i.OwnerID,
@@ -182,7 +192,7 @@ func (q *Queries) ListEnvProviders(ctx context.Context) ([]EnvProvider, error) {
 }
 
 const listEnvProvidersForOwners = `-- name: ListEnvProvidersForOwners :many
-SELECT id, name, platform, description, base_urls, api_key, model, haiku_model, sonnet_model, opus_model, subagent_model, extra_env, context_window, group_name, cooldown_until, owner_type, owner_id, slug, created_at, updated_at FROM env_providers
+SELECT id, name, platform, description, base_urls, api_key, model, haiku_model, sonnet_model, opus_model, subagent_model, extra_env, context_window, group_name, group_position, enabled, cooldown_until, owner_type, owner_id, slug, created_at, updated_at FROM env_providers
 WHERE (owner_type = 'user' AND owner_id = ?)
    OR (owner_type = 'org'  AND owner_id IN (/*SLICE:org_ids*/?))
    OR (owner_type = 'user' AND owner_id = 0)
@@ -231,6 +241,8 @@ func (q *Queries) ListEnvProvidersForOwners(ctx context.Context, arg ListEnvProv
 			&i.ExtraEnv,
 			&i.ContextWindow,
 			&i.GroupName,
+			&i.GroupPosition,
+			&i.Enabled,
 			&i.CooldownUntil,
 			&i.OwnerType,
 			&i.OwnerID,
@@ -268,10 +280,42 @@ func (q *Queries) SetProviderCooldown(ctx context.Context, arg SetProviderCooldo
 	return err
 }
 
+const setProviderEnabled = `-- name: SetProviderEnabled :exec
+UPDATE env_providers SET enabled = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?
+`
+
+type SetProviderEnabledParams struct {
+	Enabled int64 `json:"enabled"`
+	ID      int64 `json:"id"`
+}
+
+// Manual on/off switch: enabled=0 takes the provider out of rotation (group
+// fallback and binding both skip it) until the user re-enables it.
+func (q *Queries) SetProviderEnabled(ctx context.Context, arg SetProviderEnabledParams) error {
+	_, err := q.db.ExecContext(ctx, setProviderEnabled, arg.Enabled, arg.ID)
+	return err
+}
+
+const setProviderGroupPosition = `-- name: SetProviderGroupPosition :exec
+UPDATE env_providers SET group_position = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?
+`
+
+type SetProviderGroupPositionParams struct {
+	GroupPosition int64 `json:"group_position"`
+	ID            int64 `json:"id"`
+}
+
+// Manual order within a group; smaller = used first as fallback. Reorder is a
+// dedicated operation so it does not clobber the rest of the provider config.
+func (q *Queries) SetProviderGroupPosition(ctx context.Context, arg SetProviderGroupPositionParams) error {
+	_, err := q.db.ExecContext(ctx, setProviderGroupPosition, arg.GroupPosition, arg.ID)
+	return err
+}
+
 const updateEnvProvider = `-- name: UpdateEnvProvider :exec
 UPDATE env_providers
 SET name = ?, platform = ?, description = ?, base_urls = ?, api_key = ?, model = ?,
-    haiku_model = ?, sonnet_model = ?, opus_model = ?, subagent_model = ?, extra_env = ?, context_window = ?, group_name = ?, slug = ?, updated_at = CURRENT_TIMESTAMP
+    haiku_model = ?, sonnet_model = ?, opus_model = ?, subagent_model = ?, extra_env = ?, context_window = ?, group_name = ?, group_position = ?, enabled = ?, slug = ?, updated_at = CURRENT_TIMESTAMP
 WHERE id = ?
 `
 
@@ -289,6 +333,8 @@ type UpdateEnvProviderParams struct {
 	ExtraEnv      string `json:"extra_env"`
 	ContextWindow int64  `json:"context_window"`
 	GroupName     string `json:"group_name"`
+	GroupPosition int64  `json:"group_position"`
+	Enabled       int64  `json:"enabled"`
 	Slug          string `json:"slug"`
 	ID            int64  `json:"id"`
 }
@@ -308,6 +354,8 @@ func (q *Queries) UpdateEnvProvider(ctx context.Context, arg UpdateEnvProviderPa
 		arg.ExtraEnv,
 		arg.ContextWindow,
 		arg.GroupName,
+		arg.GroupPosition,
+		arg.Enabled,
 		arg.Slug,
 		arg.ID,
 	)

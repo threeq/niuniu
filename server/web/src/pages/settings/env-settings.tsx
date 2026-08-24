@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
-import { Plus, Trash2, Pencil, ChevronDown, ChevronRight, Package, KeyRound, Server, Copy } from 'lucide-react'
+import { Plus, Trash2, Pencil, ChevronDown, ChevronRight, ChevronUp, Package, KeyRound, Server, Copy, Power } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import {
@@ -128,12 +128,17 @@ function AccountCard({ account, onEdit, onDelete }: { account: EnvAccount; onEdi
   )
 }
 
-function ProviderCard({ provider, onEdit, onDelete, onDuplicate, onClearCooldown }: {
+function ProviderCard({ provider, onEdit, onDelete, onDuplicate, onClearCooldown, onToggleEnabled, onMoveUp, onMoveDown, canMoveUp, canMoveDown }: {
   provider: EnvProvider
   onEdit: (p: EnvProvider) => void
   onDelete: (id: number) => void
   onDuplicate: (p: EnvProvider) => void
   onClearCooldown: (id: number) => void
+  onToggleEnabled: (id: number, enabled: boolean) => void
+  onMoveUp: () => void
+  onMoveDown: () => void
+  canMoveUp: boolean
+  canMoveDown: boolean
 }) {
   const { t } = useTranslation('settings')
   const [showPreview, setShowPreview] = useState(false)
@@ -155,15 +160,37 @@ function ProviderCard({ provider, onEdit, onDelete, onDuplicate, onClearCooldown
   })()
 
   return (
-    <div className="border border-border rounded-lg p-4">
-      {/* Row 1: name, platform, model, account, group */}
+    <div className={`border rounded-lg p-4 ${provider.enabled ? 'border-border' : 'border-border bg-muted/40 opacity-70'}`}>
+      {/* Row 1: order controls, enabled toggle, name, platform, model, account, group */}
       <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center gap-1 flex-shrink-0">
+          <div className="flex flex-col -space-y-1">
+            <button onClick={onMoveUp} disabled={!canMoveUp} title={t('env.providerMoveUp')}
+              className="p-0.5 text-muted-foreground hover:text-info disabled:opacity-30 disabled:cursor-not-allowed">
+              <ChevronUp className="h-3.5 w-3.5" />
+            </button>
+            <button onClick={onMoveDown} disabled={!canMoveDown} title={t('env.providerMoveDown')}
+              className="p-0.5 text-muted-foreground hover:text-info disabled:opacity-30 disabled:cursor-not-allowed">
+              <ChevronDown className="h-3.5 w-3.5" />
+            </button>
+          </div>
+          <button
+            onClick={() => onToggleEnabled(provider.id, !provider.enabled)}
+            title={provider.enabled ? t('env.providerDisable') : t('env.providerEnable')}
+            className={`p-1 rounded ${provider.enabled ? 'text-success hover:text-foreground' : 'text-muted-foreground hover:text-foreground'}`}
+          >
+            <Power className="h-3.5 w-3.5" />
+          </button>
+        </div>
         <button
           onClick={() => setShowPreview((v) => !v)}
           className="flex items-center gap-2 text-left flex-1 min-w-0"
         >
-          <Server className="h-4 w-4 text-info flex-shrink-0" />
+          <Server className={`h-4 w-4 flex-shrink-0 ${provider.enabled ? 'text-info' : 'text-muted-foreground'}`} />
           <span className="font-medium text-sm text-foreground truncate">{provider.name}</span>
+          {!provider.enabled && (
+            <span className="text-xs text-muted-foreground truncate">{t('env.providerDisabled')}</span>
+          )}
           {provider.platform && (
             <span className="text-xs text-muted-foreground truncate">{provider.platform}</span>
           )}
@@ -407,6 +434,39 @@ export function EnvSettings({ mode = 'all' }: { mode?: 'all' | 'presets' | 'prov
     mutationFn: (id: number) => api.clearProviderCooldown(id),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['env-providers'] }),
   })
+  const setEnabledMutation = useMutation({
+    mutationFn: ({ id, enabled }: { id: number; enabled: boolean }) => api.setProviderEnabled(id, enabled),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['env-providers'] }),
+  })
+  const reorderMutation = useMutation({
+    mutationFn: ({ groupName, orderedIds }: { groupName: string; orderedIds: number[] }) =>
+      api.reorderProviders(groupName, orderedIds),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['env-providers'] }),
+  })
+
+  // Providers sorted by (group_position, name) within their group — the order
+  // the user manages with the up/down buttons (fallback priority).
+  const orderedProviders = (ps: EnvProvider[]) =>
+    [...ps].sort((a, b) =>
+      a.group_position - b.group_position || a.name.localeCompare(b.name, 'zh-Hans-CN'))
+  // Group providers by group_name; standalone (empty group) ones are shown
+  // separately after all named groups.
+  const namedGroups = [...new Set(providers.map((p) => p.group_name).filter(Boolean))].sort((a, b) =>
+    a.localeCompare(b, 'zh-Hans-CN'))
+  const groupedProviders = (group: string) =>
+    orderedProviders(providers.filter((p) => p.group_name === group))
+  const standaloneProviders = orderedProviders(providers.filter((p) => !p.group_name))
+
+  // Move a provider one slot up/down within its group, then persist the whole
+  // group's new order.
+  const moveInGroup = (group: string, id: number, dir: -1 | 1) => {
+    const ids = groupedProviders(group).map((p) => p.id)
+    const idx = ids.indexOf(id)
+    const j = idx + dir
+    if (idx < 0 || j < 0 || j >= ids.length) return
+    ;[ids[idx], ids[j]] = [ids[j], ids[idx]]
+    reorderMutation.mutate({ groupName: group, orderedIds: ids })
+  }
 
   const openCreateProviderDialog = () => {
     setEditingProvider(null)
@@ -448,6 +508,11 @@ export function EnvSettings({ mode = 'all' }: { mode?: 'all' | 'presets' | 'prov
       model: provModel, haiku_model: provHaiku, sonnet_model: provSonnet, opus_model: provOpus, subagent_model: provSubagent,
       extra_env: extra,
       group_name: provGroup.trim(),
+      // Order and enabled state are managed outside the dialog (group reorder
+      // buttons / power toggle) — preserve them on edit so saving does not
+      // reset the group ordering.
+      group_position: editingProvider?.group_position,
+      enabled: editingProvider?.enabled,
       owner: editingProvider ? undefined : provOwner,
     }
     if (editingProvider) updateProviderMutation.mutate({ id: editingProvider.id, data })
@@ -514,17 +579,61 @@ export function EnvSettings({ mode = 'all' }: { mode?: 'all' | 'presets' | 'prov
         ) : providers.length === 0 ? (
           <p className="mt-3 text-sm text-muted-foreground">{t('env.noProviders')}</p>
         ) : (
-          <div className="mt-3 space-y-3">
-            {[...providers].sort((a, b) => a.name.localeCompare(b.name, 'zh-Hans-CN')).map((p) => (
-              <ProviderCard
-                key={p.id}
-                provider={p}
-                onEdit={openEditProviderDialog}
-                onDuplicate={openDuplicateProviderDialog}
-                onDelete={(id) => deleteProviderMutation.mutate(id)}
-                onClearCooldown={(id) => clearCooldownMutation.mutate(id)}
-              />
-            ))}
+          <div className="mt-3 space-y-5">
+            {namedGroups.map((g) => {
+              const members = groupedProviders(g)
+              return (
+                <div key={g} className="space-y-2">
+                  <div className="flex items-center gap-2">
+                    <Package className="h-4 w-4 text-info flex-shrink-0" />
+                    <span className="text-sm font-medium text-foreground">{t('env.providerGroup', { group: g })}</span>
+                    <span className="text-xs text-muted-foreground">{t('env.groupOrderHint')}</span>
+                  </div>
+                  <div className="space-y-3">
+                    {members.map((p, i) => (
+                      <ProviderCard
+                        key={p.id}
+                        provider={p}
+                        onEdit={openEditProviderDialog}
+                        onDuplicate={openDuplicateProviderDialog}
+                        onDelete={(id) => deleteProviderMutation.mutate(id)}
+                        onClearCooldown={(id) => clearCooldownMutation.mutate(id)}
+                        onToggleEnabled={(id, enabled) => setEnabledMutation.mutate({ id, enabled })}
+                        onMoveUp={() => moveInGroup(g, p.id, -1)}
+                        onMoveDown={() => moveInGroup(g, p.id, 1)}
+                        canMoveUp={i > 0}
+                        canMoveDown={i < members.length - 1}
+                      />
+                    ))}
+                  </div>
+                </div>
+              )
+            })}
+            {standaloneProviders.length > 0 && (
+              <div className="space-y-2">
+                <div className="flex items-center gap-2">
+                  <Server className="h-4 w-4 text-muted-foreground flex-shrink-0" />
+                  <span className="text-sm font-medium text-muted-foreground">{t('env.standaloneTitle')}</span>
+                </div>
+                <div className="space-y-3">
+                  {standaloneProviders.map((p) => (
+                    <ProviderCard
+                      key={p.id}
+                      provider={p}
+                      onEdit={openEditProviderDialog}
+                      onDuplicate={openDuplicateProviderDialog}
+                      onDelete={(id) => deleteProviderMutation.mutate(id)}
+                      onClearCooldown={(id) => clearCooldownMutation.mutate(id)}
+                      onToggleEnabled={(id, enabled) => setEnabledMutation.mutate({ id, enabled })}
+                      onMoveUp={() => {}}
+                      onMoveDown={() => {}}
+                      canMoveUp={false}
+                      canMoveDown={false}
+                    />
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         )}
       </div>

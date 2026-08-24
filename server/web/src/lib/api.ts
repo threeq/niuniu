@@ -572,6 +572,10 @@ export const api = {
     api.delete(`/env-providers/${id}`),
   clearProviderCooldown: (id: number): Promise<void> =>
     api.delete(`/env-providers/${id}/cooldown`),
+  setProviderEnabled: (id: number, enabled: boolean): Promise<void> =>
+    api.post(`/env-providers/${id}/enabled`, { enabled }),
+  reorderProviders: (groupName: string, orderedIds: number[]): Promise<void> =>
+    api.post('/env-providers/reorder', { group_name: groupName, ordered_ids: orderedIds }),
   getProviderEnv: (id: number, cliType?: string): Promise<Record<string, string>> =>
     api.get<Record<string, string>>(`/env-providers/${id}/env`, { params: cliType ? { cli_type: cliType } : {} }),
   // Workspace direct provider binding (issue #653 simplification)

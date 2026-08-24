@@ -18,6 +18,7 @@ func TestEnvProviderGroupAndCooldownColumns(t *testing.T) {
 	prov, err := q.CreateEnvProvider(ctx, CreateEnvProviderParams{
 		Name: "智谱-1", Platform: "zhipu", BaseUrls: `{"anthropic":"https://open.bigmodel.cn/api/anthropic"}`,
 		ApiKey: "${ACCOUNT:智谱-1}", Model: "glm-5.1", GroupName: "智谱",
+		GroupPosition: 2, Enabled: 1,
 		OwnerType: "user", OwnerID: 0,
 	})
 	if err != nil {
@@ -25,6 +26,12 @@ func TestEnvProviderGroupAndCooldownColumns(t *testing.T) {
 	}
 	if prov.GroupName != "智谱" {
 		t.Errorf("group_name not persisted: %q", prov.GroupName)
+	}
+	if prov.GroupPosition != 2 {
+		t.Errorf("group_position not persisted: %d", prov.GroupPosition)
+	}
+	if prov.Enabled != 1 {
+		t.Errorf("enabled not persisted: %d", prov.Enabled)
 	}
 	if prov.CooldownUntil.Valid {
 		t.Error("cooldown_until should start NULL")
@@ -53,16 +60,32 @@ func TestEnvProviderGroupAndCooldownColumns(t *testing.T) {
 		t.Error("cooldown_until should be NULL after clear")
 	}
 
-	// Update carries group_name through without touching cooldown.
+	// Update carries group_name/position/enabled through without touching cooldown.
 	if err := q.UpdateEnvProvider(ctx, UpdateEnvProviderParams{
 		ID: prov.ID, Name: "智谱-1", Platform: "zhipu", BaseUrls: prov.BaseUrls,
-		ApiKey: prov.ApiKey, Model: "glm-5.1", GroupName: "智谱-2", Slug: prov.Slug,
+		ApiKey: prov.ApiKey, Model: "glm-5.1", GroupName: "智谱-2",
+		GroupPosition: 1, Enabled: 0, Slug: prov.Slug,
 	}); err != nil {
 		t.Fatalf("UpdateEnvProvider: %v", err)
 	}
 	got, _ = q.GetEnvProvider(ctx, prov.ID)
 	if got.GroupName != "智谱-2" {
 		t.Errorf("update did not persist group_name: %q", got.GroupName)
+	}
+	if got.GroupPosition != 1 || got.Enabled != 0 {
+		t.Errorf("update did not persist group_position/enabled: pos=%d enabled=%d", got.GroupPosition, got.Enabled)
+	}
+
+	// Dedicated toggle + reorder queries.
+	if err := q.SetProviderEnabled(ctx, SetProviderEnabledParams{ID: prov.ID, Enabled: 1}); err != nil {
+		t.Fatalf("SetProviderEnabled: %v", err)
+	}
+	if err := q.SetProviderGroupPosition(ctx, SetProviderGroupPositionParams{ID: prov.ID, GroupPosition: 3}); err != nil {
+		t.Fatalf("SetProviderGroupPosition: %v", err)
+	}
+	got, _ = q.GetEnvProvider(ctx, prov.ID)
+	if got.Enabled != 1 || got.GroupPosition != 3 {
+		t.Errorf("toggle/reorder not applied: enabled=%d pos=%d", got.Enabled, got.GroupPosition)
 	}
 }
 

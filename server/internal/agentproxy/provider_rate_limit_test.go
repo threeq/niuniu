@@ -20,14 +20,14 @@ func TestMaybeMarkRateLimitedProvider_MarksAndRestartsOnFallback(t *testing.T) {
 	q := s.q
 	bound, err := q.CreateEnvProvider(ctx, store.CreateEnvProviderParams{
 		Name: "智谱-1", Platform: "zhipu", BaseUrls: `{"anthropic":"https://open.bigmodel.cn/api/anthropic"}`,
-		ApiKey: "${ACCOUNT:智谱-1}", Model: "glm-5.1", GroupName: "智谱", OwnerType: "user", OwnerID: 0,
+		ApiKey: "${ACCOUNT:智谱-1}", Model: "glm-5.1", GroupName: "智谱", Enabled: 1, OwnerType: "user", OwnerID: 0,
 	})
 	if err != nil {
 		t.Fatalf("CreateEnvProvider bound: %v", err)
 	}
 	if _, err := q.CreateEnvProvider(ctx, store.CreateEnvProviderParams{
 		Name: "智谱-2", Platform: "zhipu", BaseUrls: `{"anthropic":"https://open.bigmodel.cn/api/anthropic"}`,
-		ApiKey: "${ACCOUNT:智谱-2}", Model: "glm-5.1", GroupName: "智谱", OwnerType: "user", OwnerID: 0,
+		ApiKey: "${ACCOUNT:智谱-2}", Model: "glm-5.1", GroupName: "智谱", Enabled: 1, OwnerType: "user", OwnerID: 0,
 	}); err != nil {
 		t.Fatalf("CreateEnvProvider fallback: %v", err)
 	}
@@ -80,7 +80,7 @@ func TestMaybeMarkRateLimitedProvider_NoGroupMarksButNoKill(t *testing.T) {
 	q := s.q
 	bound, err := q.CreateEnvProvider(ctx, store.CreateEnvProviderParams{
 		Name: "智谱", Platform: "zhipu", BaseUrls: `{"anthropic":"x"}`,
-		ApiKey: "${ACCOUNT:智谱}", Model: "glm-5.1", GroupName: "", OwnerType: "user", OwnerID: 0,
+		ApiKey: "${ACCOUNT:智谱}", Model: "glm-5.1", GroupName: "", Enabled: 1, OwnerType: "user", OwnerID: 0,
 	})
 	if err != nil {
 		t.Fatalf("CreateEnvProvider: %v", err)
@@ -112,7 +112,7 @@ func TestMaybeMarkRateLimitedProvider_NonRateLimitLineIsNoop(t *testing.T) {
 	q := s.q
 	bound, _ := q.CreateEnvProvider(ctx, store.CreateEnvProviderParams{
 		Name: "智谱", Platform: "zhipu", BaseUrls: `{"anthropic":"x"}`,
-		ApiKey: "${ACCOUNT:智谱}", Model: "glm-5.1", OwnerType: "user", OwnerID: 0,
+		ApiKey: "${ACCOUNT:智谱}", Model: "glm-5.1", Enabled: 1, OwnerType: "user", OwnerID: 0,
 	})
 	s.activeProviderID = bound.ID
 

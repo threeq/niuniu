@@ -72,12 +72,14 @@ func TestParseRateLimitReset_429WithoutResetTime(t *testing.T) {
 	}
 }
 
-// zhipuProvider builds a 智谱-style provider for fallback tests.
+// zhipuProvider builds a 智谱-style provider for fallback tests. Enabled
+// defaults to 1 (in rotation) to match a freshly-created DB row.
 func zhipuProvider(id int64, name, group string, cooldownAt sql.NullTime) store.EnvProvider {
 	return store.EnvProvider{
 		ID: id, Name: name, GroupName: group,
 		BaseUrls: `{"anthropic":"https://open.bigmodel.cn/api/anthropic"}`,
 		ApiKey:   "${ACCOUNT:" + name + "}", Model: "glm-5.1",
+		Enabled: 1,
 		CooldownUntil: cooldownAt,
 	}
 }
@@ -213,6 +215,82 @@ func TestResolve_CooldownNoGroupStillExpandsBound(t *testing.T) {
 	}
 	if got := envMap(rows)["ANTHROPIC_AUTH_TOKEN"]; got != "sk-zhipu-1" {
 		t.Errorf("bound provider should still expand: %q", got)
+	}
+}
+
+func TestActiveProvider_FallbackRespectsGroupPosition(t *testing.T) {
+	// Manual order decides which group member is tried first.
+	bound := zhipuProvider(1, "智谱-1", "智谱", cooldown(time.Now().Add(time.Hour)))
+	pos2 := zhipuProvider(2, "智谱-2", "智谱", sql.NullTime{})
+	pos2.GroupPosition = 2
+	pos1 := zhipuProvider(3, "智谱-3", "智谱", sql.NullTime{})
+	pos1.GroupPosition = 1
+	q := fakeQuerier{
+		boundProvider: &bound,
+		providers:     []store.EnvProvider{bound, pos2, pos1},
+		cliType:       "claude",
+	}
+	got, ok := ActiveProvider(context.Background(), q, 7)
+	if !ok || got.ID != 3 {
+		t.Fatalf("expected position-1 fallback (id 3), got %+v ok=%v", got, ok)
+	}
+}
+
+func TestActiveProvider_EnabledBoundWinsOverGroupOrder(t *testing.T) {
+	// The explicitly-bound provider wins even when a group member has a lower
+	// group_position — ordering only decides FALLBACK priority.
+	bound := zhipuProvider(1, "智谱-1", "智谱", sql.NullTime{})
+	bound.GroupPosition = 5
+	lower := zhipuProvider(2, "智谱-2", "智谱", sql.NullTime{})
+	lower.GroupPosition = 1
+	q := fakeQuerier{
+		boundProvider: &bound,
+		providers:     []store.EnvProvider{bound, lower},
+		cliType:       "claude",
+	}
+	got, ok := ActiveProvider(context.Background(), q, 7)
+	if !ok || got.ID != 1 {
+		t.Fatalf("expected bound provider (id 1) despite higher position, got %+v ok=%v", got, ok)
+	}
+}
+
+func TestActiveProvider_DisabledBoundFallsBack(t *testing.T) {
+	bound := zhipuProvider(1, "智谱-1", "智谱", sql.NullTime{})
+	bound.Enabled = 0 // manually disabled
+	fallback := zhipuProvider(2, "智谱-2", "智谱", sql.NullTime{})
+	q := fakeQuerier{
+		boundProvider: &bound,
+		providers:     []store.EnvProvider{bound, fallback},
+		cliType:       "claude",
+	}
+	got, ok := ActiveProvider(context.Background(), q, 7)
+	if !ok || got.ID != 2 {
+		t.Fatalf("expected fallback for disabled bound, got %+v ok=%v", got, ok)
+	}
+}
+
+func TestActiveProvider_DisabledBoundNoGroupIsNotUsable(t *testing.T) {
+	bound := zhipuProvider(1, "智谱-1", "", sql.NullTime{})
+	bound.Enabled = 0 // standalone + manually disabled → nothing to use
+	q := fakeQuerier{boundProvider: &bound, cliType: "claude"}
+	if _, ok := ActiveProvider(context.Background(), q, 7); ok {
+		t.Fatal("expected ok=false when the only (standalone) provider is disabled")
+	}
+}
+
+func TestActiveProvider_DisabledGroupMemberSkipped(t *testing.T) {
+	bound := zhipuProvider(1, "智谱-1", "智谱", cooldown(time.Now().Add(time.Hour)))
+	disabled := zhipuProvider(2, "智谱-2", "智谱", sql.NullTime{})
+	disabled.Enabled = 0
+	healthy := zhipuProvider(3, "智谱-3", "智谱", sql.NullTime{})
+	q := fakeQuerier{
+		boundProvider: &bound,
+		providers:     []store.EnvProvider{bound, disabled, healthy},
+		cliType:       "claude",
+	}
+	got, ok := ActiveProvider(context.Background(), q, 7)
+	if !ok || got.ID != 3 {
+		t.Fatalf("expected healthy (id 3) to be picked, disabled skipped, got %+v ok=%v", got, ok)
 	}
 }
 

@@ -53,17 +53,33 @@ func ProviderInCooldown(p store.EnvProvider, now time.Time) bool {
 	return p.CooldownUntil.Valid && p.CooldownUntil.Time.After(now)
 }
 
+// ProviderEnabled reports whether p is in rotation at all (the user has not
+// manually disabled it via enabled=0). Independent of cooldown: a disabled
+// provider is never selected even when not rate-limited.
+func ProviderEnabled(p store.EnvProvider) bool {
+	return p.Enabled != 0
+}
+
+// providerUsable reports whether p can be selected right now: manually enabled
+// AND not in a rate-limit cooldown.
+func providerUsable(p store.EnvProvider, now time.Time) bool {
+	return ProviderEnabled(p) && !ProviderInCooldown(p, now)
+}
+
 // ActiveProvider returns the provider that should back this workspace for the
-// agent's CLI: the directly-bound provider (workspaces.env_provider_id), or —
-// when that provider is in a rate-limit cooldown and belongs to a group — the
-// first healthy member of the same group that can serve the workspace's
-// protocol. Returns ok=false when the workspace has no bound provider or it
-// cannot be loaded.
+// agent's CLI: the directly-bound provider (workspaces.env_provider_id) when it
+// is usable; otherwise — if it belongs to a group — the first usable member of
+// the same group in manual order (group_position ASC, then id ASC) that can
+// serve the workspace's protocol. Returns ok=false when the workspace has no
+// bound provider, it cannot be loaded, or it is manually disabled with no
+// fallback available.
 //
-// When the bound provider is in cooldown but has no group (or no healthy
-// group member exists), the bound provider is returned anyway — there is
-// nothing interchangeable to fall back to, so the workspace keeps using it and
-// recovers as soon as the cooldown passes.
+// Degradation when the bound provider is unusable but no fallback exists:
+//   - in a rate-limit cooldown (auto) → the bound provider is returned anyway,
+//     so the workspace keeps its config and recovers when the cooldown passes.
+//   - manually disabled (enabled=0) → not-ok; the user took it out of rotation
+//     on purpose, so the workspace resolves no provider env (falls through to
+//     scene/env_presets/workspace_env).
 func ActiveProvider(ctx context.Context, q Querier, wsID int64) (store.EnvProvider, bool) {
 	pid, err := q.GetWorkspaceEnvProviderID(ctx, wsID)
 	if err != nil || pid <= 0 {
@@ -74,44 +90,57 @@ func ActiveProvider(ctx context.Context, q Querier, wsID int64) (store.EnvProvid
 		return store.EnvProvider{}, false
 	}
 	now := time.Now()
-	if !ProviderInCooldown(bound, now) || bound.GroupName == "" {
+	if providerUsable(bound, now) {
+		// Usable bound provider wins regardless of group order (it is the
+		// explicitly-chosen primary).
 		return bound, true
 	}
+	if bound.GroupName == "" {
+		// No fallback possible: a rate-limited (but enabled) provider keeps its
+		// config and recovers when the cooldown passes; a manually-disabled one
+		// is intentionally out of rotation, so the workspace resolves no
+		// provider env (falls through to scene/env_presets/workspace_env).
+		return bound, ProviderEnabled(bound)
+	}
 
-	// Bound provider is rate-limited and grouped: look for a healthy
-	// interchangeable member. Any error degrades to the bound provider.
+	// Bound provider unusable (rate-limited or disabled) and grouped: look for
+	// an interchangeable usable member in manual order. Any error degrades to
+	// the bound provider (cooldown) / not-ok (disabled) below.
 	_, providerParams := ownerScopeParams(ctx, q, wsID)
 	providers, err := q.ListEnvProvidersForOwners(ctx, providerParams)
 	if err != nil {
 		slog.Warn("sceneenv: list providers for fallback failed", "workspace_id", wsID, "error", err)
-		return bound, true
+		return bound, ProviderEnabled(bound)
 	}
 	cliType, _ := q.GetWorkspaceCliType(ctx, wsID)
 	protocol := ProtocolForCLI(cliType)
 
-	// Deterministic pick: lowest id among healthy same-group members that can
-	// serve the agent's protocol (has a base_url for it).
+	// Manual order: lowest group_position first (tie-broken by id). Only
+	// usable members that can serve the agent's protocol (base_url present)
+	// are interchangeable here.
 	var fallback *store.EnvProvider
 	for i := range providers {
 		p := providers[i]
 		if p.ID == bound.ID || p.GroupName != bound.GroupName {
 			continue
 		}
-		if ProviderInCooldown(p, now) {
+		if !providerUsable(p, now) {
 			continue
 		}
 		if decodeBaseURLs(p.BaseUrls)[protocol] == "" {
 			continue // cannot serve this agent type — not interchangeable here
 		}
-		if fallback == nil || p.ID < fallback.ID {
+		if fallback == nil || p.GroupPosition < fallback.GroupPosition ||
+			(p.GroupPosition == fallback.GroupPosition && p.ID < fallback.ID) {
 			fp := p
 			fallback = &fp
 		}
 	}
-	if fallback == nil {
-		return bound, true
+	if fallback != nil {
+		return *fallback, true
 	}
-	return *fallback, true
+	// No usable group member: degrade by the bound provider's own state.
+	return bound, ProviderEnabled(bound)
 }
 
 // MarkProviderCooldown persists a provider's rate-limit reset time

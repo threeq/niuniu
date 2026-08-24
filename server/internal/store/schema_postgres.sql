@@ -649,6 +649,8 @@ CREATE TABLE IF NOT EXISTS env_providers (
     extra_env     TEXT NOT NULL DEFAULT '{}',  -- JSON: Record<string, string> passthrough
     context_window BIGINT NOT NULL DEFAULT 0,  -- model context window in tokens (0 = unknown)
     group_name    TEXT NOT NULL DEFAULT '',   -- fallback group; empty = standalone
+    group_position INTEGER NOT NULL DEFAULT 0, -- manual order within group; smaller = used first for fallback
+    enabled       INTEGER NOT NULL DEFAULT 1,  -- 1 = usable; 0 = manually disabled (out of rotation)
     cooldown_until TIMESTAMP,                 -- rate-limit reset time; provider is skipped while in the future (NULL = healthy)
     owner_type    TEXT NOT NULL DEFAULT 'user' CHECK (owner_type IN ('user','org')),
     owner_id      BIGINT NOT NULL DEFAULT 0,

@@ -236,7 +236,7 @@ func TestResolve_BoundProviderExpandedNoScene(t *testing.T) {
 	prov := store.EnvProvider{
 		ID: 5, Name: "DeepSeek",
 		BaseUrls: `{"anthropic":"https://api.deepseek.com/anthropic"}`, ApiKey: "${ACCOUNT:DeepSeek}",
-		Model: "deepseek-v4",
+		Model: "deepseek-v4", Enabled: 1,
 	}
 	q := fakeQuerier{
 		boundProvider: &prov,
@@ -259,7 +259,7 @@ func TestResolve_BoundProviderExpandedNoScene(t *testing.T) {
 func TestResolve_BoundProviderOverriddenByExplicitEnv(t *testing.T) {
 	// Explicit workspace_env wins over the bound provider's generated env.
 	prov := store.EnvProvider{ID: 5, Name: "DeepSeek",
-		BaseUrls: `{"anthropic":"https://api.deepseek.com/anthropic"}`, Model: "deepseek-v4"}
+		BaseUrls: `{"anthropic":"https://api.deepseek.com/anthropic"}`, Model: "deepseek-v4", Enabled: 1}
 	q := fakeQuerier{
 		env:           []store.WorkspaceEnv{{WorkspaceID: 7, Key: "ANTHROPIC_BASE_URL", Value: "https://explicit.override"}},
 		boundProvider: &prov,

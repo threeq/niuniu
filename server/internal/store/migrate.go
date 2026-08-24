@@ -320,9 +320,13 @@ func Migrate(db *sql.DB) {
 	// fallbacks — when one is rate-limited, resolution picks another member of
 	// the same group. cooldown_until: the parsed reset time of a 429 quota
 	// error; while it is in the future the provider is skipped by
-	// sceneenv.ActiveProvider. NULL = healthy. Fresh DBs get both from
-	// schema.sql; existing DBs need the columns added here.
+	// sceneenv.ActiveProvider. NULL = healthy. group_position: manual order
+	// within a group (smaller = preferred fallback first). enabled: manual
+	// on/off switch (0 = taken out of rotation by the user). Fresh DBs get all
+	// from schema.sql; existing DBs need the columns added here.
 	addColumnIfNotExists(db, "env_providers", "group_name", "TEXT NOT NULL DEFAULT ''")
+	addColumnIfNotExists(db, "env_providers", "group_position", "INTEGER NOT NULL DEFAULT 0")
+	addColumnIfNotExists(db, "env_providers", "enabled", "INTEGER NOT NULL DEFAULT 1")
 	addColumnIfNotExists(db, "env_providers", "cooldown_until", "TIMESTAMP")
 
 	if !migrationApplied(w, "workspaces_created_by_backfill_v1") {
