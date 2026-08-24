@@ -1,8 +1,9 @@
-# desktop-v2 — 牛牛桌面版（Tauri v2 壳层）
+# desktop-v2 — 牛牛桌面版（Tauri v2 壳层，唯一桌面版）
 
 > issue #670：从 Wails v3 (Go) 迁移到 Tauri v2 (Rust)，修复 Windows 中文输入法
-> 在焦点切换场景失效的框架级 bug。**独立新目录**，不替换 `desktop/`（Wails 版保留）。
-> Go server 进程仍保留，作为子进程由本壳层启动（Tauri 只替换桌面壳层）。
+> 在焦点切换场景失效的框架级 bug。原 Wails 版 `desktop/` 已整体移除（issue #674
+> 收尾），desktop-v2 是唯一桌面版。Go server 进程仍保留，作为子进程由本壳层启动
+> （Tauri 只替换桌面壳层）。
 
 ## 架构
 
@@ -75,9 +76,13 @@ make build-personal-v2-linux     # x86_64-unknown-linux-gnu
 # 开发运行
 make dev-desktop-v2
 # 或手动：make _personal-prepare-current && make _personal-prepare-v2 ... && cd desktop-v2 && cargo run
+
+# 发行打包（macOS .dmg / Linux .AppImage；脚本在本目录 build/ 下）
+make package-personal-v2-darwin
+make package-personal-v2-linux
 ```
 
-产物 `bin/niuniu-desktop-v2-<version>(.exe)`。完整打包（安装器）可后续用
+产物 `bin/niuniu-desktop-v2-<version>(.exe)`。完整安装器打包可后续用
 `npx @tauri-apps/cli build --bundles ...` 基于 `externalBin` 产出。
 
 ## 已知取舍（相对 Wails 版）

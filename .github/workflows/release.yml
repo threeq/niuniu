@@ -1,16 +1,19 @@
 name: Release
 
-# 打包个人版 desktop 二进制并发布到【本仓库】(threeq/niuniu) 的 GitHub Release。
-# 触发：向本仓库推送 vX.Y.Z 标签 → 构建 Windows/macOS(.dmg)/Linux → 发布。
+# 打包 desktop-v2（Tauri，唯一桌面版）并发布到【本仓库】(threeq/niuniu) 的
+# GitHub Release。触发：向本仓库推送 vX.Y.Z 标签 → 构建 Windows(.exe) /
+# macOS(.dmg ×2 arch) / Linux(.AppImage) → 发布。
 #
-# 与旧 release-sync.yml 的区别：
-# - 在公开仓库内运行、发到自身（用默认 GITHUB_TOKEN，无需 PUBLIC_REPO_TOKEN）
-# - 不再发到 niuniu-public
-# - release notes 用 GitHub 自动生成（--generate-notes），不依赖 git-cliff/AI 脚本
-# - 不开"部署官网"提醒 issue（那是私有团队流程）
+# 流程（每个平台 job 相同的三段式）：
+#   1. pnpm build 嵌入式 SPA（server/web/dist）
+#   2. make build-personal-v2-<os>   → _personal-prepare 构建 Go server/mcp
+#      侧车（zig cc / clang 处理 libwebp cgo）staging 到 desktop-v2/binaries/
+#   3. cargo build --release --target <triple>   → build.rs include_bytes!
+#      把侧车内嵌进单文件产物
+# macOS 额外经 package.sh 包 .app + .dmg（签名/公证由 "Apple Build" 环境的
+# MACOS_CERT_* / APPLE_API_* secrets 启用）；Linux 经 package.sh 包 AppImage。
 #
-# macOS 签名/公证为可选：在仓库 Settings→Environments 配 "Apple Build" 环境并填
-# MACOS_CERT_*/APPLE_API_* 即启用签名公证；否则产出未签名 .dmg（开源版可接受）。
+# release notes 用 GitHub 自动生成（--generate-notes）。
 
 on:
   push:
@@ -51,7 +54,7 @@ jobs:
             --draft
 
   build-windows:
-    name: Build (windows-amd64)
+    name: Build desktop-v2 (windows-amd64)
     needs: prepare
     runs-on: windows-latest
     steps:
@@ -67,19 +70,23 @@ jobs:
         run: cd server/web && pnpm install --frozen-lockfile && pnpm build
       - uses: mlugg/setup-zig@v2
         with: { version: 0.16.0 }
-      - name: make build-personal-windows
+      - uses: dtolnay/rust-toolchain@stable
+        with: { targets: x86_64-pc-windows-msvc }
+      - uses: swatinem/rust-cache@v2
+        with: { workspaces: desktop-v2 }
+      - name: make build-personal-v2-windows
         shell: bash
-        run: VERSION="$TAG" make build-personal-windows
-      - name: Upload Windows binary
+        run: VERSION="$TAG" make build-personal-v2-windows
+      - name: Upload Windows .exe
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          gh release upload "$TAG" --clobber bin/niuniu-desktop-*-windows-amd64.exe
+          gh release upload "$TAG" --clobber bin/niuniu-desktop-v2-*-windows-amd64.exe
 
   build-darwin:
-    name: Build (darwin)
+    name: Build desktop-v2 (darwin)
     needs: prepare
     runs-on: macos-latest
     environment: Apple Build
@@ -94,6 +101,10 @@ jobs:
         with: { node-version: 22, cache: pnpm, cache-dependency-path: server/web/pnpm-lock.yaml }
       - name: Build embedded SPA
         run: cd server/web && pnpm install --frozen-lockfile && pnpm build
+      - uses: dtolnay/rust-toolchain@stable
+        with: { targets: 'aarch64-apple-darwin,x86_64-apple-darwin' }
+      - uses: swatinem/rust-cache@v2
+        with: { workspaces: desktop-v2 }
       - name: Import Developer ID certificate
         env:
           MACOS_CERT_P12_BASE64: ${{ secrets.MACOS_CERT_P12_BASE64 }}
@@ -125,14 +136,14 @@ jobs:
             exit 1
           fi
           echo "$APPLE_API_KEY_P8_BASE64" | base64 --decode > "$RUNNER_TEMP/AuthKey.p8"
-      - name: make package-personal-darwin
+      - name: make package-personal-v2-darwin
         env:
           APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
           APPLE_API_ISSUER_ID: ${{ secrets.APPLE_API_ISSUER_ID }}
         run: |
           set -euo pipefail
           export APPLE_API_KEY_PATH="$RUNNER_TEMP/AuthKey.p8"
-          VERSION="$TAG" make package-personal-darwin
+          VERSION="$TAG" make package-personal-v2-darwin
       - name: Clean up keychain
         if: always()
         run: |
@@ -143,16 +154,16 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          gh release upload "$TAG" --clobber bin/niuniu-desktop-*-darwin-*.dmg
+          gh release upload "$TAG" --clobber bin/niuniu-desktop-v2-*-darwin-*.dmg
 
   build-linux:
-    name: Build (linux-amd64)
+    name: Build desktop-v2 (linux-amd64)
     needs: prepare
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with: { ref: '${{ env.TAG }}' }
-      - name: Install Wails Linux deps (GTK / WebKit2GTK 4.1 / libsoup3)
+      - name: Install Tauri Linux deps (GTK / WebKit2GTK 4.1 / libsoup3)
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
@@ -167,14 +178,18 @@ jobs:
         run: cd server/web && pnpm install --frozen-lockfile && pnpm build
       - uses: mlugg/setup-zig@v2
         with: { version: 0.16.0 }
-      - name: make package-personal-linux
-        run: VERSION="$TAG" make package-personal-linux
+      - uses: dtolnay/rust-toolchain@stable
+        with: { targets: x86_64-unknown-linux-gnu }
+      - uses: swatinem/rust-cache@v2
+        with: { workspaces: desktop-v2 }
+      - name: make package-personal-v2-linux
+        run: VERSION="$TAG" make package-personal-v2-linux
       - name: Upload Linux AppImage
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          gh release upload "$TAG" --clobber bin/niuniu-desktop-*-linux-amd64.AppImage
+          gh release upload "$TAG" --clobber bin/niuniu-desktop-v2-*-linux-amd64.AppImage
 
   publish:
     name: Publish release

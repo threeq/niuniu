@@ -186,7 +186,7 @@ func (s *DirectoryService) GetSystemInfo() *SystemInfo {
 	}
 
 	// Clean before exposing: in personal/desktop mode USERPROFILE is set to
-	// "<dataDir>\.." (see desktop/internal/bundle), so os.UserHomeDir() returns
+	// "<dataDir>\.." (see desktop-v2/src/server.rs), so os.UserHomeDir() returns
 	// a path with a literal ".." segment. Without Clean the picker would open
 	// on an ugly "…/.niuniu/.." path. Clean collapses it to the real home dir.
 	if home, err := os.UserHomeDir(); err == nil && home != "" {

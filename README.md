@@ -46,7 +46,7 @@ desk, or a support console.
 - **Office & content generation** — Word/Excel/PPT/PDF/Markdown from a brief, diagrams (draw.io/Excalidraw), posters, landing pages, SEO/JSON-LD
 - **Data intelligence** — connect SQL/Redis/Mongo/ES/HTTP sources, governed querying under a strict permission model, live charts & pin-able dashboards
 - **Knowledge & memory** — ingest local docs into searchable knowledge bases; versioned project memory (patterns, gotchas, decisions) auto-distilled from sessions
-- **Native clients** — Wails v3 desktop (Windows/macOS/Linux) and React Native mobile, plus a browser UI
+- **Native clients** — Tauri v2 desktop (Windows/macOS/Linux) and React Native mobile, plus a browser UI
 
 ## Architecture
 
@@ -56,7 +56,7 @@ niuniu/
 │   ├── cmd/        # API server + MCP server
 │   ├── internal/   # api → service → store (SQLite or PostgreSQL)
 │   └── web/        # React 19 + TypeScript + Vite
-├── desktop/        # Wails v3 native shell (bundles the server)
+├── desktop-v2/     # Tauri v2 native shell (bundles the server)
 ├── mobile/         # React Native + Expo Router
 ├── go-shared/      # Cross-binary shared libs
 └── Makefile        # Root build driver
@@ -87,11 +87,11 @@ make dev-frontend    # Vite dev server on :5173 (proxies /api + /ws to :3000)
 make build           # builds server + MCP binaries into bin/
 ```
 
-**Desktop** (bundles the server into a native app):
+**Desktop** (bundles the server into a native app — desktop-v2, Tauri):
 
 ```bash
-make build-personal-current     # current platform
-make build-personal-windows     # Windows .exe
+make build-personal-v2-current  # current platform
+make build-personal-v2-windows  # Windows .exe
 # macOS/Linux need their respective SDKs — see Makefile
 ```
 
