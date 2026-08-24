@@ -444,11 +444,11 @@ export function EnvSettings({ mode = 'all' }: { mode?: 'all' | 'presets' | 'prov
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['env-providers'] }),
   })
 
-  // Providers sorted by (group_position, name) within their group — the order
-  // the user manages with the up/down buttons (fallback priority).
+  // Providers sorted by (group_position, id) within their group — the SAME key
+  // the backend uses to pick a group member (sceneenv.GroupProvider), so what
+  // you see in the settings list is exactly the fallback priority order.
   const orderedProviders = (ps: EnvProvider[]) =>
-    [...ps].sort((a, b) =>
-      a.group_position - b.group_position || a.name.localeCompare(b.name, 'zh-Hans-CN'))
+    [...ps].sort((a, b) => a.group_position - b.group_position || a.id - b.id)
   // Group providers by group_name; standalone (empty group) ones are shown
   // separately after all named groups.
   const namedGroups = [...new Set(providers.map((p) => p.group_name).filter(Boolean))].sort((a, b) =>

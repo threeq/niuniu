@@ -263,6 +263,29 @@ func (q *Queries) ListEnvProvidersForOwners(ctx context.Context, arg ListEnvProv
 	return items, nil
 }
 
+const maxEnvProviderGroupPosition = `-- name: MaxEnvProviderGroupPosition :one
+SELECT CAST(COALESCE(MAX(group_position), 0) AS INTEGER) AS max_pos
+FROM env_providers
+WHERE group_name = ? AND id != ?
+`
+
+type MaxEnvProviderGroupPositionParams struct {
+	GroupName string `json:"group_name"`
+	ID        int64  `json:"id"`
+}
+
+// Highest manual order within a group (0 = none). Used to APPEND a provider
+// joining a group at the end of the fallback order (max+1) so a newcomer with
+// the default position 0 never jumps ahead of manually ordered members.
+// excludeID skips the provider itself (pass 0 for create) so a member moving
+// within its own group does not count its old position.
+func (q *Queries) MaxEnvProviderGroupPosition(ctx context.Context, arg MaxEnvProviderGroupPositionParams) (int64, error) {
+	row := q.db.QueryRowContext(ctx, maxEnvProviderGroupPosition, arg.GroupName, arg.ID)
+	var max_pos int64
+	err := row.Scan(&max_pos)
+	return max_pos, err
+}
+
 const setProviderCooldown = `-- name: SetProviderCooldown :exec
 UPDATE env_providers SET cooldown_until = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?
 `

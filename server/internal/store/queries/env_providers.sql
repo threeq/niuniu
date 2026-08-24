@@ -24,6 +24,16 @@ SET name = ?, platform = ?, description = ?, base_urls = ?, api_key = ?, model =
     haiku_model = ?, sonnet_model = ?, opus_model = ?, subagent_model = ?, extra_env = ?, context_window = ?, group_name = ?, group_position = ?, enabled = ?, slug = ?, updated_at = CURRENT_TIMESTAMP
 WHERE id = ?;
 
+-- name: MaxEnvProviderGroupPosition :one
+-- Highest manual order within a group (0 = none). Used to APPEND a provider
+-- joining a group at the end of the fallback order (max+1) so a newcomer with
+-- the default position 0 never jumps ahead of manually ordered members.
+-- excludeID skips the provider itself (pass 0 for create) so a member moving
+-- within its own group does not count its old position.
+SELECT CAST(COALESCE(MAX(group_position), 0) AS INTEGER) AS max_pos
+FROM env_providers
+WHERE group_name = ? AND id != ?;
+
 -- name: SetProviderEnabled :exec
 -- Manual on/off switch: enabled=0 takes the provider out of rotation (group
 -- fallback and binding both skip it) until the user re-enables it.
