@@ -1783,3 +1783,13 @@ export interface ConsentStatus {
   agreed_version: string
   needs_consent: boolean
 }
+
+/**
+ * Per-user mandatory two-factor enrollment policy (drives the MFA enrollment
+ * gate). `needs_setup` is `enforced && !enabled` — the blocking condition.
+ */
+export interface MfaPolicy {
+  enforced: boolean
+  enabled: boolean
+  needs_setup: boolean
+}

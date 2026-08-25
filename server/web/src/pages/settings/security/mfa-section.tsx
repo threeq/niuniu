@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { ShieldCheck, ShieldOff, RefreshCw, Copy, Check } from 'lucide-react';
 import { toast } from 'sonner';
 import { api, ApiError } from '@/lib/api';
+import { useMfaPolicyStore } from '@/stores/mfa-policy-store';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
@@ -71,6 +72,14 @@ export function MfaSection() {
   useEffect(() => {
     fetchStatus();
   }, [fetchStatus]);
+
+  // Mandatory-enrollment policy: when the team requires MFA for this member's
+  // role, the server refuses /mfa/disable. Read it so the UI explains that
+  // instead of offering a button that always errors.
+  useEffect(() => {
+    void useMfaPolicyStore.getState().fetch();
+  }, []);
+  const mandatory = useMfaPolicyStore((s) => s.policy?.enforced === true);
 
   // ── Setup flow ──────────────────────────────────────────────
 
@@ -226,14 +235,19 @@ export function MfaSection() {
           </p>
 
           <div className="flex flex-wrap gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={handleDisableOpen}
-            >
-              <ShieldOff className="h-4 w-4 mr-1" />
-              {t('security.mfa.disable')}
-            </Button>
+            {/* Hidden (not merely disabled) when the team mandates MFA for this
+                role: the server rejects the call outright, so offering it would
+                be a dead end. */}
+            {!mandatory && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleDisableOpen}
+              >
+                <ShieldOff className="h-4 w-4 mr-1" />
+                {t('security.mfa.disable')}
+              </Button>
+            )}
             <Button
               variant="outline"
               size="sm"
@@ -243,6 +257,12 @@ export function MfaSection() {
               {t('security.mfa.regenerateBackupCodes')}
             </Button>
           </div>
+
+          {mandatory && (
+            <p className="text-xs text-muted-foreground">
+              {t('security.mfa.requiredByPolicy')}
+            </p>
+          )}
         </div>
       ) : (
         /* ── MFA not enabled ── */

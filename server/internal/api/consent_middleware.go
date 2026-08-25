@@ -11,11 +11,21 @@ import (
 // the agreement and manage their session. Reads (GET/HEAD/OPTIONS) are always
 // allowed and not listed here. Login/refresh/mfa-verify live outside the /api
 // group and are not subject to this guard.
+//
+// The MFA enrollment writes are listed too. A brand-new team member typically
+// owes both consent AND mandatory two-factor enrollment; if this guard blocked
+// the MFA-setup write while MFAEnrollGuard blocked consent/accept, the two
+// blocking overlays would deadlock and lock the user out permanently. Listing
+// them here breaks the cycle (see mfaEnrollWriteAllowlist for the other side).
 var consentWriteAllowlist = map[string]bool{
-	"/api/consent/accept": true,
-	"/api/consent/status": true,
-	"/api/auth/logout":    true,
-	"/api/auth/me":        true,
+	"/api/consent/accept":  true,
+	"/api/consent/status":  true,
+	"/api/auth/logout":     true,
+	"/api/auth/me":         true,
+	"/api/auth/mfa/setup":  true,
+	"/api/auth/mfa/enable": true,
+	"/api/auth/mfa/policy": true,
+	"/api/auth/mfa/status": true,
 }
 
 func consentPathAllowed(path string) bool {

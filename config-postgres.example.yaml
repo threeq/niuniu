@@ -29,6 +29,14 @@ auth:
       password: niuniu123
       display_name: Niuniu
       role: admin
+  # Mandatory two-factor (TOTP) enrollment. With enforce: true a member who logs
+  # in without MFA is funnelled into a blocking enrollment page and cannot use
+  # the system — API writes, MCP tool calls and terminal/agent streams are all
+  # refused until they finish. Leave required_roles empty to require every role,
+  # or list roles (admin / member / viewer) to stage the rollout.
+  mfa:
+    enforce: true
+    required_roles: []
 
 agent:
   default: claude-code

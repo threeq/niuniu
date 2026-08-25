@@ -2,12 +2,14 @@ package api
 
 import (
 	"database/sql"
+	"log/slog"
 	"net/http"
 	"strconv"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/niuniu-dev/niuniu/internal/auth"
+	"github.com/niuniu-dev/niuniu/internal/mfapolicy"
 	"github.com/niuniu-dev/niuniu/internal/service"
 )
 
@@ -22,10 +24,51 @@ func parseInt(s string, out *int64) (bool, error) {
 
 type MFAHandler struct {
 	svc *service.AuthService
+	// policy answers whether the caller's role mandates two-factor enrollment.
+	// May be nil when mandatory enrollment is not configured; Policy() then
+	// reports an all-false status.
+	policy *mfapolicy.Service
 }
 
 func NewMFAHandler(svc *service.AuthService) *MFAHandler {
 	return &MFAHandler{svc: svc}
+}
+
+// SetPolicy wires the mandatory-enrollment policy service. Separate from the
+// constructor so existing callers/tests that only exercise the self-service MFA
+// endpoints keep working unchanged.
+func (h *MFAHandler) SetPolicy(p *mfapolicy.Service) {
+	h.policy = p
+}
+
+// Policy reports whether the caller MUST have two-factor authentication enabled
+// and whether they already do. It drives the SPA's blocking enrollment page.
+//
+// Read-only, and on the allowlist of both the consent and MFA-enrollment
+// guards, so it stays reachable for exactly the users who are being blocked —
+// otherwise the SPA could not learn why.
+//
+// On a policy read error this reports needs_setup=false (fail OPEN) so a
+// transient DB hiccup cannot strand a user behind an un-dismissable page. The
+// server-side MFAEnrollGuard fails closed and remains the real enforcement
+// point, so failing open here costs nothing.
+func (h *MFAHandler) Policy(c *gin.Context) {
+	uid, ok := callerID(c)
+	if !ok {
+		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": gin.H{"code": "UNAUTHORIZED"}})
+		return
+	}
+	if h.policy == nil {
+		c.JSON(http.StatusOK, mfapolicy.Status{})
+		return
+	}
+	st, err := h.policy.Status(c.Request.Context(), uid)
+	if err != nil {
+		slog.Warn("mfa policy status read failed", "user_id", uid, "error", err)
+		c.JSON(http.StatusOK, mfapolicy.Status{})
+		return
+	}
+	c.JSON(http.StatusOK, st)
 }
 
 func (h *MFAHandler) Setup(c *gin.Context) {
@@ -135,6 +178,26 @@ func (h *MFAHandler) Disable(c *gin.Context) {
 	if !ok {
 		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": gin.H{"code": "UNAUTHORIZED"}})
 		return
+	}
+	// A member whose role mandates two-factor authentication may not turn it
+	// back off. Without this check the requirement would be trivially defeated:
+	// MFAEnrollGuard only blocks /mfa/disable while enrollment is still owed, so
+	// the moment a user enables MFA the path opens and they could immediately
+	// disable it again. The admin reset endpoint remains the escape hatch for a
+	// genuinely locked-out member.
+	if h.policy != nil {
+		user, err := h.svc.GetUser(c.Request.Context(), uid)
+		if err != nil {
+			InternalError(c, err)
+			return
+		}
+		if h.policy.RoleRequired(user.Role) {
+			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": gin.H{
+				"code":    "MFA_REQUIRED_BY_POLICY",
+				"message": "团队安全策略要求保持两步验证开启，无法关闭",
+			}})
+			return
+		}
 	}
 	var req struct {
 		Code string `json:"code" binding:"required"`

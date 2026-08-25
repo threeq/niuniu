@@ -68,6 +68,7 @@ import type {
   SkillInfo,
   SkillTargetRequest,
   SkillActionResult,
+  MfaPolicy,
 } from '../types/api'
 import type { Org, OrgMember, OrgAuditEntry, User, OwnerRef } from '../types/org'
 import type {
@@ -211,6 +212,17 @@ export async function apiFetch<T>(
         void import('@/stores/license-store').then((m) => m.useLicenseStore.getState().fetch())
       }
 
+      // Mandatory two-factor enrollment: the server refused the write because
+      // the caller still owes enrollment. Refresh the policy store so the
+      // blocking enrollment gate appears immediately — otherwise a tab that was
+      // already open when the policy took effect would show only a toast, with
+      // no path to fixing it. Lazy import mirrors the license branch above.
+      if (licenseCode === 'MFA_SETUP_REQUIRED') {
+        void import('@/stores/mfa-policy-store').then((m) =>
+          m.useMfaPolicyStore.getState().fetch(),
+        )
+      }
+
       // 404 is suppressed: it typically indicates a benign race where a
       // stale subscriber (e.g. ['issues', deletedColumnId] or
       // ['issue-checklists', deletedIssueId]) refetches just after a
@@ -301,6 +313,9 @@ export const api = {
 
   getMFAStatus: (): Promise<{ enabled: boolean; backup_codes_remain: number; trusted_device_count: number }> =>
     api.get<{ enabled: boolean; backup_codes_remain: number; trusted_device_count: number }>('/auth/mfa/status'),
+
+  /** Mandatory-enrollment policy for the current user (drives the enrollment gate). */
+  getMFAPolicy: (): Promise<MfaPolicy> => api.get<MfaPolicy>('/auth/mfa/policy'),
 
   disableMFA: (code: string): Promise<{ message: string }> =>
     api.post<{ message: string }>('/auth/mfa/disable', { code }),

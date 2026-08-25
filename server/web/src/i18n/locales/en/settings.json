@@ -442,7 +442,8 @@
       "setupSuccess": "Two-factor authentication enabled successfully",
       "disableSuccess": "Two-factor authentication disabled",
       "regenerateSuccess": "Backup codes regenerated",
-      "incorrectCode": "Incorrect verification code"
+      "incorrectCode": "Incorrect verification code",
+      "requiredByPolicy": "Your team's security policy requires two-factor authentication for your role, so it cannot be turned off. Ask an administrator if you need it reset (for example after replacing your phone)."
     }
   },
   "about": {

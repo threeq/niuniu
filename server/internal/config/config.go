@@ -127,6 +127,25 @@ type AuthConfig struct {
 	RefreshExpiry string       `mapstructure:"refresh_expiry"`
 	Users         []UserConfig `mapstructure:"users"`
 	SingleUser    UserConfig   `mapstructure:"single_user"` // used when Enabled=false
+	MFA           MFAConfig    `mapstructure:"mfa"`
+}
+
+// MFAConfig declares which members MUST have TOTP two-factor authentication
+// enabled before they may use the system. Enforcement itself lives in
+// internal/mfapolicy + api.MFAEnrollGuard.
+//
+// Personal edition (auth.enabled=false) has a single local user and no login,
+// so enforcement is skipped there regardless of these values — see
+// mfapolicy.Service.
+type MFAConfig struct {
+	// Enforce turns the mandatory-enrollment gate on. Team edition defaults to
+	// true: a member who logs in without MFA is funnelled into the enrollment
+	// page and cannot use the system until they finish.
+	Enforce bool `mapstructure:"enforce"`
+	// RequiredRoles limits enforcement to these `users.role` values
+	// ("admin"/"member"/"viewer"). Empty means every role is required, which is
+	// the default — narrow it only to stage a rollout.
+	RequiredRoles []string `mapstructure:"required_roles"`
 }
 
 type UpgradeConfig struct {
@@ -385,6 +404,10 @@ func Load() (*Config, error) {
 	viper.SetDefault("auth.token_expiry", "15m")
 	viper.SetDefault("auth.refresh_expiry", "168h")
 	viper.SetDefault("auth.single_user.username", "local")
+	// Team edition mandates two-factor enrollment by default; required_roles is
+	// intentionally left empty, which mfapolicy reads as "every role".
+	viper.SetDefault("auth.mfa.enforce", true)
+	viper.SetDefault("auth.mfa.required_roles", []string{})
 	viper.SetDefault("auth.users", []map[string]interface{}{
 		{
 			"username":     "niuniu",

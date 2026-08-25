@@ -4,6 +4,7 @@ import { Loader2 } from 'lucide-react';
 import { GlobalNav } from './global-nav';
 import { LicenseBanner } from './license-banner';
 import { ConsentGate } from './consent-gate';
+import { MfaEnrollGate } from './mfa-enroll-gate';
 import { useNotificationWS } from '@/hooks/use-notification-ws';
 import { useFocusRefetch } from '@/hooks/use-focus-refetch';
 import { useReloadShortcut } from '@/hooks/use-reload-shortcut';
@@ -33,6 +34,10 @@ export function RootLayout() {
           <Outlet />
         </Suspense>
       </div>
+      {/* Both gates are fixed-position siblings at the same z-index, so the
+          later one paints on top. ConsentGate is last deliberately: a member who
+          owes both sees the agreement first, then the enrollment page. */}
+      <MfaEnrollGate />
       <ConsentGate />
     </div>
   );
