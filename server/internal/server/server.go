@@ -157,6 +157,7 @@ type Server struct {
 	epicExecHandler         *api.EpicExecutionHandler
 	workspaceHandler        *api.WorkspaceHandler
 	tokenUsageHandler       *api.TokenUsageHandler
+	providerUsageHandler    *api.ProviderUsageHandler
 	workspaceMCPHandler     *api.WorkspaceMCPHandler
 	localRunnerHandler      *api.LocalRunnerHandler
 	worktreeHandler         *api.WorktreeHandler
@@ -263,6 +264,13 @@ func slogRecovery() gin.HandlerFunc {
 // default; the startup guard refuses to run a network-auth-enabled server while
 // it is still in effect.
 const defaultAdminPassword = "niuniu123"
+
+// providerUsageRetention is how long subscription-platform history is kept:
+// hourly token buckets and 429 rate-limit episodes are both pruned past this.
+// Three months is what the feature was specified for — long enough to compare
+// month-over-month spend per platform, short enough that the per-provider x
+// per-hour grain does not grow without bound.
+const providerUsageRetention = 90 * 24 * time.Hour
 
 // redactQueryToken scrubs the value of auth-bearing query params (?token= /
 // ?ws_token=) from a request path before it is logged. WS/SSE endpoints accept
@@ -628,6 +636,11 @@ func New(cfg *config.Config, db *sql.DB, frontendFS fs.FS) *Server {
 		Authz: authz,
 		DB:    db,
 	}
+	s.providerUsageHandler = &api.ProviderUsageHandler{
+		Svc:   service.NewProviderUsageService(s.queries),
+		Authz: authz,
+		DB:    db,
+	}
 	s.workspaceHandler.Proxy = s.agentProxy
 	s.workspaceHandler.AgentMgr = s.agentMgr
 	s.workspaceHandler.Q = s.queries
@@ -708,6 +721,17 @@ func New(cfg *config.Config, db *sql.DB, frontendFS fs.FS) *Server {
 			cutoff := time.Now().UTC().Add(-365 * 24 * time.Hour)
 			if err := s.queries.PruneWorkspaceTokenHourly(ctx, cutoff); err != nil {
 				slog.Warn("token hourly prune failed", "err", err)
+			}
+			// Subscription-platform history keeps THREE months (vs a year for the
+			// workspace series): it exists to compare current platform spend and
+			// throttling, and the per-provider x per-hour grain makes it the
+			// widest of these tables.
+			providerCutoff := time.Now().UTC().Add(-providerUsageRetention)
+			if err := s.queries.PruneProviderTokenHourly(ctx, providerCutoff); err != nil {
+				slog.Warn("provider token hourly prune failed", "err", err)
+			}
+			if err := s.queries.PruneProviderRateLimitEvents(ctx, providerCutoff); err != nil {
+				slog.Warn("provider rate-limit events prune failed", "err", err)
 			}
 			if err := s.queries.PruneOrphanedAgentMessages(ctx); err != nil {
 				slog.Warn("orphaned agent_messages prune failed", "err", err)

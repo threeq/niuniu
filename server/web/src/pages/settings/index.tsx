@@ -5,6 +5,7 @@ import {
   Bot,
   Boxes,
   Building2,
+  ChartColumn,
   Cpu,
   GitBranch,
   Info,
@@ -25,6 +26,7 @@ import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { AboutSettings } from './about-settings'
 import { EnvSettings } from './env-settings'
+import { ProviderUsageSettings } from './provider-usage-settings'
 import { GeneralSettings } from './general-settings'
 import { GitCredentialsSettings } from './git-credentials-settings'
 import { GitIdentitySettings } from './git-identity-settings'
@@ -43,7 +45,7 @@ import { useAuthStore } from '@/stores/auth-store'
 import { useConfigStore } from '@/stores/config-store'
 import { useLicenseStore } from '@/stores/license-store'
 
-type SettingsTab = 'general' | 'users' | 'security' | 'env' | 'providers' | 'git-identity' | 'mobile-access' | 'system-deps' | 'skills' | 'integrations' | 'license' | 'orchestration' | 'blueprints' | 'imbot' | 'about' | 'claude'
+type SettingsTab = 'general' | 'users' | 'security' | 'env' | 'providers' | 'provider-usage' | 'git-identity' | 'mobile-access' | 'system-deps' | 'skills' | 'integrations' | 'license' | 'orchestration' | 'blueprints' | 'imbot' | 'about' | 'claude'
 
 interface TabVisibilityCtx {
   authEnabled: boolean
@@ -59,6 +61,7 @@ const tabs: { id: SettingsTab; labelKey: string; icon?: LucideIcon; visible?: (c
   { id: 'skills', labelKey: 'tabs.skills', icon: Sparkles },
   { id: 'env', labelKey: 'tabs.env', icon: Variable },
   { id: 'providers', labelKey: 'tabs.providers', icon: Server },
+  { id: 'provider-usage', labelKey: 'tabs.providerUsage', icon: ChartColumn },
   { id: 'git-identity', labelKey: 'tabs.gitIdentity', icon: GitBranch },
   { id: 'users', labelKey: 'tabs.users', icon: UserCog, visible: ({ authEnabled, isAdmin }) => authEnabled && isAdmin },
   { id: 'security', labelKey: 'tabs.security', icon: ShieldCheck, visible: ({ authEnabled }) => authEnabled },
@@ -75,7 +78,7 @@ const navGroups: { id: string; labelKey: string; tabIds: SettingsTab[] }[] = [
   { id: 'personal', labelKey: 'groups.personal', tabIds: ['general', 'security'] },
   { id: 'team', labelKey: 'groups.team', tabIds: ['users'] },
   { id: 'agents', labelKey: 'groups.agents', tabIds: ['claude', 'skills', 'integrations', 'orchestration', 'blueprints', 'imbot'] },
-  { id: 'system', labelKey: 'groups.system', tabIds: ['system-deps', 'env', 'providers', 'git-identity', 'license', 'about'] },
+  { id: 'system', labelKey: 'groups.system', tabIds: ['system-deps', 'env', 'providers', 'provider-usage', 'git-identity', 'license', 'about'] },
 ]
 
 // Map legacy ?tab values to their current home so old bookmarks/links don't
@@ -231,6 +234,7 @@ export function SettingsPage({ children, orgsActive = false }: SettingsPageProps
                 {activeTab === 'skills' && <SkillSettings />}
                 {activeTab === 'env' && <EnvSettings mode="presets" />}
                 {activeTab === 'providers' && <EnvSettings mode="providers" />}
+                {activeTab === 'provider-usage' && <ProviderUsageSettings />}
                 {activeTab === 'git-identity' && (
                   <>
                     <GitIdentitySettings />

@@ -243,7 +243,8 @@
     "orchestration": "編排",
     "blueprints": "專案模板",
     "imbot": "IM 機器人",
-    "about": "關於"
+    "about": "關於",
+    "providerUsage": "用量統計"
   },
   "skills": {
     "title": "Skill 管理",
@@ -1170,5 +1171,49 @@
     "filter_all": "全部",
     "filter_installed": "已安裝",
     "filter_available": "可用"
+  },
+  "providerUsage": {
+    "title": "Token 用量統計",
+    "description": "按選定維度檢視 Token 消耗，精確到小時級別；按訂閱平臺統計時還會顯示限流觸發與恢復使用的時間流水。保留最近 3 個月資料。",
+    "rangeLabel": "時間範圍",
+    "dimension": {
+      "label": "統計維度",
+      "owner": "按整體彙總",
+      "provider": "按訂閱平臺",
+      "ownerSeries": "全部消耗"
+    },
+    "range": "最近 {{count}} 天",
+    "emptyTitle": "暫無用量資料",
+    "emptyDescription": "完成對話輪次後，這裡會按小時記錄 Token 消耗；繫結訂閱平臺 provider 的工作空間還會按平臺拆分統計。",
+    "chart": {
+      "title": "每小時 Token 消耗（按平臺堆疊）",
+      "titleDaily": "每日 Token 消耗（按平臺堆疊）",
+      "grandTotal": "合計 {{value}} tokens",
+      "empty": "所選區間內暫無消耗"
+    },
+    "table": {
+      "title": "各平臺彙總",
+      "platform": "平臺",
+      "total": "總 Token",
+      "input": "輸入",
+      "output": "輸出",
+      "cache": "快取",
+      "turns": "對話次數",
+      "limits": "限流次數",
+      "blocked": "被限時長",
+      "limitedNow": "限流中",
+      "owner": "範圍"
+    },
+    "limits": {
+      "title": "限流日誌流水",
+      "description": "觸發時間為檢測到 429 的時刻；重置時間來自平臺返回的提示；恢復使用時間是該平臺真正再次被使用的時刻。",
+      "triggeredAt": "觸發時間",
+      "resetAt": "平臺重置時間",
+      "resumedAt": "恢復使用時間",
+      "duration": "被限時長",
+      "stillLimited": "尚未恢復",
+      "clearedManually": "（手動解除）",
+      "empty": "所選區間內沒有限流記錄"
+    }
   }
 }

@@ -246,6 +246,22 @@ func (s *WorkspaceSession) recordOMPCost(ctx context.Context, ev agentbackend.Ev
 	}); err != nil {
 		slog.Warn("omp: UpsertWorkspaceStatsAI failed", "workspaceID", s.workspaceID, "error", err)
 	}
+	// Hourly history, per workspace and per subscription platform. omp only
+	// reports input/output (no cache split in its agent_end telemetry), so the
+	// cache columns stay 0 rather than being guessed.
+	if err := s.q.UpsertWorkspaceTokenHourly(ctx, store.UpsertWorkspaceTokenHourlyParams{
+		WorkspaceID:  s.workspaceID,
+		BucketHour:   time.Now().UTC().Truncate(time.Hour),
+		InputTokens:  int64(ev.InputTokens),
+		OutputTokens: int64(ev.OutputTokens),
+	}); err != nil {
+		slog.Warn("omp: UpsertWorkspaceTokenHourly failed", "workspaceID", s.workspaceID, "error", err)
+	}
+	s.mu.Lock()
+	usageProviderID := s.activeProviderID
+	s.mu.Unlock()
+	recordProviderTokens(ctx, s.q, usageProviderID, s.ownerType, s.ownerID,
+		time.Now(), ev.InputTokens, ev.OutputTokens, 0, 0)
 }
 
 // signalOMPTurnDone marks the turn complete: updates the session columns to

@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"log/slog"
+	"time"
 
 	"github.com/niuniu-dev/niuniu/internal/sceneenv"
 	"github.com/niuniu-dev/niuniu/internal/store"
@@ -134,8 +135,25 @@ func (s *EnvProviderService) nextGroupPosition(ctx context.Context, excludeID in
 // ClearCooldown removes a provider's rate-limit cooldown so it becomes eligible
 // again immediately (e.g. the user re-keyed the account or the platform reset
 // earlier than the parsed 429 reset time). No-op when there is no cooldown.
+//
+// This also closes the provider's open rate-limit episode, flagged as manually
+// cleared: from the log's point of view the block ended when the user lifted it,
+// not when the platform's reset_at would have arrived. Without this the episode
+// would stay open until the next spawn and overstate the blocked duration.
 func (s *EnvProviderService) ClearCooldown(ctx context.Context, id int64) error {
-	return s.q.ClearProviderCooldown(ctx, id)
+	if err := s.q.ClearProviderCooldown(ctx, id); err != nil {
+		return err
+	}
+	// Best-effort: the cooldown is already lifted, so a logging failure must not
+	// surface as a failed user action.
+	if err := s.q.ResumeProviderRateLimitEvents(ctx, store.ResumeProviderRateLimitEventsParams{
+		ResumedAt:       sql.NullTime{Time: time.Now().UTC(), Valid: true},
+		ClearedManually: 1,
+		ProviderID:      id,
+	}); err != nil {
+		slog.Warn("close provider rate-limit episode on manual clear failed", "provider_id", id, "error", err)
+	}
+	return nil
 }
 
 // SetEnabled flips a provider's manual on/off switch. enabled=false takes the
