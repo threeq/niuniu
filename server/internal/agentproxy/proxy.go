@@ -467,6 +467,13 @@ type WorkspaceSession struct {
 	lastContextTokens     int
 	autoCompactSuppressed bool
 	compactTurnActive     bool
+	// turnRequestCount counts message_start events (one per API request) seen
+	// during the CURRENT turn. message_start still fires per request even when
+	// the gateway omits usage (火山方舟 glm), so this is the divisor that
+	// amortizes the result event's turn-cumulative usage into a per-request
+	// occupancy estimate. Reset with the other per-turn state in Send.
+	// Guarded by s.mu.
+	turnRequestCount int
 
 	// topLevelAgentID 是本会话对应的 workspace_agent.id（coordinator）。
 	// 0 表示未绑定。Task 8 在 session init 时填充。用于 agent_message 归属。
@@ -2734,13 +2741,27 @@ func (s *WorkspaceSession) handleEvent(ctx context.Context, ev ParsedEvent, msgI
 			// tool loop and overstates the live context. EXCEPT when the endpoint
 			// never emitted a usable message_start (some Anthropic-compatible
 			// providers — 火山方舟/百炼 gateways — omit stream usage): then the
-			// result sum is the ONLY signal available, and a bounded overestimate
-			// beats a permanently-0 pill. Use input+cache_read only (skip
-			// cache_creation, the double-counted part).
+			// result sum is the ONLY signal available. It must be AMORTIZED by
+			// the turn's request count (turnRequestCount, maintained in
+			// handleStreamEvent): every request re-reads the whole cached
+			// prefix, so cumulative ÷ requests ≈ one request's prompt size.
+			// Writing the raw sum made a 329-request turn read as 42.8M tokens
+			// against a 1M window and tripped compaction on a 21%-full context.
+			// Use input+cache_read only (skip cache_creation, the
+			// double-counted part). num_turns (when > count) is a coarser floor
+			// for the divisor — belt-and-braces for gateways that also swallow
+			// message_start events entirely.
 			if ev.InputTokens+ev.CacheReadTokens > 0 {
 				s.mu.Lock()
 				if s.lastContextTokens == 0 {
-					s.lastContextTokens = ev.InputTokens + ev.CacheReadTokens
+					divisor := s.turnRequestCount
+					if ev.NumTurns > divisor {
+						divisor = ev.NumTurns
+					}
+					if divisor < 1 {
+						divisor = 1
+					}
+					s.lastContextTokens = (ev.InputTokens + ev.CacheReadTokens) / divisor
 				}
 				s.mu.Unlock()
 			}
@@ -2917,6 +2938,14 @@ func (s *WorkspaceSession) handleStreamEvent(ctx context.Context, ev ParsedEvent
 		// round-trip, so cache_read piles up N-fold. Driving occupancy off the
 		// result sum made one multi-tool question look like hundreds of K of
 		// context and tripped auto-compaction after a single message.
+		//
+		// The event is ALSO counted regardless of usage: when the gateway omits
+		// usage entirely (火山方舟 glm) these zero-usage message_starts are still
+		// the per-request heartbeat the result fallback divides by (see the
+		// "result" case in handleEvent).
+		s.mu.Lock()
+		s.turnRequestCount++
+		s.mu.Unlock()
 		if ctxTokens := ev.InputTokens + ev.CacheReadTokens + ev.CacheCreationTokens; ctxTokens > 0 {
 			s.mu.Lock()
 			s.lastContextTokens = ctxTokens
@@ -3251,6 +3280,7 @@ func (s *WorkspaceSession) Send(ctx context.Context, workDir, content, attachmen
 	s.textBlockLastFlush = make(map[int]time.Time)
 	s.textBlockSeq = 0
 	s.hasStreamEvents = false
+	s.turnRequestCount = 0
 	s.thinkingPersisted = false
 	s.thinkingLastFlush = time.Time{}
 	s.thinkingMsgID = ""
