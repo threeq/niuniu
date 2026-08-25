@@ -442,7 +442,8 @@
       "setupSuccess": "二次验证已成功启用",
       "disableSuccess": "二次验证已关闭",
       "regenerateSuccess": "备份码已重新生成",
-      "incorrectCode": "验证码不正确"
+      "incorrectCode": "验证码不正确",
+      "requiredByPolicy": "团队安全策略要求你的角色保持两步验证开启，因此无法关闭。如需重置（例如更换手机后无法验证），请联系管理员。"
     }
   },
   "about": {

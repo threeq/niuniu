@@ -34,6 +34,7 @@ import (
 	"github.com/niuniu-dev/niuniu/internal/integration"
 	"github.com/niuniu-dev/niuniu/internal/integration/crypto"
 	"github.com/niuniu-dev/niuniu/internal/kbindex"
+	"github.com/niuniu-dev/niuniu/internal/mfapolicy"
 	"github.com/niuniu-dev/niuniu/internal/notify"
 	"github.com/niuniu-dev/niuniu/internal/registry"
 	"github.com/niuniu-dev/niuniu/internal/scheduler"
@@ -206,6 +207,7 @@ type Server struct {
 	licenseHandler          *api.LicenseHandler
 	consentSvc              *consent.Service
 	consentHandler          *api.ConsentHandler
+	mfaPolicySvc            *mfapolicy.Service
 	authzSvc                *service.Authz
 	eventBus                *event.Bus
 
@@ -965,6 +967,29 @@ func New(cfg *config.Config, db *sql.DB, frontendFS fs.FS) *Server {
 		} else {
 			authSvc.MFA = service.NewMFAService(s.queries, mfaKeyring)
 		}
+	}
+
+	// Mandatory two-factor enrollment policy. `available` is gated on
+	// authSvc.MFA being non-nil: if the keyring failed above, nobody CAN enroll,
+	// so enforcing would lock every member out of a running deployment. Warn
+	// loudly in that case since the configured security policy is silently
+	// inactive.
+	mfaAvailable := authSvc.MFA != nil
+	if cfg.Auth.Enabled && cfg.Auth.MFA.Enforce && !mfaAvailable {
+		slog.Error("auth.mfa.enforce is on but the MFA subsystem is unavailable — mandatory enrollment is NOT being enforced",
+			"fix", "resolve the auth_mfa_key error above")
+	}
+	s.mfaPolicySvc = mfapolicy.NewService(
+		s.queries,
+		cfg.Auth.Enabled,
+		cfg.Auth.MFA.Enforce,
+		mfaAvailable,
+		cfg.Auth.MFA.RequiredRoles,
+	)
+	s.mfaHandler.SetPolicy(s.mfaPolicySvc)
+	if s.mfaPolicySvc.Active() {
+		slog.Info("mandatory two-factor enrollment is enforced",
+			"required_roles", cfg.Auth.MFA.RequiredRoles)
 	}
 
 	// Refuse to boot a network-auth-enabled server that still ships the built-in

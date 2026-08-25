@@ -442,7 +442,8 @@
       "setupSuccess": "二次驗證已成功啟用",
       "disableSuccess": "二次驗證已關閉",
       "regenerateSuccess": "備份碼已重新生成",
-      "incorrectCode": "驗證碼不正確"
+      "incorrectCode": "驗證碼不正確",
+      "requiredByPolicy": "團隊安全政策要求你的角色保持兩步驗證開啟，因此無法關閉。如需重設（例如更換手機後無法驗證），請聯絡管理員。"
     }
   },
   "about": {

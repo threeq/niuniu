@@ -91,6 +91,25 @@ func (s *Server) setupRoutes() {
 	}
 	api.Use(apipkg.ConsentGuard(consentBlocked))
 
+	// Mandatory two-factor enrollment gate: block writes/run-class actions from a
+	// member whose role requires MFA when they have not enabled it yet. Same
+	// shape as consentBlocked — returns false (allow) when no user is resolved,
+	// leaving unauthenticated requests to the auth middleware. Shared by the /api
+	// group, the /mcp group (AI execution interface), and the WS run gate below,
+	// so skipping the enrollment page in the UI does not buy access via an agent.
+	mfaSetupBlocked := func(c *gin.Context) bool {
+		v, ok := c.Get("auth_user_id")
+		if !ok {
+			return false
+		}
+		uid, ok := v.(int64)
+		if !ok {
+			return false
+		}
+		return s.mfaPolicySvc.NeedsSetup(c.Request.Context(), uid)
+	}
+	api.Use(apipkg.MFAEnrollGuard(mfaSetupBlocked))
+
 	// Version header middleware
 	api.Use(func(c *gin.Context) {
 		c.Header("X-API-Version", "1")
@@ -120,6 +139,12 @@ func (s *Server) setupRoutes() {
 		// agreement. MCPTokenAuth has already resolved auth_user_id, so the shared
 		// consentBlocked closure applies unchanged.
 		mcpGroup.Use(apipkg.ConsentGuard(consentBlocked))
+
+		// Mandatory two-factor enrollment gate on the AI execution interface:
+		// every non-GET MCP tool call is blocked until the workspace session's
+		// user has enrolled. MCPTokenAuth has already resolved auth_user_id, so
+		// the shared closure applies unchanged.
+		mcpGroup.Use(apipkg.MFAEnrollGuard(mfaSetupBlocked))
 
 		// Project tools
 		mcpGroup.GET("/projects/:id", s.projectHandler.Get)
@@ -284,6 +309,10 @@ func (s *Server) setupRoutes() {
 	api.POST("/auth/mfa/enable", s.mfaHandler.Enable)
 	api.POST("/auth/mfa/disable", s.mfaHandler.Disable)
 	api.GET("/auth/mfa/status", s.mfaHandler.Status)
+	// Mandatory-enrollment policy for the caller. Read-only and allowlisted by
+	// both blocking guards, so it stays reachable for exactly the users being
+	// blocked — the SPA enrollment gate is driven by it.
+	api.GET("/auth/mfa/policy", s.mfaHandler.Policy)
 	api.POST("/auth/mfa/backup-codes/regenerate", s.mfaHandler.RegenerateBackupCodes)
 	api.POST("/auth/mfa/reset/:id", auth.RequireRole("admin"), s.mfaHandler.AdminResetMFA)
 	api.GET("/auth/users", auth.RequireRole("admin"), s.authHandler.ListUsers)
@@ -904,12 +933,17 @@ func (s *Server) setupRoutes() {
 		// open so an un-consented user still receives the events that drive the
 		// consent gate UI.
 		consentRunGate := apipkg.ConsentRunGate(consentBlocked)
-		ws.GET("/workspaces/:id/terminal", runGate, consentRunGate, s.agentHandler.Terminal)
+		// Same treatment for mandatory two-factor enrollment. The read-only
+		// streams (/sse, /notify) are deliberately left open so a member who
+		// still owes enrollment keeps receiving the events that drive the
+		// enrollment page itself.
+		mfaEnrollRunGate := apipkg.MFAEnrollRunGate(mfaSetupBlocked)
+		ws.GET("/workspaces/:id/terminal", runGate, consentRunGate, mfaEnrollRunGate, s.agentHandler.Terminal)
 		// Local-runner log stream (SPA consumer, read-only) + desktop reverse
 		// channel (run-class: gate on license + consent like other exec streams).
 		ws.GET("/workspaces/:id/local-runner/logs", s.localRunnerHandler.LogsStream)
-		ws.GET("/workspaces/:id/local-runner/runner", runGate, consentRunGate, s.localRunnerHandler.RunnerChannel)
-		ws.GET("/repositories/:id/terminal", runGate, consentRunGate, s.repositoryHandler.Terminal)
+		ws.GET("/workspaces/:id/local-runner/runner", runGate, consentRunGate, mfaEnrollRunGate, s.localRunnerHandler.RunnerChannel)
+		ws.GET("/repositories/:id/terminal", runGate, consentRunGate, mfaEnrollRunGate, s.repositoryHandler.Terminal)
 		ws.GET("/sse", s.agentProxyHandler.SSE)
 		ws.GET("/notify", s.notifyHandler.Connect)
 	}
