@@ -28,6 +28,7 @@ import type {
   ProviderRateLimitEventsResponse,
   ProviderUsageResponse,
   ProviderUsageTotal,
+  TokenUsageSeries,
 } from '@/types/api'
 import type { ChartSpec } from '@/types/data'
 
@@ -40,6 +41,16 @@ const EChartsRenderer = lazy(() => import('@/components/data/echarts-renderer'))
 // complete data — offering more would silently show a truncated series.
 const RANGE_DAYS = [1, 7, 30, 90] as const
 type RangeDays = (typeof RANGE_DAYS)[number]
+
+// Statistical dimension the report groups by. Both dimensions read the SAME
+// hourly buckets, so the window's grand total is identical either way — only the
+// breakdown differs:
+//   owner    - one series, everything this owner consumed (from /token-usage)
+//   provider - one series per subscription platform (from /provider-usage)
+// Rate-limit episodes are a property of a platform, not of the owner, so that
+// section only renders on the provider dimension.
+const DIMENSIONS = ['owner', 'provider'] as const
+type Dimension = (typeof DIMENSIONS)[number]
 
 // Hourly buckets are the storage grain. Over a long window there are too many
 // to read as columns, so the chart rolls them up by day past this threshold —
@@ -115,14 +126,26 @@ function formatDuration(seconds: number): string {
 }
 
 /**
- * Pivot the flat (hour, provider) rows the API returns into one stacked series
- * per platform over a shared, sorted time axis.
+ * A dimension-neutral hourly row. Both endpoints are normalized into this shape
+ * so one pivot and one chart serve every dimension: the owner dimension emits a
+ * single series (`key: 0`), the provider dimension one series per platform.
+ */
+interface SeriesRow {
+  hour: string
+  key: number
+  label: string
+  tokens: number
+}
+
+/**
+ * Pivot flat (hour, key) rows into one stacked series per subject over a shared,
+ * sorted time axis.
  *
  * `daily` collapses each bucket to its calendar day first. Buckets are keyed by
- * their ISO string so a platform that was idle in a bucket contributes 0 there
+ * their ISO string so a subject that was idle in a bucket contributes 0 there
  * rather than shifting its remaining points onto the wrong slots.
  */
-function pivotByPlatform(buckets: ProviderHourBucket[], daily: boolean) {
+function pivotSeries(rows: SeriesRow[], daily: boolean) {
   const keyOf = (iso: string) => {
     if (!daily) return iso
     const d = new Date(iso)
@@ -133,51 +156,50 @@ function pivotByPlatform(buckets: ProviderHourBucket[], daily: boolean) {
   const axis: string[] = []
   const seenKey = new Set<string>()
   const names = new Map<number, string>()
-  // provider id -> bucket key -> summed tokens
+  // subject key -> bucket key -> summed tokens
   const totals = new Map<number, Map<string, number>>()
 
-  for (const b of buckets) {
-    const key = keyOf(b.hour)
-    if (!seenKey.has(key)) {
-      seenKey.add(key)
-      axis.push(key)
+  for (const r of rows) {
+    const bucket = keyOf(r.hour)
+    if (!seenKey.has(bucket)) {
+      seenKey.add(bucket)
+      axis.push(bucket)
     }
-    if (!names.has(b.provider_id)) {
-      names.set(b.provider_id, b.provider_name)
+    if (!names.has(r.key)) names.set(r.key, r.label)
+    let byBucket = totals.get(r.key)
+    if (!byBucket) {
+      byBucket = new Map<string, number>()
+      totals.set(r.key, byBucket)
     }
-    let byKey = totals.get(b.provider_id)
-    if (!byKey) {
-      byKey = new Map<string, number>()
-      totals.set(b.provider_id, byKey)
-    }
-    const sum =
-      b.input_tokens + b.output_tokens + b.cache_creation_tokens + b.cache_read_tokens
-    byKey.set(key, (byKey.get(key) ?? 0) + sum)
+    byBucket.set(bucket, (byBucket.get(bucket) ?? 0) + r.tokens)
   }
 
   axis.sort((a, b) => new Date(a).getTime() - new Date(b).getTime())
-  const series = [...totals.entries()].map(([providerID, byKey]) => ({
-    providerID,
-    name: names.get(providerID) ?? String(providerID),
-    data: axis.map((key) => byKey.get(key) ?? 0),
+  const series = [...totals.entries()].map(([key, byBucket]) => ({
+    key,
+    name: names.get(key) ?? String(key),
+    data: axis.map((bucket) => byBucket.get(bucket) ?? 0),
   }))
   return { axis, series }
 }
 
-/** Stacked column chart: total tokens per bucket, one stack segment per platform. */
-function PlatformUsageChart({
-  buckets,
-  daily,
-}: {
-  buckets: ProviderHourBucket[]
-  daily: boolean
-}) {
+function sumTokens(b: {
+  input_tokens: number
+  output_tokens: number
+  cache_creation_tokens: number
+  cache_read_tokens: number
+}): number {
+  return b.input_tokens + b.output_tokens + b.cache_creation_tokens + b.cache_read_tokens
+}
+
+/** Stacked column chart: total tokens per bucket, one stack segment per subject. */
+function UsageChart({ rows, daily }: { rows: SeriesRow[]; daily: boolean }) {
   const { t } = useTranslation('settings')
   // Re-read the swapped token tuples on light/dark toggle; the new option
   // identity makes EChartsRenderer re-init with them.
   useThemeStore((s) => s.resolvedTheme)
 
-  const { axis, series } = useMemo(() => pivotByPlatform(buckets, daily), [buckets, daily])
+  const { axis, series } = useMemo(() => pivotSeries(rows, daily), [rows, daily])
 
   if (series.length === 0) {
     return (
@@ -251,8 +273,35 @@ function PlatformUsageChart({
   )
 }
 
-/** Per-platform totals for the window, with each platform's throttle tally. */
-function PlatformTotalsTable({ totals }: { totals: ProviderUsageTotal[] }) {
+/**
+ * A dimension-neutral totals row. The rate-limit fields are only meaningful for
+ * the provider dimension (being throttled belongs to a platform), so they are
+ * optional and their columns are dropped when absent.
+ */
+interface TotalRow {
+  key: number
+  label: string
+  input_tokens: number
+  output_tokens: number
+  cache_creation_tokens: number
+  cache_read_tokens: number
+  total_tokens: number
+  interaction_count: number
+  rate_limit_count?: number
+  blocked_seconds?: number
+  open_count?: number
+}
+
+/** Per-subject totals for the window; throttle columns shown when available. */
+function UsageTotalsTable({
+  totals,
+  showLimits,
+  subjectHeader,
+}: {
+  totals: TotalRow[]
+  showLimits: boolean
+  subjectHeader: string
+}) {
   const { t } = useTranslation('settings')
   if (totals.length === 0) return null
 
@@ -260,23 +309,27 @@ function PlatformTotalsTable({ totals }: { totals: ProviderUsageTotal[] }) {
     <Table>
       <TableHeader>
         <TableRow>
-          <TableHead>{t('providerUsage.table.platform')}</TableHead>
+          <TableHead>{subjectHeader}</TableHead>
           <TableHead className="text-right">{t('providerUsage.table.total')}</TableHead>
           <TableHead className="text-right">{t('providerUsage.table.input')}</TableHead>
           <TableHead className="text-right">{t('providerUsage.table.output')}</TableHead>
           <TableHead className="text-right">{t('providerUsage.table.cache')}</TableHead>
           <TableHead className="text-right">{t('providerUsage.table.turns')}</TableHead>
-          <TableHead className="text-right">{t('providerUsage.table.limits')}</TableHead>
-          <TableHead className="text-right">{t('providerUsage.table.blocked')}</TableHead>
+          {showLimits && (
+            <>
+              <TableHead className="text-right">{t('providerUsage.table.limits')}</TableHead>
+              <TableHead className="text-right">{t('providerUsage.table.blocked')}</TableHead>
+            </>
+          )}
         </TableRow>
       </TableHeader>
       <TableBody>
         {totals.map((p) => (
-          <TableRow key={p.provider_id}>
+          <TableRow key={p.key}>
             <TableCell className="font-medium">
               <div className="flex items-center gap-2">
-                <span className="truncate">{p.provider_name}</span>
-                {p.open_count > 0 && (
+                <span className="truncate">{p.label}</span>
+                {(p.open_count ?? 0) > 0 && (
                   <Badge
                     variant="outline"
                     className="gap-1 border-warning/30 bg-warning/15 text-warning"
@@ -300,12 +353,16 @@ function PlatformTotalsTable({ totals }: { totals: ProviderUsageTotal[] }) {
             <TableCell className="text-right tabular-nums text-muted-foreground">
               {p.interaction_count}
             </TableCell>
-            <TableCell className="text-right tabular-nums">
-              {p.rate_limit_count > 0 ? p.rate_limit_count : '-'}
-            </TableCell>
-            <TableCell className="text-right tabular-nums text-muted-foreground">
-              {formatDuration(p.blocked_seconds)}
-            </TableCell>
+            {showLimits && (
+              <>
+                <TableCell className="text-right tabular-nums">
+                  {(p.rate_limit_count ?? 0) > 0 ? p.rate_limit_count : '-'}
+                </TableCell>
+                <TableCell className="text-right tabular-nums text-muted-foreground">
+                  {formatDuration(p.blocked_seconds ?? 0)}
+                </TableCell>
+              </>
+            )}
           </TableRow>
         ))}
       </TableBody>
@@ -372,17 +429,26 @@ function RateLimitLog({ events }: { events: ProviderRateLimitEvent[] }) {
 }
 
 /**
- * ProviderUsageSettings reports token consumption per subscription platform at
- * hourly grain, plus the rate-limit episode log (429 trigger time, the reset the
- * platform promised, and when the platform was actually used again).
+ * UsageSettings reports token consumption at hourly grain, along a selectable
+ * statistical dimension:
  *
- * Owner-scoped: a platform's quota is consumed across every workspace bound to
- * it, so per-workspace numbers would not answer "how much of this plan is left".
+ *   owner    - one total series for everything this owner consumed
+ *   provider - broken down per subscription platform, plus the rate-limit
+ *              episode log (429 trigger time, the reset the platform promised,
+ *              and when the platform was actually used again)
+ *
+ * Both dimensions read the same hourly buckets, so switching does not change the
+ * window's grand total — only how it is split.
+ *
+ * Owner-scoped rather than per-workspace: a platform's quota is consumed across
+ * every workspace bound to it, so per-workspace numbers could not answer "how
+ * much of this plan is left".
  */
 export function ProviderUsageSettings() {
   const { t } = useTranslation('settings')
   const userId = useAuthStore((s) => s.user?.id ?? 0)
   const [rangeDays, setRangeDays] = useState<RangeDays>(7)
+  const [dimension, setDimension] = useState<Dimension>('provider')
 
   // Personal edition has no auth, so user?.id is 0; the backend resolves
   // "user:0" to the single local owner exactly as the workspace token chart
@@ -398,24 +464,103 @@ export function ProviderUsageSettings() {
     }
   }, [rangeDays])
 
-  const { data: usage, isLoading } = useQuery({
+  const byProvider = dimension === 'provider'
+
+  // Both queries stay mounted across a dimension switch so flipping back and
+  // forth reads cache instead of refetching; `enabled` keeps the unused one from
+  // firing on first paint.
+  const { data: providerUsage, isLoading: providerLoading } = useQuery({
     queryKey: ['provider-usage', owner, rangeDays],
     queryFn: () =>
       api.get<ProviderUsageResponse>('/provider-usage', { params: { owner, from, to } }),
+    enabled: byProvider,
   })
 
+  const { data: ownerUsage, isLoading: ownerLoading } = useQuery({
+    queryKey: ['token-usage', 'owner', owner, rangeDays],
+    queryFn: () =>
+      api.get<TokenUsageSeries>('/token-usage', { params: { owner, from, to } }),
+    enabled: !byProvider,
+  })
+
+  // Rate-limit episodes belong to platforms; the owner dimension has no such
+  // breakdown, so the query is skipped there rather than fetched and hidden.
   const { data: limits } = useQuery({
     queryKey: ['provider-usage', 'rate-limits', owner, rangeDays],
     queryFn: () =>
       api.get<ProviderRateLimitEventsResponse>('/provider-usage/rate-limits', {
         params: { owner, from, to },
       }),
+    enabled: byProvider,
   })
 
-  const buckets = usage?.buckets ?? []
-  const totals = useMemo(() => usage?.totals ?? [], [usage?.totals])
-  const events = limits?.events ?? []
+  const isLoading = byProvider ? providerLoading : ownerLoading
+  const events = byProvider ? (limits?.events ?? []) : []
   const daily = rangeDays > HOURLY_CHART_MAX_DAYS
+
+  // Normalize whichever endpoint is active into the shared series/totals shapes.
+  const rows = useMemo<SeriesRow[]>(() => {
+    if (byProvider) {
+      return (providerUsage?.buckets ?? []).map((b: ProviderHourBucket) => ({
+        hour: b.hour,
+        key: b.provider_id,
+        label: b.provider_name || `#${b.provider_id}`,
+        tokens: sumTokens(b),
+      }))
+    }
+    return (ownerUsage?.buckets ?? []).map((b) => ({
+      hour: b.hour,
+      key: 0,
+      label: t('providerUsage.dimension.ownerSeries'),
+      tokens: sumTokens(b),
+    }))
+  }, [byProvider, providerUsage?.buckets, ownerUsage?.buckets, t])
+
+  const totals = useMemo<TotalRow[]>(() => {
+    if (byProvider) {
+      return (providerUsage?.totals ?? []).map((p: ProviderUsageTotal) => ({
+        key: p.provider_id,
+        label: p.provider_name || `#${p.provider_id}`,
+        input_tokens: p.input_tokens,
+        output_tokens: p.output_tokens,
+        cache_creation_tokens: p.cache_creation_tokens,
+        cache_read_tokens: p.cache_read_tokens,
+        total_tokens: p.total_tokens,
+        interaction_count: p.interaction_count,
+        rate_limit_count: p.rate_limit_count,
+        blocked_seconds: p.blocked_seconds,
+        open_count: p.open_count,
+      }))
+    }
+    // The owner dimension has no per-subject breakdown to tabulate, so its
+    // "table" is the single rolled-up row the chart already sums to.
+    const buckets = ownerUsage?.buckets ?? []
+    if (buckets.length === 0) return []
+    const agg = buckets.reduce(
+      (acc, b) => ({
+        input_tokens: acc.input_tokens + b.input_tokens,
+        output_tokens: acc.output_tokens + b.output_tokens,
+        cache_creation_tokens: acc.cache_creation_tokens + b.cache_creation_tokens,
+        cache_read_tokens: acc.cache_read_tokens + b.cache_read_tokens,
+        interaction_count: acc.interaction_count + b.interaction_count,
+      }),
+      {
+        input_tokens: 0,
+        output_tokens: 0,
+        cache_creation_tokens: 0,
+        cache_read_tokens: 0,
+        interaction_count: 0,
+      }
+    )
+    return [
+      {
+        key: 0,
+        label: t('providerUsage.dimension.ownerSeries'),
+        ...agg,
+        total_tokens: sumTokens(agg),
+      },
+    ]
+  }, [byProvider, providerUsage?.totals, ownerUsage?.buckets, t])
 
   const grandTotal = useMemo(
     () => totals.reduce((sum, p) => sum + p.total_tokens, 0),
@@ -429,21 +574,38 @@ export function ProviderUsageSettings() {
           <h2 className="text-lg font-semibold">{t('providerUsage.title')}</h2>
           <p className="mt-1 text-sm text-muted-foreground">{t('providerUsage.description')}</p>
         </div>
-        <Select
-          value={String(rangeDays)}
-          onValueChange={(v) => setRangeDays(Number(v) as RangeDays)}
-        >
-          <SelectTrigger className="w-36" aria-label={t('providerUsage.rangeLabel')}>
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {RANGE_DAYS.map((d) => (
-              <SelectItem key={d} value={String(d)}>
-                {t('providerUsage.range', { count: d })}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        <div className="flex flex-wrap items-center gap-2">
+          <Select
+            value={dimension}
+            onValueChange={(v) => setDimension(v as Dimension)}
+          >
+            <SelectTrigger className="w-36" aria-label={t('providerUsage.dimension.label')}>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {DIMENSIONS.map((d) => (
+                <SelectItem key={d} value={d}>
+                  {t(`providerUsage.dimension.${d}`)}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Select
+            value={String(rangeDays)}
+            onValueChange={(v) => setRangeDays(Number(v) as RangeDays)}
+          >
+            <SelectTrigger className="w-36" aria-label={t('providerUsage.rangeLabel')}>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {RANGE_DAYS.map((d) => (
+                <SelectItem key={d} value={String(d)}>
+                  {t('providerUsage.range', { count: d })}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
       </div>
 
       {isLoading ? (
@@ -466,21 +628,31 @@ export function ProviderUsageSettings() {
                 {t('providerUsage.chart.grandTotal', { value: compact(grandTotal) })}
               </div>
             </div>
-            <PlatformUsageChart buckets={buckets} daily={daily} />
+            <UsageChart rows={rows} daily={daily} />
           </div>
 
           <div className="rounded-lg border bg-card p-4">
             <div className="mb-3 text-sm font-medium">{t('providerUsage.table.title')}</div>
-            <PlatformTotalsTable totals={totals} />
+            <UsageTotalsTable
+              totals={totals}
+              showLimits={byProvider}
+              subjectHeader={
+                byProvider
+                  ? t('providerUsage.table.platform')
+                  : t('providerUsage.table.owner')
+              }
+            />
           </div>
 
-          <div className="rounded-lg border bg-card p-4">
-            <div className="mb-1 text-sm font-medium">{t('providerUsage.limits.title')}</div>
-            <p className="mb-3 text-xs text-muted-foreground">
-              {t('providerUsage.limits.description')}
-            </p>
-            <RateLimitLog events={events} />
-          </div>
+          {byProvider && (
+            <div className="rounded-lg border bg-card p-4">
+              <div className="mb-1 text-sm font-medium">{t('providerUsage.limits.title')}</div>
+              <p className="mb-3 text-xs text-muted-foreground">
+                {t('providerUsage.limits.description')}
+              </p>
+              <RateLimitLog events={events} />
+            </div>
+          )}
         </>
       )}
     </div>

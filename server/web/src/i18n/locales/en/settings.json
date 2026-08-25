@@ -1173,12 +1173,18 @@
     "filter_available": "Available"
   },
   "providerUsage": {
-    "title": "Subscription platform usage",
-    "description": "Token consumption per subscription platform at hourly granularity, plus a log of when each platform throttled us and when it came back into use. Keeps the last 3 months.",
+    "title": "Token usage",
+    "description": "Token consumption at hourly granularity along the selected dimension. Grouping by subscription platform also shows when each platform throttled us and when it came back into use. Keeps the last 3 months.",
     "rangeLabel": "Time range",
+    "dimension": {
+      "label": "Dimension",
+      "owner": "Overall total",
+      "provider": "By platform",
+      "ownerSeries": "All consumption"
+    },
     "range": "Last {{count}} days",
-    "emptyTitle": "No platform usage yet",
-    "emptyDescription": "Once a workspace is bound to a subscription platform provider and runs a turn, its hourly token consumption per platform shows up here.",
+    "emptyTitle": "No usage data yet",
+    "emptyDescription": "Once a turn completes, its hourly token consumption shows up here. Workspaces bound to a subscription platform provider are also broken down per platform.",
     "chart": {
       "title": "Hourly token usage (stacked by platform)",
       "titleDaily": "Daily token usage (stacked by platform)",
@@ -1195,7 +1201,8 @@
       "turns": "Turns",
       "limits": "Throttles",
       "blocked": "Blocked",
-      "limitedNow": "Limited"
+      "limitedNow": "Limited",
+      "owner": "Scope"
     },
     "limits": {
       "title": "Rate-limit log",
