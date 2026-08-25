@@ -538,3 +538,78 @@ func TestHandleEvent_ResultFallbackFillsZeroOccupancy(t *testing.T) {
 		t.Fatalf("message_start must win over later result: got %d, want 2000", occ)
 	}
 }
+
+// TestHandleEvent_ResultFallbackDividesByRequestCount pins the amortized
+// provider-gap fallback (the 42.8M-in-a-1M-window bug, workspace 904). When the
+// gateway omits ALL per-request usage (stream message_start carries zeros and
+// assistant lines carry none — 火山方舟 glm), the result event's usage is the
+// turn-CUMULATIVE sum over every tool round-trip in the turn. Writing it raw
+// made a 71-minute agentic turn (329 requests × ~130k) read as 42,849,074
+// tokens of occupancy, tripped auto-compaction on a 21%-full context, and
+// showed "42849k / 1000k" in the usage pill. The fix: count the turn's
+// message_start events (they still fire per API request even without usage)
+// and divide the cumulative total by that count — each request re-reads the
+// whole cached prefix, so the average IS the live occupancy estimate.
+func TestHandleEvent_ResultFallbackDividesByRequestCount(t *testing.T) {
+	s, _ := newCondTestSession(t)
+	s.hub = NewSessionHub()
+	t.Cleanup(s.hub.Stop)
+	s.cliType = "claude"
+	ctx := context.Background()
+
+	// The 885 turn observed on 2026-08-25: 5 requests, real occupancy 218,625,
+	// result usage in=353+... — reconstructed with round numbers: 5 requests,
+	// cumulative input+cache_read = 1,075,454 → per-request estimate 215,090
+	// (real last-request occupancy 218,625, error -1.6%).
+	for i := 0; i < 5; i++ {
+		s.handleEvent(ctx, messageStartEvent(0, 0, 0, 0), "msg-1") // usage-less
+	}
+	s.handleEvent(ctx, resultEvent(1075454, 0, 0, 5000), "msg-1")
+	s.mu.Lock()
+	occ := s.lastContextTokens
+	s.mu.Unlock()
+	if occ != 215090 {
+		t.Fatalf("result fallback must amortize cumulative usage by request count: got %d, want 215090 (within the request's real size, not 1075454)", occ)
+	}
+	// The estimate must not trip compaction against a 1M budget at 21% real fill.
+	if occupancyOverThreshold(occ, 1000000, 70) {
+		t.Fatalf("amortized occupancy %d must not read as over 70%% of 1M", occ)
+	}
+
+	// A second observation (workspace 904, 329 requests): raw cumulative
+	// 42,849,074 must amortize to ~130k, not 42.8M.
+	s.mu.Lock()
+	s.lastContextTokens = 0
+	s.turnRequestCount = 0
+	s.mu.Unlock()
+	for i := 0; i < 329; i++ {
+		s.handleEvent(ctx, messageStartEvent(0, 0, 0, 0), "msg-2")
+	}
+	s.handleEvent(ctx, resultEvent(42849074, 0, 0, 126889), "msg-2")
+	s.mu.Lock()
+	occ = s.lastContextTokens
+	s.mu.Unlock()
+	if occ != 130240 {
+		// 42849074 / 329 = 130,240 (integer division)
+		t.Fatalf("amortized occupancy = %d, want 130240 (42,849,074 / 329), not the raw 42849074", occ)
+	}
+}
+
+// TestHandleEvent_ResultFallbackSingleRequest keeps the single-request case
+// exact: one message_start, result in+cr = 7000 → occupancy 7000 (÷1).
+func TestHandleEvent_ResultFallbackSingleRequest(t *testing.T) {
+	s, _ := newCondTestSession(t)
+	s.hub = NewSessionHub()
+	t.Cleanup(s.hub.Stop)
+	s.cliType = "claude"
+	ctx := context.Background()
+
+	s.handleEvent(ctx, messageStartEvent(0, 0, 0, 0), "msg-1")
+	s.handleEvent(ctx, resultEvent(3000, 4000, 0, 500), "msg-1")
+	s.mu.Lock()
+	occ := s.lastContextTokens
+	s.mu.Unlock()
+	if occ != 7000 {
+		t.Fatalf("single-request turn: occupancy = %d, want 7000", occ)
+	}
+}
