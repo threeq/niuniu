@@ -622,7 +622,15 @@ export function ProviderUsageSettings() {
           <div className="rounded-lg border bg-card p-4">
             <div className="mb-3 flex items-baseline justify-between gap-2">
               <div className="text-sm font-medium">
-                {daily ? t('providerUsage.chart.titleDaily') : t('providerUsage.chart.title')}
+                {/* The platform-stacked wording only holds on the provider
+                    dimension; the owner dimension draws a single series. */}
+                {byProvider
+                  ? daily
+                    ? t('providerUsage.chart.titleDaily')
+                    : t('providerUsage.chart.title')
+                  : daily
+                    ? t('providerUsage.chart.titleDailyOwner')
+                    : t('providerUsage.chart.titleOwner')}
               </div>
               <div className="text-xs text-muted-foreground tabular-nums">
                 {t('providerUsage.chart.grandTotal', { value: compact(grandTotal) })}
@@ -632,7 +640,11 @@ export function ProviderUsageSettings() {
           </div>
 
           <div className="rounded-lg border bg-card p-4">
-            <div className="mb-3 text-sm font-medium">{t('providerUsage.table.title')}</div>
+            <div className="mb-3 text-sm font-medium">
+              {byProvider
+                ? t('providerUsage.table.title')
+                : t('providerUsage.table.titleOwner')}
+            </div>
             <UsageTotalsTable
               totals={totals}
               showLimits={byProvider}

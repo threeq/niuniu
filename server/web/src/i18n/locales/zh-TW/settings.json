@@ -1189,7 +1189,9 @@
       "title": "每小時 Token 消耗（按平臺堆疊）",
       "titleDaily": "每日 Token 消耗（按平臺堆疊）",
       "grandTotal": "合計 {{value}} tokens",
-      "empty": "所選區間內暫無消耗"
+      "empty": "所選區間內暫無消耗",
+      "titleOwner": "每小時 Token 消耗",
+      "titleDailyOwner": "每天 Token 消耗"
     },
     "table": {
       "title": "各平臺彙總",
@@ -1202,7 +1204,8 @@
       "limits": "限流次數",
       "blocked": "被限時長",
       "limitedNow": "限流中",
-      "owner": "範圍"
+      "owner": "範圍",
+      "titleOwner": "用量彙總"
     },
     "limits": {
       "title": "限流日誌流水",

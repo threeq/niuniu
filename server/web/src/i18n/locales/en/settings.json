@@ -1189,7 +1189,9 @@
       "title": "Hourly token usage (stacked by platform)",
       "titleDaily": "Daily token usage (stacked by platform)",
       "grandTotal": "{{value}} tokens total",
-      "empty": "No consumption in the selected range"
+      "empty": "No consumption in the selected range",
+      "titleOwner": "Hourly token usage",
+      "titleDailyOwner": "Daily token usage"
     },
     "table": {
       "title": "Per-platform totals",
@@ -1202,7 +1204,8 @@
       "limits": "Throttles",
       "blocked": "Blocked",
       "limitedNow": "Limited",
-      "owner": "Scope"
+      "owner": "Scope",
+      "titleOwner": "Usage totals"
     },
     "limits": {
       "title": "Rate-limit log",
