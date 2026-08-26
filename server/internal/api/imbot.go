@@ -12,9 +12,11 @@ import (
 	"log/slog"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/niuniu-dev/niuniu/internal/service"
+	"github.com/niuniu-dev/niuniu/internal/store"
 )
 
 // IMBotHandler binds the project-scoped IM channel + chat endpoints.
@@ -122,6 +124,69 @@ func (h *IMBotHandler) mapErr(c *gin.Context, err error) {
 		return
 	}
 	c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+}
+
+// ownerReadScope resolves which owners' bots/chats the caller may see on the
+// owner-level settings page.
+//
+// An explicit `?owner=` keeps the historical single-owner semantics (the org
+// detail view scopes to exactly one owner). With no filter the page aggregates by
+// role, because a bot lives under whichever owner the wizard's project belonged
+// to — so scoping the page to `user:<uid>` alone rendered an empty list for every
+// org-owned bot, which is the bug this fixes:
+//
+//	global admin (users.role='admin') → every owner (scopeAll=true)
+//	org owner/admin                   → personal space + the orgs they administer
+//	plain member                      → personal space only
+//
+// A plain member deliberately does NOT see their org's bots: the credential is an
+// org-level secret and its chat routing spans projects, so read access follows
+// org administration rather than mere membership.
+func (h *IMBotHandler) ownerReadScope(c *gin.Context) (owners []service.OwnerRef, scopeAll bool, uid int64, ok bool) {
+	uid, ok = h.callerUserID(c)
+	if !ok {
+		return nil, false, 0, false
+	}
+	isGlobalAdmin := h.authz != nil && h.authz.IsGlobalAdmin(c.Request.Context(), uid)
+	// Explicit ?owner= narrows to a single owner. A global admin may narrow to any
+	// owner: CanAccessOwner only knows org membership, so routing an admin through
+	// ownerReadAccess would 403 them out of the very owners the unfiltered call
+	// already returns. Everyone else is authorized exactly as before.
+	if raw := strings.TrimSpace(c.Query("owner")); raw != "" {
+		if isGlobalAdmin {
+			f, err := ParseOwnerFilter(c, h.db)
+			if err != nil {
+				c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+				return nil, false, 0, false
+			}
+			return []service.OwnerRef{{Type: f.Type, ID: f.ID}}, false, uid, true
+		}
+		owner, uid2, ok2 := h.ownerReadAccess(c)
+		if !ok2 {
+			return nil, false, 0, false
+		}
+		return []service.OwnerRef{owner}, false, uid2, true
+	}
+	if isGlobalAdmin {
+		return nil, true, uid, true
+	}
+	owners = []service.OwnerRef{{Type: "user", ID: uid}}
+	if h.db == nil {
+		return owners, false, uid, true
+	}
+	orgs, err := store.Wrap(h.db).Queries().ListOrganizationsForUser(c.Request.Context(), uid)
+	if err != nil {
+		// Degrade to personal scope rather than failing the page: the caller can
+		// still manage their own bots while the org lookup is broken.
+		slog.Warn("imbot: list orgs for owner scope failed", "userID", uid, "error", err)
+		return owners, false, uid, true
+	}
+	for _, o := range orgs {
+		if o.Role == "owner" || o.Role == "admin" {
+			owners = append(owners, service.OwnerRef{Type: "org", ID: o.ID})
+		}
+	}
+	return owners, false, uid, true
 }
 
 // ownerWriteAccess resolves the owner from the `?owner=` query (default: the
@@ -398,18 +463,53 @@ func (h *IMBotHandler) DeleteChat(c *gin.Context) {
 // authorized by owner (?owner=, default personal). A bot is owner-level and
 // belongs to no project; chats are routed to a project at approval time.
 
-// ListBots handles GET /api/imbot/bots — the owner's bots.
+// imbotBotResponse is a bot DTO plus its resolved owner, so the settings page can
+// group bots by owner ("这个机器人属于谁") when the list spans several owners.
+// Embedded rather than re-declared: every existing field keeps its JSON name.
+type imbotBotResponse struct {
+	service.IMBotChannelDTO
+	Owner OwnerDTO `json:"owner"`
+}
+
+// botsWithOwner enriches each bot with its owner's display name via one batched
+// lookup (two queries total, not per row). On a nil DB the owner still carries
+// type+id, which is all the frontend needs to group — only the label is missing.
+func (h *IMBotHandler) botsWithOwner(c *gin.Context, items []service.IMBotChannelDTO) []imbotBotResponse {
+	refs := make([]ownerRef, len(items))
+	for i, it := range items {
+		refs[i] = ownerRef{it.OwnerType, it.OwnerID}
+	}
+	var lk *ownerLookup
+	if h.db != nil {
+		lk, _ = newOwnerLookup(c.Request.Context(), h.db, refs)
+	}
+	out := make([]imbotBotResponse, len(items))
+	for i, it := range items {
+		out[i] = imbotBotResponse{IMBotChannelDTO: it, Owner: lk.Build(it.OwnerType, it.OwnerID)}
+	}
+	return out
+}
+
+// ListBots handles GET /api/imbot/bots — the bots visible to the caller. Scope
+// follows ownerReadScope (global admin: all; org admin: personal + administered
+// orgs; member: personal), so an org-owned bot shows up for its administrators.
 func (h *IMBotHandler) ListBots(c *gin.Context) {
-	owner, _, ok := h.ownerReadAccess(c)
+	owners, scopeAll, _, ok := h.ownerReadScope(c)
 	if !ok {
 		return
 	}
-	items, err := h.svc.ListBotsByOwner(c.Request.Context(), owner)
+	var items []service.IMBotChannelDTO
+	var err error
+	if scopeAll {
+		items, err = h.svc.ListAllBots(c.Request.Context())
+	} else {
+		items, err = h.svc.ListBotsByOwners(c.Request.Context(), owners)
+	}
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"items": items})
+	c.JSON(http.StatusOK, gin.H{"items": h.botsWithOwner(c, items)})
 }
 
 type createBotBody struct {
@@ -545,11 +645,17 @@ func (h *IMBotHandler) TestBot(c *gin.Context) {
 
 // ListPendingChatsOwner handles GET /api/imbot/pending-chats.
 func (h *IMBotHandler) ListPendingChatsOwner(c *gin.Context) {
-	owner, _, ok := h.ownerReadAccess(c)
+	owners, scopeAll, _, ok := h.ownerReadScope(c)
 	if !ok {
 		return
 	}
-	items, err := h.svc.ListPendingChatsByOwner(c.Request.Context(), owner)
+	var items []service.IMBotChatDTO
+	var err error
+	if scopeAll {
+		items, err = h.svc.ListAllPendingChats(c.Request.Context())
+	} else {
+		items, err = h.svc.ListPendingChatsByOwners(c.Request.Context(), owners)
+	}
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -560,11 +666,17 @@ func (h *IMBotHandler) ListPendingChatsOwner(c *gin.Context) {
 // ListActiveChatsOwner handles GET /api/imbot/chats: the owner's active
 // chat->project bindings (which group routes to which project).
 func (h *IMBotHandler) ListActiveChatsOwner(c *gin.Context) {
-	owner, _, ok := h.ownerReadAccess(c)
+	owners, scopeAll, _, ok := h.ownerReadScope(c)
 	if !ok {
 		return
 	}
-	items, err := h.svc.ListActiveChatsByOwner(c.Request.Context(), owner)
+	var items []service.IMBotChatDTO
+	var err error
+	if scopeAll {
+		items, err = h.svc.ListAllActiveChats(c.Request.Context())
+	} else {
+		items, err = h.svc.ListActiveChatsByOwners(c.Request.Context(), owners)
+	}
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -636,6 +748,37 @@ func (h *IMBotHandler) ReassignChatOwner(c *gin.Context) {
 		return
 	}
 	dto, err := h.svc.ReassignChat(c.Request.Context(), chatID, b.ProjectID, uid)
+	if err != nil {
+		h.mapErr(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, dto)
+}
+
+// PatchChatOwner handles PATCH /api/imbot/chats/:chatid — edit a chat's routing
+// (bind_mode / pinned issue / status) from the owner-level settings page, where the
+// caller manages chats across owners and so has no single project in the path.
+// Authorization is derived from the chat's own bot; see PatchChatByOwner.
+func (h *IMBotHandler) PatchChatOwner(c *gin.Context) {
+	uid, ok := h.callerUserID(c)
+	if !ok {
+		return
+	}
+	chatID, ok := imbotIDParam(c, "chatid")
+	if !ok {
+		return
+	}
+	var b patchChatBody
+	if err := c.ShouldBindJSON(&b); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	dto, err := h.svc.PatchChatByOwner(c.Request.Context(), chatID, uid, service.PatchChatInput{
+		BindMode:      b.BindMode,
+		PinnedIssueID: b.PinnedIssueID,
+		ActiveIssueID: b.ActiveIssueID,
+		Status:        b.Status,
+	})
 	if err != nil {
 		h.mapErr(c, err)
 		return

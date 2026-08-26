@@ -113,9 +113,15 @@ export const imbotApi = {
 // (api.ts already prepends /api.)
 // ---------------------------------------------------------------------------
 export const imbotOwnerApi = {
-  // GET /api/imbot/bots → all bots owned by the current owner.
-  listBots: (): Promise<ImBotBot[]> =>
-    api.get<{ items: ImBotBot[] }>(`/imbot/bots`).then((r) => r.items ?? []),
+  // GET /api/imbot/bots → the bots visible to the caller. With no ?owner= the
+  // backend aggregates by role (global admin: every owner; org admin: personal +
+  // administered orgs; member: personal only) and stamps each bot with its owner,
+  // so the settings page can group them. Pass owner ("user:<id>" / "org:<slug|id>")
+  // only to scope to exactly one owner, e.g. from an org detail view.
+  listBots: (owner?: string): Promise<ImBotBot[]> =>
+    api
+      .get<{ items: ImBotBot[] }>(`/imbot/bots`, owner ? { params: { owner } } : undefined)
+      .then((r) => r.items ?? []),
 
   // PUT /api/imbot/bots/:id → update a bot; here used to rename it. Only the
   // name is sent; the backend preserves every other field (incl. the webhook
@@ -127,10 +133,14 @@ export const imbotOwnerApi = {
   testBot: (id: number): Promise<{ ok: boolean }> =>
     api.post<{ ok: boolean }>(`/imbot/bots/${id}/test`),
 
-  // GET /api/imbot/pending-chats → owner-level chats awaiting approval + routing.
-  listPendingChats: (): Promise<ImBotPendingChat[]> =>
+  // GET /api/imbot/pending-chats → chats awaiting approval + routing, same
+  // role-based scope as listBots.
+  listPendingChats: (owner?: string): Promise<ImBotPendingChat[]> =>
     api
-      .get<{ items: ImBotPendingChat[] }>(`/imbot/pending-chats`)
+      .get<{ items: ImBotPendingChat[] }>(
+        `/imbot/pending-chats`,
+        owner ? { params: { owner } } : undefined,
+      )
       .then((r) => (r.items ?? []).map(normalizeImBotPendingChat)),
 
   // POST /api/imbot/chats/:chatid/approve { project_id } → approve + route to a project.
@@ -141,11 +151,23 @@ export const imbotOwnerApi = {
   reassignChat: (chatId: number, projectId: number): Promise<ImBotChat> =>
     api.post<ImBotChat>(`/imbot/chats/${chatId}/reassign`, { project_id: projectId }),
 
-  // GET /api/imbot/chats → the owner's active chat->project bindings.
-  listChats: (): Promise<ImBotPendingChat[]> =>
+  // GET /api/imbot/chats → active chat->project bindings, same scope as listBots.
+  listChats: (owner?: string): Promise<ImBotPendingChat[]> =>
     api
-      .get<{ items: ImBotPendingChat[] }>(`/imbot/chats`)
+      .get<{ items: ImBotPendingChat[] }>(
+        `/imbot/chats`,
+        owner ? { params: { owner } } : undefined,
+      )
       .then((r) => (r.items ?? []).map(normalizeImBotPendingChat)),
+
+  // PATCH /api/imbot/chats/:chatid → owner-level routing edit (bind mode / pinned
+  // issue). The project-scoped imbotApi.patchChat needs a project in the path;
+  // this one derives authorization from the chat's own bot instead, so it works
+  // from the cross-owner settings page.
+  patchChatOwner: (
+    chatId: number,
+    body: { bind_mode?: string; pinned_issue_id?: number | null },
+  ): Promise<ImBotChat> => api.patch<ImBotChat>(`/imbot/chats/${chatId}`, body),
 
   // DELETE /api/imbot/chats/:chatid → remove a chat->project binding (unpair).
   deleteChat: (chatId: number): Promise<void> => api.delete<void>(`/imbot/chats/${chatId}`),
