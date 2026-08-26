@@ -1,4 +1,6 @@
 import { it, expect } from 'vitest'
+import { readFileSync } from 'node:fs'
+import path from 'node:path'
 import { extractLoginUrl } from './extract-login-url'
 
 const FULL_URL =
@@ -52,4 +54,63 @@ it('returns null while the wrapped URL is still streaming (no terminator yet)', 
 
 it('returns null when no login URL is present', () => {
   expect(extractLoginUrl('\x1b[2K  some unrelated terminal output\r\n')).toBeNull()
+})
+
+// --- real-capture regression (issue #677) ---
+//
+// The synthetic `wrap()` cases above模拟 spaces as literal spaces, which is what
+// a Unix PTY emits. Windows ConPTY does NOT: it encodes inter-word gaps as
+// cursor-forward escapes (\x1b[1C), and the Claude CLI additionally wraps the
+// URL in an OSC-8 hyperlink terminated by ST (ESC \) rather than BEL. Against
+// real bytes the original parser returned null, so the login dialog silently
+// showed no copyable URL.
+//
+// This fixture is genuine `claude /login` PTY output captured through
+// terminal.NewPTYProcess (PKCE/state values replaced with same-length
+// placeholders; every escape sequence and wrap position preserved).
+const REAL_CAPTURE = readFileSync(
+  path.join(process.cwd(), 'src/components/dialogs/__fixtures__/claude-login-conpty.txt'),
+  'utf8',
+)
+
+it('extracts the OAuth URL from real ConPTY `claude /login` output', () => {
+  const url = extractLoginUrl(REAL_CAPTURE)
+  expect(url).not.toBeNull()
+
+  // Must be a single, well-formed URL — not doubled by the OSC-8 copy.
+  expect(url!.match(/https:\/\//g)).toHaveLength(1)
+  const u = new URL(url!)
+  expect(u.host).toBe('claude.com')
+  expect(u.pathname).toBe('/cai/oauth/authorize')
+
+  // Every OAuth parameter must survive reassembly across the wrapped lines —
+  // a truncated URL yields "Invalid code" after the user pastes.
+  for (const key of [
+    'code',
+    'client_id',
+    'response_type',
+    'redirect_uri',
+    'scope',
+    'code_challenge',
+    'code_challenge_method',
+    'state',
+  ]) {
+    expect(u.searchParams.get(key), `missing ${key}`).toBeTruthy()
+  }
+  // state is the last param, so terminal junk lands here if the terminator
+  // detection fails.
+  expect(u.searchParams.get('state')).toMatch(/^[A-Za-z0-9_-]+$/)
+  expect(url).not.toContain('Paste')
+  expect(url).not.toContain('\u001b')
+})
+
+// The CLI prints a docs link (https://code.claude.com/docs/...) a few lines
+// before the OAuth URL. A bare `claude.com` substring match locks onto it and
+// returns the wrong URL.
+it('ignores the code.claude.com docs link and returns the OAuth URL', () => {
+  const buffer =
+    `  Learn more: https://code.claude.com/docs/en/security\r\n` +
+    `  Press Enter to continue…\r\n\r\n` +
+    `  ${FULL_URL}\r\n\r\n  Paste code here if prompted >\r\n`
+  expect(extractLoginUrl(buffer)).toBe(FULL_URL)
 })

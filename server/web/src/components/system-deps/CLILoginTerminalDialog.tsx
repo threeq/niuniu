@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Copy, Check } from 'lucide-react'
+import { Copy, Check, ExternalLink } from 'lucide-react'
 import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import { WebLinksAddon } from '@xterm/addon-web-links'
@@ -176,7 +176,18 @@ export function CLILoginTerminalDialog(props: {
     try {
       await navigator.clipboard.writeText(loginUrl)
     } catch {
-      return // insecure context / no clipboard permission; the URL is selectable
+      // Clipboard API unavailable (insecure context / no permission): select the
+      // text so the user can copy it manually. The URL is the only way to finish
+      // the login, so silently doing nothing is not acceptable.
+      const el = document.getElementById('cli-login-url')
+      const sel = window.getSelection()
+      if (el && sel) {
+        const range = document.createRange()
+        range.selectNodeContents(el)
+        sel.removeAllRanges()
+        sel.addRange(range)
+      }
+      return
     }
     setCopied(true)
     if (copiedTimerRef.current !== null) clearTimeout(copiedTimerRef.current)
@@ -204,21 +215,34 @@ export function CLILoginTerminalDialog(props: {
         </DialogHeader>
         {/* The CLI hard-wraps the OAuth URL to the terminal width, so copying it
             out of the xterm by hand yields a broken link. Surface the
-            reassembled URL as one clickable/copyable line. */}
+            reassembled URL in full (selectable, not truncated) with copy and
+            open-in-browser actions — same affordances the original
+            ClaudeLoginDialog offered. */}
         {loginUrl && (
-          <div className="flex items-center gap-2 rounded border bg-muted/40 p-2">
-            <a
-              href={loginUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="flex-1 truncate text-xs text-blue-600 hover:underline"
+          <div className="rounded-md border bg-muted/50 p-3">
+            <div className="mb-2 text-xs font-medium text-muted-foreground">
+              {t('systemDeps.tool.loginUrlLabel')}
+            </div>
+            <code
+              id="cli-login-url"
+              className="block max-h-24 select-all overflow-y-auto break-all font-mono text-xs text-foreground"
             >
               {loginUrl}
-            </a>
-            <Button size="sm" variant="outline" onClick={handleCopy}>
-              {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
-              <span className="ml-1">{t('systemDeps.tool.loginCopyUrl')}</span>
-            </Button>
+            </code>
+            <div className="mt-3 flex gap-2">
+              <Button size="sm" variant="secondary" onClick={handleCopy}>
+                {copied ? <Check className="size-4" /> : <Copy className="size-4" />}
+                <span className="ml-1">
+                  {copied ? t('systemDeps.tool.loginUrlCopied') : t('systemDeps.tool.loginCopyUrl')}
+                </span>
+              </Button>
+              <Button size="sm" variant="ghost" asChild>
+                <a href={loginUrl} target="_blank" rel="noreferrer noopener">
+                  <ExternalLink className="size-4" />
+                  <span className="ml-1">{t('systemDeps.tool.loginOpenInBrowser')}</span>
+                </a>
+              </Button>
+            </div>
           </div>
         )}
         <div ref={termContainerRef} className="h-80 w-full rounded border bg-black p-2" />

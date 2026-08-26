@@ -1,0 +1,77 @@
+[?9001h[?1004h[?25l[2J[m[H]0;claude[?25h[?25l[?2004h[?1004h[?2031h[38;2;215;119;87mWelcome[1Cto[1CClaude[1CCode[38;2;153;153;153m[1Cv2.1.222[m
+..........................................................[4;6H*[39C█████▓▓░[5;34H*[9C███▓░[5C░░[6;13H░░░░░░[24C███▓░[7;5H░░░[3C░░░░░░░░░░[22C███▓░[8;4H░░░░░░░░░░░░░░░░░░░[1m[4C*[22m[16C██▓░░[6C▓[9;46H░▓▓███▓▓░[38;2;153;153;153m
+ *[33C░░░░
+ [32C░░░░░░░░
+ [30C░░░░░░░░░░░░░░░░[38;2;215;119;87m[13;7H █████████[38;2;153;153;153m[40C*[38;2;215;119;87m[14;7H██▄█████▄██[m[1m[24C*[38;2;215;119;87m[22m[15;7H █████████[m[6C*
+.......[38;2;215;119;87m█[1C█[3C█[1C█[m..........................................[18;2HLet's[1Cget[1Cstarted.[1m[20;2HChoose[1Cthe[1Ctext[1Cstyle[1Cthat[1Clooks[1Cbest[1Cwith[1Cyour[1Cterminal[38;2;153;153;153m[22m[21;2HTo[1Cchange[1Cthis[1Clater,[1Crun[1C/theme[23;4H1.[m[1CAuto[1C(match[1Cterminal)[38;2;177;185;249m[24;2H❯[38;2;153;153;153m[1C2.[38;2;78;186;101m[1CDark[1Cmode[1C✔[38;2;153;153;153m[25;4H3.[m[1CLight[1Cmode[38;2;153;153;153m[26;4H4.[m[1CDark[1Cmode[1C(colorblind-friendly)[38;2;153;153;153m[27;4H5.[m[1CLight[1Cmode[1C(colorblind-friendly)[38;2;153;153;153m[28;4H6.[m[1CDark[1Cmode[1C(ANSI[1Ccolors[1Conly)[38;2;153;153;153m[29;4H7.[m[1CLight[1Cmode[1C(ANSI[1Ccolors[1Conly)
+
+ [38;2;80;80;80m╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌ [m
+ [38;2;248;248;242m[2m 1[m  [38;2;102;217;239mfunction [38;2;166;226;46mgreet[38;2;248;248;242m() {[K[97C[m
+ [38;2;220;90;90m[48;2;61;1;0m 2 -  [38;2;248;248;242mconsole.log("Hello, [48;2;92;2;0mWorld[48;2;61;1;0m!");[79X[m[79C     
+ [38;2;80;200;80m[48;2;2;40;0m 2 +  [38;2;255;255;255mconsole[38;2;248;248;242m.[38;2;166;226;46mlog[38;2;248;248;242m([38;2;230;219;116m"Hello, [48;2;4;71;0mClaude[48;2;2;40;0m!"[38;2;248;248;242m);[78X[m[78C     
+ [38;2;248;248;242m[2m 3[m  [38;2;248;248;242m}[K[114C[m
+ [38;2;80;80;80m╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌ [m
+  [38;2;153;153;153mSyntax theme: Monokai Extended (ctrl+t to disable)[K[68C[>0q[m
+[120C[38;2;215;119;87m[HWelcome to Claude Code [38;2;153;153;153mv2.1.222[K[m
+..........................................................[K
+[K
+     *                                       █████▓▓░[K
+                                 *         ███▓░     ░░[K
+            ░░░░░░                        ███▓░[K
+    ░░░   ░░░░░░░░░░                      ███▓░[K
+   ░░░░░░░░░░░░░░░░░░░    [1m*[22m                ██▓░░      ▓[K
+                                             ░▓▓███▓▓░[K[38;2;153;153;153m
+ *                                 ░░░░[K
+                                 ░░░░░░░░[K
+                               ░░░░░░░░░░░░░░░░[K[m
+       [38;2;215;119;87m█████████[40X[38;2;153;153;153m[40C*[K[m
+      [38;2;215;119;87m██▄█████▄██[24X[m[1m[24C*[22m[K
+       [38;2;215;119;87m█████████      [m*[K
+.......[38;2;215;119;87m█ █   █ █[m..........................................[K
+[K
+ [1mSecurity[22m [1mnotes:[22m[K
+[K
+ [38;2;153;153;153m1. [mClaude can make mistakes.[K
+    [38;2;153;153;153mYou're responsible for Claude's actions and should always[K[m
+    [38;2;153;153;153mreview them, especially when running code.[K[m
+[K
+ [38;2;153;153;153m2. [mDue to prompt injection risks, only use it with code you trust[K
+    [38;2;153;153;153mLearn more: https://code.claude.com/docs/en/security[K[m
+[K
+ [38;2;177;185;249mPress [1mEnter[22m to continue…[K[m
+[K
+[K
+[K[120C[H[K[38;2;255;193;7m
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────[1m[3;2HAccessing workspace:[m[4;6H[K[1m[5;2HC:\Users\Three3\AppData\Local\Temp\TestCapture_ClaudeLoginRaw000000000\001[22m[6;13H[K[7;2HQuick safety check:[1CIs[1Cthis[1Ca[1Cproject[1Cyou created[1Cor[1Cone[1Cyou[1Ctrust?[1C(Like[1Cyour[1Cown[1Ccode,[1Ca[1Cwell-known[1Copen[1Csource[8;2Hproject, or work from[1Cyour[1Cteam).[1CIf[1Cnot,[1Ctake a[1Cmoment[1Cto[1Creview[1Cwhat's[1Cin[1Cthis[1Cfolder[1Cfirst.[9;46H[K
+ Claude Code'll be able to read, edit, and execute files here.
+[K
+ [38;2;153;153;153mSecurity[1Cguide[K[m[13;7H[K[38;2;177;185;249m[14;2H❯[38;2;153;153;153m[1C1. [38;2;177;185;249mYes, I trust this folder[m[11C[K[38;2;153;153;153m[15;4H2. [mNo, exit[K
+[K[38;2;153;153;153m[17;2HEnter to confirm · Esc to cancel[m
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K[120C[38;2;78;186;101m[14;7HYes, I trust this folder[1C✔[m]0;✳ Claude Code[38;2;215;119;87m[H╭───[1CClaude Code[38;2;153;153;153m[1Cv2.1.222[38;2;215;119;87m[1C─────────────────────────────────────────────────────────────────────────────────────────────╮│                                                    [52X[2m│[m [38;2;215;119;87m[1mTips for getting started[m                                        [K[38;2;215;119;87m││[20X[m[1m[20CWelcome back![38;2;215;119;87m[22m[2m[19C│[m[1CRun[1C/init[1Cto[1Ccreate[1Ca[1CCLAUDE.md[1Cfile[1Cwith[1Cinstructions[1Cfor[1CCla…[38;2;215;119;87m[1C││[2m[52C│[22m[1C───────────────────────────────────────────────────────────────[1C││                       ▐[48;2;0;0;0m▛███▜[49m▌[22X[2m[22C│[m [38;2;215;119;87m[1mWhat's new[m[10X[38;2;215;119;87m[54C││[22C▝▜[48;2;0;0;0m█████[49m▛▘[2m[21C│[38;2;153;153;153m[22m[1CCheck the Claude Code changelog for updates[38;2;215;119;87m[21C││     [m[1C      [1C      [1C    [38;2;215;119;87m▘▘ ▝▝        [m[1C   [1C       [1C  [38;2;215;119;87m[2m│[m   [1C   [1C      [1C     [1C    [1C   [1C     [1C [1C[10X[11C    [1C      [38;2;215;119;87m[5C││        [m[1C  [1C    [1C    [1C    [1C      [1C  [1C    [1C    [1C [1C   [38;2;215;119;87m[2m│[m  [1C  [1C      [1C      [1C  [1C    [1C      [1C      [38;2;215;119;87m[24C││[38;2;153;153;153m[8Cark-code-latest · API Usage Billing[38;2;215;119;87m[2m[9C│[22m[65C││ [38;2;153;153;153m~\AppData\Local\Temp\TestCapture_ClaudeLoginRaw000000000… [38;2;215;119;87m[2m│[m  [1C     [38;2;215;119;87m[57C│╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯[m[12;2H[K[38;2;136;136;136m[14;1H────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────[m❯ [7m [27m[K[38;2;136;136;136m
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────[m[17;2H [38;2;255;193;7m⚠ Transcript saving is off — inherited CLAUDE_CODE_CHILD_SESSION marker [38;2;153;153;153m· restart with CLAUDE_CODE_FORCE_SESSION_PERS…[18;3H⏸[1Cmanual[1Cmode[1Con[1C·[1C?[1Cfor[1Cshortcuts[66C●[1Chigh[1C·[1C/effort[m[38;2;80;80;80m[48;2;55;55;55m[14;1H❯ [38;2;255;255;255m/login                                                                                                                [m
+[K[38;2;177;185;249m
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────[1m[17;3HLogin[m[K[18;3H[K[1m
+Claude[1CCode[1Ccan[1Cbe[1Cused[1Cwith[1Cyour[1CClaude[1Csubscription[1Cor[1Cbilled[1Cbased[1Con[1CAPI[1Cusage[1Cthrough[1Cyour[1CConsole[1Caccount.[22m[21;3HSelect[1Clogin[1Cmethod:[38;2;177;185;249m[23;3H❯[38;2;153;153;153m[1C1.[38;2;177;185;249m[1CClaude[1Caccount[1Cwith[1Csubscription[1C·[38;2;153;153;153m[1CPro,[1CMax,[1CTeam,[1Cor[1CEnterprise[24;5H2.[m[1CAnthropic[1CConsole[1Caccount[1C·[38;2;153;153;153m[1CAPI[1Cusage[1Cbilling[25;5H3.[m[1C3rd-party[1Cplatform[1C·[38;2;153;153;153m[1CAmazon[1CBedrock,[1CMicrosoft[1CFoundry,[1Cor[1CVertex[1CAI[3m[27;3HEsc[1Cto[1Ccancel[m[19;3H[K[38;2;153;153;153m[3m
+Esc to cancel[m
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K[120C[38;2;255;255;255m[19;3H✽[m[1COpening[1Cbrowser[1Cto[1Csign[1Cin…[20;3H[K[38;2;153;153;153m[3m
+Esc[1Cto[1Ccancel[m[38;2;255;255;255m[19;3H✶[m[38;2;255;255;255m*[m[38;2;255;255;255m✢[m[38;2;255;255;255m·[m[38;2;255;255;255m✢[m[38;2;255;255;255m*[m[38;2;255;255;255m✶[m[38;2;255;255;255m✻[m[38;2;255;255;255m✽[m[38;2;255;255;255m✻[m[38;2;255;255;255m✶[m[38;2;255;255;255m*[m[38;2;255;255;255m✢[m[38;2;255;255;255m·[m[38;2;255;255;255m✢[m[38;2;255;255;255m*[m[38;2;255;255;255m✶[m[38;2;255;255;255m✻[m[38;2;255;255;255m✽[m[38;2;153;153;153mBrowser didn't open? Use the url below to sign in (c to copy)]8;id=u-nu18DKRYfmt07CJQXelsz6BIP;https://claude.com/cai/oauth/authorize?code=true&client_id=9d1c250a-e61b-44d9-88ed-5944d1962f5e&response_type=code&redirect_uri=https%3A%2F%2Fplatform.claude.com%2Foauth%2Fcode%2Fcallback&scope=org%3Acreate_api_key+user%3Aprofile+user%3Ainference+user%3Asessions%3Aclaude_code+user%3Amcp_servers+user%3Afile_upload&code_challenge=NUbipw3-FMTahov29ELSZgnu18DKRYfmt07CJQXelsz&code_challenge_method=S256&state=ahov29ELSZgnu18DKRYfmt07CJQXelsz6BIPWdkry5A\[21;1Hhttps://claude.com/cai/oauth/authorize?code=true&client_id=9d1c250a-e61b-44d9-88ed-5944d1962f5e&response_type=code&redir
+ect_uri=https%3A%2F%2Fplatform.claude.com%2Foauth%2Fcode%2Fcallback&scope=org%3Acreate_api_key+user%3Aprofile+user%3Ainf
+erence+user%3Asessions%3Aclaude_code+user%3Amcp_servers+user%3Afile_upload&code_challenge=NUbipw3-FMTahov29ELSZgnu18DKRY
+38RDbu-2PRzg4&code_challenge_method=S256&state=ahov29ELSZgnu18DKRYfmt07CJQXelsz6BIPWdkry5A[m]8;;\[27;3HPaste[1Ccode[1Chere[1Cif[1Cprompted[1C>[38;2;153;153;153m[3m[29;3HEsc[1Cto[1Ccancel[m
