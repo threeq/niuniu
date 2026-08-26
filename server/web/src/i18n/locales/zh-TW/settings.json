@@ -600,7 +600,17 @@
       "claudeLoginNotSupported": "當前部署不支援在本機開啟終端",
       "codexLogin": "Codex 登入",
       "codexLoginFailed": "開啟終端失敗：{{message}}",
-      "codexLoginNotSupported": "當前部署不支援在本機開啟終端"
+      "codexLoginNotSupported": "當前部署不支援在本機開啟終端",
+      "loggedIn": "已登入",
+      "notLoggedIn": "未登入",
+      "loginInBrowser": "登入",
+      "relogin": "重新登入",
+      "loginAdminOnly": "伺服器上的 CLI 憑證為全域共用，僅管理員可執行登入",
+      "loginCopyUrl": "複製連結",
+      "loginTerminalTitle": "{{tool}} 登入",
+      "loginTerminalHint": "登入流程在伺服器上執行，請在下面的終端中依提示完成授權（如需開啟連結，可複製到瀏覽器）。完成後關閉本視窗即可。",
+      "loginTerminalClosed": "工作階段已結束。如已完成授權，關閉視窗後點選「重新偵測」確認狀態。",
+      "loginTerminalError": "終端連線失敗，請確認伺服器上已安裝該 CLI 且你具有管理員權限。"
     },
     "account": {
       "default": "預設",

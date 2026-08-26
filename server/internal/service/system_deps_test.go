@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -744,4 +745,139 @@ func TestProbeIdentityUnconfigured(t *testing.T) {
 		}
 	}
 	t.Fatal("git tool not found")
+}
+
+// --- agent-CLI login status (issue #677) ---
+//
+// Team edition surfaces 已登录/未登录 on the claude/codex rows so an
+// unauthenticated CLI is visible in Settings instead of only failing at agent
+// run time. These tests drive cliLoggedIn through the CLI's own home overrides
+// (CLAUDE_CONFIG_DIR / CODEX_HOME) so nothing touches the developer's real
+// ~/.claude — and so we pin that we honour the same overrides the CLI reads.
+
+func TestProbe_LoginStatus_ReportedForAgentCLIs(t *testing.T) {
+	claudeDir := t.TempDir()
+	codexDir := t.TempDir()
+	// Claude on Linux/Windows: non-empty .credentials.json means logged in.
+	if err := os.WriteFile(filepath.Join(claudeDir, ".credentials.json"), []byte(`{"token":"x"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	// Codex: leave auth.json absent → not logged in.
+	t.Setenv("CLAUDE_CONFIG_DIR", claudeDir)
+	t.Setenv("CODEX_HOME", codexDir)
+
+	svc := newTestService(map[string]string{
+		"claude": "/usr/local/bin/claude",
+		"codex":  "/usr/local/bin/codex",
+		"git":    "/usr/bin/git",
+	}, map[string]string{
+		"claude": "2.1.222 (Claude Code)\n",
+		"codex":  "codex-cli 0.133.0\n",
+	}, "linux")
+
+	info := svc.Probe(context.Background())
+
+	byName := map[string]ToolStatus{}
+	for _, tool := range info.Tools {
+		byName[tool.Name] = tool
+	}
+
+	claude := byName["claude"]
+	if claude.LoggedIn == nil {
+		t.Fatal("claude: LoggedIn must be set for a found agent CLI")
+	}
+	if !*claude.LoggedIn {
+		t.Error("claude: want logged in (credentials file present in CLAUDE_CONFIG_DIR)")
+	}
+
+	codex := byName["codex"]
+	if codex.LoggedIn == nil {
+		t.Fatal("codex: LoggedIn must be set for a found agent CLI")
+	}
+	if *codex.LoggedIn {
+		t.Error("codex: want NOT logged in (no auth.json in CODEX_HOME)")
+	}
+
+	// Tools without a login flow stay nil so the UI can tell "not applicable"
+	// apart from "applicable but unauthenticated".
+	if got := byName["git"]; got.LoggedIn != nil {
+		t.Errorf("git: LoggedIn must stay nil, got %v", *got.LoggedIn)
+	}
+}
+
+func TestProbe_LoginStatus_CodexAuthFilePresent(t *testing.T) {
+	codexDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(codexDir, "auth.json"), []byte(`{"tokens":{}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("CODEX_HOME", codexDir)
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+
+	svc := newTestService(
+		map[string]string{"codex": "/usr/local/bin/codex"},
+		map[string]string{"codex": "codex-cli 0.133.0\n"},
+		"linux",
+	)
+	info := svc.Probe(context.Background())
+
+	for _, tool := range info.Tools {
+		if tool.Name != "codex" {
+			continue
+		}
+		if tool.LoggedIn == nil || !*tool.LoggedIn {
+			t.Fatalf("codex: want logged in with auth.json present, got %v", tool.LoggedIn)
+		}
+		return
+	}
+	t.Fatal("codex row missing from probe")
+}
+
+// An empty credentials file is a broken/partial login, not a valid one — the
+// size>0 check is what distinguishes them.
+func TestProbe_LoginStatus_EmptyCredentialsIsNotLoggedIn(t *testing.T) {
+	claudeDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(claudeDir, ".credentials.json"), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("CLAUDE_CONFIG_DIR", claudeDir)
+	t.Setenv("CODEX_HOME", t.TempDir())
+
+	svc := newTestService(
+		map[string]string{"claude": "/usr/local/bin/claude"},
+		map[string]string{"claude": "2.1.222 (Claude Code)\n"},
+		"linux",
+	)
+	info := svc.Probe(context.Background())
+
+	for _, tool := range info.Tools {
+		if tool.Name != "claude" {
+			continue
+		}
+		if tool.LoggedIn == nil || *tool.LoggedIn {
+			t.Fatalf("claude: empty credentials file must not count as logged in, got %v", tool.LoggedIn)
+		}
+		return
+	}
+	t.Fatal("claude row missing from probe")
+}
+
+// A CLI that isn't installed has no login status to report at all.
+func TestProbe_LoginStatus_NilWhenCLIMissing(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Setenv("CODEX_HOME", t.TempDir())
+
+	svc := newTestService(map[string]string{"git": "/usr/bin/git"}, map[string]string{}, "linux")
+	info := svc.Probe(context.Background())
+
+	for _, tool := range info.Tools {
+		if tool.Name != "claude" && tool.Name != "codex" {
+			continue
+		}
+		if tool.Found {
+			t.Fatalf("%s unexpectedly found", tool.Name)
+		}
+		if tool.LoggedIn != nil {
+			t.Errorf("%s: LoggedIn must stay nil when the CLI is absent, got %v", tool.Name, *tool.LoggedIn)
+		}
+	}
 }

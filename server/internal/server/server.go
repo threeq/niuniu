@@ -198,6 +198,7 @@ type Server struct {
 	fileTreeHandler         *api.FileTreeHandler
 	relayHandler            *api.RelayHandler
 	shellHandler            *api.ShellHandler
+	cliLoginHandler         *api.CLILoginHandler
 	autostartHandler        *api.AutostartHandler
 	gitIdentitySvc          *service.GitIdentityService
 	gitIdentityHandler      *api.GitIdentityHandler
@@ -1262,6 +1263,11 @@ func New(cfg *config.Config, db *sql.DB, frontendFS fs.FS) *Server {
 	// Bus lets /shell/open-ai-window signal the desktop shell to raise the AI 直达
 	// window (personal-edition top-nav button bridge).
 	s.shellHandler.EventBus = s.eventBus
+	// Browser-hosted agent-CLI login (runs `claude` / `codex login` in a
+	// server-side PTY bridged to xterm.js). Unlike shellHandler's native-window
+	// launch this works in the team-edition container, which is the only way team
+	// users can authenticate the CLIs at all (#677).
+	s.cliLoginHandler = api.NewCLILoginHandler()
 	// Autostart (launch-at-login) is only meaningful when niuniu-desktop
 	// spawned us and passed its executable path; otherwise reports unsupported.
 	s.autostartHandler = api.NewAutostartHandler(os.Getenv("NIUNIU_PERSONAL_EXE"))

@@ -944,6 +944,12 @@ func (s *Server) setupRoutes() {
 		ws.GET("/workspaces/:id/local-runner/logs", s.localRunnerHandler.LogsStream)
 		ws.GET("/workspaces/:id/local-runner/runner", runGate, consentRunGate, mfaEnrollRunGate, s.localRunnerHandler.RunnerChannel)
 		ws.GET("/repositories/:id/terminal", runGate, consentRunGate, mfaEnrollRunGate, s.repositoryHandler.Terminal)
+		// Interactive agent-CLI login hosted in the browser terminal (#677).
+		// Admin-only: the server has ONE shared $HOME, so ~/.claude and ~/.codex
+		// credentials are server-wide — a member re-running login would silently
+		// swap the account every other member's agents run under.
+		ws.GET("/cli-login/:tool/terminal", runGate, consentRunGate, mfaEnrollRunGate,
+			auth.RequireAdmin(s.cfg.Auth.Enabled), s.cliLoginHandler.Terminal)
 		ws.GET("/sse", s.agentProxyHandler.SSE)
 		ws.GET("/notify", s.notifyHandler.Connect)
 	}

@@ -600,7 +600,17 @@
       "claudeLoginNotSupported": "当前部署不支持在本机打开终端",
       "codexLogin": "Codex 登录",
       "codexLoginFailed": "打开终端失败：{{message}}",
-      "codexLoginNotSupported": "当前部署不支持在本机打开终端"
+      "codexLoginNotSupported": "当前部署不支持在本机打开终端",
+      "loggedIn": "已登录",
+      "notLoggedIn": "未登录",
+      "loginInBrowser": "登录",
+      "relogin": "重新登录",
+      "loginAdminOnly": "服务器上的 CLI 凭据为全局共享，仅管理员可执行登录",
+      "loginCopyUrl": "复制链接",
+      "loginTerminalTitle": "{{tool}} 登录",
+      "loginTerminalHint": "登录流程在服务器上运行，请在下面的终端中按提示完成授权（如需打开链接，可复制到浏览器）。完成后关闭本窗口即可。",
+      "loginTerminalClosed": "会话已结束。如已完成授权，关闭窗口后点击「重新检测」确认状态。",
+      "loginTerminalError": "终端连接失败，请确认服务器上已安装该 CLI 且你具有管理员权限。"
     },
     "account": {
       "default": "默认",

@@ -7,12 +7,14 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
 
+	"github.com/niuniu-dev/niuniu/internal/claudehome"
 	"github.com/niuniu-dev/niuniu/internal/git"
 )
 
@@ -71,8 +73,15 @@ type ToolStatus struct {
 	//   - Always false in team edition.
 	// The SPA gates per-tool install buttons on this; CanInstall stays the
 	// page-level "system PM available" signal used by the top-of-page message.
-	Installable bool        `json:"installable"`
-	Extras      *ToolExtras `json:"extras,omitempty"`
+	Installable bool `json:"installable"`
+	// LoggedIn reports whether this CLI already has credentials on the server.
+	// Only meaningful for the agent CLIs that have a login flow (claude, codex);
+	// nil for every other tool so the SPA can distinguish "not applicable" from
+	// "applicable but not logged in". Best-effort: on macOS Claude keeps its
+	// token in the Keychain, so a false here can still mean logged-in (see
+	// claudehome.CredsExistInConfigDir).
+	LoggedIn *bool       `json:"logged_in,omitempty"`
+	Extras   *ToolExtras `json:"extras,omitempty"`
 }
 
 // ToolExtras carries tool-specific extra metadata, present only on tools
@@ -97,8 +106,15 @@ type SystemDepsInfo struct {
 	// PersonalMode is true when niuniu-server runs in personal/embedded mode
 	// (cfg.Auth.Enabled=false). Host-shell ops (open terminal, open path) are
 	// only meaningful in this mode. Decorated by SystemDepsHandler.
-	PersonalMode bool         `json:"personal_mode"`
-	Tools        []ToolStatus `json:"tools"`
+	PersonalMode bool `json:"personal_mode"`
+	// BrowserCLILogin is true when the server can host an interactive agent-CLI
+	// login inside a browser terminal (GET /ws/cli-login/:tool/terminal). This is
+	// how team-edition users log in: the server runs in a container where the
+	// native-terminal launch used by personal mode is impossible, so the CLI runs
+	// server-side in a PTY and the browser is the terminal (#677). Decorated by
+	// SystemDepsHandler. Admin-only — the SPA also gates the button on role.
+	BrowserCLILogin bool         `json:"browser_cli_login"`
+	Tools           []ToolStatus `json:"tools"`
 }
 
 // SystemDepsService probes installed dev tools and orchestrates one-click install.
@@ -176,6 +192,21 @@ func (s *SystemDepsService) Probe(ctx context.Context) SystemDepsInfo {
 		break
 	}
 
+	// Attach login status to the agent-CLI rows so the UI can render
+	// 已登录/未登录 and decide whether to offer a login action at all (#677).
+	// Only for CLIs that actually have a login flow; every other row leaves
+	// LoggedIn nil ("not applicable").
+	for i := range tools {
+		switch tools[i].Name {
+		case "claude", "codex":
+			if !tools[i].Found {
+				continue
+			}
+			loggedIn := s.cliLoggedIn(tools[i].Name)
+			tools[i].LoggedIn = &loggedIn
+		}
+	}
+
 	isTeam := os.Getenv("NIUNIU_EDITION") == "team"
 	canInstall := pm != "" && !isTeam
 
@@ -213,6 +244,56 @@ func (s *SystemDepsService) Probe(ctx context.Context) SystemDepsInfo {
 		CanInstall:     canInstall,
 		Tools:          tools,
 	}
+}
+
+// cliLoggedIn is a best-effort check for "this agent CLI already has
+// credentials on this machine". Both CLIs persist auth under the home dir:
+//
+//	claude  $HOME/.claude/.credentials.json   (macOS: Keychain instead — see below)
+//	codex   $HOME/.codex/auth.json
+//
+// Respects the CLI's own home overrides (CLAUDE_CONFIG_DIR / CODEX_HOME) so the
+// answer matches what the CLI would actually read.
+//
+// Deliberately conservative in one direction: on macOS the Claude CLI stores its
+// token in the Keychain, so the file may be absent while the user IS logged in.
+// We fall back to the presence of an account email in .claude.json there, and if
+// that is also empty we report false — the UI treats false as "offer login", and
+// re-running login on an already-authed CLI is harmless.
+func (s *SystemDepsService) cliLoggedIn(tool string) bool {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return false
+	}
+	switch tool {
+	case "claude":
+		dir := strings.TrimSpace(os.Getenv("CLAUDE_CONFIG_DIR"))
+		if dir == "" {
+			dir = filepath.Join(home, ".claude")
+		}
+		if claudehome.CredsExistInConfigDir(dir) {
+			return true
+		}
+		// macOS Keychain case: no credentials file, but a logged-in CLI still
+		// records the account email in the config JSON.
+		if s.goos == "darwin" {
+			if email := claudehome.ReadEmailFromConfigDir(dir); email != "" {
+				return true
+			}
+			if email := claudehome.ReadEmailFromHomeJSON(); email != "" {
+				return true
+			}
+		}
+		return false
+	case "codex":
+		dir := strings.TrimSpace(os.Getenv("CODEX_HOME"))
+		if dir == "" {
+			dir = filepath.Join(home, ".codex")
+		}
+		st, err := os.Stat(filepath.Join(dir, "auth.json"))
+		return err == nil && st.Size() > 0
+	}
+	return false
 }
 
 func (s *SystemDepsService) probeOne(ctx context.Context, name string) ToolStatus {

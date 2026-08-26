@@ -33,6 +33,12 @@ func NewSystemDepsHandler(svc *service.SystemDepsService, personalMode bool) *Sy
 func (h *SystemDepsHandler) Probe(c *gin.Context) {
 	info := h.svc.Probe(c.Request.Context())
 	info.PersonalMode = h.personalMode
+	// Offer the browser-hosted CLI login whenever the native-terminal launch
+	// can't work — which is exactly the team-edition container (Linux, no
+	// terminal emulator) but also any headless Linux host running personal mode
+	// (#677). Personal mode on a real desktop keeps using the native window,
+	// which inherits the user's shell PATH and rc files.
+	info.BrowserCLILogin = !h.personalMode || !hostSupportsNativeTerminal()
 	c.JSON(http.StatusOK, info)
 }
 
