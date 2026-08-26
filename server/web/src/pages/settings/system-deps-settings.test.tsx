@@ -16,6 +16,7 @@ function info(over: Partial<SystemDepsInfo> = {}): SystemDepsInfo {
     package_manager: 'brew',
     can_install: true,
     personal_mode: true,
+    browser_cli_login: false,
     tools: [],
     ...over,
   }
@@ -246,11 +247,15 @@ describe('ToolCard', () => {
     expect(onClaudeLogin).not.toHaveBeenCalled()
   })
 
-  it('does not render Claude 登录 in team mode (personal_mode=false)', () => {
+  // Team edition serves the login through a server-side PTY bridged to a browser
+  // terminal, so the button IS present there (#677). It only disappears when
+  // neither transport is available — personal_mode off AND browser login off,
+  // which is the "hosted deployment that can't host a terminal either" case.
+  it('does not render Claude 登录 when neither login transport is available', () => {
     render(
       <ToolCard
         tool={tool({ name: 'claude', version: '2.1.119', path: '/usr/local/bin/claude' })}
-        info={info({ personal_mode: false })}
+        info={info({ personal_mode: false, browser_cli_login: false })}
         installing={null}
         loginPending={false}
         onInstall={() => {}}
@@ -260,6 +265,94 @@ describe('ToolCard', () => {
       />,
     )
     expect(screen.queryByRole('button', { name: 'Claude 登录' })).toBeNull()
+    expect(screen.queryByRole('button', { name: '登录' })).toBeNull()
+  })
+
+  // The regression this whole change exists to prevent: before #677 team users
+  // saw NO login affordance at all, so an unauthenticated CLI only revealed
+  // itself when an agent failed at run time.
+  it('renders 登录 in team mode when the browser login transport is available', () => {
+    const onClaudeLogin = vi.fn()
+    render(
+      <ToolCard
+        tool={tool({ name: 'claude', version: '2.1.119', path: '/usr/local/bin/claude', logged_in: false })}
+        info={info({ personal_mode: false, browser_cli_login: true })}
+        installing={null}
+        loginPending={false}
+        onInstall={() => {}}
+        onRefresh={() => {}}
+        onClaudeLogin={onClaudeLogin}
+        nodeFound={true}
+      />,
+    )
+    const btn = screen.getByRole('button', { name: '登录' }) as HTMLButtonElement
+    expect(btn.disabled).toBe(false)
+    btn.click()
+    expect(onClaudeLogin).toHaveBeenCalledTimes(1)
+    // The unauthenticated state must be visible, not merely actionable.
+    expect(screen.getByText('未登录')).toBeTruthy()
+  })
+
+  it('shows 已登录 and offers 重新登录 when the CLI already has credentials', () => {
+    render(
+      <ToolCard
+        tool={tool({ name: 'codex', version: 'codex-cli 0.132.0', path: '/usr/local/bin/codex', logged_in: true })}
+        info={info({ personal_mode: false, browser_cli_login: true })}
+        installing={null}
+        loginPending={false}
+        onInstall={() => {}}
+        onRefresh={() => {}}
+        onClaudeLogin={() => {}}
+        onCodexLogin={() => {}}
+        nodeFound={true}
+      />,
+    )
+    expect(screen.getByText('已登录')).toBeTruthy()
+    expect(screen.getByRole('button', { name: '重新登录' })).toBeTruthy()
+  })
+
+  // Server $HOME is shared, so a member logging in would swap the credentials
+  // every other member's agents run under. Gate the action, but keep the status
+  // visible so a non-admin can still see WHY their agents are failing.
+  it('disables the browser login for non-admins but still shows login status', () => {
+    const onClaudeLogin = vi.fn()
+    render(
+      <ToolCard
+        tool={tool({ name: 'claude', version: '2.1.119', path: '/usr/local/bin/claude', logged_in: false })}
+        info={info({ personal_mode: false, browser_cli_login: true })}
+        installing={null}
+        loginPending={false}
+        canBrowserLogin={false}
+        onInstall={() => {}}
+        onRefresh={() => {}}
+        onClaudeLogin={onClaudeLogin}
+        nodeFound={true}
+      />,
+    )
+    const btn = screen.getByRole('button', { name: '登录' }) as HTMLButtonElement
+    expect(btn.disabled).toBe(true)
+    btn.click()
+    expect(onClaudeLogin).not.toHaveBeenCalled()
+    expect(screen.getByText('未登录')).toBeTruthy()
+  })
+
+  // Login status is only meaningful for CLIs that have a login flow; git/node
+  // must not grow a badge just because the field exists on the shared type.
+  it('does not show login status for tools without a login flow', () => {
+    render(
+      <ToolCard
+        tool={tool({ name: 'git', version: '2.42.0', path: '/usr/bin/git' })}
+        info={info({ personal_mode: false, browser_cli_login: true })}
+        installing={null}
+        loginPending={false}
+        onInstall={() => {}}
+        onRefresh={() => {}}
+        onClaudeLogin={() => {}}
+        nodeFound={true}
+      />,
+    )
+    expect(screen.queryByText('未登录')).toBeNull()
+    expect(screen.queryByText('已登录')).toBeNull()
   })
 
   it('does not render Claude 登录 when claude is not found', () => {
@@ -315,11 +408,11 @@ describe('ToolCard', () => {
     expect(onCodexLogin).toHaveBeenCalledTimes(1)
   })
 
-  it('does not render Codex 登录 in team mode (personal_mode=false)', () => {
+  it('does not render Codex 登录 when neither login transport is available', () => {
     render(
       <ToolCard
         tool={tool({ name: 'codex', version: 'codex-cli 0.132.0', path: '/usr/local/bin/codex' })}
-        info={info({ personal_mode: false })}
+        info={info({ personal_mode: false, browser_cli_login: false })}
         installing={null}
         loginPending={false}
         onInstall={() => {}}
@@ -330,6 +423,7 @@ describe('ToolCard', () => {
       />,
     )
     expect(screen.queryByRole('button', { name: 'Codex 登录' })).toBeNull()
+    expect(screen.queryByRole('button', { name: '登录' })).toBeNull()
   })
 
   it('disables 一键安装 for codex when node is missing', () => {

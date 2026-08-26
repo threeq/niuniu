@@ -27,6 +27,7 @@ function info(found: Record<string, boolean>): SystemDepsInfo {
     package_manager: 'apt-get',
     can_install: true,
     personal_mode: true,
+    browser_cli_login: false,
     tools: (['node', 'python3', 'git', 'claude', 'codex'] as ToolStatus['name'][]).map(
       (n) => tool(n, found[n] ?? false),
     ),

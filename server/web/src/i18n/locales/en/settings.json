@@ -600,7 +600,17 @@
       "claudeLoginNotSupported": "This deployment does not support opening a terminal on the host",
       "codexLogin": "Codex Login",
       "codexLoginFailed": "Failed to open terminal: {{message}}",
-      "codexLoginNotSupported": "This deployment does not support opening a terminal on the host"
+      "codexLoginNotSupported": "This deployment does not support opening a terminal on the host",
+      "loggedIn": "Signed in",
+      "notLoggedIn": "Not signed in",
+      "loginInBrowser": "Sign in",
+      "relogin": "Sign in again",
+      "loginAdminOnly": "CLI credentials on the server are shared globally; only admins can sign in",
+      "loginCopyUrl": "Copy link",
+      "loginTerminalTitle": "{{tool}} sign-in",
+      "loginTerminalHint": "The sign-in runs on the server. Follow the prompts in the terminal below (copy any URL into your browser if needed). Close this window when you're done.",
+      "loginTerminalClosed": "Session ended. If you completed the sign-in, close this window and click \"Recheck\" to confirm.",
+      "loginTerminalError": "Terminal connection failed. Check that the CLI is installed on the server and that you have admin permissions."
     },
     "account": {
       "default": "Default",

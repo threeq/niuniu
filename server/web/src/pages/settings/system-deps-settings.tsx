@@ -8,6 +8,8 @@ import { MINIMUM_TOOLS } from '@/lib/system-deps-gate'
 import { openClaudeLoginTerminal, openCodexLoginTerminal, openExternalSmart } from '@/lib/shell'
 import type { SystemDepsInfo, ToolStatus } from '@/types/api'
 import { GitIdentityPanel } from '@/components/system-deps/GitIdentityPanel'
+import { CLILoginTerminalDialog } from '@/components/system-deps/CLILoginTerminalDialog'
+import { useAuthStore } from '@/stores/auth-store'
 
 // downloadUrl for tesseract points at the in-house OCR install guide (#284);
 // keep it in sync with ocrGuideURL in internal/service/system_deps.go and
@@ -69,6 +71,13 @@ export function SystemDepsSettings() {
   })
   const [installing, setInstalling] = useState<string | null>(null) // tool name
   const [loginPending, setLoginPending] = useState<boolean>(false)
+  // Which CLI's browser login terminal is open (team edition path, #677).
+  const [browserLoginTool, setBrowserLoginTool] = useState<'claude' | 'codex' | null>(null)
+  // Team edition gates the browser login on admin, because the server has a
+  // single shared $HOME: a member re-running login would swap the credentials
+  // every other member's agents run under. Personal mode has no role claim, and
+  // its lone local user is implicitly admin.
+  const authRole = useAuthStore((s) => s.user?.role)
   const loginTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [logs, setLogs] = useState<string[]>([])
   const [logTitle, setLogTitle] = useState<string>('')
@@ -204,6 +213,12 @@ export function SystemDepsSettings() {
   }
 
   function handleClaudeLogin() {
+    // Team edition / headless host: run the login inside a browser terminal,
+    // since there is no desktop on the server to pop a native window on (#677).
+    if (probe.data?.browser_cli_login) {
+      setBrowserLoginTool('claude')
+      return
+    }
     void runLogin(
       openClaudeLoginTerminal,
       'systemDeps.tool.claudeLoginNotSupported',
@@ -212,6 +227,10 @@ export function SystemDepsSettings() {
   }
 
   function handleCodexLogin() {
+    if (probe.data?.browser_cli_login) {
+      setBrowserLoginTool('codex')
+      return
+    }
     void runLogin(
       openCodexLoginTerminal,
       'systemDeps.tool.codexLoginNotSupported',
@@ -272,10 +291,19 @@ export function SystemDepsSettings() {
             onRefresh={handleRefresh}
             onClaudeLogin={handleClaudeLogin}
             onCodexLogin={handleCodexLogin}
+            canBrowserLogin={authRole ? authRole === 'admin' || authRole === 'owner' : true}
             nodeFound={info.tools.find((t) => t.name === 'node')?.found ?? false}
           />
         ))}
       </div>
+
+      <CLILoginTerminalDialog
+        tool={browserLoginTool}
+        onClose={() => setBrowserLoginTool(null)}
+        // Re-probe on dismiss so the 已登录/未登录 badge reflects the result
+        // without the user having to hit 重新检测.
+        onFinished={() => { void probe.refetch() }}
+      />
 
       {logs.length > 0 && (
         <div className="rounded border bg-muted/40">
@@ -310,20 +338,39 @@ export function ToolCard(props: {
   onRefresh: () => void
   onClaudeLogin: () => void
   onCodexLogin?: () => void
+  /** Whether the current user may run the server-side browser login (admin).
+   *  Ignored in personal mode, where the native-window launch is used. */
+  canBrowserLogin?: boolean
   nodeFound: boolean
 }) {
   const { t } = useTranslation('settings')
-  const { tool, info, installing, loginPending, isRefreshing, onInstall, onRefresh, onClaudeLogin, onCodexLogin, nodeFound } = props
+  const { tool, info, installing, loginPending, isRefreshing, onInstall, onRefresh, onClaudeLogin, onCodexLogin, canBrowserLogin = true, nodeFound } = props
   const meta = toolLabels[tool.name]
   const cmd = commandFor(tool.name, info)
   const isInstalling = installing === tool.name
   const claudeBlocked = tool.name === 'claude' && !nodeFound
   const codexBlocked = tool.name === 'codex' && !nodeFound
-  // Login buttons: only on the matching CLI row, only when detected as
-  // installed, and only in personal/embedded mode (server-side gate also
-  // returns 403 in hosted mode — this is the cosmetic layer).
-  const showClaudeLogin = tool.found && tool.name === 'claude' && info.personal_mode
-  const showCodexLogin = tool.found && tool.name === 'codex' && info.personal_mode
+  // Login buttons appear on the matching CLI row once the CLI is detected.
+  // Two transports: personal mode pops a native terminal on the user's own
+  // desktop; every other deployment (notably the team-edition container, which
+  // has no display) runs the CLI in a server-side PTY bridged to a browser
+  // terminal. Before #677 this was gated on personal_mode alone, so team users
+  // saw no login affordance at all and the endpoint 403'd.
+  const isLoginTool = tool.name === 'claude' || tool.name === 'codex'
+  const canLogin = tool.found && isLoginTool && (info.personal_mode || info.browser_cli_login)
+  // In the browser-login transport the action is admin-only (shared server $HOME).
+  const loginAllowed = info.browser_cli_login ? canBrowserLogin : true
+  const showClaudeLogin = canLogin && tool.name === 'claude'
+  const showCodexLogin = canLogin && tool.name === 'codex'
+  // logged_in is only sent for CLIs that have a login flow; undefined elsewhere.
+  const loginState = tool.found && isLoginTool ? tool.logged_in : undefined
+  const loginLabel = loginState
+    ? t('systemDeps.tool.relogin')
+    : info.browser_cli_login
+      ? t('systemDeps.tool.loginInBrowser')
+      : tool.name === 'claude'
+        ? t('systemDeps.tool.claudeLogin')
+        : t('systemDeps.tool.codexLogin')
 
   return (
     <div className="rounded border p-3">
@@ -339,6 +386,20 @@ export function ToolCard(props: {
           <span className="text-sm text-muted-foreground truncate">
             {tool.found ? tool.version || t('systemDeps.tool.installed') : t('systemDeps.tool.notInstalled')}
           </span>
+          {/* Login state for the agent CLIs. Without this the team-edition card
+              gave no hint that the CLI was unauthenticated — agents just failed
+              at run time (#677). */}
+          {loginState !== undefined && (
+            <span
+              className={`text-xs px-1.5 py-0.5 rounded shrink-0 ${
+                loginState
+                  ? 'bg-green-500/10 text-green-700 dark:text-green-400'
+                  : 'bg-amber-500/10 text-amber-700 dark:text-amber-400'
+              }`}
+            >
+              {loginState ? t('systemDeps.tool.loggedIn') : t('systemDeps.tool.notLoggedIn')}
+            </span>
+          )}
         </div>
         <div className="flex items-center gap-2">
           {tool.found ? (
@@ -346,21 +407,23 @@ export function ToolCard(props: {
               {showClaudeLogin && (
                 <Button
                   size="sm"
-                  variant="outline"
-                  disabled={loginPending}
+                  variant={loginState ? 'outline' : 'default'}
+                  disabled={loginPending || !loginAllowed}
+                  title={!loginAllowed ? t('systemDeps.tool.loginAdminOnly') : undefined}
                   onClick={onClaudeLogin}
                 >
-                  {t('systemDeps.tool.claudeLogin')}
+                  {loginLabel}
                 </Button>
               )}
               {showCodexLogin && onCodexLogin && (
                 <Button
                   size="sm"
-                  variant="outline"
-                  disabled={loginPending}
+                  variant={loginState ? 'outline' : 'default'}
+                  disabled={loginPending || !loginAllowed}
+                  title={!loginAllowed ? t('systemDeps.tool.loginAdminOnly') : undefined}
                   onClick={onCodexLogin}
                 >
-                  {t('systemDeps.tool.codexLogin')}
+                  {loginLabel}
                 </Button>
               )}
               <Button size="sm" variant="ghost" disabled={isRefreshing} onClick={onRefresh}>

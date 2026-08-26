@@ -1334,6 +1334,11 @@ export interface ToolStatus {
    *  gate per-tool install buttons; can_install is the page-level signal for
    *  the top-of-page message. */
   installable: boolean;
+  /** Whether this CLI already holds credentials on the server. Only present for
+   *  agent CLIs that have a login flow (claude/codex); undefined means "login
+   *  not applicable to this tool". Best-effort: on macOS the Claude CLI keeps
+   *  its token in the Keychain, so false can still mean logged in. */
+  logged_in?: boolean;
   extras?: ToolExtras;
 }
 
@@ -1344,6 +1349,11 @@ export interface SystemDepsInfo {
   /** True when niuniu-server runs in personal/embedded mode. Gates host-shell
    *  ops (claude-login terminal launch). False on team-edition deployments. */
   personal_mode: boolean;
+  /** True when the server can host the agent-CLI login inside a browser
+   *  terminal (`/ws/cli-login/:tool/terminal`). This is the team-edition path:
+   *  the container has no display, so the native-window launch used in personal
+   *  mode is impossible and the CLI runs server-side in a PTY instead. */
+  browser_cli_login: boolean;
   tools: ToolStatus[];
 }
 
