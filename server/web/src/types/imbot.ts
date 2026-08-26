@@ -2,6 +2,8 @@
 // internal/service/imbot.go. Credentials are write-only: they are never
 // returned by the API (only `has_credential` flags whether one is stored).
 
+import type { OwnerRef } from './org';
+
 export type ImBotChannelType = 'lark' | 'dingtalk' | 'telegram' | 'wework' | 'wechat';
 export type ImBotConnectionMode = 'stream' | 'webhook';
 export type ImBotChannelStatus = 'active' | 'disabled';
@@ -64,10 +66,15 @@ export interface ImBotBot {
   connection_mode: ImBotConnectionMode;
   status: ImBotChannelStatus;
   has_credential: boolean;
+  // Owning user/org, stamped by the backend so the settings page can group bots
+  // when the caller sees several owners (org admin / global admin).
+  owner?: OwnerRef;
 }
 
-// Owner-level pending chat awaiting approval + project routing. `project_id` is
-// null while pending (assigned at approval / reassignment time).
+// Owner-level chat DTO: awaiting approval, or already routed to a project. The
+// backend returns the full chat row for both, so the routing fields are present
+// too — the bound-chats UI needs them to show and edit the routing mode. They stay
+// optional because a pending chat has no meaningful routing yet.
 export interface ImBotPendingChat {
   id: number;
   channel_id: number;
@@ -76,6 +83,8 @@ export interface ImBotPendingChat {
   status: ImBotChatStatus;
   // Nullable DTO contract: null while pending, set once routed to a project.
   project_id: number | null;
+  bind_mode?: ImBotBindMode;
+  pinned_issue_id?: number | null;
 }
 
 // Normalize a raw owner-level pending chat DTO (nullable project_id contract).

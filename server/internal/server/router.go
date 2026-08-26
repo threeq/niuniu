@@ -912,6 +912,7 @@ func (s *Server) setupRoutes() {
 		api.GET("/imbot/chats", s.imbotHandler.ListActiveChatsOwner)
 		api.POST("/imbot/chats/:chatid/approve", s.imbotHandler.ApproveChatOwner)
 		api.POST("/imbot/chats/:chatid/reassign", s.imbotHandler.ReassignChatOwner)
+		api.PATCH("/imbot/chats/:chatid", s.imbotHandler.PatchChatOwner)
 		api.DELETE("/imbot/chats/:chatid", s.imbotHandler.DeleteChatOwner)
 	}
 

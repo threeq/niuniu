@@ -22,6 +22,10 @@ ORDER BY ch.created_at, ch.id;
 -- name: ListIMBotChannelsByOwner :many
 SELECT * FROM im_bot_channels WHERE owner_type = ? AND owner_id = ? ORDER BY created_at, id;
 
+-- name: ListAllIMBotChannels :many
+-- Global-admin scope: every bot regardless of owner (settings page aggregation).
+SELECT * FROM im_bot_channels ORDER BY created_at, id;
+
 -- name: GetIMBotChannelByFingerprint :one
 SELECT * FROM im_bot_channels
 WHERE owner_type = ? AND owner_id = ? AND channel_type = ? AND credential_fingerprint = ?;
@@ -91,6 +95,18 @@ ORDER BY c.created_at, c.id;
 SELECT c.* FROM im_bot_chats c
 JOIN im_bot_channels ch ON ch.id = c.channel_id
 WHERE ch.owner_type = ? AND ch.owner_id = ? AND c.status = 'active' AND c.project_id IS NOT NULL
+ORDER BY c.created_at, c.id;
+
+-- name: ListAllPendingIMBotChats :many
+-- Global-admin scope: pending chats across every owner.
+SELECT c.* FROM im_bot_chats c
+WHERE c.status = 'pending'
+ORDER BY c.created_at, c.id;
+
+-- name: ListAllActiveIMBotChats :many
+-- Global-admin scope: active chat->project bindings across every owner.
+SELECT c.* FROM im_bot_chats c
+WHERE c.status = 'active' AND c.project_id IS NOT NULL
 ORDER BY c.created_at, c.id;
 
 -- name: ListActiveIMBotChatsByProject :many

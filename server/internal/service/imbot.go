@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -792,6 +793,42 @@ func (s *IMBotService) ListBotsByOwner(ctx context.Context, owner OwnerRef) ([]I
 	return out, nil
 }
 
+// ListBotsByOwners aggregates bots across several owners — the settings page
+// shows an org admin their personal space plus every org they administer, so one
+// list spans multiple owners (design 2026-07-08 §10 + owner-scope follow-up).
+//
+// Owners is small by construction (personal space + the caller's admin orgs), so
+// this loops the single-owner query instead of expanding an IN (...) clause: the
+// placeholder expansion would have to differ between SQLite and Postgres, which
+// costs more than the handful of extra round trips saves. Results are re-sorted
+// by (created_at, id) so the merged list keeps the per-owner ordering contract.
+func (s *IMBotService) ListBotsByOwners(ctx context.Context, owners []OwnerRef) ([]IMBotChannelDTO, error) {
+	out := make([]IMBotChannelDTO, 0, len(owners))
+	for _, o := range owners {
+		items, err := s.ListBotsByOwner(ctx, o)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, items...)
+	}
+	sortChannelDTOs(out)
+	return out, nil
+}
+
+// ListAllBots returns every bot regardless of owner — global-admin scope only.
+// Callers MUST gate this on Authz.IsGlobalAdmin; the service does not re-check.
+func (s *IMBotService) ListAllBots(ctx context.Context) ([]IMBotChannelDTO, error) {
+	rows, err := s.q.ListAllIMBotChannels(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]IMBotChannelDTO, len(rows))
+	for i, r := range rows {
+		out[i] = channelDTO(r)
+	}
+	return out, nil
+}
+
 // ListPendingChatsByOwner lists every pending (awaiting approval) chat across all
 // of the owner's bots — the owner-level 待配对列表 (design §7).
 func (s *IMBotService) ListPendingChatsByOwner(ctx context.Context, owner OwnerRef) ([]IMBotChatDTO, error) {
@@ -826,6 +863,82 @@ func (s *IMBotService) ListActiveChatsByOwner(ctx context.Context, owner OwnerRe
 	return out, nil
 }
 
+// ListPendingChatsByOwners aggregates pending chats across several owners; see
+// ListBotsByOwners for why this loops rather than expanding an IN (...) clause.
+func (s *IMBotService) ListPendingChatsByOwners(ctx context.Context, owners []OwnerRef) ([]IMBotChatDTO, error) {
+	out := make([]IMBotChatDTO, 0, len(owners))
+	for _, o := range owners {
+		items, err := s.ListPendingChatsByOwner(ctx, o)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, items...)
+	}
+	sortChatDTOs(out)
+	return out, nil
+}
+
+// ListActiveChatsByOwners aggregates active chat->project bindings across several
+// owners; see ListBotsByOwners for the loop-vs-IN rationale.
+func (s *IMBotService) ListActiveChatsByOwners(ctx context.Context, owners []OwnerRef) ([]IMBotChatDTO, error) {
+	out := make([]IMBotChatDTO, 0, len(owners))
+	for _, o := range owners {
+		items, err := s.ListActiveChatsByOwner(ctx, o)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, items...)
+	}
+	sortChatDTOs(out)
+	return out, nil
+}
+
+// ListAllPendingChats / ListAllActiveChats return chats across every owner —
+// global-admin scope only. Callers MUST gate on Authz.IsGlobalAdmin.
+func (s *IMBotService) ListAllPendingChats(ctx context.Context) ([]IMBotChatDTO, error) {
+	rows, err := s.q.ListAllPendingIMBotChats(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]IMBotChatDTO, len(rows))
+	for i, r := range rows {
+		out[i] = chatDTO(r)
+	}
+	return out, nil
+}
+
+func (s *IMBotService) ListAllActiveChats(ctx context.Context) ([]IMBotChatDTO, error) {
+	rows, err := s.q.ListAllActiveIMBotChats(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]IMBotChatDTO, len(rows))
+	for i, r := range rows {
+		out[i] = chatDTO(r)
+	}
+	return out, nil
+}
+
+// sortChannelDTOs / sortChatDTOs restore the (created_at, id) ordering that each
+// per-owner query guarantees but a concatenation of several does not.
+func sortChannelDTOs(items []IMBotChannelDTO) {
+	sort.SliceStable(items, func(i, j int) bool {
+		if !items[i].CreatedAt.Equal(items[j].CreatedAt) {
+			return items[i].CreatedAt.Before(items[j].CreatedAt)
+		}
+		return items[i].ID < items[j].ID
+	})
+}
+
+func sortChatDTOs(items []IMBotChatDTO) {
+	sort.SliceStable(items, func(i, j int) bool {
+		if !items[i].CreatedAt.Equal(items[j].CreatedAt) {
+			return items[i].CreatedAt.Before(items[j].CreatedAt)
+		}
+		return items[i].ID < items[j].ID
+	})
+}
+
 // DeleteChatByOwner removes a chat->project binding, authorized by owner (the
 // chat's bot must belong to owner). The group becomes unpaired and must be
 // re-approved to route anywhere again. Cross-owner maps to ErrIMBotNotFound.
@@ -847,11 +960,54 @@ type PatchChatInput struct {
 	Status        string
 }
 
+// PatchChatByOwner is the owner-level counterpart of PatchChat: it edits a chat's
+// routing (bind_mode / pinned issue / status) without the caller naming a project.
+//
+// Authorization derives the owner from the chat's own bot and mirrors the read
+// scope of the settings page rather than using EnsureOwnerWritable: that helper
+// admits ANY org member (spec §6.5, tuned for resource creation), which would let
+// a plain member retarget a bot they are not even allowed to see. Here an org bot
+// requires org owner/admin (or a global admin) — CanManageOrg — and a personal bot
+// requires being that user, with global admins also allowed so the aggregated page
+// stays consistent between what it lists and what it can act on.
+func (s *IMBotService) PatchChatByOwner(ctx context.Context, chatID, userID int64, in PatchChatInput) (IMBotChatDTO, error) {
+	cur, channel, err := s.chatWithChannel(ctx, chatID)
+	if err != nil {
+		return IMBotChatDTO{}, err
+	}
+	if s.authz != nil {
+		if err := s.ensureBotManageable(ctx, channel, userID); err != nil {
+			return IMBotChatDTO{}, err
+		}
+	}
+	return s.applyChatPatch(ctx, cur, in)
+}
+
+// ensureBotManageable authorizes managing a bot's chats by the bot's owner:
+// org → owner/admin or global admin; personal → the owner themselves or a global
+// admin. Kept next to PatchChatByOwner so the read scope in the API layer
+// (ownerReadScope) and this write gate stay in step.
+func (s *IMBotService) ensureBotManageable(ctx context.Context, channel store.ImBotChannel, userID int64) error {
+	if channel.OwnerType == "org" {
+		return s.authz.CanManageOrg(ctx, userID, channel.OwnerID)
+	}
+	if channel.OwnerID == userID || s.authz.IsGlobalAdmin(ctx, userID) {
+		return nil
+	}
+	return ErrForbidden
+}
+
 func (s *IMBotService) PatchChat(ctx context.Context, projectID, chatID int64, in PatchChatInput) (IMBotChatDTO, error) {
 	cur, err := s.getOwnedChat(ctx, projectID, chatID)
 	if err != nil {
 		return IMBotChatDTO{}, err
 	}
+	return s.applyChatPatch(ctx, cur, in)
+}
+
+// applyChatPatch holds the preserve-on-empty merge shared by both patch entries:
+// an empty string / nil pointer keeps the current value rather than clearing it.
+func (s *IMBotService) applyChatPatch(ctx context.Context, cur store.ImBotChat, in PatchChatInput) (IMBotChatDTO, error) {
 	bindMode := in.BindMode
 	if bindMode == "" {
 		bindMode = cur.BindMode
@@ -873,7 +1029,7 @@ func (s *IMBotService) PatchChat(ctx context.Context, projectID, chatID int64, i
 		PinnedIssueID: pinned,
 		ActiveIssueID: active,
 		Status:        status,
-		ID:            chatID,
+		ID:            cur.ID,
 	})
 	if err != nil {
 		return IMBotChatDTO{}, err

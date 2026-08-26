@@ -665,6 +665,47 @@ func (q *Queries) ListActiveStreamChannels(ctx context.Context) ([]ImBotChannel,
 	return items, nil
 }
 
+const listAllIMBotChannels = `-- name: ListAllIMBotChannels :many
+SELECT id, owner_type, owner_id, credential_fingerprint, channel_type, name, connection_mode, credential_enc, webhook_secret, status, created_at, updated_at FROM im_bot_channels ORDER BY created_at, id
+`
+
+// Global-admin scope: every bot regardless of owner (settings page aggregation).
+func (q *Queries) ListAllIMBotChannels(ctx context.Context) ([]ImBotChannel, error) {
+	rows, err := q.db.QueryContext(ctx, listAllIMBotChannels)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ImBotChannel{}
+	for rows.Next() {
+		var i ImBotChannel
+		if err := rows.Scan(
+			&i.ID,
+			&i.OwnerType,
+			&i.OwnerID,
+			&i.CredentialFingerprint,
+			&i.ChannelType,
+			&i.Name,
+			&i.ConnectionMode,
+			&i.CredentialEnc,
+			&i.WebhookSecret,
+			&i.Status,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listIMBotChannelsByOwner = `-- name: ListIMBotChannelsByOwner :many
 SELECT id, owner_type, owner_id, credential_fingerprint, channel_type, name, connection_mode, credential_enc, webhook_secret, status, created_at, updated_at FROM im_bot_channels WHERE owner_type = ? AND owner_id = ? ORDER BY created_at, id
 `
@@ -715,6 +756,7 @@ SELECT DISTINCT ch.id, ch.owner_type, ch.owner_id, ch.credential_fingerprint, ch
 WHERE ch.id IN (SELECT c.channel_id FROM im_bot_chats c WHERE c.project_id = ?1)
 ORDER BY ch.created_at, ch.id
 `
+
 
 // Bots (channels) serving this project: purely by reverse lookup through the
 // chats routed here (project -> chat -> channel). A shared bot is owner-level and
@@ -904,6 +946,92 @@ func (q *Queries) ListIMBotThreadsByIssue(ctx context.Context, issueID int64) ([
 			&i.IssueID,
 			&i.WorkspaceID,
 			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listAllActiveIMBotChats = `-- name: ListAllActiveIMBotChats :many
+SELECT c.id, c.channel_id, c.project_id, c.chat_ext_id, c.chat_name, c.bind_mode, c.pinned_issue_id, c.active_issue_id, c.status, c.paired_by, c.created_at, c.updated_at FROM im_bot_chats c
+WHERE c.status = 'active' AND c.project_id IS NOT NULL
+ORDER BY c.created_at, c.id
+`
+
+// Global-admin scope: active chat->project bindings across every owner.
+func (q *Queries) ListAllActiveIMBotChats(ctx context.Context) ([]ImBotChat, error) {
+	rows, err := q.db.QueryContext(ctx, listAllActiveIMBotChats)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ImBotChat{}
+	for rows.Next() {
+		var i ImBotChat
+		if err := rows.Scan(
+			&i.ID,
+			&i.ChannelID,
+			&i.ProjectID,
+			&i.ChatExtID,
+			&i.ChatName,
+			&i.BindMode,
+			&i.PinnedIssueID,
+			&i.ActiveIssueID,
+			&i.Status,
+			&i.PairedBy,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listAllPendingIMBotChats = `-- name: ListAllPendingIMBotChats :many
+SELECT c.id, c.channel_id, c.project_id, c.chat_ext_id, c.chat_name, c.bind_mode, c.pinned_issue_id, c.active_issue_id, c.status, c.paired_by, c.created_at, c.updated_at FROM im_bot_chats c
+WHERE c.status = 'pending'
+ORDER BY c.created_at, c.id
+`
+
+// Global-admin scope: pending chats across every owner.
+func (q *Queries) ListAllPendingIMBotChats(ctx context.Context) ([]ImBotChat, error) {
+	rows, err := q.db.QueryContext(ctx, listAllPendingIMBotChats)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ImBotChat{}
+	for rows.Next() {
+		var i ImBotChat
+		if err := rows.Scan(
+			&i.ID,
+			&i.ChannelID,
+			&i.ProjectID,
+			&i.ChatExtID,
+			&i.ChatName,
+			&i.BindMode,
+			&i.PinnedIssueID,
+			&i.ActiveIssueID,
+			&i.Status,
+			&i.PairedBy,
+			&i.CreatedAt,
+			&i.UpdatedAt,
 		); err != nil {
 			return nil, err
 		}
