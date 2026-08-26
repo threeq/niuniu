@@ -56,14 +56,21 @@ func NewCLILoginHandler() *CLILoginHandler {
 type cliLoginTarget struct {
 	// bin is the executable probed on PATH and launched in the PTY.
 	bin string
-	// args are passed to bin. Claude Code has no dedicated login subcommand —
-	// running it bare drops the user into the TUI whose /login flow handles auth
-	// — whereas codex exposes `codex login`.
+	// args are passed to bin.
 	args []string
 }
 
+// Argv matches the multi-account handlers that shipped this feature before it
+// was removed (api/claude_account_pty.go, api/codex_account_pty.go — recoverable
+// via `git show ba905ae^:`). Do not "simplify" these:
+//
+//   - `claude /login` goes straight to the OAuth prompt. Bare `claude` opens the
+//     interactive TUI instead, where the user must find /login themselves — and
+//     in a fresh container it stops on the theme picker / trust prompt first.
+//   - `codex login` is the documented form; `codex auth login` is an accepted
+//     alias for it.
 var cliLoginTargets = map[string]cliLoginTarget{
-	"claude": {bin: "claude", args: nil},
+	"claude": {bin: "claude", args: []string{"/login"}},
 	"codex":  {bin: "codex", args: []string{"login"}},
 }
 

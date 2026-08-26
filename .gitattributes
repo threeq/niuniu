@@ -1,0 +1,7 @@
+# Byte-exact PTY captures used as parser fixtures. These files intentionally
+# contain raw terminal control bytes (CR, ESC, OSC-8 hyperlinks) — the whole
+# point is to reproduce what a real PTY emits. Any EOL normalization silently
+# changes what the parser under test sees (git strips CR on commit, so a Linux
+# checkout would read different bytes than the author verified), so mark them
+# binary: no eol conversion, no diff munging.
+server/web/src/components/dialogs/__fixtures__/*.txt -text -diff

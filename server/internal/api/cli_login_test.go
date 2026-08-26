@@ -72,9 +72,11 @@ func TestCLILoginTerminal_NoPersonalModeGate_AndCorrectArgv(t *testing.T) {
 		wantBin  string
 		wantArgs []string
 	}{
-		// `claude` has no login subcommand: bare invocation opens the TUI whose
-		// /login flow does the auth. `codex` has an explicit one.
-		{tool: "claude", wantBin: "claude", wantArgs: nil},
+		// Argv must match the handlers that shipped this feature originally
+		// (git show ba905ae^:server/internal/api/claude_account_pty.go). Bare
+		// `claude` opens the TUI and, in a fresh container, stops on the theme
+		// picker / trust prompt instead of the OAuth prompt.
+		{tool: "claude", wantBin: "claude", wantArgs: []string{"/login"}},
 		{tool: "codex", wantBin: "codex", wantArgs: []string{"login"}},
 	}
 	for _, tc := range cases {
