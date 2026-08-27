@@ -202,6 +202,17 @@ func (s *IMBotService) HandleInbound(ctx context.Context, ev imbot.InboundEvent)
 			return
 		}
 		issueID, wsID = target.IssueID, target.WorkspaceID
+		// A router can return a zero-valued target WITHOUT an error (nothing
+		// resolved). Continuing would bind the chat to issue 0, reply with a "#0"
+		// marker the user cannot reach, and then deliver into workspace 0 — i.e.
+		// silently drop the message while claiming work started. Tell the user
+		// instead, so they can retry rather than wait on a task that never began.
+		if issueID == 0 || wsID == 0 {
+			slog.Warn("imbot: route returned an incomplete target",
+				"channel", channel.ID, "project", routeProjectID, "issue", issueID, "workspace", wsID)
+			s.pushText(ctx, channel, ev.ChatExtID, ev.ThreadExtID, "牛牛暂时无法开始这个任务，请稍后再试。")
+			return
+		}
 
 		// Bind the new task so follow-ups land in the same place.
 		if ev.ThreadExtID != "" {

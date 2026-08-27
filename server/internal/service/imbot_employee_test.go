@@ -938,3 +938,71 @@ func TestPatchChat_ModeChangeRetiresPendingChatter(t *testing.T) {
 		t.Errorf("post-switch chatter analyzed %d times, want 1", len(an.transcripts))
 	}
 }
+
+// TestEmployeeActionBudget_LimitsInterruptions covers the interruption budget: a
+// watchful bot is fine, a noisy one gets tuned out. "none" verdicts are free; only
+// real interruptions (notify/task) are rationed, and the window resets.
+func TestEmployeeActionBudget_LimitsInterruptions(t *testing.T) {
+	f := newIMBotFixture(t)
+	chat := f.observeChat(t, "oc_budget")
+	ctx := context.Background()
+
+	an := &fakeAnalyzer{verdict: EmployeeVerdict{Action: EmployeeActionNotify, Message: "提醒"}}
+	emp := NewIMBotEmployee(f.svc, f.q, an)
+	base := time.Unix(1750000000, 0)
+	emp.nowFn = func() time.Time { return base }
+
+	// Each sweep needs its own fresh batch (an analyzed batch is never reconsidered).
+	for i := 0; i < employeeMaxActionsPerDay+3; i++ {
+		seedChatter(t, f, chat, employeeMinMessages)
+		emp.sweep(ctx)
+	}
+	if got := len(f.adapter.pushes); got != employeeMaxActionsPerDay {
+		t.Fatalf("employee interrupted %d times, want the budget of %d", got, employeeMaxActionsPerDay)
+	}
+
+	// A "none" verdict must not consume budget — otherwise a quiet bot would
+	// exhaust its allowance just by watching.
+	emp.nowFn = func() time.Time { return base.Add(employeeActionWindow) } // new window
+	quiet := &fakeAnalyzer{verdict: EmployeeVerdict{Action: EmployeeActionNone}}
+	empQuiet := NewIMBotEmployee(f.svc, f.q, quiet)
+	empQuiet.nowFn = emp.nowFn
+	for i := 0; i < 10; i++ {
+		seedChatter(t, f, chat, employeeMinMessages)
+		empQuiet.sweep(ctx)
+	}
+	// Same chat, budget untouched by the "none" run -> a notify still lands.
+	empQuiet2 := NewIMBotEmployee(f.svc, f.q, an)
+	empQuiet2.nowFn = emp.nowFn
+	seedChatter(t, f, chat, employeeMinMessages)
+	before := len(f.adapter.pushes)
+	empQuiet2.sweep(ctx)
+	if len(f.adapter.pushes) != before+1 {
+		t.Errorf("window reset / none-is-free broken: pushes %d -> %d", before, len(f.adapter.pushes))
+	}
+}
+
+// TestEmployeeActionBudget_IsPerChat: one chatty group must not silence another.
+func TestEmployeeActionBudget_IsPerChat(t *testing.T) {
+	f := newIMBotFixture(t)
+	noisy := f.observeChat(t, "oc_noisy")
+	quiet := f.observeChat(t, "oc_quiet")
+	ctx := context.Background()
+
+	an := &fakeAnalyzer{verdict: EmployeeVerdict{Action: EmployeeActionNotify, Message: "提醒"}}
+	emp := NewIMBotEmployee(f.svc, f.q, an)
+
+	// Burn the noisy chat's whole budget.
+	for i := 0; i < employeeMaxActionsPerDay+2; i++ {
+		seedChatter(t, f, noisy, employeeMinMessages)
+		emp.sweep(ctx)
+	}
+	spent := len(f.adapter.pushes)
+
+	// The other chat still gets its own allowance.
+	seedChatter(t, f, quiet, employeeMinMessages)
+	emp.sweep(ctx)
+	if len(f.adapter.pushes) != spent+1 {
+		t.Errorf("a chatty group silenced another: pushes %d -> %d", spent, len(f.adapter.pushes))
+	}
+}

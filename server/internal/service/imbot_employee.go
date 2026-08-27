@@ -86,6 +86,16 @@ const (
 	// employeeBatchLimit bounds one analysis batch so a very busy chat cannot
 	// produce an unbounded prompt.
 	employeeBatchLimit = 80
+
+	// employeeMaxActionsPerDay caps how often the employee may interrupt ONE chat
+	// on its own initiative (notify + task combined) within employeeActionWindow.
+	// "none" verdicts are free, so a quiet-but-watchful bot is unbounded; only
+	// actual interruptions are rationed. Deliberately small: the failure mode this
+	// guards is a bot that becomes noise the team learns to ignore.
+	employeeMaxActionsPerDay = 4
+
+	// employeeActionWindow is the budget's rolling period.
+	employeeActionWindow = 24 * time.Hour
 )
 
 // IMBotEmployee runs the periodic proactive sweep over observe-mode chats. It is
@@ -99,6 +109,13 @@ type IMBotEmployee struct {
 
 	// interval is the sweep period, overridable in tests to avoid a 10-minute wait.
 	interval time.Duration
+
+	// budgetMu guards actionBudget: the per-chat interruption allowance (see
+	// claimActionBudget). nowFn overrides the clock in tests so a window can be
+	// advanced without sleeping.
+	budgetMu     sync.Mutex
+	actionBudget map[int64]*actionBudget
+	nowFn        func() time.Time
 
 	mu   sync.Mutex
 	stop chan struct{}
@@ -248,7 +265,20 @@ func (e *IMBotEmployee) considerChat(ctx context.Context, chat store.ImBotChat) 
 	}
 	e.markAnalyzed(ctx, chat.ID, msgs)
 
-	switch normalizeEmployeeAction(verdict.Action) {
+	action := normalizeEmployeeAction(verdict.Action)
+	// Interruption budget: a colleague who speaks up all day is worse than one who
+	// picks their moments, and each proactive action is also a message the whole
+	// group sees. "none" costs nothing and is never counted; only actually speaking
+	// up or starting work consumes budget. Over budget we downgrade to silence for
+	// the rest of the window rather than queueing, since a delayed reminder about an
+	// old discussion is exactly the stale-replay problem observation avoids.
+	if action != EmployeeActionNone && !e.claimActionBudget(chat.ID) {
+		slog.Info("imbot: employee action suppressed by daily budget",
+			"chat", chat.ID, "action", action, "budget", employeeMaxActionsPerDay)
+		return
+	}
+
+	switch action {
 	case EmployeeActionNotify:
 		e.notify(ctx, chat, verdict.Message)
 	case EmployeeActionTask:
@@ -256,6 +286,45 @@ func (e *IMBotEmployee) considerChat(ctx context.Context, chat store.ImBotChat) 
 	default:
 		slog.Debug("imbot: employee verdict none", "chat", chat.ID, "messages", len(msgs))
 	}
+}
+
+// claimActionBudget consumes one proactive-action slot for a chat, returning false
+// when the chat has already used its allowance for the current window. In-memory
+// and process-local: the budget is an anti-nuisance guard, and a restart resetting
+// it is harmless (worst case the group gets a couple of extra messages that day),
+// which is cheaper than a table plus migration for a purely advisory limit.
+func (e *IMBotEmployee) claimActionBudget(chatID int64) bool {
+	e.budgetMu.Lock()
+	defer e.budgetMu.Unlock()
+	if e.actionBudget == nil {
+		e.actionBudget = map[int64]*actionBudget{}
+	}
+	now := e.now()
+	b := e.actionBudget[chatID]
+	if b == nil || now.Sub(b.windowStart) >= employeeActionWindow {
+		b = &actionBudget{windowStart: now}
+		e.actionBudget[chatID] = b
+	}
+	if b.used >= employeeMaxActionsPerDay {
+		return false
+	}
+	b.used++
+	return true
+}
+
+// actionBudget tracks one chat's proactive-action usage inside a rolling window.
+type actionBudget struct {
+	windowStart time.Time
+	used        int
+}
+
+// now returns the current time, overridable in tests so a budget window can be
+// advanced without sleeping.
+func (e *IMBotEmployee) now() time.Time {
+	if e.nowFn != nil {
+		return e.nowFn()
+	}
+	return time.Now()
 }
 
 // markAnalyzed stamps the batch up to its highest id. Bounding by id (not by a
