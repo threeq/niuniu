@@ -333,3 +333,56 @@ func TestDispatchFrame_InvokesHandler(t *testing.T) {
 		t.Fatalf("handler should not fire for non-actionable frame")
 	})
 }
+
+// TestParseLarkEventJSON_MentionAndGroupSignals covers the Agent-employee signals
+// (issue #664): the parser must tell "a user addressed the bot" apart from
+// "the bot overheard someone mention a colleague", and a DM apart from a group.
+// Those two bits are what let observe mode stay quiet instead of spawning a task
+// per overheard sentence.
+func TestParseLarkEventJSON_MentionAndGroupSignals(t *testing.T) {
+	build := func(chatType, text string, mentions bool) string {
+		inner, _ := json.Marshal(map[string]string{"text": text})
+		content, _ := json.Marshal(string(inner))
+		m := ""
+		if mentions {
+			m = `,"mentions":[{"key":"@_user_1","name":"牛牛"}]`
+		}
+		return `{"schema":"2.0","header":{"event_id":"evt-s","event_type":"im.message.receive_v1"},
+		  "event":{"sender":{"sender_id":{"open_id":"ou_a"}},
+		  "message":{"message_id":"om_s","chat_id":"oc_c","message_type":"text",
+		    "chat_type":"` + chatType + `","content":` + string(content) + m + `}}}`
+	}
+
+	cases := []struct {
+		name          string
+		chatType      string
+		text          string
+		mentions      bool
+		wantGroup     bool
+		wantMentioned bool
+	}{
+		// A leading placeholder is a user addressing the bot.
+		{"group leading mention", "group", "@_user_1 帮我做个表", true, true, true},
+		// A placeholder mid-sentence mentions a colleague — the bot merely overheard
+		// it and must NOT treat it as a command.
+		{"group mention of colleague", "group", "这个 @_user_1 看一下吧", true, true, false},
+		// Plain group chatter: no mention at all.
+		{"group plain chatter", "group", "明天要交了", false, true, false},
+		// A DM has no mention syntax; IsGroup=false is what marks it addressed.
+		{"p2p no mention", "p2p", "帮我做个表", false, false, false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			ev, ok, err := parseLarkEventJSON([]byte(build(c.chatType, c.text, c.mentions)))
+			if err != nil || !ok {
+				t.Fatalf("parse: ok=%v err=%v", ok, err)
+			}
+			if ev.IsGroup != c.wantGroup {
+				t.Errorf("IsGroup = %v, want %v", ev.IsGroup, c.wantGroup)
+			}
+			if ev.Mentioned != c.wantMentioned {
+				t.Errorf("Mentioned = %v, want %v", ev.Mentioned, c.wantMentioned)
+			}
+		})
+	}
+}

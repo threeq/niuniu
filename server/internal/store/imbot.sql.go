@@ -15,7 +15,7 @@ const approveIMBotChat = `-- name: ApproveIMBotChat :one
 UPDATE im_bot_chats
 SET status = 'active', paired_by = ?, updated_at = CURRENT_TIMESTAMP
 WHERE id = ?
-RETURNING id, channel_id, project_id, chat_ext_id, chat_name, bind_mode, pinned_issue_id, active_issue_id, status, paired_by, created_at, updated_at
+RETURNING id, channel_id, project_id, chat_ext_id, chat_name, bind_mode, agent_mode, pinned_issue_id, active_issue_id, status, paired_by, created_at, updated_at
 `
 
 type ApproveIMBotChatParams struct {
@@ -33,6 +33,7 @@ func (q *Queries) ApproveIMBotChat(ctx context.Context, arg ApproveIMBotChatPara
 		&i.ChatExtID,
 		&i.ChatName,
 		&i.BindMode,
+		&i.AgentMode,
 		&i.PinnedIssueID,
 		&i.ActiveIssueID,
 		&i.Status,
@@ -47,7 +48,7 @@ const approveIMBotChatToProject = `-- name: ApproveIMBotChatToProject :one
 UPDATE im_bot_chats
 SET status = 'active', project_id = ?, paired_by = ?, updated_at = CURRENT_TIMESTAMP
 WHERE id = ?
-RETURNING id, channel_id, project_id, chat_ext_id, chat_name, bind_mode, pinned_issue_id, active_issue_id, status, paired_by, created_at, updated_at
+RETURNING id, channel_id, project_id, chat_ext_id, chat_name, bind_mode, agent_mode, pinned_issue_id, active_issue_id, status, paired_by, created_at, updated_at
 `
 
 type ApproveIMBotChatToProjectParams struct {
@@ -66,6 +67,7 @@ func (q *Queries) ApproveIMBotChatToProject(ctx context.Context, arg ApproveIMBo
 		&i.ChatExtID,
 		&i.ChatName,
 		&i.BindMode,
+		&i.AgentMode,
 		&i.PinnedIssueID,
 		&i.ActiveIssueID,
 		&i.Status,
@@ -131,7 +133,7 @@ func (q *Queries) CreateIMBotChannel(ctx context.Context, arg CreateIMBotChannel
 const createIMBotChat = `-- name: CreateIMBotChat :one
 INSERT INTO im_bot_chats (channel_id, chat_ext_id, chat_name, status)
 VALUES (?, ?, ?, ?)
-RETURNING id, channel_id, project_id, chat_ext_id, chat_name, bind_mode, pinned_issue_id, active_issue_id, status, paired_by, created_at, updated_at
+RETURNING id, channel_id, project_id, chat_ext_id, chat_name, bind_mode, agent_mode, pinned_issue_id, active_issue_id, status, paired_by, created_at, updated_at
 `
 
 type CreateIMBotChatParams struct {
@@ -156,12 +158,50 @@ func (q *Queries) CreateIMBotChat(ctx context.Context, arg CreateIMBotChatParams
 		&i.ChatExtID,
 		&i.ChatName,
 		&i.BindMode,
+		&i.AgentMode,
 		&i.PinnedIssueID,
 		&i.ActiveIssueID,
 		&i.Status,
 		&i.PairedBy,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const createIMBotChatMessage = `-- name: CreateIMBotChatMessage :one
+INSERT INTO im_bot_chat_messages (chat_id, actor_ext_id, actor_name, text, addressed)
+VALUES (?, ?, ?, ?, ?)
+RETURNING id, chat_id, actor_ext_id, actor_name, text, addressed, analyzed_at, created_at
+`
+
+type CreateIMBotChatMessageParams struct {
+	ChatID     int64  `json:"chat_id"`
+	ActorExtID string `json:"actor_ext_id"`
+	ActorName  string `json:"actor_name"`
+	Text       string `json:"text"`
+	Addressed  int64  `json:"addressed"`
+}
+
+// Append one observed message to a chat's rolling transcript (issue #664).
+func (q *Queries) CreateIMBotChatMessage(ctx context.Context, arg CreateIMBotChatMessageParams) (ImBotChatMessage, error) {
+	row := q.db.QueryRowContext(ctx, createIMBotChatMessage,
+		arg.ChatID,
+		arg.ActorExtID,
+		arg.ActorName,
+		arg.Text,
+		arg.Addressed,
+	)
+	var i ImBotChatMessage
+	err := row.Scan(
+		&i.ID,
+		&i.ChatID,
+		&i.ActorExtID,
+		&i.ActorName,
+		&i.Text,
+		&i.Addressed,
+		&i.AnalyzedAt,
+		&i.CreatedAt,
 	)
 	return i, err
 }
@@ -351,7 +391,7 @@ func (q *Queries) GetIMBotChannelByFingerprint(ctx context.Context, arg GetIMBot
 }
 
 const getIMBotChat = `-- name: GetIMBotChat :one
-SELECT id, channel_id, project_id, chat_ext_id, chat_name, bind_mode, pinned_issue_id, active_issue_id, status, paired_by, created_at, updated_at FROM im_bot_chats WHERE id = ?
+SELECT id, channel_id, project_id, chat_ext_id, chat_name, bind_mode, agent_mode, pinned_issue_id, active_issue_id, status, paired_by, created_at, updated_at FROM im_bot_chats WHERE id = ?
 `
 
 func (q *Queries) GetIMBotChat(ctx context.Context, id int64) (ImBotChat, error) {
@@ -364,6 +404,7 @@ func (q *Queries) GetIMBotChat(ctx context.Context, id int64) (ImBotChat, error)
 		&i.ChatExtID,
 		&i.ChatName,
 		&i.BindMode,
+		&i.AgentMode,
 		&i.PinnedIssueID,
 		&i.ActiveIssueID,
 		&i.Status,
@@ -375,7 +416,7 @@ func (q *Queries) GetIMBotChat(ctx context.Context, id int64) (ImBotChat, error)
 }
 
 const getIMBotChatByExt = `-- name: GetIMBotChatByExt :one
-SELECT id, channel_id, project_id, chat_ext_id, chat_name, bind_mode, pinned_issue_id, active_issue_id, status, paired_by, created_at, updated_at FROM im_bot_chats WHERE channel_id = ? AND chat_ext_id = ?
+SELECT id, channel_id, project_id, chat_ext_id, chat_name, bind_mode, agent_mode, pinned_issue_id, active_issue_id, status, paired_by, created_at, updated_at FROM im_bot_chats WHERE channel_id = ? AND chat_ext_id = ?
 `
 
 type GetIMBotChatByExtParams struct {
@@ -393,6 +434,7 @@ func (q *Queries) GetIMBotChatByExt(ctx context.Context, arg GetIMBotChatByExtPa
 		&i.ChatExtID,
 		&i.ChatName,
 		&i.BindMode,
+		&i.AgentMode,
 		&i.PinnedIssueID,
 		&i.ActiveIssueID,
 		&i.Status,
@@ -496,7 +538,7 @@ func (q *Queries) GetProjectContextByWorkspace(ctx context.Context, id int64) (G
 }
 
 const listActiveIMBotChatsByChannel = `-- name: ListActiveIMBotChatsByChannel :many
-SELECT id, channel_id, project_id, chat_ext_id, chat_name, bind_mode, pinned_issue_id, active_issue_id, status, paired_by, created_at, updated_at FROM im_bot_chats WHERE channel_id = ? AND status = 'active' ORDER BY id
+SELECT id, channel_id, project_id, chat_ext_id, chat_name, bind_mode, agent_mode, pinned_issue_id, active_issue_id, status, paired_by, created_at, updated_at FROM im_bot_chats WHERE channel_id = ? AND status = 'active' ORDER BY id
 `
 
 func (q *Queries) ListActiveIMBotChatsByChannel(ctx context.Context, channelID int64) ([]ImBotChat, error) {
@@ -515,6 +557,7 @@ func (q *Queries) ListActiveIMBotChatsByChannel(ctx context.Context, channelID i
 			&i.ChatExtID,
 			&i.ChatName,
 			&i.BindMode,
+			&i.AgentMode,
 			&i.PinnedIssueID,
 			&i.ActiveIssueID,
 			&i.Status,
@@ -536,7 +579,7 @@ func (q *Queries) ListActiveIMBotChatsByChannel(ctx context.Context, channelID i
 }
 
 const listActiveIMBotChatsByOwner = `-- name: ListActiveIMBotChatsByOwner :many
-SELECT c.id, c.channel_id, c.project_id, c.chat_ext_id, c.chat_name, c.bind_mode, c.pinned_issue_id, c.active_issue_id, c.status, c.paired_by, c.created_at, c.updated_at FROM im_bot_chats c
+SELECT c.id, c.channel_id, c.project_id, c.chat_ext_id, c.chat_name, c.bind_mode, c.agent_mode, c.pinned_issue_id, c.active_issue_id, c.status, c.paired_by, c.created_at, c.updated_at FROM im_bot_chats c
 JOIN im_bot_channels ch ON ch.id = c.channel_id
 WHERE ch.owner_type = ? AND ch.owner_id = ? AND c.status = 'active' AND c.project_id IS NOT NULL
 ORDER BY c.created_at, c.id
@@ -565,6 +608,7 @@ func (q *Queries) ListActiveIMBotChatsByOwner(ctx context.Context, arg ListActiv
 			&i.ChatExtID,
 			&i.ChatName,
 			&i.BindMode,
+			&i.AgentMode,
 			&i.PinnedIssueID,
 			&i.ActiveIssueID,
 			&i.Status,
@@ -586,7 +630,7 @@ func (q *Queries) ListActiveIMBotChatsByOwner(ctx context.Context, arg ListActiv
 }
 
 const listActiveIMBotChatsByProject = `-- name: ListActiveIMBotChatsByProject :many
-SELECT id, channel_id, project_id, chat_ext_id, chat_name, bind_mode, pinned_issue_id, active_issue_id, status, paired_by, created_at, updated_at FROM im_bot_chats WHERE project_id = ? AND status = 'active' ORDER BY id
+SELECT id, channel_id, project_id, chat_ext_id, chat_name, bind_mode, agent_mode, pinned_issue_id, active_issue_id, status, paired_by, created_at, updated_at FROM im_bot_chats WHERE project_id = ? AND status = 'active' ORDER BY id
 `
 
 func (q *Queries) ListActiveIMBotChatsByProject(ctx context.Context, projectID sql.NullInt64) ([]ImBotChat, error) {
@@ -605,6 +649,7 @@ func (q *Queries) ListActiveIMBotChatsByProject(ctx context.Context, projectID s
 			&i.ChatExtID,
 			&i.ChatName,
 			&i.BindMode,
+			&i.AgentMode,
 			&i.PinnedIssueID,
 			&i.ActiveIssueID,
 			&i.Status,
@@ -665,6 +710,50 @@ func (q *Queries) ListActiveStreamChannels(ctx context.Context) ([]ImBotChannel,
 	return items, nil
 }
 
+const listAllActiveIMBotChats = `-- name: ListAllActiveIMBotChats :many
+SELECT c.id, c.channel_id, c.project_id, c.chat_ext_id, c.chat_name, c.bind_mode, c.agent_mode, c.pinned_issue_id, c.active_issue_id, c.status, c.paired_by, c.created_at, c.updated_at FROM im_bot_chats c
+WHERE c.status = 'active' AND c.project_id IS NOT NULL
+ORDER BY c.created_at, c.id
+`
+
+// Global-admin scope: active chat->project bindings across every owner.
+func (q *Queries) ListAllActiveIMBotChats(ctx context.Context) ([]ImBotChat, error) {
+	rows, err := q.db.QueryContext(ctx, listAllActiveIMBotChats)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ImBotChat{}
+	for rows.Next() {
+		var i ImBotChat
+		if err := rows.Scan(
+			&i.ID,
+			&i.ChannelID,
+			&i.ProjectID,
+			&i.ChatExtID,
+			&i.ChatName,
+			&i.BindMode,
+			&i.AgentMode,
+			&i.PinnedIssueID,
+			&i.ActiveIssueID,
+			&i.Status,
+			&i.PairedBy,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listAllIMBotChannels = `-- name: ListAllIMBotChannels :many
 SELECT id, owner_type, owner_id, credential_fingerprint, channel_type, name, connection_mode, credential_enc, webhook_secret, status, created_at, updated_at FROM im_bot_channels ORDER BY created_at, id
 `
@@ -690,6 +779,50 @@ func (q *Queries) ListAllIMBotChannels(ctx context.Context) ([]ImBotChannel, err
 			&i.CredentialEnc,
 			&i.WebhookSecret,
 			&i.Status,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listAllPendingIMBotChats = `-- name: ListAllPendingIMBotChats :many
+SELECT c.id, c.channel_id, c.project_id, c.chat_ext_id, c.chat_name, c.bind_mode, c.agent_mode, c.pinned_issue_id, c.active_issue_id, c.status, c.paired_by, c.created_at, c.updated_at FROM im_bot_chats c
+WHERE c.status = 'pending'
+ORDER BY c.created_at, c.id
+`
+
+// Global-admin scope: pending chats across every owner.
+func (q *Queries) ListAllPendingIMBotChats(ctx context.Context) ([]ImBotChat, error) {
+	rows, err := q.db.QueryContext(ctx, listAllPendingIMBotChats)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ImBotChat{}
+	for rows.Next() {
+		var i ImBotChat
+		if err := rows.Scan(
+			&i.ID,
+			&i.ChannelID,
+			&i.ProjectID,
+			&i.ChatExtID,
+			&i.ChatName,
+			&i.BindMode,
+			&i.AgentMode,
+			&i.PinnedIssueID,
+			&i.ActiveIssueID,
+			&i.Status,
+			&i.PairedBy,
 			&i.CreatedAt,
 			&i.UpdatedAt,
 		); err != nil {
@@ -756,7 +889,6 @@ SELECT DISTINCT ch.id, ch.owner_type, ch.owner_id, ch.credential_fingerprint, ch
 WHERE ch.id IN (SELECT c.channel_id FROM im_bot_chats c WHERE c.project_id = ?1)
 ORDER BY ch.created_at, ch.id
 `
-
 
 // Bots (channels) serving this project: purely by reverse lookup through the
 // chats routed here (project -> chat -> channel). A shared bot is owner-level and
@@ -841,7 +973,7 @@ func (q *Queries) ListIMBotChannelsMissingFingerprint(ctx context.Context) ([]Im
 }
 
 const listIMBotChatsByChannel = `-- name: ListIMBotChatsByChannel :many
-SELECT id, channel_id, project_id, chat_ext_id, chat_name, bind_mode, pinned_issue_id, active_issue_id, status, paired_by, created_at, updated_at FROM im_bot_chats WHERE channel_id = ? ORDER BY created_at, id
+SELECT id, channel_id, project_id, chat_ext_id, chat_name, bind_mode, agent_mode, pinned_issue_id, active_issue_id, status, paired_by, created_at, updated_at FROM im_bot_chats WHERE channel_id = ? ORDER BY created_at, id
 `
 
 func (q *Queries) ListIMBotChatsByChannel(ctx context.Context, channelID int64) ([]ImBotChat, error) {
@@ -860,6 +992,7 @@ func (q *Queries) ListIMBotChatsByChannel(ctx context.Context, channelID int64) 
 			&i.ChatExtID,
 			&i.ChatName,
 			&i.BindMode,
+			&i.AgentMode,
 			&i.PinnedIssueID,
 			&i.ActiveIssueID,
 			&i.Status,
@@ -881,7 +1014,7 @@ func (q *Queries) ListIMBotChatsByChannel(ctx context.Context, channelID int64) 
 }
 
 const listIMBotChatsByProject = `-- name: ListIMBotChatsByProject :many
-SELECT c.id, c.channel_id, c.project_id, c.chat_ext_id, c.chat_name, c.bind_mode, c.pinned_issue_id, c.active_issue_id, c.status, c.paired_by, c.created_at, c.updated_at FROM im_bot_chats c
+SELECT c.id, c.channel_id, c.project_id, c.chat_ext_id, c.chat_name, c.bind_mode, c.agent_mode, c.pinned_issue_id, c.active_issue_id, c.status, c.paired_by, c.created_at, c.updated_at FROM im_bot_chats c
 WHERE c.project_id = ?1
 ORDER BY c.created_at, c.id
 `
@@ -906,6 +1039,7 @@ func (q *Queries) ListIMBotChatsByProject(ctx context.Context, projectID sql.Nul
 			&i.ChatExtID,
 			&i.ChatName,
 			&i.BindMode,
+			&i.AgentMode,
 			&i.PinnedIssueID,
 			&i.ActiveIssueID,
 			&i.Status,
@@ -960,15 +1094,16 @@ func (q *Queries) ListIMBotThreadsByIssue(ctx context.Context, issueID int64) ([
 	return items, nil
 }
 
-const listAllActiveIMBotChats = `-- name: ListAllActiveIMBotChats :many
-SELECT c.id, c.channel_id, c.project_id, c.chat_ext_id, c.chat_name, c.bind_mode, c.pinned_issue_id, c.active_issue_id, c.status, c.paired_by, c.created_at, c.updated_at FROM im_bot_chats c
-WHERE c.status = 'active' AND c.project_id IS NOT NULL
-ORDER BY c.created_at, c.id
+const listObserveIMBotChats = `-- name: ListObserveIMBotChats :many
+SELECT id, channel_id, project_id, chat_ext_id, chat_name, bind_mode, agent_mode, pinned_issue_id, active_issue_id, status, paired_by, created_at, updated_at FROM im_bot_chats
+WHERE status = 'active' AND agent_mode = 'observe' AND project_id IS NOT NULL
+ORDER BY id
 `
 
-// Global-admin scope: active chat->project bindings across every owner.
-func (q *Queries) ListAllActiveIMBotChats(ctx context.Context) ([]ImBotChat, error) {
-	rows, err := q.db.QueryContext(ctx, listAllActiveIMBotChats)
+// Every active chat opted into observation mode, for the periodic proactive
+// analyzer sweep. Only chats already routed to a project can produce work.
+func (q *Queries) ListObserveIMBotChats(ctx context.Context) ([]ImBotChat, error) {
+	rows, err := q.db.QueryContext(ctx, listObserveIMBotChats)
 	if err != nil {
 		return nil, err
 	}
@@ -983,49 +1118,7 @@ func (q *Queries) ListAllActiveIMBotChats(ctx context.Context) ([]ImBotChat, err
 			&i.ChatExtID,
 			&i.ChatName,
 			&i.BindMode,
-			&i.PinnedIssueID,
-			&i.ActiveIssueID,
-			&i.Status,
-			&i.PairedBy,
-			&i.CreatedAt,
-			&i.UpdatedAt,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
-const listAllPendingIMBotChats = `-- name: ListAllPendingIMBotChats :many
-SELECT c.id, c.channel_id, c.project_id, c.chat_ext_id, c.chat_name, c.bind_mode, c.pinned_issue_id, c.active_issue_id, c.status, c.paired_by, c.created_at, c.updated_at FROM im_bot_chats c
-WHERE c.status = 'pending'
-ORDER BY c.created_at, c.id
-`
-
-// Global-admin scope: pending chats across every owner.
-func (q *Queries) ListAllPendingIMBotChats(ctx context.Context) ([]ImBotChat, error) {
-	rows, err := q.db.QueryContext(ctx, listAllPendingIMBotChats)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	items := []ImBotChat{}
-	for rows.Next() {
-		var i ImBotChat
-		if err := rows.Scan(
-			&i.ID,
-			&i.ChannelID,
-			&i.ProjectID,
-			&i.ChatExtID,
-			&i.ChatName,
-			&i.BindMode,
+			&i.AgentMode,
 			&i.PinnedIssueID,
 			&i.ActiveIssueID,
 			&i.Status,
@@ -1047,7 +1140,7 @@ func (q *Queries) ListAllPendingIMBotChats(ctx context.Context) ([]ImBotChat, er
 }
 
 const listPendingIMBotChatsByOwner = `-- name: ListPendingIMBotChatsByOwner :many
-SELECT c.id, c.channel_id, c.project_id, c.chat_ext_id, c.chat_name, c.bind_mode, c.pinned_issue_id, c.active_issue_id, c.status, c.paired_by, c.created_at, c.updated_at FROM im_bot_chats c
+SELECT c.id, c.channel_id, c.project_id, c.chat_ext_id, c.chat_name, c.bind_mode, c.agent_mode, c.pinned_issue_id, c.active_issue_id, c.status, c.paired_by, c.created_at, c.updated_at FROM im_bot_chats c
 JOIN im_bot_channels ch ON ch.id = c.channel_id
 WHERE ch.owner_type = ? AND ch.owner_id = ? AND c.status = 'pending'
 ORDER BY c.created_at, c.id
@@ -1074,6 +1167,7 @@ func (q *Queries) ListPendingIMBotChatsByOwner(ctx context.Context, arg ListPend
 			&i.ChatExtID,
 			&i.ChatName,
 			&i.BindMode,
+			&i.AgentMode,
 			&i.PinnedIssueID,
 			&i.ActiveIssueID,
 			&i.Status,
@@ -1094,6 +1188,71 @@ func (q *Queries) ListPendingIMBotChatsByOwner(ctx context.Context, arg ListPend
 	return items, nil
 }
 
+const listUnanalyzedIMBotChatMessages = `-- name: ListUnanalyzedIMBotChatMessages :many
+SELECT id, chat_id, actor_ext_id, actor_name, text, addressed, analyzed_at, created_at FROM im_bot_chat_messages
+WHERE chat_id = ? AND analyzed_at IS NULL
+ORDER BY id
+LIMIT ?
+`
+
+type ListUnanalyzedIMBotChatMessagesParams struct {
+	ChatID int64 `json:"chat_id"`
+	Limit  int64 `json:"limit"`
+}
+
+// The chatter a chat has accumulated since the last proactive analysis, oldest
+// first so the analyzer reads the conversation in order. Bounded by the caller.
+func (q *Queries) ListUnanalyzedIMBotChatMessages(ctx context.Context, arg ListUnanalyzedIMBotChatMessagesParams) ([]ImBotChatMessage, error) {
+	rows, err := q.db.QueryContext(ctx, listUnanalyzedIMBotChatMessages, arg.ChatID, arg.Limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ImBotChatMessage{}
+	for rows.Next() {
+		var i ImBotChatMessage
+		if err := rows.Scan(
+			&i.ID,
+			&i.ChatID,
+			&i.ActorExtID,
+			&i.ActorName,
+			&i.Text,
+			&i.Addressed,
+			&i.AnalyzedAt,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const markIMBotChatMessagesAnalyzed = `-- name: MarkIMBotChatMessagesAnalyzed :exec
+UPDATE im_bot_chat_messages
+SET analyzed_at = CURRENT_TIMESTAMP
+WHERE chat_id = ? AND analyzed_at IS NULL AND id <= ?
+`
+
+type MarkIMBotChatMessagesAnalyzedParams struct {
+	ChatID int64 `json:"chat_id"`
+	ID     int64 `json:"id"`
+}
+
+// Stamp a just-analyzed batch so the same chatter never drives a second
+// suggestion. Bounded by max id rather than a timestamp so messages arriving
+// mid-analysis stay unanalyzed and are picked up by the next sweep.
+func (q *Queries) MarkIMBotChatMessagesAnalyzed(ctx context.Context, arg MarkIMBotChatMessagesAnalyzedParams) error {
+	_, err := q.db.ExecContext(ctx, markIMBotChatMessagesAnalyzed, arg.ChatID, arg.ID)
+	return err
+}
+
 const markOnboardingTokenUsed = `-- name: MarkOnboardingTokenUsed :exec
 UPDATE im_bot_onboarding_tokens SET used_at = CURRENT_TIMESTAMP WHERE id = ?
 `
@@ -1107,7 +1266,7 @@ const reassignIMBotChat = `-- name: ReassignIMBotChat :one
 UPDATE im_bot_chats
 SET project_id = ?, updated_at = CURRENT_TIMESTAMP
 WHERE id = ?
-RETURNING id, channel_id, project_id, chat_ext_id, chat_name, bind_mode, pinned_issue_id, active_issue_id, status, paired_by, created_at, updated_at
+RETURNING id, channel_id, project_id, chat_ext_id, chat_name, bind_mode, agent_mode, pinned_issue_id, active_issue_id, status, paired_by, created_at, updated_at
 `
 
 type ReassignIMBotChatParams struct {
@@ -1125,6 +1284,7 @@ func (q *Queries) ReassignIMBotChat(ctx context.Context, arg ReassignIMBotChatPa
 		&i.ChatExtID,
 		&i.ChatName,
 		&i.BindMode,
+		&i.AgentMode,
 		&i.PinnedIssueID,
 		&i.ActiveIssueID,
 		&i.Status,
@@ -1148,6 +1308,34 @@ type SetIMBotChannelFingerprintParams struct {
 
 func (q *Queries) SetIMBotChannelFingerprint(ctx context.Context, arg SetIMBotChannelFingerprintParams) error {
 	_, err := q.db.ExecContext(ctx, setIMBotChannelFingerprint, arg.CredentialFingerprint, arg.ID)
+	return err
+}
+
+const trimIMBotChatMessages = `-- name: TrimIMBotChatMessages :exec
+DELETE FROM im_bot_chat_messages
+WHERE id IN (
+    SELECT m.id FROM im_bot_chat_messages m
+    WHERE m.chat_id = ?1
+      AND m.id NOT IN (
+        SELECT k.id FROM im_bot_chat_messages k
+        WHERE k.chat_id = ?1
+        ORDER BY k.id DESC
+        LIMIT ?2
+      )
+)
+`
+
+type TrimIMBotChatMessagesParams struct {
+	ChatID int64 `json:"chat_id"`
+	Keep   int64 `json:"keep"`
+}
+
+// Keep a chat's transcript to the newest N rows. The log is a rolling analysis
+// window, not an archive, so it must not grow without bound in a busy group.
+// Both references are aliased: an unqualified chat_id would be ambiguous between
+// the outer DELETE target and the inner SELECT.
+func (q *Queries) TrimIMBotChatMessages(ctx context.Context, arg TrimIMBotChatMessagesParams) error {
+	_, err := q.db.ExecContext(ctx, trimIMBotChatMessages, arg.ChatID, arg.Keep)
 	return err
 }
 
@@ -1212,7 +1400,7 @@ const updateIMBotChat = `-- name: UpdateIMBotChat :one
 UPDATE im_bot_chats
 SET bind_mode = ?, pinned_issue_id = ?, active_issue_id = ?, status = ?, updated_at = CURRENT_TIMESTAMP
 WHERE id = ?
-RETURNING id, channel_id, project_id, chat_ext_id, chat_name, bind_mode, pinned_issue_id, active_issue_id, status, paired_by, created_at, updated_at
+RETURNING id, channel_id, project_id, chat_ext_id, chat_name, bind_mode, agent_mode, pinned_issue_id, active_issue_id, status, paired_by, created_at, updated_at
 `
 
 type UpdateIMBotChatParams struct {
@@ -1239,6 +1427,43 @@ func (q *Queries) UpdateIMBotChat(ctx context.Context, arg UpdateIMBotChatParams
 		&i.ChatExtID,
 		&i.ChatName,
 		&i.BindMode,
+		&i.AgentMode,
+		&i.PinnedIssueID,
+		&i.ActiveIssueID,
+		&i.Status,
+		&i.PairedBy,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const updateIMBotChatAgentMode = `-- name: UpdateIMBotChatAgentMode :one
+UPDATE im_bot_chats
+SET agent_mode = ?, updated_at = CURRENT_TIMESTAMP
+WHERE id = ?
+RETURNING id, channel_id, project_id, chat_ext_id, chat_name, bind_mode, agent_mode, pinned_issue_id, active_issue_id, status, paired_by, created_at, updated_at
+`
+
+type UpdateIMBotChatAgentModeParams struct {
+	AgentMode string `json:"agent_mode"`
+	ID        int64  `json:"id"`
+}
+
+// Agent employee mode (issue #664): 'command' acts only when addressed,
+// 'observe' also logs and periodically analyzes all chatter. Validated in the
+// service layer (the column carries no CHECK -- it is migration-added).
+func (q *Queries) UpdateIMBotChatAgentMode(ctx context.Context, arg UpdateIMBotChatAgentModeParams) (ImBotChat, error) {
+	row := q.db.QueryRowContext(ctx, updateIMBotChatAgentMode, arg.AgentMode, arg.ID)
+	var i ImBotChat
+	err := row.Scan(
+		&i.ID,
+		&i.ChannelID,
+		&i.ProjectID,
+		&i.ChatExtID,
+		&i.ChatName,
+		&i.BindMode,
+		&i.AgentMode,
 		&i.PinnedIssueID,
 		&i.ActiveIssueID,
 		&i.Status,

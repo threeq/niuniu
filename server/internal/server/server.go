@@ -146,6 +146,7 @@ type Server struct {
 	imbotHandler    *api.IMBotHandler
 	imbotConnMgr    *imbot.ConnectorManager
 	imbotDispatcher *service.IMBotDispatcher
+	imbotEmployee   *service.IMBotEmployee
 
 	// Handlers
 	projectHandler          *api.ProjectHandler
@@ -1437,6 +1438,12 @@ func New(cfg *config.Config, db *sql.DB, frontendFS fs.FS) *Server {
 	s.imbotHandler.SetDispatch(imbotDispatch)
 	s.imbotHandler.SetDeliverer(s.agentProxy)
 	s.imbotDispatcher = service.NewIMBotDispatcher(s.eventBus, s.queries, s.imbotSvc, imbotAdapters)
+	// Agent employee (issue #664): the proactive half. Observation recording is
+	// inline in the inbound pipeline; this loop periodically reads what an
+	// observe-mode chat has been saying and either speaks up or starts a task on
+	// its own. Backed by the same one-shot claude CLI as the other AI helpers, and
+	// inert for any chat that has not opted into observe mode.
+	s.imbotEmployee = service.NewIMBotEmployee(s.imbotSvc, s.queries, service.NewClaudeEmployeeAnalyzer())
 	// Backfill credential fingerprints for legacy channels so the one-bot-per-app
 	// UNIQUE constraint is enforceable (blocks a second channel for the same app);
 	// leftover duplicates are logged, not deleted. Best-effort before connections start.
@@ -1448,6 +1455,7 @@ func New(cfg *config.Config, db *sql.DB, frontendFS fs.FS) *Server {
 		slog.Warn("imbot: connector manager start failed", "error", err)
 	}
 	s.imbotDispatcher.Start()
+	s.imbotEmployee.Start()
 
 	s.setupRoutes()
 	return s
@@ -1496,6 +1504,9 @@ func (s *Server) Shutdown() {
 	}
 	if s.imbotDispatcher != nil {
 		s.imbotDispatcher.Stop()
+	}
+	if s.imbotEmployee != nil {
+		s.imbotEmployee.Stop()
 	}
 	if s.imbotConnMgr != nil {
 		s.imbotConnMgr.Stop()

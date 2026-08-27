@@ -948,3 +948,75 @@ func mustNoErr(t *testing.T, name string, fn func() error) {
 		t.Errorf("%s: %v", name, err)
 	}
 }
+
+// TestPGSmokeIMBotAgentEmployee exercises the Agent-employee queries (issue #664)
+// against real PostgreSQL. The one that matters here is TrimIMBotChatMessages: it
+// references the same named parameter twice, so sqlc emits the numbered `?1` form
+// and the placeholder rewriter must turn it into a repeated `$1` — a pattern
+// SQLite accepts either way but PG rejects if the rewrite is wrong (42P02/42601).
+func TestPGSmokeIMBotAgentEmployee(t *testing.T) {
+	raw, q := pgtest.SetupPGDB(t)
+	seed := seedPGSmoke(t, raw)
+	ctx := context.Background()
+
+	var ch store.ImBotChannel
+	mustNoErr(t, "CreateIMBotChannel", func() error {
+		c, err := q.CreateIMBotChannel(ctx, store.CreateIMBotChannelParams{
+			OwnerType: "user", OwnerID: seed.UserID, ChannelType: "lark",
+			Name: "employee-smoke", ConnectionMode: "stream", Status: "active",
+		})
+		ch = c
+		return err
+	})
+	var chat store.ImBotChat
+	mustNoErr(t, "CreateIMBotChat", func() error {
+		c, err := q.CreateIMBotChat(ctx, store.CreateIMBotChatParams{
+			ChannelID: ch.ID, ChatExtID: "oc_smoke", ChatName: "", Status: "active",
+		})
+		chat = c
+		return err
+	})
+	mustNoErr(t, "ReassignIMBotChat", func() error {
+		c, err := q.ReassignIMBotChat(ctx, store.ReassignIMBotChatParams{
+			ProjectID: sql.NullInt64{Int64: seed.ProjectID, Valid: true}, ID: chat.ID,
+		})
+		chat = c
+		return err
+	})
+	mustNoErr(t, "UpdateIMBotChatAgentMode", func() error {
+		_, err := q.UpdateIMBotChatAgentMode(ctx, store.UpdateIMBotChatAgentModeParams{
+			AgentMode: "observe", ID: chat.ID,
+		})
+		return err
+	})
+	mustNoErr(t, "ListObserveIMBotChats", func() error {
+		_, err := q.ListObserveIMBotChats(ctx)
+		return err
+	})
+	var lastMsgID int64
+	mustNoErr(t, "CreateIMBotChatMessage", func() error {
+		m, err := q.CreateIMBotChatMessage(ctx, store.CreateIMBotChatMessageParams{
+			ChatID: chat.ID, ActorExtID: "ou_a", ActorName: "张三",
+			Text: "明天要交季度报告", Addressed: 0,
+		})
+		lastMsgID = m.ID
+		return err
+	})
+	mustNoErr(t, "ListUnanalyzedIMBotChatMessages", func() error {
+		_, err := q.ListUnanalyzedIMBotChatMessages(ctx, store.ListUnanalyzedIMBotChatMessagesParams{
+			ChatID: chat.ID, Limit: 10,
+		})
+		return err
+	})
+	// The repeated-parameter DELETE — the reason this test exists.
+	mustNoErr(t, "TrimIMBotChatMessages", func() error {
+		return q.TrimIMBotChatMessages(ctx, store.TrimIMBotChatMessagesParams{
+			ChatID: chat.ID, Keep: 100,
+		})
+	})
+	mustNoErr(t, "MarkIMBotChatMessagesAnalyzed", func() error {
+		return q.MarkIMBotChatMessagesAnalyzed(ctx, store.MarkIMBotChatMessagesAnalyzedParams{
+			ChatID: chat.ID, ID: lastMsgID,
+		})
+	})
+}

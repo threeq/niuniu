@@ -1,14 +1,14 @@
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowLeftRight, Link2, MessageSquare, Trash2 } from 'lucide-react';
+import { ArrowLeftRight, Eye, Link2, MessageSquare, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { confirm } from '@/lib/confirm';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { imbotApi, imbotOwnerApi } from '@/lib/imbot-api';
-import type { ImBotChat } from '@/types/imbot';
+import type { ImBotAgentMode, ImBotChat } from '@/types/imbot';
 import { useWritableProjects } from '@/pages/settings/imbot-settings/use-writable-projects';
 import { ProjectSelect } from '@/pages/settings/imbot-settings/project-select';
 
@@ -22,6 +22,7 @@ export function ChatRow({ projectId, chat, canManage }: Props) {
   const { t } = useTranslation('projects');
   const qc = useQueryClient();
   const [bindOpen, setBindOpen] = useState(false);
+  const [modeOpen, setModeOpen] = useState(false);
   const [reassignOpen, setReassignOpen] = useState(false);
   const [reassignTarget, setReassignTarget] = useState<number | null>(null);
   const { projects: writableProjects } = useWritableProjects();
@@ -71,9 +72,25 @@ export function ChatRow({ projectId, chat, canManage }: Props) {
     enabled: bindOpen,
   });
 
+  // Agent-employee mode (issue #664): 'command' answers only when addressed,
+  // 'observe' also watches the conversation and may report or start work on its
+  // own. A distinct mutation from `bind` because the two are orthogonal — a chat
+  // can be pinned to one task AND observe, or neither.
+  const setMode = useMutation({
+    mutationFn: (agent_mode: ImBotAgentMode) => imbotApi.patchChat(projectId, chat.id, { agent_mode }),
+    onSuccess: () => {
+      invalidateChats();
+      setModeOpen(false);
+    },
+    onError: (e) => toast.error(e instanceof Error ? e.message : String(e)),
+  });
+
   const label = chat.chat_name || chat.chat_ext_id;
   const active = chat.status === 'active';
   const pinned = chat.bind_mode === 'workspace';
+  // Rows fetched before agent_mode existed carry undefined; treat that as the
+  // conservative default, matching the backend's normalization.
+  const observing = chat.agent_mode === 'observe';
   const pinnedTitle =
     pinned && chat.pinned_issue_id != null
       ? issues.data?.find((i) => i.id === chat.pinned_issue_id)?.title
@@ -157,6 +174,54 @@ export function ChatRow({ projectId, chat, canManage }: Props) {
         <span className="text-xs text-warm-text-muted truncate max-w-32" title={pinnedTitle}>
           {pinnedTitle}
         </span>
+      )}
+
+      {canManage ? (
+        <Popover open={modeOpen} onOpenChange={setModeOpen}>
+          <PopoverTrigger asChild>
+            <Button type="button" variant="ghost" size="sm" className="gap-1">
+              <Eye className="h-3.5 w-3.5" aria-hidden="true" />
+              {observing ? t('imbot.agentModeObserve') : t('imbot.agentModeCommand')}
+            </Button>
+          </PopoverTrigger>
+          <PopoverContent className="w-72 space-y-2" align="end">
+            <p className="text-sm font-medium text-warm-text">{t('imbot.agentModeTitle')}</p>
+            <button
+              type="button"
+              disabled={setMode.isPending}
+              onClick={() => setMode.mutate('command')}
+              className={
+                'w-full rounded-md border px-2.5 py-1.5 text-left text-sm transition-colors ' +
+                (!observing
+                  ? 'border-brand bg-brand/5 text-warm-text'
+                  : 'border-warm-border text-warm-text-muted hover:bg-warm-muted')
+              }
+            >
+              {t('imbot.agentModeCommand')}
+              <span className="block text-xs text-warm-text-muted">
+                {t('imbot.agentModeCommandHint')}
+              </span>
+            </button>
+            <button
+              type="button"
+              disabled={setMode.isPending}
+              onClick={() => setMode.mutate('observe')}
+              className={
+                'w-full rounded-md border px-2.5 py-1.5 text-left text-sm transition-colors ' +
+                (observing
+                  ? 'border-brand bg-brand/5 text-warm-text'
+                  : 'border-warm-border text-warm-text-muted hover:bg-warm-muted')
+              }
+            >
+              {t('imbot.agentModeObserve')}
+              <span className="block text-xs text-warm-text-muted">
+                {t('imbot.agentModeObserveHint')}
+              </span>
+            </button>
+          </PopoverContent>
+        </Popover>
+      ) : (
+        observing && <Badge variant="secondary">{t('imbot.agentModeObserve')}</Badge>
       )}
 
       {canManage && active && reassignTargets.length > 0 && (

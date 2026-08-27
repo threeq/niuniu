@@ -343,10 +343,12 @@ func normalizeAibotMsg(b aibotMsgBody) (imbot.InboundEvent, bool) {
 	}
 	isGroup := strings.EqualFold(b.Chattype, "group")
 	text := strings.TrimSpace(b.Text.Content)
+	mentioned := false
 	if isGroup {
 		// A group @-mention inlines "@<botname>" at the start of Content; strip the
 		// single leading mention so the real text / slash command is recognized.
-		text = stripLeadingAtMention(text)
+		// Whether one was there is the "addressed the bot" signal.
+		text, mentioned = stripLeadingAtMention(text)
 	}
 	if text == "" {
 		return imbot.InboundEvent{}, false
@@ -362,7 +364,11 @@ func normalizeAibotMsg(b aibotMsgBody) (imbot.InboundEvent, bool) {
 		MessageExtID: strings.TrimSpace(b.Msgid),
 		Text:         text,
 		Kind:         "message",
-		EventID:      strings.TrimSpace(b.Msgid),
+		IsGroup:      isGroup,
+		// A 1:1 chat has no mention syntax; the service treats a non-group chat as
+		// addressed regardless, so only a stripped @bot prefix counts here.
+		Mentioned: mentioned,
+		EventID:   strings.TrimSpace(b.Msgid),
 	}, true
 }
 

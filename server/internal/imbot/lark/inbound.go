@@ -77,14 +77,25 @@ func parseMessageEvent(env larkEventEnvelope) (imbot.InboundEvent, bool, error) 
 			ChatID      string `json:"chat_id"`
 			ThreadID    string `json:"thread_id"`
 			MessageType string `json:"message_type"`
-			Content     string `json:"content"`
+			// ChatType is "p2p" for a 1:1 DM and "group" for a group chat. It is
+			// what lets the service observe a group silently while treating a DM as
+			// always addressed to the bot.
+			ChatType string `json:"chat_type"`
+			Content  string `json:"content"`
 			// Mentions carries the @-mention placeholders that appear inline in the
 			// text as keys like "@_user_1" / "@_all". In a group the bot only gets
 			// messages that @-mention it, so the text always leads with its own
 			// placeholder; we strip these keys so the agent (and slash-command /
 			// #id parsing) sees the real message, not "@_user_1 /issues".
+			//
+			// Name is the mentioned party's display name — we do NOT use it to
+			// decide whether the bot was mentioned (a human named like the bot
+			// would false-positive). Presence of any mention in a group chat that
+			// reached the bot is the signal, since Feishu only delivers group
+			// messages that mention the bot.
 			Mentions []struct {
-				Key string `json:"key"`
+				Key  string `json:"key"`
+				Name string `json:"name"`
 			} `json:"mentions"`
 		} `json:"message"`
 	}
@@ -98,16 +109,25 @@ func parseMessageEvent(env larkEventEnvelope) (imbot.InboundEvent, bool, error) 
 	// Unsupported types (sticker, share_chat, ...) decode to no text and no
 	// attachments and are skipped (the caller's dedupe still acks them).
 	text, atts := extractMessageContent(e.Message.MessageType, e.Message.Content)
+	mentioned := false
 	if len(e.Message.Mentions) > 0 {
 		keys := make([]string, 0, len(e.Message.Mentions))
 		for _, m := range e.Message.Mentions {
 			keys = append(keys, m.Key)
 		}
+		// A mention placeholder actually present in the text means someone was
+		// @-ed inline. Feishu only pushes group messages that mention the bot
+		// (plus, with the "read all group messages" permission, every message —
+		// where a mention of a HUMAN would otherwise be misread as addressing the
+		// bot). So require the mention to be the LEADING token, which is how a
+		// user addresses the bot; a mid-text "@同事" no longer counts.
+		mentioned = leadsWithMention(text, keys)
 		text = stripMentionKeys(text, keys)
 	}
 	if strings.TrimSpace(text) == "" && len(atts) == 0 {
 		return imbot.InboundEvent{}, false, nil
 	}
+	isGroup := e.Message.ChatType != "p2p"
 	ev := imbot.InboundEvent{
 		Channel:      imbot.ChannelLark,
 		ChatExtID:    e.Message.ChatID,
@@ -117,9 +137,28 @@ func parseMessageEvent(env larkEventEnvelope) (imbot.InboundEvent, bool, error) 
 		Text:         text,
 		Attachments:  atts,
 		Kind:         "message",
-		EventID:      eventID(env, e.Message.MessageID),
+		IsGroup:      isGroup,
+		// A DM carries no mention syntax; the service treats a non-group chat as
+		// addressed regardless, so only report a real inline mention here.
+		Mentioned: mentioned,
+		EventID:   eventID(env, e.Message.MessageID),
 	}
 	return ev, true, nil
+}
+
+// leadsWithMention reports whether text begins with one of the @-mention
+// placeholder keys (ignoring leading whitespace). Feishu inlines placeholders
+// like "@_user_1" at the exact position the mention was typed, so a LEADING
+// placeholder is a user addressing the bot, while a placeholder further in is
+// them mentioning a colleague inside a sentence the bot merely overheard.
+func leadsWithMention(text string, keys []string) bool {
+	t := strings.TrimSpace(text)
+	for _, k := range keys {
+		if k != "" && strings.HasPrefix(t, k) {
+			return true
+		}
+	}
+	return false
 }
 
 // extractMessageContent normalizes a Feishu message's (type, content-JSON) into

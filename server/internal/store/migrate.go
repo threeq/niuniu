@@ -771,6 +771,55 @@ func Migrate(db *sql.DB) {
 	// so an external knowledge-base MCP endpoint can be a KB source kind (managed
 	// in the unified KB list) instead of a hand-configured scene MCP server.
 	migrateAllowMcpKBSource(db)
+
+	// 2026-08-27 Agent employee (issue #664): the chat observation log plus the
+	// per-chat agent_mode that opts a chat into observe-and-act-proactively.
+	migrateIMBotAgentEmployee(db)
+}
+
+// migrateIMBotAgentEmployee retrofits the Agent-employee (issue #664) data model
+// onto existing DBs:
+//
+//   - im_bot_chats.agent_mode ('command' default | 'observe') — how much
+//     initiative the bot takes in this chat. Added without a CHECK constraint
+//     (addColumnIfNotExists cannot retrofit one), so the schema files declare it
+//     the same way and the service layer validates instead.
+//   - im_bot_chat_messages — the rolling per-chat transcript the proactive
+//     analyzer reads. Created here as well as in the schema files, because
+//     schema.sql only runs CREATE TABLE IF NOT EXISTS on startup and an upgraded
+//     DB needs the same table.
+//
+// Its index lives here rather than in the schema files only for the migration-
+// added column rule's spirit — the table is created in both places identically,
+// so the IF NOT EXISTS index is safe either way. All DDL is parameter-free and
+// idempotent, so this is safe to run on every startup.
+func migrateIMBotAgentEmployee(db *sql.DB) {
+	addColumnIfNotExists(db, "im_bot_chats", "agent_mode", "TEXT NOT NULL DEFAULT 'command'")
+
+	pk := "INTEGER PRIMARY KEY AUTOINCREMENT"
+	if Driver == "postgres" {
+		pk = "BIGSERIAL PRIMARY KEY"
+	}
+	fk := fkType()
+	stmts := []string{
+		`CREATE TABLE IF NOT EXISTS im_bot_chat_messages (
+			id            ` + pk + `,
+			chat_id       ` + fk + ` NOT NULL REFERENCES im_bot_chats(id) ON DELETE CASCADE,
+			actor_ext_id  TEXT NOT NULL DEFAULT '',
+			actor_name    TEXT NOT NULL DEFAULT '',
+			text          TEXT NOT NULL DEFAULT '',
+			addressed     INTEGER NOT NULL DEFAULT 0,
+			analyzed_at   TIMESTAMP,
+			created_at    TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_im_bot_chat_messages_chat ON im_bot_chat_messages(chat_id, id)`,
+	}
+	for _, s := range stmts {
+		if _, err := db.Exec(s); err != nil {
+			slog.Warn("im_bot agent-employee migration failed",
+				"first_line", strings.SplitN(s, "\n", 2)[0], "error", err)
+		}
+	}
 }
 
 // migrateIMBotAllowWechat relaxes the im_bot_channels.channel_type and

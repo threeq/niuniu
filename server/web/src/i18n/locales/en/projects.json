@@ -937,6 +937,11 @@
     "bindProjectHint": "Continue or start a task automatically from message intent.",
     "bindWorkspaceHint": "Pin to one task: every message in this chat goes straight to it.",
     "bindNoIssues": "No tasks in this project to pin yet.",
+    "agentModeTitle": "Employee mode",
+    "agentModeCommand": "On command",
+    "agentModeCommandHint": "Act only when @-mentioned, messaged directly, or given a command.",
+    "agentModeObserve": "Observe actively",
+    "agentModeObserveHint": "Record the discussion and review it periodically; speak up or start a task when warranted.",
     "wechat": {
       "scanHint": "Scan the QR code below with WeChat (Discover → Scan) to connect the bot.",
       "starting": "Fetching QR code…",

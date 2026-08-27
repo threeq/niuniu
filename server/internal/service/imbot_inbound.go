@@ -95,6 +95,25 @@ func (s *IMBotService) HandleInbound(ctx context.Context, ev imbot.InboundEvent)
 		text = attachmentPlaceholder(ev.Attachments)
 	}
 
+	// Agent-employee observation layer (issue #664). In observe mode the bot acts
+	// like a colleague sitting in the chat: every message is recorded, but only a
+	// message actually AIMED at the bot takes over the conversation. Ambient
+	// chatter is left to the periodic proactive analysis (imbot_employee.go), so a
+	// busy group does not spawn a task per overheard sentence. A command-mode chat
+	// (the default, and every pre-existing chat) skips this entirely and behaves
+	// exactly as before.
+	if normalizeAgentMode(chat.AgentMode) == AgentModeObserve {
+		// Addressed either by the message's own wording (@mention / DM / command) or
+		// by context (a workspace-pinned chat, or a follow-up inside a thread already
+		// bound to a task — those must not be dropped for lacking a fresh @mention).
+		addressed := addressedToBot(ev, text) || s.conversationallyAddressed(ctx, chat, ev.ThreadExtID)
+		s.recordObservation(ctx, chat, ev, text, addressed)
+		if !addressed {
+			slog.Debug("imbot: observed (not addressed)", "chat", chat.ID, "actor", ev.ActorExtID)
+			return
+		}
+	}
+
 	// Slash commands (optional; the channel already binds a single project).
 	// For no-thread channels (Telegram DMs) /issues + /use are how a user keeps
 	// several parallel tasks apart in one chat without crosstalk.

@@ -211,6 +211,11 @@ type IMBotChannelDTO struct {
 	UpdatedAt      time.Time `json:"updated_at"`
 }
 
+// IMBotChatDTO is the wire view of a paired chat.
+//
+// AgentMode is the Agent-employee initiative level (issue #664): "command" acts
+// only when the bot is addressed, "observe" also records all chatter and
+// periodically analyzes it, proactively reporting or starting work.
 type IMBotChatDTO struct {
 	ID            int64     `json:"id"`
 	ChannelID     int64     `json:"channel_id"`
@@ -218,6 +223,7 @@ type IMBotChatDTO struct {
 	ChatExtID     string    `json:"chat_ext_id"`
 	ChatName      string    `json:"chat_name"`
 	BindMode      string    `json:"bind_mode"`
+	AgentMode     string    `json:"agent_mode"`
 	PinnedIssueID *int64    `json:"pinned_issue_id"`
 	ActiveIssueID *int64    `json:"active_issue_id"`
 	Status        string    `json:"status"`
@@ -241,6 +247,9 @@ func channelDTO(r store.ImBotChannel) IMBotChannelDTO {
 	}
 }
 
+// chatDTO maps a chat row to its wire view. agent_mode is normalized so a row
+// written before the column existed (empty string) reads as the conservative
+// default rather than as an unknown mode.
 func chatDTO(r store.ImBotChat) IMBotChatDTO {
 	return IMBotChatDTO{
 		ID:            r.ID,
@@ -249,6 +258,7 @@ func chatDTO(r store.ImBotChat) IMBotChatDTO {
 		ChatExtID:     r.ChatExtID,
 		ChatName:      r.ChatName,
 		BindMode:      r.BindMode,
+		AgentMode:     normalizeAgentMode(r.AgentMode),
 		PinnedIssueID: nullInt64Ptr(r.PinnedIssueID),
 		ActiveIssueID: nullInt64Ptr(r.ActiveIssueID),
 		Status:        r.Status,
@@ -958,6 +968,9 @@ type PatchChatInput struct {
 	PinnedIssueID *int64
 	ActiveIssueID *int64
 	Status        string
+	// AgentMode switches the Agent-employee initiative level ("command" |
+	// "observe"). Empty preserves the current value, like the other fields here.
+	AgentMode string
 }
 
 // PatchChatByOwner is the owner-level counterpart of PatchChat: it edits a chat's
@@ -1033,6 +1046,23 @@ func (s *IMBotService) applyChatPatch(ctx context.Context, cur store.ImBotChat, 
 	})
 	if err != nil {
 		return IMBotChatDTO{}, err
+	}
+	// agent_mode is a separate UPDATE rather than a column on UpdateIMBotChat: that
+	// statement is called from the hot inbound path (setActiveIssue on every routed
+	// message), and threading a mode through it would risk a stale in-memory chat
+	// row silently reverting a mode the user just changed. Only applied when the
+	// caller actually asked for a change.
+	if want := strings.TrimSpace(in.AgentMode); want != "" {
+		mode := normalizeAgentMode(want)
+		if mode != normalizeAgentMode(cur.AgentMode) {
+			updated, merr := s.q.UpdateIMBotChatAgentMode(ctx, store.UpdateIMBotChatAgentModeParams{
+				AgentMode: mode, ID: cur.ID,
+			})
+			if merr != nil {
+				return IMBotChatDTO{}, merr
+			}
+			row = updated
+		}
 	}
 	return chatDTO(row), nil
 }

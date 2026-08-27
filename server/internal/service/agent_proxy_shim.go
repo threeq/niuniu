@@ -150,3 +150,28 @@ func (p *proxyShim) PrepareUserSend(ctx context.Context, workspaceID int64) {
 func (p *proxyShim) Deliver(ctx context.Context, workspaceID int64, workDir, content, attachments string) (bool, int64, error) {
 	return p.inner.Deliver(ctx, workspaceID, workDir, content, attachments)
 }
+
+// claudeEmployeeAnalyzer is the production EmployeeAnalyzer (issue #664): it asks
+// a one-shot `claude -p` subprocess to judge a chat transcript. The prompt and
+// schema live in imbot_employee.go with the rest of the employee's domain logic;
+// this shim only bridges to agentproxy's subprocess plumbing, which is why it
+// lives here alongside the other agentproxy adapters.
+type claudeEmployeeAnalyzer struct{}
+
+// NewClaudeEmployeeAnalyzer returns the one-shot-CLI-backed analyzer to hand to
+// NewIMBotEmployee. It reports its own unavailability at call time rather than at
+// construction, since the CLI probe can flip while the server runs.
+func NewClaudeEmployeeAnalyzer() EmployeeAnalyzer { return &claudeEmployeeAnalyzer{} }
+
+func (a *claudeEmployeeAnalyzer) AnalyzeChat(ctx context.Context, transcript string) (EmployeeVerdict, error) {
+	var v EmployeeVerdict
+	// configDir "" = the CLI's native ~/.claude credentials, matching the other
+	// one-shot helpers (goal-condition suggest/classify) on this host.
+	if err := agentproxy.AnalyzeChatObservation(
+		ctx, BuildEmployeeAnalysisPrompt(transcript), EmployeeAnalysisSchema, "", &v,
+	); err != nil {
+		return EmployeeVerdict{}, err
+	}
+	v.Action = normalizeEmployeeAction(v.Action)
+	return v, nil
+}

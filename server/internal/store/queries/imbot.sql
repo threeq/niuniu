@@ -136,6 +136,22 @@ SET bind_mode = ?, pinned_issue_id = ?, active_issue_id = ?, status = ?, updated
 WHERE id = ?
 RETURNING *;
 
+-- name: UpdateIMBotChatAgentMode :one
+-- Agent employee mode (issue #664): 'command' acts only when addressed,
+-- 'observe' also logs and periodically analyzes all chatter. Validated in the
+-- service layer (the column carries no CHECK -- it is migration-added).
+UPDATE im_bot_chats
+SET agent_mode = ?, updated_at = CURRENT_TIMESTAMP
+WHERE id = ?
+RETURNING *;
+
+-- name: ListObserveIMBotChats :many
+-- Every active chat opted into observation mode, for the periodic proactive
+-- analyzer sweep. Only chats already routed to a project can produce work.
+SELECT * FROM im_bot_chats
+WHERE status = 'active' AND agent_mode = 'observe' AND project_id IS NOT NULL
+ORDER BY id;
+
 -- name: DeleteIMBotChat :exec
 DELETE FROM im_bot_chats WHERE id = ?;
 
@@ -160,6 +176,45 @@ INSERT OR IGNORE INTO im_bot_inbox (channel_id, event_ext_id) VALUES (?, ?);
 
 -- name: GetIMBotInboxEvent :one
 SELECT * FROM im_bot_inbox WHERE channel_id = ? AND event_ext_id = ?;
+
+-- name: CreateIMBotChatMessage :one
+-- Append one observed message to a chat's rolling transcript (issue #664).
+INSERT INTO im_bot_chat_messages (chat_id, actor_ext_id, actor_name, text, addressed)
+VALUES (?, ?, ?, ?, ?)
+RETURNING *;
+
+-- name: ListUnanalyzedIMBotChatMessages :many
+-- The chatter a chat has accumulated since the last proactive analysis, oldest
+-- first so the analyzer reads the conversation in order. Bounded by the caller.
+SELECT * FROM im_bot_chat_messages
+WHERE chat_id = ? AND analyzed_at IS NULL
+ORDER BY id
+LIMIT ?;
+
+-- name: MarkIMBotChatMessagesAnalyzed :exec
+-- Stamp a just-analyzed batch so the same chatter never drives a second
+-- suggestion. Bounded by max id rather than a timestamp so messages arriving
+-- mid-analysis stay unanalyzed and are picked up by the next sweep.
+UPDATE im_bot_chat_messages
+SET analyzed_at = CURRENT_TIMESTAMP
+WHERE chat_id = ? AND analyzed_at IS NULL AND id <= ?;
+
+-- name: TrimIMBotChatMessages :exec
+-- Keep a chat's transcript to the newest N rows. The log is a rolling analysis
+-- window, not an archive, so it must not grow without bound in a busy group.
+-- Both references are aliased: an unqualified chat_id would be ambiguous between
+-- the outer DELETE target and the inner SELECT.
+DELETE FROM im_bot_chat_messages
+WHERE id IN (
+    SELECT m.id FROM im_bot_chat_messages m
+    WHERE m.chat_id = sqlc.arg(chat_id)
+      AND m.id NOT IN (
+        SELECT k.id FROM im_bot_chat_messages k
+        WHERE k.chat_id = sqlc.arg(chat_id)
+        ORDER BY k.id DESC
+        LIMIT sqlc.arg(keep)
+      )
+);
 
 -- name: GetProjectContextByWorkspace :one
 SELECT w.id AS workspace_id, w.issue_id AS issue_id, i.title AS issue_title, c.project_id AS project_id

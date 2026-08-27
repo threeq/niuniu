@@ -268,3 +268,38 @@ func TestParseDingTalkBotMessage_Video(t *testing.T) {
 		t.Fatalf("attachments=%+v, want one video dc_v", ev.Attachments)
 	}
 }
+
+// TestParseDingTalkBotMessage_MentionAndGroupSignals covers the Agent-employee
+// signals (issue #664). DingTalk inlines "@<botname>" only when the bot is
+// actually @-mentioned in a group, so the stripped prefix IS the "addressed"
+// signal; a 1:1 conversation never carries it and is addressed by definition.
+func TestParseDingTalkBotMessage_MentionAndGroupSignals(t *testing.T) {
+	cases := []struct {
+		name          string
+		convType      string
+		content       string
+		wantGroup     bool
+		wantMentioned bool
+	}{
+		{"group with bot mention", "2", "@牛牛 帮我做个表", true, true},
+		{"group plain chatter", "2", "明天要交了", true, false},
+		{"1:1 no mention", "1", "帮我做个表", false, false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			raw := `{"msgtype":"text","text":{"content":"` + c.content + `"},
+			  "conversationId":"cid","conversationType":"` + c.convType + `",
+			  "senderStaffId":"staff","msgId":"m-sig"}`
+			ev, ok := parseDingTalkBotMessage([]byte(raw))
+			if !ok {
+				t.Fatalf("parse failed")
+			}
+			if ev.IsGroup != c.wantGroup {
+				t.Errorf("IsGroup = %v, want %v", ev.IsGroup, c.wantGroup)
+			}
+			if ev.Mentioned != c.wantMentioned {
+				t.Errorf("Mentioned = %v, want %v", ev.Mentioned, c.wantMentioned)
+			}
+		})
+	}
+}

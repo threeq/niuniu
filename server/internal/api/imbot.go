@@ -413,6 +413,10 @@ type patchChatBody struct {
 	PinnedIssueID *int64 `json:"pinned_issue_id"`
 	ActiveIssueID *int64 `json:"active_issue_id"`
 	Status        string `json:"status"`
+	// AgentMode switches the Agent-employee initiative level (issue #664):
+	// "command" acts only when addressed, "observe" also records chatter and
+	// periodically analyzes it. Omitted/empty preserves the current mode.
+	AgentMode string `json:"agent_mode"`
 }
 
 func (h *IMBotHandler) PatchChat(c *gin.Context) {
@@ -434,6 +438,7 @@ func (h *IMBotHandler) PatchChat(c *gin.Context) {
 		PinnedIssueID: b.PinnedIssueID,
 		ActiveIssueID: b.ActiveIssueID,
 		Status:        b.Status,
+		AgentMode:     b.AgentMode,
 	})
 	if err != nil {
 		h.mapErr(c, err)
@@ -756,9 +761,9 @@ func (h *IMBotHandler) ReassignChatOwner(c *gin.Context) {
 }
 
 // PatchChatOwner handles PATCH /api/imbot/chats/:chatid — edit a chat's routing
-// (bind_mode / pinned issue / status) from the owner-level settings page, where the
-// caller manages chats across owners and so has no single project in the path.
-// Authorization is derived from the chat's own bot; see PatchChatByOwner.
+// (bind_mode / pinned issue / status / agent_mode) from the owner-level settings
+// page, where the caller manages chats across owners and so has no single project
+// in the path. Authorization is derived from the chat's own bot; see PatchChatByOwner.
 func (h *IMBotHandler) PatchChatOwner(c *gin.Context) {
 	uid, ok := h.callerUserID(c)
 	if !ok {
@@ -778,6 +783,7 @@ func (h *IMBotHandler) PatchChatOwner(c *gin.Context) {
 		PinnedIssueID: b.PinnedIssueID,
 		ActiveIssueID: b.ActiveIssueID,
 		Status:        b.Status,
+		AgentMode:     b.AgentMode,
 	})
 	if err != nil {
 		h.mapErr(c, err)
