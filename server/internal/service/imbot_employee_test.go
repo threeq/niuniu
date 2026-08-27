@@ -593,3 +593,80 @@ func TestObserveMode_PinnedChatAlwaysAddressed(t *testing.T) {
 		t.Fatalf("pinned-chat message not delivered: %+v", calls)
 	}
 }
+
+// blockingAnalyzer blocks until released, so a test can observe the loop while a
+// sweep is mid-model-call.
+type blockingAnalyzer struct {
+	entered chan struct{}
+	release chan struct{}
+	ctxErr  chan error
+}
+
+func (a *blockingAnalyzer) AnalyzeChat(ctx context.Context, _ string) (EmployeeVerdict, error) {
+	select {
+	case a.entered <- struct{}{}:
+	default:
+	}
+	select {
+	case <-a.release:
+	case <-ctx.Done():
+		// Report that the sweep context was cancelled, which is what lets Stop()
+		// return promptly instead of waiting out the interval.
+		select {
+		case a.ctxErr <- ctx.Err():
+		default:
+		}
+	}
+	return EmployeeVerdict{Action: EmployeeActionNone}, nil
+}
+
+// TestEmployeeStop_CancelsInFlightSweep guards a shutdown hang: the sweep context
+// is bounded by the sweep INTERVAL, so if Stop() did not also cancel it, a
+// shutdown landing mid-model-call would block the server for up to a full
+// interval. The loop's OWN tick must drive the sweep here (not a hand-rolled
+// one), so the context under test is the one the loop built.
+func TestEmployeeStop_CancelsInFlightSweep(t *testing.T) {
+	f := newIMBotFixture(t)
+	chat := f.observeChat(t, "oc_stop")
+	seedChatter(t, f, chat, employeeMinMessages)
+
+	an := &blockingAnalyzer{
+		entered: make(chan struct{}, 1),
+		release: make(chan struct{}),
+		ctxErr:  make(chan error, 1),
+	}
+	emp := NewIMBotEmployee(f.svc, f.q, an)
+	// Ticks almost immediately so the test is fast, while the sweep's own timeout
+	// (clamped to the interval) is still far longer than the analyzer blocks — so a
+	// prompt Stop() can only come from the cancel-on-stop wiring, never from the
+	// timeout expiring on its own.
+	emp.SetInterval(2 * time.Second)
+	emp.Start()
+	t.Cleanup(func() { close(an.release) })
+
+	// Wait for the LOOP's own sweep, so the context under test is the one the loop
+	// built (a hand-rolled sweep call would bypass the wiring being tested).
+	select {
+	case <-an.entered:
+	case <-time.After(30 * time.Second):
+		t.Fatal("loop never swept")
+	}
+
+	done := make(chan struct{})
+	go func() { emp.Stop(); close(done) }()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("Stop() blocked on an in-flight sweep")
+	}
+	// The in-flight analysis must have observed cancellation, proving Stop cancelled
+	// the sweep context rather than merely outliving it.
+	select {
+	case err := <-an.ctxErr:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("sweep context ended with %v, want context.Canceled", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("in-flight analysis never saw a cancelled context")
+	}
+}

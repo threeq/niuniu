@@ -74,6 +74,10 @@ const (
 	// it has happened, and each sweep costs a model call per active chat.
 	employeeSweepInterval = 10 * time.Minute
 
+	// employeeSweepTimeout bounds one sweep so a hung model call cannot wedge the
+	// loop. Clamped to the interval by sweepTimeout so sweeps never overlap.
+	employeeSweepTimeout = 5 * time.Minute
+
 	// employeeMinMessages is the smallest batch worth a model call. One or two
 	// stray lines rarely describe actionable work, and analyzing them burns a call
 	// per sweep while the discussion is still forming.
@@ -159,12 +163,40 @@ func (e *IMBotEmployee) loop(stop, done chan struct{}) {
 			return
 		case <-t.C:
 			// Bound one sweep so a hung model call cannot wedge the loop forever;
-			// unfinished chats are simply picked up next tick.
-			ctx, cancel := context.WithTimeout(context.Background(), e.interval)
-			e.sweep(ctx)
-			cancel()
+			// unfinished chats are simply picked up next tick. The context is ALSO
+			// cancelled by stop, so Stop() (and therefore server shutdown) does not
+			// have to wait out a sweep that is mid-model-call — without that, a
+			// shutdown during a sweep blocks for up to a full interval.
+			e.runSweep(stop)
 		}
 	}
+}
+
+// runSweep executes one bounded sweep, cancelling it early if stop closes. Split
+// out of loop so the cancel-watcher goroutine's lifetime ends with the sweep
+// rather than accumulating one per tick.
+func (e *IMBotEmployee) runSweep(stop chan struct{}) {
+	ctx, cancel := context.WithTimeout(context.Background(), e.sweepTimeout())
+	defer cancel()
+	watchDone := make(chan struct{})
+	defer close(watchDone)
+	go func() {
+		select {
+		case <-stop:
+			cancel()
+		case <-watchDone:
+		}
+	}()
+	e.sweep(ctx)
+}
+
+// sweepTimeout bounds one sweep: long enough for a model call per observe-mode
+// chat, and never longer than the tick interval so sweeps cannot overlap.
+func (e *IMBotEmployee) sweepTimeout() time.Duration {
+	if e.interval < employeeSweepTimeout {
+		return e.interval
+	}
+	return employeeSweepTimeout
 }
 
 // sweep considers every observe-mode chat once. Per-chat failures are logged and
