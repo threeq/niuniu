@@ -1203,6 +1203,8 @@
   "providerUsage": {
     "title": "Token 用量統計",
     "description": "按選定維度檢視 Token 消耗，精確到小時級別；按訂閱平臺統計時還會顯示限流觸發與恢復使用的時間流水。保留最近 3 個月資料。",
+    "ownerLabel": "歸屬",
+    "ownerPersonal": "個人空間",
     "rangeLabel": "時間範圍",
     "dimension": {
       "label": "統計維度",

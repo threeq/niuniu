@@ -515,6 +515,90 @@ func (a *Authz) EnsureOwnerReadable(ctx context.Context, userID int64, owner Own
 	return a.checkAccess(ctx, userID, owner)
 }
 
+// EnsureUsageReadable is the read gate for token/provider usage, which is
+// deliberately STRICTER than EnsureOwnerReadable: usage exposes cost structure
+// and per-person working patterns (who ran how much, when), so an org's numbers
+// are limited to those who administer the org rather than every member.
+//
+//	org      → owner/admin of that org, or a global admin (CanManageOrg)
+//	personal → the user themselves, or a global admin
+//
+// Kept separate from EnsureOwnerReadable rather than tightening it, because that
+// helper also gates memories, where plain-member reads are intended.
+func (a *Authz) EnsureUsageReadable(ctx context.Context, userID int64, owner OwnerRef) error {
+	if owner.Type == "org" {
+		return a.CanManageOrg(ctx, userID, owner.ID)
+	}
+	if owner.ID == userID || a.IsGlobalAdmin(ctx, userID) {
+		return nil
+	}
+	return ErrForbidden
+}
+
+// UsageReadableOwners lists the owners whose usage userID may read, in the order
+// the UI should offer them: personal space first, then orgs by name. A global
+// admin gets every user and org, so cross-team cost review works without
+// granting org membership.
+func (a *Authz) UsageReadableOwners(ctx context.Context, userID int64) ([]OwnerRef, error) {
+	if a.IsGlobalAdmin(ctx, userID) {
+		return a.allOwners(ctx, userID)
+	}
+	out := []OwnerRef{{Type: "user", ID: userID}}
+	rows, err := a.db.QueryContext(ctx,
+		`SELECT o.id FROM organizations o
+		 JOIN org_members m ON m.org_id = o.id
+		 WHERE m.user_id = ? AND m.role IN ('owner','admin')
+		 ORDER BY o.name`, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		out = append(out, OwnerRef{Type: "org", ID: id})
+	}
+	return out, rows.Err()
+}
+
+// allOwners returns the caller's personal space first, then every other user and
+// every org — the global-admin view. Ordering keeps "my own numbers" reachable
+// without scrolling past the whole tenant list.
+func (a *Authz) allOwners(ctx context.Context, callerID int64) ([]OwnerRef, error) {
+	out := []OwnerRef{{Type: "user", ID: callerID}}
+	orgRows, err := a.db.QueryContext(ctx, `SELECT id FROM organizations ORDER BY name`)
+	if err != nil {
+		return nil, err
+	}
+	defer orgRows.Close()
+	for orgRows.Next() {
+		var id int64
+		if err := orgRows.Scan(&id); err != nil {
+			return nil, err
+		}
+		out = append(out, OwnerRef{Type: "org", ID: id})
+	}
+	if err := orgRows.Err(); err != nil {
+		return nil, err
+	}
+	userRows, err := a.db.QueryContext(ctx,
+		`SELECT id FROM users WHERE id <> ? ORDER BY username`, callerID)
+	if err != nil {
+		return nil, err
+	}
+	defer userRows.Close()
+	for userRows.Next() {
+		var id int64
+		if err := userRows.Scan(&id); err != nil {
+			return nil, err
+		}
+		out = append(out, OwnerRef{Type: "user", ID: id})
+	}
+	return out, userRows.Err()
+}
+
 // EnsureOwnerExists verifies that the referenced owner entity exists in the DB.
 func (a *Authz) EnsureOwnerExists(ctx context.Context, owner OwnerRef) error {
 	var exists int
