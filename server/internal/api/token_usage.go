@@ -85,7 +85,7 @@ func (h *TokenUsageHandler) OwnerUsage(c *gin.Context) {
 		return
 	}
 	if userID > 0 && h.Authz != nil {
-		if err := h.Authz.EnsureOwnerReadable(c.Request.Context(), userID, service.OwnerRef{Type: ownerF.Type, ID: ownerF.ID}); err != nil {
+		if err := h.Authz.EnsureUsageReadable(c.Request.Context(), userID, service.OwnerRef{Type: ownerF.Type, ID: ownerF.ID}); err != nil {
 			writeAuthzError(c, err)
 			return
 		}

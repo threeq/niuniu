@@ -32,7 +32,7 @@ func (h *ProviderUsageHandler) resolveOwner(c *gin.Context) (ownerType string, o
 		return "", 0, false
 	}
 	if userID := c.GetInt64("auth_user_id"); userID > 0 && h.Authz != nil {
-		if err := h.Authz.EnsureOwnerReadable(c.Request.Context(), userID,
+		if err := h.Authz.EnsureUsageReadable(c.Request.Context(), userID,
 			service.OwnerRef{Type: ownerF.Type, ID: ownerF.ID}); err != nil {
 			writeAuthzError(c, err)
 			return "", 0, false
@@ -93,4 +93,40 @@ func (h *ProviderUsageHandler) RateLimitEvents(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"events": events})
+}
+
+// ReadableOwners handles GET /api/provider-usage/owners — the owners whose usage
+// the caller may read, so the UI can offer a picker instead of hardcoding one.
+//
+// This endpoint exists because the page previously pinned itself to
+// `user:<self>`, which showed an empty chart on a team deployment: usage there is
+// recorded against the org that owns the workspaces, and nothing is ever written
+// under a member's personal owner. The picker's first entry is the sensible
+// default for the caller.
+func (h *ProviderUsageHandler) ReadableOwners(c *gin.Context) {
+	userID := c.GetInt64("auth_user_id")
+	// Personal edition runs without auth (userID 0) and has exactly one local
+	// owner; mirror the historical user:0 resolution instead of 401-ing.
+	if userID <= 0 || h.Authz == nil {
+		c.JSON(http.StatusOK, gin.H{"items": []OwnerDTO{ownerDTOFromRef("user", userID)}})
+		return
+	}
+	owners, err := h.Authz.UsageReadableOwners(c.Request.Context(), userID)
+	if err != nil {
+		InternalError(c, err)
+		return
+	}
+	refs := make([]ownerRef, len(owners))
+	for i, o := range owners {
+		refs[i] = ownerRef{o.Type, o.ID}
+	}
+	var lk *ownerLookup
+	if h.DB != nil {
+		lk, _ = newOwnerLookup(c.Request.Context(), h.DB, refs)
+	}
+	items := make([]OwnerDTO, len(owners))
+	for i, o := range owners {
+		items[i] = lk.Build(o.Type, o.ID)
+	}
+	c.JSON(http.StatusOK, gin.H{"items": items})
 }

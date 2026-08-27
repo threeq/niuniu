@@ -337,6 +337,8 @@ func (s *Server) setupRoutes() {
 	// the 429 rate-limit episode log (trigger / reset / resumed times).
 	api.GET("/provider-usage", s.providerUsageHandler.Usage)
 	api.GET("/provider-usage/rate-limits", s.providerUsageHandler.RateLimitEvents)
+	// Which owners' usage the caller may read (drives the report's owner picker).
+	api.GET("/provider-usage/owners", s.providerUsageHandler.ReadableOwners)
 
 	// Org routes
 	// 多租户组织（Tier 1）是功能分级能力：开源个人版禁用（NopGate.FeatureEnabled
