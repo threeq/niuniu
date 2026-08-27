@@ -182,6 +182,17 @@ func (d *IMBotDispatcher) resolveTargets(ctx context.Context, projectID, issueID
 	threadByChat := map[int64]string{}
 	if threads, err := d.q.ListIMBotThreadsByIssue(ctx, issueID); err == nil {
 		for _, th := range threads {
+			// A synthetic proactive binding (see proactiveThreadExtID) marks "this
+			// chat should hear about this issue" without naming a real platform
+			// thread. Keep the chat as a target but blank the thread so the reply
+			// goes to the chat itself — passing the sentinel to an adapter would ask
+			// the platform to post into a thread that does not exist.
+			if isProactiveThreadExtID(th.ThreadExtID) {
+				if _, exists := threadByChat[th.ChatID]; !exists {
+					threadByChat[th.ChatID] = ""
+				}
+				continue
+			}
 			threadByChat[th.ChatID] = th.ThreadExtID
 		}
 	}

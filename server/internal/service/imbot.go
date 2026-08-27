@@ -1062,10 +1062,44 @@ func (s *IMBotService) applyChatPatch(ctx context.Context, cur store.ImBotChat, 
 				return IMBotChatDTO{}, merr
 			}
 			row = updated
+			// Retire whatever chatter is still pending analysis on EITHER switch
+			// direction. Leaving it would make the next enable replay an old
+			// conversation: the team turns observation back on and is greeted by a
+			// reminder about something from days ago, which reads as the bot being
+			// broken. A mode change is an explicit "start fresh from here".
+			s.retirePendingObservations(ctx, cur.ID)
 		}
 	}
 	return chatDTO(row), nil
 }
+
+// retirePendingObservations marks a chat's unanalyzed transcript as already
+// considered, without acting on it. Called when agent_mode changes so a later
+// enable analyzes only what is said from that point on. Best-effort: the rows are
+// an analysis buffer, so a failure here only risks one stale suggestion.
+func (s *IMBotService) retirePendingObservations(ctx context.Context, chatID int64) {
+	rows, err := s.q.ListUnanalyzedIMBotChatMessages(ctx, store.ListUnanalyzedIMBotChatMessagesParams{
+		ChatID: chatID, Limit: retirePendingLimit,
+	})
+	if err != nil || len(rows) == 0 {
+		return
+	}
+	maxID := int64(0)
+	for _, r := range rows {
+		if r.ID > maxID {
+			maxID = r.ID
+		}
+	}
+	if err := s.q.MarkIMBotChatMessagesAnalyzed(ctx, store.MarkIMBotChatMessagesAnalyzedParams{
+		ChatID: chatID, ID: maxID,
+	}); err != nil {
+		slog.Warn("imbot: retire pending observations failed", "chat", chatID, "error", err)
+	}
+}
+
+// retirePendingLimit bounds the retire scan. It exceeds observeTranscriptKeep, so
+// one pass always covers a chat's whole rolling window.
+const retirePendingLimit = observeTranscriptKeep + 1
 
 func (s *IMBotService) DeleteChat(ctx context.Context, projectID, chatID int64) error {
 	if _, err := s.getOwnedChat(ctx, projectID, chatID); err != nil {

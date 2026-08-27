@@ -298,6 +298,36 @@ func (e *IMBotEmployee) notify(ctx context.Context, chat store.ImBotChat, messag
 // than in reply to a request.
 const employeeNotifyPrefix = "🐂 牛牛主动提醒：\n\n"
 
+// proactiveThreadExtID is the synthetic im_bot_threads key binding a
+// proactively-started task to the chat it came from.
+//
+// im_bot_threads is reused (rather than a new table) because it is exactly the
+// binding IMBotDispatcher.resolveTargets consults to decide which chats hear an
+// issue's outbound messages — so a proactive task's result reaches the chat
+// through the existing, tested path.
+//
+// The "niuniu:proactive:" prefix cannot collide with a real platform thread id:
+// Lark thread ids are `omt_*`, Telegram's are decimal integers, and DingTalk /
+// WeCom / WeChat carry no thread at all (empty). The prefix also means an inbound
+// message never resolves to this row — resolveTask looks up the thread id the
+// platform actually sent, which is never this sentinel — so the binding grants
+// outbound delivery without capturing inbound routing.
+func proactiveThreadExtID(issueID int64) string {
+	return proactiveThreadPrefix + strconv.FormatInt(issueID, 10)
+}
+
+// proactiveThreadPrefix namespaces the synthetic binding key. It contains a colon
+// and a non-numeric prefix, so it can never equal a Lark `omt_*` id, a decimal
+// Telegram topic id, or the empty thread the other platforms send.
+const proactiveThreadPrefix = "niuniu:proactive:"
+
+// isProactiveThreadExtID reports whether a stored thread key is a synthetic
+// proactive binding rather than a real platform thread. Used by the dispatcher to
+// keep the chat as an outbound target while blanking the thread.
+func isProactiveThreadExtID(threadExtID string) bool {
+	return strings.HasPrefix(threadExtID, proactiveThreadPrefix)
+}
+
 // startTask acts on a "task" verdict: create a real task in the chat's project
 // through the same routing core the @-mention path uses, tell the chat what was
 // picked up, and deliver the work description to the agent.
@@ -331,14 +361,43 @@ func (e *IMBotEmployee) startTask(ctx context.Context, chat store.ImBotChat, ver
 		slog.Warn("imbot: employee start task failed", "chat", chat.ID, "project", projectID, "error", err)
 		return
 	}
-	// Point the chat at the new task so the team's follow-up messages continue it
-	// (same pointer the @-mention path sets for a no-thread chat).
-	e.svc.setActiveIssue(ctx, chat, target.IssueID)
+	// A router can return a zero-valued target WITHOUT an error (nothing resolved).
+	// Announcing that would post a bogus "#0" the user cannot reach, write a
+	// binding for issue 0, and claim work started when none did — so treat it as a
+	// failure and stay silent rather than lying about having started something.
+	if target.IssueID == 0 || target.WorkspaceID == 0 {
+		slog.Warn("imbot: employee got an incomplete route target; not announcing",
+			"chat", chat.ID, "project", projectID, "issue", target.IssueID, "workspace", target.WorkspaceID)
+		return
+	}
+
+	// Bind the task to this chat WITHOUT touching the chat's active pointer.
+	//
+	// The two halves of that matter separately:
+	//   - The binding is what makes the agent's eventual result reach the chat
+	//     (IMBotDispatcher.resolveTargets only pushes to chats bound to the issue);
+	//     without it the employee would start work and then silently swallow the
+	//     outcome, which defeats the whole point of reporting back.
+	//   - NOT repointing the active pointer is what stops the proactive task from
+	//     hijacking the next bare follow-up a human types. The pointer is where a
+	//     human's unqualified message lands, and it belongs to the conversation THEY
+	//     are having; moving it from a background sweep would send their "再补一段结论"
+	//     into the robot's self-started task.
+	// The team opts in explicitly via the `#<id>` reference announced below.
+	if _, cerr := e.q.CreateIMBotThread(ctx, store.CreateIMBotThreadParams{
+		ChatID: chat.ID, ThreadExtID: proactiveThreadExtID(target.IssueID),
+		IssueID: target.IssueID, WorkspaceID: target.WorkspaceID,
+	}); cerr != nil {
+		// Non-fatal: the task itself is real and on the kanban; only the chat
+		// notification of its result is lost.
+		slog.Warn("imbot: employee bind task to chat failed", "chat", chat.ID, "issue", target.IssueID, "error", cerr)
+	}
 
 	// Announce BEFORE delivering, so the team sees why work started before the
-	// agent's own output begins arriving.
+	// agent's own output begins arriving. The `#<id>` is how they opt in to it.
 	notice := employeeNotifyPrefix + "我从大家的讨论里发现一件可以做的事，已经开始处理：\n\n" +
-		formatTaskRef(target.IssueID, taskHeadline(task))
+		formatTaskRef(target.IssueID, taskHeadline(task)) +
+		"\n\n回复 `#" + strconv.FormatInt(target.IssueID, 10) + " <你的补充>` 可以继续这件事。"
 	if extra := strings.TrimSpace(verdict.Message); extra != "" {
 		notice += "\n\n" + truncateOutbound(extra)
 	}
@@ -389,16 +448,20 @@ func renderTranscript(msgs []store.ImBotChatMessage) string {
 	names := map[string]string{}
 	var b strings.Builder
 	for _, m := range msgs {
-		text := strings.TrimSpace(m.Text)
+		// The body is attacker-controlled too, so strip the marker WE use to signal
+		// "a human already asked for this" — otherwise anyone could type it and make
+		// their own line look sanctioned. oneLine additionally collapses newlines so
+		// one message cannot forge several speaker turns.
+		text := oneLine(strings.ReplaceAll(m.Text, addressedMarker, ""))
 		if text == "" {
 			continue
 		}
 		b.WriteString(speakerLabel(m, names))
 		if m.Addressed != 0 {
-			b.WriteString("（已直接向牛牛提出，已处理）")
+			b.WriteString(addressedMarker)
 		}
 		b.WriteString(": ")
-		b.WriteString(oneLine(text))
+		b.WriteString(text)
 		b.WriteString("\n")
 	}
 	return strings.TrimSpace(b.String())
@@ -406,9 +469,15 @@ func renderTranscript(msgs []store.ImBotChatMessage) string {
 
 // speakerLabel resolves a stable per-transcript label for a message's author,
 // memoized in names so the same person reads as the same speaker throughout.
+//
+// The display name is attacker-controlled — a user picks their own IM nickname —
+// so it is SANITIZED before it becomes prompt structure: the ":" separator and the
+// "（已直接向牛牛提出，已处理）" authorization marker are both removed, since a name
+// carrying either could otherwise forge a second speaker turn or claim that a
+// message was already sanctioned by a human. See sanitizeSpeakerName.
 func speakerLabel(m store.ImBotChatMessage, names map[string]string) string {
-	if n := strings.TrimSpace(m.ActorName); n != "" {
-		return oneLine(n)
+	if n := sanitizeSpeakerName(m.ActorName); n != "" {
+		return n
 	}
 	key := strings.TrimSpace(m.ActorExtID)
 	if key == "" {
@@ -421,6 +490,29 @@ func speakerLabel(m store.ImBotChatMessage, names map[string]string) string {
 	names[key] = label
 	return label
 }
+
+// addressedMarker is appended by US to a transcript line whose message genuinely
+// addressed the bot. Because it signals "a human already asked for this", a display
+// name must never be able to contain it — sanitizeSpeakerName strips it.
+const addressedMarker = "（已直接向牛牛提出，已处理）"
+
+// sanitizeSpeakerName reduces an attacker-controlled display name to something
+// safe to use as a transcript speaker label: collapsed to one line, stripped of
+// the ":" turn separator and the addressed/authorized marker, and length-capped so
+// a pathological name cannot crowd out the actual conversation. Returns "" when
+// nothing usable remains, so the caller falls back to a generated pseudonym.
+func sanitizeSpeakerName(name string) string {
+	n := oneLine(name)
+	n = strings.ReplaceAll(n, addressedMarker, "")
+	// Both the ASCII and fullwidth colon read as a speaker separator to the model.
+	n = strings.ReplaceAll(n, ":", " ")
+	n = strings.ReplaceAll(n, "：", " ")
+	n = oneLine(n)
+	return clipDetail(n, speakerNameMaxRunes)
+}
+
+// speakerNameMaxRunes caps one speaker label.
+const speakerNameMaxRunes = 32
 
 // --- analyzer prompt (used by the concrete one-shot backend) -----------------
 
