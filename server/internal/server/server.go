@@ -1443,7 +1443,7 @@ func New(cfg *config.Config, db *sql.DB, frontendFS fs.FS) *Server {
 	// observe-mode chat has been saying and either speaks up or starts a task on
 	// its own. Backed by the same one-shot claude CLI as the other AI helpers, and
 	// inert for any chat that has not opted into observe mode.
-	s.imbotEmployee = service.NewIMBotEmployee(s.imbotSvc, s.queries, service.NewClaudeEmployeeAnalyzer())
+	s.imbotEmployee = service.NewIMBotEmployee(s.imbotSvc, s.queries, service.NewEmployeeAnalyzer(s.queries))
 	// Backfill credential fingerprints for legacy channels so the one-bot-per-app
 	// UNIQUE constraint is enforceable (blocks a second channel for the same app);
 	// leftover duplicates are logged, not deleted. Best-effort before connections start.

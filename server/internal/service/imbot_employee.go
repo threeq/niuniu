@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"log/slog"
 	"strconv"
@@ -58,14 +59,28 @@ const (
 
 // EmployeeAnalyzer turns a rendered chat transcript into a verdict. It is an
 // interface so the periodic loop is unit-testable without spawning a real model,
-// and so the concrete backend (a one-shot `claude -p` call, wired in server.go)
-// stays out of the service package's dependency graph.
+// and so the concrete backend (a one-shot CLI call, wired in server.go) stays out
+// of the service package's dependency graph.
 type EmployeeAnalyzer interface {
 	// AnalyzeChat is given the transcript of what a team has been saying and
 	// returns what, if anything, the employee should do about it. An error means
 	// "could not decide" and the caller stays silent (the batch is NOT marked
 	// analyzed, so a transient model failure is retried on the next sweep).
-	AnalyzeChat(ctx context.Context, transcript string) (EmployeeVerdict, error)
+	//
+	// scope carries the project the chat routes to, so the backend can run on the
+	// SAME agent backend and provider credentials that project's own agents use —
+	// this call decides work for that project, so it should not be hardwired to a
+	// different CLI than the one that would execute it.
+	AnalyzeChat(ctx context.Context, scope EmployeeScope, transcript string) (EmployeeVerdict, error)
+}
+
+// EmployeeScope identifies whose configuration an analysis should run under.
+// ProjectID is always set; WorkspaceID is the project's most recently active
+// workspace when one exists, which is what carries the concrete cli_type and
+// bound provider (a project only holds a DEFAULT cli type and provider group).
+type EmployeeScope struct {
+	ProjectID   int64
+	WorkspaceID int64
 }
 
 const (
@@ -257,7 +272,7 @@ func (e *IMBotEmployee) considerChat(ctx context.Context, chat store.ImBotChat) 
 		return
 	}
 
-	verdict, err := e.analyzer.AnalyzeChat(ctx, transcript)
+	verdict, err := e.analyzer.AnalyzeChat(ctx, e.scopeFor(ctx, chat), transcript)
 	if err != nil {
 		// Deliberately NOT marked analyzed: a transient failure should be retried.
 		slog.Warn("imbot: employee analysis failed", "chat", chat.ID, "error", err)
@@ -325,6 +340,41 @@ func (e *IMBotEmployee) now() time.Time {
 		return e.nowFn()
 	}
 	return time.Now()
+}
+
+// scopeFor resolves whose agent configuration this chat's analysis should run
+// under. The chat's routed project is the authority; the workspace is a
+// representative of it, because cli_type and the bound provider live on the
+// WORKSPACE (a project only carries defaults).
+//
+// Preference order for that representative:
+//  1. the chat's active/pinned conversation — the work the team is actually doing
+//     here, so its agent config is the most faithful answer;
+//  2. otherwise the project's first workspace-backed task.
+//
+// A project with no workspace at all yields WorkspaceID 0, and the backend falls
+// back to the project's default_cli_type plus the global one-shot preset.
+func (e *IMBotEmployee) scopeFor(ctx context.Context, chat store.ImBotChat) EmployeeScope {
+	scope := EmployeeScope{}
+	if chat.ProjectID.Valid {
+		scope.ProjectID = chat.ProjectID.Int64
+	}
+	if scope.ProjectID == 0 {
+		return scope
+	}
+	for _, id := range []sql.NullInt64{chat.ActiveIssueID, chat.PinnedIssueID} {
+		if !id.Valid {
+			continue
+		}
+		if wsID := e.svc.workspaceOfIssue(ctx, id.Int64); wsID != 0 {
+			scope.WorkspaceID = wsID
+			return scope
+		}
+	}
+	if rows, err := e.q.ListProjectPlansWithWorkspace(ctx, scope.ProjectID); err == nil && len(rows) > 0 {
+		scope.WorkspaceID = rows[0].WorkspaceID
+	}
+	return scope
 }
 
 // markAnalyzed stamps the batch up to its highest id. Bounding by id (not by a

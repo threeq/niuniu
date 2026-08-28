@@ -167,15 +167,19 @@ func TestTranscriptTrimKeepsNewest(t *testing.T) {
 
 // --- proactive analyzer ------------------------------------------------------
 
-// fakeAnalyzer returns a queued verdict and records the transcripts it saw.
+// fakeAnalyzer returns a queued verdict and records the transcripts it saw, plus
+// the scope each call carried (so tests can assert the analysis runs under the
+// right project/workspace configuration).
 type fakeAnalyzer struct {
 	verdict     EmployeeVerdict
 	err         error
 	transcripts []string
+	scopes      []EmployeeScope
 }
 
-func (a *fakeAnalyzer) AnalyzeChat(_ context.Context, transcript string) (EmployeeVerdict, error) {
+func (a *fakeAnalyzer) AnalyzeChat(_ context.Context, scope EmployeeScope, transcript string) (EmployeeVerdict, error) {
 	a.transcripts = append(a.transcripts, transcript)
+	a.scopes = append(a.scopes, scope)
 	if a.err != nil {
 		return EmployeeVerdict{}, a.err
 	}
@@ -615,7 +619,7 @@ type blockingAnalyzer struct {
 	ctxErr  chan error
 }
 
-func (a *blockingAnalyzer) AnalyzeChat(ctx context.Context, _ string) (EmployeeVerdict, error) {
+func (a *blockingAnalyzer) AnalyzeChat(ctx context.Context, _ EmployeeScope, _ string) (EmployeeVerdict, error) {
 	select {
 	case a.entered <- struct{}{}:
 	default:
