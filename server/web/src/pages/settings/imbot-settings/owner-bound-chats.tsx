@@ -1,13 +1,13 @@
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowLeftRight, Folder, Link2, Trash2 } from 'lucide-react';
+import { ArrowLeftRight, Eye, Folder, Link2, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { confirm } from '@/lib/confirm';
 import { Button } from '@/components/ui/button';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { imbotApi, imbotOwnerApi } from '@/lib/imbot-api';
-import type { ImBotPendingChat } from '@/types/imbot';
+import type { ImBotAgentMode, ImBotPendingChat } from '@/types/imbot';
 import type { Project } from '@/types/api';
 import { ProjectSelect } from './project-select';
 
@@ -86,9 +86,13 @@ function ChatBindingRow({
   const [reassignOpen, setReassignOpen] = useState(false);
   const [reassignTarget, setReassignTarget] = useState<number | null>(null);
   const [routeOpen, setRouteOpen] = useState(false);
+  const [modeOpen, setModeOpen] = useState(false);
 
   const label = chat.chat_name || chat.chat_ext_id;
   const pinned = chat.bind_mode === 'workspace';
+  // Rows fetched before agent_mode existed carry undefined; treat that as the
+  // conservative default, matching the backend's normalization.
+  const observing = chat.agent_mode === 'observe';
   // Reassigning to the project it already routes to would be a no-op.
   const reassignTargets = projects.filter((p) => p.id !== chat.project_id);
 
@@ -110,6 +114,20 @@ function ChatBindingRow({
       onInvalidate();
       setRouteOpen(false);
       toast.success(t('imbot.routeOk'));
+    },
+    onError: (e) => toast.error(e instanceof Error ? e.message : String(e)),
+  });
+
+  // Agent-employee mode (issue #664): 'command' answers only when addressed,
+  // 'observe' also watches the conversation and may report or start work on its
+  // own. Separate from `route` because the two are orthogonal — a chat can be
+  // pinned to one task AND observe, or neither.
+  const mode = useMutation({
+    mutationFn: (agent_mode: ImBotAgentMode) => imbotOwnerApi.patchChatOwner(chat.id, { agent_mode }),
+    onSuccess: () => {
+      onInvalidate();
+      setModeOpen(false);
+      toast.success(t('imbot.agentModeOk'));
     },
     onError: (e) => toast.error(e instanceof Error ? e.message : String(e)),
   });
@@ -189,6 +207,52 @@ function ChatBindingRow({
                 })}
               </div>
             </div>
+          </PopoverContent>
+        </Popover>
+      )}
+
+      {chat.project_id != null && (
+        <Popover open={modeOpen} onOpenChange={setModeOpen}>
+          <PopoverTrigger asChild>
+            <Button type="button" variant="ghost" size="sm" className="gap-1">
+              <Eye className="h-3.5 w-3.5" aria-hidden="true" />
+              {observing ? t('imbot.agentModeObserve') : t('imbot.agentModeCommand')}
+            </Button>
+          </PopoverTrigger>
+          <PopoverContent className="w-72 space-y-2" align="end">
+            <p className="text-sm font-medium text-warm-text">{t('imbot.agentModeTitle')}</p>
+            <button
+              type="button"
+              disabled={mode.isPending}
+              onClick={() => mode.mutate('command')}
+              className={
+                'w-full rounded-md border px-2.5 py-1.5 text-left text-sm transition-colors ' +
+                (!observing
+                  ? 'border-brand bg-brand/5 text-warm-text'
+                  : 'border-warm-border text-warm-text-muted hover:bg-warm-muted')
+              }
+            >
+              {t('imbot.agentModeCommand')}
+              <span className="block text-xs text-warm-text-muted">
+                {t('imbot.agentModeCommandHint')}
+              </span>
+            </button>
+            <button
+              type="button"
+              disabled={mode.isPending}
+              onClick={() => mode.mutate('observe')}
+              className={
+                'w-full rounded-md border px-2.5 py-1.5 text-left text-sm transition-colors ' +
+                (observing
+                  ? 'border-brand bg-brand/5 text-warm-text'
+                  : 'border-warm-border text-warm-text-muted hover:bg-warm-muted')
+              }
+            >
+              {t('imbot.agentModeObserve')}
+              <span className="block text-xs text-warm-text-muted">
+                {t('imbot.agentModeObserveHint')}
+              </span>
+            </button>
           </PopoverContent>
         </Popover>
       )}

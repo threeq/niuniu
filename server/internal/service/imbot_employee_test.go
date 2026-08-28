@@ -1006,3 +1006,46 @@ func TestEmployeeActionBudget_IsPerChat(t *testing.T) {
 		t.Errorf("a chatty group silenced another: pushes %d -> %d", spent, len(f.adapter.pushes))
 	}
 }
+
+// TestPatchChatByOwner_SwitchesAgentMode covers the owner-level settings page's
+// mode toggle. It goes through PatchChatByOwner (authorization derived from the
+// chat's own bot) rather than the project-scoped PatchChat, so the two entries are
+// verified independently -- a shared applyChatPatch is an implementation detail
+// that could be refactored apart.
+func TestPatchChatByOwner_SwitchesAgentMode(t *testing.T) {
+	f := newIMBotFixture(t)
+	chat := f.activeChat(t, "oc_owner_mode")
+	ctx := context.Background()
+
+	dto, err := f.svc.PatchChatByOwner(ctx, chat.ID, 0, PatchChatInput{AgentMode: AgentModeObserve})
+	if err != nil {
+		t.Fatalf("switch to observe: %v", err)
+	}
+	if dto.AgentMode != AgentModeObserve {
+		t.Errorf("DTO agent_mode = %q, want %q", dto.AgentMode, AgentModeObserve)
+	}
+	stored, err := f.q.GetIMBotChat(ctx, chat.ID)
+	if err != nil {
+		t.Fatalf("reload: %v", err)
+	}
+	if stored.AgentMode != AgentModeObserve {
+		t.Errorf("stored agent_mode = %q, want %q", stored.AgentMode, AgentModeObserve)
+	}
+
+	// Switching back must work too, and must not disturb the routing fields the
+	// same endpoint owns (a mode toggle should never silently unpin a chat).
+	before := stored
+	back, err := f.svc.PatchChatByOwner(ctx, chat.ID, 0, PatchChatInput{AgentMode: AgentModeCommand})
+	if err != nil {
+		t.Fatalf("switch back: %v", err)
+	}
+	if back.AgentMode != AgentModeCommand {
+		t.Errorf("agent_mode = %q, want %q", back.AgentMode, AgentModeCommand)
+	}
+	if back.BindMode != before.BindMode {
+		t.Errorf("mode toggle changed bind_mode: %q -> %q", before.BindMode, back.BindMode)
+	}
+	if back.Status != before.Status {
+		t.Errorf("mode toggle changed status: %q -> %q", before.Status, back.Status)
+	}
+}
