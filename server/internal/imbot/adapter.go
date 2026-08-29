@@ -61,9 +61,20 @@ func (e *PushError) Unwrap() error {
 }
 
 // Retryable reports whether sending the same message again could plausibly
-// succeed. Anything that is not a definite client-side rejection is retryable:
-// 408/429 (slow down), any 5xx (platform trouble), and status 0 (never reached the
-// platform at all).
+// succeed.
+//
+// The default is RETRY: only a status that is a definite client-side rejection
+// (401/403/404/400-class) gives up. Everything else — 408/429 (slow down), any 5xx
+// (platform trouble), status 0 (never reached the platform) — is retried.
+//
+// A 2xx status is retryable, which reads oddly until you look at what the adapters
+// actually pass in. Feishu, WeCom and DingTalk all answer a REJECTED send with
+// HTTP 200 plus a business error code in the body (Feishu code=99991400 rate
+// limit, WeCom errcode=42001 expired token, ...). The adapters wrap those as
+// PushError{Status: 200}, so treating 2xx as permanent would make the two failures
+// this fix exists to survive — rate limiting and a briefly-expired token — the
+// exact two that never retry. When the body carried a business code the HTTP
+// status simply is not the classification, so it must not be read as one.
 //
 // 404 is deliberately NOT retryable: for a push it means the chat or thread is
 // gone, and no amount of retrying brings it back.
@@ -72,14 +83,18 @@ func (e *PushError) Retryable() bool {
 		return false
 	}
 	switch {
-	case e.Status == 0: // request never completed — network-level failure
-		return true
 	case e.Status == http.StatusRequestTimeout, e.Status == http.StatusTooManyRequests:
-		return true
-	case e.Status >= 500:
-		return true
+		return true // 408/429 — explicitly "try again later"
+	case e.Status == http.StatusUnauthorized, e.Status == http.StatusForbidden:
+		return false // credentials rejected: identical forever, and retrying looks like brute force
+	case e.Status == http.StatusNotFound:
+		return false // chat/thread gone — retrying cannot bring it back
+	case e.Status >= 400 && e.Status < 500:
+		return false // malformed/rejected request: the same bytes fail the same way
 	default:
-		return false
+		// 0 (never reached the platform), 5xx (platform trouble), and 2xx-with-a-
+		// business-error all land here and retry.
+		return true
 	}
 }
 
