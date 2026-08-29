@@ -429,13 +429,123 @@ func TestNormalizeAgentMode(t *testing.T) {
 func TestNormalizeEmployeeAction(t *testing.T) {
 	for in, want := range map[string]string{
 		"none":     EmployeeActionNone,
+		"ANSWER":   EmployeeActionAnswer,
+		" answer ": EmployeeActionAnswer,
 		"NOTIFY":   EmployeeActionNotify,
 		" task ":   EmployeeActionTask,
 		"":         EmployeeActionNone,
 		"escalate": EmployeeActionNone,
+		// Near-misses must not fall through to answer just because it is the cheap
+		// action — an unknown verdict is silence, full stop.
+		"reply":   EmployeeActionNone,
+		"answer!": EmployeeActionNone,
 	} {
 		if got := normalizeEmployeeAction(in); got != want {
 			t.Errorf("normalizeEmployeeAction(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+// TestEmployeeSweep_AnswerPushesWithoutCreatingWork is issue #678's core promise:
+// the cheap verdict posts a reply and creates NOTHING — no route call, no issue, no
+// workspace, no thread binding. Most of what a group asks belongs here, so the
+// "creates nothing" half is the part worth guarding.
+func TestEmployeeSweep_AnswerPushesWithoutCreatingWork(t *testing.T) {
+	f := newIMBotFixture(t)
+	chat := f.observeChat(t, "oc_answer")
+	seedChatter(t, f, chat, employeeMinMessages)
+
+	an := &fakeAnalyzer{verdict: EmployeeVerdict{
+		Action:  EmployeeActionAnswer,
+		Message: "那个报错是端口被占用了，换个端口就行。",
+	}}
+	emp := NewIMBotEmployee(f.svc, f.q, an)
+	emp.sweep(context.Background())
+
+	pushes := f.adapter.pushes
+	if len(pushes) != 1 {
+		t.Fatalf("answer pushed %d messages, want 1: %+v", len(pushes), pushes)
+	}
+	if !strings.Contains(pushes[0].Text, "端口被占用") {
+		t.Errorf("push text = %q, want the analyzer's answer", pushes[0].Text)
+	}
+	// An answer responds to a question that was asked; a notify raises something
+	// nobody brought up. Reusing the "主动提醒" prefix would misrepresent which
+	// happened, so the answer prefix must NOT claim to be a proactive reminder.
+	if strings.Contains(pushes[0].Text, "主动提醒") {
+		t.Errorf("answer used the proactive-reminder prefix: %q", pushes[0].Text)
+	}
+
+	// The whole point of the cheap path: nothing is persisted.
+	if f.router.calls != 0 {
+		t.Errorf("answer verdict routed %d times, want 0 (no task, no workspace)", f.router.calls)
+	}
+	if threads, err := f.q.ListIMBotThreadsByIssue(context.Background(), f.issueID); err == nil && len(threads) > 0 {
+		t.Errorf("answer verdict wrote %d thread bindings, want 0", len(threads))
+	}
+}
+
+// TestEmployeeSweep_AnswerConsumesBudget: an answer interrupts the group exactly as
+// much as a reminder does, so it must be rationed by the same allowance rather than
+// getting a free channel that doubles the noise ceiling.
+func TestEmployeeSweep_AnswerConsumesBudget(t *testing.T) {
+	f := newIMBotFixture(t)
+	chat := f.observeChat(t, "oc_answer_budget")
+
+	an := &fakeAnalyzer{verdict: EmployeeVerdict{
+		Action: EmployeeActionAnswer, Message: "答案",
+	}}
+	emp := NewIMBotEmployee(f.svc, f.q, an)
+
+	// One more sweep than the allowance: the extra one must be suppressed.
+	for i := 0; i < employeeMaxActionsPerDay+1; i++ {
+		seedChatter(t, f, chat, employeeMinMessages)
+		emp.sweep(context.Background())
+	}
+
+	if got := len(f.adapter.pushes); got != employeeMaxActionsPerDay {
+		t.Fatalf("answers pushed %d, want the budget %d", got, employeeMaxActionsPerDay)
+	}
+}
+
+// TestTruncateAnswer_ClipsToAnswerBudget: an answer competes for attention in a
+// live conversation, so it is held well below the generic outbound cap. The clip
+// must also say it was clipped — a silently truncated answer reads as a wrong one.
+func TestTruncateAnswer_ClipsToAnswerBudget(t *testing.T) {
+	short := "很短的答案"
+	if got := truncateAnswer(short); got != short {
+		t.Errorf("truncateAnswer(short) = %q, want it unchanged", got)
+	}
+
+	long := strings.Repeat("答", employeeAnswerMaxRunes+200)
+	got := truncateAnswer(long)
+	if r := []rune(got); len(r) <= employeeAnswerMaxRunes {
+		t.Errorf("truncateAnswer kept %d runes, want more than the cap (cap + notice)", len(r))
+	}
+	if !strings.Contains(got, "@ 我") {
+		t.Errorf("truncated answer = %q, want a pointer to continue the conversation", got)
+	}
+	// Tighter than the generic outbound limit, which is the entire reason this
+	// helper exists rather than reusing truncateOutbound.
+	if employeeAnswerMaxRunes >= 3500 {
+		t.Errorf("employeeAnswerMaxRunes = %d, want it well under the generic outbound cap",
+			employeeAnswerMaxRunes)
+	}
+}
+
+// TestEmployeeAnalysisSchema_AllowsAnswer: the one-shot CLI validates the model's
+// output against this schema, so a verdict the loop understands but the schema
+// rejects would be silently unreachable.
+func TestEmployeeAnalysisSchema_AllowsAnswer(t *testing.T) {
+	if !strings.Contains(EmployeeAnalysisSchema, `"answer"`) {
+		t.Fatalf("schema does not permit the answer action: %s", EmployeeAnalysisSchema)
+	}
+	// The prompt must distinguish answer from notify, or the model collapses every
+	// notify into an answer (both produce "message", only the trigger differs).
+	prompt := BuildEmployeeAnalysisPrompt("张三: 有人知道这个报错吗")
+	for _, want := range []string{`"answer"`, `"notify"`} {
+		if !strings.Contains(prompt, want) {
+			t.Errorf("prompt is missing the %s action", want)
 		}
 	}
 }
