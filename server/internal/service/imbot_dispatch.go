@@ -84,15 +84,24 @@ func (d *IMBotDispatcher) loop(ch chan event.OutputEvent, stop, done chan struct
 // platform message-size limit (Telegram ~4096; keep headroom for the title).
 const maxOutboundLen = 3500
 
+// failureDetailMaxRunes bounds the failure reason carried into a chat. An agent
+// failure can be a multi-screen stack trace; the first few hundred runes hold the
+// part someone can act on, and the rest would bury it.
+const failureDetailMaxRunes = 300
+
 // interestedIn reports whether an event type should reach IM chats. Streaming
 // text/tool noise is ignored; only meaningful lifecycle/interaction events.
 // EventAgentDone now carries the agent's real final reply (proxy publishes the
 // turn's last assistant text) — that is the primary per-turn chat message.
+// EventAgentFailed is the same turn's other outcome and must be forwarded too
+// (issue #680): without it a crashed agent looks exactly like a working one,
+// because the only visible change is the 🐂 marker disappearing.
 // EventWorkspaceCompleted is intentionally NOT forwarded: it would double up on
 // the agent_done reply and re-create the old "『…』已完成" spam.
 func interestedIn(t string) bool {
 	switch t {
 	case event.EventAgentDone,
+		event.EventAgentFailed,
 		event.EventScheduleTrigger,
 		event.EventGateDone,
 		event.EventAskUserRequest,
@@ -123,7 +132,11 @@ func (d *IMBotDispatcher) handle(ev event.OutputEvent) {
 	// The agent finished this workspace's turn — clear the 🐂 "正在执行中"
 	// markers placed on the inbound messages that drove it (runs regardless of
 	// whether the reply below has any IM target).
-	if ev.Type == event.EventAgentDone {
+	//
+	// A FAILED turn is just as finished as a successful one: leaving the marker on
+	// would say "still working" forever. Cleared before the failure message is
+	// pushed so the two never disagree about whether the turn is over.
+	if ev.Type == event.EventAgentDone || ev.Type == event.EventAgentFailed {
 		d.svc.clearProcessingReactions(ctx, ev.WorkspaceId)
 	}
 	pctx, err := d.q.GetProjectContextByWorkspace(ctx, ev.WorkspaceId)
@@ -277,6 +290,20 @@ func renderOutbound(ev event.OutputEvent, issueID int64, issueTitle string) (str
 			body = "✅ 已处理完成。"
 		}
 		return header + "\n\n" + truncateOutbound(body), nil
+	case event.EventAgentFailed:
+		// The failure REASON is the actionable part — a CLI/auth/provider message
+		// tells someone what to fix, while a generic "出错了" only tells them to go
+		// look somewhere else. Same reasoning as the employee's
+		// reportAnalysisTrouble, which carries its cause for exactly this reason.
+		//
+		// Clipped rather than truncated to the full outbound budget: an agent failure
+		// can carry a very long stack trace, and a wall of it in a group chat buries
+		// the one line that matters.
+		body := clipDetail(ev.Content, failureDetailMaxRunes)
+		if body == "" {
+			return header + "\n\n❌ 执行失败了，请到牛牛里查看详情。", nil
+		}
+		return header + "\n\n❌ 执行失败了。原因：" + body + "\n\n详情请到牛牛里查看。", nil
 	case event.EventScheduleTrigger:
 		return header + "\n\n⏰ 定时任务已触发。", nil
 	case event.EventGateDone:
