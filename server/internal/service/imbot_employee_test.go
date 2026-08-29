@@ -508,6 +508,68 @@ func TestEmployeeSweep_AnswerConsumesBudget(t *testing.T) {
 	}
 }
 
+// TestEmployeeSweep_EmptyMessageVerdictDoesNotBurnBudget: an acting verdict whose
+// payload is empty posts nothing, so it must not consume an interruption slot.
+//
+// The budget rations how often a group is INTERRUPTED. A model that returns
+// {"action":"answer"} and forgets the message interrupts nobody — charging it
+// anyway would let four malformed verdicts silence a chat for a full day without a
+// single message ever reaching it, and the failure would be invisible: the group
+// sees silence either way.
+func TestEmployeeSweep_EmptyMessageVerdictDoesNotBurnBudget(t *testing.T) {
+	f := newIMBotFixture(t)
+	chat := f.observeChat(t, "oc_empty_answer")
+
+	an := &fakeAnalyzer{verdict: EmployeeVerdict{Action: EmployeeActionAnswer, Message: "   "}}
+	emp := NewIMBotEmployee(f.svc, f.q, an)
+
+	// Exhaust what would have been the entire allowance on payload-less verdicts.
+	for i := 0; i < employeeMaxActionsPerDay; i++ {
+		seedChatter(t, f, chat, employeeMinMessages)
+		emp.sweep(context.Background())
+	}
+	if got := len(f.adapter.pushes); got != 0 {
+		t.Fatalf("empty-message verdicts pushed %d messages, want 0", got)
+	}
+
+	// A real answer afterwards must still get through: none of the budget was spent.
+	an.verdict = EmployeeVerdict{Action: EmployeeActionAnswer, Message: "真正的答案"}
+	seedChatter(t, f, chat, employeeMinMessages)
+	emp.sweep(context.Background())
+
+	pushes := f.adapter.pushes
+	if len(pushes) != 1 || !strings.Contains(pushes[0].Text, "真正的答案") {
+		t.Fatalf("budget was consumed by verdicts that said nothing: %+v", pushes)
+	}
+}
+
+// TestActionableVerdict: which verdicts have something to deliver, and therefore
+// which ones are allowed to cost the group an interruption slot.
+func TestActionableVerdict(t *testing.T) {
+	cases := []struct {
+		name   string
+		action string
+		v      EmployeeVerdict
+		want   bool
+	}{
+		{"answer with text", EmployeeActionAnswer, EmployeeVerdict{Message: "答案"}, true},
+		{"answer blank", EmployeeActionAnswer, EmployeeVerdict{Message: " \n "}, false},
+		{"notify with text", EmployeeActionNotify, EmployeeVerdict{Message: "提醒"}, true},
+		{"notify blank", EmployeeActionNotify, EmployeeVerdict{}, false},
+		// startTask degrades to notifying with Message when Task is empty, so either
+		// field alone still produces a message the group sees.
+		{"task with work", EmployeeActionTask, EmployeeVerdict{Task: "做事"}, true},
+		{"task message only", EmployeeActionTask, EmployeeVerdict{Message: "我看到一件事"}, true},
+		{"task empty", EmployeeActionTask, EmployeeVerdict{}, false},
+		{"none never acts", EmployeeActionNone, EmployeeVerdict{Message: "无关"}, false},
+	}
+	for _, c := range cases {
+		if got := actionableVerdict(c.action, c.v); got != c.want {
+			t.Errorf("%s: actionableVerdict(%q, %+v) = %v, want %v", c.name, c.action, c.v, got, c.want)
+		}
+	}
+}
+
 // TestTruncateAnswer_ClipsToAnswerBudget: an answer competes for attention in a
 // live conversation, so it is held well below the generic outbound cap. The clip
 // must also say it was clipped — a silently truncated answer reads as a wrong one.

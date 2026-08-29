@@ -334,6 +334,17 @@ func (e *IMBotEmployee) considerChat(ctx context.Context, chat store.ImBotChat) 
 	// up or starting work consumes budget. Over budget we downgrade to silence for
 	// the rest of the window rather than queueing, since a delayed reminder about an
 	// old discussion is exactly the stale-replay problem observation avoids.
+	//
+	// Checked against actionable() first, so a verdict that CANNOT produce a message
+	// does not burn a slot: a model that returns {"action":"answer"} with no message
+	// makes the chat neither wiser nor more interrupted, and charging it would let
+	// four such malformed verdicts silence a group for a day without a single
+	// message ever being sent.
+	if action != EmployeeActionNone && !actionableVerdict(action, verdict) {
+		slog.Info("imbot: employee verdict has nothing to say; treated as none",
+			"chat", chat.ID, "action", action)
+		return
+	}
 	if action != EmployeeActionNone && !e.claimActionBudget(chat.ID) {
 		slog.Info("imbot: employee action suppressed by daily budget",
 			"chat", chat.ID, "action", action, "budget", employeeMaxActionsPerDay)
@@ -349,6 +360,28 @@ func (e *IMBotEmployee) considerChat(ctx context.Context, chat store.ImBotChat) 
 		e.startTask(ctx, chat, verdict)
 	default:
 		slog.Debug("imbot: employee verdict none", "chat", chat.ID, "messages", len(msgs))
+	}
+}
+
+// actionableVerdict reports whether an acting verdict actually has something to
+// deliver, so considerChat can decline it BEFORE charging the interruption budget.
+//
+// Each acting verdict degrades to silence when its payload is empty — answer and
+// notify have nothing to post, and a task with neither a work description nor a
+// heads-up cannot start work or explain itself. Those cases are indistinguishable
+// from "none" as far as the group is concerned, so they must cost nothing: the
+// budget rations ATTENTION, and an unsent message consumes none of it.
+func actionableVerdict(action string, v EmployeeVerdict) bool {
+	hasMessage := strings.TrimSpace(v.Message) != ""
+	switch action {
+	case EmployeeActionAnswer, EmployeeActionNotify:
+		return hasMessage
+	case EmployeeActionTask:
+		// startTask falls back to notifying with Message when Task is empty, so
+		// either field alone still produces a message.
+		return hasMessage || strings.TrimSpace(v.Task) != ""
+	default:
+		return false
 	}
 }
 
