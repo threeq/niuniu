@@ -9,6 +9,10 @@ export type ImBotConnectionMode = 'stream' | 'webhook';
 export type ImBotChannelStatus = 'active' | 'disabled';
 export type ImBotChatStatus = 'pending' | 'active' | 'disabled';
 export type ImBotBindMode = 'project' | 'workspace';
+// Agent-employee initiative level (issue #664). 'command' only acts when the bot
+// is addressed (@mention / DM / slash command); 'observe' additionally records the
+// chat and periodically analyzes it, proactively reporting or starting work.
+export type ImBotAgentMode = 'command' | 'observe';
 
 export interface ImBotChannel {
   id: number;
@@ -27,6 +31,7 @@ export interface ImBotChat {
   chat_ext_id: string;
   chat_name: string;
   bind_mode: ImBotBindMode;
+  agent_mode: ImBotAgentMode;
   pinned_issue_id: number | null;
   active_issue_id: number | null;
   status: ImBotChatStatus;
@@ -84,6 +89,7 @@ export interface ImBotPendingChat {
   // Nullable DTO contract: null while pending, set once routed to a project.
   project_id: number | null;
   bind_mode?: ImBotBindMode;
+  agent_mode?: ImBotAgentMode;
   pinned_issue_id?: number | null;
 }
 

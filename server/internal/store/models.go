@@ -419,12 +419,24 @@ type ImBotChat struct {
 	ChatExtID     string        `json:"chat_ext_id"`
 	ChatName      string        `json:"chat_name"`
 	BindMode      string        `json:"bind_mode"`
+	AgentMode     string        `json:"agent_mode"`
 	PinnedIssueID sql.NullInt64 `json:"pinned_issue_id"`
 	ActiveIssueID sql.NullInt64 `json:"active_issue_id"`
 	Status        string        `json:"status"`
 	PairedBy      sql.NullInt64 `json:"paired_by"`
 	CreatedAt     time.Time     `json:"created_at"`
 	UpdatedAt     time.Time     `json:"updated_at"`
+}
+
+type ImBotChatMessage struct {
+	ID         int64        `json:"id"`
+	ChatID     int64        `json:"chat_id"`
+	ActorExtID string       `json:"actor_ext_id"`
+	ActorName  string       `json:"actor_name"`
+	Text       string       `json:"text"`
+	Addressed  int64        `json:"addressed"`
+	AnalyzedAt sql.NullTime `json:"analyzed_at"`
+	CreatedAt  time.Time    `json:"created_at"`
 }
 
 type ImBotInbox struct {

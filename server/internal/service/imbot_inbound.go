@@ -95,6 +95,25 @@ func (s *IMBotService) HandleInbound(ctx context.Context, ev imbot.InboundEvent)
 		text = attachmentPlaceholder(ev.Attachments)
 	}
 
+	// Agent-employee observation layer (issue #664). In observe mode the bot acts
+	// like a colleague sitting in the chat: every message is recorded, but only a
+	// message actually AIMED at the bot takes over the conversation. Ambient
+	// chatter is left to the periodic proactive analysis (imbot_employee.go), so a
+	// busy group does not spawn a task per overheard sentence. A command-mode chat
+	// (the default, and every pre-existing chat) skips this entirely and behaves
+	// exactly as before.
+	if normalizeAgentMode(chat.AgentMode) == AgentModeObserve {
+		// Addressed either by the message's own wording (@mention / DM / command) or
+		// by context (a workspace-pinned chat, or a follow-up inside a thread already
+		// bound to a task — those must not be dropped for lacking a fresh @mention).
+		addressed := addressedToBot(ev, text) || s.conversationallyAddressed(ctx, chat, ev.ThreadExtID)
+		s.recordObservation(ctx, chat, ev, text, addressed)
+		if !addressed {
+			slog.Debug("imbot: observed (not addressed)", "chat", chat.ID, "actor", ev.ActorExtID)
+			return
+		}
+	}
+
 	// Slash commands (optional; the channel already binds a single project).
 	// For no-thread channels (Telegram DMs) /issues + /use are how a user keeps
 	// several parallel tasks apart in one chat without crosstalk.
@@ -183,6 +202,17 @@ func (s *IMBotService) HandleInbound(ctx context.Context, ev imbot.InboundEvent)
 			return
 		}
 		issueID, wsID = target.IssueID, target.WorkspaceID
+		// A router can return a zero-valued target WITHOUT an error (nothing
+		// resolved). Continuing would bind the chat to issue 0, reply with a "#0"
+		// marker the user cannot reach, and then deliver into workspace 0 — i.e.
+		// silently drop the message while claiming work started. Tell the user
+		// instead, so they can retry rather than wait on a task that never began.
+		if issueID == 0 || wsID == 0 {
+			slog.Warn("imbot: route returned an incomplete target",
+				"channel", channel.ID, "project", routeProjectID, "issue", issueID, "workspace", wsID)
+			s.pushText(ctx, channel, ev.ChatExtID, ev.ThreadExtID, "牛牛暂时无法开始这个任务，请稍后再试。")
+			return
+		}
 
 		// Bind the new task so follow-ups land in the same place.
 		if ev.ThreadExtID != "" {

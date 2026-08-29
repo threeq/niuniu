@@ -937,6 +937,11 @@
     "bindProjectHint": "按消息意图自动续用或新建任务。",
     "bindWorkspaceHint": "钉死到某个任务：此聊天的每条消息都直接发给它。",
     "bindNoIssues": "本项目暂无任务可钉。",
+    "agentModeTitle": "员工模式",
+    "agentModeCommand": "听命令",
+    "agentModeCommandHint": "只在被 @ 提到、私聊或使用命令时才行动。",
+    "agentModeObserve": "主动观察",
+    "agentModeObserveHint": "记录群里的讨论并定期分析，必要时主动提醒或直接开始任务。",
     "wechat": {
       "scanHint": "请使用微信「扫一扫」扫描下方二维码以连接机器人。",
       "starting": "正在获取二维码…",

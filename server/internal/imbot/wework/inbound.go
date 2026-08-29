@@ -58,8 +58,10 @@ func parseWeworkXML(plain []byte) (imbot.InboundEvent, bool) {
 	// start of Content when the app is @-mentioned, just like DingTalk; strip
 	// that single leading mention so the real text — and any leading slash
 	// command — is recognized. 1:1 callbacks (no ChatId) never carry the prefix.
-	if chatID != "" {
-		text = stripLeadingAtMention(text)
+	isGroup := chatID != ""
+	mentioned := false
+	if isGroup {
+		text, mentioned = stripLeadingAtMention(text)
 	}
 	if text == "" {
 		return imbot.InboundEvent{}, false
@@ -81,7 +83,11 @@ func parseWeworkXML(plain []byte) (imbot.InboundEvent, bool) {
 		ActorExtID: strings.TrimSpace(m.FromUserName),
 		Text:       text,
 		Kind:       "message",
-		EventID:    strings.TrimSpace(m.MsgID),
+		IsGroup:    isGroup,
+		// A 1:1 callback carries no mention syntax; the service treats a non-group
+		// chat as addressed regardless, so only a stripped @app prefix counts.
+		Mentioned: mentioned,
+		EventID:   strings.TrimSpace(m.MsgID),
 	}
 	return ev, true
 }
@@ -93,9 +99,13 @@ func parseWeworkXML(plain []byte) (imbot.InboundEvent, bool) {
 // leading "@<run-of-non-space>" token — the app's own mention (how a user
 // addresses it). Any later "@human" in the user's actual text is preserved.
 // Group-only (caller gates on ChatId): 1:1 callbacks never carry the prefix.
-func stripLeadingAtMention(text string) string {
+//
+// mentioned reports whether a leading mention was actually found and stripped —
+// the "user addressed the bot" signal that separates a command from ambient
+// group chatter the bot merely observes.
+func stripLeadingAtMention(text string) (stripped string, mentioned bool) {
 	if !strings.HasPrefix(text, "@") {
-		return text
+		return text, false
 	}
 	rest := text[1:]
 	if i := strings.IndexFunc(rest, unicode.IsSpace); i >= 0 {
@@ -103,5 +113,5 @@ func stripLeadingAtMention(text string) string {
 	} else {
 		rest = "" // entire text is "@<name>" with nothing after
 	}
-	return strings.TrimLeftFunc(rest, unicode.IsSpace)
+	return strings.TrimLeftFunc(rest, unicode.IsSpace), true
 }

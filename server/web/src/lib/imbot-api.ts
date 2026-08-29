@@ -46,7 +46,13 @@ export const imbotApi = {
   patchChat: (
     pid: number,
     chatId: number,
-    body: { bind_mode?: string; pinned_issue_id?: number | null; active_issue_id?: number | null; status?: string },
+    body: {
+      bind_mode?: string;
+      agent_mode?: string;
+      pinned_issue_id?: number | null;
+      active_issue_id?: number | null;
+      status?: string;
+    },
   ): Promise<ImBotChat> => api.patch<ImBotChat>(`/projects/${pid}/imbot/chats/${chatId}`, body),
 
   deleteChat: (pid: number, chatId: number): Promise<void> =>
@@ -161,12 +167,12 @@ export const imbotOwnerApi = {
       .then((r) => (r.items ?? []).map(normalizeImBotPendingChat)),
 
   // PATCH /api/imbot/chats/:chatid → owner-level routing edit (bind mode / pinned
-  // issue). The project-scoped imbotApi.patchChat needs a project in the path;
-  // this one derives authorization from the chat's own bot instead, so it works
-  // from the cross-owner settings page.
+  // issue / agent mode). The project-scoped imbotApi.patchChat needs a project in
+  // the path; this one derives authorization from the chat's own bot instead, so it
+  // works from the cross-owner settings page.
   patchChatOwner: (
     chatId: number,
-    body: { bind_mode?: string; pinned_issue_id?: number | null },
+    body: { bind_mode?: string; agent_mode?: string; pinned_issue_id?: number | null },
   ): Promise<ImBotChat> => api.patch<ImBotChat>(`/imbot/chats/${chatId}`, body),
 
   // DELETE /api/imbot/chats/:chatid → remove a chat->project binding (unpair).

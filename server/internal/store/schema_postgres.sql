@@ -1667,6 +1667,16 @@ CREATE TABLE IF NOT EXISTS im_bot_chats (
     chat_ext_id     TEXT NOT NULL,
     chat_name       TEXT NOT NULL DEFAULT '',
     bind_mode       TEXT NOT NULL DEFAULT 'project' CHECK (bind_mode IN ('project','workspace')),
+    -- agent_mode (issue #664, Agent 员工分身) governs how much initiative the bot
+    -- takes in this chat:
+    --   'command'  — only act when addressed (@mention / DM / slash command). Default.
+    --   'observe'  — additionally log all chatter and periodically analyze it,
+    --                proactively reporting or starting work.
+    -- Deliberately NO CHECK constraint: this column is retrofitted onto existing
+    -- DBs by addColumnIfNotExists, which cannot add a CHECK, so declaring one here
+    -- would make fresh and upgraded schemas diverge. Validated in the service layer
+    -- (normalizeAgentMode) instead.
+    agent_mode      TEXT NOT NULL DEFAULT 'command',
     pinned_issue_id BIGINT,
     active_issue_id BIGINT,
     status          TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','active','disabled')),
@@ -1698,6 +1708,30 @@ CREATE TABLE IF NOT EXISTS im_bot_inbox (
     created_at   TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     UNIQUE(channel_id, event_ext_id)
 );
+
+-- im_bot_chat_messages: the Agent employee's observation log (issue #664). Every
+-- inbound chat message is appended here — including the ambient chatter the bot
+-- was NOT addressed in — so a periodic analysis can read what the team has been
+-- discussing and proactively surface work. This is a ROLLING window, not an
+-- archive: TrimIMBotChatMessages prunes each chat back to the newest N rows.
+--
+-- analyzed_at NULL marks a message the proactive analyzer has not yet considered;
+-- it is stamped once a batch is analyzed so the same chatter is never re-analyzed
+-- (which would repeat the same suggestion every tick).
+CREATE TABLE IF NOT EXISTS im_bot_chat_messages (
+    id            BIGSERIAL PRIMARY KEY,
+    chat_id       BIGINT NOT NULL REFERENCES im_bot_chats(id) ON DELETE CASCADE,
+    actor_ext_id  TEXT NOT NULL DEFAULT '',
+    actor_name    TEXT NOT NULL DEFAULT '',
+    text          TEXT NOT NULL DEFAULT '',
+    -- addressed: 1 when the message was aimed at the bot (@mention / DM / slash
+    -- command), 0 for chatter merely observed. Kept as INTEGER for dual-driver
+    -- parity (see the boolean convention across this schema).
+    addressed     INTEGER NOT NULL DEFAULT 0,
+    analyzed_at   TIMESTAMP,
+    created_at    TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_im_bot_chat_messages_chat ON im_bot_chat_messages(chat_id, id);
 
 -- im_bot_onboarding_tokens: one-time credential-entry token for IM Bot AI
 -- onboarding. A short-lived token lets a project admin hand off bot credential

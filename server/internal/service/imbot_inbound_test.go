@@ -74,7 +74,7 @@ func (a *recordAdapter) React(_ context.Context, _ imbot.Credential, messageExtI
 
 // RemoveReaction records cleared reaction ids so tests can assert the 🐂 marker
 // is removed once the agent finishes.
-func (a *recordAdapter) RemoveReaction(_ context.Context, _ imbot.Credential, _ , reactionID string) error {
+func (a *recordAdapter) RemoveReaction(_ context.Context, _ imbot.Credential, _, reactionID string) error {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	a.removed = append(a.removed, reactionID)
@@ -96,10 +96,10 @@ func (a *recordAdapter) Challenge(*http.Request) ([]byte, bool) { return nil, fa
 // calls are recorded (the fake does not touch the DB — the cascade itself is
 // covered by TestAssistantDispatch_DeleteTask).
 type fakeRouter struct {
-	mu      sync.Mutex
-	queue   []PlanTarget
-	calls   int
-	lastPID int64
+	mu       sync.Mutex
+	queue    []PlanTarget
+	calls    int
+	lastPID  int64
 	lastText string
 	lastHint RouteHint
 
@@ -285,8 +285,8 @@ func newIMBotFixture(t *testing.T) *imbotFixture {
 		t.Fatalf("issue: %v", err)
 	}
 	ws, err := q.CreateWorkspace(ctx, store.CreateWorkspaceParams{
-		IssueID:   sql.NullInt64{Int64: issue.ID, Valid: true},
-		Name:      "ws", Path: "/tmp/ws-existing", Status: "running", OwnerType: "user", OwnerID: 1,
+		IssueID: sql.NullInt64{Int64: issue.ID, Valid: true},
+		Name:    "ws", Path: "/tmp/ws-existing", Status: "running", OwnerType: "user", OwnerID: 1,
 	})
 	if err != nil {
 		t.Fatalf("workspace: %v", err)
@@ -1311,4 +1311,36 @@ func (f *imbotFixture) seedAskUserRequest(t *testing.T, wsID int64, questionsJSO
 		t.Fatalf("seed ask-user request: %v", err)
 	}
 	return id
+}
+
+// TestHandleInbound_IncompleteRouteTargetTellsUser guards the @-mention path's
+// counterpart of the employee's zero-target guard: a router can return a
+// zero-valued PlanTarget with NO error. Continuing would bind the chat to issue 0,
+// reply with an unreachable "#0" marker, and deliver into workspace 0 — silently
+// dropping the user's message while implying work had started.
+func TestHandleInbound_IncompleteRouteTargetTellsUser(t *testing.T) {
+	f := newIMBotFixture(t)
+	chat := f.activeChat(t, "oc_zerotarget_inbound")
+	ctx := context.Background()
+	f.router.queue = nil // -> PlanTarget{} with a nil error
+
+	f.svc.HandleInbound(ctx, imbot.InboundEvent{
+		ChannelID: f.channelID, ChatExtID: chat.ChatExtID, ActorExtID: "ou_a",
+		MessageExtID: "om_zt", Text: "帮我做个表", Kind: "message", EventID: "e-zt",
+	})
+
+	if n := len(f.deliverer.calls); n != 0 {
+		t.Errorf("delivered %d messages for an unresolved target, want 0: %+v", n, f.deliverer.calls)
+	}
+	if th, err := f.q.ListIMBotThreadsByIssue(ctx, 0); err == nil && len(th) > 0 {
+		t.Errorf("bound the chat to issue 0 (%d rows)", len(th))
+	}
+	updated, _ := f.q.GetIMBotChat(ctx, chat.ID)
+	if updated.ActiveIssueID.Valid && updated.ActiveIssueID.Int64 == 0 {
+		t.Errorf("active pointer set to issue 0")
+	}
+	// The user must be told, not left waiting on work that never began.
+	if len(f.adapter.pushes) != 1 || !strings.Contains(f.adapter.pushes[0].Text, "无法开始") {
+		t.Errorf("user not informed: %+v", f.adapter.pushes)
+	}
 }

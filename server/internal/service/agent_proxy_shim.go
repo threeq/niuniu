@@ -2,9 +2,12 @@ package service
 
 import (
 	"context"
+	"strings"
 
 	"github.com/niuniu-dev/niuniu/internal/agentproxy"
 	"github.com/niuniu-dev/niuniu/internal/config"
+	"github.com/niuniu-dev/niuniu/internal/sceneenv"
+	"github.com/niuniu-dev/niuniu/internal/store"
 )
 
 // mcpWriterShim adapts *MCPConfigGenerator to agentproxy.MCPConfigWriter.
@@ -149,4 +152,85 @@ func (p *proxyShim) PrepareUserSend(ctx context.Context, workspaceID int64) {
 
 func (p *proxyShim) Deliver(ctx context.Context, workspaceID int64, workDir, content, attachments string) (bool, int64, error) {
 	return p.inner.Deliver(ctx, workspaceID, workDir, content, attachments)
+}
+
+// employeeAnalyzer is the production EmployeeAnalyzer (issue #664): it asks a
+// one-shot CLI subprocess to judge a chat transcript.
+//
+// Crucially it runs under the TARGET PROJECT's agent configuration, not a
+// hardcoded Claude: this call decides work that that project's own agent will
+// then execute, so it uses the same CLI backend and the same bound provider
+// credentials. An install driving Codex or Qwen against a 智谱/DeepSeek provider
+// would otherwise have an employee that silently never speaks.
+//
+// The prompt and schema live in imbot_employee.go with the rest of the employee's
+// domain logic; this shim only resolves configuration and bridges to agentproxy's
+// subprocess plumbing.
+type employeeAnalyzer struct {
+	q *store.Queries
+}
+
+// NewEmployeeAnalyzer returns the one-shot-CLI-backed analyzer to hand to
+// NewIMBotEmployee. It reports its own unavailability at call time rather than at
+// construction, since CLI availability can change while the server runs.
+func NewEmployeeAnalyzer(q *store.Queries) EmployeeAnalyzer { return &employeeAnalyzer{q: q} }
+
+func (a *employeeAnalyzer) AnalyzeChat(ctx context.Context, scope EmployeeScope, transcript string) (EmployeeVerdict, error) {
+	cliType, env := a.resolveAgentContext(ctx, scope)
+	var v EmployeeVerdict
+	if err := agentproxy.RunOneShotStructured(ctx, agentproxy.OneShotRequest{
+		Prompt:     BuildEmployeeAnalysisPrompt(transcript),
+		JSONSchema: EmployeeAnalysisSchema,
+		CLIType:    cliType,
+		Env:        env,
+		// ConfigDir is left empty: niuniu is single-account per CLI (the host's
+		// ~/.claude / ~/.codex login is used as-is), so there is no per-workspace
+		// account dir to select. Provider-based auth arrives through Env above.
+	}, &v); err != nil {
+		return EmployeeVerdict{}, err
+	}
+	v.Action = normalizeEmployeeAction(v.Action)
+	return v, nil
+}
+
+// resolveAgentContext determines which agent backend the analysis should run on
+// and which provider credentials it should carry, mirroring how a real workspace
+// agent for the same project would be spawned.
+//
+// Resolution, most specific first:
+//   - a representative workspace of the project -> its cli_type and its fully
+//     resolved env (sceneenv.Resolve: bound provider -> scene -> workspace env,
+//     with ${ACCOUNT:*} substituted). This is the same source the agent spawn path
+//     uses, so the employee authenticates exactly like the agent it dispatches to.
+//   - else the project's default_cli_type, with no provider env — the global
+//     one-shot preset (applied inside agentproxy) remains the credential source.
+//
+// Both degrade to ("", nil), i.e. Claude + host/global credentials, which is the
+// pre-existing behavior — so an install that never configured providers is
+// unaffected.
+func (a *employeeAnalyzer) resolveAgentContext(ctx context.Context, scope EmployeeScope) (cliType string, env []string) {
+	if a.q == nil {
+		return "", nil
+	}
+	if scope.WorkspaceID != 0 {
+		if t, err := a.q.GetWorkspaceCliType(ctx, scope.WorkspaceID); err == nil {
+			cliType = strings.TrimSpace(t)
+		}
+		if rows, err := sceneenv.Resolve(ctx, a.q, scope.WorkspaceID); err == nil {
+			for _, r := range rows {
+				// NIUNIU_* are niuniu's own control knobs (permission mode, autohost
+				// budget, ...), meaningless to a bare generation subprocess.
+				if strings.HasPrefix(r.Key, "NIUNIU_") {
+					continue
+				}
+				env = append(env, r.Key+"="+r.Value)
+			}
+		}
+	}
+	if cliType == "" && scope.ProjectID != 0 {
+		if p, err := a.q.GetProject(ctx, scope.ProjectID); err == nil {
+			cliType = strings.TrimSpace(p.DefaultCliType)
+		}
+	}
+	return cliType, env
 }

@@ -27,19 +27,33 @@ type tgUpdate struct {
 }
 
 type tgMessage struct {
-	MessageID       int64          `json:"message_id"`
-	From            *tgUser        `json:"from"`
-	Chat            tgChat         `json:"chat"`
-	Text            string         `json:"text"`
-	Caption         string         `json:"caption"` // text accompanying a media message
-	Photo           []tgPhotoSize  `json:"photo"`   // ascending sizes; last is largest
-	Document        *tgFileRef     `json:"document"`
-	Voice           *tgFileRef     `json:"voice"`
-	Audio           *tgFileRef     `json:"audio"`
-	Video           *tgFileRef     `json:"video"`
-	VideoNote       *tgFileRef     `json:"video_note"`
-	MessageThreadID int64          `json:"message_thread_id"`
-	IsTopicMessage  bool           `json:"is_topic_message"`
+	MessageID       int64         `json:"message_id"`
+	From            *tgUser       `json:"from"`
+	Chat            tgChat        `json:"chat"`
+	Text            string        `json:"text"`
+	Caption         string        `json:"caption"` // text accompanying a media message
+	Photo           []tgPhotoSize `json:"photo"`   // ascending sizes; last is largest
+	Document        *tgFileRef    `json:"document"`
+	Voice           *tgFileRef    `json:"voice"`
+	Audio           *tgFileRef    `json:"audio"`
+	Video           *tgFileRef    `json:"video"`
+	VideoNote       *tgFileRef    `json:"video_note"`
+	MessageThreadID int64         `json:"message_thread_id"`
+	IsTopicMessage  bool          `json:"is_topic_message"`
+	// Entities/CaptionEntities carry the structured markup of the text, including
+	// the "mention" (@username) and "bot_command" spans. A leading entity of
+	// either kind is how a user addresses the bot in a group; see addressedEntity.
+	Entities        []tgEntity `json:"entities"`
+	CaptionEntities []tgEntity `json:"caption_entities"`
+}
+
+// tgEntity is one span of a message's structured markup. Only offset + type are
+// needed: a "mention"/"bot_command" span at offset 0 means the message opens by
+// addressing a bot.
+type tgEntity struct {
+	Offset int64  `json:"offset"`
+	Length int64  `json:"length"`
+	Type   string `json:"type"`
 }
 
 // tgPhotoSize is one entry of a photo message's size array; file_id is the handle
@@ -61,7 +75,10 @@ type tgChat struct {
 }
 
 type tgUser struct {
-	ID int64 `json:"id"`
+	ID        int64  `json:"id"`
+	FirstName string `json:"first_name"`
+	LastName  string `json:"last_name"`
+	Username  string `json:"username"`
 }
 
 type tgCallbackQuery struct {
@@ -106,11 +123,15 @@ func parseMessage(u tgUpdate) (imbot.InboundEvent, bool) {
 	if text == "" && len(atts) == 0 {
 		return imbot.InboundEvent{}, false // service msg / unsupported (sticker, join)
 	}
+	// A group/supergroup is a multi-party chat the bot may merely observe; a
+	// private chat is always addressed to the bot.
+	isGroup := m.Chat.Type == "group" || m.Chat.Type == "supergroup"
 	ev := imbot.InboundEvent{
 		Channel:     imbot.ChannelTelegram,
 		ChatExtID:   strconv.FormatInt(m.Chat.ID, 10),
 		ThreadExtID: threadExtID(m),
 		ActorExtID:  actorID(m.From),
+		ActorName:   actorName(m.From),
 		// MessageExtID encodes chat+message id so Reply/React (reply_parameters /
 		// setMessageReaction) can target this exact message. FetchResource ignores
 		// it (it uses the attachment's file_id).
@@ -118,9 +139,37 @@ func parseMessage(u tgUpdate) (imbot.InboundEvent, bool) {
 		Text:         text,
 		Attachments:  atts,
 		Kind:         "message",
-		EventID:      "u" + strconv.FormatInt(u.UpdateID, 10),
+		IsGroup:      isGroup,
+		// A private chat carries no mention syntax; the service treats a non-group
+		// chat as addressed regardless, so only report a real leading mention or
+		// slash command here.
+		Mentioned: addressedEntity(m),
+		EventID:   "u" + strconv.FormatInt(u.UpdateID, 10),
 	}
 	return ev, true
+}
+
+// addressedEntity reports whether the message OPENS by addressing a bot: a
+// leading "mention" (@BotName) or "bot_command" (/issues) entity. Telegram
+// privacy mode already limits what a bot receives in a group, but a group with
+// privacy disabled delivers every message — so the leading-entity test is what
+// separates "user is talking to the bot" from chatter the bot only overhears.
+// A mention further into the text (someone @-ing a colleague mid-sentence) does
+// not count.
+func addressedEntity(m *tgMessage) bool {
+	ents := m.Entities
+	if len(ents) == 0 {
+		ents = m.CaptionEntities
+	}
+	for _, e := range ents {
+		if e.Offset != 0 {
+			continue
+		}
+		if e.Type == "mention" || e.Type == "bot_command" {
+			return true
+		}
+	}
+	return false
 }
 
 // mediaAttachments lifts each media object carried by a message into a normalized
@@ -207,4 +256,17 @@ func actorID(u *tgUser) string {
 		return ""
 	}
 	return strconv.FormatInt(u.ID, 10)
+}
+
+// actorName is the sender's human-readable name for the observation transcript:
+// "First Last", else the @username. Empty when the platform sent neither.
+func actorName(u *tgUser) string {
+	if u == nil {
+		return ""
+	}
+	name := strings.TrimSpace(strings.TrimSpace(u.FirstName) + " " + strings.TrimSpace(u.LastName))
+	if name != "" {
+		return name
+	}
+	return strings.TrimSpace(u.Username)
 }

@@ -125,8 +125,10 @@ func parseDingTalkBotMessage(raw []byte) (imbot.InboundEvent, bool) {
 	// ASR transcripts (which never start with "@bot") are left intact. 1:1 DMs
 	// (conversationType!="2") never carry the prefix, so they are untouched.
 	rawText := text
-	if m.ConversationType == "2" {
-		text = stripLeadingAtMention(text)
+	isGroup := m.ConversationType == "2"
+	mentioned := false
+	if isGroup {
+		text, mentioned = stripLeadingAtMention(text)
 	}
 	// Diagnostic: raw (pre-strip, post-assembly) vs post-strip text with msgtype/
 	// conv_type, so a group @mention that is (or isn't) being stripped is
@@ -154,7 +156,11 @@ func parseDingTalkBotMessage(raw []byte) (imbot.InboundEvent, bool) {
 		Text:         text,
 		Attachments:  atts,
 		Kind:         "message",
-		EventID:      m.MsgID, // msgId is stable for idempotent dedupe
+		IsGroup:      isGroup,
+		// A 1:1 DM has no mention syntax; the service treats a non-group chat as
+		// addressed regardless, so only a real stripped @bot prefix counts here.
+		Mentioned: mentioned,
+		EventID:   m.MsgID, // msgId is stable for idempotent dedupe
 		// Stash the reply hints so Push can target the same conversation/robot.
 		Raw: map[string]any{
 			"sessionWebhook":   m.SessionWebhook,
@@ -183,9 +189,13 @@ func truncDing(s string) string {
 // "@<run-of-non-space>" token, which is the bot's own mention (the way a user
 // addresses the bot). Any later "@human" that is part of the user's actual
 // message is preserved. Group-only: 1:1 DMs never carry the @bot prefix.
-func stripLeadingAtMention(text string) string {
+//
+// mentioned reports whether a leading mention was actually found and stripped.
+// That is the "user addressed the bot" signal the service needs to tell a
+// command apart from ambient group chatter it merely observes.
+func stripLeadingAtMention(text string) (stripped string, mentioned bool) {
 	if !strings.HasPrefix(text, "@") {
-		return text
+		return text, false
 	}
 	rest := text[1:]
 	if i := strings.IndexFunc(rest, unicode.IsSpace); i >= 0 {
@@ -193,7 +203,7 @@ func stripLeadingAtMention(text string) string {
 	} else {
 		rest = "" // entire text is "@<name>" with nothing after
 	}
-	return strings.TrimLeftFunc(rest, unicode.IsSpace)
+	return strings.TrimLeftFunc(rest, unicode.IsSpace), true
 }
 
 // msgRefSep joins the DingTalk msgId and conversationId inside InboundEvent.

@@ -58,6 +58,28 @@ type InboundEvent struct {
 	CallbackData string      // interaction-button payload (e.g. permission:approve:<reqID>)
 	EventID      string      // platform event id, for idempotent dedupe
 	Raw          map[string]any
+
+	// --- Agent employee signals (issue #664) ---
+	// These three let the service tell "a user is talking to the bot" apart from
+	// "the bot overheard the team talking to each other", which is what makes
+	// observe-and-act-proactively possible without spawning a task per sentence.
+
+	// ActorName is the sender's display name when the platform provides one on the
+	// event. Purely for the observation transcript (so a proactive analysis reads
+	// "张三: 明天要交" rather than an opaque open_id); routing never uses it.
+	ActorName string
+
+	// IsGroup reports whether this message came from a multi-party chat rather
+	// than a 1:1 DM. A DM is always addressed to the bot; only in a group is
+	// "stay quiet unless spoken to" meaningful.
+	IsGroup bool
+
+	// Mentioned reports whether the bot itself was @-mentioned in this message.
+	// Adapters set it while stripping their own mention prefix/placeholder — the
+	// only place the platform-specific mention shape is known. A DM carries no
+	// mention syntax, so adapters report false there and the service treats a
+	// non-group chat as addressed regardless (see service.addressedToBot).
+	Mentioned bool
 }
 
 // InboundAttachment references a media/file resource carried by an inbound

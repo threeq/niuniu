@@ -132,3 +132,50 @@ func TestParseTelegramUpdate_NonActionable(t *testing.T) {
 		})
 	}
 }
+
+// TestParseTelegramUpdate_MentionAndGroupSignals covers the Agent-employee signals
+// (issue #664). Telegram reports mentions and commands as structured entities, so
+// a LEADING mention/bot_command entity means the user addressed the bot, while a
+// mention further into the text is someone @-ing a colleague mid-sentence.
+func TestParseTelegramUpdate_MentionAndGroupSignals(t *testing.T) {
+	msg := func(chatType, text string, ents []tgEntity) tgUpdate {
+		return tgUpdate{UpdateID: 7, Message: &tgMessage{
+			MessageID: 3, From: &tgUser{ID: 11, FirstName: "Li", LastName: "Ming"},
+			Chat: tgChat{ID: -100, Type: chatType}, Text: text, Entities: ents,
+		}}
+	}
+	cases := []struct {
+		name          string
+		update        tgUpdate
+		wantGroup     bool
+		wantMentioned bool
+	}{
+		{"group leading mention", msg("group", "@niuniubot 帮我做个表",
+			[]tgEntity{{Offset: 0, Length: 10, Type: "mention"}}), true, true},
+		{"group leading command", msg("supergroup", "/issues",
+			[]tgEntity{{Offset: 0, Length: 7, Type: "bot_command"}}), true, true},
+		{"group mid-text mention", msg("group", "这个 @colleague 看一下",
+			[]tgEntity{{Offset: 3, Length: 10, Type: "mention"}}), true, false},
+		{"group plain chatter", msg("group", "明天要交了", nil), true, false},
+		{"private no entity", msg("private", "帮我做个表", nil), false, false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			ev, ok := parseTelegramUpdate(c.update)
+			if !ok {
+				t.Fatalf("parse failed")
+			}
+			if ev.IsGroup != c.wantGroup {
+				t.Errorf("IsGroup = %v, want %v", ev.IsGroup, c.wantGroup)
+			}
+			if ev.Mentioned != c.wantMentioned {
+				t.Errorf("Mentioned = %v, want %v", ev.Mentioned, c.wantMentioned)
+			}
+			// The display name feeds the observation transcript, so a proactive
+			// analysis reads real speakers rather than opaque numeric ids.
+			if ev.ActorName != "Li Ming" {
+				t.Errorf("ActorName = %q, want %q", ev.ActorName, "Li Ming")
+			}
+		})
+	}
+}

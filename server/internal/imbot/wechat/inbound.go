@@ -72,7 +72,13 @@ func parseInbound(m *weixinMessage) (ev imbot.InboundEvent, contextToken string,
 		Text:         text,
 		Attachments:  atts,
 		Kind:         "message",
-		EventID:      eventID(m),
+		// IsGroup: a group_id on the message means it came from a group chat rather
+		// than a 1:1 DM. The protocol reports no structured mention, so Mentioned
+		// stays false and an observe-mode group is driven by the leading "@name"
+		// convention / slash commands (see service.addressedToBot) — the same
+		// fallback used for platforms without a mention API.
+		IsGroup: strings.TrimSpace(m.GroupID) != "",
+		EventID: eventID(m),
 	}
 	return ev, m.ContextToken, true
 }

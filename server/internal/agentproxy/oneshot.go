@@ -76,10 +76,25 @@ var OneShotProviderEnvFunc func(ctx context.Context) []string
 // Returns the raw stdout bytes on success; the caller uses ParseOneShotOutput
 // or a domain-specific parser to extract the typed result from the envelope.
 func RunOneShotCLI(ctx context.Context, prompt, jsonSchema, configDir string) ([]byte, error) {
+	return runOneShotCLIWithEnv(ctx, prompt, jsonSchema, configDir, nil)
+}
+
+// runOneShotCLIWithEnv is RunOneShotCLI plus caller-supplied env entries layered
+// on top of the host env and the marked one-shot preset. It backs callers that
+// run on behalf of a specific workspace/project and must use THAT context's
+// resolved provider credentials (see chat_observation.go) rather than only the
+// server-wide default. extraEnv nil == the original behavior.
+func runOneShotCLIWithEnv(ctx context.Context, prompt, jsonSchema, configDir string, extraEnv []string) ([]byte, error) {
 	ctx, cancel := context.WithTimeout(ctx, oneShotTimeout)
 	defer cancel()
 
 	cmd := buildOneShotCmd(ctx, prompt, jsonSchema, configDir)
+	if len(extraEnv) > 0 {
+		// Appended AFTER buildOneShotCmd's layers (host env, marked preset) and
+		// re-sanitized, so a workspace-bound provider's token wins over a global
+		// default and over a stale host ANTHROPIC_API_KEY.
+		cmd.Env = adapter.SanitizeAnthropicEnv(append(cmd.Env, extraEnv...))
+	}
 
 	// Wire stdin to /dev/null (or NUL on Windows) explicitly so the child
 	// reads EOF immediately rather than inheriting the parent's stdin handle
@@ -133,6 +148,7 @@ func RunOneShotCLI(ctx context.Context, prompt, jsonSchema, configDir string) ([
 //  1. envelope.structured_output (canonical --json-schema path, CLI 2.1+)
 //  2. envelope.result decoded as JSON (legacy path for older CLI versions)
 //  3. Bare top-level JSON object matching dst (no envelope)
+//
 // stripJSONFence removes any ```json ... ``` fencing the model might add
 // despite a "no markdown" instruction, returning the inner payload trimmed.
 func stripJSONFence(raw []byte) []byte {
