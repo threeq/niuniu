@@ -788,6 +788,10 @@ func Migrate(db *sql.DB) {
 //     analyzer reads. Created here as well as in the schema files, because
 //     schema.sql only runs CREATE TABLE IF NOT EXISTS on startup and an upgraded
 //     DB needs the same table.
+//   - im_bot_chat_messages.attachments (issue #679) — attachment metadata for the
+//     transcript, so a discussion around a screenshot is not analyzed as if the
+//     screenshot were not there. Retrofitted for DBs that already have the
+//     original #664 table.
 //
 // Its index lives here rather than in the schema files only for the migration-
 // added column rule's spirit — the table is created in both places identically,
@@ -809,6 +813,7 @@ func migrateIMBotAgentEmployee(db *sql.DB) {
 			actor_name    TEXT NOT NULL DEFAULT '',
 			text          TEXT NOT NULL DEFAULT '',
 			addressed     INTEGER NOT NULL DEFAULT 0,
+			attachments   TEXT NOT NULL DEFAULT '[]',
 			analyzed_at   TIMESTAMP,
 			created_at    TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 		)`,
@@ -820,6 +825,13 @@ func migrateIMBotAgentEmployee(db *sql.DB) {
 				"first_line", strings.SplitN(s, "\n", 2)[0], "error", err)
 		}
 	}
+
+	// A DB upgraded from the original #664 shape already has the table WITHOUT
+	// attachments (issue #679 added it), and CREATE TABLE IF NOT EXISTS above is a
+	// no-op there — so the column has to be retrofitted separately. Ordered after
+	// the CREATE so a fresh DB gets the column from the table definition and this
+	// call is the no-op instead.
+	addColumnIfNotExists(db, "im_bot_chat_messages", "attachments", "TEXT NOT NULL DEFAULT '[]'")
 }
 
 // migrateIMBotAllowWechat relaxes the im_bot_channels.channel_type and
