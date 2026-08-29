@@ -279,6 +279,54 @@ func TestDispatcher_AgentFailed_UnboundIssue_NoPush(t *testing.T) {
 	}
 }
 
+// TestDispatcher_AgentFailed_ClearsProcessingMarker pins the marker half of the
+// fix. A failed turn is just as over as a successful one, so the 🐂 "正在执行中"
+// marker must come off — leaving it would say "still working" forever, which is
+// the same "cannot tell running from crashed" confusion this issue is about, just
+// relocated from the message list to the reaction.
+//
+// Asserted through the DISPATCHER (not by calling clearProcessingReactions
+// directly, which the inbound test already does): the routing decision "an
+// agent_failed event clears the marker" is exactly what regressed, and a direct
+// call cannot catch it. Verified by reverting the `|| EventAgentFailed` clause —
+// without this test the whole suite still passes.
+func TestDispatcher_AgentFailed_ClearsProcessingMarker(t *testing.T) {
+	f := newIMBotFixture(t)
+	f.activeChat(t, "oc_a")
+	f.router.queue = []PlanTarget{{IssueID: f.issueID, WorkspaceID: f.wsID}}
+
+	// Deliver a message so a 🐂 marker is placed and recorded under the workspace.
+	f.svc.HandleInbound(context.Background(), imbot.InboundEvent{
+		ChannelID: f.channelID, ChatExtID: "oc_a", MessageExtID: "om_task",
+		Text: "帮我做张表", Kind: "message", EventID: "e1",
+	})
+	if len(f.adapter.reactions) != 1 {
+		t.Fatalf("expected the 🐂 marker to be placed, got %d", len(f.adapter.reactions))
+	}
+
+	bus := event.NewBus()
+	d := NewIMBotDispatcher(bus, f.q, f.svc, f.svc.adapters)
+	d.Start()
+	defer d.Stop()
+
+	bus.Publish(event.OutputEvent{
+		Type: event.EventAgentFailed, Content: "boom", WorkspaceId: f.wsID,
+	})
+
+	// The failure message lands; the marker is cleared on the way there. Waiting on
+	// the push keeps this deterministic — clearing happens before the push, so a
+	// delivered message means clearing has already run.
+	if pushes := waitForPushes(f.adapter, 1); len(pushes) != 1 {
+		t.Fatalf("agent_failed pushed %d messages, want 1", len(pushes))
+	}
+	f.adapter.mu.Lock()
+	removed := append([]string(nil), f.adapter.removed...)
+	f.adapter.mu.Unlock()
+	if len(removed) != 1 || removed[0] != "rid-om_task" {
+		t.Fatalf("agent_failed must clear the 🐂 marker, removed=%+v", removed)
+	}
+}
+
 // TestRenderOutbound_FailureClipsLongTrace: an agent failure can be a multi-screen
 // stack trace. The chat gets the actionable head of it, not the whole thing.
 func TestRenderOutbound_FailureClipsLongTrace(t *testing.T) {
