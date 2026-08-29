@@ -190,7 +190,8 @@ func (a *Adapter) Push(ctx context.Context, cred imbot.Credential, msg imbot.Out
 	req.Header.Set("Content-Type", "application/json; charset=utf-8")
 	resp, err := a.httpClient.Do(req)
 	if err != nil {
-		return err
+		// Never reached WeCom (DNS/connect/timeout) — status 0 marks it retryable.
+		return imbot.NewPushError(0, err)
 	}
 	defer resp.Body.Close()
 	raw, _ := io.ReadAll(resp.Body)
@@ -200,7 +201,8 @@ func (a *Adapter) Push(ctx context.Context, cred imbot.Credential, msg imbot.Out
 	}
 	_ = json.Unmarshal(raw, &out)
 	if resp.StatusCode/100 != 2 || out.ErrCode != 0 {
-		return fmt.Errorf("wework: send failed status=%d errcode=%d errmsg=%s", resp.StatusCode, out.ErrCode, out.ErrMsg)
+		return imbot.NewPushError(resp.StatusCode,
+			fmt.Errorf("wework: send failed status=%d errcode=%d errmsg=%s", resp.StatusCode, out.ErrCode, out.ErrMsg))
 	}
 	return nil
 }

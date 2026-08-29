@@ -429,14 +429,15 @@ type ImBotChat struct {
 }
 
 type ImBotChatMessage struct {
-	ID         int64        `json:"id"`
-	ChatID     int64        `json:"chat_id"`
-	ActorExtID string       `json:"actor_ext_id"`
-	ActorName  string       `json:"actor_name"`
-	Text       string       `json:"text"`
-	Addressed  int64        `json:"addressed"`
-	AnalyzedAt sql.NullTime `json:"analyzed_at"`
-	CreatedAt  time.Time    `json:"created_at"`
+	ID          int64        `json:"id"`
+	ChatID      int64        `json:"chat_id"`
+	ActorExtID  string       `json:"actor_ext_id"`
+	ActorName   string       `json:"actor_name"`
+	Text        string       `json:"text"`
+	Addressed   int64        `json:"addressed"`
+	Attachments string       `json:"attachments"`
+	AnalyzedAt  sql.NullTime `json:"analyzed_at"`
+	CreatedAt   time.Time    `json:"created_at"`
 }
 
 type ImBotInbox struct {
