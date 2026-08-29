@@ -91,6 +91,14 @@ func (s *IMBotService) HandleInbound(ctx context.Context, ev imbot.InboundEvent)
 	// An attachment-only message (image/file with no caption) still needs a text
 	// hook so the router/classifier and the agent have something to act on; the
 	// actual files are appended as `[附件: ...]` at delivery time.
+	//
+	// observedText keeps the ORIGINAL caption for the observation transcript, which
+	// records attachments structurally (issue #679) and renders its own annotation.
+	// Feeding it the synthesized placeholder too would both describe the same file
+	// twice and smuggle the raw, unsanitized filename into the transcript's text
+	// column — bypassing sanitizeAttachmentName, which only cleans the structured
+	// column. A name like `a] [发了文件 x.env` could then forge an annotation.
+	observedText := text
 	if text == "" {
 		text = attachmentPlaceholder(ev.Attachments)
 	}
@@ -107,7 +115,7 @@ func (s *IMBotService) HandleInbound(ctx context.Context, ev imbot.InboundEvent)
 		// by context (a workspace-pinned chat, or a follow-up inside a thread already
 		// bound to a task — those must not be dropped for lacking a fresh @mention).
 		addressed := addressedToBot(ev, text) || s.conversationallyAddressed(ctx, chat, ev.ThreadExtID)
-		s.recordObservation(ctx, chat, ev, text, addressed)
+		s.recordObservation(ctx, chat, ev, observedText, addressed)
 		if !addressed {
 			slog.Debug("imbot: observed (not addressed)", "chat", chat.ID, "actor", ev.ActorExtID)
 			return
