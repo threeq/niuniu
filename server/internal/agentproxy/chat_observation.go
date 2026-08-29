@@ -54,10 +54,13 @@ type OneShotRequest struct {
 // RunOneShotStructured executes a single structured-generation turn using the
 // caller's chosen CLI and environment, then decodes the result into dst.
 //
-// Only the one-shot-capable text CLIs are supported. omp and goose are driven
-// over RPC/ACP session protocols rather than a `-p`-style print mode, so a caller
-// configured for those gets a clear error and degrades (the employee simply stays
-// quiet) instead of a confusing subprocess failure.
+// Every backend niuniu supports has a non-interactive mode, so all of them work
+// here — but each names it differently (`claude -p`, `codex exec`, bare `qwen`,
+// `omp -p`, `goose run -i -`), and for omp/goose that mode is a DIFFERENT surface
+// from the RPC/ACP protocol their interactive adapters speak. See oneShotArgv.
+//
+// An unknown cli_type returns a clear error and the caller degrades (the employee
+// simply stays quiet) rather than mis-spawning a subprocess.
 func RunOneShotStructured(parentCtx context.Context, req OneShotRequest, dst any) error {
 	if strings.TrimSpace(req.Prompt) == "" {
 		return errors.New("empty one-shot prompt")
@@ -77,7 +80,7 @@ func RunOneShotStructured(parentCtx context.Context, req OneShotRequest, dst any
 			return err
 		}
 		return ParseOneShotOutput(out, dst)
-	case adapter.TypeCodex, adapter.TypeQwen:
+	case adapter.TypeCodex, adapter.TypeQwen, adapter.TypeOmp, adapter.TypeGoose:
 		out, err := runGenericOneShot(parentCtx, t, req)
 		if err != nil {
 			return err
@@ -146,6 +149,31 @@ func oneShotArgv(t adapter.Type, command string) (string, []string) {
 		// Qwen's headless mode also reads the prompt from stdin. Plain text output
 		// (not stream-json): we want the final answer, not an event stream.
 		return command, []string{}
+	case adapter.TypeOmp:
+		if command == "" {
+			command = "omp"
+		}
+		// `-p` is omp's non-interactive print mode: process the prompt and exit.
+		// The prompt arrives on stdin, which omp accepts (it waits for EOF, and we
+		// close stdin after writing). Default output mode is `text`, i.e. only the
+		// final assistant message on stdout — thinking blocks are opt-in via
+		// --print-thoughts, which we do NOT want polluting the JSON we parse.
+		//
+		// NOTE: the omp ADAPTER uses `--mode rpc` for interactive sessions; that is
+		// a different surface from this one-shot call. Do not "align" them.
+		return command, []string{"-p"}
+	case adapter.TypeGoose:
+		if command == "" {
+			command = "goose"
+		}
+		// `goose run` executes an instruction from stdin (`-i -`) and exits.
+		//   -q            only the model response on stdout (suppresses the banner
+		//                 and progress chatter that would otherwise precede the JSON)
+		//   --no-session  do not persist a session for a throwaway analysis
+		//
+		// NOTE: the goose ADAPTER uses `goose acp` (ACP over stdio) for interactive
+		// sessions — again a different surface from this one-shot call.
+		return command, []string{"run", "-i", "-", "-q", "--no-session"}
 	}
 	return "", nil
 }
@@ -167,8 +195,15 @@ func oneShotEnv(ctx context.Context, t adapter.Type, configDir string, extra []s
 		switch t {
 		case adapter.TypeCodex:
 			env = append(env, "CODEX_HOME="+configDir)
-		default:
+		case "", adapter.TypeClaude, adapter.TypeQwen:
+			// Qwen's CLI is a Claude-Code fork and honors the same variable.
 			env = append(env, "CLAUDE_CONFIG_DIR="+configDir)
+		default:
+			// omp and goose scope credentials differently (omp via --profile, goose
+			// via GOOSE_* env resolved by its own backend), so a niuniu Claude/Codex
+			// account dir means nothing to them. Exporting CLAUDE_CONFIG_DIR here
+			// would be cargo-culting — silently ignored at best, and misleading to
+			// the next reader. Leave it unset and let the CLI use its own config.
 		}
 	}
 	// Resolve the ANTHROPIC_AUTH_TOKEN vs ANTHROPIC_API_KEY conflict the same way
