@@ -285,6 +285,12 @@ func (a *Adapter) Push(ctx context.Context, cred imbot.Credential, msg imbot.Out
 		return err
 	}
 	if resp.Ret != 0 {
+		// Deliberately NOT wrapped in imbot.PushError: iLink's ret is a business code
+		// that conflates rate-limiting, an expired token and an over-long message
+		// (see the ret=-2 note above), so any status we assigned would be a guess.
+		// An unclassified error is treated as retryable by the dispatcher, which is
+		// the right default for the rate-limit case and merely wasteful for the
+		// others.
 		return fmt.Errorf("wechat: sendmessage ret=%d errmsg=%s", resp.Ret, resp.Errmsg)
 	}
 	return nil
