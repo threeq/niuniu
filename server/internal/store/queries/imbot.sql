@@ -179,8 +179,10 @@ SELECT * FROM im_bot_inbox WHERE channel_id = ? AND event_ext_id = ?;
 
 -- name: CreateIMBotChatMessage :one
 -- Append one observed message to a chat's rolling transcript (issue #664).
-INSERT INTO im_bot_chat_messages (chat_id, actor_ext_id, actor_name, text, addressed)
-VALUES (?, ?, ?, ?, ?)
+-- attachments carries JSON metadata (kind + name) for files shared in the message
+-- (issue #679), never the bytes.
+INSERT INTO im_bot_chat_messages (chat_id, actor_ext_id, actor_name, text, addressed, attachments)
+VALUES (?, ?, ?, ?, ?, ?)
 RETURNING *;
 
 -- name: ListUnanalyzedIMBotChatMessages :many

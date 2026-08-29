@@ -743,6 +743,14 @@ func New(cfg *config.Config, db *sql.DB, frontendFS fs.FS) *Server {
 			if err := s.queries.PruneOrphanedWorkspaceSchedules(ctx); err != nil {
 				slog.Warn("orphaned workspace_schedules prune failed", "err", err)
 			}
+			// IM-bot onboarding tokens are single-use and expire in 15 minutes, but
+			// nothing ever deleted the spent/expired rows — the query existed and was
+			// generated, with zero callers, so the table grew forever (found while
+			// fixing issue #681). Safe to run unconditionally: it only removes rows
+			// already past their expiry, which can no longer be redeemed.
+			if err := s.queries.DeleteExpiredOnboardingTokens(ctx); err != nil {
+				slog.Warn("expired imbot onboarding tokens prune failed", "err", err)
+			}
 		}
 		for {
 			prune()

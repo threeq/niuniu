@@ -168,7 +168,8 @@ func (a *Adapter) Push(ctx context.Context, cred imbot.Credential, msg imbot.Out
 	req.Header.Set("Authorization", "Bearer "+token)
 	resp, err := a.httpClient.Do(req)
 	if err != nil {
-		return err
+		// Never reached Feishu (DNS/connect/timeout) — status 0 marks it retryable.
+		return imbot.NewPushError(0, err)
 	}
 	defer resp.Body.Close()
 	raw, _ := io.ReadAll(resp.Body)
@@ -178,7 +179,8 @@ func (a *Adapter) Push(ctx context.Context, cred imbot.Credential, msg imbot.Out
 	}
 	_ = json.Unmarshal(raw, &out)
 	if resp.StatusCode/100 != 2 || out.Code != 0 {
-		return fmt.Errorf("lark: send failed status=%d code=%d msg=%s", resp.StatusCode, out.Code, out.Msg)
+		return imbot.NewPushError(resp.StatusCode,
+			fmt.Errorf("lark: send failed status=%d code=%d msg=%s", resp.StatusCode, out.Code, out.Msg))
 	}
 	return nil
 }
@@ -398,7 +400,7 @@ const maxResourceBytes = 32 << 20
 // wsEndpointResp is the shape of POST /callback/ws/endpoint (the Lark WS
 // handshake that hands back the wss URL to dial).
 type wsEndpointResp struct {
-	Code int `json:"code"`
+	Code int    `json:"code"`
 	Msg  string `json:"msg"`
 	Data struct {
 		URL string `json:"URL"`
