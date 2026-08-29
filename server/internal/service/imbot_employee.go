@@ -111,6 +111,21 @@ const (
 
 	// employeeActionWindow is the budget's rolling period.
 	employeeActionWindow = 24 * time.Hour
+
+	// employeeFailuresBeforeNotice is how many CONSECUTIVE analysis failures a chat
+	// tolerates before the bot says so in the chat itself.
+	//
+	// Silence is this feature's normal state (most verdicts are "none"), so a broken
+	// analyzer is indistinguishable from a well-behaved quiet one — someone enables
+	// observe mode, nothing ever happens, and there is no signal that it is BROKEN
+	// rather than merely unexcited. The server log has the reason, but whoever
+	// flipped the toggle in the UI is not reading server logs.
+	//
+	// Threshold rather than first-failure: a single hiccup (rate limit, transient
+	// network) self-heals on the next sweep and is not worth interrupting anyone.
+	// At the 10-minute sweep interval this speaks up after roughly half an hour of
+	// a genuinely broken configuration.
+	employeeFailuresBeforeNotice = 3
 )
 
 // IMBotEmployee runs the periodic proactive sweep over observe-mode chats. It is
@@ -131,6 +146,12 @@ type IMBotEmployee struct {
 	budgetMu     sync.Mutex
 	actionBudget map[int64]*actionBudget
 	nowFn        func() time.Time
+
+	// failMu guards failStreak: consecutive analysis failures per chat, used to
+	// surface a persistently broken analyzer once (see reportAnalysisTrouble).
+	// In-memory like the budget — a restart re-arming the notice is harmless.
+	failMu     sync.Mutex
+	failStreak map[int64]int
 
 	mu   sync.Mutex
 	stop chan struct{}
@@ -276,8 +297,10 @@ func (e *IMBotEmployee) considerChat(ctx context.Context, chat store.ImBotChat) 
 	if err != nil {
 		// Deliberately NOT marked analyzed: a transient failure should be retried.
 		slog.Warn("imbot: employee analysis failed", "chat", chat.ID, "error", err)
+		e.reportAnalysisTrouble(ctx, chat, err)
 		return
 	}
+	e.noteAnalysisOK(chat.ID)
 	e.markAnalyzed(ctx, chat.ID, msgs)
 
 	action := normalizeEmployeeAction(verdict.Action)
@@ -331,6 +354,53 @@ func (e *IMBotEmployee) claimActionBudget(chatID int64) bool {
 type actionBudget struct {
 	windowStart time.Time
 	used        int
+}
+
+// noteAnalysisOK clears a chat's failure streak after a successful analysis, so a
+// later broken spell starts counting from zero and gets its own notice.
+func (e *IMBotEmployee) noteAnalysisOK(chatID int64) {
+	e.failMu.Lock()
+	defer e.failMu.Unlock()
+	if e.failStreak != nil {
+		delete(e.failStreak, chatID)
+	}
+}
+
+// reportAnalysisTrouble tells the chat, ONCE per broken spell, that the employee
+// cannot analyze — turning an invisible misconfiguration into something the person
+// who enabled observe mode can actually act on.
+//
+// Said exactly once at the threshold: the streak keeps climbing afterwards but no
+// further message is sent, so a permanently broken analyzer costs one message
+// rather than one every sweep forever. A successful analysis resets the streak
+// (noteAnalysisOK), which re-arms the notice for a genuinely new outage.
+//
+// It deliberately does NOT consume the interruption budget: this is a
+// this-is-broken diagnostic, not the bot volunteering an opinion, and it must not
+// be silenced by a chat that has used up its allowance.
+func (e *IMBotEmployee) reportAnalysisTrouble(ctx context.Context, chat store.ImBotChat, cause error) {
+	e.failMu.Lock()
+	if e.failStreak == nil {
+		e.failStreak = map[int64]int{}
+	}
+	e.failStreak[chat.ID]++
+	streak := e.failStreak[chat.ID]
+	e.failMu.Unlock()
+
+	if streak != employeeFailuresBeforeNotice {
+		return
+	}
+	channel, err := e.q.GetIMBotChannel(ctx, chat.ChannelID)
+	if err != nil || channel.Status != "active" {
+		return
+	}
+	// The underlying error text (a CLI/auth/provider message) is the actionable
+	// part, so include it clipped rather than a generic "something went wrong".
+	e.svc.pushText(ctx, channel, chat.ChatExtID, "",
+		employeeNotifyPrefix+"我暂时无法分析这个群的讨论，主动提醒和主动建任务已经停了（被 @ 时仍然照常工作）。"+
+			"通常是分析用的 AI 后端没配好或没登录。原因："+clipDetail(cause.Error(), 200))
+	slog.Warn("imbot: employee analysis persistently failing; notified chat",
+		"chat", chat.ID, "streak", streak)
 }
 
 // now returns the current time, overridable in tests so a budget window can be

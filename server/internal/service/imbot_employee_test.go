@@ -1053,3 +1053,100 @@ func TestPatchChatByOwner_SwitchesAgentMode(t *testing.T) {
 		t.Errorf("mode toggle changed status: %q -> %q", before.Status, back.Status)
 	}
 }
+
+// TestEmployeeAnalysisFailure_SurfacesToChat covers the observability gap that a
+// silent-by-design feature creates: most verdicts are "none", so a BROKEN analyzer
+// looks exactly like a well-behaved quiet one. Whoever flipped the toggle in the UI
+// is not reading server logs, so after a few consecutive failures the bot has to
+// say so in the chat.
+func TestEmployeeAnalysisFailure_SurfacesToChat(t *testing.T) {
+	f := newIMBotFixture(t)
+	chat := f.observeChat(t, "oc_broken")
+	ctx := context.Background()
+
+	an := &fakeAnalyzer{err: errors.New("claude CLI not available")}
+	emp := NewIMBotEmployee(f.svc, f.q, an)
+
+	// Below the threshold the bot stays quiet: a transient hiccup self-heals and is
+	// not worth interrupting anyone over.
+	for i := 0; i < employeeFailuresBeforeNotice-1; i++ {
+		seedChatter(t, f, chat, employeeMinMessages)
+		emp.sweep(ctx)
+	}
+	if n := len(f.adapter.pushes); n != 0 {
+		t.Fatalf("spoke up after %d failures, want silence below the threshold: %+v",
+			employeeFailuresBeforeNotice-1, f.adapter.pushes)
+	}
+
+	// At the threshold it reports, and includes the actionable cause.
+	seedChatter(t, f, chat, employeeMinMessages)
+	emp.sweep(ctx)
+	if len(f.adapter.pushes) != 1 {
+		t.Fatalf("want exactly 1 trouble notice, got %d", len(f.adapter.pushes))
+	}
+	got := f.adapter.pushes[0].Text
+	if !strings.Contains(got, "无法分析") || !strings.Contains(got, "claude CLI not available") {
+		t.Errorf("notice missing the problem or its cause: %q", got)
+	}
+
+	// Persistently broken must cost ONE message, not one per sweep forever.
+	for i := 0; i < 5; i++ {
+		seedChatter(t, f, chat, employeeMinMessages)
+		emp.sweep(ctx)
+	}
+	if n := len(f.adapter.pushes); n != 1 {
+		t.Errorf("repeated the notice every sweep: %d messages", n)
+	}
+
+	// A failing analyzer must not consume the batch: the chatter stays unanalyzed so
+	// it is reconsidered once the backend is fixed.
+	msgs, err := f.q.ListUnanalyzedIMBotChatMessages(ctx,
+		store.ListUnanalyzedIMBotChatMessagesParams{ChatID: chat.ID, Limit: 500})
+	if err != nil {
+		t.Fatalf("list unanalyzed: %v", err)
+	}
+	if len(msgs) == 0 {
+		t.Error("failed analysis consumed the transcript; nothing left to retry")
+	}
+
+	// Recovery re-arms the notice, so a genuinely new outage is reported again.
+	an.err = nil
+	an.verdict = EmployeeVerdict{Action: EmployeeActionNone}
+	seedChatter(t, f, chat, employeeMinMessages)
+	emp.sweep(ctx)
+	an.err = errors.New("provider 401")
+	for i := 0; i < employeeFailuresBeforeNotice; i++ {
+		seedChatter(t, f, chat, employeeMinMessages)
+		emp.sweep(ctx)
+	}
+	if len(f.adapter.pushes) != 2 {
+		t.Errorf("streak not reset after a success: want a 2nd notice, got %d messages", len(f.adapter.pushes))
+	}
+}
+
+// The trouble notice is a diagnostic, not the bot volunteering an opinion, so an
+// exhausted interruption budget must not be able to hide a broken configuration.
+func TestEmployeeAnalysisFailure_NoticeIgnoresActionBudget(t *testing.T) {
+	f := newIMBotFixture(t)
+	chat := f.observeChat(t, "oc_broken_budget")
+	ctx := context.Background()
+
+	// Burn the whole budget with legitimate notifies first.
+	an := &fakeAnalyzer{verdict: EmployeeVerdict{Action: EmployeeActionNotify, Message: "提醒"}}
+	emp := NewIMBotEmployee(f.svc, f.q, an)
+	for i := 0; i < employeeMaxActionsPerDay+2; i++ {
+		seedChatter(t, f, chat, employeeMinMessages)
+		emp.sweep(ctx)
+	}
+	spent := len(f.adapter.pushes)
+
+	// Now the analyzer breaks; the notice must still get through.
+	an.err = errors.New("provider 401")
+	for i := 0; i < employeeFailuresBeforeNotice; i++ {
+		seedChatter(t, f, chat, employeeMinMessages)
+		emp.sweep(ctx)
+	}
+	if len(f.adapter.pushes) != spent+1 {
+		t.Errorf("budget suppressed the broken-analyzer notice: %d -> %d", spent, len(f.adapter.pushes))
+	}
+}
