@@ -317,7 +317,12 @@ func (d *IMBotDispatcher) sendWithRetry(p pendingPush, stop <-chan struct{}) {
 	for attempt := 1; ; attempt++ {
 		// A fresh context per attempt: the dispatch loop's context may be long gone,
 		// and a retry should not inherit an already-consumed deadline.
-		ctx, cancel := context.WithTimeout(context.Background(), pushAttemptTimeout)
+		//
+		// Cancelled by stop as well as by the timeout, so shutdown does not wait out a
+		// hung request. Without this, Stop blocks in wg.Wait() for up to
+		// pushAttemptTimeout while an unresponsive platform holds the connection open
+		// — the in-flight Push is exactly the case Stop needs to interrupt.
+		ctx, cancel := contextWithStop(stop, pushAttemptTimeout)
 		err := p.adapter.Push(ctx, p.cred, p.msg)
 		cancel()
 		if err == nil {
@@ -355,6 +360,28 @@ func (d *IMBotDispatcher) sendWithRetry(p pendingPush, stop <-chan struct{}) {
 // pushAttemptTimeout bounds one delivery attempt so a hung platform request cannot
 // occupy a chat's sender indefinitely.
 const pushAttemptTimeout = 30 * time.Second
+
+// contextWithStop returns a context that expires after timeout OR when stop
+// closes, whichever comes first. The returned cancel must always be called; it
+// also releases the watchdog goroutine. Calling it more than once is safe, as
+// context.CancelFunc requires.
+func contextWithStop(stop <-chan struct{}, timeout time.Duration) (context.Context, context.CancelFunc) {
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	done := make(chan struct{})
+	go func() {
+		select {
+		case <-stop:
+			cancel()
+		case <-ctx.Done(): // finished or timed out normally
+		case <-done: // cancel() already called by the caller
+		}
+	}()
+	var once sync.Once
+	return ctx, func() {
+		once.Do(func() { close(done) })
+		cancel()
+	}
+}
 
 // sleep waits for d, returning false if stop closed first. Overridable via
 // retrySleep so tests need not wait out real backoff.

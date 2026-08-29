@@ -262,6 +262,13 @@ func TestPushError_Classification(t *testing.T) {
 		{http.StatusForbidden, false},          // 403
 		{http.StatusBadRequest, false},         // 400 — malformed
 		{http.StatusNotFound, false},           // 404 — chat/thread gone
+		{http.StatusConflict, false},           // 409 — other 4xx are rejections too
+
+		// Feishu/WeCom/DingTalk answer a REJECTED send with HTTP 200 plus a business
+		// error code in the body, so the adapters wrap rate limiting and expired
+		// tokens as Status 200. Treating 2xx as permanent would make the two failures
+		// this fix exists to survive the exact two that never retry.
+		{http.StatusOK, true},
 	}
 	for _, c := range cases {
 		err := imbot.NewPushError(c.status, errors.New("boom"))
@@ -279,6 +286,81 @@ func TestPushError_Classification(t *testing.T) {
 	// The underlying message must survive wrapping — logs depend on it.
 	if got := imbot.NewPushError(429, errors.New("lark: send failed")).Error(); got != "lark: send failed" {
 		t.Errorf("wrapped error message = %q, want the original", got)
+	}
+}
+
+// TestDispatcher_RetriesRateLimitReturnedAs200 is the regression for the bug that
+// would have made this whole fix a no-op on its main platforms: Feishu answers a
+// rate-limited send with HTTP 200 and code=99991400 in the body, so the push error
+// carries Status 200, not 429. Classifying 2xx as permanent meant rate limiting —
+// the single most common transient failure — was never retried.
+func TestDispatcher_RetriesRateLimitReturnedAs200(t *testing.T) {
+	f := newIMBotFixture(t)
+	chat := f.activeChat(t, "oc_200rate")
+	f.setActiveIssueForTest(t, chat, f.issueID)
+
+	ad := &flakyAdapter{
+		failsLeft: 1,
+		failWith: imbot.NewPushError(http.StatusOK,
+			errors.New("lark: send failed status=200 code=99991400 msg=too many request")),
+	}
+	bus := event.NewBus()
+	d := newRetryDispatcher(bus, f, ad)
+	d.Start()
+	defer d.Stop()
+
+	bus.Publish(event.OutputEvent{Type: event.EventAgentDone, Content: "限流后的回复", WorkspaceId: f.wsID})
+
+	pushes := waitForPushes(&ad.recordAdapter, 1)
+	if len(pushes) != 1 {
+		t.Fatalf("rate-limited reply was lost; pushes=%d attempts=%d", len(pushes), ad.attemptCount())
+	}
+	if !strings.Contains(pushes[0].Text, "限流后的回复") {
+		t.Errorf("delivered text = %q, want the original reply", pushes[0].Text)
+	}
+}
+
+// hangingAdapter blocks in Push until its context is cancelled, standing in for an
+// unresponsive platform holding the connection open.
+type hangingAdapter struct {
+	recordAdapter
+	entered chan struct{}
+	once    sync.Once
+}
+
+func (a *hangingAdapter) Push(ctx context.Context, _ imbot.Credential, _ imbot.OutboundMessage) error {
+	a.once.Do(func() { close(a.entered) })
+	<-ctx.Done()
+	return ctx.Err()
+}
+
+// TestDispatcher_StopInterruptsHungPush: Stop must not wait out pushAttemptTimeout.
+// The attempt context is tied to stop, so a push hung on an unresponsive platform
+// is cancelled at shutdown instead of holding wg.Wait() for the full 30s timeout.
+func TestDispatcher_StopInterruptsHungPush(t *testing.T) {
+	f := newIMBotFixture(t)
+	chat := f.activeChat(t, "oc_hang")
+	f.setActiveIssueForTest(t, chat, f.issueID)
+
+	ad := &hangingAdapter{entered: make(chan struct{})}
+	bus := event.NewBus()
+	d := newRetryDispatcher(bus, f, ad)
+	d.Start()
+	bus.Publish(event.OutputEvent{Type: event.EventAgentDone, Content: "reply", WorkspaceId: f.wsID})
+
+	select {
+	case <-ad.entered:
+	case <-time.After(5 * time.Second):
+		d.Stop()
+		t.Fatal("push never started")
+	}
+
+	done := make(chan struct{})
+	go func() { d.Stop(); close(done) }()
+	select {
+	case <-done: // cancelled promptly, well inside pushAttemptTimeout
+	case <-time.After(5 * time.Second):
+		t.Fatal("Stop blocked on a hung push; the attempt context is not tied to stop")
 	}
 }
 
