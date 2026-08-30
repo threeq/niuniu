@@ -1650,3 +1650,44 @@ func TestTranscriptTrimDropsAttachmentData(t *testing.T) {
 		t.Error("trimmed attachment leaked into the rendered transcript")
 	}
 }
+
+// The trouble notice must point at the RIGHT thing. Its first version asserted
+// "后端没配好或没登录" for every failure, and the failure it actually shipped
+// against was an architectural timeout -- sending an operator to check credentials
+// that were fine. A confidently wrong hint costs more than no hint.
+func TestEmployeeTroubleHint_MatchesCause(t *testing.T) {
+	cases := []struct {
+		cause string
+		want  string // substring the hint must contain ("" = must stay silent)
+	}{
+		{"analysis agent produced no verdict within 4m0s", "工作空间"},
+		{"one-shot call timed out", "超时"},
+		{"context deadline exceeded", "超时"},
+		{"claude CLI not available", "命令行工具"},
+		{"provider returned 401 unauthorized", "没登录"},
+		{"API 429: rate limit exceeded", "限流"},
+		{"create analysis workspace: no column", "工作空间"},
+	}
+	for _, c := range cases {
+		got := employeeTroubleHint(errors.New(c.cause))
+		if !strings.Contains(got, c.want) {
+			t.Errorf("cause %q -> hint %q, want it to mention %q", c.cause, got, c.want)
+		}
+	}
+
+	// An unclassifiable cause must make NO claim. The raw error is still appended by
+	// the caller, so the operator keeps the actionable detail without being pointed
+	// in a direction that may be wrong.
+	if got := employeeTroubleHint(errors.New("some brand new failure mode")); got != "" {
+		t.Errorf("unknown cause produced a guess: %q", got)
+	}
+
+	// A credentials problem must not be described as a timeout, and vice versa --
+	// these two send an operator to completely different places.
+	if strings.Contains(employeeTroubleHint(errors.New("401 unauthorized")), "超时") {
+		t.Error("auth failure mislabelled as a timeout")
+	}
+	if strings.Contains(employeeTroubleHint(errors.New("one-shot call timed out")), "没登录") {
+		t.Error("timeout mislabelled as a credentials problem -- this is the original bug")
+	}
+}
