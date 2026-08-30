@@ -94,6 +94,12 @@ type EmployeeAnalyzer interface {
 type EmployeeScope struct {
 	ProjectID   int64
 	WorkspaceID int64
+	// ChatID/ChatName identify the chat being analyzed. The one-shot analyzer
+	// ignores them; the resident-workspace analyzer uses them to keep a separate,
+	// labelled transcript file per chat so a shared analysis workspace does not
+	// blend several groups' conversations into one log.
+	ChatID   int64
+	ChatName string
 }
 
 const (
@@ -457,9 +463,47 @@ func (e *IMBotEmployee) reportAnalysisTrouble(ctx context.Context, chat store.Im
 	// part, so include it clipped rather than a generic "something went wrong".
 	e.svc.pushText(ctx, channel, chat.ChatExtID, "",
 		employeeNotifyPrefix+"我暂时无法分析这个群的讨论，主动提醒和主动建任务已经停了（被 @ 时仍然照常工作）。"+
-			"通常是分析用的 AI 后端没配好或没登录。原因："+clipDetail(cause.Error(), 200))
+			employeeTroubleHint(cause)+"原因："+clipDetail(cause.Error(), 200))
 	slog.Warn("imbot: employee analysis persistently failing; notified chat",
 		"chat", chat.ID, "streak", streak)
+}
+
+// employeeTroubleHint picks the troubleshooting direction that matches the actual
+// failure, so the notice points somewhere useful instead of guessing.
+//
+// This exists because the first version of this message asserted "通常是分析用的
+// AI 后端没配好或没登录" for EVERY failure — and the failure it actually shipped
+// against was a 60-second one-shot timeout, i.e. an architectural limit, not a
+// misconfiguration. Telling an operator to check credentials when nothing is wrong
+// with their credentials wastes exactly the time this notice was meant to save, so
+// a wrong-but-confident hint is worse than none.
+func employeeTroubleHint(cause error) string {
+	msg := strings.ToLower(cause.Error())
+	switch {
+	case strings.Contains(msg, "no verdict"):
+		// The agent ran but produced nothing in time — the resident-workspace path's
+		// characteristic failure. Point at the workspace, which is inspectable.
+		return "分析 Agent 这一轮没能给出结论（可能还在忙或卡住了）。可以打开项目里的" +
+			"「" + employeeAnalysisIssueTitle + "」工作空间看看它的状态。"
+	case strings.Contains(msg, "timed out"), strings.Contains(msg, "deadline exceeded"),
+		strings.Contains(msg, "context canceled"):
+		return "分析超时了。"
+	case strings.Contains(msg, "not available"), strings.Contains(msg, "not found"),
+		strings.Contains(msg, "executable"):
+		return "服务器上找不到可用的 AI 命令行工具。"
+	case strings.Contains(msg, "401"), strings.Contains(msg, "403"),
+		strings.Contains(msg, "unauthorized"), strings.Contains(msg, "authenticate"),
+		strings.Contains(msg, "api key"), strings.Contains(msg, "login"):
+		return "分析用的 AI 后端没配好或没登录。"
+	case strings.Contains(msg, "429"), strings.Contains(msg, "rate limit"),
+		strings.Contains(msg, "quota"):
+		return "分析用的 AI 后端被限流或额度用完了，稍后会自动重试。"
+	case strings.Contains(msg, "workspace"):
+		return "分析用的工作空间开不起来。"
+	default:
+		// No confident classification: say nothing rather than guess wrong.
+		return ""
+	}
 }
 
 // now returns the current time, overridable in tests so a budget window can be
@@ -487,6 +531,11 @@ func (e *IMBotEmployee) scopeFor(ctx context.Context, chat store.ImBotChat) Empl
 	scope := EmployeeScope{}
 	if chat.ProjectID.Valid {
 		scope.ProjectID = chat.ProjectID.Int64
+	}
+	scope.ChatID = chat.ID
+	scope.ChatName = strings.TrimSpace(chat.ChatName)
+	if scope.ChatName == "" {
+		scope.ChatName = chat.ChatExtID
 	}
 	if scope.ProjectID == 0 {
 		return scope
