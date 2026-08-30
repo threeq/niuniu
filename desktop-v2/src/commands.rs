@@ -390,13 +390,6 @@ pub fn focus_connection(app: &tauri::AppHandle, key: &str) {
     }
 }
 
-pub fn reload_connection(app: &tauri::AppHandle, key: &str) {
-    let label = config::window_label_for_key(key);
-    if let Some(win) = app.get_webview_window(&label) {
-        let _ = win.eval("location.reload(true)");
-    }
-}
-
 pub fn close_connection(app: &tauri::AppHandle, key: &str) {
     let label = config::window_label_for_key(key);
     if let Some(win) = app.get_webview_window(&label) {
@@ -442,60 +435,6 @@ pub fn restart_server(app: &tauri::AppHandle) -> Result<(), String> {
     navigate_main_to_server(app);
     crate::tray::rebuild_tray(app);
     Ok(())
-}
-
-/// 重建主窗口：销毁旧窗口 → 新建同标签窗口 → 导航到本地 server。
-pub fn hard_reset_main(app: &tauri::AppHandle) {
-    let lang = app.state::<AppMeta>().lang.clone();
-    let addr = app.state::<ServerState>().addr();
-    {
-        let rb = app.state::<crate::state::RebuildingState>();
-        *rb.inner.lock().unwrap() = true;
-    }
-    if let Some(old) = app.get_webview_window("main") {
-        let _ = old.destroy();
-    }
-    // 新建 webview 在独立线程（托盘回调在主线程，同步 build() 会死锁）。
-    let app2 = app.clone();
-    std::thread::spawn(move || {
-        if let Ok(win) = windows::create_main_window(&app2, &lang, false) {
-            crate::windows::register_close_to_tray(&win, &app2);
-            let _ = win.show();
-            if let Some(addr) = addr {
-                let cfg = app2.state::<CfgState>().snapshot();
-                let url = windows::with_hotkey_hash(&format!("http://{addr}/"), &cfg);
-                if let Ok(u) = url::Url::parse(&url) {
-                    let _ = win.navigate(u);
-                }
-            }
-        }
-        *app2.state::<crate::state::RebuildingState>().inner.lock().unwrap() = false;
-    });
-}
-
-/// 重建远端连接窗口：销毁旧窗口 → 同 key 新建 → 连接 splash 自跳。
-/// 对应 v1 HardResetConnection（卡死 webview 的恢复路径）。
-pub fn hard_reset_connection(app: &tauri::AppHandle, key: &str) {
-    let lang = app.state::<AppMeta>().lang.clone();
-    let info = app.state::<ConnState>().snapshot().get(key).cloned();
-    let Some(info) = info else { return };
-    {
-        let rb = app.state::<crate::state::RebuildingState>();
-        *rb.inner.lock().unwrap() = true;
-    }
-    let label = config::window_label_for_key(key);
-    if let Some(old) = app.get_webview_window(&label) {
-        let _ = old.destroy();
-    }
-    app.state::<ConnState>().remove(key);
-    // 新建 webview 在独立线程（open_connection_window 内部 spawn），此处只需
-    // 重建托盘；destroy() 不触发 CloseRequested，RebuildingState 可先行复位。
-    let _ = windows::open_connection_window(app, &lang, key, &info);
-    crate::tray::rebuild_tray(app);
-    {
-        let rb = app.state::<crate::state::RebuildingState>();
-        *rb.inner.lock().unwrap() = false;
-    }
 }
 
 /// 主窗口导航到本地 server（带快捷键 hash）。

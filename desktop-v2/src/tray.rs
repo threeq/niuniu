@@ -1,4 +1,4 @@
-//! 系统托盘：图标 + 菜单（显示/刷新/重建/重启 server、AI 直达、连接管理、退出），
+//! 系统托盘：图标 + 菜单（显示/重启 server、AI 直达、连接管理、退出），
 //! 并随连接变化重建（rebuild_tray）。左键单击 → 显示主窗口。
 
 use tauri::menu::{Menu, MenuItem, PredefinedMenuItem, Submenu};
@@ -27,10 +27,6 @@ pub fn build_tray(app: &AppHandle) -> tauri::Result<TrayIcon> {
         .show_menu_on_left_click(false)
         .on_menu_event(|app, event| match event.id().as_ref() {
             "show" => show_main_closure(app.clone())(),
-            "reload" => reload_main(app),
-            "rebuild" => {
-                crate::commands::hard_reset_main(app);
-            }
             "restart" => {
                 let _ = crate::commands::restart_server(app);
             }
@@ -49,16 +45,6 @@ pub fn build_tray(app: &AppHandle) -> tauri::Result<TrayIcon> {
             "conn-focus" => {
                 if let Some(key) = event.id().as_ref().strip_prefix("conn-focus:") {
                     crate::commands::focus_connection(app, key);
-                }
-            }
-            "conn-reload" => {
-                if let Some(key) = event.id().as_ref().strip_prefix("conn-reload:") {
-                    crate::commands::reload_connection(app, key);
-                }
-            }
-            "conn-rebuild" => {
-                if let Some(key) = event.id().as_ref().strip_prefix("conn-rebuild:") {
-                    crate::commands::hard_reset_connection(app, key);
                 }
             }
             "saved-conn" => {
@@ -130,8 +116,6 @@ pub fn build_menu(app: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
     };
 
     let show = MenuItem::with_id(app, "show", "Show Niuniu", true, None::<&str>)?;
-    let reload = MenuItem::with_id(app, "reload", "刷新页面", true, None::<&str>)?;
-    let rebuild = MenuItem::with_id(app, "rebuild", "重建窗口", true, None::<&str>)?;
     let restart = MenuItem::with_id(app, "restart", "Restart Server", owned, None::<&str>)?;
     let sep1 = PredefinedMenuItem::separator(app)?;
 
@@ -151,7 +135,7 @@ pub fn build_menu(app: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
     let sep_tail = PredefinedMenuItem::separator(app)?;
 
     let mut items: Vec<&dyn IsMenuItem<tauri::Wry>> =
-        vec![&show, &reload, &rebuild, &restart, &sep1, &ai, &runners, &sep_nodes];
+        vec![&show, &restart, &sep1, &ai, &runners, &sep_nodes];
 
     // 活跃连接子菜单
     let mut subs: Vec<Submenu<tauri::Wry>> = Vec::new();
@@ -206,23 +190,15 @@ fn connection_submenu(
     shortcut: String,
 ) -> tauri::Result<Submenu<tauri::Wry>> {
     let focus = MenuItem::with_id(app, format!("conn-focus:{key}"), "聚焦", true, None::<&str>)?;
-    let reload = MenuItem::with_id(app, format!("conn-reload:{key}"), "刷新页面", true, None::<&str>)?;
-    let rebuild = MenuItem::with_id(app, format!("conn-rebuild:{key}"), "重建窗口", true, None::<&str>)?;
     let sep = PredefinedMenuItem::separator(app)?;
     let close = MenuItem::with_id(app, format!("conn-close:{key}"), "关闭连接", true, None::<&str>)?;
-    let items: Vec<&dyn tauri::menu::IsMenuItem<tauri::Wry>> = vec![&focus, &reload, &rebuild, &sep, &close];
+    let items: Vec<&dyn tauri::menu::IsMenuItem<tauri::Wry>> = vec![&focus, &sep, &close];
     Submenu::with_items(
         app,
         format!("● {} ({}:{}){}", info.name, info.host, info.port, shortcut),
         true,
         &items,
     )
-}
-
-fn reload_main(app: &AppHandle) {
-    if let Some(win) = app.get_webview_window("main") {
-        let _ = win.eval("location.reload(true)");
-    }
 }
 
 /// 重建托盘（连接增删/connect 后调用）。托盘已存在则只换菜单。
