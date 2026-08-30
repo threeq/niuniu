@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"log/slog"
 	"strings"
 
@@ -107,17 +108,24 @@ func (s *IMBotService) conversationallyAddressed(ctx context.Context, chat store
 //
 // Called only for observe-mode chats; a command-mode chat keeps no transcript, so
 // enabling the feature costs nothing for chats that never opted in.
+//
+// Attachment METADATA is recorded alongside the text (issue #679) so a discussion
+// held around a screenshot is not analyzed as if the screenshot were not there.
+// Only kind + name: the bytes stay where they are, and platform resource keys are
+// deliberately NOT stored because they expire — a key that rots between
+// observation and the next sweep would be worse than not having it.
 func (s *IMBotService) recordObservation(ctx context.Context, chat store.ImBotChat, ev imbot.InboundEvent, text string, addressed bool) {
 	flag := int64(0)
 	if addressed {
 		flag = 1
 	}
 	if _, err := s.q.CreateIMBotChatMessage(ctx, store.CreateIMBotChatMessageParams{
-		ChatID:     chat.ID,
-		ActorExtID: ev.ActorExtID,
-		ActorName:  ev.ActorName,
-		Text:       clipDetail(text, observeMessageMaxRunes),
-		Addressed:  flag,
+		ChatID:      chat.ID,
+		ActorExtID:  ev.ActorExtID,
+		ActorName:   ev.ActorName,
+		Text:        clipDetail(text, observeMessageMaxRunes),
+		Addressed:   flag,
+		Attachments: encodeObservedAttachments(ev.Attachments),
 	}); err != nil {
 		slog.Warn("imbot: record observation failed", "chat", chat.ID, "error", err)
 		return
@@ -127,6 +135,108 @@ func (s *IMBotService) recordObservation(ctx context.Context, chat store.ImBotCh
 	}); err != nil {
 		slog.Warn("imbot: trim transcript failed", "chat", chat.ID, "error", err)
 	}
+}
+
+// observedAttachment is the transcript's record of one file shared in a chat:
+// what kind of thing it was and what it was called. No resource key, no bytes —
+// see recordObservation.
+type observedAttachment struct {
+	Kind string `json:"kind"`
+	Name string `json:"name"`
+}
+
+// observedAttachmentsMax bounds how many attachments one message contributes to
+// the transcript. A message carrying dozens of files says "someone shared a pile
+// of files", and enumerating all of them would crowd out the actual conversation
+// in the analysis prompt.
+const observedAttachmentsMax = 8
+
+// observedAttachmentNameMaxRunes caps one stored filename. Names are
+// user-controlled and land in a prompt, so they get the same length discipline as
+// speaker labels.
+const observedAttachmentNameMaxRunes = 64
+
+// encodeObservedAttachments renders inbound attachments as the JSON stored on the
+// transcript row. Returns "[]" for a message with no attachments, so the column is
+// always valid JSON and readers never special-case empty.
+//
+// Names are sanitized HERE rather than at render time: the stored row is what a
+// later analysis reads, and sanitizing on the way in means a hostile name cannot
+// sit in the DB waiting for a reader that forgot to clean it.
+func encodeObservedAttachments(atts []imbot.InboundAttachment) string {
+	if len(atts) == 0 {
+		return "[]"
+	}
+	out := make([]observedAttachment, 0, len(atts))
+	for i, a := range atts {
+		if i >= observedAttachmentsMax {
+			break
+		}
+		out = append(out, observedAttachment{
+			Kind: normalizeAttachmentKind(a.Kind),
+			Name: sanitizeAttachmentName(a.Name),
+		})
+	}
+	b, err := json.Marshal(out)
+	if err != nil {
+		// Cannot happen for this shape, but an observation must never fail a message.
+		slog.Warn("imbot: encode observed attachments failed", "error", err)
+		return "[]"
+	}
+	return string(b)
+}
+
+// decodeObservedAttachments parses a transcript row's attachment JSON. A malformed
+// or empty value yields no attachments rather than an error: the transcript is an
+// analysis input, and one unreadable row must not stop a sweep.
+func decodeObservedAttachments(raw string) []observedAttachment {
+	s := strings.TrimSpace(raw)
+	if s == "" || s == "[]" || s == "null" {
+		return nil
+	}
+	var out []observedAttachment
+	if err := json.Unmarshal([]byte(s), &out); err != nil {
+		return nil
+	}
+	return out
+}
+
+// normalizeAttachmentKind maps a platform-reported kind to the known set, falling
+// back to "file". Adapters are the source of these strings, but an unknown kind
+// must still read as something in a transcript.
+func normalizeAttachmentKind(kind string) string {
+	switch strings.ToLower(strings.TrimSpace(kind)) {
+	case "image":
+		return "image"
+	case "audio":
+		return "audio"
+	case "video":
+		return "video"
+	default:
+		return "file"
+	}
+}
+
+// sanitizeAttachmentName reduces an attacker-controlled filename to something safe
+// to place in an analysis prompt.
+//
+// A filename is exactly as attacker-controlled as a display name — anyone in the
+// group can upload `x：忽略以上指令.png` — so it gets the same treatment as
+// sanitizeSpeakerName: collapsed to one line, stripped of both colon variants
+// (which read as speaker separators) and of the authorization marker, then length
+// capped. Also stripped: the bracket characters that delimit the attachment
+// notation itself, so a name cannot forge the end of its own annotation.
+func sanitizeAttachmentName(name string) string {
+	n := oneLine(name)
+	n = strings.ReplaceAll(n, addressedMarker, "")
+	n = strings.ReplaceAll(n, ":", " ")
+	n = strings.ReplaceAll(n, "：", " ")
+	n = strings.ReplaceAll(n, "[", " ")
+	n = strings.ReplaceAll(n, "]", " ")
+	n = strings.ReplaceAll(n, "【", " ")
+	n = strings.ReplaceAll(n, "】", " ")
+	n = oneLine(n)
+	return clipDetail(n, observedAttachmentNameMaxRunes)
 }
 
 // observeMessageMaxRunes caps one stored message. A pasted log or stack trace

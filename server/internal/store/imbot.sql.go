@@ -170,20 +170,23 @@ func (q *Queries) CreateIMBotChat(ctx context.Context, arg CreateIMBotChatParams
 }
 
 const createIMBotChatMessage = `-- name: CreateIMBotChatMessage :one
-INSERT INTO im_bot_chat_messages (chat_id, actor_ext_id, actor_name, text, addressed)
-VALUES (?, ?, ?, ?, ?)
-RETURNING id, chat_id, actor_ext_id, actor_name, text, addressed, analyzed_at, created_at
+INSERT INTO im_bot_chat_messages (chat_id, actor_ext_id, actor_name, text, addressed, attachments)
+VALUES (?, ?, ?, ?, ?, ?)
+RETURNING id, chat_id, actor_ext_id, actor_name, text, addressed, attachments, analyzed_at, created_at
 `
 
 type CreateIMBotChatMessageParams struct {
-	ChatID     int64  `json:"chat_id"`
-	ActorExtID string `json:"actor_ext_id"`
-	ActorName  string `json:"actor_name"`
-	Text       string `json:"text"`
-	Addressed  int64  `json:"addressed"`
+	ChatID      int64  `json:"chat_id"`
+	ActorExtID  string `json:"actor_ext_id"`
+	ActorName   string `json:"actor_name"`
+	Text        string `json:"text"`
+	Addressed   int64  `json:"addressed"`
+	Attachments string `json:"attachments"`
 }
 
 // Append one observed message to a chat's rolling transcript (issue #664).
+// attachments carries JSON metadata (kind + name) for files shared in the message
+// (issue #679), never the bytes.
 func (q *Queries) CreateIMBotChatMessage(ctx context.Context, arg CreateIMBotChatMessageParams) (ImBotChatMessage, error) {
 	row := q.db.QueryRowContext(ctx, createIMBotChatMessage,
 		arg.ChatID,
@@ -191,6 +194,7 @@ func (q *Queries) CreateIMBotChatMessage(ctx context.Context, arg CreateIMBotCha
 		arg.ActorName,
 		arg.Text,
 		arg.Addressed,
+		arg.Attachments,
 	)
 	var i ImBotChatMessage
 	err := row.Scan(
@@ -200,6 +204,7 @@ func (q *Queries) CreateIMBotChatMessage(ctx context.Context, arg CreateIMBotCha
 		&i.ActorName,
 		&i.Text,
 		&i.Addressed,
+		&i.Attachments,
 		&i.AnalyzedAt,
 		&i.CreatedAt,
 	)
@@ -1189,7 +1194,7 @@ func (q *Queries) ListPendingIMBotChatsByOwner(ctx context.Context, arg ListPend
 }
 
 const listUnanalyzedIMBotChatMessages = `-- name: ListUnanalyzedIMBotChatMessages :many
-SELECT id, chat_id, actor_ext_id, actor_name, text, addressed, analyzed_at, created_at FROM im_bot_chat_messages
+SELECT id, chat_id, actor_ext_id, actor_name, text, addressed, attachments, analyzed_at, created_at FROM im_bot_chat_messages
 WHERE chat_id = ? AND analyzed_at IS NULL
 ORDER BY id
 LIMIT ?
@@ -1218,6 +1223,7 @@ func (q *Queries) ListUnanalyzedIMBotChatMessages(ctx context.Context, arg ListU
 			&i.ActorName,
 			&i.Text,
 			&i.Addressed,
+			&i.Attachments,
 			&i.AnalyzedAt,
 			&i.CreatedAt,
 		); err != nil {

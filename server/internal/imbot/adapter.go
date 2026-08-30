@@ -26,6 +26,100 @@ import (
 // platform stops retrying). This is the webhook-mode hardening from design §8.
 var ErrWebhookUnauthorized = errors.New("imbot: webhook unauthorized")
 
+// PushError wraps a failed outbound send with the platform's HTTP status, so the
+// dispatcher can tell a transient failure from a permanent one (issue #681).
+//
+// The distinction decides whether retrying is useful or harmful: a 429 or 5xx is
+// the platform saying "not now", while a 401/403/400 is it saying "not ever with
+// this request" — retrying those burns quota and, for auth failures, can look like
+// credential brute-forcing to platform risk controls.
+//
+// Adapters that do not classify their failures simply return a plain error; the
+// dispatcher treats an unclassified error as retryable, because the failure this
+// fix exists to stop (a reply silently lost to a network blip) is more common than
+// a permanent error worth giving up on immediately.
+type PushError struct {
+	// Status is the platform's HTTP status code, or 0 when the request never got a
+	// response (DNS failure, connection refused, timeout — all retryable).
+	Status int
+	// Err is the underlying error, preserved so existing log output is unchanged.
+	Err error
+}
+
+func (e *PushError) Error() string {
+	if e == nil || e.Err == nil {
+		return "imbot: push failed"
+	}
+	return e.Err.Error()
+}
+
+func (e *PushError) Unwrap() error {
+	if e == nil {
+		return nil
+	}
+	return e.Err
+}
+
+// Retryable reports whether sending the same message again could plausibly
+// succeed.
+//
+// The default is RETRY: only a status that is a definite client-side rejection
+// (401/403/404/400-class) gives up. Everything else — 408/429 (slow down), any 5xx
+// (platform trouble), status 0 (never reached the platform) — is retried.
+//
+// A 2xx status is retryable, which reads oddly until you look at what the adapters
+// actually pass in. Feishu, WeCom and DingTalk all answer a REJECTED send with
+// HTTP 200 plus a business error code in the body (Feishu code=99991400 rate
+// limit, WeCom errcode=42001 expired token, ...). The adapters wrap those as
+// PushError{Status: 200}, so treating 2xx as permanent would make the two failures
+// this fix exists to survive — rate limiting and a briefly-expired token — the
+// exact two that never retry. When the body carried a business code the HTTP
+// status simply is not the classification, so it must not be read as one.
+//
+// 404 is deliberately NOT retryable: for a push it means the chat or thread is
+// gone, and no amount of retrying brings it back.
+func (e *PushError) Retryable() bool {
+	if e == nil {
+		return false
+	}
+	switch {
+	case e.Status == http.StatusRequestTimeout, e.Status == http.StatusTooManyRequests:
+		return true // 408/429 — explicitly "try again later"
+	case e.Status == http.StatusUnauthorized, e.Status == http.StatusForbidden:
+		return false // credentials rejected: identical forever, and retrying looks like brute force
+	case e.Status == http.StatusNotFound:
+		return false // chat/thread gone — retrying cannot bring it back
+	case e.Status >= 400 && e.Status < 500:
+		return false // malformed/rejected request: the same bytes fail the same way
+	default:
+		// 0 (never reached the platform), 5xx (platform trouble), and 2xx-with-a-
+		// business-error all land here and retry.
+		return true
+	}
+}
+
+// NewPushError wraps err with a platform status. Returns nil when err is nil so
+// call sites can wrap unconditionally.
+func NewPushError(status int, err error) error {
+	if err == nil {
+		return nil
+	}
+	return &PushError{Status: status, Err: err}
+}
+
+// IsRetryablePush reports whether a push error is worth retrying. A plain error
+// carrying no classification counts as retryable — see PushError.
+func IsRetryablePush(err error) bool {
+	if err == nil {
+		return false
+	}
+	var pe *PushError
+	if errors.As(err, &pe) {
+		return pe.Retryable()
+	}
+	return true
+}
+
 // ChannelType identifies an IM platform.
 type ChannelType string
 
@@ -46,17 +140,17 @@ const (
 // message or interaction, regardless of platform. ChannelID is stamped by the
 // ConnectorManager (adapters do not know their DB row id).
 type InboundEvent struct {
-	ChannelID    int64       // filled by ConnectorManager, not the adapter
-	Channel      ChannelType // platform type
-	ChatExtID    string      // external id of the group/DM
-	ThreadExtID  string      // topic/reply-thread id (empty if none)
-	ActorExtID   string      // sender external id
-	MessageExtID string      // external id of THIS message (for reactions/replies; empty for callbacks)
-	Text         string      // plain text (post title+text extracted for rich-text messages)
+	ChannelID    int64               // filled by ConnectorManager, not the adapter
+	Channel      ChannelType         // platform type
+	ChatExtID    string              // external id of the group/DM
+	ThreadExtID  string              // topic/reply-thread id (empty if none)
+	ActorExtID   string              // sender external id
+	MessageExtID string              // external id of THIS message (for reactions/replies; empty for callbacks)
+	Text         string              // plain text (post title+text extracted for rich-text messages)
 	Attachments  []InboundAttachment // images/files/audio/video carried by the message
-	Kind         string      // "message" | "action_callback"
-	CallbackData string      // interaction-button payload (e.g. permission:approve:<reqID>)
-	EventID      string      // platform event id, for idempotent dedupe
+	Kind         string              // "message" | "action_callback"
+	CallbackData string              // interaction-button payload (e.g. permission:approve:<reqID>)
+	EventID      string              // platform event id, for idempotent dedupe
 	Raw          map[string]any
 
 	// --- Agent employee signals (issue #664) ---
@@ -121,7 +215,9 @@ type Credential struct {
 }
 
 // String returns a redacted string so an accidental %v/%s never leaks secrets.
-func (c Credential) String() string { return "imbot.Credential{channel=" + string(c.Channel) + ",<redacted>}" }
+func (c Credential) String() string {
+	return "imbot.Credential{channel=" + string(c.Channel) + ",<redacted>}"
+}
 
 // ChannelAdapter is the per-platform capability. Connect + Push are the
 // LAN-usable outbound path; VerifyWebhook + Challenge back the optional public

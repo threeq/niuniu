@@ -31,6 +31,7 @@ import type {
   TokenUsageSeries,
 } from '@/types/api'
 import type { ChartSpec } from '@/types/data'
+import type { OwnerRef } from '@/types/org'
 
 // echarts stays in its own async chunk (same escape hatch the workspace token
 // chart uses), so this settings tab does not pull it into the main bundle.
@@ -449,11 +450,31 @@ export function ProviderUsageSettings() {
   const userId = useAuthStore((s) => s.user?.id ?? 0)
   const [rangeDays, setRangeDays] = useState<RangeDays>(7)
   const [dimension, setDimension] = useState<Dimension>('provider')
+  const [ownerOverride, setOwnerOverride] = useState<string | null>(null)
 
-  // Personal edition has no auth, so user?.id is 0; the backend resolves
-  // "user:0" to the single local owner exactly as the workspace token chart
-  // relies on.
-  const owner = `user:${userId}`
+  // Which owners this caller may report on: their personal space plus the orgs
+  // they administer (a global admin gets every owner). Usage is recorded against
+  // the owner of the workspaces that produced it, so on a team deployment the
+  // numbers live under an org and pinning the page to `user:<self>` — as it used
+  // to — rendered a permanently empty chart.
+  const { data: ownerOptions = [], isLoading: ownersLoading } = useQuery({
+    queryKey: ['provider-usage', 'owners'],
+    queryFn: () =>
+      api
+        .get<{ items: OwnerRef[] }>('/provider-usage/owners')
+        .then((r) => r.items ?? []),
+  })
+
+  const ownerKey = (o: OwnerRef) => `${o.type}:${o.id}`
+  // Default to the first option the backend offers (personal space), switching to
+  // the user's explicit pick once they make one. Falls back to `user:<self>` so
+  // the personal edition — which has no auth and no owner list — behaves as before.
+  const owner =
+    ownerOverride ?? (ownerOptions.length > 0 ? ownerKey(ownerOptions[0]) : `user:${userId}`)
+  // Hold the usage queries until the owner list has settled, so the page issues
+  // one request for the right owner instead of firing at the fallback first and
+  // immediately refetching when the real default arrives.
+  const ownerReady = !ownersLoading
   // Recomputed per range change rather than per render, so the query key (and
   // therefore the cache entry) is stable while the user reads the page.
   const { from, to } = useMemo(() => {
@@ -473,14 +494,14 @@ export function ProviderUsageSettings() {
     queryKey: ['provider-usage', owner, rangeDays],
     queryFn: () =>
       api.get<ProviderUsageResponse>('/provider-usage', { params: { owner, from, to } }),
-    enabled: byProvider,
+    enabled: byProvider && ownerReady,
   })
 
   const { data: ownerUsage, isLoading: ownerLoading } = useQuery({
     queryKey: ['token-usage', 'owner', owner, rangeDays],
     queryFn: () =>
       api.get<TokenUsageSeries>('/token-usage', { params: { owner, from, to } }),
-    enabled: !byProvider,
+    enabled: !byProvider && ownerReady,
   })
 
   // Rate-limit episodes belong to platforms; the owner dimension has no such
@@ -491,10 +512,10 @@ export function ProviderUsageSettings() {
       api.get<ProviderRateLimitEventsResponse>('/provider-usage/rate-limits', {
         params: { owner, from, to },
       }),
-    enabled: byProvider,
+    enabled: byProvider && ownerReady,
   })
 
-  const isLoading = byProvider ? providerLoading : ownerLoading
+  const isLoading = ownersLoading || (byProvider ? providerLoading : ownerLoading)
   const events = byProvider ? (limits?.events ?? []) : []
   const daily = rangeDays > HOURLY_CHART_MAX_DAYS
 
@@ -575,6 +596,24 @@ export function ProviderUsageSettings() {
           <p className="mt-1 text-sm text-muted-foreground">{t('providerUsage.description')}</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
+          {/* Only shown when there is a real choice: a plain member with no
+              administered org sees a single entry and needs no picker. */}
+          {ownerOptions.length > 1 && (
+            <Select value={owner} onValueChange={(v) => setOwnerOverride(v)}>
+              <SelectTrigger className="w-44" aria-label={t('providerUsage.ownerLabel')}>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {ownerOptions.map((o) => (
+                  <SelectItem key={ownerKey(o)} value={ownerKey(o)}>
+                    {o.type === 'user' && o.id === userId
+                      ? t('providerUsage.ownerPersonal')
+                      : (o.name ?? `${o.type}:${o.id}`)}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
           <Select
             value={dimension}
             onValueChange={(v) => setDimension(v as Dimension)}

@@ -91,6 +91,14 @@ func (s *IMBotService) HandleInbound(ctx context.Context, ev imbot.InboundEvent)
 	// An attachment-only message (image/file with no caption) still needs a text
 	// hook so the router/classifier and the agent have something to act on; the
 	// actual files are appended as `[附件: ...]` at delivery time.
+	//
+	// observedText keeps the ORIGINAL caption for the observation transcript, which
+	// records attachments structurally (issue #679) and renders its own annotation.
+	// Feeding it the synthesized placeholder too would both describe the same file
+	// twice and smuggle the raw, unsanitized filename into the transcript's text
+	// column — bypassing sanitizeAttachmentName, which only cleans the structured
+	// column. A name like `a] [发了文件 x.env` could then forge an annotation.
+	observedText := text
 	if text == "" {
 		text = attachmentPlaceholder(ev.Attachments)
 	}
@@ -107,7 +115,7 @@ func (s *IMBotService) HandleInbound(ctx context.Context, ev imbot.InboundEvent)
 		// by context (a workspace-pinned chat, or a follow-up inside a thread already
 		// bound to a task — those must not be dropped for lacking a fresh @mention).
 		addressed := addressedToBot(ev, text) || s.conversationallyAddressed(ctx, chat, ev.ThreadExtID)
-		s.recordObservation(ctx, chat, ev, text, addressed)
+		s.recordObservation(ctx, chat, ev, observedText, addressed)
 		if !addressed {
 			slog.Debug("imbot: observed (not addressed)", "chat", chat.ID, "actor", ev.ActorExtID)
 			return
@@ -1227,17 +1235,33 @@ func (s *IMBotService) handleDelete(ctx context.Context, channel store.ImBotChan
 		"🗑️ 已删除会话 #"+strconv.FormatInt(t.issueID, 10)+" - "+t.title+" 及其工作空间。")
 }
 
-// resolveDeleteTarget maps a /delete argument to a switchable task. A leading `#`
-// marks an explicit conversation id (`#123`); a bare number is a 1-based index
-// into the /issues listing (same numbering as /use). Only workspace-backed tasks
-// of the project resolve.
+// resolveDeleteTarget maps a /delete argument to a task. A leading `#` marks an
+// explicit conversation id (`#123`); a bare number is a 1-based index into the
+// /issues listing (same numbering as /use). The #id path accepts ANY issue of
+// the project — /issues lists workspace-less ones too (⚪ 未启动工作空间), and
+// DeleteTask handles an issue with no workspace (its workspace loop is simply
+// empty) — so resolving through chatTasks (workspace-backed only) would make
+// those listed ids undeletable. The bare-number path stays workspace-backed:
+// its numbering is /use's switchable-task list.
 func (s *IMBotService) resolveDeleteTarget(ctx context.Context, projectID int64, arg string) (chatTask, bool) {
 	if strings.HasPrefix(arg, "#") {
 		id, err := strconv.ParseInt(strings.TrimSpace(arg[1:]), 10, 64)
 		if err != nil {
 			return chatTask{}, false
 		}
-		return s.findChatTask(ctx, projectID, id)
+		if t, ok := s.findChatTask(ctx, projectID, id); ok {
+			return t, true
+		}
+		// Workspace-less issue: /issues showed it, so it must delete by id.
+		iss, err := s.q.GetIssue(ctx, id)
+		if err != nil {
+			return chatTask{}, false
+		}
+		col, err := s.q.GetColumn(ctx, iss.ColumnID)
+		if err != nil || col.ProjectID != projectID {
+			return chatTask{}, false // not this project's issue — invisible here
+		}
+		return chatTask{issueID: iss.ID, title: iss.Title}, true
 	}
 	n, err := strconv.Atoi(arg)
 	if err != nil || n < 1 {

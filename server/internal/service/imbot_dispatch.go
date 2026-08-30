@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 	"unicode/utf8"
 
 	"github.com/niuniu-dev/niuniu/internal/event"
@@ -29,6 +30,17 @@ type IMBotDispatcher struct {
 	ch   chan event.OutputEvent
 	stop chan struct{}
 	done chan struct{}
+
+	// sendMu guards senders: one serial sender goroutine per chat, so a push that
+	// is being retried cannot be overtaken by the next message to the same chat
+	// (see sendQueued). wg tracks them so Stop drains in-flight sends.
+	sendMu  sync.Mutex
+	senders map[int64]*chatSender
+	wg      sync.WaitGroup
+
+	// retrySleep is the backoff sleeper, overridable in tests so a retry schedule
+	// can be exercised without real waiting. It must respect the stop channel.
+	retrySleep func(d time.Duration, stop <-chan struct{}) bool
 }
 
 // NewIMBotDispatcher builds a dispatcher. svc supplies credential decryption
@@ -63,6 +75,15 @@ func (d *IMBotDispatcher) Stop() {
 	close(stop)
 	d.bus.Unsubscribe(ch)
 	<-done
+
+	// Wait for the per-chat senders to notice stop and exit, so a shutdown does not
+	// race an in-flight push. They observe the same closed stop channel, and
+	// sendWithRetry abandons its backoff on it, so this cannot block for a full
+	// retry schedule.
+	d.wg.Wait()
+	d.sendMu.Lock()
+	d.senders = nil
+	d.sendMu.Unlock()
 }
 
 func (d *IMBotDispatcher) loop(ch chan event.OutputEvent, stop, done chan struct{}) {
@@ -75,7 +96,7 @@ func (d *IMBotDispatcher) loop(ch chan event.OutputEvent, stop, done chan struct
 			if !ok {
 				return
 			}
-			d.handle(ev)
+			d.handle(ev, stop)
 		}
 	}
 }
@@ -84,15 +105,24 @@ func (d *IMBotDispatcher) loop(ch chan event.OutputEvent, stop, done chan struct
 // platform message-size limit (Telegram ~4096; keep headroom for the title).
 const maxOutboundLen = 3500
 
+// failureDetailMaxRunes bounds the failure reason carried into a chat. An agent
+// failure can be a multi-screen stack trace; the first few hundred runes hold the
+// part someone can act on, and the rest would bury it.
+const failureDetailMaxRunes = 300
+
 // interestedIn reports whether an event type should reach IM chats. Streaming
 // text/tool noise is ignored; only meaningful lifecycle/interaction events.
 // EventAgentDone now carries the agent's real final reply (proxy publishes the
 // turn's last assistant text) — that is the primary per-turn chat message.
+// EventAgentFailed is the same turn's other outcome and must be forwarded too
+// (issue #680): without it a crashed agent looks exactly like a working one,
+// because the only visible change is the 🐂 marker disappearing.
 // EventWorkspaceCompleted is intentionally NOT forwarded: it would double up on
 // the agent_done reply and re-create the old "『…』已完成" spam.
 func interestedIn(t string) bool {
 	switch t {
 	case event.EventAgentDone,
+		event.EventAgentFailed,
 		event.EventScheduleTrigger,
 		event.EventGateDone,
 		event.EventAskUserRequest,
@@ -113,7 +143,7 @@ type outTarget struct {
 	threadExtID   string
 }
 
-func (d *IMBotDispatcher) handle(ev event.OutputEvent) {
+func (d *IMBotDispatcher) handle(ev event.OutputEvent, stop <-chan struct{}) {
 	if !interestedIn(ev.Type) || ev.WorkspaceId == 0 {
 		return
 	}
@@ -123,7 +153,11 @@ func (d *IMBotDispatcher) handle(ev event.OutputEvent) {
 	// The agent finished this workspace's turn — clear the 🐂 "正在执行中"
 	// markers placed on the inbound messages that drove it (runs regardless of
 	// whether the reply below has any IM target).
-	if ev.Type == event.EventAgentDone {
+	//
+	// A FAILED turn is just as finished as a successful one: leaving the marker on
+	// would say "still working" forever. Cleared before the failure message is
+	// pushed so the two never disagree about whether the turn is over.
+	if ev.Type == event.EventAgentDone || ev.Type == event.EventAgentFailed {
 		d.svc.clearProcessingReactions(ctx, ev.WorkspaceId)
 	}
 	pctx, err := d.q.GetProjectContextByWorkspace(ctx, ev.WorkspaceId)
@@ -164,9 +198,204 @@ func (d *IMBotDispatcher) handle(ev event.OutputEvent) {
 			Text:        text,
 			Buttons:     buttons,
 		}
-		if err := adapter.Push(ctx, cred, msg); err != nil {
-			slog.Warn("imbot: outbound push failed", "channel", tg.channelID, "chat", tg.chatID, "error", err)
+		// Hand the send to this chat's serial sender rather than pushing inline
+		// (issue #681). Inline retries would block the dispatch loop, and because
+		// event.Bus drops events when a subscriber's buffer fills, a loop stalled on
+		// backoff would lose OTHER workspaces' messages entirely — trading one
+		// dropped reply for several.
+		d.enqueueSend(tg, adapter, cred, msg, stop)
+	}
+}
+
+// --- outbound send with retry (issue #681) -----------------------------------
+
+const (
+	// pushMaxAttempts bounds one message's delivery attempts, including the first.
+	// Three is enough to ride out a token refresh or a brief rate-limit window
+	// without holding a message so long that it arrives detached from the
+	// conversation it belongs to.
+	pushMaxAttempts = 3
+
+	// pushRetryBaseDelay is the first backoff, doubled per attempt (1s, 2s). The
+	// pattern mirrors the connector manager's reconnect backoff, at a much shorter
+	// horizon: a stale chat reply is worth far less than a stale connection.
+	pushRetryBaseDelay = time.Second
+
+	// pushSenderQueue bounds one chat's pending sends. A chat this far behind is
+	// already failing; queueing more would grow memory without making the group any
+	// more informed.
+	pushSenderQueue = 32
+)
+
+// pendingPush is one queued outbound message plus everything needed to send it.
+type pendingPush struct {
+	adapter imbot.ChannelAdapter
+	cred    imbot.Credential
+	msg     imbot.OutboundMessage
+	// channelID/chatID are for logging only — they identify the failure in logs.
+	channelID int64
+	chatID    int64
+}
+
+// chatSender serializes sends for ONE chat.
+//
+// Per-chat rather than global: messages to the same chat must arrive in the order
+// they were produced (a group reading "已完成" before the answer it refers to is
+// worse than a slow answer), while two unrelated chats have no ordering
+// relationship and must not be able to stall each other.
+//
+// A sender goroutine is created on a chat's first outbound message and lives until
+// Stop — it is never reclaimed when a chat goes idle. That bounds the goroutine
+// count by the number of chats that have EVER received a message in this process,
+// which is a small, slowly-growing number (bound chats, not messages); reaping idle
+// senders would need a timer per chat and a race-free handoff between the reaper
+// and enqueueSend, which costs more complexity than the goroutines cost memory.
+type chatSender struct {
+	queue chan pendingPush
+}
+
+// enqueueSend hands a message to its chat's sender, starting one if needed.
+//
+// Non-blocking by contract: a full queue drops the message with a log rather than
+// blocking the dispatch loop. Dropping here is the same outcome as before this fix,
+// but only after 32 queued messages rather than on the first network blip.
+// stop is threaded in from the dispatch loop rather than read off the struct: the
+// loop already owns the channel for its lifetime, and reading d.stop here would
+// need the OTHER mutex (mu, which Stop holds while clearing it) — a lock-ordering
+// hazard for no benefit.
+func (d *IMBotDispatcher) enqueueSend(tg outTarget, adapter imbot.ChannelAdapter, cred imbot.Credential, msg imbot.OutboundMessage, stop <-chan struct{}) {
+	select {
+	case <-stop: // shutting down: nothing will drain a new queue
+		return
+	default:
+	}
+	d.sendMu.Lock()
+	if d.senders == nil {
+		d.senders = map[int64]*chatSender{}
+	}
+	s := d.senders[tg.chatID]
+	if s == nil {
+		s = &chatSender{queue: make(chan pendingPush, pushSenderQueue)}
+		d.senders[tg.chatID] = s
+		d.wg.Add(1)
+		go d.runSender(s, stop)
+	}
+	d.sendMu.Unlock()
+
+	p := pendingPush{
+		adapter: adapter, cred: cred, msg: msg,
+		channelID: tg.channelID, chatID: tg.chatID,
+	}
+	select {
+	case s.queue <- p:
+	default:
+		slog.Warn("imbot: outbound queue full; message dropped",
+			"channel", tg.channelID, "chat", tg.chatID, "queue", pushSenderQueue)
+	}
+}
+
+// runSender drains one chat's queue until stop closes.
+func (d *IMBotDispatcher) runSender(s *chatSender, stop <-chan struct{}) {
+	defer d.wg.Done()
+	for {
+		select {
+		case <-stop:
+			return
+		case p := <-s.queue:
+			d.sendWithRetry(p, stop)
 		}
+	}
+}
+
+// sendWithRetry attempts one message until it succeeds, is judged permanent, or
+// runs out of attempts.
+//
+// Before this, a failed push was logged and forgotten — so a platform rate limit,
+// a briefly-expired token or a network blip PERMANENTLY lost an agent's reply, and
+// the user saw a task that simply never answered.
+func (d *IMBotDispatcher) sendWithRetry(p pendingPush, stop <-chan struct{}) {
+	for attempt := 1; ; attempt++ {
+		// A fresh context per attempt: the dispatch loop's context may be long gone,
+		// and a retry should not inherit an already-consumed deadline.
+		//
+		// Cancelled by stop as well as by the timeout, so shutdown does not wait out a
+		// hung request. Without this, Stop blocks in wg.Wait() for up to
+		// pushAttemptTimeout while an unresponsive platform holds the connection open
+		// — the in-flight Push is exactly the case Stop needs to interrupt.
+		ctx, cancel := contextWithStop(stop, pushAttemptTimeout)
+		err := p.adapter.Push(ctx, p.cred, p.msg)
+		cancel()
+		if err == nil {
+			if attempt > 1 {
+				slog.Info("imbot: outbound push succeeded on retry",
+					"channel", p.channelID, "chat", p.chatID, "attempt", attempt)
+			}
+			return
+		}
+		// A permanent failure (bad credentials, chat gone, malformed request) will
+		// fail identically forever. Retrying wastes quota and, for auth errors, can
+		// read as credential brute-forcing to platform risk controls.
+		if !imbot.IsRetryablePush(err) {
+			slog.Warn("imbot: outbound push failed permanently; not retrying",
+				"channel", p.channelID, "chat", p.chatID, "attempt", attempt, "error", err)
+			return
+		}
+		if attempt >= pushMaxAttempts {
+			// Logged distinctly from a single failure: this line means a message the
+			// user was waiting for is now definitively lost.
+			slog.Error("imbot: outbound push gave up after retries; message lost",
+				"channel", p.channelID, "chat", p.chatID, "attempts", attempt, "error", err)
+			return
+		}
+		delay := pushRetryBaseDelay << (attempt - 1)
+		slog.Warn("imbot: outbound push failed; will retry",
+			"channel", p.channelID, "chat", p.chatID, "attempt", attempt,
+			"retry_in", delay.String(), "error", err)
+		if !d.sleep(delay, stop) {
+			return // shutting down
+		}
+	}
+}
+
+// pushAttemptTimeout bounds one delivery attempt so a hung platform request cannot
+// occupy a chat's sender indefinitely.
+const pushAttemptTimeout = 30 * time.Second
+
+// contextWithStop returns a context that expires after timeout OR when stop
+// closes, whichever comes first. The returned cancel must always be called; it
+// also releases the watchdog goroutine. Calling it more than once is safe, as
+// context.CancelFunc requires.
+func contextWithStop(stop <-chan struct{}, timeout time.Duration) (context.Context, context.CancelFunc) {
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	done := make(chan struct{})
+	go func() {
+		select {
+		case <-stop:
+			cancel()
+		case <-ctx.Done(): // finished or timed out normally
+		case <-done: // cancel() already called by the caller
+		}
+	}()
+	var once sync.Once
+	return ctx, func() {
+		once.Do(func() { close(done) })
+		cancel()
+	}
+}
+
+// sleep waits for d, returning false if stop closed first. Overridable via
+// retrySleep so tests need not wait out real backoff.
+func (d *IMBotDispatcher) sleep(dur time.Duration, stop <-chan struct{}) bool {
+	if d.retrySleep != nil {
+		return d.retrySleep(dur, stop)
+	}
+	t := time.NewTimer(dur)
+	defer t.Stop()
+	select {
+	case <-stop:
+		return false
+	case <-t.C:
+		return true
 	}
 }
 
@@ -277,6 +506,20 @@ func renderOutbound(ev event.OutputEvent, issueID int64, issueTitle string) (str
 			body = "✅ 已处理完成。"
 		}
 		return header + "\n\n" + truncateOutbound(body), nil
+	case event.EventAgentFailed:
+		// The failure REASON is the actionable part — a CLI/auth/provider message
+		// tells someone what to fix, while a generic "出错了" only tells them to go
+		// look somewhere else. Same reasoning as the employee's
+		// reportAnalysisTrouble, which carries its cause for exactly this reason.
+		//
+		// Clipped rather than truncated to the full outbound budget: an agent failure
+		// can carry a very long stack trace, and a wall of it in a group chat buries
+		// the one line that matters.
+		body := clipDetail(ev.Content, failureDetailMaxRunes)
+		if body == "" {
+			return header + "\n\n❌ 执行失败了，请到牛牛里查看详情。", nil
+		}
+		return header + "\n\n❌ 执行失败了。原因：" + body + "\n\n详情请到牛牛里查看。", nil
 	case event.EventScheduleTrigger:
 		return header + "\n\n⏰ 定时任务已触发。", nil
 	case event.EventGateDone:

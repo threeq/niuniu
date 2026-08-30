@@ -97,7 +97,8 @@ func (a *Adapter) call(ctx context.Context, client *http.Client, cred imbot.Cred
 	req.Header.Set("Content-Type", "application/json; charset=utf-8")
 	resp, err := client.Do(req)
 	if err != nil {
-		return nil, err
+		// Never reached Telegram (DNS/connect/timeout) — status 0 marks it retryable.
+		return nil, imbot.NewPushError(0, err)
 	}
 	defer resp.Body.Close()
 	raw, _ := io.ReadAll(resp.Body)
@@ -106,7 +107,8 @@ func (a *Adapter) call(ctx context.Context, client *http.Client, cred imbot.Cred
 		return nil, fmt.Errorf("telegram: decode %s response: %w", method, err)
 	}
 	if !env.OK {
-		return nil, fmt.Errorf("telegram: %s failed status=%d desc=%s", method, resp.StatusCode, env.Description)
+		return nil, imbot.NewPushError(resp.StatusCode,
+			fmt.Errorf("telegram: %s failed status=%d desc=%s", method, resp.StatusCode, env.Description))
 	}
 	return env.Result, nil
 }

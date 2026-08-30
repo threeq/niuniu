@@ -1728,6 +1728,10 @@ CREATE TABLE IF NOT EXISTS im_bot_chat_messages (
     -- command), 0 for chatter merely observed. Kept as INTEGER for dual-driver
     -- parity (see the boolean convention across this schema).
     addressed     INTEGER NOT NULL DEFAULT 0,
+    -- attachments: JSON array of the message's attachment METADATA (kind + name),
+    -- never the bytes (issue #679). See the SQLite schema for why metadata rather
+    -- than a resource key.
+    attachments   TEXT NOT NULL DEFAULT '[]',
     analyzed_at   TIMESTAMP,
     created_at    TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );

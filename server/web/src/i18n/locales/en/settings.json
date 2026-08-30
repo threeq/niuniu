@@ -1209,6 +1209,8 @@
   "providerUsage": {
     "title": "Token usage",
     "description": "Token consumption at hourly granularity along the selected dimension. Grouping by subscription platform also shows when each platform throttled us and when it came back into use. Keeps the last 3 months.",
+    "ownerLabel": "Owner",
+    "ownerPersonal": "Personal",
     "rangeLabel": "Time range",
     "dimension": {
       "label": "Dimension",

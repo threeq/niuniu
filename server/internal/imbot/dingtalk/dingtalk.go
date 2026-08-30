@@ -233,7 +233,8 @@ func (a *Adapter) sendMessage(ctx context.Context, cred imbot.Credential, conv, 
 	req.Header.Set("x-acs-dingtalk-access-token", token)
 	resp, err := a.httpClient.Do(req)
 	if err != nil {
-		return "", err
+		// Never reached DingTalk (DNS/connect/timeout) — status 0 marks it retryable.
+		return "", imbot.NewPushError(0, err)
 	}
 	defer resp.Body.Close()
 	raw, _ := io.ReadAll(resp.Body)
@@ -244,7 +245,8 @@ func (a *Adapter) sendMessage(ctx context.Context, cred imbot.Credential, conv, 
 	}
 	_ = json.Unmarshal(raw, &out)
 	if resp.StatusCode/100 != 2 || out.Code != "" {
-		return "", fmt.Errorf("dingtalk: send failed status=%d code=%s message=%s", resp.StatusCode, out.Code, out.Message)
+		return "", imbot.NewPushError(resp.StatusCode,
+			fmt.Errorf("dingtalk: send failed status=%d code=%s message=%s", resp.StatusCode, out.Code, out.Message))
 	}
 	return out.ProcessQueryKey, nil
 }
