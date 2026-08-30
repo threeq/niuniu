@@ -94,6 +94,12 @@ type EmployeeAnalyzer interface {
 type EmployeeScope struct {
 	ProjectID   int64
 	WorkspaceID int64
+	// ChatID/ChatName identify the chat being analyzed. The one-shot analyzer
+	// ignores them; the resident-workspace analyzer uses them to keep a separate,
+	// labelled transcript file per chat so a shared analysis workspace does not
+	// blend several groups' conversations into one log.
+	ChatID   int64
+	ChatName string
 }
 
 const (
@@ -487,6 +493,11 @@ func (e *IMBotEmployee) scopeFor(ctx context.Context, chat store.ImBotChat) Empl
 	scope := EmployeeScope{}
 	if chat.ProjectID.Valid {
 		scope.ProjectID = chat.ProjectID.Int64
+	}
+	scope.ChatID = chat.ID
+	scope.ChatName = strings.TrimSpace(chat.ChatName)
+	if scope.ChatName == "" {
+		scope.ChatName = chat.ChatExtID
 	}
 	if scope.ProjectID == 0 {
 		return scope

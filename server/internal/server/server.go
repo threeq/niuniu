@@ -1449,9 +1449,19 @@ func New(cfg *config.Config, db *sql.DB, frontendFS fs.FS) *Server {
 	// Agent employee (issue #664): the proactive half. Observation recording is
 	// inline in the inbound pipeline; this loop periodically reads what an
 	// observe-mode chat has been saying and either speaks up or starts a task on
-	// its own. Backed by the same one-shot claude CLI as the other AI helpers, and
-	// inert for any chat that has not opted into observe mode.
-	s.imbotEmployee = service.NewIMBotEmployee(s.imbotSvc, s.queries, service.NewEmployeeAnalyzer(s.queries))
+	// its own. Inert for any chat that has not opted into observe mode.
+	//
+	// Analysis runs in a RESIDENT per-project workspace agent rather than a one-shot
+	// `claude -p`: the one-shot helper is capped at 60s (shared with quick probes
+	// that should fail fast), which real analysis routinely exceeded — the observed
+	// failure was "one-shot call timed out". A resident agent also has a filesystem,
+	// the project's MCP servers/data sources, and its own notes, so it can keep
+	// track of commitments across sweeps instead of restarting blank each time.
+	// The one-shot analyzer stays wired as the fallback for when no workspace can
+	// be provisioned at all.
+	s.imbotEmployee = service.NewIMBotEmployee(s.imbotSvc, s.queries,
+		service.NewWorkspaceEmployeeAnalyzer(
+			s.queries, imbotDispatch, s.agentProxy, service.NewEmployeeAnalyzer(s.queries)))
 	// Backfill credential fingerprints for legacy channels so the one-bot-per-app
 	// UNIQUE constraint is enforceable (blocks a second channel for the same app);
 	// leftover duplicates are logged, not deleted. Best-effort before connections start.
