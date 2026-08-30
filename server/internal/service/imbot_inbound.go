@@ -1235,17 +1235,33 @@ func (s *IMBotService) handleDelete(ctx context.Context, channel store.ImBotChan
 		"🗑️ 已删除会话 #"+strconv.FormatInt(t.issueID, 10)+" - "+t.title+" 及其工作空间。")
 }
 
-// resolveDeleteTarget maps a /delete argument to a switchable task. A leading `#`
-// marks an explicit conversation id (`#123`); a bare number is a 1-based index
-// into the /issues listing (same numbering as /use). Only workspace-backed tasks
-// of the project resolve.
+// resolveDeleteTarget maps a /delete argument to a task. A leading `#` marks an
+// explicit conversation id (`#123`); a bare number is a 1-based index into the
+// /issues listing (same numbering as /use). The #id path accepts ANY issue of
+// the project — /issues lists workspace-less ones too (⚪ 未启动工作空间), and
+// DeleteTask handles an issue with no workspace (its workspace loop is simply
+// empty) — so resolving through chatTasks (workspace-backed only) would make
+// those listed ids undeletable. The bare-number path stays workspace-backed:
+// its numbering is /use's switchable-task list.
 func (s *IMBotService) resolveDeleteTarget(ctx context.Context, projectID int64, arg string) (chatTask, bool) {
 	if strings.HasPrefix(arg, "#") {
 		id, err := strconv.ParseInt(strings.TrimSpace(arg[1:]), 10, 64)
 		if err != nil {
 			return chatTask{}, false
 		}
-		return s.findChatTask(ctx, projectID, id)
+		if t, ok := s.findChatTask(ctx, projectID, id); ok {
+			return t, true
+		}
+		// Workspace-less issue: /issues showed it, so it must delete by id.
+		iss, err := s.q.GetIssue(ctx, id)
+		if err != nil {
+			return chatTask{}, false
+		}
+		col, err := s.q.GetColumn(ctx, iss.ColumnID)
+		if err != nil || col.ProjectID != projectID {
+			return chatTask{}, false // not this project's issue — invisible here
+		}
+		return chatTask{issueID: iss.ID, title: iss.Title}, true
 	}
 	n, err := strconv.Atoi(arg)
 	if err != nil || n < 1 {

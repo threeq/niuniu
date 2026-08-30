@@ -1071,6 +1071,29 @@ func TestHandleInbound_DeleteCommand_ByHashId(t *testing.T) {
 	}
 }
 
+func TestHandleInbound_DeleteCommand_ByHashId_NoWorkspace(t *testing.T) {
+	f := newIMBotFixture(t)
+	f.activeChat(t, "oc_a")
+	// /issues lists EVERY project issue (workspace or not, ⚪ 未启动工作空间),
+	// so a user reading "#<id> hello — 未启动工作空间" off that list will
+	// /delete by that id. The issue has no workspace yet — DeleteTask handles
+	// that fine (workspace loop is empty, straight to DeleteIssue) — so the
+	// resolver must resolve it too. Regression: resolveDeleteTarget's #id path
+	// went through chatTasks (workspace-backed only) and answered "没有找到".
+	issA := f.newIssue(t, "hello", "")
+
+	f.svc.HandleInbound(context.Background(), imbot.InboundEvent{
+		ChannelID: f.channelID, ChatExtID: "oc_a", Text: "/delete #" + itoa(issA), Kind: "message", EventID: "e1",
+	})
+
+	if len(f.router.deleteCalls) != 1 || f.router.deleteCalls[0].issueID != issA || f.router.deleteCalls[0].projectID != f.projectID {
+		t.Fatalf("delete by #id must resolve a workspace-less issue (issue %d): %+v", issA, f.router.deleteCalls)
+	}
+	if len(f.adapter.pushes) != 1 || !strings.Contains(f.adapter.pushes[0].Text, "已删除") {
+		t.Fatalf("expected a delete confirmation, got %+v", f.adapter.pushes)
+	}
+}
+
 func TestHandleInbound_DeleteCommand_InvalidRef_Guides(t *testing.T) {
 	f := newIMBotFixture(t)
 	f.activeChat(t, "oc_a")
