@@ -220,7 +220,18 @@ func (a *WorkspaceEmployeeAnalyzer) ensureAnalysisWorkspace(ctx context.Context,
 	// reuse key: a derived title would not match findAnalysisWorkspace and every
 	// sweep would create another workspace.
 	target, err := a.creator.CreatePlanInProject(ctx, owner, projectID, cols[0].ID,
-		employeeAnalysisIssueBody, employeeAnalysisIssueTitle, 0, PlanCreateOpts{})
+		employeeAnalysisIssueBody, employeeAnalysisIssueTitle, 0, PlanCreateOpts{
+			// bypassPermissions, NOT the default autohost: the agent still skips
+			// permission prompts (nobody is watching this workspace), but the autohost
+			// watchdog must NOT auto-continue it.
+			//
+			// This workspace is driven by messages — one Deliver per analysis, and it
+			// should idle between them. Under autohost the watchdog keeps injecting
+			// "continue" turns after the agent finishes, so a chat that has gone quiet
+			// would still burn tokens indefinitely. That is precisely the waste this
+			// avoids.
+			PermissionMode: "bypassPermissions",
+		})
 	if err != nil {
 		return store.Workspace{}, fmt.Errorf("create analysis workspace: %w", err)
 	}

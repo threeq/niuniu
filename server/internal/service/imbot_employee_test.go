@@ -1876,3 +1876,121 @@ func TestEmployeeTuning_NotTooEager(t *testing.T) {
 			employeeMaxPendingAge, employeeQuietPeriod)
 	}
 }
+
+// --- token thrift: no new messages must mean no AI ---------------------------
+
+// The analysis workspace must NOT be created in autohost mode. Under autohost the
+// watchdog keeps injecting "continue" turns after the agent finishes, so a chat
+// that has gone completely quiet would still burn tokens indefinitely -- the
+// workspace is message-driven and must idle between analyses.
+func TestAnalysisWorkspace_NotAutohosted(t *testing.T) {
+	f := newIMBotFixture(t)
+	creator := &fakeAnalysisCreator{q: f.q, dir: t.TempDir()}
+	a := NewWorkspaceEmployeeAnalyzer(f.q, creator, f.deliverer, nil)
+	a.timeout = 200 * time.Millisecond
+	a.poll = 20 * time.Millisecond
+
+	// Verdict never appears -> AnalyzeChat times out, but the workspace is created,
+	// which is what this test inspects.
+	_, _ = a.AnalyzeChat(context.Background(),
+		EmployeeScope{ProjectID: f.projectID, ChatID: 1, ChatName: "群"}, "张三: 讨论")
+
+	if creator.calls == 0 {
+		t.Fatal("analysis workspace was never created")
+	}
+	if got := creator.lastOpts.PermissionMode; got != "bypassPermissions" {
+		t.Errorf("analysis workspace permission mode = %q, want bypassPermissions "+
+			"(autohost would auto-continue it forever and burn tokens while the chat is quiet)", got)
+	}
+}
+
+// The fallback heartbeat must not touch the AI -- or even scan chats -- when there
+// is nothing new. With a message-driven trigger, "nothing pending" is the normal
+// state, so this is the common case rather than an edge case.
+func TestEmployeeHeartbeat_NoAIWithoutNewMessages(t *testing.T) {
+	f := newIMBotFixture(t)
+	chat := f.observeChat(t, "oc_idle")
+	ctx := context.Background()
+
+	// A batch that has already been analyzed leaves nothing pending.
+	seedChatter(t, f, chat, employeeMinMessages)
+	an := &fakeAnalyzer{verdict: EmployeeVerdict{Action: EmployeeActionNone}}
+	emp := NewIMBotEmployee(f.svc, f.q, an)
+	emp.sweep(ctx)
+	if an.callCount() != 1 {
+		t.Fatalf("precondition: want 1 analysis, got %d", an.callCount())
+	}
+
+	// Nothing new since -> the pending check must report idle, and further sweeps
+	// must not reach the analyzer.
+	//
+	// Asserted in BOTH directions on purpose: a check hard-wired to "always
+	// pending" would defeat the whole saving while still passing a test that only
+	// ever expects false, and a check hard-wired to "never pending" would silently
+	// disable the heartbeat. The two assertions here and below pin each side.
+	if emp.anythingPending() {
+		t.Error("reported pending work when every message was already analyzed")
+	}
+	for i := 0; i < 5; i++ {
+		emp.sweep(ctx)
+	}
+	if n := an.callCount(); n != 1 {
+		t.Errorf("analyzer called %d times with no new messages, want 1 (the original)", n)
+	}
+
+	// One new message alone must not trip the heartbeat into analyzing either: it is
+	// pending, but far below the batch threshold.
+	f.svc.recordObservation(ctx, chat, imbot.InboundEvent{ActorExtID: "ou_b"}, "又一句", false)
+	if !emp.anythingPending() {
+		t.Error("a new message was not seen as pending — the heartbeat would never fire again")
+	}
+	emp.sweep(ctx)
+	if n := an.callCount(); n != 1 {
+		t.Errorf("analyzed on a single new message: %d calls", n)
+	}
+}
+
+// anythingPending is the heartbeat's idle short-circuit. It is asserted directly
+// (not only through sweep) because sweep has its own batchReady gate that would
+// mask a broken check: a version hard-wired to "always pending" burns a full
+// chat scan every 30 minutes on an idle server, which is invisible through sweep's
+// observable behavior.
+func TestEmployeeAnythingPending_ReflectsRealState(t *testing.T) {
+	f := newIMBotFixture(t)
+	chat := f.observeChat(t, "oc_pending")
+	ctx := context.Background()
+	emp := NewIMBotEmployee(f.svc, f.q, &fakeAnalyzer{verdict: EmployeeVerdict{Action: EmployeeActionNone}})
+
+	// Empty transcript -> idle.
+	if emp.anythingPending() {
+		t.Error("idle server reported pending work")
+	}
+	// A single unanalyzed message -> pending (even though it is below the batch
+	// threshold; that is batchReady's call, not this check's).
+	f.svc.recordObservation(ctx, chat, imbot.InboundEvent{ActorExtID: "ou_a"}, "一句话", false)
+	if !emp.anythingPending() {
+		t.Fatal("an unanalyzed message was not reported as pending")
+	}
+	// Stamped as analyzed -> idle again.
+	msgs, err := f.q.ListUnanalyzedIMBotChatMessages(ctx,
+		store.ListUnanalyzedIMBotChatMessagesParams{ChatID: chat.ID, Limit: 100})
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	emp.markAnalyzed(ctx, chat.ID, msgs)
+	if emp.anythingPending() {
+		t.Error("still reported pending after the batch was analyzed")
+	}
+
+	// A chat switched OFF observation must not keep the heartbeat awake: its
+	// messages can never be analyzed, so counting them would mean scanning forever.
+	f.svc.recordObservation(ctx, chat, imbot.InboundEvent{ActorExtID: "ou_a"}, "再一句", false)
+	if _, err := f.q.UpdateIMBotChatAgentMode(ctx, store.UpdateIMBotChatAgentModeParams{
+		AgentMode: AgentModeCommand, ID: chat.ID,
+	}); err != nil {
+		t.Fatalf("switch mode: %v", err)
+	}
+	if emp.anythingPending() {
+		t.Error("a command-mode chat's leftover messages kept the heartbeat awake")
+	}
+}

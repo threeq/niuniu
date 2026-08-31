@@ -185,6 +185,17 @@ INSERT INTO im_bot_chat_messages (chat_id, actor_ext_id, actor_name, text, addre
 VALUES (?, ?, ?, ?, ?, ?)
 RETURNING *;
 
+-- name: CountPendingIMBotChatMessages :one
+-- Whether ANY observe-mode chat has unanalyzed messages. Lets the fallback
+-- heartbeat no-op on an idle server instead of scanning every observe chat --
+-- with a message-driven trigger, "nothing new" is the common state.
+SELECT COUNT(*) FROM im_bot_chat_messages m
+JOIN im_bot_chats c ON m.chat_id = c.id
+WHERE m.analyzed_at IS NULL
+  AND c.status = 'active'
+  AND c.agent_mode = 'observe'
+  AND c.project_id IS NOT NULL;
+
 -- name: ListUnanalyzedIMBotChatMessages :many
 -- The chatter a chat has accumulated since the last proactive analysis, oldest
 -- first so the analyzer reads the conversation in order. Bounded by the caller.

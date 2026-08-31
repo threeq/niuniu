@@ -353,9 +353,30 @@ func (e *IMBotEmployee) loop(stop, done chan struct{}, nudge chan int64) {
 			}
 			e.runSweep(stop)
 		case <-t.C:
+			// The fallback heartbeat. Skip it entirely when nothing is pending: with a
+			// message-driven trigger the common state is "nothing new since the last
+			// analysis", and waking the sweep then would query every observe chat for
+			// no reason. Cheap single-row check instead.
+			if !e.anythingPending() {
+				continue
+			}
 			e.runSweep(stop)
 		}
 	}
+}
+
+// anythingPending reports whether ANY observe chat has unanalyzed messages, so the
+// heartbeat can no-op on an idle server. Deliberately coarse: it guards the sweep,
+// and the per-chat batchReady gate still decides what actually gets analyzed.
+func (e *IMBotEmployee) anythingPending() bool {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	n, err := e.q.CountPendingIMBotChatMessages(ctx)
+	if err != nil {
+		// Unknown -> let the sweep run; its own gates are the real protection.
+		return true
+	}
+	return n > 0
 }
 
 // waitQuiet sleeps for the quiet period, returning false if stop closes first so

@@ -78,6 +78,25 @@ func (q *Queries) ApproveIMBotChatToProject(ctx context.Context, arg ApproveIMBo
 	return i, err
 }
 
+const countPendingIMBotChatMessages = `-- name: CountPendingIMBotChatMessages :one
+SELECT COUNT(*) FROM im_bot_chat_messages m
+JOIN im_bot_chats c ON m.chat_id = c.id
+WHERE m.analyzed_at IS NULL
+  AND c.status = 'active'
+  AND c.agent_mode = 'observe'
+  AND c.project_id IS NOT NULL
+`
+
+// Whether ANY observe-mode chat has unanalyzed messages. Lets the fallback
+// heartbeat no-op on an idle server instead of scanning every observe chat --
+// with a message-driven trigger, "nothing new" is the common state.
+func (q *Queries) CountPendingIMBotChatMessages(ctx context.Context) (int64, error) {
+	row := q.db.QueryRowContext(ctx, countPendingIMBotChatMessages)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const createIMBotChannel = `-- name: CreateIMBotChannel :one
 
 INSERT INTO im_bot_channels (owner_type, owner_id, credential_fingerprint, channel_type, name, connection_mode, credential_enc, webhook_secret, status)
