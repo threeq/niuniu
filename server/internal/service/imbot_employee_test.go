@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -171,6 +172,11 @@ func TestTranscriptTrimKeepsNewest(t *testing.T) {
 // the scope each call carried (so tests can assert the analysis runs under the
 // right project/workspace configuration).
 type fakeAnalyzer struct {
+	// mu guards every field below. The employee now analyzes on its own goroutine
+	// (message-driven trigger), so a test that starts it and then inspects the calls
+	// is a genuine concurrent reader — without this the -race detector fires on the
+	// double, not on production code.
+	mu          sync.Mutex
 	verdict     EmployeeVerdict
 	err         error
 	transcripts []string
@@ -178,12 +184,34 @@ type fakeAnalyzer struct {
 }
 
 func (a *fakeAnalyzer) AnalyzeChat(_ context.Context, scope EmployeeScope, transcript string) (EmployeeVerdict, error) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
 	a.transcripts = append(a.transcripts, transcript)
 	a.scopes = append(a.scopes, scope)
 	if a.err != nil {
 		return EmployeeVerdict{}, a.err
 	}
 	return a.verdict, nil
+}
+
+// callCount is the race-safe way for a test to observe how many analyses ran.
+func (a *fakeAnalyzer) callCount() int {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return len(a.transcripts)
+}
+
+// setErr / setVerdict let a running employee's behavior be changed mid-test.
+func (a *fakeAnalyzer) setErr(err error) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.err = err
+}
+
+func (a *fakeAnalyzer) setVerdict(v EmployeeVerdict) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.verdict = v
 }
 
 // seedChatter fills a chat's transcript with n unaddressed messages so a sweep
@@ -194,6 +222,24 @@ func seedChatter(t *testing.T, f *imbotFixture, chat store.ImBotChat, n int) {
 	for i := 0; i < n; i++ {
 		f.svc.recordObservation(ctx, chat, imbot.InboundEvent{ActorExtID: "ou_a", ActorName: "张三"},
 			"讨论内容 "+itoa(int64(i)), false)
+	}
+	// Analysis only considers a batch once the chat has fallen QUIET (see
+	// batchReady) — judging a conversation that is still unfolding is the behavior
+	// the quiet period exists to prevent. Freshly-inserted rows are by definition
+	// not quiet, so age them past the threshold to model "the discussion ended".
+	// Without this every sweep test would silently exercise the not-ready path.
+	ageChatter(t, f, chat.ID, employeeQuietPeriod+time.Minute)
+}
+
+// ageChatter backdates a chat's pending observations so they read as older than
+// the quiet period.
+func ageChatter(t *testing.T, f *imbotFixture, chatID int64, by time.Duration) {
+	t.Helper()
+	if _, err := f.db.Exec(
+		`UPDATE im_bot_chat_messages SET created_at = ? WHERE chat_id = ? AND analyzed_at IS NULL`,
+		time.Now().Add(-by), chatID,
+	); err != nil {
+		t.Fatalf("age chatter: %v", err)
 	}
 }
 
@@ -1125,7 +1171,10 @@ func TestEmployeeActionBudget_LimitsInterruptions(t *testing.T) {
 
 	an := &fakeAnalyzer{verdict: EmployeeVerdict{Action: EmployeeActionNotify, Message: "提醒"}}
 	emp := NewIMBotEmployee(f.svc, f.q, an)
-	base := time.Unix(1750000000, 0)
+	// Anchored to the real present, not a fixed epoch: nowFn also drives batchReady's
+	// quiet-period check against the seeded rows' real created_at, so a clock in the
+	// past would make every batch look "not yet quiet" and nothing would be analyzed.
+	base := time.Now()
 	emp.nowFn = func() time.Time { return base }
 
 	// Each sweep needs its own fresh batch (an analyzed batch is never reconsidered).
@@ -1689,5 +1738,259 @@ func TestEmployeeTroubleHint_MatchesCause(t *testing.T) {
 	}
 	if strings.Contains(employeeTroubleHint(errors.New("one-shot call timed out")), "没登录") {
 		t.Error("timeout mislabelled as a credentials problem -- this is the original bug")
+	}
+}
+
+// --- message-driven trigger (replaces the 10-minute poll) --------------------
+
+// A message must be what triggers analysis, and a BURST must collapse into ONE
+// analysis rather than one per message -- that per-message cost is exactly what the
+// old "4 messages, every 10 minutes" cadence got wrong.
+func TestEmployeeNotify_MessageDrivenAndCoalesced(t *testing.T) {
+	f := newIMBotFixture(t)
+	chat := f.observeChat(t, "oc_evt")
+	an := &fakeAnalyzer{verdict: EmployeeVerdict{Action: EmployeeActionNone}}
+	emp := NewIMBotEmployee(f.svc, f.q, an)
+	emp.SetInterval(time.Hour) // the heartbeat must not be what fires here
+	emp.SetQuietPeriod(120 * time.Millisecond)
+	emp.Start()
+	t.Cleanup(emp.Stop)
+
+	// A full batch arrives as a burst, each message nudging the employee.
+	for i := 0; i < employeeMinMessages; i++ {
+		f.svc.recordObservation(context.Background(), chat,
+			imbot.InboundEvent{ActorExtID: "ou_a", ActorName: "张三"}, "讨论 "+itoa(int64(i)), false)
+		emp.Notify(chat.ID)
+	}
+
+	deadline := time.Now().Add(5 * time.Second)
+	for an.callCount() == 0 && time.Now().Before(deadline) {
+		time.Sleep(20 * time.Millisecond)
+	}
+	if an.callCount() == 0 {
+		t.Fatal("a burst of messages never triggered an analysis")
+	}
+	if n := an.callCount(); n != 1 {
+		t.Errorf("burst produced %d analyses, want 1 coalesced call", n)
+	}
+}
+
+// Below the threshold, messages alone must NOT trigger an analysis: raising the
+// bar from 4 to 20 is the point of this change.
+func TestEmployeeNotify_BelowThresholdStaysQuiet(t *testing.T) {
+	f := newIMBotFixture(t)
+	chat := f.observeChat(t, "oc_few")
+	an := &fakeAnalyzer{verdict: EmployeeVerdict{Action: EmployeeActionNone}}
+	emp := NewIMBotEmployee(f.svc, f.q, an)
+	emp.SetInterval(time.Hour)
+	emp.SetQuietPeriod(80 * time.Millisecond)
+	emp.Start()
+	t.Cleanup(emp.Stop)
+
+	for i := 0; i < employeeMinMessages-1; i++ {
+		f.svc.recordObservation(context.Background(), chat,
+			imbot.InboundEvent{ActorExtID: "ou_a"}, "只有几句 "+itoa(int64(i)), false)
+		emp.Notify(chat.ID)
+	}
+	time.Sleep(500 * time.Millisecond)
+	if n := an.callCount(); n != 0 {
+		t.Errorf("analyzed %d times below the %d-message threshold", n, employeeMinMessages)
+	}
+}
+
+// batchReady is the gate both the nudge and the heartbeat go through.
+func TestEmployeeBatchReady_QuietPeriodAndBackstop(t *testing.T) {
+	emp := &IMBotEmployee{quiet: time.Minute}
+	now := time.Now()
+	emp.nowFn = func() time.Time { return now }
+
+	full := func(age time.Duration) []store.ImBotChatMessage {
+		out := make([]store.ImBotChatMessage, employeeMinMessages)
+		for i := range out {
+			out[i] = store.ImBotChatMessage{ID: int64(i + 1), CreatedAt: now.Add(-age)}
+		}
+		return out
+	}
+
+	// Still talking: threshold met but the chat is not quiet -> not ready. This is
+	// the "don't judge a conversation mid-sentence" rule.
+	if emp.batchReady(full(2 * time.Second)) {
+		t.Error("analyzed a batch while the chat was still active")
+	}
+	// Fell quiet -> ready.
+	if !emp.batchReady(full(2 * time.Minute)) {
+		t.Error("a quiet, full batch was not ready")
+	}
+	// Below threshold never becomes ready by aging alone.
+	if emp.batchReady([]store.ImBotChatMessage{{ID: 1, CreatedAt: now.Add(-24 * time.Hour)}}) {
+		t.Error("a tiny batch became ready just by getting old")
+	}
+	// A never-quiet but very old batch hits the backstop, so a permanently busy
+	// group is not starved.
+	busy := full(employeeMaxPendingAge + time.Hour)
+	busy[len(busy)-1].CreatedAt = now // newest is right now => never quiet
+	if !emp.batchReady(busy) {
+		t.Error("continuously busy chat was starved; backstop did not fire")
+	}
+}
+
+// Notify must be safe and cheap on the inbound path: no panic when the employee is
+// inert or stopped, since it is called for every observed message.
+func TestEmployeeNotify_SafeWhenInert(t *testing.T) {
+	var nilEmp *IMBotEmployee
+	nilEmp.Notify(1) // must not panic
+
+	f := newIMBotFixture(t)
+	NewIMBotEmployee(f.svc, f.q, nil).Notify(1) // no analyzer -> inert
+
+	emp := NewIMBotEmployee(f.svc, f.q, &fakeAnalyzer{})
+	emp.Notify(1) // never started
+	emp.SetQuietPeriod(10 * time.Millisecond)
+	emp.Start()
+	emp.Stop()
+	emp.Notify(1) // after stop
+}
+
+// The tuning itself, pinned. The other tests use employeeMinMessages symbolically
+// (so they follow the constant and verify the MECHANISM); this one guards the
+// VALUE, because "4 messages, every 10 minutes" was reported as far too eager and
+// nothing else would notice a silent revert to it.
+func TestEmployeeTuning_NotTooEager(t *testing.T) {
+	if employeeMinMessages < 10 {
+		t.Errorf("employeeMinMessages = %d: a batch this small judges conversations that have barely started",
+			employeeMinMessages)
+	}
+	if employeeQuietPeriod < time.Minute {
+		t.Errorf("employeeQuietPeriod = %s: too short to mean the discussion actually paused",
+			employeeQuietPeriod)
+	}
+	// The heartbeat is a backstop for batches that fell quiet unnoticed, not the
+	// primary trigger; a short interval would re-create the old polling cadence.
+	if employeeSweepInterval < 20*time.Minute {
+		t.Errorf("employeeSweepInterval = %s is short enough to act as a poll again", employeeSweepInterval)
+	}
+	// The starvation backstop must be well clear of the quiet period, or it becomes
+	// a second cadence rather than a rare safety net.
+	if employeeMaxPendingAge < 10*employeeQuietPeriod {
+		t.Errorf("employeeMaxPendingAge %s too close to the quiet period %s",
+			employeeMaxPendingAge, employeeQuietPeriod)
+	}
+}
+
+// --- token thrift: no new messages must mean no AI ---------------------------
+
+// The analysis workspace must NOT be created in autohost mode. Under autohost the
+// watchdog keeps injecting "continue" turns after the agent finishes, so a chat
+// that has gone completely quiet would still burn tokens indefinitely -- the
+// workspace is message-driven and must idle between analyses.
+func TestAnalysisWorkspace_NotAutohosted(t *testing.T) {
+	f := newIMBotFixture(t)
+	creator := &fakeAnalysisCreator{q: f.q, dir: t.TempDir()}
+	a := NewWorkspaceEmployeeAnalyzer(f.q, creator, f.deliverer, nil)
+	a.timeout = 200 * time.Millisecond
+	a.poll = 20 * time.Millisecond
+
+	// Verdict never appears -> AnalyzeChat times out, but the workspace is created,
+	// which is what this test inspects.
+	_, _ = a.AnalyzeChat(context.Background(),
+		EmployeeScope{ProjectID: f.projectID, ChatID: 1, ChatName: "群"}, "张三: 讨论")
+
+	if creator.calls == 0 {
+		t.Fatal("analysis workspace was never created")
+	}
+	if got := creator.lastOpts.PermissionMode; got != "bypassPermissions" {
+		t.Errorf("analysis workspace permission mode = %q, want bypassPermissions "+
+			"(autohost would auto-continue it forever and burn tokens while the chat is quiet)", got)
+	}
+}
+
+// The fallback heartbeat must not touch the AI -- or even scan chats -- when there
+// is nothing new. With a message-driven trigger, "nothing pending" is the normal
+// state, so this is the common case rather than an edge case.
+func TestEmployeeHeartbeat_NoAIWithoutNewMessages(t *testing.T) {
+	f := newIMBotFixture(t)
+	chat := f.observeChat(t, "oc_idle")
+	ctx := context.Background()
+
+	// A batch that has already been analyzed leaves nothing pending.
+	seedChatter(t, f, chat, employeeMinMessages)
+	an := &fakeAnalyzer{verdict: EmployeeVerdict{Action: EmployeeActionNone}}
+	emp := NewIMBotEmployee(f.svc, f.q, an)
+	emp.sweep(ctx)
+	if an.callCount() != 1 {
+		t.Fatalf("precondition: want 1 analysis, got %d", an.callCount())
+	}
+
+	// Nothing new since -> the pending check must report idle, and further sweeps
+	// must not reach the analyzer.
+	//
+	// Asserted in BOTH directions on purpose: a check hard-wired to "always
+	// pending" would defeat the whole saving while still passing a test that only
+	// ever expects false, and a check hard-wired to "never pending" would silently
+	// disable the heartbeat. The two assertions here and below pin each side.
+	if emp.anythingPending() {
+		t.Error("reported pending work when every message was already analyzed")
+	}
+	for i := 0; i < 5; i++ {
+		emp.sweep(ctx)
+	}
+	if n := an.callCount(); n != 1 {
+		t.Errorf("analyzer called %d times with no new messages, want 1 (the original)", n)
+	}
+
+	// One new message alone must not trip the heartbeat into analyzing either: it is
+	// pending, but far below the batch threshold.
+	f.svc.recordObservation(ctx, chat, imbot.InboundEvent{ActorExtID: "ou_b"}, "又一句", false)
+	if !emp.anythingPending() {
+		t.Error("a new message was not seen as pending — the heartbeat would never fire again")
+	}
+	emp.sweep(ctx)
+	if n := an.callCount(); n != 1 {
+		t.Errorf("analyzed on a single new message: %d calls", n)
+	}
+}
+
+// anythingPending is the heartbeat's idle short-circuit. It is asserted directly
+// (not only through sweep) because sweep has its own batchReady gate that would
+// mask a broken check: a version hard-wired to "always pending" burns a full
+// chat scan every 30 minutes on an idle server, which is invisible through sweep's
+// observable behavior.
+func TestEmployeeAnythingPending_ReflectsRealState(t *testing.T) {
+	f := newIMBotFixture(t)
+	chat := f.observeChat(t, "oc_pending")
+	ctx := context.Background()
+	emp := NewIMBotEmployee(f.svc, f.q, &fakeAnalyzer{verdict: EmployeeVerdict{Action: EmployeeActionNone}})
+
+	// Empty transcript -> idle.
+	if emp.anythingPending() {
+		t.Error("idle server reported pending work")
+	}
+	// A single unanalyzed message -> pending (even though it is below the batch
+	// threshold; that is batchReady's call, not this check's).
+	f.svc.recordObservation(ctx, chat, imbot.InboundEvent{ActorExtID: "ou_a"}, "一句话", false)
+	if !emp.anythingPending() {
+		t.Fatal("an unanalyzed message was not reported as pending")
+	}
+	// Stamped as analyzed -> idle again.
+	msgs, err := f.q.ListUnanalyzedIMBotChatMessages(ctx,
+		store.ListUnanalyzedIMBotChatMessagesParams{ChatID: chat.ID, Limit: 100})
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	emp.markAnalyzed(ctx, chat.ID, msgs)
+	if emp.anythingPending() {
+		t.Error("still reported pending after the batch was analyzed")
+	}
+
+	// A chat switched OFF observation must not keep the heartbeat awake: its
+	// messages can never be analyzed, so counting them would mean scanning forever.
+	f.svc.recordObservation(ctx, chat, imbot.InboundEvent{ActorExtID: "ou_a"}, "再一句", false)
+	if _, err := f.q.UpdateIMBotChatAgentMode(ctx, store.UpdateIMBotChatAgentModeParams{
+		AgentMode: AgentModeCommand, ID: chat.ID,
+	}); err != nil {
+		t.Fatalf("switch mode: %v", err)
+	}
+	if emp.anythingPending() {
+		t.Error("a command-mode chat's leftover messages kept the heartbeat awake")
 	}
 }

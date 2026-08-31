@@ -30,10 +30,15 @@ type fakeAnalysisCreator struct {
 	q     *store.Queries
 	dir   string
 	calls int
+	// lastOpts records the creation options, so a test can assert the analysis
+	// workspace is not created in a token-burning mode (see
+	// TestAnalysisWorkspace_NotAutohosted).
+	lastOpts PlanCreateOpts
 }
 
-func (c *fakeAnalysisCreator) CreatePlanInProject(ctx context.Context, _ OwnerRef, projectID, columnID int64, _, titleHint string, _ int64, _ PlanCreateOpts) (PlanTarget, error) {
+func (c *fakeAnalysisCreator) CreatePlanInProject(ctx context.Context, _ OwnerRef, projectID, columnID int64, _, titleHint string, _ int64, opts PlanCreateOpts) (PlanTarget, error) {
 	c.calls++
+	c.lastOpts = opts
 	issue, err := c.q.CreateIssue(ctx, store.CreateIssueParams{
 		ColumnID: columnID, Title: titleHint, Position: 0,
 	})

@@ -2,7 +2,9 @@ package service
 
 import (
 	"context"
+	"sort"
 	"strings"
+	"time"
 
 	"github.com/niuniu-dev/niuniu/internal/agentproxy"
 	"github.com/niuniu-dev/niuniu/internal/config"
@@ -232,5 +234,117 @@ func (a *employeeAnalyzer) resolveAgentContext(ctx context.Context, scope Employ
 			cliType = strings.TrimSpace(p.DefaultCliType)
 		}
 	}
+	// No workspace to inherit from (a project whose observation was just enabled and
+	// that has no workspace yet) — resolve the PROJECT's own provider binding.
+	//
+	// Without this the analysis falls back to the host's bare credentials, which on a
+	// server-deployed niuniu are typically absent: the reported symptom was the
+	// analysis failing with "Not logged in · Please run /login" even though the
+	// project had a provider group bound. The provider binding is configured at the
+	// project level precisely so it applies before any workspace exists.
+	if len(env) == 0 && scope.ProjectID != 0 {
+		env = a.projectProviderEnv(ctx, scope.ProjectID, cliType)
+	}
 	return cliType, env
+}
+
+// projectProviderEnv expands the project's OWN provider binding
+// (projects.env_provider_group / env_provider_id) into subprocess env, for the case
+// where the project has no workspace yet to inherit from.
+//
+// It mirrors sceneenv's precedence — a group binding wins over a single provider,
+// and only a usable member of that group is chosen — but scopes the lookup by the
+// PROJECT's owner rather than a workspace's, since there is no workspace here.
+// Returns nil when the project binds no provider, when nothing in the group can
+// serve this CLI's protocol, or on any lookup error: the caller then keeps its
+// previous behavior (host / global one-shot preset credentials).
+func (a *employeeAnalyzer) projectProviderEnv(ctx context.Context, projectID int64, cliType string) []string {
+	proj, err := a.q.GetProject(ctx, projectID)
+	if err != nil {
+		return nil
+	}
+	group := strings.TrimSpace(proj.EnvProviderGroup)
+	providerID := int64(0)
+	if proj.EnvProviderID.Valid {
+		providerID = proj.EnvProviderID.Int64
+	}
+	if group == "" && providerID == 0 {
+		return nil // project binds no provider — nothing to inherit
+	}
+
+	var params store.ListEnvProvidersForOwnersParams
+	if proj.OwnerType == "org" {
+		params.OrgIds = []int64{proj.OwnerID}
+	} else {
+		params.OwnerID = proj.OwnerID
+	}
+	providers, err := a.q.ListEnvProvidersForOwners(ctx, params)
+	if err != nil {
+		return nil
+	}
+
+	protocol := sceneenv.ProtocolForCLI(cliType)
+	chosen, ok := pickProjectProvider(providers, group, providerID, protocol, time.Now())
+	if !ok {
+		return nil
+	}
+
+	// Accounts resolve ${ACCOUNT:*} references in the provider's api_key, the same
+	// substitution a workspace spawn performs.
+	var accParams store.ListEnvAccountsForOwnersParams
+	if proj.OwnerType == "org" {
+		accParams.OrgIds = []int64{proj.OwnerID}
+	} else {
+		accParams.OwnerID = proj.OwnerID
+	}
+	accounts, _ := a.q.ListEnvAccountsForOwners(ctx, accParams)
+
+	out := make([]string, 0, 8)
+	for k, v := range sceneenv.ExpandProvider(chosen, cliType, accounts, false /*preserveRef*/) {
+		if strings.HasPrefix(k, "NIUNIU_") {
+			continue
+		}
+		out = append(out, k+"="+v)
+	}
+	sort.Strings(out) // stable order so logs/tests are deterministic
+	return out
+}
+
+// pickProjectProvider selects which of the owner's providers serves a project's
+// binding: the best usable member of the bound GROUP (lowest group_position, then
+// lowest id) when one is set, else the specifically bound provider. A candidate
+// must be usable (enabled, not in cooldown) AND carry a base_url for protocol,
+// mirroring sceneenv.GroupProvider's rules.
+func pickProjectProvider(providers []store.EnvProvider, group string, providerID int64, protocol string, now time.Time) (store.EnvProvider, bool) {
+	serves := func(p store.EnvProvider) bool {
+		return sceneenv.ProviderEnabled(p) && !sceneenv.ProviderInCooldown(p, now) &&
+			sceneenv.ProviderServesProtocol(p, protocol)
+	}
+	if group != "" {
+		var best *store.EnvProvider
+		for i := range providers {
+			p := providers[i]
+			if p.GroupName != group || !serves(p) {
+				continue
+			}
+			if best == nil || p.GroupPosition < best.GroupPosition ||
+				(p.GroupPosition == best.GroupPosition && p.ID < best.ID) {
+				cp := p
+				best = &cp
+			}
+		}
+		if best != nil {
+			return *best, true
+		}
+		// Group bound but unusable for this CLI: fall through to an explicit
+		// provider binding if the project also has one.
+	}
+	if providerID != 0 {
+		for i := range providers {
+			if providers[i].ID == providerID && serves(providers[i]) {
+				return providers[i], true
+			}
+		}
+	}
+	return store.EnvProvider{}, false
 }

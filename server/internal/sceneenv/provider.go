@@ -87,6 +87,16 @@ func ExpandProvider(p store.EnvProvider, cliType string, accounts []store.EnvAcc
 	return out
 }
 
+// ProviderServesProtocol reports whether p has a base_url configured for the
+// given agent protocol, i.e. whether it can serve that CLI at all. Exported so
+// callers outside a workspace context (e.g. resolving a PROJECT's provider
+// binding before any workspace exists) can apply the same "is this provider
+// interchangeable here" rule the workspace path uses, without duplicating the
+// base_urls JSON decoding.
+func ProviderServesProtocol(p store.EnvProvider, protocol string) bool {
+	return decodeBaseURLs(p.BaseUrls)[protocol] != ""
+}
+
 // decodeBaseURLs parses a provider's stored base_urls JSON (Record<protocol,
 // base_url>), returning an empty (non-nil) map on any decode error.
 func decodeBaseURLs(raw string) map[string]string {
