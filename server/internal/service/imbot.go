@@ -82,6 +82,11 @@ type IMBotService struct {
 	// new conversation.
 	starter IssueWorkspaceStarter
 
+	// employee receives a nudge after each recorded observation so proactive
+	// analysis is driven by conversation instead of a clock. Optional: nil leaves
+	// analysis to the employee's own fallback heartbeat.
+	employee *IMBotEmployee
+
 	// procMu guards procReactions: the 🐂 "正在执行中" markers placed on inbound
 	// messages, keyed by workspace id, held until the agent finishes (agent_done)
 	// so they can be removed. In-memory only — a cosmetic marker, safe to lose on
@@ -184,6 +189,11 @@ func (s *IMBotService) SetAskUserDecider(a AskUserDecider) { s.askUser = a }
 
 // SetConnectorManager attaches the manager so CRUD can hot-reload connections.
 func (s *IMBotService) SetConnectorManager(m *imbot.ConnectorManager) { s.mgr = m }
+
+// SetEmployee wires the proactive employee so each recorded observation nudges it
+// (message-driven analysis). Optional; nil falls back to the employee's own
+// heartbeat.
+func (s *IMBotService) SetEmployee(e *IMBotEmployee) { s.employee = e }
 
 // WorkspacePath returns the filesystem path of a workspace, used by callers
 // that need to pass a real workDir to MessageDeliverer.Deliver. Returns an

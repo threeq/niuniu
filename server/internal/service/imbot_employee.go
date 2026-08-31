@@ -103,19 +103,39 @@ type EmployeeScope struct {
 }
 
 const (
-	// employeeSweepInterval is how often every observe-mode chat is considered.
-	// Minutes, not seconds: the point is to notice the shape of a discussion after
-	// it has happened, and each sweep costs a model call per active chat.
-	employeeSweepInterval = 10 * time.Minute
+	// employeeSweepInterval is the FALLBACK heartbeat, not the primary trigger.
+	//
+	// Analysis is event-driven: a recorded message nudges its own chat (Notify).
+	// This tick only catches what an event cannot — a discussion that went quiet
+	// below the batch threshold and would otherwise sit unanalyzed forever, and
+	// chats whose nudge was lost across a restart. Deliberately long: on a healthy
+	// server it should almost never be the thing that triggers an analysis.
+	employeeSweepInterval = 30 * time.Minute
 
 	// employeeSweepTimeout bounds one sweep so a hung model call cannot wedge the
 	// loop. Clamped to the interval by sweepTimeout so sweeps never overlap.
 	employeeSweepTimeout = 5 * time.Minute
 
-	// employeeMinMessages is the smallest batch worth a model call. One or two
-	// stray lines rarely describe actionable work, and analyzing them burns a call
-	// per sweep while the discussion is still forming.
-	employeeMinMessages = 4
+	// employeeMinMessages is the batch size an event-driven analysis waits for.
+	//
+	// Raised from 4: at 4 the bot analyzed almost every short exchange, which cost a
+	// model call per handful of lines and — worse — judged discussions that had barely
+	// started. A colleague who forms an opinion after four messages is the one who
+	// interrupts mid-sentence. 20 lines is enough for a topic to actually take shape.
+	employeeMinMessages = 20
+
+	// employeeQuietPeriod is how long a chat must be SILENT before an accumulated
+	// batch is analyzed. Reaching the threshold mid-conversation is not a reason to
+	// judge it — the next line may change what the discussion is even about. Waiting
+	// for a lull means the employee reads a finished thought, which is both cheaper
+	// (one call per topic, not per 20 lines) and better-informed.
+	employeeQuietPeriod = 3 * time.Minute
+
+	// employeeMaxPendingAge forces an analysis on a chat that keeps talking without
+	// ever falling quiet, so a continuously busy group is not starved by the
+	// quiet-period rule. Well above the quiet period: the point is a backstop, not a
+	// second cadence.
+	employeeMaxPendingAge = 2 * time.Hour
 
 	// employeeBatchLimit bounds one analysis batch so a very busy chat cannot
 	// produce an unbounded prompt.
@@ -162,8 +182,11 @@ type IMBotEmployee struct {
 	q        *store.Queries
 	analyzer EmployeeAnalyzer
 
-	// interval is the sweep period, overridable in tests to avoid a 10-minute wait.
+	// interval is the fallback heartbeat period, overridable in tests to avoid a
+	// 30-minute wait. quiet overrides the post-nudge debounce for the same reason;
+	// batchReady honors it too so the gate and the debounce cannot disagree.
 	interval time.Duration
+	quiet    time.Duration
 
 	// budgetMu guards actionBudget: the per-chat interruption allowance (see
 	// claimActionBudget). nowFn overrides the clock in tests so a window can be
@@ -181,6 +204,10 @@ type IMBotEmployee struct {
 	mu   sync.Mutex
 	stop chan struct{}
 	done chan struct{}
+	// nudge carries "a chat just got a message" wake-ups from the inbound path
+	// (Notify). Buffered depth 1: it is a signal, not a queue — one wake-up
+	// re-evaluates every due chat, so coalescing bursts is the desired behavior.
+	nudge chan int64
 }
 
 // NewIMBotEmployee builds the proactive employee loop. analyzer may be nil, in
@@ -198,6 +225,14 @@ func (e *IMBotEmployee) SetInterval(d time.Duration) {
 	}
 }
 
+// SetQuietPeriod overrides the post-message debounce (and the matching batchReady
+// gate). Tests use it to avoid minute-scale waits; callers must set it before Start.
+func (e *IMBotEmployee) SetQuietPeriod(d time.Duration) {
+	if d > 0 {
+		e.quiet = d
+	}
+}
+
 // Start launches the sweep goroutine. Idempotent; a nil analyzer makes it inert.
 func (e *IMBotEmployee) Start() {
 	if e == nil || e.analyzer == nil {
@@ -211,8 +246,69 @@ func (e *IMBotEmployee) Start() {
 	}
 	e.stop = make(chan struct{})
 	e.done = make(chan struct{})
-	go e.loop(e.stop, e.done)
-	slog.Info("imbot: proactive employee started", "interval", e.interval.String())
+	e.nudge = make(chan int64, 1)
+	go e.loop(e.stop, e.done, e.nudge)
+	slog.Info("imbot: proactive employee started",
+		"trigger", "message-driven", "min_messages", employeeMinMessages,
+		"quiet_period", employeeQuietPeriod.String(), "fallback_interval", e.interval.String())
+}
+
+// batchReady decides whether an accumulated batch should be analyzed NOW.
+//
+// Two conditions, either of which is enough:
+//   - the batch reached employeeMinMessages AND the chat has been quiet for
+//     employeeQuietPeriod — the normal case. The quiet requirement is what stops
+//     the employee from judging a conversation that is still unfolding.
+//   - the oldest pending message is older than employeeMaxPendingAge — the backstop
+//     for a group that never falls quiet, which would otherwise never be analyzed.
+//
+// Below the message threshold nothing is analyzed regardless of age: a two-line
+// exchange does not become worth a model call just by getting old.
+func (e *IMBotEmployee) batchReady(msgs []store.ImBotChatMessage) bool {
+	if len(msgs) < employeeMinMessages {
+		return false
+	}
+	now := e.now()
+	newest, oldest := msgs[0].CreatedAt, msgs[0].CreatedAt
+	for _, m := range msgs {
+		if m.CreatedAt.After(newest) {
+			newest = m.CreatedAt
+		}
+		if m.CreatedAt.Before(oldest) {
+			oldest = m.CreatedAt
+		}
+	}
+	if now.Sub(newest) >= e.quietPeriod() {
+		return true
+	}
+	return now.Sub(oldest) >= employeeMaxPendingAge
+}
+
+// Notify tells the employee that a chat just recorded a message, so analysis is
+// driven by conversation rather than by a clock.
+//
+// It is called from the inbound path after an observation is stored, and is
+// deliberately CHEAP and non-blocking: the inbound handler is on the connector's
+// goroutine and must never wait on a model call. All this does is wake a
+// per-employee worker, which re-reads the chat and applies the same batchReady
+// gate — so a burst of 20 messages produces one analysis, not 20.
+func (e *IMBotEmployee) Notify(chatID int64) {
+	if e == nil || e.analyzer == nil || chatID == 0 {
+		return
+	}
+	e.mu.Lock()
+	nudge, running := e.nudge, e.stop != nil
+	e.mu.Unlock()
+	if !running || nudge == nil {
+		return
+	}
+	// Non-blocking send with dedupe: a full channel already carries a pending
+	// wake-up, and one wake-up re-reads every chat that is due, so dropping the
+	// extra costs nothing.
+	select {
+	case nudge <- chatID:
+	default:
+	}
 }
 
 // Stop ends the sweep goroutine and waits for it to exit.
@@ -222,7 +318,7 @@ func (e *IMBotEmployee) Stop() {
 	}
 	e.mu.Lock()
 	stop, done := e.stop, e.done
-	e.stop, e.done = nil, nil
+	e.stop, e.done, e.nudge = nil, nil, nil
 	e.mu.Unlock()
 	if stop == nil {
 		return
@@ -231,7 +327,15 @@ func (e *IMBotEmployee) Stop() {
 	<-done
 }
 
-func (e *IMBotEmployee) loop(stop, done chan struct{}) {
+// loop waits for either a message-driven nudge or the fallback heartbeat, then
+// runs a bounded sweep. The nudge is the primary trigger; the ticker only catches
+// batches that fell quiet below the threshold or survived a restart.
+//
+// A nudge is debounced: after a wake-up it waits out the quiet period before
+// sweeping, so a burst of messages produces ONE analysis at the end of the burst
+// rather than one per message. Any further nudges arriving during that wait are
+// coalesced by the depth-1 channel.
+func (e *IMBotEmployee) loop(stop, done chan struct{}, nudge chan int64) {
 	defer close(done)
 	t := time.NewTicker(e.interval)
 	defer t.Stop()
@@ -239,15 +343,45 @@ func (e *IMBotEmployee) loop(stop, done chan struct{}) {
 		select {
 		case <-stop:
 			return
+		case <-nudge:
+			// Wait for the conversation to settle. Sleeping here (rather than
+			// sweeping immediately) is what makes the quiet-period rule effective
+			// instead of merely advisory: batchReady would otherwise reject the batch
+			// and the next trigger might be the 30-minute tick.
+			if !e.waitQuiet(stop) {
+				return
+			}
+			e.runSweep(stop)
 		case <-t.C:
-			// Bound one sweep so a hung model call cannot wedge the loop forever;
-			// unfinished chats are simply picked up next tick. The context is ALSO
-			// cancelled by stop, so Stop() (and therefore server shutdown) does not
-			// have to wait out a sweep that is mid-model-call — without that, a
-			// shutdown during a sweep blocks for up to a full interval.
 			e.runSweep(stop)
 		}
 	}
+}
+
+// waitQuiet sleeps for the quiet period, returning false if stop closes first so
+// the caller exits promptly on shutdown rather than holding it up.
+func (e *IMBotEmployee) waitQuiet(stop chan struct{}) bool {
+	d := e.quietPeriod()
+	if d <= 0 {
+		return true
+	}
+	timer := time.NewTimer(d)
+	defer timer.Stop()
+	select {
+	case <-stop:
+		return false
+	case <-timer.C:
+		return true
+	}
+}
+
+// quietPeriod is the debounce delay, overridable in tests to avoid minute-scale
+// waits.
+func (e *IMBotEmployee) quietPeriod() time.Duration {
+	if e.quiet > 0 {
+		return e.quiet
+	}
+	return employeeQuietPeriod
 }
 
 // runSweep executes one bounded sweep, cancelling it early if stop closes. Split
@@ -307,8 +441,8 @@ func (e *IMBotEmployee) considerChat(ctx context.Context, chat store.ImBotChat) 
 		slog.Warn("imbot: employee load transcript failed", "chat", chat.ID, "error", err)
 		return
 	}
-	if len(msgs) < employeeMinMessages {
-		return // discussion still forming; wait for the next sweep
+	if !e.batchReady(msgs) {
+		return
 	}
 	transcript := renderTranscript(msgs)
 	if strings.TrimSpace(transcript) == "" {

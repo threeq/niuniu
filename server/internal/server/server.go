@@ -1462,6 +1462,9 @@ func New(cfg *config.Config, db *sql.DB, frontendFS fs.FS) *Server {
 	s.imbotEmployee = service.NewIMBotEmployee(s.imbotSvc, s.queries,
 		service.NewWorkspaceEmployeeAnalyzer(
 			s.queries, imbotDispatch, s.agentProxy, service.NewEmployeeAnalyzer(s.queries)))
+	// Message-driven analysis: each recorded observation nudges the employee, so
+	// analysis follows the conversation instead of a fixed clock.
+	s.imbotSvc.SetEmployee(s.imbotEmployee)
 	// Backfill credential fingerprints for legacy channels so the one-bot-per-app
 	// UNIQUE constraint is enforceable (blocks a second channel for the same app);
 	// leftover duplicates are logged, not deleted. Best-effort before connections start.

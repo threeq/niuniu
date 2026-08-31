@@ -116,6 +116,12 @@ func (s *IMBotService) HandleInbound(ctx context.Context, ev imbot.InboundEvent)
 		// bound to a task — those must not be dropped for lacking a fresh @mention).
 		addressed := addressedToBot(ev, text) || s.conversationallyAddressed(ctx, chat, ev.ThreadExtID)
 		s.recordObservation(ctx, chat, ev, observedText, addressed)
+		// Analysis is message-driven: tell the employee this chat has new material.
+		// Non-blocking (it only wakes a worker), so the connector goroutine handling
+		// this message never waits on a model call.
+		if s.employee != nil {
+			s.employee.Notify(chat.ID)
+		}
 		if !addressed {
 			slog.Debug("imbot: observed (not addressed)", "chat", chat.ID, "actor", ev.ActorExtID)
 			return
