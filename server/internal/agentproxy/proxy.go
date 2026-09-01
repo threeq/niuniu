@@ -475,6 +475,17 @@ type WorkspaceSession struct {
 	// Guarded by s.mu.
 	turnRequestCount int
 
+	// transientRetries counts automatic re-runs of the same message after
+	// transient stream failures (see isTransientStreamError) within the CURRENT
+	// SendLoop. Bounded by maxTransientStreamRetries so a gateway that stalls on
+	// every attempt cannot loop forever; reset on every real (non-injected)
+	// message and after a clean turn. Guarded by s.mu.
+	transientRetries int
+	// turnResultOverride is a test-only hook (nil in production): when non-nil,
+	// Send short-circuits and reports the scripted (result, isError) pair.
+	// Guarded by s.mu.
+	turnResultOverride func() (string, bool)
+
 	// topLevelAgentID 是本会话对应的 workspace_agent.id（coordinator）。
 	// 0 表示未绑定。Task 8 在 session init 时填充。用于 agent_message 归属。
 	topLevelAgentID int64
@@ -553,6 +564,38 @@ const idleTimeout = 30 * time.Minute
 // lost) is reaped so SendLoop can recover instead of blocking on turnDone
 // forever. Overridable per-session via WorkspaceSession.turnInactivityTimeout.
 const defaultTurnInactivityTimeout = 15 * time.Minute
+
+// maxTransientStreamRetries bounds how many times ONE message is automatically
+// re-run after a transient stream failure (stalled mid-stream, connection
+// refused, watchdog kill) within a single SendLoop. These errors are network/
+// gateway hiccups the CLI reports as a fatal turn error without retrying itself
+// — before this, a batch_create_issues request whose large tool_use JSON made
+// the gateway stall 180s landed the loop in attention and the user had to
+// re-send the batch by hand, every time. Two retries ride out a flapping
+// gateway; a persistent failure still reaches attention quickly.
+const maxTransientStreamRetries = 2
+
+// isTransientStreamError reports whether a failed turn's result text describes
+// a retryable transport-level failure, as opposed to a genuine model/business
+// error. Kept conservative: only patterns we have seen from real gateways and
+// the watchdog. Rate-limit rejections (429) are deliberately excluded — they
+// carry reset times and already have the provider-fallback path.
+func isTransientStreamError(result string) bool {
+	if result == "" {
+		return false
+	}
+	for _, marker := range []string{
+		"Response stalled mid-stream", // gateway stopped mid-generation; CLI gives up after ~180s
+		"Unable to connect to API",    // connection refused / network down at turn start
+		"agent unresponsive",          // our own inactivity-watchdog kill
+		"Overloaded",                  // 529-style gateway overload
+	} {
+		if strings.Contains(result, marker) {
+			return true
+		}
+	}
+	return false
+}
 
 // phaseCompleteRe matches structured phase completion markers in Claude output.
 var phaseCompleteRe = regexp.MustCompile(`<!--\s*PHASE:([\w-]+):COMPLETE\s*-->`)
@@ -1750,6 +1793,27 @@ func (s *WorkspaceSession) SendLoop(ctx context.Context, workDir, content, attac
 			}
 		}
 		if wasError {
+			// Transient stream failure (stalled mid-stream / connection refused /
+			// watchdog kill): the CLI does not retry these itself, and stopping
+			// into attention makes the user hand-resend every batch. Re-run the
+			// SAME message (system-rendered, like the 429 fallback) while budget
+			// remains. The budget resets on the next real message / clean turn.
+			s.mu.Lock()
+			retry := s.transientRetries
+			if isTransientStreamError(lastResult) && retry < maxTransientStreamRetries {
+				s.transientRetries = retry + 1
+				retry++
+			} else {
+				retry = 0 // over budget or not transient — fall through to attention
+			}
+			s.mu.Unlock()
+			if retry > 0 {
+				s.emitAutohostSystemInfo(ctx, "♻️ 上一轮因网络/网关瞬断中断，正在自动重试同一消息…")
+				slog.Info("agent sendLoop: auto-retrying after transient stream error",
+					"workspaceID", s.workspaceID, "retry", retry, "max", maxTransientStreamRetries)
+				injected = true
+				continue
+			}
 			// Auto-recover when autohost is on and error budget remains;
 			// otherwise drop into attention.
 			if ok, prompt := s.autohostMaybeRecover(ctx); ok {
@@ -1763,8 +1827,11 @@ func (s *WorkspaceSession) SendLoop(ctx context.Context, workDir, content, attac
 			s.finalizeSendLoopTurn(ctx, true, lastResult, false)
 			return
 		}
-		// Clean turn — reset error streak.
+		// Clean turn — reset error streak + transient-retry budget.
 		s.autohostResetErrors()
+		s.mu.Lock()
+		s.transientRetries = 0
+		s.mu.Unlock()
 
 		// Auto-compaction: when the live context window has crossed the configured
 		// budget threshold, inject a one-shot /compact turn before anything else so
@@ -1790,6 +1857,9 @@ func (s *WorkspaceSession) SendLoop(ctx context.Context, workDir, content, attac
 			// Real user/external input — reset auto-continue + fallback counters.
 			s.autohostReset()
 			s.resetProviderFallbackRetries()
+			s.mu.Lock()
+			s.transientRetries = 0
+			s.mu.Unlock()
 			continue
 		}
 
@@ -3294,6 +3364,16 @@ func (s *WorkspaceSession) Send(ctx context.Context, workDir, content, attachmen
 		msgRole = "system"
 	}
 	s.mu.Lock()
+	// turnResultOverride is a TEST-ONLY hook: when set, Send skips the real
+	// process I/O entirely and reports the scripted (result, isError) pair —
+	// letting SendLoop tests drive transient-error retry budgets without a CLI.
+	if s.turnResultOverride != nil {
+		result, isErr := s.turnResultOverride()
+		s.lastTurnError = isErr
+		s.lastTurnResult = result
+		s.mu.Unlock()
+		return nil
+	}
 	s.lastTurnError = false
 	// Reset per-turn state
 	s.assistantTextBlocks = nil
