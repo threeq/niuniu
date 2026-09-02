@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { languageForPath, isPlainText, PLAIN_TEXT } from './languages';
 import { SENTINEL, TOKEN_CLASS, SYNTAX_THEME } from './theme';
 import { ensureLanguage, tokenizeChunk, type SyntaxLine } from './tokenizer';
+import { nextHighlightId, requestHighlight } from './client';
 
 /**
  * Acceptance tests for the shiki highlighter that replaced the two hand-rolled
@@ -182,4 +183,47 @@ describe('chunked tokenization', () => {
 
     expect(chunked).toEqual(whole);
   });
+});
+
+describe('request lifecycle', () => {
+  it('stops delivering to a subscription that has been cancelled', async () => {
+    const id = nextHighlightId();
+    const chunks: number[] = [];
+    const cancel = requestHighlight(id, 'tsx', 'const a = 1;', {
+      onChunk: (from) => chunks.push(from),
+      onError: () => {},
+    });
+    cancel();
+
+    // Long enough for the grammar load + tokenize to have completed had it not
+    // been cancelled (the same path delivers within ~1s uncancelled).
+    await new Promise((r) => setTimeout(r, 2_000));
+    expect(chunks).toEqual([]);
+  }, 10_000);
+
+  it('does not let a superseded request deliver into the newer one', async () => {
+    // Ids are reused across a surface's lifetime: opening file B under the id
+    // that was showing file A must not leave A's chunks arriving into B's
+    // handler, or B would render A's tokens against its own text.
+    const id = nextHighlightId();
+    const first: number[] = [];
+    requestHighlight(id, 'tsx', 'const a = 1;\nconst b = 2;', {
+      onChunk: (from) => first.push(from),
+      onError: () => {},
+    });
+
+    // Replace it immediately, without calling the first cancel — the case a
+    // tombstone-based scheme got wrong.
+    const second: number[] = [];
+    const cancelSecond = requestHighlight(id, 'tsx', 'const c = 3;', {
+      onChunk: (from) => second.push(from),
+      onError: () => {},
+    });
+
+    await new Promise((r) => setTimeout(r, 3_000));
+    cancelSecond();
+
+    expect(first).toEqual([]);
+    expect(second.length).toBeGreaterThan(0);
+  }, 10_000);
 });

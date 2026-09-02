@@ -109,21 +109,31 @@ export function requestHighlight(
 ): () => void {
   handlers.set(id, h);
 
+  // Only retract *this* subscription. Ids are reused across a surface's
+  // lifetime, so a late cleanup must not evict a handler that a newer request
+  // has already installed under the same id.
+  const release = () => {
+    if (handlers.get(id) === h) handlers.delete(id);
+  };
+
   const w = getWorker();
   if (w) {
     w.postMessage({ type: 'highlight', id, lang, code });
     return () => {
-      handlers.delete(id);
+      release();
       w.postMessage({ type: 'cancel', id });
     };
   }
 
   let cancelled = false;
-  void runInline(lang, code, h, () => cancelled || !handlers.has(id)).catch((err) => {
+  // Superseded counts as cancelled: if a newer request took over this id, the
+  // old loop must stop rather than keep pushing chunks of the previous file
+  // into a handler whose component is gone.
+  void runInline(lang, code, h, () => cancelled || handlers.get(id) !== h).catch((err) => {
     if (!cancelled) h.onError(err instanceof Error ? err.message : String(err));
   });
   return () => {
     cancelled = true;
-    handlers.delete(id);
+    release();
   };
 }
