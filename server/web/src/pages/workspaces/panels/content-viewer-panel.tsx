@@ -12,7 +12,7 @@ import {
   useWorkspacePanelStore,
   type ContentViewerTarget,
 } from '@/stores/workspace-panel-store';
-import { useWorkspaceComments } from '@/lib/hooks/use-workspace-comments';
+import { useWorkspaceComments, isPending } from '@/lib/hooks/use-workspace-comments';
 import { useWorkspaceDiff } from '@/lib/hooks/use-workspace-diff';
 import { useCanvasBridge } from '@/hooks/use-canvas-bridge';
 import type { WorkspaceComment } from '@/types/api';
@@ -298,7 +298,7 @@ function useFileCommentActions(workspaceId: string, repo: string, relPath: strin
   const { comments, queueComment, sendComment, sendAllPending, setResolved } =
     useWorkspaceComments(workspaceId);
   const fileComments = comments.filter((c) => c.repo === repo && c.file_path === relPath);
-  const pendingCount = fileComments.filter((c) => c.sent_to_agent !== true).length;
+  const pendingCount = fileComments.filter(isPending).length;
   const [sendingAll, setSendingAll] = useState(false);
 
   // A ComposeTarget carries the side and, for a deleted line, the client-side

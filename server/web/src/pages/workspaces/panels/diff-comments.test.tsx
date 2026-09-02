@@ -165,7 +165,9 @@ describe('review comment anchoring', () => {
           status: 'outdated',
           side: 'new',
           original_line: 2,
-          context: { before: ['package main'], line: 'var old = 1', after: ['func main() {'] },
+          // Deliberately text that is NOT anywhere in the current diff — that
+          // is what "outdated" means, and it keeps the assertions unambiguous.
+          context: { before: ['package main'], line: 'var ancient = 0', after: ['func main() {'] },
         },
       }),
     ]);
@@ -176,9 +178,9 @@ describe('review comment anchoring', () => {
     );
     const toggle = await screen.findByRole('button', { name: tr('anchor.showSnapshot') });
     // The snapshot is collapsed until asked for, then shows the original source.
-    expect(screen.queryByText('var old = 1')).not.toBeInTheDocument();
+    expect(screen.queryByText('var ancient = 0')).not.toBeInTheDocument();
     await user.click(toggle);
-    expect(await screen.findByText('var old = 1')).toBeInTheDocument();
+    expect(await screen.findByText('var ancient = 0')).toBeInTheDocument();
     expect(await screen.findByText(tr('anchor.thenLabel'))).toBeInTheDocument();
   });
 
