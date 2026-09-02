@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { http, HttpResponse } from 'msw';
 import { describe, expect, it } from 'vitest';
 import { server } from '@/mocks/server-node';
@@ -72,10 +72,18 @@ describe('FilePreview — text/code', () => {
     const { container } = render(<FilePreview workspaceId="ws1" path="a.ts" />);
 
     // Keyword + string get wrapped in the shared --syntax-* token classes.
-    await screen.findByText('const');
-    expect(container.querySelector('.text-syntax-keyword')).not.toBeNull();
-    expect(container.querySelector('.text-syntax-string')).not.toBeNull();
-  });
+    // Tokenization is asynchronous (worker in the browser, the same tokenizer
+    // inline under jsdom), so the classes appear after the grammar loads rather
+    // than on the first paint.
+    await screen.findByText('const', undefined, { timeout: 15_000 });
+    await waitFor(
+      () => {
+        expect(container.querySelector('.text-syntax-keyword')).not.toBeNull();
+        expect(container.querySelector('.text-syntax-string')).not.toBeNull();
+      },
+      { timeout: 15_000 },
+    );
+  }, 20_000);
 
   it('renders a line-number gutter for code', async () => {
     serveFile('line one\nline two');

@@ -2,8 +2,9 @@ import { useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Package, ChevronRight, FileCode2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import type { GitFileDiff } from '@/lib/hooks/use-file-diff';
+import type { GitFileDiff, GitDiffLine } from '@/lib/hooks/use-file-diff';
 import type { WorkspaceComment } from '@/types/api';
+import { useDiffHighlight, renderTokens } from '@/lib/syntax';
 import { CommentThread, type CommentApi } from './diff-comments';
 import {
   CodeSurface,
@@ -75,6 +76,12 @@ export function DiffViewer({
     [fileDiff, mode, expandedGaps, disableCollapse],
   );
 
+  // Both sides are reconstructed into documents and tokenized whole, so
+  // multi-line constructs inside a hunk are scoped correctly — see
+  // `useDiffHighlight` for the hunk-boundary caveat. Binary diffs render a
+  // placeholder instead of code, so there is nothing to highlight.
+  const highlight = useDiffHighlight(fileDiff, !fileDiff.is_binary);
+
   // Comments grouped by their anchored line number for inline rendering.
   const byLine = useMemo(() => {
     const m = new Map<number, WorkspaceComment[]>();
@@ -101,6 +108,11 @@ export function DiffViewer({
       : null;
 
   const renderer: CodeLineRenderer = {
+    // `build-rows` puts the very `GitDiffLine` objects from `fileDiff` into the
+    // cells, so the highlighter can key on object identity — which is what
+    // keeps tokens attached to the right line across folding and the
+    // unified↔split switch, both of which reorder rows but reuse the objects.
+    tokenize: (line) => renderTokens(highlight(line as GitDiffLine), line.content),
     attachment: commentApi
       ? (anchor) => <CommentThread anchor={anchor} api={commentApi} />
       : undefined,

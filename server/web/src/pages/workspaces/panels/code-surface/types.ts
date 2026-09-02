@@ -15,11 +15,11 @@ import type { ReactNode } from 'react';
  * everything line-specific arrives through `CodeLineRenderer`. A feature plugs
  * in by supplying one or two of its methods and touches no layout code:
  *
- *   - #687 (shiki highlighting)  → `tokenize`
- *   - #688 (review UI)           → `attachment` + `gutterAction`
+ *   - #688 (shiki highlighting)  → `tokenize`
+ *   - #689 (review UI)           → `attachment` + `gutterAction`
  *
  * Every hook is optional; omitting all of them yields plain, un-annotated code
- * with the built-in regex highlighter.
+ * with no tokenization.
  */
 
 /** How a line relates to the diff it belongs to. Plain files are all `context`. */
@@ -95,9 +95,12 @@ export type CodeRow =
 export interface CodeLineRenderer {
   /**
    * Turn a line's text into renderable nodes — the highlight token stream.
-   * Defaults to the built-in regex highlighter (`lib/syntax-highlight`). Only
-   * lines currently inside the window are passed here, which is precisely why
-   * the old "skip highlighting above N lines" degradation is no longer needed.
+   * Supplied by `lib/syntax` (shiki), which picks a grammar from the file path
+   * and tokenizes off the main thread. Omitting it renders the raw text.
+   *
+   * Only lines currently inside the window are passed here, which is precisely
+   * why the old "skip highlighting above N lines" degradation is no longer
+   * needed.
    */
   tokenize?(line: CodeLineData, cell: LineCell): ReactNode;
   /**

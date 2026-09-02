@@ -2,7 +2,6 @@ import { useCallback, useEffect, useMemo, useRef } from 'react';
 import { useVirtualizer, type Virtualizer } from '@tanstack/react-virtual';
 import { Plus } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { highlightCode } from '@/lib/syntax-highlight';
 import type { CodeLineRenderer, CodeRow, LineCell } from './types';
 
 /**
@@ -149,11 +148,15 @@ function Cell({
   // coordinate space anchors live in.
   const onAdd = renderer?.gutterAction?.(cell);
 
+  // No `tokenize` hook means no highlighting — the raw text renders as-is.
+  // That is the correct default rather than a lesser built-in highlighter:
+  // tokens now come from a real grammar chosen per file (see `lib/syntax`),
+  // which the surface has no way to pick on its own.
   const nodes = line
     ? renderer?.tokenize
       ? renderer.tokenize(line, cell)
       : line.content.length > 0
-        ? highlightCode(line.content)
+        ? line.content
         : ZERO_WIDTH_SPACE
     : ZERO_WIDTH_SPACE;
 

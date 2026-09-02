@@ -5,7 +5,8 @@ import { ChevronLeft, ChevronRight, Download, FileText, Pause, Play } from 'luci
 import { Button } from '@/components/ui/button';
 import { getFileContentUrl } from '@/lib/workspace-file-url';
 import { MarkdownMessage } from '@/components/shared/markdown-message';
-import { CodeSurface, buildFileRows } from '@/pages/workspaces/panels/code-surface';
+import { CodeSurface, buildFileRows, type CodeLineRenderer } from '@/pages/workspaces/panels/code-surface';
+import { useSyntaxHighlight, renderTokens } from '@/lib/syntax';
 import {
   extOf,
   IMAGE_EXTS,
@@ -109,7 +110,7 @@ export function FilePreviewByUrl({ url, path }: { url: string; path: string }) {
   if (BINARY_EXTS.has(ext)) {
     return <DownloadFallback url={url} />;
   }
-  return <TextFilePreview url={url} ext={ext} />;
+  return <TextFilePreview url={url} ext={ext} path={path} />;
 }
 
 // DownloadFallback is the shared "can't preview — download instead" state, used
@@ -314,27 +315,26 @@ function MarkdownFilePreview({ url }: { url: string }) {
   );
 }
 
-// TextFilePreview renders a text deliverable. Code-ish files get per-line
-// syntax highlighting via the shared `highlightCode` tokenizer — the same one
-// the diff viewer uses, so the two stay visually consistent. All colors come
-// from the design-system `--syntax-*` tokens, which means light/dark theme
-// switching is automatic (the CSS vars re-resolve; no re-highlight needed) and
-// no heavy highlighter (shiki/prism) ships in the bundle. Plain-data text
-// (txt/log) renders as an un-highlighted <pre>; code goes through the windowed
-// code surface, which has no size cutoff.
-function TextFilePreview({ url, ext }: { url: string; ext: string }) {
+// TextFilePreview renders a text deliverable. Code-ish files get real
+// grammar-based syntax highlighting via the shared `lib/syntax` tokenizer — the
+// same one the diff viewer and the code view use, so a file looks identical
+// wherever it is opened. All colors come from the design-system `--syntax-*`
+// tokens, so light/dark switching is automatic (the CSS vars re-resolve; no
+// re-highlight needed). Plain-data text (txt/log) renders as an un-highlighted
+// <pre>; code goes through the windowed code surface, which has no size cutoff.
+function TextFilePreview({ url, ext, path }: { url: string; ext: string; path: string }) {
   const { t } = useTranslation('workspaces');
   const { text, loading, error } = useRawText(url);
 
   if (loading) return <PreviewStatus>{t('filePreview.loading')}</PreviewStatus>;
   if (error) return <PreviewStatus error>{error}</PreviewStatus>;
 
-  // The highlighter is language-agnostic, so highlight anything that isn't plain
-  // prose/tabular data — this covers extensionless code (Makefile, go.mod, …).
-  // There is no size cutoff: the code view windows its rows, so only the visible
-  // slice is ever tokenized.
+  // Highlight anything that isn't plain prose/tabular data — this covers
+  // extensionless code (Makefile, go.mod, …). An extension with no grammar
+  // degrades to plain text rather than failing. There is no size cutoff: the
+  // code view windows its rows, so only the visible slice is ever tokenized.
   if (!NO_HIGHLIGHT_EXTS.has(ext)) {
-    return <HighlightedCode text={text} />;
+    return <HighlightedCode text={text} path={path} />;
   }
 
   return (
@@ -351,9 +351,20 @@ function TextFilePreview({ url, ext }: { url: string; ext: string }) {
 // tokenizes) only the lines on screen. This replaced a full-DOM table gated by
 // a MAX_HIGHLIGHT_LINES cutoff, which degraded backwards: past the limit the
 // file lost its highlighting yet still rendered every line.
-function HighlightedCode({ text }: { text: string }) {
-  const rows = useMemo(() => buildFileRows(text.split('\n')), [text]);
-  return <CodeSurface rows={rows} showSigns={false} />;
+function HighlightedCode({ text, path }: { text: string; path: string }) {
+  // Normalize CRLF/CR so the grammar and the rows agree on line boundaries.
+  const normalized = useMemo(() => text.replace(/\r\n?/g, '\n'), [text]);
+  const rows = useMemo(() => buildFileRows(normalized.split('\n')), [normalized]);
+  const highlight = useSyntaxHighlight({ code: normalized, path });
+
+  const renderer: CodeLineRenderer = {
+    // A plain file's row index is its line number − 1, which is the index the
+    // highlighter keys on.
+    tokenize: (line) =>
+      renderTokens(line.new_line != null ? highlight(line.new_line - 1) : undefined, line.content),
+  };
+
+  return <CodeSurface rows={rows} renderer={renderer} showSigns={false} />;
 }
 
 function DocxFilePreview({ url }: { url: string }) {

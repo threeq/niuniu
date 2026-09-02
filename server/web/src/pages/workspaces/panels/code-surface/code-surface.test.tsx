@@ -1,4 +1,4 @@
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { describe, it, expect, beforeAll } from 'vitest';
 import i18n from '@/i18n';
 
@@ -86,7 +86,7 @@ describe('virtualized diff rendering', () => {
     expect(countLines(container)).toBe(40);
   });
 
-  it('still highlights a file past the retired MAX_HIGHLIGHT_LINES cutoff', () => {
+  it('still highlights a file past the retired MAX_HIGHLIGHT_LINES cutoff', async () => {
     // 8000 lines used to mean: no highlighting AND 8000 DOM rows. Windowing
     // makes tokenizing the visible slice cheap, so highlighting always applies.
     const content = Array.from({ length: 8_000 }, () => 'const x = "hi";').join('\n');
@@ -94,9 +94,17 @@ describe('virtualized diff rendering', () => {
       <CodeFileView content={content} repoName="acme" filePath="big.ts" />,
     );
 
-    expect(container.querySelector('.text-syntax-keyword')).not.toBeNull();
-    expect(container.querySelector('.text-syntax-string')).not.toBeNull();
-  });
+    // Tokenization is asynchronous (a worker in the browser, the same tokenizer
+    // inline under jsdom), so colors arrive a chunk at a time rather than on the
+    // first paint. The generous timeout covers loading the TSX grammar.
+    await waitFor(
+      () => {
+        expect(container.querySelector('.text-syntax-keyword')).not.toBeNull();
+        expect(container.querySelector('.text-syntax-string')).not.toBeNull();
+      },
+      { timeout: 15_000 },
+    );
+  }, 20_000);
 
   it('renders a large diff directly, with no "render anyway" gate', () => {
     const { container } = render(

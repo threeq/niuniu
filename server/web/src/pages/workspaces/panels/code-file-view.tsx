@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { WorkspaceComment } from '@/types/api';
+import { useSyntaxHighlight, renderTokens } from '@/lib/syntax';
 import { CommentThread, type CommentApi } from './diff-comments';
 import { CodeSurface, buildFileRows, type CodeLineRenderer } from './code-surface';
 
@@ -54,8 +55,14 @@ export function CodeFileView({
   const [expiredJump, setExpiredJump] = useState<string | null>(null);
 
   // Normalize CRLF/CR so highlighting and rendering never carry stray \r.
-  const lines = useMemo(() => content.replace(/\r\n?/g, '\n').split('\n'), [content]);
+  const normalized = useMemo(() => content.replace(/\r\n?/g, '\n'), [content]);
+  const lines = useMemo(() => normalized.split('\n'), [normalized]);
   const rows = useMemo(() => buildFileRows(lines), [lines]);
+
+  // A full file is one contiguous document, so the grammar sees exactly what it
+  // would in an editor — multi-line strings and block comments are unambiguous
+  // here (unlike in a diff, see `useDiffHighlight`).
+  const highlight = useSyntaxHighlight({ code: normalized, path: filePath });
 
   const jumpValid = !!jumpToLine && jumpToLine >= 1 && jumpToLine <= lines.length;
   const jumpKey = jumpValid ? `${filePath}:${jumpToLine}` : null;
@@ -92,6 +99,13 @@ export function CodeFileView({
       : null;
 
   const renderer: CodeLineRenderer = {
+    // Row index is line number − 1 in a plain file, which is exactly the index
+    // the highlighter keys on.
+    tokenize: (line) =>
+      renderTokens(
+        line.new_line != null ? highlight(line.new_line - 1) : undefined,
+        line.content,
+      ),
     attachment: commentApi
       ? (anchor) => <CommentThread anchor={anchor} api={commentApi} />
       : undefined,
