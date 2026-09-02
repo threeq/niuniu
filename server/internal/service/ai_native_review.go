@@ -109,6 +109,9 @@ func (s *EpicExecutionService) buildReviewReworkContext(ctx context.Context, iss
 	if ws, ok := s.activeWorkspaceForIssue(ctx, issue.ID); ok {
 		if diffs, err := s.q.ListCommentsByWorkspace(ctx, ws.ID); err == nil {
 			paths := worktreePathsByRepo(ctx, s.q, ws.ID)
+			// Share one file cache across the batch — see fileStateCache: the blob
+			// hash is a subprocess, and review comments cluster on the same files.
+			fc := newFileStateCache()
 			n := 0
 			for _, d := range diffs {
 				if d.Resolved {
@@ -118,7 +121,7 @@ func (s *EpicExecutionService) buildReviewReworkContext(ctx context.Context, iss
 				if strings.TrimSpace(d.Repo) != "" {
 					loc = d.Repo + " › " + d.FilePath
 				}
-				anchor := ResolveCommentAnchor(paths[d.Repo], d)
+				anchor := resolveCommentAnchor(paths[d.Repo], d, fc)
 				b.WriteString("- ")
 				b.WriteString(loc)
 				b.WriteString(anchorLineRef(anchor, d))

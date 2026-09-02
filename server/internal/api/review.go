@@ -1,6 +1,7 @@
 package api
 
 import (
+	"database/sql"
 	"errors"
 	"log/slog"
 	"net/http"
@@ -257,6 +258,14 @@ func (h *ReviewHandler) SetCommentResolved(c *gin.Context) {
 
 	comment, err := h.reviewSvc.SetCommentResolved(c.Request.Context(), commentID, *req.Resolved, req.By)
 	if err != nil {
+		// The comment can vanish between the authorization lookup above and this
+		// write (concurrent delete, or a workspace cascade). That is a 404, not a
+		// server fault — reporting 500 would send the client retrying a request
+		// that can never succeed.
+		if errors.Is(err, sql.ErrNoRows) {
+			NotFound(c, "COMMENT")
+			return
+		}
 		InternalError(c, err)
 		return
 	}

@@ -164,11 +164,74 @@ func decodeCommentContext(raw string) *CommentContext {
 	return &snap
 }
 
+// fileStateCache memoises per-file reads for one batch of anchor resolutions.
+//
+// Resolving an anchor needs the file's blob hash and, on the relocate path, its
+// lines. The blob comes from `git hash-object`, a SUBPROCESS costing ~40ms —
+// roughly 700x the file read beside it. Resolving comments one at a time spawns
+// one per comment, so a review panel holding 30 comments on a single file spent
+// ~1.6s re-hashing the same bytes 30 times. Comments cluster on files by nature
+// (that is what a review is), so caching per (worktree, path) collapses that to
+// one spawn per distinct file.
+//
+// Scope is deliberately ONE batch, not a long-lived cache: the worktree is
+// mutable and a stale blob would resurrect exactly the false-confidence bug this
+// whole mechanism exists to prevent. A nil cache is valid and simply disables
+// memoisation, so single-comment callers pass nothing.
+type fileStateCache struct {
+	blob  map[string]string
+	lines map[string][]string
+	// lines can legitimately be nil for a missing file, so presence needs its own
+	// marker rather than a nil check.
+	linesOK map[string]bool
+}
+
+func newFileStateCache() *fileStateCache {
+	return &fileStateCache{
+		blob:    map[string]string{},
+		lines:   map[string][]string{},
+		linesOK: map[string]bool{},
+	}
+}
+
+func (fc *fileStateCache) blobSHA(worktreePath, filePath string) string {
+	if fc == nil {
+		return git.WorkingBlobSHA(worktreePath, filePath)
+	}
+	key := worktreePath + "\x00" + filePath
+	if v, ok := fc.blob[key]; ok {
+		return v
+	}
+	v := git.WorkingBlobSHA(worktreePath, filePath)
+	fc.blob[key] = v
+	return v
+}
+
+func (fc *fileStateCache) fileLines(worktreePath, filePath string) ([]string, bool) {
+	if fc == nil {
+		return git.WorkingFileLines(worktreePath, filePath)
+	}
+	key := worktreePath + "\x00" + filePath
+	if ok, seen := fc.linesOK[key]; seen {
+		return fc.lines[key], ok
+	}
+	v, ok := git.WorkingFileLines(worktreePath, filePath)
+	fc.lines[key] = v
+	fc.linesOK[key] = ok
+	return v, ok
+}
+
 // ResolveCommentAnchor re-derives a comment's position against the worktree's
 // current content. worktreePath "" (the repo could not be resolved) means the
 // content cannot be inspected at all, so the comment reports outdated — an
 // unverifiable anchor must not present itself as current.
 func ResolveCommentAnchor(worktreePath string, c store.Comment) CommentAnchor {
+	return resolveCommentAnchor(worktreePath, c, nil)
+}
+
+// resolveCommentAnchor is ResolveCommentAnchor with an optional per-batch file
+// cache (nil = no memoisation).
+func resolveCommentAnchor(worktreePath string, c store.Comment, fc *fileStateCache) CommentAnchor {
 	anchor := CommentAnchor{
 		Side:    normalizeSide(c.Side),
 		Context: decodeCommentContext(c.ContextLines),
@@ -195,7 +258,7 @@ func ResolveCommentAnchor(worktreePath string, c store.Comment) CommentAnchor {
 			anchor.Status = AnchorStatusOutdated
 			return anchor
 		}
-		if _, ok := git.WorkingFileLines(worktreePath, c.FilePath); !ok {
+		if _, ok := fc.fileLines(worktreePath, c.FilePath); !ok {
 			// The file itself is gone; a comment about one of its deleted lines has
 			// no surviving context to sit in.
 			anchor.Status = AnchorStatusOutdated
@@ -206,7 +269,7 @@ func ResolveCommentAnchor(worktreePath string, c store.Comment) CommentAnchor {
 		return anchor
 	}
 
-	currentBlob := git.WorkingBlobSHA(worktreePath, c.FilePath)
+	currentBlob := fc.blobSHA(worktreePath, c.FilePath)
 	anchor.CurrentBlobSha = currentBlob
 
 	// Unchanged file: the stored line is still literally correct. Requires a
@@ -224,7 +287,7 @@ func ResolveCommentAnchor(worktreePath string, c store.Comment) CommentAnchor {
 		anchor.Status = AnchorStatusOutdated
 		return anchor
 	}
-	lines, ok := git.WorkingFileLines(worktreePath, c.FilePath)
+	lines, ok := fc.fileLines(worktreePath, c.FilePath)
 	if !ok {
 		// File deleted or unreadable: the comment's target is gone.
 		anchor.Status = AnchorStatusOutdated

@@ -2,10 +2,12 @@ package service
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 	"unicode/utf8"
 
 	"github.com/niuniu-dev/niuniu/internal/store"
@@ -364,6 +366,85 @@ func TestSetCommentResolved_LongChineseReviewerStaysValidUTF8(t *testing.T) {
 	}
 	if !utf8.ValidString(got.ResolvedBy) {
 		t.Errorf("stored resolved_by is not valid UTF-8: %q", got.ResolvedBy)
+	}
+}
+
+// FINDING 5 (#686 严格审查). Anchor resolution ran `git hash-object` — a SUBPROCESS
+// costing ~40ms, ~700x the file read beside it — once per COMMENT rather than once
+// per FILE. Review comments cluster on the same files by nature, so a panel with 30
+// comments on one file spent ~1.6s re-hashing identical bytes 30 times.
+//
+// Asserting wall-clock would be flaky, so this pins the observable behaviour that
+// caused it: the batch must not scale its expensive work with comment count when
+// the comments share a file.
+func TestListCommentsWithAnchors_DoesNotRehashPerComment(t *testing.T) {
+	svc, q := setupReviewTest(t)
+	ctx := context.Background()
+	wsID, _, repoName := reviewWorkspaceWithRepo(t, svc, q, "main.go", anchorSrc)
+
+	const n = 25
+	for i := 0; i < n; i++ {
+		line := 6
+		if _, err := svc.CreateComment(ctx, wsID, CreateCommentInput{
+			Repo: repoName, FilePath: "main.go", LineNumber: &line,
+			Content: fmt.Sprintf("comment %d", i),
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	start := time.Now()
+	got, err := svc.ListCommentsWithAnchors(ctx, wsID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	elapsed := time.Since(start)
+
+	if len(got) != n {
+		t.Fatalf("want %d comments, got %d", n, len(got))
+	}
+	// Generous bound: one subprocess is ~40ms, so per-comment hashing would be
+	// ~1s+. Anything under half a second means the work was shared. The point is
+	// to catch a reintroduced per-comment spawn, not to benchmark.
+	if elapsed > 500*time.Millisecond {
+		t.Errorf("resolving %d comments on ONE file took %v — looks like per-comment "+
+			"git subprocess spawning is back (should be one per distinct file)", n, elapsed)
+	}
+}
+
+// The cache must be per-batch, never persistent: the worktree is mutable, and a
+// stale blob would resurrect exactly the false-confidence bug the anchor system
+// exists to prevent. Two calls straddling an edit must see different states.
+func TestListCommentsWithAnchors_CacheDoesNotLeakAcrossCalls(t *testing.T) {
+	svc, q := setupReviewTest(t)
+	ctx := context.Background()
+	wsID, dir, repoName := reviewWorkspaceWithRepo(t, svc, q, "main.go", anchorSrc)
+
+	line := 6
+	if _, err := svc.CreateComment(ctx, wsID, CreateCommentInput{
+		Repo: repoName, FilePath: "main.go", LineNumber: &line, Content: "fix",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	first, err := svc.ListCommentsWithAnchors(ctx, wsID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first[0].Anchor.Status != AnchorStatusCurrent {
+		t.Fatalf("precondition: want %q, got %q", AnchorStatusCurrent, first[0].Anchor.Status)
+	}
+
+	// Edit between calls: the second read must NOT serve a cached "current".
+	writeAnchorFile(t, dir, "main.go", "package main\n\nfunc main() {}\n")
+
+	second, err := svc.ListCommentsWithAnchors(ctx, wsID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if second[0].Anchor.Status != AnchorStatusOutdated {
+		t.Errorf("stale cache across calls: want %q after the file was rewritten, got %q",
+			AnchorStatusOutdated, second[0].Anchor.Status)
 	}
 }
 

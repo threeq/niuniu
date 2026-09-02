@@ -298,9 +298,12 @@ func (s *ReviewService) ListCommentsWithAnchors(ctx context.Context, workspaceID
 	}
 	// One worktree lookup per repo, not per comment.
 	paths := worktreePathsByRepo(ctx, s.q, workspaceID)
+	// One git hash-object per distinct FILE, not per comment: review comments
+	// cluster on the same files by nature, and that subprocess dominates the cost.
+	fc := newFileStateCache()
 	out := make([]AnchoredComment, 0, len(comments))
 	for _, c := range comments {
-		anchor := ResolveCommentAnchor(paths[c.Repo], c)
+		anchor := resolveCommentAnchor(paths[c.Repo], c, fc)
 		if anchor.Status == AnchorStatusRelocated && anchor.EffectiveLine > 0 {
 			// Re-pin the POSITION (line + blob) only. context_lines deliberately keeps
 			// the comment-time snapshot: it is the evidence of what the reviewer
