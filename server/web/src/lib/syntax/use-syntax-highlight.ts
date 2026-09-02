@@ -25,15 +25,29 @@ export interface UseSyntaxHighlightOptions {
   path: string;
   /** Set false to skip highlighting entirely (e.g. a binary or huge file). */
   enabled?: boolean;
+  /**
+   * 0-based line indices where the grammar restarts clean. Omit for a plain
+   * file; a diff passes one per hunk. See `tokenizeDocument` for why.
+   *
+   * Compared by value (joined), not identity, so a caller may rebuild the array
+   * on every render without retriggering the highlight.
+   */
+  resets?: number[];
 }
 
 export function useSyntaxHighlight({
   code,
   path,
   enabled = true,
+  resets,
 }: UseSyntaxHighlightOptions): HighlightMap {
   const lang = useMemo(() => languageForPath(path), [path]);
   const active = enabled && lang !== PLAIN_TEXT && code.length > 0;
+
+  // Value-identity for the reset list: the effect below must re-run when the
+  // hunk boundaries actually move, not merely because a caller allocated a new
+  // array with the same contents.
+  const resetKey = resets?.join(',') ?? '';
 
   // Tokens live in a ref, not state: a large file arrives as many chunks, and
   // storing an ever-growing array in state would re-render the whole surface on
@@ -52,19 +66,26 @@ export function useSyntaxHighlight({
     if (!active) return;
 
     const id = idRef.current!;
-    const cancel = requestHighlight(id, lang, code, {
-      onChunk(from, lines) {
-        const target = linesRef.current;
-        for (let i = 0; i < lines.length; i++) target[from + i] = lines[i];
-        setVersion((v) => v + 1);
+    const cancel = requestHighlight(
+      id,
+      lang,
+      code,
+      {
+        onChunk(from, lines) {
+          const target = linesRef.current;
+          for (let i = 0; i < lines.length; i++) target[from + i] = lines[i];
+          setVersion((v) => v + 1);
+        },
+        onError() {
+          // Leave whatever arrived before the failure in place; the rest of the
+          // file stays plain. Never blank out code over a highlighting problem.
+        },
       },
-      onError() {
-        // Leave whatever arrived before the failure in place; the rest of the
-        // file stays plain. Never blank out code over a highlighting problem.
-      },
-    });
+      resetKey === '' ? undefined : resetKey.split(',').map(Number),
+    );
     return cancel;
-  }, [active, lang, code]);
+    // `resets` is tracked through `resetKey`, its by-value identity.
+  }, [active, lang, code, resetKey]);
 
   return useMemo(() => {
     if (!active) return NO_HIGHLIGHT;

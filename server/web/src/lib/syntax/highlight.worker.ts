@@ -14,8 +14,8 @@
  * "send a whole file, receive its chunks", not "send me chunk N".
  */
 
-import { ensureLanguage, tokenizeChunk, type GrammarState } from './tokenizer';
-import { CHUNK_LINES, type WorkerRequest, type WorkerResponse } from './protocol';
+import { ensureLanguage, tokenizeDocument } from './tokenizer';
+import type { WorkerRequest, WorkerResponse } from './protocol';
 
 const ctx = self as unknown as DedicatedWorkerGlobalScope;
 
@@ -53,31 +53,19 @@ function post(msg: WorkerResponse) {
 /** True once this run has been cancelled or replaced by a newer request. */
 const stale = (id: number, gen: number) => generation.get(id) !== gen;
 
-async function run(id: number, gen: number, lang: string, code: string) {
+async function run(id: number, gen: number, lang: string, code: string, resets?: number[]) {
   if (stale(id, gen)) return;
 
   const resolved = await ensureLanguage(lang);
   if (stale(id, gen)) return;
 
-  const lines = code.split('\n');
-  let state: GrammarState | undefined;
-
-  for (let from = 0; from < lines.length; from += CHUNK_LINES) {
-    if (stale(id, gen)) return;
-
-    const slice = lines.slice(from, from + CHUNK_LINES);
-    const result = await tokenizeChunk(slice.join('\n'), resolved, state);
-    state = result.state;
-
-    if (stale(id, gen)) return;
-    post({
-      type: 'chunk',
-      id,
-      from,
-      lines: result.lines,
-      done: from + CHUNK_LINES >= lines.length,
-    });
-  }
+  await tokenizeDocument(
+    code,
+    resolved,
+    resets,
+    (from, lines, done) => post({ type: 'chunk', id, from, lines, done }),
+    () => stale(id, gen),
+  );
 
   // Finished cleanly: drop the entry so the map tracks only live work.
   if (generation.get(id) === gen) generation.delete(id);
@@ -95,7 +83,7 @@ ctx.addEventListener('message', (event: MessageEvent<WorkerRequest>) => {
   generation.set(msg.id, gen);
 
   queue = queue
-    .then(() => run(msg.id, gen, msg.lang, msg.code))
+    .then(() => run(msg.id, gen, msg.lang, msg.code, msg.resets))
     .catch((err) => {
       if (stale(msg.id, gen)) return;
       generation.delete(msg.id);

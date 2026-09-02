@@ -2,6 +2,7 @@ import { createHighlighterCore, type HighlighterCore } from 'shiki/core';
 import { createJavaScriptRegexEngine } from 'shiki/engine/javascript';
 import { SYNTAX_THEME, SYNTAX_THEME_NAME, TOKEN_CLASS } from './theme';
 import { loadLanguage, PLAIN_TEXT } from './languages';
+import { CHUNK_LINES } from './protocol';
 
 /**
  * The tokenizer core — one shiki highlighter, grammars loaded on demand.
@@ -135,4 +136,65 @@ export async function tokenizeChunk(
   );
 
   return { lines, state: result.grammarState };
+}
+
+/** Receives each slice as it is produced. `from` is its 0-based line offset. */
+export type ChunkSink = (from: number, lines: SyntaxLine[], done: boolean) => void;
+
+/**
+ * Tokenize a whole document, emitting slices as they are produced.
+ *
+ * Shared verbatim by the worker and the inline fallback so the two cannot
+ * drift — segmentation and chunking are subtle enough that two copies would
+ * eventually disagree.
+ *
+ * `resets` marks line indices where the grammar must start fresh. A plain file
+ * passes none: it is one contiguous document, so state flows from the first
+ * line to the last. A DIFF passes one per hunk, because a diff's hunks are not
+ * adjacent — arbitrary unchanged text sits between them. Without the reset, an
+ * unterminated construct in one hunk (a `/*` whose `*&#47;` lives in the
+ * skipped gap) would swallow every hunk after it, painting real code as
+ * comment. Resetting bounds any such mistake to the hunk that caused it, and
+ * errs toward under-coloring rather than hiding code.
+ *
+ * `isCancelled` is polled between chunks — the only point work can stop, since
+ * a single `codeToTokens` call is atomic.
+ */
+export async function tokenizeDocument(
+  code: string,
+  lang: string,
+  resets: readonly number[] | undefined,
+  emit: ChunkSink,
+  isCancelled: () => boolean,
+): Promise<void> {
+  // Strip CR before tokenizing. Shiki treats a trailing \r as line-ending
+  // whitespace and drops it from every line except the last, so a CRLF file
+  // would come back one character short per line — and since each token
+  // carries its own text, the surface renders tokens, not the original string.
+  // The result would be silently truncated content, not merely odd coloring.
+  // Callers that already normalized pay only a scan that finds nothing.
+  const lines = code.split('\n').map((l) => (l.endsWith('\r') ? l.slice(0, -1) : l));
+
+  // Segment edges: 0, each in-range reset, and the end — deduped and ordered,
+  // so a malformed `resets` (unsorted, duplicated, out of range) cannot produce
+  // an empty or backwards segment.
+  const edges = [...new Set([0, ...(resets ?? []).filter((n) => n > 0 && n < lines.length), lines.length])]
+    .sort((a, b) => a - b);
+
+  for (let s = 0; s + 1 < edges.length; s++) {
+    const segEnd = edges[s + 1];
+    // Fresh state per segment — this is the whole point of `resets`.
+    let state: GrammarState | undefined;
+
+    for (let from = edges[s]; from < segEnd; from += CHUNK_LINES) {
+      if (isCancelled()) return;
+
+      const to = Math.min(from + CHUNK_LINES, segEnd);
+      const result = await tokenizeChunk(lines.slice(from, to).join('\n'), lang, state);
+      state = result.state;
+
+      if (isCancelled()) return;
+      emit(from, result.lines, to >= lines.length);
+    }
+  }
 }

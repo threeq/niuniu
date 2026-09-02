@@ -1,4 +1,4 @@
-import { CHUNK_LINES, type WorkerResponse } from './protocol';
+import type { WorkerResponse } from './protocol';
 import type { SyntaxLine } from './tokenizer';
 
 /**
@@ -64,37 +64,28 @@ function getWorker(): Worker | null {
 }
 
 /**
- * Tokenize `code` inline, chunk by chunk, yielding to the event loop between
- * chunks so a large file still cannot lock the UI.
+ * Tokenize inline, yielding to the event loop between chunks so a large file
+ * still cannot lock the UI.
  *
- * `isCancelled` is re-checked at every await point: without a worker to
- * discard, this loop is the only thing that can stop itself.
+ * Delegates the actual segmentation to `tokenizeDocument`, the same function
+ * the worker runs — so the fallback cannot drift from the primary path.
  */
 async function runInline(
   lang: string,
   code: string,
+  resets: number[] | undefined,
   h: HighlightHandlers,
   isCancelled: () => boolean,
 ) {
   // Imported lazily so the shiki runtime stays out of the main bundle on the
   // normal (worker) path.
-  const { ensureLanguage, tokenizeChunk } = await import('./tokenizer');
+  const { ensureLanguage, tokenizeDocument } = await import('./tokenizer');
   if (isCancelled()) return;
 
   const resolved = await ensureLanguage(lang);
   if (isCancelled()) return;
 
-  const lines = code.split('\n');
-  let state: unknown;
-
-  for (let from = 0; from < lines.length; from += CHUNK_LINES) {
-    if (isCancelled()) return;
-    const slice = lines.slice(from, from + CHUNK_LINES);
-    const result = await tokenizeChunk(slice.join('\n'), resolved, state);
-    state = result.state;
-    if (isCancelled()) return;
-    h.onChunk(from, result.lines, from + CHUNK_LINES >= lines.length);
-  }
+  await tokenizeDocument(code, resolved, resets, h.onChunk, isCancelled);
 }
 
 /**
@@ -106,6 +97,7 @@ export function requestHighlight(
   lang: string,
   code: string,
   h: HighlightHandlers,
+  resets?: number[],
 ): () => void {
   handlers.set(id, h);
 
@@ -118,7 +110,7 @@ export function requestHighlight(
 
   const w = getWorker();
   if (w) {
-    w.postMessage({ type: 'highlight', id, lang, code });
+    w.postMessage({ type: 'highlight', id, lang, code, resets });
     return () => {
       release();
       w.postMessage({ type: 'cancel', id });
@@ -129,7 +121,7 @@ export function requestHighlight(
   // Superseded counts as cancelled: if a newer request took over this id, the
   // old loop must stop rather than keep pushing chunks of the previous file
   // into a handler whose component is gone.
-  void runInline(lang, code, h, () => cancelled || handlers.get(id) !== h).catch((err) => {
+  void runInline(lang, code, resets, h, () => cancelled || handlers.get(id) !== h).catch((err) => {
     if (!cancelled) h.onError(err instanceof Error ? err.message : String(err));
   });
   return () => {

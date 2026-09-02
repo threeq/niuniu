@@ -28,17 +28,25 @@ import type { SyntaxLine } from './tokenizer';
  * identity, which survives folding and the unified↔split switch (both reuse
  * the same `GitDiffLine` objects).
  *
- * KNOWN LIMIT
- * -----------
- * A diff omits the unchanged lines between hunks, so a construct that *opens*
- * in skipped text is not seen. The reconstruction therefore starts each side
- * from the top of the first hunk rather than the top of the file, and a string
- * opened before a hunk begins can still be mis-scoped inside it. Fixing that
- * needs the full file content, which the diff endpoint does not return.
+ * KNOWN LIMIT, AND WHY HUNKS RESET
+ * ---------------------------------
+ * A diff omits the unchanged lines between hunks, so the reconstruction is not
+ * a real file: hunk N+1 is spliced directly onto hunk N with arbitrary text
+ * missing in between. A construct left open at the end of a hunk (a `/*` whose
+ * closer lives in the skipped gap) would therefore swallow every later hunk,
+ * painting real code as comment — worse than the regex highlighter this
+ * replaced, whose `\/\*[\s\S]*?\*&#47;` simply failed to match an unterminated
+ * comment and left the following code alone.
  *
- * This is strictly better than what it replaces: previously *every* multi-line
- * construct broke, now only those straddling a hunk boundary can. Within a
- * hunk — where reviewers actually read — highlighting is exact.
+ * So each hunk restarts the grammar (`resets` below). State still flows freely
+ * *within* a hunk — which is where multi-line strings and block comments
+ * actually need it, and where reviewers read — but a mistake can never escape
+ * the hunk that caused it. The residual limit is that a construct opened
+ * before a hunk starts is not seen, so its first lines may be under-colored.
+ * Under-coloring is the safe direction: code stays legible as code.
+ *
+ * Fixing even that needs the full file text, which the diff endpoint does not
+ * return.
  */
 
 /** Which reconstructed side a diff line belongs to, and its index there. */
@@ -50,15 +58,26 @@ interface Position {
 interface DiffSources {
   oldText: string;
   newText: string;
+  /** Line index of each hunk's start, per side — the grammar restarts there. */
+  oldResets: number[];
+  newResets: number[];
   positions: WeakMap<GitDiffLine, Position>;
 }
 
 function buildSources(file: GitFileDiff): DiffSources {
   const oldLines: string[] = [];
   const newLines: string[] = [];
+  const oldResets: number[] = [];
+  const newResets: number[] = [];
   const positions = new WeakMap<GitDiffLine, Position>();
 
   for (const hunk of file.hunks ?? []) {
+    // Each hunk begins a new segment on both sides: the text preceding it in
+    // the real file is not present here, so carried grammar state would be a
+    // guess rather than a fact.
+    oldResets.push(oldLines.length);
+    newResets.push(newLines.length);
+
     for (const line of hunk.lines ?? []) {
       // A context line exists on both sides but only needs one set of tokens;
       // the new side is authoritative because that is the coordinate space
@@ -76,7 +95,13 @@ function buildSources(file: GitFileDiff): DiffSources {
     }
   }
 
-  return { oldText: oldLines.join('\n'), newText: newLines.join('\n'), positions };
+  return {
+    oldText: oldLines.join('\n'),
+    newText: newLines.join('\n'),
+    oldResets,
+    newResets,
+    positions,
+  };
 }
 
 /**
@@ -101,8 +126,14 @@ export function useDiffHighlight(file: GitFileDiff, enabled = true): DiffHighlig
     code: sources.oldText,
     path: file.old_path || file.path,
     enabled,
+    resets: sources.oldResets,
   });
-  const newMap = useSyntaxHighlight({ code: sources.newText, path: file.path, enabled });
+  const newMap = useSyntaxHighlight({
+    code: sources.newText,
+    path: file.path,
+    enabled,
+    resets: sources.newResets,
+  });
 
   return useMemo(() => {
     if (!enabled) return NONE;

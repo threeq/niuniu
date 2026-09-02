@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { languageForPath, isPlainText, PLAIN_TEXT } from './languages';
 import { SENTINEL, TOKEN_CLASS, SYNTAX_THEME } from './theme';
-import { ensureLanguage, tokenizeChunk, type SyntaxLine } from './tokenizer';
+import { ensureLanguage, tokenizeChunk, tokenizeDocument, type SyntaxLine } from './tokenizer';
 import { nextHighlightId, requestHighlight } from './client';
 
 /**
@@ -182,6 +182,107 @@ describe('chunked tokenization', () => {
     }
 
     expect(chunked).toEqual(whole);
+  });
+});
+
+describe('hunk boundaries reset the grammar', () => {
+  // A diff's hunks are not adjacent — unshown text sits between them. If the
+  // grammar carried state across that seam, a construct left open at the end of
+  // one hunk would swallow every hunk after it.
+  const HUNK_A = ['/* a block comment whose closer is in the skipped gap'];
+  const HUNK_B = ['export function realCode() {', '  return 42;', '}'];
+  const code = [...HUNK_A, ...HUNK_B].join('\n');
+
+  const isComment = (line: SyntaxLine) =>
+    line.length > 0 && line.every((t) => categoryOf(t.className) === 'comment');
+
+  it('does not let an unterminated comment swallow the next hunk', async () => {
+    const lang = await ensureLanguage('tsx');
+    const lines: SyntaxLine[] = [];
+    await tokenizeDocument(code, lang, [0, HUNK_A.length], (from, ls) => {
+      for (let i = 0; i < ls.length; i++) lines[from + i] = ls[i];
+    }, () => false);
+
+    expect(isComment(lines[0])).toBe(true);
+    // The second hunk is real code and must render as such.
+    for (let i = HUNK_A.length; i < lines.length; i++) {
+      expect(isComment(lines[i])).toBe(false);
+    }
+    expect(textOf(lines[HUNK_A.length], 'keyword')).toContain('function');
+  });
+
+  it('WOULD bleed without the reset — pinning why it is needed', async () => {
+    const lang = await ensureLanguage('tsx');
+    const lines: SyntaxLine[] = [];
+    // No resets: one contiguous document, the pre-fix behaviour.
+    await tokenizeDocument(code, lang, undefined, (from, ls) => {
+      for (let i = 0; i < ls.length; i++) lines[from + i] = ls[i];
+    }, () => false);
+
+    expect(lines.slice(HUNK_A.length).every(isComment)).toBe(true);
+  });
+
+  it('still carries state WITHIN a segment', async () => {
+    // The reset must not be so aggressive that it breaks the multi-line strings
+    // it was introduced to fix.
+    const lang = await ensureLanguage('tsx');
+    const src = ['const a = `one', 'two', 'three`;'].join('\n');
+    const lines: SyntaxLine[] = [];
+    await tokenizeDocument(src, lang, [0], (from, ls) => {
+      for (let i = 0; i < ls.length; i++) lines[from + i] = ls[i];
+    }, () => false);
+
+    expect(textOf(lines[1], 'string')).toBe('two');
+  });
+
+  it('tolerates malformed reset lists', async () => {
+    const lang = await ensureLanguage('tsx');
+    // Unsorted, duplicated, negative, past the end — must not drop or reorder
+    // lines, since a missing line would render as blank.
+    const lines: SyntaxLine[] = [];
+    await tokenizeDocument(code, lang, [99, 1, 1, -3, 0], (from, ls) => {
+      for (let i = 0; i < ls.length; i++) lines[from + i] = ls[i];
+    }, () => false);
+
+    expect(lines.length).toBe(code.split('\n').length);
+    expect(lines.every((l) => l !== undefined)).toBe(true);
+    // Text must survive tokenization exactly.
+    expect(lines.map((l) => l.map((t) => t.content).join(''))).toEqual(code.split('\n'));
+  });
+});
+
+describe('token text is lossless', () => {
+  /**
+   * Tokens carry their own text, so the surface renders the token stream rather
+   * than the source line. Any character shiki drops therefore vanishes from the
+   * UI — a correctness bug, not a cosmetic one.
+   */
+  const rebuild = async (src: string, lang = 'tsx') => {
+    const resolved = await ensureLanguage(lang);
+    const out: SyntaxLine[] = [];
+    await tokenizeDocument(src, resolved, undefined, (from, ls) => {
+      for (let i = 0; i < ls.length; i++) out[from + i] = ls[i];
+    }, () => false);
+    return out.map((l) => l.map((t) => t.content).join(''));
+  };
+
+  it('round-trips every line of an LF document', async () => {
+    const src = 'const a = 1;\n\n  indented();\n\ttabbed();\n';
+    expect(await rebuild(src)).toEqual(src.split('\n'));
+  });
+
+  it('drops CR uniformly instead of only on some lines', async () => {
+    // Shiki treats a trailing \r as line-ending whitespace and strips it from
+    // every line but the last. Left alone that yields a document where some
+    // lines kept a character and others did not; the diff path feeds raw
+    // backend content, which for a CRLF repo still carries \r.
+    const src = 'const a = 1;\r\nconst b = 2;\r\nconst c = 3;\r';
+    expect(await rebuild(src)).toEqual(['const a = 1;', 'const b = 2;', 'const c = 3;']);
+  });
+
+  it('preserves unicode and emoji intact', async () => {
+    const src = 'const s = "中文 🎉 café";';
+    expect(await rebuild(src)).toEqual([src]);
   });
 });
 

@@ -17,6 +17,12 @@ export interface HighlightRequest {
   lang: string;
   /** Full file text, LF-normalized. */
   code: string;
+  /**
+   * 0-based line indices where the grammar must restart from a clean state.
+   * Empty/absent for a plain file (one contiguous document); one per hunk for a
+   * diff, whose hunks are separated by unshown text. See `tokenizeDocument`.
+   */
+  resets?: number[];
 }
 
 /** Stop work for `id` — the surface unmounted or switched files. */
