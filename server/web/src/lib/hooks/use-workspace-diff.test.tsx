@@ -126,4 +126,59 @@ describe('useWorkspaceDiff', () => {
     expect(result.current.totalDeletions).toBe(1); // 1 + 0
     expect([...result.current.baseBranches].sort()).toEqual(['develop', 'main']);
   });
+
+  // The file badge counts the review VERDICT, not how many comments were ever
+  // written. Counting resolved ones would keep a settled file demanding
+  // attention, which is the conflation this wave exists to remove.
+  it('counts only unresolved comments in commentCount, keeping the total separately', async () => {
+    getMock.mockImplementation((url: string) => {
+      if (url.endsWith('/diff')) {
+        return Promise.resolve([
+          { name: 'zebra', repository_id: 5, files: [file('a.ts', 1, 0)] },
+        ]);
+      }
+      if (url.endsWith('/comments')) {
+        return Promise.resolve([
+          // Sent to the agent but NOT judged — still open.
+          { id: 1, repo: 'zebra', file_path: 'a.ts', sent_to_agent: true, resolved: false },
+          // Judged — settled, must not inflate the badge.
+          { id: 2, repo: 'zebra', file_path: 'a.ts', sent_to_agent: true, resolved: true },
+          // Never sent, never judged — open.
+          { id: 3, repo: 'zebra', file_path: 'a.ts', resolved: false },
+        ]);
+      }
+      return Promise.resolve({ worktrees: [] });
+    });
+
+    const { result } = render();
+    await waitFor(() => expect(result.current.repos).toHaveLength(1));
+    const row = result.current.repos[0].files[0];
+    expect(row.commentCount).toBe(2);
+    expect(row.totalCommentCount).toBe(3);
+  });
+
+  it('reports a fully-resolved file as zero open but non-zero total', async () => {
+    getMock.mockImplementation((url: string) => {
+      if (url.endsWith('/diff')) {
+        return Promise.resolve([
+          { name: 'zebra', repository_id: 5, files: [file('a.ts', 1, 0)] },
+        ]);
+      }
+      if (url.endsWith('/comments')) {
+        return Promise.resolve([
+          { id: 1, repo: 'zebra', file_path: 'a.ts', resolved: true },
+          { id: 2, repo: 'zebra', file_path: 'a.ts', resolved: true },
+        ]);
+      }
+      return Promise.resolve({ worktrees: [] });
+    });
+
+    const { result } = render();
+    await waitFor(() => expect(result.current.repos).toHaveLength(1));
+    const row = result.current.repos[0].files[0];
+    // The two must differ — collapsing them would make "reviewed and settled"
+    // indistinguishable from "never looked at".
+    expect(row.commentCount).toBe(0);
+    expect(row.totalCommentCount).toBe(2);
+  });
 });

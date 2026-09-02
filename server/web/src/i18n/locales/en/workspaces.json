@@ -479,7 +479,11 @@
           "reopenHint": "Reopen",
           "markedResolved": "Marked resolved",
           "reopened": "Reopened"
-        }
+        },
+        "openOnFile": "{{count}} open comment(s)",
+        "allResolvedOnFile": "All {{count}} comment(s) resolved",
+        "reviewProgress": "{{resolved}}/{{total}} resolved",
+        "reviewProgressHint": "Review progress: resolved / total. Independent of sending to the agent — delivered is not the same as fixed"
       },
       "syncFromBranchPrompt": "Please merge the latest code from branch `{{sourceBranch}}` into the current branch `{{currentBranch}}` of the specific worktree below.\n\n⚠️ This workspace may contain multiple worktrees. Operate ONLY on the worktree below — do not switch to or `cd` into any other worktree:\n- Worktree name: {{worktreeName}}\n- Worktree absolute path: {{worktreePath}}\n- Current branch: {{currentBranch}}\n- Branch to merge in: {{sourceBranch}}\n\nFollow these steps. Always pin every git invocation with `git -C \"{{worktreePath}}\"` instead of relying on cwd:\n1. Run `git -C \"{{worktreePath}}\" status` to check the worktree is clean. If there are uncommitted changes, stop and ask me before continuing;\n2. Run `git -C \"{{worktreePath}}\" merge {{sourceBranch}}`;\n3. If there are merge conflicts: first list every conflicted file, then try to resolve them one by one (preserving both sides' intent, no lost changes), then commit with `git -C \"{{worktreePath}}\" commit --no-edit`. If you hit a conflict you cannot judge, stop and report the file and reason — do **not** run `git merge --abort`, leave the state for me;\n4. After a successful merge, briefly report: merge style (fast-forward or merge commit), new HEAD commit, and whether anything is still uncommitted."
     },

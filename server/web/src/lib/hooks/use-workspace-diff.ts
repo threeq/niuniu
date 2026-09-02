@@ -44,11 +44,23 @@ interface CommentResponse {
   repo: string;
   file_path: string;
   line_number?: number;
+  /** The REVIEW verdict, not delivery state. See use-workspace-comments. */
+  resolved?: boolean;
 }
 
-/** A single file row, enriched with its review-comment count. */
+/**
+ * A single file row, enriched with its review-comment counts.
+ *
+ * Two numbers rather than one: the badge shows what is still OPEN, because the
+ * question a reviewer is asking on a second pass is "which of the 5 I raised
+ * are still outstanding" — a badge that keeps counting resolved comments answers
+ * "how many did I ever write", which nobody needs mid-review.
+ */
 export interface DiffFileRow extends WorkspaceFileDiff {
+  /** Comments on this file whose verdict is still open. Drives the badge. */
   commentCount: number;
+  /** Every comment on this file, resolved included. */
+  totalCommentCount: number;
 }
 
 /** One repository's segment in the grouped file list. */
@@ -135,9 +147,13 @@ export function useWorkspaceDiff(workspaceId: string): WorkspaceDiffData {
     // multiple repos of one workspace).
     const commentKey = (repo: string, path: string) => `${repo} ${path}`;
     const commentByPath = new Map<string, number>();
+    const totalCommentByPath = new Map<string, number>();
     for (const c of comments ?? []) {
       const k = commentKey(c.repo ?? '', c.file_path);
-      commentByPath.set(k, (commentByPath.get(k) ?? 0) + 1);
+      totalCommentByPath.set(k, (totalCommentByPath.get(k) ?? 0) + 1);
+      // Only unresolved comments drive the badge — a resolved one is settled
+      // review business and should stop demanding attention.
+      if (!c.resolved) commentByPath.set(k, (commentByPath.get(k) ?? 0) + 1);
     }
 
     // One group per worktree the backend returned. repository_id 0 (no source
@@ -149,6 +165,7 @@ export function useWorkspaceDiff(workspaceId: string): WorkspaceDiffData {
         const files: DiffFileRow[] = (g.files ?? []).map((f) => ({
           ...f,
           commentCount: commentByPath.get(commentKey(g.name, f.path)) ?? 0,
+          totalCommentCount: totalCommentByPath.get(commentKey(g.name, f.path)) ?? 0,
         }));
         return {
           name: g.name,

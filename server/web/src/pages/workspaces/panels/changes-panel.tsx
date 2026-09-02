@@ -17,6 +17,9 @@ import {
   Search,
   Send,
   X,
+  Check,
+  CircleCheck,
+  CircleDot,
 } from 'lucide-react';
 import { useWorkspacePanelStore } from '@/stores/workspace-panel-store';
 import { api } from '@/lib/api';
@@ -83,6 +86,7 @@ function TreeFileRow({
   selected: boolean;
   onSelect: () => void;
 }) {
+  const { t } = useTranslation('workspaces');
   const badge = statusBadge(file.status);
   return (
     <button
@@ -116,10 +120,27 @@ function TreeFileRow({
         {name}
       </span>
       <StatChips additions={file.additions} deletions={file.deletions} />
-      {file.commentCount > 0 && (
-        <span className="grid h-[17px] min-w-[17px] shrink-0 place-items-center rounded-full bg-brand px-1 text-[10px] font-semibold text-brand-foreground">
+      {/* Open comments demand attention (brand badge). A file whose comments are
+          ALL resolved keeps a muted ✓ instead of vanishing to zero — "I reviewed
+          this and settled it" and "I never looked" must not look identical. */}
+      {file.commentCount > 0 ? (
+        <span
+          title={t('panels.changes.comments.openOnFile', { count: file.commentCount })}
+          className="grid h-[17px] min-w-[17px] shrink-0 place-items-center rounded-full bg-brand px-1 text-[10px] font-semibold text-brand-foreground"
+        >
           {file.commentCount}
         </span>
+      ) : (
+        file.totalCommentCount > 0 && (
+          <span
+            title={t('panels.changes.comments.allResolvedOnFile', {
+              count: file.totalCommentCount,
+            })}
+            className="grid h-[17px] w-[17px] shrink-0 place-items-center rounded-full bg-muted text-muted-foreground"
+          >
+            <Check className="h-2.5 w-2.5" />
+          </span>
+        )
       )}
     </button>
   );
@@ -419,6 +440,8 @@ export function DiffPane({
 function LocalToolbar({
   baseBranches,
   pendingCount,
+  unresolvedCount,
+  totalCommentCount,
   onSendAll,
   sendingAll,
   totalFiles,
@@ -427,6 +450,10 @@ function LocalToolbar({
 }: {
   baseBranches: string[];
   pendingCount: number;
+  /** Comments whose review verdict is still open. */
+  unresolvedCount: number;
+  /** Every review comment in the workspace, resolved included. */
+  totalCommentCount: number;
   onSendAll: () => void;
   sendingAll: boolean;
   totalFiles: number;
@@ -461,6 +488,31 @@ function LocalToolbar({
           </span>
           {totalFiles > 0 && <StatChips additions={totalAdditions} deletions={totalDeletions} />}
         </span>
+        {/* Review progress — the question this whole loop exists to answer:
+            "of the N comments I raised, how many have I actually judged?".
+            Counted off `resolved` (the verdict), never off `sent_to_agent`
+            (delivery), which is what the send-queue button below reports. */}
+        {totalCommentCount > 0 && (
+          <span
+            title={t('panels.changes.comments.reviewProgressHint')}
+            className={cn(
+              'flex items-center gap-1 rounded-full px-1.5 py-px text-[11px] font-medium',
+              unresolvedCount > 0
+                ? 'bg-warning/15 text-warning-foreground'
+                : 'bg-success/15 text-success-foreground',
+            )}
+          >
+            {unresolvedCount > 0 ? (
+              <CircleDot className="h-3 w-3" />
+            ) : (
+              <CircleCheck className="h-3 w-3" />
+            )}
+            {t('panels.changes.comments.reviewProgress', {
+              resolved: totalCommentCount - unresolvedCount,
+              total: totalCommentCount,
+            })}
+          </span>
+        )}
         {pendingCount > 0 && (
           <Button
             type="button"
@@ -506,7 +558,8 @@ export function ChangesPanel({ workspaceId }: ChangesPanelProps) {
   const { repos, totalFiles, totalAdditions, totalDeletions, totalAhead, baseBranches, isLoading } =
     useWorkspaceDiff(workspaceId);
 
-  const { pendingCount, sendAllPending } = useWorkspaceComments(workspaceId);
+  const { comments, pendingCount, unresolvedCount, sendAllPending } =
+    useWorkspaceComments(workspaceId);
   const [sendingAll, setSendingAll] = useState(false);
 
   const handleSendAll = async () => {
@@ -594,6 +647,8 @@ export function ChangesPanel({ workspaceId }: ChangesPanelProps) {
       <LocalToolbar
         baseBranches={baseBranches}
         pendingCount={pendingCount}
+        unresolvedCount={unresolvedCount}
+        totalCommentCount={comments.length}
         onSendAll={handleSendAll}
         sendingAll={sendingAll}
         totalFiles={totalFiles}
