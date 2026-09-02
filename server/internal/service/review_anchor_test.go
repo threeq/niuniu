@@ -313,6 +313,92 @@ func TestResolveCommentAnchor_RelocatesAtFileBoundaries(t *testing.T) {
 	}
 }
 
+// Judging "was this actually fixed?" needs BOTH sides: what the reviewer
+// commented on, and what stands there now. A relocated anchor therefore carries
+// the current window whenever it differs from the snapshot.
+func TestResolveCommentAnchor_RelocatedCarriesCurrentContent(t *testing.T) {
+	dir := anchorRepo(t, "main.go", anchorSrc)
+	c := anchorComment(t, dir, "main.go", 6)
+
+	// Shift the commented line down AND rewrite a neighbour inside its window.
+	// The commented line itself must survive verbatim — that is what relocation
+	// matches on — so the change goes to the signature above it.
+	writeAnchorFile(t, dir, "main.go", `// added
+// added
+// added
+package main
+
+import "fmt"
+
+func greet(name, greeting string) string {
+	return fmt.Sprintf("hello %s", name)
+}
+
+func main() {
+	fmt.Println(greet("world"))
+}
+`)
+
+	got := ResolveCommentAnchor(dir, c)
+
+	if got.Status != AnchorStatusRelocated {
+		t.Fatalf("status: want %q, got %q", AnchorStatusRelocated, got.Status)
+	}
+	if got.Current == nil {
+		t.Fatal("a relocated anchor whose window changed must carry the current window")
+	}
+	// The commented line matched exactly (that is how relocation found it), so the
+	// reviewer can see the line is untouched while its surroundings moved.
+	if got.Current.Line != got.Context.Line {
+		t.Errorf("current line: want the same text relocation matched (%q), got %q",
+			got.Context.Line, got.Current.Line)
+	}
+	// The rewritten neighbour is what makes the current window worth sending.
+	if len(got.Current.Before) == 0 {
+		t.Fatal("current window carries no surrounding lines")
+	}
+	if nearest := got.Current.Before[len(got.Current.Before)-1]; !strings.Contains(nearest, "greeting") {
+		t.Errorf("current window should show the rewritten neighbour, got %q", nearest)
+	}
+}
+
+// An unchanged region must NOT be echoed back as both "before" and "after" —
+// that is noise the reader has to diff by eye to discover says nothing.
+func TestResolveCommentAnchor_UnchangedRegionOmitsCurrent(t *testing.T) {
+	dir := anchorRepo(t, "main.go", anchorSrc)
+	c := anchorComment(t, dir, "main.go", 6)
+
+	// Change the file far away from the comment: the anchor's own window is intact.
+	writeAnchorFile(t, dir, "main.go", anchorSrc+"\nfunc unrelated() {}\n")
+
+	got := ResolveCommentAnchor(dir, c)
+
+	if got.Current != nil {
+		t.Errorf("window is unchanged; Current should be omitted, got %+v", got.Current)
+	}
+}
+
+// An outdated anchor has no current line to show — there is nothing honest to
+// put there, and fabricating one would re-introduce the drift.
+func TestResolveCommentAnchor_OutdatedCarriesNoCurrent(t *testing.T) {
+	dir := anchorRepo(t, "main.go", anchorSrc)
+	c := anchorComment(t, dir, "main.go", 6)
+
+	writeAnchorFile(t, dir, "main.go", "package main\n\nfunc main() {}\n")
+
+	got := ResolveCommentAnchor(dir, c)
+
+	if got.Status != AnchorStatusOutdated {
+		t.Fatalf("status: want %q, got %q", AnchorStatusOutdated, got.Status)
+	}
+	if got.Current != nil {
+		t.Errorf("outdated anchor must not invent a current line, got %+v", got.Current)
+	}
+	if got.Context == nil {
+		t.Error("outdated anchor must keep the original snapshot — it is all the reader has")
+	}
+}
+
 // The snapshot must actually capture the surrounding source — a silently empty
 // snapshot would make every comment go outdated on first edit.
 func TestCaptureCommentContext_SnapshotsSurroundingLines(t *testing.T) {

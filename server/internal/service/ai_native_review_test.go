@@ -2,6 +2,9 @@ package service_test
 
 import (
 	"database/sql"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"strconv"
 	"testing"
 
@@ -10,6 +13,35 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+// gitRepoWithFile builds a real one-file git worktree, so anchor resolution runs
+// against actual content instead of degrading to "unverifiable".
+func gitRepoWithFile(t *testing.T, name, content string) string {
+	t.Helper()
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not in PATH")
+	}
+	dir := t.TempDir()
+	for _, args := range [][]string{
+		{"init", "-q"},
+		{"config", "user.email", "t@example.com"},
+		{"config", "user.name", "t"},
+	} {
+		out, err := exec.Command("git", append([]string{"-C", dir}, args...)...).CombinedOutput()
+		require.NoErrorf(t, err, "git %v: %s", args, out)
+	}
+	writeFileForTest(t, dir, name, content)
+	out, err := exec.Command("git", "-C", dir, "add", "-A").CombinedOutput()
+	require.NoErrorf(t, err, "git add: %s", out)
+	out, err = exec.Command("git", "-C", dir, "commit", "-qm", "init").CombinedOutput()
+	require.NoErrorf(t, err, "git commit: %s", out)
+	return dir
+}
+
+func writeFileForTest(t *testing.T, dir, name, content string) {
+	t.Helper()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, name), []byte(content), 0o644))
+}
 
 // makeReviewColumn adds an `instruct` 审查 (review) column to the project.
 func makeReviewColumn(t *testing.T, e *epicTestEnv, projectID int64, position int64) int64 {
@@ -105,7 +137,13 @@ func TestRequestChanges_BouncesBackAndInjectsTwoLayerContext(t *testing.T) {
 	assert.Contains(t, msg, "验收未通过")            // layer 1: issue comment (macro)
 	assert.Contains(t, msg, "空指针没判空")           // layer 2: unresolved diff (micro)
 	assert.Contains(t, msg, "缺少错误提示文案")         // layer 2: unresolved diff (micro)
-	assert.Contains(t, msg, "internal/auth.go:7") // diff location + line
+	assert.Contains(t, msg, "internal/auth.go") // diff location
+	// This workspace has no real worktree, so no anchor can be verified against
+	// content. That must surface as "锚点已失效" WITHOUT a line number — shipping
+	// "auth.go:7" here would assert a position nothing checked (#683 wave 1).
+	assert.Contains(t, msg, "锚点已失效")
+	assert.NotContains(t, msg, "internal/auth.go:7",
+		"an unverifiable anchor must not present a line number as if it were current")
 	assert.NotContains(t, msg, "OLD-already-handled", "a RESOLVED diff comment must not be re-injected")
 	assert.Contains(t, msg, `to_column="审查"`, "directive tells agent to self-advance back to review")
 
@@ -178,6 +216,174 @@ func TestRequestChanges_InjectedCommentsSurviveUntilResolved(t *testing.T) {
 	assert.True(t, got.SentToAgent.Valid && got.SentToAgent.Bool, "delivered")
 	assert.False(t, got.Resolved, "but not resolved")
 	assert.Equal(t, implID, issueColumn(t, e, issueID))
+}
+
+// The rework kickoff must carry each comment's anchor state resolved against
+// CURRENT content, not just the stored line number (#683 wave 1). Handing an
+// agent "auth.go:42" for a line that no longer holds the reviewed code is the
+// same silent drift the anchor columns exist to prevent — and the agent, unlike
+// a human, has no visual cue that anything is off.
+func TestRequestChanges_InjectsLiveAnchorStatePerComment(t *testing.T) {
+	e := setupEpicTest(t)
+	proxy := &fakeAgentProxy{}
+	e.svc.SetAgentProxy(proxy)
+	pid, _, _ := makeProjectWithColumns(t, e)
+	reviewID := makeReviewColumn(t, e, pid, 2)
+	issueID := makeStandaloneIssue(t, e, reviewID, "加登录", "用 JWT")
+
+	// A workspace backed by a REAL git worktree, so anchors resolve against
+	// content rather than degrading to "unverifiable".
+	dir := gitRepoWithFile(t, "auth.go", "package auth\n\nfunc Check(t string) bool {\n\treturn t != \"\"\n}\n")
+	repo, err := e.q.CreateRepository(e.ctx, store.CreateRepositoryParams{
+		Name: "niuniu", Path: dir, OwnerType: "user", OwnerID: 1,
+	})
+	require.NoError(t, err)
+	ws, err := e.q.CreateWorkspace(e.ctx, store.CreateWorkspaceParams{
+		IssueID: sql.NullInt64{Int64: issueID, Valid: true},
+		Name:    "ws", Path: dir, Status: "needs_review", OwnerType: "user", OwnerID: 1,
+	})
+	require.NoError(t, err)
+	_, err = e.q.CreateWorktree(e.ctx, store.CreateWorktreeParams{
+		WorkspaceID: ws.ID, RepositoryID: repo.ID, WorktreePath: dir,
+		Branch: "feature", BaseBranch: "main",
+	})
+	require.NoError(t, err)
+
+	// Comment on the `return` line (4), anchored the way the REST path does it.
+	svc := service.NewReviewService(e.q)
+	line := 4
+	_, err = svc.CreateComment(e.ctx, ws.ID, service.CreateCommentInput{
+		Repo: "niuniu", FilePath: "auth.go", LineNumber: &line, Content: "空串不是唯一非法情形",
+	})
+	require.NoError(t, err)
+
+	// The agent inserts a doc comment above the function: the reviewed line slides
+	// 4 -> 6 but is otherwise untouched.
+	writeFileForTest(t, dir, "auth.go",
+		"package auth\n\n// Check reports whether t is usable.\n// TODO\nfunc Check(t string) bool {\n\treturn t != \"\"\n}\n")
+
+	_, err = e.svc.RequestChanges(e.ctx, service.RequestChangesInput{
+		IssueID: issueID, Comment: "再改", CallerUserID: 1,
+	})
+	require.NoError(t, err)
+	require.Len(t, proxy.kickoffs, 1)
+	msg := proxy.kickoffs[0]
+
+	// The line reference must be the CURRENT one, and say so.
+	assert.Contains(t, msg, "auth.go:6", "must point at where the code is now")
+	assert.Contains(t, msg, "原第 4 行", "must disclose that the anchor moved")
+	assert.NotContains(t, msg, "auth.go:4 ", "the stale line number must not be presented as current")
+
+	// And it must carry the evidence for judging whether the point was addressed:
+	// the line matched verbatim during relocation, so it plainly was not.
+	assert.Contains(t, msg, "评论时原文")
+	assert.Contains(t, msg, "还没落实")
+}
+
+// An outdated anchor must be injected WITHOUT a line number: there is no honest
+// current position, and a number here is exactly the false confidence being
+// removed. The original snapshot rides along so the agent can still judge the
+// point on its merits.
+func TestRequestChanges_InjectsOutdatedAnchorWithoutALineNumber(t *testing.T) {
+	e := setupEpicTest(t)
+	proxy := &fakeAgentProxy{}
+	e.svc.SetAgentProxy(proxy)
+	pid, _, _ := makeProjectWithColumns(t, e)
+	reviewID := makeReviewColumn(t, e, pid, 2)
+	issueID := makeStandaloneIssue(t, e, reviewID, "加登录", "用 JWT")
+
+	dir := gitRepoWithFile(t, "auth.go", "package auth\n\nfunc Check(t string) bool {\n\treturn t != \"\"\n}\n")
+	repo, err := e.q.CreateRepository(e.ctx, store.CreateRepositoryParams{
+		Name: "niuniu", Path: dir, OwnerType: "user", OwnerID: 1,
+	})
+	require.NoError(t, err)
+	ws, err := e.q.CreateWorkspace(e.ctx, store.CreateWorkspaceParams{
+		IssueID: sql.NullInt64{Int64: issueID, Valid: true},
+		Name:    "ws", Path: dir, Status: "needs_review", OwnerType: "user", OwnerID: 1,
+	})
+	require.NoError(t, err)
+	_, err = e.q.CreateWorktree(e.ctx, store.CreateWorktreeParams{
+		WorkspaceID: ws.ID, RepositoryID: repo.ID, WorktreePath: dir,
+		Branch: "feature", BaseBranch: "main",
+	})
+	require.NoError(t, err)
+
+	svc := service.NewReviewService(e.q)
+	line := 4
+	_, err = svc.CreateComment(e.ctx, ws.ID, service.CreateCommentInput{
+		Repo: "niuniu", FilePath: "auth.go", LineNumber: &line, Content: "空串不是唯一非法情形",
+	})
+	require.NoError(t, err)
+
+	// The reviewed line is rewritten away; line 4 now holds unrelated code.
+	writeFileForTest(t, dir, "auth.go",
+		"package auth\n\nfunc Check(t string) bool {\n\treturn len(t) > 8\n}\n")
+
+	_, err = e.svc.RequestChanges(e.ctx, service.RequestChangesInput{
+		IssueID: issueID, Comment: "再改", CallerUserID: 1,
+	})
+	require.NoError(t, err)
+	require.Len(t, proxy.kickoffs, 1)
+	msg := proxy.kickoffs[0]
+
+	assert.NotContains(t, msg, "auth.go:4", "an outdated anchor must not ship a line number")
+	assert.Contains(t, msg, "锚点已失效")
+	assert.Contains(t, msg, "空串不是唯一非法情形", "the comment itself still has to reach the agent")
+	assert.Contains(t, msg, "评论时原文", "the original snapshot is all the reader has left")
+}
+
+// An old-side comment (a line the diff DELETED) must be injected as such. The
+// line is not in the working tree by definition, so the kickoff must not claim
+// it "hasn't changed" — that would be a statement about content that isn't
+// there. "你不该删这行" is a common review note and has to survive the round trip.
+func TestRequestChanges_InjectsDeletedLineCommentHonestly(t *testing.T) {
+	e := setupEpicTest(t)
+	proxy := &fakeAgentProxy{}
+	e.svc.SetAgentProxy(proxy)
+	pid, _, _ := makeProjectWithColumns(t, e)
+	reviewID := makeReviewColumn(t, e, pid, 2)
+	issueID := makeStandaloneIssue(t, e, reviewID, "加登录", "用 JWT")
+
+	dir := gitRepoWithFile(t, "auth.go", "package auth\n\nfunc Check(t string) bool {\n\treturn t != \"\"\n}\n")
+	repo, err := e.q.CreateRepository(e.ctx, store.CreateRepositoryParams{
+		Name: "niuniu", Path: dir, OwnerType: "user", OwnerID: 1,
+	})
+	require.NoError(t, err)
+	ws, err := e.q.CreateWorkspace(e.ctx, store.CreateWorkspaceParams{
+		IssueID: sql.NullInt64{Int64: issueID, Valid: true},
+		Name:    "ws", Path: dir, Status: "needs_review", OwnerType: "user", OwnerID: 1,
+	})
+	require.NoError(t, err)
+	_, err = e.q.CreateWorktree(e.ctx, store.CreateWorktreeParams{
+		WorkspaceID: ws.ID, RepositoryID: repo.ID, WorktreePath: dir,
+		Branch: "feature", BaseBranch: "main",
+	})
+	require.NoError(t, err)
+
+	// The reviewer objects to a line the agent DELETED — only expressible with
+	// side=old, and the client supplies the snapshot (it isn't in the worktree).
+	svc := service.NewReviewService(e.q)
+	line := 5
+	_, err = svc.CreateComment(e.ctx, ws.ID, service.CreateCommentInput{
+		Repo: "niuniu", FilePath: "auth.go", LineNumber: &line,
+		Content:      "这个审计日志不该删",
+		Side:         "old",
+		ContextLines: `{"before":["\treturn t != \"\""],"line":"\tauditLog(t)","after":["}"]}`,
+	})
+	require.NoError(t, err)
+
+	_, err = e.svc.RequestChanges(e.ctx, service.RequestChangesInput{
+		IssueID: issueID, Comment: "再改", CallerUserID: 1,
+	})
+	require.NoError(t, err)
+	require.Len(t, proxy.kickoffs, 1)
+	msg := proxy.kickoffs[0]
+
+	assert.Contains(t, msg, "这个审计日志不该删")
+	assert.Contains(t, msg, "已删除的旧行")
+	assert.Contains(t, msg, "auditLog(t)", "the deleted line's text is the whole point of the comment")
+	assert.NotContains(t, msg, "该行至今未变",
+		"a deleted line is not in the worktree; claiming it is unchanged would be false")
 }
 
 // A passing review must leave a record. Before #683 wave 1 the review column
@@ -317,7 +523,7 @@ func TestRequestChanges_FromDoneColumn_ReopensWithInjection(t *testing.T) {
 	require.Len(t, proxy.kickoffs, 1)
 	msg := proxy.kickoffs[0]
 	assert.Contains(t, msg, "审查打回", "forced injection fires even from a non-review source column")
-	assert.Contains(t, msg, "线上发现回归")       // pre-existing issue comment injected
-	assert.Contains(t, msg, "空指针没判空")       // unresolved diff comment injected
+	assert.Contains(t, msg, "线上发现回归")      // pre-existing issue comment injected
+	assert.Contains(t, msg, "空指针没判空")      // unresolved diff comment injected
 	assert.Contains(t, msg, "重新审核：需补回归用例") // the re-review comment injected
 }

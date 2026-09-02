@@ -1036,7 +1036,13 @@ export interface CommentAnchor {
   // Absent/0 when status is 'outdated' — there is no honest current position.
   effective_line?: number
   side: 'old' | 'new'
+  // What the reviewer commented on.
   context?: CommentAnchorContext
+  // What stands there NOW, when it differs from `context`. Present only for a
+  // relocated anchor in a changed region — render the two side by side to answer
+  // "was this actually addressed?". Absent when the region is unchanged (context
+  // already shows it) or the anchor is outdated (nothing honest to show).
+  current?: CommentAnchorContext
   current_blob_sha?: string
 }
 

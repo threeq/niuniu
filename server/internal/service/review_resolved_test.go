@@ -259,6 +259,56 @@ func TestSetCommentResolved_IndependentOfDelivery(t *testing.T) {
 	}
 }
 
+// Re-pinning a relocated comment must move the POSITION only. The snapshot is
+// the evidence of what the reviewer actually saw; overwriting it with current
+// content would quietly destroy the 原文-vs-现在 comparison — and would make an
+// unaddressed comment look addressed, because its "original" would keep
+// re-syncing to whatever the agent last wrote.
+func TestListCommentsWithAnchors_RepinKeepsOriginalSnapshot(t *testing.T) {
+	svc, q := setupReviewTest(t)
+	ctx := context.Background()
+	wsID, dir, repoName := reviewWorkspaceWithRepo(t, svc, q, "main.go", anchorSrc)
+
+	line := 6
+	c, err := svc.CreateComment(ctx, wsID, CreateCommentInput{
+		Repo: repoName, FilePath: "main.go", LineNumber: &line, Content: "这里要改",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	originalSnapshot := c.ContextLines
+
+	// Shift the line down and rewrite a neighbour inside the window.
+	writeAnchorFile(t, dir, "main.go", `// added
+// added
+// added
+package main
+
+import "fmt"
+
+func greet(name, greeting string) string {
+	return fmt.Sprintf("hello %s", name)
+}
+`)
+
+	if _, err := svc.ListCommentsWithAnchors(ctx, wsID); err != nil {
+		t.Fatal(err)
+	}
+
+	stored, err := q.GetComment(ctx, c.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.ContextLines != originalSnapshot {
+		t.Errorf("re-pin overwrote the comment-time snapshot:\n before %q\n after  %q",
+			originalSnapshot, stored.ContextLines)
+	}
+	// Position did move, so the re-pin itself happened.
+	if !stored.LineNumber.Valid || stored.LineNumber.Int64 != 9 {
+		t.Errorf("expected the position to be re-pinned to 9, got %v", stored.LineNumber)
+	}
+}
+
 // A comment whose repo cannot be resolved to a worktree must report outdated
 // rather than silently claiming its line is fine.
 func TestListCommentsWithAnchors_UnresolvableRepoIsOutdated(t *testing.T) {

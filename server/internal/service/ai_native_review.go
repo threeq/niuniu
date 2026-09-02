@@ -100,13 +100,17 @@ func (s *EpicExecutionService) buildReviewReworkContext(ctx context.Context, iss
 	// (#683 wave 1). Those are orthogonal: sent_to_agent is a one-shot delivery
 	// flag, so filtering on it made every comment disappear from this view the
 	// moment it was injected, whether or not the agent changed anything. A comment
-	// now keeps reappearing each round until somebody actually resolves it, and
-	// each one is presented with its anchor state so the agent is told plainly
-	// when a comment's target has moved or gone stale.
+	// now keeps reappearing each round until somebody actually resolves it.
+	//
+	// Each comment is rendered with its anchor re-resolved against CURRENT content
+	// (原文 vs 现在), so the agent is never handed a bare "file:42" that quietly
+	// points at unrelated code, and can see per comment whether its target still
+	// looks the way the reviewer described it.
 	b.WriteString("### 二、工作空间未解决的行级 diff 评论（微观：具体每行怎么改）\n")
 	var consumed []int64
 	if ws, ok := s.activeWorkspaceForIssue(ctx, issue.ID); ok {
 		if diffs, err := s.q.ListCommentsByWorkspace(ctx, ws.ID); err == nil {
+			paths := worktreePathsByRepo(ctx, s.q, ws.ID)
 			n := 0
 			for _, d := range diffs {
 				if d.Resolved {
@@ -116,17 +120,14 @@ func (s *EpicExecutionService) buildReviewReworkContext(ctx context.Context, iss
 				if strings.TrimSpace(d.Repo) != "" {
 					loc = d.Repo + " › " + d.FilePath
 				}
-				line := ""
-				if d.LineNumber.Valid {
-					line = fmt.Sprintf(":%d", d.LineNumber.Int64)
-				}
+				anchor := ResolveCommentAnchor(paths[d.Repo], d)
 				b.WriteString("- ")
 				b.WriteString(loc)
-				b.WriteString(line)
-				b.WriteString(anchorNote(d))
+				b.WriteString(anchorLineRef(anchor, d))
 				b.WriteString(" — ")
 				b.WriteString(strings.TrimSpace(d.Content))
 				b.WriteString("\n")
+				writeAnchorDetail(&b, anchor)
 				consumed = append(consumed, d.ID)
 				n++
 			}
@@ -152,19 +153,76 @@ func (s *EpicExecutionService) buildReviewReworkContext(ctx context.Context, iss
 	return b.String(), consumed
 }
 
-// anchorNote renders a short marker for a diff comment whose anchor is no longer
-// trustworthy, so the agent is never handed a bare "file:42" that silently points
-// at unrelated code (#683 wave 1). Only stale states are annotated — a comment
-// still sitting on its original content reads clean.
-func anchorNote(c store.Comment) string {
-	if normalizeSide(c.Side) == CommentSideOld {
-		// The commented line was DELETED in the diff; there is no new-side line.
-		return "（原始行，已删除的旧行）"
+// anchorLineRef renders the location suffix for a diff comment: the line the
+// comment applies to NOW, plus an explicit marker when that is not simply where
+// it was written. An outdated anchor deliberately shows NO line number — handing
+// the agent "file:42" for a line that no longer holds the reviewed code is the
+// silent drift this whole mechanism exists to prevent (#683 wave 1).
+func anchorLineRef(a CommentAnchor, c store.Comment) string {
+	if a.Side == CommentSideOld {
+		// The commented line was DELETED by the diff; it has no new-side number.
+		if a.OriginalLine > 0 {
+			return fmt.Sprintf(":%d（已删除的旧行）", a.OriginalLine)
+		}
+		return "（已删除的旧行）"
 	}
-	if snap := decodeCommentContext(c.ContextLines); snap != nil && strings.TrimSpace(snap.Line) != "" {
-		return "（原文：" + strings.TrimSpace(snap.Line) + "）"
+	switch a.Status {
+	case AnchorStatusOutdated:
+		if a.OriginalLine > 0 {
+			return fmt.Sprintf("（原第 %d 行，锚点已失效：该处内容已不在，行号不可信）", a.OriginalLine)
+		}
+		return "（锚点已失效）"
+	case AnchorStatusRelocated:
+		return fmt.Sprintf(":%d（原第 %d 行，已随内容移动）", a.EffectiveLine, a.OriginalLine)
+	default:
+		if a.EffectiveLine > 0 {
+			return fmt.Sprintf(":%d", a.EffectiveLine)
+		}
+		if c.LineNumber.Valid {
+			return fmt.Sprintf(":%d", c.LineNumber.Int64)
+		}
+		return ""
 	}
-	return ""
+}
+
+// writeAnchorDetail appends the evidence a reader needs to judge "was this
+// actually fixed?" — the line as the reviewer saw it, and, when the file has
+// since changed, the line as it stands now. For an outdated anchor only the
+// original survives, which is exactly why it must be shown.
+func writeAnchorDetail(b *strings.Builder, a CommentAnchor) {
+	orig := ""
+	if a.Context != nil {
+		orig = strings.TrimSpace(a.Context.Line)
+	}
+	if orig == "" {
+		return
+	}
+	b.WriteString("    · 评论时原文：")
+	b.WriteString(orig)
+	b.WriteString("\n")
+	// An old-side comment is about a line the diff DELETED. It is not in the
+	// working tree by definition, so neither "unchanged" nor "now reads" applies —
+	// claiming either would be a statement about content that isn't there.
+	if a.Side == CommentSideOld {
+		b.WriteString("    · 这是被删除的旧行；若意见是「不该删」，需要把它改回来\n")
+		return
+	}
+	if a.Current != nil {
+		if now := strings.TrimSpace(a.Current.Line); now != "" && now != orig {
+			b.WriteString("    · 该行现在是：")
+			b.WriteString(now)
+			b.WriteString("\n")
+			return
+		}
+	}
+	if a.Status == AnchorStatusOutdated {
+		b.WriteString("    · 现在：找不到这段内容（已被删除或重写），请据原文判断该意见是否仍适用\n")
+		return
+	}
+	// The anchored line still matches the snapshot verbatim (that is how it was
+	// located), so it is direct evidence the comment was NOT addressed. Say so
+	// rather than staying silent, which would read as "nothing to see".
+	b.WriteString("    · 该行至今未变——这条意见看起来还没落实\n")
 }
 
 // implementColumn resolves the project's implement (instruct) lane — the destination

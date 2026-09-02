@@ -296,11 +296,15 @@ func (s *ReviewService) ListCommentsWithAnchors(ctx context.Context, workspaceID
 		return nil, err
 	}
 	// One worktree lookup per repo, not per comment.
-	paths := s.worktreePathsByRepo(ctx, workspaceID)
+	paths := worktreePathsByRepo(ctx, s.q, workspaceID)
 	out := make([]AnchoredComment, 0, len(comments))
 	for _, c := range comments {
 		anchor := ResolveCommentAnchor(paths[c.Repo], c)
 		if anchor.Status == AnchorStatusRelocated && anchor.EffectiveLine > 0 {
+			// Re-pin the POSITION (line + blob) only. context_lines deliberately keeps
+			// the comment-time snapshot: it is the evidence of what the reviewer
+			// actually saw, and overwriting it with current content would destroy the
+			// "原文 vs 现在" comparison that answers whether the point was addressed.
 			if err := s.q.UpdateCommentAnchor(ctx, store.UpdateCommentAnchorParams{
 				LineNumber: sql.NullInt64{Int64: anchor.EffectiveLine, Valid: true},
 				BlobSha:    anchor.CurrentBlobSha,
@@ -321,9 +325,14 @@ func (s *ReviewService) ListCommentsWithAnchors(ctx context.Context, workspaceID
 // "" for the single-repo case where comments carry no repo name. An unresolvable
 // repo simply has no entry — ResolveCommentAnchor then reports outdated rather
 // than pretending to have verified content it never read.
-func (s *ReviewService) worktreePathsByRepo(ctx context.Context, workspaceID int64) map[string]string {
+//
+// A free function over *store.Queries rather than a ReviewService method: the
+// review-bounce path (EpicExecutionService) resolves the same anchors when it
+// injects comments into an agent, and both must agree on which worktree a
+// comment's repo refers to.
+func worktreePathsByRepo(ctx context.Context, q *store.Queries, workspaceID int64) map[string]string {
 	paths := map[string]string{}
-	worktrees, err := s.q.ListWorktrees(ctx, workspaceID)
+	worktrees, err := q.ListWorktrees(ctx, workspaceID)
 	if err != nil {
 		return paths
 	}
@@ -331,7 +340,7 @@ func (s *ReviewService) worktreePathsByRepo(ctx context.Context, workspaceID int
 	// only a fallback label (the diff list uses it for unresolvable worktrees), so
 	// it must never displace a real repo name it happens to collide with.
 	for _, wt := range worktrees {
-		if repo, err := s.q.GetRepository(ctx, wt.RepositoryID); err == nil {
+		if repo, err := q.GetRepository(ctx, wt.RepositoryID); err == nil {
 			paths[repo.Name] = wt.WorktreePath
 		}
 	}
@@ -378,7 +387,7 @@ func (s *ReviewService) CreateComment(ctx context.Context, workspaceID int64, in
 	}
 
 	side := normalizeSide(input.Side)
-	worktreePath := s.worktreePathsByRepo(ctx, workspaceID)[input.Repo]
+	worktreePath := worktreePathsByRepo(ctx, s.q, workspaceID)[input.Repo]
 
 	var commitSha, blobSha string
 	contextLines := strings.TrimSpace(input.ContextLines)

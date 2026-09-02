@@ -2,6 +2,7 @@ package service
 
 import (
 	"encoding/json"
+	"slices"
 	"strings"
 
 	"github.com/niuniu-dev/niuniu/internal/git"
@@ -75,6 +76,12 @@ type CommentAnchor struct {
 	// CurrentBlobSha is the file's blob hash right now; "" when the file is gone
 	// or unreadable. Callers re-pin a relocated comment to it.
 	CurrentBlobSha string `json:"current_blob_sha,omitempty"`
+	// Current is what the anchored line looks like NOW, when that differs from the
+	// snapshot in Context. Judging "did this actually get fixed?" needs both sides:
+	// Context is what the reviewer commented on, Current is what replaced it. Nil
+	// when the line is unchanged (Context already shows it) or when the anchor is
+	// outdated (there is no current line to show).
+	Current *CommentContext `json:"current,omitempty"`
 }
 
 // normalizeSide coerces a stored/incoming side to a known value. Anything that
@@ -190,10 +197,39 @@ func ResolveCommentAnchor(worktreePath string, c store.Comment) CommentAnchor {
 		} else {
 			anchor.Status = AnchorStatusRelocated
 		}
+		// The file changed, so show what the anchored region looks like NOW next to
+		// what it looked like when the comment was written. That side-by-side is what
+		// answers "was this actually fixed?" — note relocation matched the commented
+		// line EXACTLY, so an unchanged Line here is direct evidence it was not.
+		if now := windowAt(lines, int(newLine)-1); now != nil && !sameContext(*now, *anchor.Context) {
+			anchor.Current = now
+		}
 		return anchor
 	}
 	anchor.Status = AnchorStatusOutdated
 	return anchor
+}
+
+// windowAt snapshots the same shape captureCommentContext produces, but from
+// already-loaded lines. Returns nil when idx is out of range.
+func windowAt(lines []string, idx int) *CommentContext {
+	if idx < 0 || idx >= len(lines) {
+		return nil
+	}
+	snap := CommentContext{Line: lines[idx]}
+	for i := max(0, idx-anchorContextRadius); i < idx; i++ {
+		snap.Before = append(snap.Before, lines[i])
+	}
+	for i := idx + 1; i < min(len(lines), idx+1+anchorContextRadius); i++ {
+		snap.After = append(snap.After, lines[i])
+	}
+	return &snap
+}
+
+// sameContext reports whether two snapshots are identical, so an unchanged
+// region is not sent twice as "before" and "after".
+func sameContext(a, b CommentContext) bool {
+	return a.Line == b.Line && slices.Equal(a.Before, b.Before) && slices.Equal(a.After, b.After)
 }
 
 // relocateContext finds where a snapshot now sits in changed content, returning
