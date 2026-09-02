@@ -36,8 +36,16 @@ type fileEntry struct {
 	IsDir bool   `json:"isDir"`
 }
 
-// Search handles GET /workspaces/:id/files?q=search
-// Returns up to 50 file entries filtered by an optional fuzzy query.
+// File-name search result limits. The chat "@ file" popup shows a handful of
+// rows, but the dedicated search panel is a browsing surface where 50 is
+// restrictive — so the cap is caller-controlled, with a hard ceiling.
+const (
+	fileSearchDefaultLimit = 50
+	fileSearchMaxLimit     = 300
+)
+
+// Search handles GET /workspaces/:id/files?q=search&limit=n
+// Returns file entries filtered by an optional fuzzy query.
 func (h *FileTreeHandler) Search(c *gin.Context) {
 	workspaceID, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil {
@@ -53,6 +61,13 @@ func (h *FileTreeHandler) Search(c *gin.Context) {
 	}
 
 	query := strings.ToLower(strings.TrimSpace(c.Query("q")))
+
+	limit := fileSearchDefaultLimit
+	if raw := c.Query("limit"); raw != "" {
+		if n, err := strconv.Atoi(raw); err == nil && n > 0 {
+			limit = min(n, fileSearchMaxLimit)
+		}
+	}
 
 	ctx := c.Request.Context()
 	ws, err := h.queries.GetWorkspace(ctx, workspaceID)
@@ -94,9 +109,8 @@ func (h *FileTreeHandler) Search(c *gin.Context) {
 		})
 	}
 
-	// Limit to 50 results
-	if len(files) > 50 {
-		files = files[:50]
+	if len(files) > limit {
+		files = files[:limit]
 	}
 
 	// A nil slice marshals to JSON null, which the SPA cannot consume; force [].

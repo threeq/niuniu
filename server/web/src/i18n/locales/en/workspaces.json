@@ -998,5 +998,27 @@
     "viewFile": "File",
     "viewPreview": "Preview",
     "viewSource": "Source"
+  },
+  "search": {
+    "title": "Search workspace",
+    "description": "Search by file name or file content across every repository in this workspace.",
+    "open": "Search",
+    "openHint": "Search files and contents (Ctrl/Cmd+Shift+F)",
+    "placeholder": "Search file names and contents…",
+    "hint": "Type to search file names and file contents at the same time.",
+    "noResults": "No matching files or contents.",
+    "filesHeading": "File names",
+    "contentHeading": "File contents",
+    "optionsLabel": "Contents:",
+    "optionCase": "Match case",
+    "optionWord": "Match whole word",
+    "optionRegex": "Use regular expression",
+    "contentMinLength": "Type at least 2 characters to search file contents.",
+    "engineMissing": "Content search is unavailable: neither ripgrep nor git was found on this machine.",
+    "invalidQuery": "Invalid search pattern — check the regular expression.",
+    "contentFailed": "Content search failed: {{message}}",
+    "truncatedLimit": "Showing partial results — too many matches. Narrow the search.",
+    "truncatedTimeout": "Showing partial results — the search timed out.",
+    "fileTruncated": "(more matches)"
   }
 }

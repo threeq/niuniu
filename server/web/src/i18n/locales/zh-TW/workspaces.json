@@ -998,5 +998,27 @@
     "viewFile": "檔案",
     "viewPreview": "預覽",
     "viewSource": "原始碼"
+  },
+  "search": {
+    "title": "搜尋工作空間",
+    "description": "依檔名或檔案內容搜尋此工作空間下的所有儲存庫。",
+    "open": "搜尋",
+    "openHint": "搜尋檔案與內容（Ctrl/Cmd+Shift+F）",
+    "placeholder": "搜尋檔名與檔案內容…",
+    "hint": "輸入即可同時搜尋檔名與檔案內容。",
+    "noResults": "沒有相符的檔案或內容。",
+    "filesHeading": "檔名",
+    "contentHeading": "檔案內容",
+    "optionsLabel": "內容：",
+    "optionCase": "區分大小寫",
+    "optionWord": "全字匹配",
+    "optionRegex": "使用正規表達式",
+    "contentMinLength": "至少輸入 2 個字元才會搜尋檔案內容。",
+    "engineMissing": "內容搜尋無法使用：本機未找到 ripgrep，也未找到 git。",
+    "invalidQuery": "搜尋運算式無效 —— 請檢查正規表達式。",
+    "contentFailed": "內容搜尋失敗：{{message}}",
+    "truncatedLimit": "結果已截斷 —— 相符過多，請縮小搜尋範圍。",
+    "truncatedTimeout": "結果已截斷 —— 搜尋逾時。",
+    "fileTruncated": "（還有更多相符）"
   }
 }

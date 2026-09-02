@@ -12,7 +12,10 @@ export type PanelId = 'chat' | 'files' | 'changes' | 'terminal' | 'issue' | 'pin
  * replacing the old full-screen file modal and the changes-panel focus mode.
  */
 export type ContentViewerTarget =
-  | { kind: 'file'; path: string; title?: string }
+  // `line` (1-based), when present, scrolls the opened file to that line and
+  // flashes it — used by the content-search panel to land on the actual hit
+  // rather than at the top of the file.
+  | { kind: 'file'; path: string; title?: string; line?: number }
   | { kind: 'diff'; repo: string; path: string }
   // Autohost 安全网: one file's diff inside a hidden-ref checkpoint step. checkpointId
   // is the per-repo checkpoint row id; path selects the file within that step's diff.
@@ -22,12 +25,18 @@ export type ContentViewerTarget =
 
 // Map a workspace-relative file path to its content-viewer target, dispatching
 // diagrams to their editor by extension. Shared by the file tree and the
-// artifacts list so clicking either opens content the same way.
-export function contentTargetForPath(path: string, title?: string): ContentViewerTarget {
+// artifacts list so clicking either opens content the same way. `line` (1-based)
+// comes from a content-search hit and only applies to plain files — a diagram
+// editor has no line to scroll to.
+export function contentTargetForPath(
+  path: string,
+  title?: string,
+  line?: number,
+): ContentViewerTarget {
   const p = path.toLowerCase();
   if (p.endsWith('.excalidraw')) return { kind: 'canvas', path };
   if (p.endsWith('.drawio')) return { kind: 'drawio', path };
-  return { kind: 'file', path, title };
+  return { kind: 'file', path, title, line };
 }
 
 interface WorkspacePanelState {
@@ -79,6 +88,10 @@ function sameTarget(a: ContentViewerTarget | null, b: ContentViewerTarget): bool
   if (a.kind === 'diff' && b.kind === 'diff') return a.repo === b.repo && a.path === b.path;
   if (a.kind === 'checkpoint-diff' && b.kind === 'checkpoint-diff')
     return a.checkpointId === b.checkpointId && a.path === b.path;
+  // A file re-opened at a DIFFERENT line is a new target, not a re-click: two
+  // search hits in one file must navigate between each other rather than
+  // toggling the viewer shut.
+  if (a.kind === 'file' && b.kind === 'file') return a.path === b.path && a.line === b.line;
   return 'path' in a && 'path' in b && a.path === b.path;
 }
 

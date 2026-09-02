@@ -69,6 +69,9 @@ import type {
   SkillTargetRequest,
   SkillActionResult,
   MfaPolicy,
+  WorkspaceFileHit,
+  ContentSearchResponse,
+  ContentSearchOptions,
 } from '../types/api'
 import type { Org, OrgMember, OrgAuditEntry, User, OwnerRef } from '../types/org'
 import type {
@@ -642,11 +645,33 @@ export const api = {
       { path, content },
     ),
 
-  searchWorkspaceFiles: (workspaceId: string, query: string) =>
-    api.get<{ files: Array<{ path: string; name: string; repo: string; isDir: boolean }> }>(
+  // File-NAME search. `limit` is optional: the chat "@ file" popup wants a short
+  // list, the dedicated search panel wants more (backend ceiling is 300).
+  searchWorkspaceFiles: (workspaceId: string, query: string, limit?: number) =>
+    api.get<{ files: WorkspaceFileHit[] }>(
       `/workspaces/${workspaceId}/files`,
-      { params: { q: query } }
+      { params: limit ? { q: query, limit: String(limit) } : { q: query } }
     ),
+
+  // File-CONTENT (grep) search. Errors are surfaced to the caller rather than
+  // swallowed: a failed content search must not look like "no matches".
+  // suppressError keeps the global toast away — the search panel renders the
+  // failure inline, including the 501 "no search engine on this host" case.
+  searchWorkspaceContent: (
+    workspaceId: string,
+    query: string,
+    opts: ContentSearchOptions = {},
+  ): Promise<ContentSearchResponse> => {
+    const params: Record<string, string> = { q: query }
+    if (opts.caseSensitive) params.case = '1'
+    if (opts.wholeWord) params.word = '1'
+    if (opts.regex) params.regex = '1'
+    const qs = new URLSearchParams(params).toString()
+    return apiFetch<ContentSearchResponse>(
+      `/workspaces/${workspaceId}/search/content?${qs}`,
+      { suppressError: true },
+    )
+  },
 
   // System deps
   getSystemDeps: (): Promise<SystemDepsInfo> =>

@@ -1803,3 +1803,51 @@ export interface MfaPolicy {
   enabled: boolean
   needs_setup: boolean
 }
+
+// --- Workspace search (unified file-name + content search) -----------------
+
+/** One file-name hit from `GET /workspaces/:id/files`. */
+export interface WorkspaceFileHit {
+  path: string
+  name: string
+  repo: string
+  isDir: boolean
+}
+
+/** One matching line, with the surrounding context lines the backend returned. */
+export interface ContentSearchMatch {
+  line: number
+  text: string
+  before?: string[]
+  after?: string[]
+  /** [start,end) BYTE offsets of each hit within `text`, for highlighting. */
+  columns?: [number, number][]
+  /** The line was clipped to the backend's max line length. */
+  lineTruncated?: boolean
+}
+
+/** Every content match found in one file. */
+export interface ContentSearchFile {
+  path: string
+  repo: string
+  matches: ContentSearchMatch[]
+  /** This file had more matches than the per-file cap allowed. */
+  truncated?: boolean
+}
+
+/** Payload of `GET /workspaces/:id/search/content`. */
+export interface ContentSearchResponse {
+  engine: string
+  files: ContentSearchFile[]
+  totalMatches: number
+  /** Results were cut short. Never present this as a complete result set. */
+  truncated: boolean
+  truncatedReason?: 'limit' | 'timeout'
+}
+
+/** Options accepted by the content-search endpoint. */
+export interface ContentSearchOptions {
+  caseSensitive?: boolean
+  wholeWord?: boolean
+  regex?: boolean
+}
