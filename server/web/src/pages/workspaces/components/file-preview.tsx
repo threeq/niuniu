@@ -5,7 +5,7 @@ import { ChevronLeft, ChevronRight, Download, FileText, Pause, Play } from 'luci
 import { Button } from '@/components/ui/button';
 import { getFileContentUrl } from '@/lib/workspace-file-url';
 import { MarkdownMessage } from '@/components/shared/markdown-message';
-import { highlightCode } from '@/lib/syntax-highlight';
+import { CodeSurface, buildFileRows } from '@/pages/workspaces/panels/code-surface';
 import {
   extOf,
   IMAGE_EXTS,
@@ -14,14 +14,6 @@ import {
   BINARY_EXTS,
   NO_HIGHLIGHT_EXTS,
 } from '@/lib/file-type';
-
-// Above this line count we skip per-line tokenization and render a plain
-// scrollable <pre>: highlighting tens of thousands of lines would block the
-// main thread on open. This is the perf 兜底 — large files degrade to plain text.
-const MAX_HIGHLIGHT_LINES = 5000;
-
-// Rendered for blank lines so the line-number table row keeps its height.
-const ZERO_WIDTH_SPACE = String.fromCharCode(0x200b);
 
 // Auto-advance interval for the slide carousel, in milliseconds.
 const SLIDE_AUTOPLAY_MS = 4000;
@@ -328,72 +320,40 @@ function MarkdownFilePreview({ url }: { url: string }) {
 // from the design-system `--syntax-*` tokens, which means light/dark theme
 // switching is automatic (the CSS vars re-resolve; no re-highlight needed) and
 // no heavy highlighter (shiki/prism) ships in the bundle. Plain-data text
-// (txt/log) and oversized files degrade to an un-highlighted <pre>.
+// (txt/log) renders as an un-highlighted <pre>; code goes through the windowed
+// code surface, which has no size cutoff.
 function TextFilePreview({ url, ext }: { url: string; ext: string }) {
   const { t } = useTranslation('workspaces');
   const { text, loading, error } = useRawText(url);
-  const lineCount = useMemo(() => (text ? text.split('\n').length : 0), [text]);
 
   if (loading) return <PreviewStatus>{t('filePreview.loading')}</PreviewStatus>;
   if (error) return <PreviewStatus error>{error}</PreviewStatus>;
 
   // The highlighter is language-agnostic, so highlight anything that isn't plain
   // prose/tabular data — this covers extensionless code (Makefile, go.mod, …).
-  const isCode = !NO_HIGHLIGHT_EXTS.has(ext);
-  const tooLarge = lineCount > MAX_HIGHLIGHT_LINES;
-
-  if (isCode && !tooLarge) {
+  // There is no size cutoff: the code view windows its rows, so only the visible
+  // slice is ever tokenized.
+  if (!NO_HIGHLIGHT_EXTS.has(ext)) {
     return <HighlightedCode text={text} />;
   }
 
   return (
     <div className="flex flex-col h-full min-h-0">
-      {isCode && tooLarge && (
-        <PreviewStatus>{t('filePreview.highlightDisabledLargeFile')}</PreviewStatus>
-      )}
-      <pre
-        className={`flex-1 min-h-0 overflow-auto p-4 text-xs font-mono text-foreground ${
-          isCode ? 'whitespace-pre' : 'whitespace-pre-wrap break-words'
-        }`}
-      >
+      <pre className="flex-1 min-h-0 overflow-auto p-4 text-xs font-mono text-foreground whitespace-pre-wrap break-words">
         {text}
       </pre>
     </div>
   );
 }
 
-// HighlightedCode renders code with a line-number gutter and tokenized lines.
-// Tokenization runs once per file (memoized on `text`); re-renders from theme
-// or layout changes reuse the cached nodes since the colors are CSS-token-based.
+// HighlightedCode renders code with a line-number gutter and tokenized lines
+// through the shared windowed code surface, so a huge file mounts (and
+// tokenizes) only the lines on screen. This replaced a full-DOM table gated by
+// a MAX_HIGHLIGHT_LINES cutoff, which degraded backwards: past the limit the
+// file lost its highlighting yet still rendered every line.
 function HighlightedCode({ text }: { text: string }) {
-  const lines = useMemo(() => {
-    const split = text.split('\n');
-    // Empty lines need a zero-width space so the table row keeps its height.
-    return split.map((line) => (line.length > 0 ? highlightCode(line) : ZERO_WIDTH_SPACE));
-  }, [text]);
-  const gutterWidth = String(lines.length).length + 1;
-
-  return (
-    <div className="h-full min-h-0 overflow-auto">
-      <table className="w-full border-collapse">
-        <tbody>
-          {lines.map((nodes, i) => (
-            <tr key={i}>
-              <td
-                className="select-none border-r border-border px-2 text-right align-top font-mono text-[11px] leading-5 text-muted-foreground/70"
-                style={{ width: `${gutterWidth}ch` }}
-              >
-                {i + 1}
-              </td>
-              <td className="whitespace-pre px-3 align-top font-mono text-[12.5px] leading-5 text-foreground">
-                {nodes}
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  );
+  const rows = useMemo(() => buildFileRows(text.split('\n')), [text]);
+  return <CodeSurface rows={rows} showSigns={false} />;
 }
 
 function DocxFilePreview({ url }: { url: string }) {

@@ -1,13 +1,8 @@
-import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
-import { highlightCode } from '@/lib/syntax-highlight';
-import { cn } from '@/lib/utils';
+import { useEffect, useMemo, useState } from 'react';
 import type { WorkspaceComment } from '@/types/api';
-import { Gutter, CommentRow, type CommentApi } from './diff-comments';
+import { CommentThread, type CommentApi } from './diff-comments';
+import { CodeSurface, buildFileRows, type CodeLineRenderer } from './code-surface';
 
-// Beyond this, skip per-line tokenization to keep opening large files snappy.
-const MAX_HIGHLIGHT_LINES = 5000;
-// Keeps a blank line's table row at full height.
-const ZERO_WIDTH_SPACE = String.fromCharCode(0x200b);
 // How long the jumped-to line stays highlighted. Long enough to catch the eye
 // after the scroll settles, short enough not to look like a selection.
 const JUMP_FLASH_MS = 1600;
@@ -24,11 +19,9 @@ interface CodeFileViewProps {
   onSendComment?: (line: number, content: string) => Promise<void>;
   /**
    * 1-based line to scroll to and flash on mount — set when the file was opened
-   * from a content-search hit.
-   *
-   * This is the pre-virtualization anchor approach (#685): every line has a DOM
-   * node, so `scrollIntoView` on its row is enough. Once #687 virtualizes the
-   * list this becomes a `scrollToIndex` call, and the row ref goes away.
+   * from a content-search hit. Resolved to a row index and handed to the
+   * virtualizer's `scrollToIndex`, so the target does not need to be mounted
+   * (or even near the viewport) for the jump to land.
    */
   jumpToLine?: number;
 }
@@ -36,9 +29,13 @@ interface CodeFileViewProps {
 /**
  * CodeFileView renders a file's FULL content as plain, line-numbered,
  * syntax-highlighted code (no diff chrome) with the same per-line comment
- * queue/send affordance as the diff viewer. It fills its parent and scrolls on
- * both axes in a single container, so the horizontal scrollbar stays pinned to
- * the pane bottom.
+ * queue/send affordance as the diff viewer.
+ *
+ * Rendering runs through the shared `CodeSurface`, so only on-screen lines are
+ * mounted and tokenized. That removed the former `MAX_HIGHLIGHT_LINES = 5000`
+ * bail-out, which degraded backwards: past the limit a file lost its
+ * highlighting (worst readability) yet still mounted every line (worst
+ * performance).
  */
 export function CodeFileView({
   content,
@@ -55,29 +52,19 @@ export function CodeFileView({
   // Deriving it this way keeps the effect free of a synchronous setState (which
   // would cascade a render on every open).
   const [expiredJump, setExpiredJump] = useState<string | null>(null);
-  const jumpRowRef = useRef<HTMLTableRowElement | null>(null);
 
   // Normalize CRLF/CR so highlighting and rendering never carry stray \r.
   const lines = useMemo(() => content.replace(/\r\n?/g, '\n').split('\n'), [content]);
-  const highlight = lines.length <= MAX_HIGHLIGHT_LINES;
+  const rows = useMemo(() => buildFileRows(lines), [lines]);
 
   const jumpValid = !!jumpToLine && jumpToLine >= 1 && jumpToLine <= lines.length;
   const jumpKey = jumpValid ? `${filePath}:${jumpToLine}` : null;
   const flashLine = jumpKey && expiredJump !== jumpKey ? jumpToLine : null;
 
-  // Scroll the requested line into view once the rows exist, then let the flash
-  // expire. Keyed on the file too, so a second hit in a DIFFERENT file re-jumps.
   useEffect(() => {
     if (!jumpKey) return;
-    // rAF lets the browser lay the table out before we measure and scroll.
-    const raf = requestAnimationFrame(() => {
-      jumpRowRef.current?.scrollIntoView({ block: 'center', behavior: 'auto' });
-    });
     const timer = setTimeout(() => setExpiredJump(jumpKey), JUMP_FLASH_MS);
-    return () => {
-      cancelAnimationFrame(raf);
-      clearTimeout(timer);
-    };
+    return () => clearTimeout(timer);
   }, [jumpKey]);
 
   const byLine = useMemo(() => {
@@ -93,42 +80,40 @@ export function CodeFileView({
 
   const commentApi: CommentApi | null =
     onQueueComment && onSendComment
-      ? { repoName, filePath, byLine, activeLine, setActiveLine, onQueue: onQueueComment, onSend: onSendComment }
+      ? {
+          repoName,
+          filePath,
+          byLine,
+          activeLine,
+          setActiveLine,
+          onQueue: onQueueComment,
+          onSend: onSendComment,
+        }
       : null;
 
+  const renderer: CodeLineRenderer = {
+    attachment: commentApi
+      ? (anchor) => <CommentThread anchor={anchor} api={commentApi} />
+      : undefined,
+    gutterAction: commentApi
+      ? (cell) => (cell.anchor != null ? () => setActiveLine(cell.anchor!) : undefined)
+      : undefined,
+    rowClassName: (row) =>
+      flashLine != null && row.kind === 'line' && row.anchor === flashLine
+        ? 'bg-brand-soft transition-colors duration-500'
+        : undefined,
+  };
+
+  // A plain file is all context: row index is line number − 1, no lookup needed.
+  const scrollToRow = jumpValid ? jumpToLine! - 1 : undefined;
+
   return (
-    <div className="h-full overflow-auto bg-card">
-      <table className="w-full border-collapse">
-        <tbody>
-          {lines.map((line, i) => {
-            const n = i + 1;
-            const nodes = highlight
-              ? line.length > 0
-                ? highlightCode(line)
-                : ZERO_WIDTH_SPACE
-              : line || ZERO_WIDTH_SPACE;
-            const addOn = commentApi ? () => setActiveLine(n) : undefined;
-            const isJumpTarget = jumpValid && jumpToLine === n;
-            return (
-              <Fragment key={i}>
-                <tr
-                  ref={isJumpTarget ? jumpRowRef : undefined}
-                  className={cn(
-                    'group/line',
-                    flashLine === n && 'bg-brand-soft transition-colors duration-500',
-                  )}
-                >
-                  <Gutter value={n} onAdd={addOn} />
-                  <td className="whitespace-pre px-3 align-top font-mono text-[12.5px] leading-5 text-foreground">
-                    {nodes}
-                  </td>
-                </tr>
-                {commentApi && <CommentRow anchor={n} colSpan={2} api={commentApi} />}
-              </Fragment>
-            );
-          })}
-        </tbody>
-      </table>
-    </div>
+    <CodeSurface
+      rows={rows}
+      renderer={renderer}
+      scrollToRow={scrollToRow}
+      scrollToKey={jumpKey}
+      showSigns={false}
+    />
   );
 }

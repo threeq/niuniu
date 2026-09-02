@@ -45,7 +45,6 @@
     "submitArtifactDone": "已将「{{name}}」提交为产物",
     "submitArtifactFailed": "提交为产物失败",
     "close": "关闭",
-    "highlightDisabledLargeFile": "文件较大，已关闭语法高亮以保证性能",
     "imageZoomActual": "查看原始尺寸",
     "imageZoomFit": "适应窗口"
   },
@@ -440,8 +439,6 @@
         "modeChange": "仅文件权限变更（{{old}} → {{new}}），无内容差异。",
         "renameOnly": "仅重命名文件，无内容差异。",
         "noContentChange": "该文件无内容差异（仅元数据变更）。",
-        "largeFile": "差异较大（{{count}} 行）——已折叠以保证性能。",
-        "renderAnyway": "仍然渲染",
         "openInVSCode": "在 VS Code 中打开",
         "expandLines": "展开 {{count}} 行未改动内容",
         "loadError": "加载 diff 失败。",

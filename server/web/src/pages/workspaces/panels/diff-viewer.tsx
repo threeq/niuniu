@@ -1,30 +1,18 @@
-import { Fragment, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Package, ChevronRight, FileCode2, ChevronsDownUp } from 'lucide-react';
+import { Package, ChevronRight, FileCode2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import type { GitFileDiff, GitDiffLine } from '@/lib/hooks/use-file-diff';
-import { highlightCode } from '@/lib/syntax-highlight';
+import type { GitFileDiff } from '@/lib/hooks/use-file-diff';
 import type { WorkspaceComment } from '@/types/api';
-import { Gutter, CommentRow, type CommentApi } from './diff-comments';
-
-const MAX_DIFF_LINES = 2000; // beyond this we degrade to a "render anyway" notice
-const COLLAPSE_THRESHOLD = 10; // context runs longer than this collapse
-const COLLAPSE_EDGE = 3; // lines kept visible on each side of a collapsed run
+import { CommentThread, type CommentApi } from './diff-comments';
+import {
+  CodeSurface,
+  buildUnifiedRows,
+  buildSplitRows,
+  type CodeLineRenderer,
+} from './code-surface';
 
 export type ViewMode = 'unified' | 'split';
-
-/**
- * A diff line ready to render. This is the backend's git.DiffLine with its
- * line numbers already resolved server-side — the viewer no longer parses
- * `raw_patch` or walks running counters to derive them.
- */
-type NumberedLine = GitDiffLine;
-
-// Render items: a hunk header, a collapsed gap, or a numbered line.
-type RenderItem =
-  | { kind: 'hunk'; key: string; content: string }
-  | { kind: 'gap'; key: string; hidden: NumberedLine[] }
-  | { kind: 'line'; key: string; line: NumberedLine };
 
 const STATUS_META: Record<string, { letter: string; badge: string }> = {
   added: { letter: 'A', badge: 'bg-success text-success-foreground' },
@@ -35,131 +23,12 @@ const STATUS_META: Record<string, { letter: string; badge: string }> = {
   copied: { letter: 'C', badge: 'bg-info text-info-foreground' },
 };
 
-/**
- * The line number a comment anchors to: the NEW-file line number. We anchor on
- * a single coordinate space (the new side) so a comment's stored line_number is
- * unambiguous — anchoring deletes by old-line numbers would collide with
- * add/context lines that share the same integer, duplicating threads. Pure
- * deletions (no new number) are therefore not commentable.
- */
-function anchorOf(line: NumberedLine): number | undefined {
-  return line.new_line;
-}
-
-/** Build the flat render-item list for a file, folding long unchanged runs.
- *  `disableCollapse` renders every line (used for full-file views where the
- *  whole file is context and folding it would hide the content). */
-function buildRenderItems(
-  file: GitFileDiff,
-  expandedGaps: Set<string>,
-  disableCollapse = false,
-): RenderItem[] {
-  const items: RenderItem[] = [];
-
-  (file.hunks ?? []).forEach((hunk, hi) => {
-    const heading = hunk.header ? ` ${hunk.header}` : '';
-    items.push({
-      kind: 'hunk',
-      key: `h${hi}`,
-      content: `@@ -${hunk.old_start},${hunk.old_count} +${hunk.new_start},${hunk.new_count} @@${heading}`,
-    });
-
-    const lines = hunk.lines ?? [];
-    let i = 0;
-    while (i < lines.length) {
-      if (lines[i].type !== 'context') {
-        items.push({ kind: 'line', key: `${hi}-${i}`, line: lines[i] });
-        i++;
-        continue;
-      }
-      // Gather a maximal run of context lines.
-      let j = i;
-      while (j < lines.length && lines[j].type === 'context') j++;
-      const run = lines.slice(i, j);
-      const atStart = i === 0;
-      const atEnd = j === lines.length;
-      const gapKey = `g${hi}-${i}`;
-
-      if (disableCollapse || run.length <= COLLAPSE_THRESHOLD || expandedGaps.has(gapKey)) {
-        run.forEach((l, k) => items.push({ kind: 'line', key: `${hi}-${i}-${k}`, line: l }));
-      } else {
-        const head = atStart ? [] : run.slice(0, COLLAPSE_EDGE);
-        const tail = atEnd ? [] : run.slice(run.length - COLLAPSE_EDGE);
-        const hidden = run.slice(head.length, run.length - tail.length);
-        head.forEach((l, k) => items.push({ kind: 'line', key: `${hi}-${i}-h${k}`, line: l }));
-        items.push({ kind: 'gap', key: gapKey, hidden });
-        tail.forEach((l, k) => items.push({ kind: 'line', key: `${hi}-${i}-t${k}`, line: l }));
-      }
-      i = j;
-    }
-  });
-
-  return items;
-}
-
-function CodeCell({
-  line,
-  className,
-}: {
-  line: NumberedLine;
-  className?: string;
-}) {
-  const sign = line.type === 'add' ? '+' : line.type === 'delete' ? '−' : ' ';
-  return (
-    <td
-      className={cn(
-        'whitespace-pre px-3 align-top font-mono text-[12.5px] leading-5 text-foreground',
-        line.type === 'add' && 'bg-diff-add border-l-2 border-diff-add-fg',
-        line.type === 'delete' && 'bg-diff-del border-l-2 border-diff-del-fg',
-        line.type === 'context' && 'border-l-2 border-transparent',
-        className,
-      )}
-    >
-      <span
-        className={cn(
-          'mr-2 select-none font-semibold',
-          line.type === 'add' && 'text-diff-add-fg',
-          line.type === 'delete' && 'text-diff-del-fg',
-          line.type === 'context' && 'text-muted-foreground/40',
-        )}
-      >
-        {sign}
-      </span>
-      {highlightCode(line.content)}
-    </td>
-  );
-}
-
-function GapRow({
-  colSpan,
-  onExpand,
-  label,
-}: {
-  colSpan: number;
-  onExpand: () => void;
-  label: string;
-}) {
-  return (
-    <tr>
-      <td colSpan={colSpan} className="border-y border-border bg-muted/40 p-0">
-        <button
-          onClick={onExpand}
-          className="flex w-full items-center gap-2 px-3 py-1 text-left text-[11px] text-muted-foreground hover:bg-accent hover:text-foreground"
-        >
-          <ChevronsDownUp className="h-3 w-3 shrink-0" />
-          {label}
-        </button>
-      </td>
-    </tr>
-  );
-}
-
 interface DiffViewerProps {
   fileDiff: GitFileDiff;
   repoName: string;
   /** Unified vs split — owned by the changes-panel toolbar. */
   mode: ViewMode;
-  /** Optional VS Code fallback for binary / oversized diffs. */
+  /** Optional VS Code fallback for binary diffs. */
   onOpenExternal?: () => void;
   /** Existing review comments for this file (anchored by line_number). */
   comments?: WorkspaceComment[];
@@ -171,6 +40,19 @@ interface DiffViewerProps {
   disableCollapse?: boolean;
 }
 
+/**
+ * DiffViewer renders one file's structured diff, unified or side-by-side.
+ *
+ * Both modes flatten to a `CodeRow[]` and go through the shared windowed
+ * `CodeSurface`, which mounts only the rows on screen. That is what retired the
+ * old `MAX_DIFF_LINES = 2000` guard — whose only "protection" was a notice with
+ * a *Render anyway* button, i.e. the user's options were "don't look at the
+ * diff" or "hang the tab".
+ *
+ * Split mode is one row holding both halves rather than two independently
+ * scrolled lists, so the left and right sides cannot drift out of alignment:
+ * there is a single measured height per row.
+ */
 export function DiffViewer({
   fileDiff,
   repoName,
@@ -182,18 +64,15 @@ export function DiffViewer({
   disableCollapse = false,
 }: DiffViewerProps) {
   const { t } = useTranslation('workspaces');
-  const [forceRender, setForceRender] = useState(false);
   const [expandedGaps, setExpandedGaps] = useState<Set<string>>(() => new Set());
   const [activeLine, setActiveLine] = useState<number | null>(null);
 
-  const totalLines = useMemo(
-    () => (fileDiff.hunks ?? []).reduce((n, h) => n + (h.lines?.length ?? 0), 0),
-    [fileDiff.hunks],
-  );
-
-  const items = useMemo(
-    () => buildRenderItems(fileDiff, expandedGaps, disableCollapse),
-    [fileDiff, expandedGaps, disableCollapse],
+  const rows = useMemo(
+    () =>
+      mode === 'split'
+        ? buildSplitRows(fileDiff, expandedGaps, disableCollapse)
+        : buildUnifiedRows(fileDiff, expandedGaps, disableCollapse),
+    [fileDiff, mode, expandedGaps, disableCollapse],
   );
 
   // Comments grouped by their anchored line number for inline rendering.
@@ -221,6 +100,15 @@ export function DiffViewer({
         }
       : null;
 
+  const renderer: CodeLineRenderer = {
+    attachment: commentApi
+      ? (anchor) => <CommentThread anchor={anchor} api={commentApi} />
+      : undefined,
+    gutterAction: commentApi
+      ? (cell) => (cell.anchor != null ? () => setActiveLine(cell.anchor!) : undefined)
+      : undefined,
+  };
+
   const status = fileDiff.status || 'modified';
   const meta = STATUS_META[status] ?? STATUS_META.modified;
   const dir = fileDiff.path.includes('/')
@@ -235,7 +123,6 @@ export function DiffViewer({
   // must NOT be shown as an un-previewable binary.
   const isBinary = !!fileDiff.is_binary;
   const isNoContentChange = !isBinary && (fileDiff.hunks?.length ?? 0) === 0;
-  const isLarge = totalLines > MAX_DIFF_LINES;
 
   const header = (
     <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-border bg-card px-3 py-2">
@@ -288,30 +175,13 @@ export function DiffViewer({
         onAction={onOpenExternal}
       />
     );
-  } else if (isLarge && !forceRender) {
-    body = (
-      <Degraded
-        message={t('panels.changes.diff.largeFile', { count: totalLines })}
-        actionLabel={t('panels.changes.diff.renderAnyway')}
-        onAction={() => setForceRender(true)}
-      />
-    );
-  } else if (mode === 'unified') {
-    body = (
-      <UnifiedTable
-        items={items}
-        onExpand={(k) => setExpandedGaps((s) => new Set(s).add(k))}
-        t={t}
-        comments={commentApi}
-      />
-    );
   } else {
     body = (
-      <SplitTable
-        items={items}
-        onExpand={(k) => setExpandedGaps((s) => new Set(s).add(k))}
-        t={t}
-        comments={commentApi}
+      <CodeSurface
+        rows={rows}
+        renderer={renderer}
+        onExpandGap={(k) => setExpandedGaps((s) => new Set(s).add(k))}
+        gapLabel={(count) => t('panels.changes.diff.expandLines', { count })}
       />
     );
   }
@@ -322,7 +192,7 @@ export function DiffViewer({
   return (
     <div className="flex h-full min-h-0 flex-col bg-card">
       {header}
-      <div className="min-h-0 flex-1 overflow-auto">{body}</div>
+      <div className="min-h-0 flex-1">{body}</div>
     </div>
   );
 }
@@ -349,187 +219,5 @@ function Degraded({
         </button>
       )}
     </div>
-  );
-}
-
-type TFn = ReturnType<typeof useTranslation>['t'];
-
-function UnifiedTable({
-  items,
-  onExpand,
-  t,
-  comments,
-}: {
-  items: RenderItem[];
-  onExpand: (key: string) => void;
-  t: TFn;
-  comments: CommentApi | null;
-}) {
-  return (
-    <table className="w-full border-collapse">
-      <tbody>
-        {items.map((item) => {
-          if (item.kind === 'hunk') {
-            return (
-              <tr key={item.key}>
-                <td
-                  colSpan={3}
-                  className="border-y border-border bg-muted/60 px-3 py-1 font-mono text-[11px] text-muted-foreground"
-                >
-                  {item.content}
-                </td>
-              </tr>
-            );
-          }
-          if (item.kind === 'gap') {
-            return (
-              <GapRow
-                key={item.key}
-                colSpan={3}
-                onExpand={() => onExpand(item.key)}
-                label={t('panels.changes.diff.expandLines', { count: item.hidden.length })}
-              />
-            );
-          }
-          const { line } = item;
-          const tone = line.type === 'add' ? 'add' : line.type === 'delete' ? 'del' : undefined;
-          const anchor = comments ? anchorOf(line) : undefined;
-          const addOn = comments && anchor != null ? () => comments.setActiveLine(anchor) : undefined;
-          return (
-            <Fragment key={item.key}>
-              <tr className="group/line">
-                <Gutter value={line.old_line} tone={tone} />
-                <Gutter value={line.new_line} tone={tone} onAdd={addOn} />
-                <CodeCell line={line} />
-              </tr>
-              {comments && anchor != null && (
-                <CommentRow anchor={anchor} colSpan={3} api={comments} />
-              )}
-            </Fragment>
-          );
-        })}
-      </tbody>
-    </table>
-  );
-}
-
-const EMPTY_LINE: NumberedLine = { type: 'context', content: '' };
-
-function SplitTable({
-  items,
-  onExpand,
-  t,
-  comments,
-}: {
-  items: RenderItem[];
-  onExpand: (key: string) => void;
-  t: TFn;
-  comments: CommentApi | null;
-}) {
-  // Pair consecutive lines into left (old) / right (new) columns.
-  const rows: React.ReactNode[] = [];
-  let buffer: NumberedLine[] = [];
-
-  // After a row, emit inline comment threads for the lines it covered.
-  const pushComments = (anchors: Array<number | undefined>) => {
-    if (!comments) return;
-    const seen = new Set<number>();
-    for (const a of anchors) {
-      if (a == null || seen.has(a)) continue;
-      seen.add(a);
-      rows.push(<CommentRow key={`cm${a}-${rows.length}`} anchor={a} colSpan={4} api={comments} />);
-    }
-  };
-
-  const flush = () => {
-    if (buffer.length === 0) return;
-    const dels: NumberedLine[] = [];
-    const adds: NumberedLine[] = [];
-    const emitPaired = () => {
-      const max = Math.max(dels.length, adds.length);
-      for (let k = 0; k < max; k++) {
-        const left = dels[k] ?? EMPTY_LINE;
-        const right = adds[k] ?? EMPTY_LINE;
-        // Comments anchor on the new side only (see anchorOf): the right gutter.
-        const rightAdd =
-          comments && right.new_line != null
-            ? () => comments.setActiveLine(right.new_line!)
-            : undefined;
-        rows.push(
-          <tr key={`p${rows.length}`} className="group/line">
-            <Gutter
-              value={left.old_line}
-              tone={left.content || left.old_line ? 'del' : undefined}
-            />
-            <CodeCell line={left} className="border-r border-border" />
-            <Gutter
-              value={right.new_line}
-              tone={right.content || right.new_line ? 'add' : undefined}
-              onAdd={rightAdd}
-            />
-            <CodeCell line={right} />
-          </tr>,
-        );
-        pushComments([right.new_line]);
-      }
-      dels.length = 0;
-      adds.length = 0;
-    };
-    for (const l of buffer) {
-      if (l.type === 'delete') dels.push(l);
-      else if (l.type === 'add') adds.push(l);
-      else {
-        emitPaired();
-        const ctxAdd =
-          comments && l.new_line != null ? () => comments.setActiveLine(l.new_line!) : undefined;
-        rows.push(
-          <tr key={`c${rows.length}`} className="group/line">
-            <Gutter value={l.old_line} />
-            <CodeCell line={l} className="border-r border-border" />
-            <Gutter value={l.new_line} onAdd={ctxAdd} />
-            <CodeCell line={l} />
-          </tr>,
-        );
-        pushComments([l.new_line]);
-      }
-    }
-    emitPaired();
-    buffer = [];
-  };
-
-  items.forEach((item) => {
-    if (item.kind === 'line') {
-      buffer.push(item.line);
-      return;
-    }
-    flush();
-    if (item.kind === 'hunk') {
-      rows.push(
-        <tr key={item.key}>
-          <td
-            colSpan={4}
-            className="border-y border-border bg-muted/60 px-3 py-1 font-mono text-[11px] text-muted-foreground"
-          >
-            {item.content}
-          </td>
-        </tr>,
-      );
-    } else {
-      rows.push(
-        <GapRow
-          key={item.key}
-          colSpan={4}
-          onExpand={() => onExpand(item.key)}
-          label={t('panels.changes.diff.expandLines', { count: item.hidden.length })}
-        />,
-      );
-    }
-  });
-  flush();
-
-  return (
-    <table className="w-full border-collapse">
-      <tbody>{rows}</tbody>
-    </table>
   );
 }

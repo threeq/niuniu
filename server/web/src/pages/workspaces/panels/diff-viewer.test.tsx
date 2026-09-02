@@ -54,16 +54,17 @@ describe('DiffViewer', () => {
 
     // Syntax highlighting splits content across spans, so assert on the row's
     // full text rather than a single text node.
-    const rows = [...container.querySelectorAll('tbody tr')].map((r) => r.textContent ?? '');
+    const lineRows = () => [...container.querySelectorAll('[data-code-line]')];
+    const rows = lineRows().map((r) => r.textContent ?? '');
     expect(rows.some((r) => r.includes('echo old'))).toBe(true);
     expect(rows.some((r) => r.includes('echo new'))).toBe(true);
 
     // Gutters show the numbers the backend resolved; the viewer derives none.
     // The deleted line carries only an old number, the added line only a new one.
     const gutters = (text: string) =>
-      [...container.querySelectorAll('tbody tr')]
+      lineRows()
         .find((r) => (r.textContent ?? '').includes(text))!
-        .querySelectorAll('td');
+        .querySelectorAll('[data-code-gutter]');
     expect(gutters('echo old')[0].textContent).toBe('2');
     expect(gutters('echo old')[1].textContent).toBe('');
     expect(gutters('echo new')[0].textContent).toBe('');

@@ -45,7 +45,6 @@
     "submitArtifactDone": "\"{{name}}\" submitted as a deliverable",
     "submitArtifactFailed": "Failed to submit as deliverable",
     "close": "Close",
-    "highlightDisabledLargeFile": "File is large; syntax highlighting disabled for performance",
     "imageZoomActual": "View actual size",
     "imageZoomFit": "Fit to view"
   },
@@ -440,8 +439,6 @@
         "modeChange": "File mode changed ({{old}} → {{new}}); no content differences.",
         "renameOnly": "File renamed; no content differences.",
         "noContentChange": "No content differences (metadata-only change).",
-        "largeFile": "Large diff ({{count}} lines) — collapsed for performance.",
-        "renderAnyway": "Render anyway",
         "openInVSCode": "Open in VS Code",
         "expandLines": "Expand {{count}} unchanged lines",
         "loadError": "Failed to load diff.",

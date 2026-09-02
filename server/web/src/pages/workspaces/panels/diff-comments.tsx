@@ -1,50 +1,14 @@
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Plus, Send, Clock, Check } from 'lucide-react';
-import { cn } from '@/lib/utils';
+import { Send, Clock, Check } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import type { WorkspaceComment } from '@/types/api';
 
 // Shared line-level comment UI, used by both the diff viewer and the plain code
-// (full-file) viewer so anchoring/queue/send behaves identically in both.
+// (full-file) viewer so anchoring/queue/send behaves identically in both. The
+// line gutter itself lives in `code-surface/` — it is layout, not comment UI.
 
-export function Gutter({
-  value,
-  tone,
-  onAdd,
-}: {
-  value?: number;
-  tone?: 'add' | 'del';
-  /** When set, hovering the line reveals a "+" to add a comment on it. */
-  onAdd?: () => void;
-}) {
-  return (
-    <td
-      className={cn(
-        'relative w-11 min-w-11 select-none border-r border-border px-2 text-right align-top font-mono text-[11px] leading-5 text-muted-foreground/70',
-        tone === 'add' && 'bg-diff-add text-diff-add-fg',
-        tone === 'del' && 'bg-diff-del text-diff-del-fg',
-      )}
-    >
-      {onAdd ? (
-        <>
-          <span className="group-hover/line:opacity-0">{value ?? ''}</span>
-          <button
-            type="button"
-            onClick={onAdd}
-            className="absolute inset-0 hidden items-center justify-center text-brand hover:bg-brand-soft group-hover/line:flex"
-          >
-            <Plus className="h-3 w-3" />
-          </button>
-        </>
-      ) : (
-        value ?? ''
-      )}
-    </td>
-  );
-}
-
-// Callbacks + state a table needs to render the line-level "+" and threads.
+// Callbacks + state a surface needs to render the line-level "+" and threads.
 export interface CommentApi {
   repoName: string;
   filePath: string;
@@ -160,37 +124,33 @@ function CommentComposer({ line, api }: { line: number; api: CommentApi }) {
 }
 
 /**
- * The full-width thread row shown beneath a line: existing comments plus the
+ * The full-width thread shown beneath a line: existing comments plus the
  * composer (when this line is active). Returns null when there is nothing to
  * show, so callers can render it unconditionally.
+ *
+ * This is an *attachment* in the CodeSurface sense — it lives INSIDE the line's
+ * row element rather than in a row of its own. That placement is what keeps the
+ * virtualized list stable: the row is the unit `measureElement` observes, so
+ * opening or closing a thread re-measures that one row in place instead of
+ * inserting/removing an index and shifting everything below it.
  */
-export function CommentRow({
-  anchor,
-  colSpan,
-  api,
-}: {
-  anchor: number;
-  colSpan: number;
-  api: CommentApi;
-}) {
+export function CommentThread({ anchor, api }: { anchor: number; api: CommentApi }) {
   const comments = api.byLine.get(anchor) ?? [];
   const open = api.activeLine === anchor;
   if (comments.length === 0 && !open) return null;
   return (
-    <tr>
-      <td colSpan={colSpan} className="border-y border-border bg-muted/30 p-0">
-        {/* Pin the thread/composer to the left of the horizontal scroll and cap
-            its width, so the action buttons stay reachable no matter how far the
-            (wide) code is scrolled sideways. */}
-        <div className="sticky left-0 w-full max-w-2xl px-3 py-2 pl-12">
-          <div className="flex flex-col gap-2">
-            {comments.map((c) => (
-              <CommentItem key={c.id} comment={c} api={api} />
-            ))}
-            {open && <CommentComposer line={anchor} api={api} />}
-          </div>
+    <div className="border-y border-border bg-muted/30">
+      {/* Pin the thread/composer to the left of the horizontal scroll and cap
+          its width, so the action buttons stay reachable no matter how far the
+          (wide) code is scrolled sideways. */}
+      <div className="sticky left-0 w-full max-w-2xl px-3 py-2 pl-12">
+        <div className="flex flex-col gap-2">
+          {comments.map((c) => (
+            <CommentItem key={c.id} comment={c} api={api} />
+          ))}
+          {open && <CommentComposer line={anchor} api={api} />}
         </div>
-      </td>
-    </tr>
+      </div>
+    </div>
   );
 }
