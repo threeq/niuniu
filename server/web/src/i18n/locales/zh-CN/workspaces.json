@@ -998,5 +998,27 @@
     "viewFile": "文件",
     "viewPreview": "预览",
     "viewSource": "源码"
+  },
+  "search": {
+    "title": "搜索工作空间",
+    "description": "按文件名或文件内容搜索该工作空间下的所有仓库。",
+    "open": "搜索",
+    "openHint": "搜索文件与内容（Ctrl/Cmd+Shift+F）",
+    "placeholder": "搜索文件名与文件内容…",
+    "hint": "输入即可同时搜索文件名与文件内容。",
+    "noResults": "没有匹配的文件或内容。",
+    "filesHeading": "文件名",
+    "contentHeading": "文件内容",
+    "optionsLabel": "内容：",
+    "optionCase": "区分大小写",
+    "optionWord": "全词匹配",
+    "optionRegex": "使用正则表达式",
+    "contentMinLength": "至少输入 2 个字符才会搜索文件内容。",
+    "engineMissing": "内容搜索不可用：本机未找到 ripgrep，也未找到 git。",
+    "invalidQuery": "搜索表达式无效 —— 请检查正则表达式。",
+    "contentFailed": "内容搜索失败：{{message}}",
+    "truncatedLimit": "结果已截断 —— 匹配过多，请缩小搜索范围。",
+    "truncatedTimeout": "结果已截断 —— 搜索超时。",
+    "fileTruncated": "（还有更多匹配）"
   }
 }

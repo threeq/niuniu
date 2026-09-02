@@ -100,7 +100,9 @@ export function ContentViewerPanel({ workspaceId, target }: ContentViewerPanelPr
 
       {/* Body — children own their scroll so per-view scrollbars stay pinned. */}
       <div className="min-h-0 flex-1 overflow-hidden">
-        {target.kind === 'file' && <FileBody workspaceId={workspaceId} path={path} />}
+        {target.kind === 'file' && (
+          <FileBody workspaceId={workspaceId} path={path} jumpToLine={target.line} />
+        )}
         {target.kind === 'diff' && (
           <CodeView workspaceId={workspaceId} repo={target.repo} relPath={path} allowDiff />
         )}
@@ -125,7 +127,16 @@ export function ContentViewerPanel({ workspaceId, target }: ContentViewerPanelPr
 
 /** File body: commentable code view when it's a text file in a worktree, else
  *  the generic type-dispatched preview. */
-function FileBody({ workspaceId, path }: { workspaceId: string; path: string }) {
+function FileBody({
+  workspaceId,
+  path,
+  jumpToLine,
+}: {
+  workspaceId: string;
+  path: string;
+  /** 1-based line to reveal, when opened from a content-search hit. */
+  jumpToLine?: number;
+}) {
   const wt = resolveWorktreePath(path);
   // Comments anchor on (repo, file_path). Worktree files use the worktree name
   // as repo + the worktree-relative path; workspace-root files (e.g. .mcp.json,
@@ -138,14 +149,29 @@ function FileBody({ workspaceId, path }: { workspaceId: string; path: string }) 
   // Markdown gets a rendered-preview / raw-source toggle; the source side is a
   // commentable full-file view, so markdown too can be annotated.
   if (isMarkdownFile(path)) {
-    return <MarkdownFileBody workspaceId={workspaceId} path={path} repo={repo} relPath={relPath} />;
+    return (
+      <MarkdownFileBody
+        workspaceId={workspaceId}
+        path={path}
+        repo={repo}
+        relPath={relPath}
+        jumpToLine={jumpToLine}
+      />
+    );
   }
   // Any other text/code file (json, config, code, …) becomes a commentable
   // full-file view; rich formats (images/pdf/office) fall back to the
   // type-dispatched preview. `allowDiff={false}` keeps it a plain content view.
   if (isTextLikeFile(path)) {
     return (
-      <CodeView workspaceId={workspaceId} repo={repo} relPath={relPath} rawPath={path} allowDiff={false} />
+      <CodeView
+        workspaceId={workspaceId}
+        repo={repo}
+        relPath={relPath}
+        rawPath={path}
+        allowDiff={false}
+        jumpToLine={jumpToLine}
+      />
     );
   }
   return (
@@ -325,14 +351,18 @@ function MarkdownFileBody({
   path,
   repo,
   relPath,
+  jumpToLine,
 }: {
   workspaceId: string;
   path: string;
   repo: string;
   relPath: string;
+  jumpToLine?: number;
 }) {
   const { t } = useTranslation('workspaces');
-  const [mode, setMode] = useState<MarkdownMode>('preview');
+  // A content-search hit points at a line of SOURCE, which the rendered preview
+  // has no way to show — so open markdown on the source side when jumping.
+  const [mode, setMode] = useState<MarkdownMode>(jumpToLine ? 'source' : 'preview');
   const { fileComments, pendingCount, sendingAll, handleQueue, handleSend, handleSendAll } =
     useFileCommentActions(workspaceId, repo, relPath);
 
@@ -374,6 +404,7 @@ function MarkdownFileBody({
             comments={fileComments}
             onQueue={handleQueue}
             onSend={handleSend}
+            jumpToLine={jumpToLine}
           />
         )}
       </div>
@@ -395,6 +426,7 @@ function CodeView({
   relPath,
   rawPath,
   allowDiff,
+  jumpToLine,
 }: {
   workspaceId: string;
   repo: string;
@@ -405,9 +437,13 @@ function CodeView({
   /** Show the diff/file toggle. Only the changes list (which always has a diff)
    *  enables it; the file tree opens a plain content view with no toggle. */
   allowDiff: boolean;
+  /** 1-based line to reveal in file mode, from a content-search hit. */
+  jumpToLine?: number;
 }) {
   const { t } = useTranslation('workspaces');
-  const [mode, setMode] = useState<CodeMode>(allowDiff ? 'diff' : 'file');
+  // A search hit anchors to a line in the FULL file, which the diff view may not
+  // even contain (unchanged lines aren't in the diff) — so jump lands in file mode.
+  const [mode, setMode] = useState<CodeMode>(allowDiff && !jumpToLine ? 'diff' : 'file');
   const [viewMode, setViewMode] = useState<ViewMode>('unified');
 
   // The changes-list diff group's `name` is the REPOSITORY name, not the
@@ -471,6 +507,7 @@ function CodeView({
             comments={fileComments}
             onQueue={handleQueue}
             onSend={handleSend}
+            jumpToLine={jumpToLine}
           />
         )}
       </div>
@@ -524,6 +561,7 @@ function FileContentBody({
   comments,
   onQueue,
   onSend,
+  jumpToLine,
 }: {
   workspaceId: string;
   rawPath: string;
@@ -532,6 +570,7 @@ function FileContentBody({
   comments: WorkspaceComment[];
   onQueue: (line: number, content: string) => Promise<void>;
   onSend: (line: number, content: string) => Promise<void>;
+  jumpToLine?: number;
 }) {
   const { t } = useTranslation('workspaces');
   const { data: text, isLoading, error } = useQuery({
@@ -551,6 +590,7 @@ function FileContentBody({
       comments={comments}
       onQueueComment={onQueue}
       onSendComment={onSend}
+      jumpToLine={jumpToLine}
     />
   );
 }

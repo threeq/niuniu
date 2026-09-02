@@ -748,6 +748,8 @@ func (s *Server) setupRoutes() {
 
 		// File tree search
 		workspaces.GET("/:id/files", s.fileTreeHandler.Search)
+		// Content (grep) search — the other half of the unified search panel
+		workspaces.GET("/:id/search/content", s.fileTreeHandler.SearchContent)
 
 		// Queue routes
 		workspaces.GET("/:id/queue", s.queueHandler.List)
