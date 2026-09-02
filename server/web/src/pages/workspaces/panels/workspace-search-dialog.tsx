@@ -50,13 +50,23 @@ export function WorkspaceSearchDialog({
   );
 
   const hasQuery = search.query.trim().length > 0;
+
+  // The content group carries the status row, so it stays mounted whenever
+  // there is a hit, a spinner, or something to report.
+  const hasContentStatus =
+    !!search.contentError || search.contentTruncated || search.contentBelowMinLength;
+  const showContentGroup =
+    search.contentLoading || search.contentResults.length > 0 || hasContentStatus;
+
+  // "No results" only once BOTH searches have settled and neither found
+  // anything — and never in place of an error, which says something different.
   const showEmpty =
     hasQuery &&
     !search.nameLoading &&
     !search.contentLoading &&
     search.nameResults.length === 0 &&
     search.contentResults.length === 0 &&
-    !search.contentError;
+    !hasContentStatus;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -90,8 +100,10 @@ export function WorkspaceSearchDialog({
 
             {showEmpty && <CommandEmpty>{t('search.noResults')}</CommandEmpty>}
 
-            {/* --- file names: fast, so it renders first --- */}
-            {hasQuery && (
+            {/* --- file names: fast, so it renders first ---
+                Shown while loading (so the spinner has a home) and when there
+                are hits; a heading over nothing is just noise. */}
+            {hasQuery && (search.nameLoading || search.nameResults.length > 0) && (
               <CommandGroup
                 heading={
                   <GroupHeading
@@ -118,8 +130,12 @@ export function WorkspaceSearchDialog({
               </CommandGroup>
             )}
 
-            {/* --- file contents: slower, arrives after --- */}
-            {hasQuery && (
+            {/* --- file contents: slower, arrives after ---
+                Kept mounted whenever it has anything to say: hits, a spinner,
+                or a status row (engine missing / truncated / bad pattern). The
+                status row especially must never be hidden — that is the whole
+                difference between "cannot search" and "found nothing". */}
+            {hasQuery && showContentGroup && (
               <CommandGroup
                 heading={
                   <GroupHeading

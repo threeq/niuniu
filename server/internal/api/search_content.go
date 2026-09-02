@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"net/http"
 	"os"
 	"os/exec"
@@ -115,6 +114,11 @@ var contentLookPath = exec.LookPath
 // which would read as "no matches" instead of "cannot search".
 var errNoSearchEngine = errors.New("no search engine available: neither ripgrep (rg) nor git is on PATH")
 
+// errBadPattern marks a query the search engine refused to compile. It is the
+// user's input at fault, not the server, so it maps to 400 — and the frontend
+// shows "check your regular expression" rather than a generic failure.
+var errBadPattern = errors.New("invalid search pattern")
+
 // SearchContent handles GET /workspaces/:id/search/content?q=…
 //
 // It greps the workspace's files for `q`, preferring ripgrep and falling back to
@@ -161,6 +165,14 @@ func (h *FileTreeHandler) SearchContent(c *gin.Context) {
 			// 501: the request was fine, the host just cannot serve it. Distinct
 			// from "no matches" so the UI can say so.
 			RespondError(c, http.StatusNotImplemented, "SEARCH_ENGINE_MISSING", err.Error())
+			return
+		}
+		if errors.Is(err, errBadPattern) {
+			// 400: the engine rejected the user's pattern (bad regex). Reported
+			// as a client error so the panel can say "check the expression"
+			// instead of showing a server failure — and, critically, so it is
+			// never mistaken for an empty result set.
+			RespondError(c, http.StatusBadRequest, "BAD_REQUEST", err.Error())
 			return
 		}
 		InternalError(c, err)
@@ -562,13 +574,25 @@ func searchWithRipgrep(ctx context.Context, rgPath, root string, opts contentSea
 	commonArgs = append(commonArgs, "-e", opts.Query)
 
 	co := newCollector(root, opts.Context)
-	for _, sr := range searchRoots(root) {
+	// A root that could not be searched at all. Tracked so that "every root
+	// failed and we found nothing" becomes an explicit error rather than a
+	// clean-looking empty result.
+	var failures []error
+	roots := searchRoots(root)
+	for _, sr := range roots {
 		if co.full() || ctx.Err() != nil {
 			break
 		}
-		// One unsearchable root (vanished mid-search, permissions) must not sink
-		// the others.
-		_ = ripgrepOneRoot(ctx, rgPath, sr, commonArgs, opts.Context, co)
+		if err := ripgrepOneRoot(ctx, rgPath, sr, commonArgs, opts.Context, co); err != nil {
+			// A rejected pattern fails identically on every root, so stop now and
+			// report it — retrying the same bad regex per worktree is pure waste.
+			if errors.Is(err, errBadPattern) {
+				return nil, err
+			}
+			// Any other unsearchable root (vanished mid-search, permissions) must
+			// not sink the others — but it must not vanish silently either.
+			failures = append(failures, err)
+		}
 	}
 
 	res := co.response(engineRipgrep)
@@ -577,6 +601,20 @@ func searchWithRipgrep(ctx context.Context, rgPath, root string, opts contentSea
 		// must be labelled -- hence truncated, not "done".
 		res.Truncated = true
 		res.TruncatedReason = truncReasonTimeout
+		return res, nil
+	}
+	if len(failures) > 0 {
+		// Nothing searched successfully and nothing found: this is "could not
+		// search", not "no matches". The commonest cause is a malformed regex,
+		// which ripgrep rejects with exit 2 and no output.
+		if co.total == 0 {
+			return nil, failures[0]
+		}
+		// Partial coverage: the hits are real but incomplete, so say so.
+		res.Truncated = true
+		if res.TruncatedReason == "" {
+			res.TruncatedReason = truncReasonLimit
+		}
 	}
 	return res, nil
 }
@@ -606,15 +644,22 @@ func ripgrepOneRoot(
 	if err != nil {
 		return fmt.Errorf("ripgrep stdout: %w", err)
 	}
-	cmd.Stderr = io.Discard
+	// Keep a bounded slice of stderr: ripgrep explains a rejected pattern there,
+	// and that message is the single most useful thing to show the user.
+	var stderr boundedBuffer
+	cmd.Stderr = &stderr
 
 	if err := cmd.Start(); err != nil {
 		return fmt.Errorf("start ripgrep: %w", err)
 	}
-	// Always reap the child and release the pipe, on every exit path below.
+	// Reaped explicitly below so the exit status is inspectable; this only
+	// guards the early-return paths inside the loop.
+	reaped := false
 	defer func() {
-		_ = stdout.Close()
-		_ = cmd.Wait()
+		if !reaped {
+			_ = stdout.Close()
+			_ = cmd.Wait()
+		}
 	}()
 
 	// pendingBefore buffers leading context lines: ripgrep emits them before the
@@ -683,7 +728,90 @@ func ripgrepOneRoot(
 		}
 	}
 
+	scanErr := scanner.Err()
+
+	reaped = true
+	_ = stdout.Close()
+	waitErr := cmd.Wait()
+
+	// A scanner error (e.g. a JSON line longer than contentScanBuf) means we
+	// stopped reading early — real results, but incomplete.
+	if scanErr != nil {
+		co.truncated = true
+		if co.reason == "" {
+			co.reason = truncReasonLimit
+		}
+		return nil
+	}
+
+	// ripgrep's exit codes: 0 = matches, 1 = no matches (a valid answer),
+	// 2 = it could not run the search. The commonest cause of 2 is a malformed
+	// regex, which produces NO output — reporting that as "no matches" would
+	// tell the user their code lacks a string that was never searched for.
+	// The context deadline is handled by the caller, so don't misreport a kill.
+	if waitErr != nil && ctx.Err() == nil {
+		if ec := exitCode(waitErr); ec > 1 || ec < 0 {
+			if msg := stderr.String(); msg != "" {
+				// ripgrep says "regex parse error" for a pattern it can't compile.
+				// That's the user's input, so classify it as a bad request.
+				if isPatternError(msg) {
+					return fmt.Errorf("%w: %s", errBadPattern, firstLine(msg))
+				}
+				return fmt.Errorf("search failed: %s", firstLine(msg))
+			}
+			return fmt.Errorf("search failed (ripgrep exit %d)", ec)
+		}
+	}
 	return nil
+}
+
+// isPatternError recognises an engine complaint about the PATTERN (as opposed
+// to an IO/permission problem), so it can be reported as a 400 rather than a
+// 500. Matching on text is inherently loose; a miss only costs a less precise
+// status code, never a silently empty result.
+func isPatternError(stderr string) bool {
+	s := strings.ToLower(stderr)
+	for _, needle := range []string{
+		"regex parse error",
+		"error parsing regex",
+		"invalid regex",
+		"unclosed group",
+		"repetition quantifier expects",
+		"pattern not allowed",
+	} {
+		if strings.Contains(s, needle) {
+			return true
+		}
+	}
+	return false
+}
+
+// boundedBuffer collects at most a few KiB of a child's stderr. ripgrep's
+// diagnostics are short; the cap just stops a pathological stream from being
+// buffered in full.
+type boundedBuffer struct {
+	buf []byte
+}
+
+const boundedBufferMax = 4 << 10
+
+func (b *boundedBuffer) Write(p []byte) (int, error) {
+	if room := boundedBufferMax - len(b.buf); room > 0 {
+		b.buf = append(b.buf, p[:min(room, len(p))]...)
+	}
+	// Always report a full write: the child must never see a short write / EPIPE.
+	return len(p), nil
+}
+
+func (b *boundedBuffer) String() string { return strings.TrimSpace(string(b.buf)) }
+
+// firstLine returns s up to the first newline, so a multi-line engine
+// diagnostic collapses to something a toast can show.
+func firstLine(s string) string {
+	if i := strings.IndexAny(s, "\r\n"); i >= 0 {
+		return strings.TrimSpace(s[:i])
+	}
+	return s
 }
 
 // rgLineText extracts a line's text from ripgrep's {"text"} / {"bytes"} union.
@@ -766,6 +894,11 @@ func searchWithGitGrep(ctx context.Context, gitPath, root string, opts contentSe
 			break
 		}
 		if err := gitGrepDir(ctx, gitPath, sr, opts, co); err != nil {
+			// A rejected pattern fails the same way on every root; report it as
+			// the user error it is instead of "could not search this workspace".
+			if errors.Is(err, errBadPattern) {
+				return nil, err
+			}
 			label := sr.Prefix
 			if label == "" {
 				label = "."
@@ -839,7 +972,10 @@ func gitGrepDir(ctx context.Context, gitPath string, sr searchRoot, opts content
 	if err != nil {
 		return err
 	}
-	cmd.Stderr = io.Discard
+	// git explains a rejected pattern on stderr ("Unmatched ( or \\("); keep it
+	// so a bad regex is reported as such instead of a bare exit code.
+	var stderr boundedBuffer
+	cmd.Stderr = &stderr
 
 	if err := cmd.Start(); err != nil {
 		return err
@@ -867,12 +1003,44 @@ func gitGrepDir(ctx context.Context, gitPath string, sr searchRoot, opts content
 	// unreadable tree). Only the last is an error — reporting "no matches" for
 	// it would tell the user their code doesn't contain the string when in fact
 	// nothing was ever looked at.
-	if waitErr != nil {
+	if waitErr != nil && ctx.Err() == nil {
 		if ec := exitCode(waitErr); ec > 1 || ec < 0 {
+			msg := stderr.String()
+			// A pattern git refuses to compile is the user's input at fault.
+			if isPatternError(msg) || isGitPatternError(msg) {
+				return fmt.Errorf("%w: %s", errBadPattern, firstLine(msg))
+			}
+			if msg != "" {
+				return fmt.Errorf("git grep in %s: %s", sr.Dir, firstLine(msg))
+			}
 			return fmt.Errorf("git grep in %s: %w", sr.Dir, waitErr)
 		}
 	}
 	return nil
+}
+
+// isGitPatternError recognises git's own wording for a malformed pattern, which
+// differs from ripgrep's. POSIX regex diagnostics vary by platform, so this
+// stays deliberately broad — over-matching costs a 400 instead of a 500, while
+// under-matching would still surface an error, just a vaguer one.
+func isGitPatternError(stderr string) bool {
+	s := strings.ToLower(stderr)
+	if !strings.Contains(s, "-e option") && !strings.Contains(s, "regex") {
+		return false
+	}
+	for _, needle := range []string{
+		"unmatched",
+		"invalid",
+		"trailing backslash",
+		"brace not balanced",
+		"bracket",
+		"repetition",
+	} {
+		if strings.Contains(s, needle) {
+			return true
+		}
+	}
+	return false
 }
 
 // parseGitGrepLine splits `path\0lineno\0text` as produced by `git grep -z -n`.

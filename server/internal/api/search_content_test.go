@@ -1148,3 +1148,125 @@ func TestRgLineText(t *testing.T) {
 		t.Errorf("undecodable bytes = %q, want empty", got)
 	}
 }
+
+// --- engine rejected the pattern ------------------------------------------
+//
+// An invalid regex makes ripgrep exit 2 (git grep 128) having printed NOTHING.
+// Swallowing that exit code yields 200 + an empty list — indistinguishable from
+// "your code doesn't contain this", which is the exact confusion this endpoint
+// is built to prevent. It must surface, and as 400: the pattern is user input.
+
+func TestSearchContent_InvalidRegexIsBadRequestNotSilentEmpty(t *testing.T) {
+	requireRipgrep(t)
+	h, wsDir, wsID := makeSearchHandlerForTest(t)
+	writeRepoFile(t, wsDir, "repo1", "a.txt", "some content here\n")
+
+	code, res := doSearch(t, h, wsID, "q=%28unclosed&regex=1")
+	if code == http.StatusOK {
+		t.Fatalf("invalid regex returned 200 (total=%d, truncated=%v) — reads as 'no matches'",
+			res.TotalMatches, res.Truncated)
+	}
+	if code != http.StatusBadRequest {
+		t.Errorf("status = %d, want 400 (the pattern is the user's input)", code)
+	}
+}
+
+func TestSearchContent_GitGrepInvalidRegexIsBadRequest(t *testing.T) {
+	requireGit(t)
+	h, wsDir, wsID := makeSearchHandlerForTest(t)
+	writeRepoFile(t, wsDir, "repo1", "a.txt", "some content here\n")
+	initGitRepo(t, wsDir, "repo1")
+
+	onlyGitLookPath(t)
+
+	code, res := doSearch(t, h, wsID, "q=%28unclosed&regex=1")
+	if code == http.StatusOK {
+		t.Fatalf("invalid regex returned 200 (total=%d) on the git-grep path", res.TotalMatches)
+	}
+	if code != http.StatusBadRequest {
+		t.Errorf("status = %d, want 400", code)
+	}
+}
+
+// The counterpart: a well-formed regex must still search normally. Without this,
+// the fix above could "pass" by rejecting every regex.
+func TestSearchContent_ValidRegexStillSearches(t *testing.T) {
+	requireRipgrep(t)
+	h, wsDir, wsID := makeSearchHandlerForTest(t)
+	writeRepoFile(t, wsDir, "repo1", "a.txt", "func Alpha()\nfunc Beta()\nfunc Gamma()\n")
+
+	code, res := doSearch(t, h, wsID, "q=func%20%28Alpha%7CBeta%29&regex=1")
+	if code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", code)
+	}
+	if res.TotalMatches != 2 {
+		t.Errorf("totalMatches = %d, want 2", res.TotalMatches)
+	}
+}
+
+// A literal "(" is not a pattern error when regex mode is off — the default
+// fixed-strings path must not be dragged into the bad-pattern branch.
+func TestSearchContent_LiteralParenIsNotAPatternError(t *testing.T) {
+	requireRipgrep(t)
+	h, wsDir, wsID := makeSearchHandlerForTest(t)
+	writeRepoFile(t, wsDir, "repo1", "a.txt", "call foo(unclosed\n")
+
+	code, res := doSearch(t, h, wsID, "q=%28unclosed")
+	if code != http.StatusOK {
+		t.Fatalf("status = %d, want 200 — '(' is a literal here", code)
+	}
+	if res.TotalMatches != 1 {
+		t.Errorf("totalMatches = %d, want 1", res.TotalMatches)
+	}
+}
+
+func TestIsPatternError(t *testing.T) {
+	for _, s := range []string{
+		"rg: regex parse error:\n    (?:()\n    ^\nerror: unclosed group",
+		"error parsing regex near ')'",
+	} {
+		if !isPatternError(s) {
+			t.Errorf("isPatternError(%q) = false, want true", firstLine(s))
+		}
+	}
+	for _, s := range []string{
+		"rg: ./x: Permission denied (os error 13)",
+		"",
+	} {
+		if isPatternError(s) {
+			t.Errorf("isPatternError(%q) = true, want false", s)
+		}
+	}
+}
+
+func TestIsGitPatternError(t *testing.T) {
+	if !isGitPatternError(`fatal: -e option, '(unclosed': Unmatched ( or \(`) {
+		t.Error("git's unmatched-paren diagnostic should classify as a pattern error")
+	}
+	if isGitPatternError("fatal: not a git repository") {
+		t.Error("a non-repo error is not a pattern error")
+	}
+}
+
+func TestFirstLineAndBoundedBuffer(t *testing.T) {
+	if got := firstLine("one\ntwo\nthree"); got != "one" {
+		t.Errorf("firstLine = %q, want %q", got, "one")
+	}
+	if got := firstLine("only"); got != "only" {
+		t.Errorf("firstLine = %q, want %q", got, "only")
+	}
+
+	var b boundedBuffer
+	// A child must never see a short write, even past the cap.
+	big := make([]byte, boundedBufferMax*3)
+	for i := range big {
+		big[i] = 'x'
+	}
+	n, err := b.Write(big)
+	if n != len(big) || err != nil {
+		t.Errorf("Write = (%d, %v), want (%d, nil) — a short write would EPIPE the child", n, err, len(big))
+	}
+	if len(b.String()) > boundedBufferMax {
+		t.Errorf("buffered %d bytes, exceeds cap %d", len(b.String()), boundedBufferMax)
+	}
+}
