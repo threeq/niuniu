@@ -831,9 +831,7 @@ func (s *EpicExecutionService) AbandonIssue(ctx context.Context, in AbandonIssue
 	if reason == "" {
 		return AbandonIssueResult{}, errors.New("reason is required to abandon an issue")
 	}
-	if len(reason) > 4000 {
-		reason = reason[:4000]
-	}
+	reason = truncateRunes(reason, 4000)
 	issue, err := s.q.GetIssue(ctx, in.IssueID)
 	if err != nil {
 		return AbandonIssueResult{}, fmt.Errorf("load issue %d: %w", in.IssueID, err)

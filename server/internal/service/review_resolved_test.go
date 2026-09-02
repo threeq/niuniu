@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/niuniu-dev/niuniu/internal/store"
 )
@@ -306,6 +307,63 @@ func greet(name, greeting string) string {
 	// Position did move, so the re-pin itself happened.
 	if !stored.LineNumber.Valid || stored.LineNumber.Int64 != 9 {
 		t.Errorf("expected the position to be re-pinned to 9, got %v", stored.LineNumber)
+	}
+}
+
+// FINDING 4 (#686 严格审查). Length caps were byte slices (s[:200]), which split a
+// multi-byte rune for any non-ASCII text — and reviewer names and review comments
+// in this codebase are routinely Chinese. The result is invalid UTF-8 in the DB,
+// rendering as a replacement char and rejectable outright by a PostgreSQL text
+// column.
+func TestTruncateRunes_NeverSplitsAMultiByteRune(t *testing.T) {
+	cn := strings.Repeat("审", 100) // 300 bytes, 100 runes
+
+	got := truncateRunes(cn, 200)
+
+	if !utf8.ValidString(got) {
+		t.Errorf("truncation produced invalid UTF-8: %q", got)
+	}
+	if len(got) > 200 {
+		t.Errorf("exceeded the cap: %d bytes", len(got))
+	}
+	// 200/3 = 66 whole runes (198 bytes); the partial 67th must be dropped.
+	if n := utf8.RuneCountInString(got); n != 66 {
+		t.Errorf("rune count: want 66 whole runes, got %d", n)
+	}
+
+	// Under the cap it must pass through untouched, and ASCII must cut exactly.
+	if got := truncateRunes("short", 200); got != "short" {
+		t.Errorf("under-cap string was modified: %q", got)
+	}
+	if got := truncateRunes(strings.Repeat("a", 300), 200); len(got) != 200 {
+		t.Errorf("ASCII cut: want exactly 200 bytes, got %d", len(got))
+	}
+	// An emoji (4-byte rune) straddling the boundary must also survive intact.
+	if got := truncateRunes(strings.Repeat("🙂", 60), 201); !utf8.ValidString(got) {
+		t.Errorf("4-byte rune split: %q", got)
+	}
+}
+
+// The cap is reached through the service path, not just the helper.
+func TestSetCommentResolved_LongChineseReviewerStaysValidUTF8(t *testing.T) {
+	svc, q := setupReviewTest(t)
+	ctx := context.Background()
+	wsID, _, repoName := reviewWorkspaceWithRepo(t, svc, q, "main.go", anchorSrc)
+
+	line := 6
+	c, err := svc.CreateComment(ctx, wsID, CreateCommentInput{
+		Repo: repoName, FilePath: "main.go", LineNumber: &line, Content: "fix",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := svc.SetCommentResolved(ctx, c.ID, true, strings.Repeat("审", 100))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !utf8.ValidString(got.ResolvedBy) {
+		t.Errorf("stored resolved_by is not valid UTF-8: %q", got.ResolvedBy)
 	}
 }
 

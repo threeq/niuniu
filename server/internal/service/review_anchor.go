@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"slices"
 	"strings"
+	"unicode"
 
 	"github.com/niuniu-dev/niuniu/internal/git"
 	"github.com/niuniu-dev/niuniu/internal/store"
@@ -52,6 +53,33 @@ const (
 // near-unique in a source file, narrow enough that an edit a few lines away
 // doesn't destroy it.
 const anchorContextRadius = 3
+
+// bareLineDriftLimit bounds how far a WEAKLY-evidenced match may sit from where
+// the comment was written. A match is weak when the only thing corroborating it
+// is the commented line's own text, or that text plus a single neighbour with no
+// real identity of its own (a lone `}` or a blank line matches almost anywhere).
+//
+// Without a bound, such a match wins at any distance — so deleting the reviewed
+// function and having an identical call appear 200 lines away in unrelated code
+// relocates the comment onto source the reviewer never saw. That is silent drift
+// wearing a "relocated" label, which is worse than outdated because it looks
+// verified. A full-window match (stage 1) is exempt: several consecutive
+// matching lines are strong evidence regardless of distance.
+const bareLineDriftLimit = 25
+
+// isWeakContextLine reports whether a context line carries too little identity
+// to corroborate a match on its own. Punctuation-only lines (`}`, `)`, `},`) and
+// blanks recur constantly in source, so pairing one with the commented line is
+// barely better evidence than the line alone.
+func isWeakContextLine(s string) bool {
+	t := strings.TrimSpace(s)
+	if t == "" {
+		return true
+	}
+	return strings.IndexFunc(t, func(r rune) bool {
+		return unicode.IsLetter(r) || unicode.IsDigit(r) || r == '_'
+	}) < 0
+}
 
 // CommentContext is the snapshot stored in comments.context_lines. Line is the
 // commented line's own text; Before/After are up to anchorContextRadius lines of
@@ -155,11 +183,24 @@ func ResolveCommentAnchor(worktreePath string, c store.Comment) CommentAnchor {
 	}
 
 	// An old-side comment anchors to a line the diff deleted. That line does not
-	// exist in current content by definition, so blob comparison and relocation
-	// are both meaningless: its snapshot IS the anchor, permanently. Report it as
-	// current (the deletion it refers to is exactly what the reviewer meant) and
-	// never move it.
+	// exist in current content by definition, so blob comparison and relocation are
+	// both meaningless: its snapshot IS the anchor. But that reasoning only holds
+	// while the snapshot actually exists and the file it refers to still does —
+	// without either, there is nothing anchoring the comment, and reporting
+	// `current` would present a bare line number as verified. Fall through to
+	// outdated in both cases.
 	if anchor.Side == CommentSideOld {
+		hasSnapshot := anchor.Context != nil && strings.TrimSpace(anchor.Context.Line) != ""
+		if !hasSnapshot {
+			anchor.Status = AnchorStatusOutdated
+			return anchor
+		}
+		if _, ok := git.WorkingFileLines(worktreePath, c.FilePath); !ok {
+			// The file itself is gone; a comment about one of its deleted lines has
+			// no surviving context to sit in.
+			anchor.Status = AnchorStatusOutdated
+			return anchor
+		}
 		anchor.Status = AnchorStatusCurrent
 		anchor.EffectiveLine = anchor.OriginalLine
 		return anchor
@@ -240,36 +281,50 @@ func sameContext(a, b CommentContext) bool {
 // context alone could land the comment on a line the reviewer never wrote about,
 // which is the exact failure this whole mechanism exists to prevent.
 //
-//	stage 1 — the line plus its full before/after window (near-unique).
-//	stage 2 — the line plus at least one adjacent neighbour (survives an edit
-//	          that rewrote part of the window).
-//	stage 3 — a UNIQUE exact occurrence of the line text alone. Ambiguity is
-//	          rejected: several identical lines (a bare "}") give no evidence
-//	          which one was meant, so the comment goes outdated instead.
+//	stage 1 — the line plus its full before/after window. Several consecutive
+//	          matching lines are strong evidence; accepted at any distance.
+//	stage 2 — the line plus one adjacent neighbour (survives an edit that rewrote
+//	          part of the window). The neighbour must carry real identity — a lone
+//	          `}` corroborates nothing — and, being weaker evidence, the match must
+//	          also be near where the comment was written.
+//	stage 3 — a UNIQUE exact occurrence of the line text alone, likewise only
+//	          nearby. Ambiguity is rejected outright: several identical lines give
+//	          no evidence which was meant.
 //
-// Candidates are ordered by distance from the original line, so when several
-// positions satisfy a stage the nearest wins — a line that shifted by an
-// inserted import should relocate to its shifted self, not a lookalike far away.
+// Anything unmatched goes outdated. Candidates are ordered by distance from the
+// original line, so when several positions satisfy a stage the nearest wins — a
+// line that shifted by an inserted import relocates to its shifted self, not to
+// a lookalike elsewhere.
 func relocateContext(lines []string, snap CommentContext, originalLine int64) (int64, bool) {
 	candidates := exactLineMatches(lines, snap.Line, originalLine)
 	if len(candidates) == 0 {
 		return 0, false
 	}
+	origIdx := int(originalLine) - 1
+	near := func(idx int) bool { return abs(idx-origIdx) <= bareLineDriftLimit }
 
-	// Stage 1: full window.
+	// Stage 1: full window — strong enough to trust at any distance.
 	for _, idx := range candidates {
 		if matchesWindow(lines, idx, snap, len(snap.Before), len(snap.After)) {
 			return int64(idx + 1), true
 		}
 	}
-	// Stage 2: line + one neighbour on either side.
+	// Stage 2: line + one identity-carrying neighbour, and only nearby.
+	strongBefore := len(snap.Before) > 0 && !isWeakContextLine(snap.Before[len(snap.Before)-1])
+	strongAfter := len(snap.After) > 0 && !isWeakContextLine(snap.After[0])
 	for _, idx := range candidates {
-		if matchesWindow(lines, idx, snap, 1, 0) || matchesWindow(lines, idx, snap, 0, 1) {
+		if !near(idx) {
+			continue
+		}
+		if strongBefore && matchesWindow(lines, idx, snap, 1, 0) {
+			return int64(idx + 1), true
+		}
+		if strongAfter && matchesWindow(lines, idx, snap, 0, 1) {
 			return int64(idx + 1), true
 		}
 	}
-	// Stage 3: unique exact line, no surviving context.
-	if len(candidates) == 1 {
+	// Stage 3: unique exact line, no surviving context — likewise only nearby.
+	if len(candidates) == 1 && near(candidates[0]) {
 		return int64(candidates[0] + 1), true
 	}
 	return 0, false

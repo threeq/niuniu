@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"path/filepath"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/niuniu-dev/niuniu/internal/git"
 	"github.com/niuniu-dev/niuniu/internal/store"
@@ -430,10 +431,25 @@ func (s *ReviewService) SetCommentResolved(ctx context.Context, commentID int64,
 	if by == "" {
 		by = "审查"
 	}
-	if len(by) > 200 {
-		by = by[:200]
-	}
+	by = truncateRunes(by, 200)
 	return s.q.ResolveComment(ctx, store.ResolveCommentParams{ResolvedBy: by, ID: commentID})
+}
+
+// truncateRunes caps a string at maxBytes WITHOUT splitting a multi-byte rune.
+// A plain s[:n] cuts mid-rune for any non-ASCII text — and reviewer names and
+// review comments here are routinely Chinese — storing invalid UTF-8 that then
+// renders as a replacement character (and, on PostgreSQL, can be rejected
+// outright by a text column).
+func truncateRunes(s string, maxBytes int) string {
+	if len(s) <= maxBytes {
+		return s
+	}
+	// Walk back to the last rune boundary at or before maxBytes.
+	cut := maxBytes
+	for cut > 0 && !utf8.RuneStart(s[cut]) {
+		cut--
+	}
+	return s[:cut]
 }
 
 // SendCommentToAgent delivers a review comment to the workspace's chat agent as

@@ -399,6 +399,115 @@ func TestResolveCommentAnchor_OutdatedCarriesNoCurrent(t *testing.T) {
 	}
 }
 
+// --- Review findings (#686 严格审查): three ways the resolver used to report a
+// confident anchor it had not actually verified. Each is the same class of bug
+// the feature exists to eliminate, so each gets a permanent test.
+
+// FINDING 1. The old-side branch justified reporting `current` with "its snapshot
+// IS the anchor" — but returned `current` even when there was NO snapshot. That
+// is a bare line number presented as verified: precisely the false confidence
+// being removed.
+func TestResolveCommentAnchor_OldSideWithoutSnapshotIsOutdated(t *testing.T) {
+	dir := anchorRepo(t, "main.go", anchorSrc)
+
+	c := store.Comment{
+		ID: 1, FilePath: "main.go", LineNumber: nullInt(42), Side: CommentSideOld,
+		ContextLines: "", // nothing was ever recorded
+	}
+
+	got := ResolveCommentAnchor(dir, c)
+
+	if got.Status != AnchorStatusOutdated {
+		t.Errorf("status: want %q — an old-side comment with no snapshot has nothing anchoring it, got %q",
+			AnchorStatusOutdated, got.Status)
+	}
+	if got.EffectiveLine != 0 {
+		t.Errorf("effective line: want 0, got %d", got.EffectiveLine)
+	}
+}
+
+// FINDING 2. The old-side branch returned before any file check, so a comment on
+// a deleted line of a since-deleted FILE still reported `current`.
+func TestResolveCommentAnchor_OldSideInDeletedFileIsOutdated(t *testing.T) {
+	dir := anchorRepo(t, "main.go", anchorSrc)
+
+	c := store.Comment{
+		ID: 1, FilePath: "gone.go", LineNumber: nullInt(3), Side: CommentSideOld,
+		ContextLines: `{"before":["func x() {"],"line":"\tauditLog()","after":["}"]}`,
+	}
+
+	got := ResolveCommentAnchor(dir, c)
+
+	if got.Status != AnchorStatusOutdated {
+		t.Errorf("status: want %q when the whole file is gone, got %q", AnchorStatusOutdated, got.Status)
+	}
+}
+
+// FINDING 3. A weakly-evidenced match could relocate a comment ANY distance. The
+// reviewed function is deleted and an identical call appears far below in
+// unrelated code; the trailing `}` in the snapshot was enough to "corroborate"
+// it, so the comment jumped onto source the reviewer never saw — silent drift
+// wearing a "relocated" label, which is worse than outdated because it looks
+// verified.
+func TestResolveCommentAnchor_DistantWeakMatchDoesNotRelocate(t *testing.T) {
+	dir := anchorRepo(t, "t.go", "func alpha() {\n\tdoTheThing()\n}\n")
+	c := anchorComment(t, dir, "t.go", 2)
+
+	// alpha() deleted; an identical call reappears ~40 lines away inside omega().
+	body := "package main\n"
+	for i := 0; i < 40; i++ {
+		body += "// filler\n"
+	}
+	body += "func omega() {\n\tdoTheThing()\n}\n"
+	writeAnchorFile(t, dir, "t.go", body)
+
+	got := ResolveCommentAnchor(dir, c)
+
+	if got.Status != AnchorStatusOutdated {
+		t.Errorf("status: want %q — a lone `}` neighbour far away is not evidence, got %q (line %d)",
+			AnchorStatusOutdated, got.Status, got.EffectiveLine)
+	}
+}
+
+// The distance guard must not swallow the ordinary case it shares a code path
+// with: a genuine shift, corroborated only by a weak neighbour, but close by.
+func TestResolveCommentAnchor_NearbyWeakMatchStillRelocates(t *testing.T) {
+	dir := anchorRepo(t, "t.go", "func alpha() {\n\tdoTheThing()\n}\n")
+	c := anchorComment(t, dir, "t.go", 2)
+
+	// Same function, shifted down two lines by an inserted header, and its opening
+	// line rewritten so only the trailing `}` survives as context.
+	writeAnchorFile(t, dir, "t.go", "// hdr\n// hdr\nfunc alpha(ctx context.Context) {\n\tdoTheThing()\n}\n")
+
+	got := ResolveCommentAnchor(dir, c)
+
+	if got.Status != AnchorStatusRelocated {
+		t.Fatalf("status: want %q for a nearby shift, got %q", AnchorStatusRelocated, got.Status)
+	}
+	if got.EffectiveLine != 4 {
+		t.Errorf("effective line: want 4, got %d", got.EffectiveLine)
+	}
+}
+
+// isWeakContextLine decides whether a neighbour corroborates a match at all.
+// Getting it wrong in either direction matters: too strict and ordinary
+// relocations fail, too loose and punctuation "confirms" unrelated code.
+func TestIsWeakContextLine(t *testing.T) {
+	weak := []string{"", "   ", "}", "\t}", "})", "},", "{", ")", "//", "*/"}
+	strong := []string{"return nil", "\tfoo()", "}, nil", "// explain why", "x := 1", "}else{"}
+
+	for _, s := range weak {
+		if !isWeakContextLine(s) {
+			t.Errorf("want %q treated as weak context", s)
+		}
+	}
+	for _, s := range strong {
+		if isWeakContextLine(s) {
+			t.Errorf("want %q treated as strong context", s)
+		}
+	}
+}
+
 // The snapshot must actually capture the surrounding source — a silently empty
 // snapshot would make every comment go outdated on first edit.
 func TestCaptureCommentContext_SnapshotsSurroundingLines(t *testing.T) {

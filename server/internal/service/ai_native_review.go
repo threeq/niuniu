@@ -48,9 +48,7 @@ func (s *EpicExecutionService) recordReviewChangeSummary(ctx context.Context, is
 	if reason == "" {
 		return
 	}
-	if len(reason) > 4000 {
-		reason = reason[:4000]
-	}
+	reason = truncateRunes(reason, 4000)
 	if _, err := s.q.CreateIssueComment(ctx, store.CreateIssueCommentParams{
 		IssueID: issueID,
 		Author:  "续跑",
@@ -304,9 +302,7 @@ func (s *EpicExecutionService) RequestChanges(ctx context.Context, in RequestCha
 	}
 	posted := false
 	if c := strings.TrimSpace(in.Comment); c != "" {
-		if len(c) > 8000 {
-			c = c[:8000]
-		}
+		c = truncateRunes(c, 8000)
 		if _, cerr := s.q.CreateIssueComment(ctx, store.CreateIssueCommentParams{
 			IssueID: in.IssueID, Author: author, Content: c,
 		}); cerr != nil {
@@ -419,10 +415,9 @@ func (s *EpicExecutionService) ApproveReview(ctx context.Context, in ApproveRevi
 	// 1) Durable record of the approval itself.
 	body := "✅ 审查通过"
 	if c := strings.TrimSpace(in.Comment); c != "" {
-		if len(c) > 8000 {
-			c = c[:8000]
-		}
-		body += "：" + c
+		// Rune-safe: review text here is routinely Chinese, and a byte cut would
+		// split a rune and store invalid UTF-8.
+		body += "：" + truncateRunes(c, 8000)
 	}
 	if _, cerr := s.q.CreateIssueComment(ctx, store.CreateIssueCommentParams{
 		IssueID: in.IssueID, Author: author, Content: body,
