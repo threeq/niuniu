@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Send, RotateCcw } from 'lucide-react'
+import { Send, RotateCcw, CheckCircle2 } from 'lucide-react'
 
 interface IssueCommentInputProps {
   onSubmit: (data: { author: string; content: string }) => void
@@ -13,6 +13,14 @@ interface IssueCommentInputProps {
   onRequestChanges?: (data: { author: string; content: string }) => void
   requestChangesLabel?: string
   isRequestingChanges?: boolean
+  // Review 闭环 · 正向结论 (#689): the counterpart 打回 never had. Approving used to
+  // mean silently dragging the card, so a PASSING review left no record of who
+  // approved it or on what basis. Content is optional here — an approval with no
+  // rationale is still a durable verdict, unlike a bounce which needs a reason.
+  onApprove?: (data: { author: string; content: string }) => void
+  approveLabel?: string
+  approveHint?: string
+  isApproving?: boolean
 }
 
 export function IssueCommentInput({
@@ -21,6 +29,10 @@ export function IssueCommentInput({
   onRequestChanges,
   requestChangesLabel,
   isRequestingChanges,
+  onApprove,
+  approveLabel,
+  approveHint,
+  isApproving,
 }: IssueCommentInputProps) {
   const { t } = useTranslation('projects')
   const [content, setContent] = useState('')
@@ -38,7 +50,13 @@ export function IssueCommentInput({
     setContent('')
   }
 
-  const busy = isSubmitting || isRequestingChanges
+  const handleApprove = () => {
+    if (!onApprove) return
+    onApprove({ author: author.trim(), content: content.trim() })
+    setContent('')
+  }
+
+  const busy = isSubmitting || isRequestingChanges || isApproving
 
   return (
     <div className="bg-accent/20 border border-border rounded-lg p-3">
@@ -60,6 +78,17 @@ export function IssueCommentInput({
       <div className="flex justify-between items-center mt-2">
         <span className="text-[10px] text-muted-foreground">{t('issue.comment.ctrlEnterHint')}</span>
         <div className="flex items-center gap-2">
+          {onApprove && (
+            <button
+              className="flex items-center gap-1 border border-border text-success px-3 py-1 rounded text-xs hover:bg-accent disabled:opacity-50"
+              onClick={handleApprove}
+              disabled={busy}
+              title={approveHint ?? approveLabel}
+            >
+              <CheckCircle2 className="w-3 h-3" />
+              {approveLabel}
+            </button>
+          )}
           {onRequestChanges && (
             <button
               className="flex items-center gap-1 border border-border text-warning px-3 py-1 rounded text-xs hover:bg-accent disabled:opacity-50"

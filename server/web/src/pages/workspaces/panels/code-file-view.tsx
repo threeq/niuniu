@@ -1,7 +1,13 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { WorkspaceComment } from '@/types/api';
 import { useSyntaxHighlight, renderTokens } from '@/lib/syntax';
-import { CommentThread, type CommentApi } from './diff-comments';
+import { effectiveLine } from '@/lib/hooks/use-workspace-comments';
+import {
+  CommentThread,
+  OutdatedCommentList,
+  type CommentApi,
+  type ComposeTarget,
+} from './diff-comments';
 import { CodeSurface, buildFileRows, type CodeLineRenderer } from './code-surface';
 
 // How long the jumped-to line stays highlighted. Long enough to catch the eye
@@ -14,10 +20,12 @@ interface CodeFileViewProps {
   /** Repo (worktree) + path, used only for the comment thread's line metadata. */
   repoName: string;
   filePath: string;
-  /** Existing review comments for this file (anchored by line_number). */
+  /** Existing review comments for this file (positioned by their anchor). */
   comments?: WorkspaceComment[];
-  onQueueComment?: (line: number, content: string) => Promise<void>;
-  onSendComment?: (line: number, content: string) => Promise<void>;
+  onQueueComment?: (target: ComposeTarget, content: string) => Promise<void>;
+  onSendComment?: (target: ComposeTarget, content: string) => Promise<void>;
+  /** Set/clear a comment's review verdict. */
+  onSetResolved?: (commentId: number, resolved: boolean) => Promise<void>;
   /**
    * 1-based line to scroll to and flash on mount — set when the file was opened
    * from a content-search hit. Resolved to a row index and handed to the
@@ -45,9 +53,10 @@ export function CodeFileView({
   comments,
   onQueueComment,
   onSendComment,
+  onSetResolved,
   jumpToLine,
 }: CodeFileViewProps) {
-  const [activeLine, setActiveLine] = useState<number | null>(null);
+  const [active, setActive] = useState<ComposeTarget | null>(null);
   // The jump flash is derived, not stored: `expiredJump` records which jump has
   // already flashed, and the flash is on whenever the current jump isn't it.
   // Deriving it this way keeps the effect free of a synchronous setState (which
@@ -74,15 +83,27 @@ export function CodeFileView({
     return () => clearTimeout(timer);
   }, [jumpKey]);
 
-  const byLine = useMemo(() => {
-    const m = new Map<number, WorkspaceComment[]>();
+  // A full-file view shows the CURRENT content, so a comment belongs at its
+  // effective (re-resolved) line, not the line it was written against. One whose
+  // anchor is gone has no place in the listing at all and goes to the banner.
+  const { byLine, outdated } = useMemo(() => {
+    const byLine = new Map<number, WorkspaceComment[]>();
+    const outdated: WorkspaceComment[] = [];
     for (const c of comments ?? []) {
-      if (c.line_number == null) continue;
-      const arr = m.get(c.line_number) ?? [];
+      // An old-side comment names a line that no longer exists in the file, so
+      // the full-file view has nowhere to put it. Otherwise `effectiveLine` is
+      // the sole authority — null means no honest position.
+      const oldSide = (c.anchor?.side ?? c.side) === 'old';
+      const line = oldSide ? null : effectiveLine(c);
+      if (line == null) {
+        outdated.push(c);
+        continue;
+      }
+      const arr = byLine.get(line) ?? [];
       arr.push(c);
-      m.set(c.line_number, arr);
+      byLine.set(line, arr);
     }
-    return m;
+    return { byLine, outdated };
   }, [comments]);
 
   const commentApi: CommentApi | null =
@@ -91,10 +112,11 @@ export function CodeFileView({
           repoName,
           filePath,
           byLine,
-          activeLine,
-          setActiveLine,
+          active,
+          setActive,
           onQueue: onQueueComment,
           onSend: onSendComment,
+          onSetResolved,
         }
       : null;
 
@@ -106,11 +128,14 @@ export function CodeFileView({
         line.new_line != null ? highlight(line.new_line - 1) : undefined,
         line.content,
       ),
+    // A plain file has no deleted lines, so only the new side ever attaches.
     attachment: commentApi
-      ? (anchor) => <CommentThread anchor={anchor} api={commentApi} />
+      ? (anchor, side) =>
+          side === 'new' ? <CommentThread anchor={anchor} side="new" api={commentApi} /> : null
       : undefined,
     gutterAction: commentApi
-      ? (cell) => (cell.anchor != null ? () => setActiveLine(cell.anchor!) : undefined)
+      ? (cell) =>
+          cell.anchor != null ? () => setActive({ line: cell.anchor!, side: 'new' }) : undefined
       : undefined,
     rowClassName: (row) =>
       flashLine != null && row.kind === 'line' && row.anchor === flashLine
@@ -122,12 +147,17 @@ export function CodeFileView({
   const scrollToRow = jumpValid ? jumpToLine! - 1 : undefined;
 
   return (
-    <CodeSurface
-      rows={rows}
-      renderer={renderer}
-      scrollToRow={scrollToRow}
-      scrollToKey={jumpKey}
-      showSigns={false}
-    />
+    <div className="flex h-full min-h-0 flex-col">
+      {commentApi && <OutdatedCommentList comments={outdated} api={commentApi} />}
+      <div className="min-h-0 flex-1">
+        <CodeSurface
+          rows={rows}
+          renderer={renderer}
+          scrollToRow={scrollToRow}
+          scrollToKey={jumpKey}
+          showSigns={false}
+        />
+      </div>
+    </div>
   );
 }

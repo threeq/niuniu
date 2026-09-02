@@ -17,6 +17,17 @@
       "failed": "Failed to re-open"
     }
   },
+  "approveReview": {
+    "title": "Approve review",
+    "submit": "Approve",
+    "hintMove": "Record a passing review verdict and advance the card to “{{column}}”",
+    "hintRecord": "Record a passing review verdict (the card does not move)",
+    "hintEpic": "Record a passing review verdict. Epics require human review and are never advanced into Done automatically — move the card by hand once you have confirmed it",
+    "doneMoved": "Approved; card moved to “{{column}}”",
+    "doneRecorded": "Approval recorded (card not moved)",
+    "blocked": "Approval recorded, but the card could not be moved: {{reason}}",
+    "failed": "Approval failed"
+  },
   "goalCondition": {
     "title": "Autohost completion criterion (optional)",
     "set": "Set",

@@ -3,9 +3,15 @@ import { useTranslation } from 'react-i18next';
 import { Package, ChevronRight, FileCode2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { GitFileDiff, GitDiffLine } from '@/lib/hooks/use-file-diff';
-import type { WorkspaceComment } from '@/types/api';
+import type { CommentAnchorContext, WorkspaceComment } from '@/types/api';
 import { useDiffHighlight, renderTokens } from '@/lib/syntax';
-import { CommentThread, type CommentApi } from './diff-comments';
+import { effectiveLine } from '@/lib/hooks/use-workspace-comments';
+import {
+  CommentThread,
+  OutdatedCommentList,
+  type CommentApi,
+  type ComposeTarget,
+} from './diff-comments';
 import {
   CodeSurface,
   buildUnifiedRows,
@@ -31,14 +37,61 @@ interface DiffViewerProps {
   mode: ViewMode;
   /** Optional VS Code fallback for binary diffs. */
   onOpenExternal?: () => void;
-  /** Existing review comments for this file (anchored by line_number). */
+  /** Existing review comments for this file (positioned by their anchor). */
   comments?: WorkspaceComment[];
   /** Queue a comment on a line (persist only). */
-  onQueueComment?: (line: number, content: string) => Promise<void>;
+  onQueueComment?: (target: ComposeTarget, content: string) => Promise<void>;
   /** Send a comment on a line directly to the agent. */
-  onSendComment?: (line: number, content: string) => Promise<void>;
+  onSendComment?: (target: ComposeTarget, content: string) => Promise<void>;
+  /** Set/clear a comment's review verdict. */
+  onSetResolved?: (commentId: number, resolved: boolean) => Promise<void>;
   /** Render every line without folding long unchanged runs (full-file view). */
   disableCollapse?: boolean;
+}
+
+/** How many neighbours each side of an old-side snapshot, matching the server. */
+const OLD_CONTEXT_RADIUS = 3;
+
+/**
+ * Snapshot the OLD side of the diff around a deleted line.
+ *
+ * The old side does not exist in the working tree, so the server cannot capture
+ * this itself — only the client holding the rendered diff can. Without it the
+ * comment reaches the backend with no anchor at all and is reported outdated
+ * from the moment it is created, which would make deleted-line comments
+ * technically possible but useless.
+ */
+function captureOldContext(file: GitFileDiff, oldLine: number): CommentAnchorContext | undefined {
+  // Reconstruct the old side of the file from the hunks: every line that exists
+  // before the change (context + delete), keyed by its old line number.
+  const byOldLine = new Map<number, string>();
+  for (const hunk of file.hunks ?? []) {
+    for (const l of hunk.lines ?? []) {
+      if (l.old_line != null) byOldLine.set(l.old_line, l.content);
+    }
+  }
+  const line = byOldLine.get(oldLine);
+  if (line == null) return undefined;
+
+  const before: string[] = [];
+  for (let n = oldLine - OLD_CONTEXT_RADIUS; n < oldLine; n++) {
+    const text = byOldLine.get(n);
+    // Only contiguous neighbours are real context. A gap (folded run, hunk
+    // boundary) means the intervening lines are simply not in the diff, and
+    // pretending otherwise would hand the server a window that never existed.
+    if (text == null) {
+      before.length = 0;
+      continue;
+    }
+    before.push(text);
+  }
+  const after: string[] = [];
+  for (let n = oldLine + 1; n <= oldLine + OLD_CONTEXT_RADIUS; n++) {
+    const text = byOldLine.get(n);
+    if (text == null) break;
+    after.push(text);
+  }
+  return { before, line, after };
 }
 
 /**
@@ -62,11 +115,12 @@ export function DiffViewer({
   comments,
   onQueueComment,
   onSendComment,
+  onSetResolved,
   disableCollapse = false,
 }: DiffViewerProps) {
   const { t } = useTranslation('workspaces');
   const [expandedGaps, setExpandedGaps] = useState<Set<string>>(() => new Set());
-  const [activeLine, setActiveLine] = useState<number | null>(null);
+  const [active, setActive] = useState<ComposeTarget | null>(null);
 
   const rows = useMemo(
     () =>
@@ -82,16 +136,38 @@ export function DiffViewer({
   // placeholder instead of code, so there is nothing to highlight.
   const highlight = useDiffHighlight(fileDiff, !fileDiff.is_binary);
 
-  // Comments grouped by their anchored line number for inline rendering.
-  const byLine = useMemo(() => {
-    const m = new Map<number, WorkspaceComment[]>();
-    for (const c of comments ?? []) {
-      if (c.line_number == null) continue;
-      const arr = m.get(c.line_number) ?? [];
+  // Comments split three ways by where they can honestly be shown.
+  //
+  //   byLine    — new-side, anchor still resolves: rendered inline at the
+  //               EFFECTIVE line, which is not necessarily where it was written.
+  //   byOldLine — anchored to a line this diff deletes.
+  //   outdated  — no honest position left; surfaced in the banner with its
+  //               snapshot instead of being pinned to unrelated code.
+  const { byLine, byOldLine, outdated } = useMemo(() => {
+    const byLine = new Map<number, WorkspaceComment[]>();
+    const byOldLine = new Map<number, WorkspaceComment[]>();
+    const outdated: WorkspaceComment[] = [];
+    const push = (m: Map<number, WorkspaceComment[]>, k: number, c: WorkspaceComment) => {
+      const arr = m.get(k) ?? [];
       arr.push(c);
-      m.set(c.line_number, arr);
+      m.set(k, arr);
+    };
+    for (const c of comments ?? []) {
+      // `effectiveLine` is the single authority on where a comment may render;
+      // it returns null precisely when there is no honest position (outdated
+      // anchor, or none recorded). Duplicating that test here would let the two
+      // copies drift apart, which is how silent drift got in the first time.
+      const line = effectiveLine(c);
+      if (line == null) {
+        // Collected rather than dropped: written feedback must never vanish
+        // just because the code moved out from under it.
+        outdated.push(c);
+        continue;
+      }
+      const side = c.anchor?.side ?? c.side ?? 'new';
+      push(side === 'old' ? byOldLine : byLine, line, c);
     }
-    return m;
+    return { byLine, byOldLine, outdated };
   }, [comments]);
 
   const commentApi: CommentApi | null =
@@ -100,12 +176,18 @@ export function DiffViewer({
           repoName,
           filePath: fileDiff.path,
           byLine,
-          activeLine,
-          setActiveLine,
+          active,
+          setActive,
           onQueue: onQueueComment,
           onSend: onSendComment,
+          onSetResolved,
         }
       : null;
+
+  // The old-side thread reads the same CommentApi shape but a different map, so
+  // a deleted line's comments cannot leak into the new-side thread that happens
+  // to share its integer.
+  const oldCommentApi: CommentApi | null = commentApi ? { ...commentApi, byLine: byOldLine } : null;
 
   const renderer: CodeLineRenderer = {
     // `build-rows` puts the very `GitDiffLine` objects from `fileDiff` into the
@@ -114,10 +196,29 @@ export function DiffViewer({
     // unified↔split switch, both of which reorder rows but reuse the objects.
     tokenize: (line) => renderTokens(highlight(line as GitDiffLine), line.content),
     attachment: commentApi
-      ? (anchor) => <CommentThread anchor={anchor} api={commentApi} />
+      ? (anchor, side) =>
+          side === 'old' ? (
+            <CommentThread anchor={anchor} side="old" api={oldCommentApi!} />
+          ) : (
+            <CommentThread anchor={anchor} side="new" api={commentApi} />
+          )
       : undefined,
     gutterAction: commentApi
-      ? (cell) => (cell.anchor != null ? () => setActiveLine(cell.anchor!) : undefined)
+      ? (cell) => {
+          if (cell.anchor != null) {
+            return () => setActive({ line: cell.anchor!, side: 'new' });
+          }
+          if (cell.oldAnchor != null) {
+            const oldLine = cell.oldAnchor;
+            return () =>
+              setActive({
+                line: oldLine,
+                side: 'old',
+                context: captureOldContext(fileDiff, oldLine),
+              });
+          }
+          return undefined;
+        }
       : undefined,
   };
 
@@ -204,6 +305,10 @@ export function DiffViewer({
   return (
     <div className="flex h-full min-h-0 flex-col bg-card">
       {header}
+      {/* Comments whose anchor no longer resolves sit ABOVE the diff, not inside
+          it — there is no line left to attach them to, and hiding them would
+          silently discard review feedback. */}
+      {commentApi && <OutdatedCommentList comments={outdated} api={commentApi} />}
       <div className="min-h-0 flex-1">{body}</div>
     </div>
   );

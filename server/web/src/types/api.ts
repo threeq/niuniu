@@ -1078,6 +1078,22 @@ export interface CreateWorkspaceCommentInput {
   context_lines?: string
 }
 
+// Result of POST /issues/:id/approve-review — the positive review conclusion.
+// `moved` is false when the approval deliberately did not advance the card
+// (Epic / 人工审查 must be moved by a human) and also when the move was blocked;
+// `blocked_reason` distinguishes the two.
+export interface ApproveReviewResult {
+  issue_id: number
+  approved: boolean
+  column_id: number
+  column_name: string
+  moved: boolean
+  comment_posted: boolean
+  resolved_comments: number
+  blocked?: boolean
+  blocked_reason?: string
+}
+
 // Issue timeline
 export interface TimelineEntry {
   type: 'comment' | 'activity'

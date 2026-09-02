@@ -35,6 +35,7 @@ import { useRepoDiff } from '@/lib/hooks/use-file-diff';
 import { useWorkspaceComments } from '@/lib/hooks/use-workspace-comments';
 import { buildFileTree, type TreeNode } from '@/lib/changes-file-tree';
 import { DiffViewer } from './diff-viewer';
+import type { ComposeTarget } from './diff-comments';
 import { CheckpointTimeline } from './checkpoint-timeline';
 
 interface ChangesPanelProps {
@@ -365,14 +366,16 @@ export function DiffPane({
   comments,
   onQueueComment,
   onSendComment,
+  onSetResolved,
 }: {
   workspaceId: string;
   repo: RepoDiffGroup;
   path: string;
   viewMode: ViewMode;
   comments: WorkspaceComment[];
-  onQueueComment: (line: number, content: string) => Promise<void>;
-  onSendComment: (line: number, content: string) => Promise<void>;
+  onQueueComment: (target: ComposeTarget, content: string) => Promise<void>;
+  onSendComment: (target: ComposeTarget, content: string) => Promise<void>;
+  onSetResolved: (commentId: number, resolved: boolean) => Promise<void>;
 }) {
   const { t } = useTranslation('workspaces');
 
@@ -408,6 +411,7 @@ export function DiffPane({
       comments={comments}
       onQueueComment={onQueueComment}
       onSendComment={onSendComment}
+      onSetResolved={onSetResolved}
     />
   );
 }

@@ -50,7 +50,11 @@
       },
       "confirmDiscardAll": "Discard all changes? This action cannot be undone!",
       "confirmDiscardFile": "Discard changes to \"{{path}}\"?",
-      "confirmDeleteBranch": "Delete branch \"{{name}}\"?"
+      "confirmDeleteBranch": "Delete branch \"{{name}}\"?",
+      "backToGraph": "Back to graph",
+      "diffUnified": "Unified",
+      "diffSplit": "Split",
+      "noDiffForFile": "This commit has no line-level changes to show for that file"
     },
     "files": {
       "refresh": "Refresh",

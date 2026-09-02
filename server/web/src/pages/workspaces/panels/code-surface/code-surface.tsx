@@ -144,9 +144,14 @@ function Cell({
   const type = line?.type ?? 'context';
   const tone = type === 'add' ? 'add' : type === 'delete' ? 'del' : undefined;
   const sign = type === 'add' ? '+' : type === 'delete' ? '−' : ' ';
-  // Only the last gutter is commentable — it is the new-side number, the one
-  // coordinate space anchors live in.
   const onAdd = renderer?.gutterAction?.(cell);
+  // Which gutter carries the "+" affordance. Normally the last one — the
+  // new-side number, where new-side anchors live. A deletion has no new-side
+  // number, so in the unified layout (old, new) its affordance goes on the
+  // FIRST gutter: hanging it off a blank cell would leave deleted lines
+  // un-commentable, which is the gap old-side anchoring exists to close.
+  const commentableGutter =
+    cell.anchor == null && cell.oldAnchor != null ? 0 : cell.gutters.length - 1;
 
   // No `tokenize` hook means no highlighting — the raw text renders as-is.
   // That is the correct default rather than a lesser built-in highlighter:
@@ -167,7 +172,7 @@ function Cell({
           key={i}
           value={value}
           tone={tone}
-          onAdd={i === cell.gutters.length - 1 ? onAdd : undefined}
+          onAdd={i === commentableGutter ? onAdd : undefined}
         />
       ))}
       <div
@@ -326,7 +331,12 @@ export function CodeSurface({
       );
     }
 
-    const attachment = row.anchor != null ? renderer?.attachment?.(row.anchor) : null;
+    // Both sides can carry a thread: the new-side anchor for ordinary comments,
+    // the old-side one for comments on a deleted line. A modification row has
+    // both, and each renders its own thread beneath the shared row.
+    const attachment = row.anchor != null ? renderer?.attachment?.(row.anchor, 'new') : null;
+    const oldAttachment =
+      row.oldAnchor != null ? renderer?.attachment?.(row.oldAnchor, 'old') : null;
     return (
       <div className={extra}>
         <div data-code-line="" className="group/line flex min-w-full">
@@ -340,6 +350,7 @@ export function CodeSurface({
             />
           ))}
         </div>
+        {oldAttachment}
         {attachment}
       </div>
     );

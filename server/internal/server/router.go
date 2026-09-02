@@ -991,6 +991,9 @@ func (s *Server) setupRoutes() {
 		repositories.GET("/:id/graph", s.repositoryHandler.GetGraph)
 		repositories.GET("/:id/branch-tree", s.repositoryHandler.GetBranchTree)
 		repositories.GET("/:id/commits/:hash", s.repositoryHandler.GetCommitDetail)
+		// Line-level diff for one commit (#689): the detail view listed only file
+		// names, so the actual change was invisible without leaving the app.
+		repositories.GET("/:id/commits/:hash/diff", s.repositoryHandler.GetCommitDiff)
 		repositories.POST("/:id/commit", s.repositoryHandler.CommitAll)
 		repositories.POST("/:id/discard", s.repositoryHandler.DiscardAll)
 		repositories.POST("/:id/discard-file", s.repositoryHandler.DiscardFile)

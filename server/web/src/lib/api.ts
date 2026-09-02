@@ -26,6 +26,7 @@ import type {
   IssueComment,
   WorkspaceComment,
   CreateWorkspaceCommentInput,
+  ApproveReviewResult,
   TimelineEntry,
   EnvPreset,
   CreateEnvPresetData,
@@ -554,6 +555,21 @@ export const api = {
     api.post<WorkspaceComment>(`/workspaces/${workspaceId}/comments`, data),
   sendCommentToAgent: (commentId: number): Promise<void> =>
     api.post<void>(`/comments/${commentId}/send-to-agent`),
+  // The REVIEW verdict, orthogonal to send-to-agent (delivery). A comment that
+  // was injected into the agent stays unresolved until a reviewer judges it.
+  setCommentResolved: (
+    commentId: number,
+    data: { resolved: boolean; by?: string },
+  ): Promise<WorkspaceComment> =>
+    api.patch<WorkspaceComment>(`/comments/${commentId}/resolved`, data),
+
+  // Review 闭环 · 正向结论 (#689): records that a review PASSED. `to_column` is
+  // opt-in — Epic / 人工审查 cards must be moved by a human, so approval and
+  // movement stay separate decisions.
+  approveReview: (
+    issueId: number,
+    data: { comment?: string; author?: string; to_column?: string; resolve_comments?: boolean },
+  ) => api.post<ApproveReviewResult>(`/issues/${issueId}/approve-review`, data),
 
   // Issue timeline
   getIssueTimeline: (issueId: number) =>

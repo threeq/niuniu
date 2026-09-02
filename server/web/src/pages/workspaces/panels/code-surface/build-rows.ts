@@ -18,14 +18,23 @@ export const COLLAPSE_THRESHOLD = 10;
 const COLLAPSE_EDGE = 3;
 
 /**
- * The coordinate comments anchor to: the NEW-file line number. A single
- * coordinate space keeps a stored `line_number` unambiguous — anchoring
- * deletions by old-side numbers would collide with the add/context lines that
- * share the same integer and duplicate threads. Pure deletions are therefore
- * not commentable.
+ * The coordinate a NEW-side comment anchors to: the new-file line number. Keeping
+ * one coordinate per side is what makes a stored `line_number` unambiguous.
  */
 function anchorOf(line: GitDiffLine): number | undefined {
   return line.new_line;
+}
+
+/**
+ * The coordinate an OLD-side comment anchors to, present only on a line the diff
+ * DELETES. Deleted lines were previously un-commentable entirely — they have no
+ * new-side number to hang on, so "you shouldn't have removed this" could not be
+ * expressed. They get their own space rather than borrowing the new-side one,
+ * because the same integer routinely names a different line on each side and a
+ * shared space would merge two unrelated threads.
+ */
+function oldAnchorOf(line: GitDiffLine): number | undefined {
+  return line.type === 'delete' ? line.old_line : undefined;
 }
 
 /** Walk a hunk's lines, folding long unchanged runs into gap markers. */
@@ -87,20 +96,25 @@ export function buildUnifiedRows(
       disableCollapse,
       (line, key) => {
         const anchor = anchorOf(line);
+        const oldAnchor = oldAnchorOf(line);
         rows.push({
           kind: 'line',
           key,
           // Unified: old number, new number, then the code. The new-side gutter
-          // comes last, so it is the one that carries the "+" affordance.
+          // comes last, so it is the one that carries the "+" affordance —
+          // except on a deletion, which has no new number and takes its
+          // affordance on the old-side gutter instead.
           cells: [
             {
               side: 'unified',
               line,
               gutters: [line.old_line, line.new_line],
               anchor,
+              oldAnchor,
             },
           ],
           anchor,
+          oldAnchor,
         });
       },
       (key, hiddenCount) => rows.push({ kind: 'gap', key, hiddenCount }),
@@ -139,18 +153,20 @@ export function buildSplitRows(
       const left = dels[k];
       const right = adds[k];
       const anchor = right ? anchorOf(right) : undefined;
+      const oldAnchor = left ? oldAnchorOf(left) : undefined;
       rows.push({
         kind: 'line',
         key: `p${seq++}`,
         cells: [
           left
-            ? { side: 'old', line: left, gutters: [left.old_line] }
+            ? { side: 'old', line: left, gutters: [left.old_line], oldAnchor }
             : EMPTY_CELL('old'),
           right
             ? { side: 'new', line: right, gutters: [right.new_line], anchor }
             : EMPTY_CELL('new'),
         ],
         anchor,
+        oldAnchor,
       });
     }
     dels = [];

@@ -562,3 +562,27 @@ func isUntracked(worktreePath, filePath string) bool {
 	}
 	return strings.TrimSpace(string(out)) != ""
 }
+
+// CommitDiff returns the structured, line-level diff a single commit introduced.
+//
+// The commit-detail view previously listed only file NAMES (`git diff-tree
+// --name-status`), so "what did this commit actually change" was unanswerable
+// without leaving the app. This reuses the same `parseDiff` the workspace diff
+// goes through, which means the Repository page and the review panel render
+// identical structures — no second parser, no second set of edge cases.
+//
+// A root commit (no parent) needs no special handling: `git show` diffs it
+// against the empty tree, so it renders as "this commit created these files".
+func CommitDiff(repoPath, commitHash string) ([]FileDiff, error) {
+	// `--first-parent` makes a merge commit report what the merge brought in
+	// rather than the empty diff `show` gives a merge by default. `-m` is
+	// deliberately NOT used instead: it emits one diff section per parent, and
+	// parseDiff would then return the same file twice.
+	cmd := exec.Command("git", "-C", repoPath, "-c", "core.quotepath=false",
+		"show", "--format=", "--first-parent", commitHash)
+	out, err := cmd.Output()
+	if err != nil {
+		return nil, fmt.Errorf("git show %s: %w", commitHash, err)
+	}
+	return parseDiff(string(out))
+}

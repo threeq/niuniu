@@ -457,7 +457,29 @@
         "queued": "已加入佇列",
         "sentOne": "已傳送給 Agent",
         "sentAll": "已傳送 {{count}} 條評論給 Agent",
-        "sentPartial": "已傳送 {{sent}} 條，{{failed}} 條失敗"
+        "sentPartial": "已傳送 {{sent}} 條，{{failed}} 條失敗",
+        "oldSide": "刪除行",
+        "oldSideHint": "這條評論指向本次改動刪除的一行，錨點是當時的內容快照",
+        "composingOldSide": "評論刪除的第 {{line}} 行（舊側）",
+        "anchor": {
+          "outdated": "錨點已失效",
+          "outdatedHint": "該處內容已不在，行號不可信 —— 展開查看寫下這條意見時的原文",
+          "outdatedBanner": "{{count}} 條評論的錨點已失效（內容已變，無法定位到具體行）",
+          "relocated": "已隨內容移動",
+          "relocatedHint": "原第 {{from}} 行，現在第 {{to}} 行",
+          "showSnapshot": "查看當時的上下文",
+          "compare": "對比：當時 vs 現在",
+          "thenLabel": "當時（寫下這條意見時）",
+          "nowLabel": "現在"
+        },
+        "verdict": {
+          "open": "未解決",
+          "resolved": "已解決",
+          "resolveHint": "標記為已解決（審閱結論，與是否發給 Agent 無關）",
+          "reopenHint": "重新打開",
+          "markedResolved": "已標記為已解決",
+          "reopened": "已重新打開"
+        }
       },
       "syncFromBranchPrompt": "請把分支 `{{sourceBranch}}` 的最新程式碼合併到下述指定 worktree 的當前分支 `{{currentBranch}}` 中。\n\n⚠️ 此工作空間下可能有多個 worktree，請嚴格只在下面這一個 worktree 中操作，不要切換到其他 worktree、不要 cd 離開它：\n- worktree 名稱：{{worktreeName}}\n- worktree 絕對路徑：{{worktreePath}}\n- 當前分支：{{currentBranch}}\n- 要合入的分支：{{sourceBranch}}\n\n請按以下步驟操作（始終用 `git -C \"{{worktreePath}}\"` 顯式定位，不要靠 cwd 推斷）：\n1. 執行 `git -C \"{{worktreePath}}\" status` 檢查工作區是否乾淨；若有未提交修改，先停下來告訴我，等我確認後再繼續；\n2. 執行 `git -C \"{{worktreePath}}\" merge {{sourceBranch}}` 進行合併；\n3. 如果產生合併衝突：先列出全部衝突檔案，再嘗試逐個解決（保留雙方意圖，避免丟失改動），完成後用 `git -C \"{{worktreePath}}\" commit --no-edit` 提交合並；遇到無法判斷如何取捨的衝突，停下來告訴我具體檔案和原因，**不要** 執行 `git merge --abort`，把現場保留給我；\n4. 合併成功後簡要報告：合併方式（fast-forward / merge commit）、新的 HEAD commit、是否還有未提交內容。"
     },

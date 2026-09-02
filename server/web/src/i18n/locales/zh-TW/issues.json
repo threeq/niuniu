@@ -17,6 +17,17 @@
       "failed": "重開失敗"
     }
   },
+  "approveReview": {
+    "title": "審查通過（批准）",
+    "submit": "審查通過",
+    "hintMove": "記錄一條「審查通過」的正向結論，並把卡片推進到「{{column}}」列",
+    "hintRecord": "記錄一條「審查通過」的正向結論（不移動卡片）",
+    "hintEpic": "記錄一條「審查通過」的正向結論。Epic 必須人工審核，不會自動進入「完成」列——請人工確認後手動移動",
+    "doneMoved": "已批准，卡片已移到「{{column}}」列",
+    "doneRecorded": "已記錄審查通過（卡片未移動）",
+    "blocked": "已記錄審查通過，但卡片未能移動：{{reason}}",
+    "failed": "批准失敗"
+  },
   "goalCondition": {
     "title": "自動託管完成條件（可選）",
     "set": "已設定",

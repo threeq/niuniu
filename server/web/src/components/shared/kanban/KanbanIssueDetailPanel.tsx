@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 import { X, Trash2 } from 'lucide-react'
 import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query'
@@ -23,6 +23,28 @@ import { EpicDetailSection } from './EpicDetailSection'
 import { IssueQuickCreateDialog } from './issue-quick-create-dialog'
 import { isIMEComposing } from '@/lib/ime'
 import { confirm } from '@/lib/confirm'
+
+// Board-column identification. The board is user-authored, so a column is
+// recognised by its NAME as well as its lifecycle mapping — the AI-native board
+// ships 「审查」/「完成」 with no lifecycle set on 人工审查.
+const REVIEW_COLUMN_NAME = '审查'
+const DONE_COLUMN_NAME = '完成'
+
+/** Does this column represent the review lane? */
+function isReviewColumn(c: Column): boolean {
+  return (
+    c.name.includes(REVIEW_COLUMN_NAME) ||
+    (c.lifecycle_mapping ?? '').toLowerCase().includes('review')
+  )
+}
+
+/** Does this column represent the done lane? */
+function isDoneColumn(c: Column): boolean {
+  return (
+    c.name.includes(DONE_COLUMN_NAME) ||
+    (c.lifecycle_mapping ?? '').toLowerCase().includes('complete')
+  )
+}
 
 const lifecycleColors: Record<string, string> = {
   created: 'bg-muted-foreground',
@@ -116,10 +138,64 @@ export function KanbanIssueDetailPanel({ issueId, columns, onClose, onOpenIssue 
   // lane (injecting the two-layer review context). Available while the issue is in a
   // review lane (审查/人工审查) or the done lane (完成, = re-open for re-review).
   const currentCol = columns?.find((c) => c.id === issue?.column_id)
-  const currentLifecycle = (currentCol?.lifecycle_mapping ?? '').toLowerCase()
-  const isReviewCol = !!currentCol && (currentCol.name.includes('审查') || currentLifecycle.includes('review'))
-  const isDoneCol = !!currentCol && (currentCol.name.includes('完成') || currentLifecycle.includes('complete'))
+  const isReviewCol = !!currentCol && isReviewColumn(currentCol)
+  const isDoneCol = !!currentCol && isDoneColumn(currentCol)
   const canRequestChanges = isReviewCol || isDoneCol
+
+  // Review 闭环 · 正向结论 (#689). 打回 had an endpoint; passing did not, so a
+  // successful review was recorded only as a card someone happened to drag.
+  //
+  // Approval and MOVEMENT are two decisions, and the board rule forces them
+  // apart for Epics: 「Epic 任务必须人工审核，不能直接到完成，只能由人工审核后手动
+  // 移到完成」. So the target column is computed here rather than assumed, and an
+  // Epic never gets one that lands in a done lane — the verdict is still recorded,
+  // the human still does the final move. Passing no `to_column` is what the
+  // backend treats as "record without moving".
+  const isEpic = issue?.issue_type === 'epic'
+  const sortedCols = useMemo(
+    () => [...(columns ?? [])].sort((a, b) => a.position - b.position),
+    [columns],
+  )
+  const approveTarget = useMemo(() => {
+    if (!currentCol) return null
+    const idx = sortedCols.findIndex((c) => c.id === currentCol.id)
+    const next = idx >= 0 ? sortedCols[idx + 1] : undefined
+    if (!next) return null
+    // The one hard guard: an Epic may not be advanced INTO a done lane by an
+    // approval, no matter who clicks it.
+    if (isEpic && isDoneColumn(next)) return null
+    return next
+  }, [currentCol, sortedCols, isEpic])
+
+  // Approving only makes sense from a review lane. In 完成 the meaningful action
+  // is the reopen path (requestChanges), not another approval.
+  const canApprove = isReviewCol && !isDoneCol
+  const approveMutation = useMutation({
+    mutationFn: (data: { author: string; content: string }) =>
+      api.approveReview(numericId, {
+        comment: data.content,
+        author: data.author,
+        to_column: approveTarget ? String(approveTarget.id) : undefined,
+      }),
+    onSuccess: (res) => {
+      queryClient.invalidateQueries({ queryKey: ['issue', issueId] })
+      queryClient.invalidateQueries({ queryKey: ['issues'] })
+      queryClient.invalidateQueries({ queryKey: ['all-issues'] })
+      queryClient.invalidateQueries({ queryKey: ['issue-comments', issueId] })
+      queryClient.invalidateQueries({ queryKey: ['issue-timeline', numericId] })
+      // Report what actually happened, not what was requested: a blocked move
+      // still recorded the approval, and an Epic deliberately did not move.
+      if (res?.blocked) {
+        toast.warning(t('issues:approveReview.blocked', { reason: res.blocked_reason ?? '' }))
+      } else if (res?.moved) {
+        toast.success(t('issues:approveReview.doneMoved', { column: res.column_name }))
+      } else {
+        toast.success(t('issues:approveReview.doneRecorded'))
+      }
+    },
+    onError: () => toast.error(t('issues:approveReview.failed')),
+  })
+
   const requestChangesMutation = useMutation({
     mutationFn: (data: { author: string; content: string }) =>
       api.requestChanges(numericId, { comment: data.content, author: data.author }),
@@ -276,6 +352,17 @@ export function KanbanIssueDetailPanel({ issueId, columns, onClose, onOpenIssue 
           onRequestChanges={canRequestChanges ? requestChangesMutation.mutate : undefined}
           requestChangesLabel={t(isDoneCol ? 'issues:requestChanges.reopen.submit' : 'issues:requestChanges.submit')}
           isRequestingChanges={requestChangesMutation.isPending}
+          onApprove={canApprove ? approveMutation.mutate : undefined}
+          approveLabel={t('issues:approveReview.submit')}
+          approveHint={t(
+            approveTarget
+              ? 'issues:approveReview.hintMove'
+              : isEpic
+                ? 'issues:approveReview.hintEpic'
+                : 'issues:approveReview.hintRecord',
+            { column: approveTarget?.name ?? '' },
+          )}
+          isApproving={approveMutation.isPending}
         />
       </div>
 

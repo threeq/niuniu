@@ -457,7 +457,29 @@
         "queued": "Comment queued",
         "sentOne": "Sent to agent",
         "sentAll": "Sent {{count}} comment(s) to agent",
-        "sentPartial": "Sent {{sent}}, {{failed}} failed"
+        "sentPartial": "Sent {{sent}}, {{failed}} failed",
+        "oldSide": "Deleted line",
+        "oldSideHint": "This comment targets a line the change deletes; its anchor is a snapshot of the original content",
+        "composingOldSide": "Commenting on deleted line {{line}} (old side)",
+        "anchor": {
+          "outdated": "Anchor lost",
+          "outdatedHint": "That content is gone, so the line number can't be trusted — expand to see what it said when the comment was written",
+          "outdatedBanner": "{{count}} comment(s) lost their anchor (the content changed and they can no longer be placed on a line)",
+          "relocated": "Moved with content",
+          "relocatedHint": "Was line {{from}}, now line {{to}}",
+          "showSnapshot": "Show the context at the time",
+          "compare": "Compare: then vs now",
+          "thenLabel": "Then (when the comment was written)",
+          "nowLabel": "Now"
+        },
+        "verdict": {
+          "open": "Open",
+          "resolved": "Resolved",
+          "resolveHint": "Mark resolved (the review verdict — independent of whether it was sent to the agent)",
+          "reopenHint": "Reopen",
+          "markedResolved": "Marked resolved",
+          "reopened": "Reopened"
+        }
       },
       "syncFromBranchPrompt": "Please merge the latest code from branch `{{sourceBranch}}` into the current branch `{{currentBranch}}` of the specific worktree below.\n\n⚠️ This workspace may contain multiple worktrees. Operate ONLY on the worktree below — do not switch to or `cd` into any other worktree:\n- Worktree name: {{worktreeName}}\n- Worktree absolute path: {{worktreePath}}\n- Current branch: {{currentBranch}}\n- Branch to merge in: {{sourceBranch}}\n\nFollow these steps. Always pin every git invocation with `git -C \"{{worktreePath}}\"` instead of relying on cwd:\n1. Run `git -C \"{{worktreePath}}\" status` to check the worktree is clean. If there are uncommitted changes, stop and ask me before continuing;\n2. Run `git -C \"{{worktreePath}}\" merge {{sourceBranch}}`;\n3. If there are merge conflicts: first list every conflicted file, then try to resolve them one by one (preserving both sides' intent, no lost changes), then commit with `git -C \"{{worktreePath}}\" commit --no-edit`. If you hit a conflict you cannot judge, stop and report the file and reason — do **not** run `git merge --abort`, leave the state for me;\n4. After a successful merge, briefly report: merge style (fast-forward or merge commit), new HEAD commit, and whether anything is still uncommitted."
     },

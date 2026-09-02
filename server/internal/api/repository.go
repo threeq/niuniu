@@ -799,6 +799,30 @@ func (h *RepositoryHandler) GetCommitDetail(c *gin.Context) {
 	c.JSON(http.StatusOK, detail)
 }
 
+// GetCommitDiff returns the line-level diff a single commit introduced
+// @Summary      Get commit diff
+// @Description  Get the structured line-level diff for a single commit
+// @Tags         Repositories
+// @Param        id     path      string  true  "Repository ID"
+// @Param        hash   path      string  true  "Commit hash"
+// @Success      200    {array}   git.FileDiff
+// @Failure      404    {object}  Error
+// @Router       /repositories/{id}/commits/{hash}/diff [get]
+func (h *RepositoryHandler) GetCommitDiff(c *gin.Context) {
+	diff, err := h.svc.GetCommitDiff(c.Request.Context(), c.Param("id"), c.Param("hash"))
+	if err != nil {
+		slog.Warn("GetCommitDiff failed", "id", c.Param("id"), "hash", c.Param("hash"), "error", err)
+		NotFound(c, "REPOSITORY")
+		return
+	}
+	// A commit that changed nothing is an empty list, not null — the client maps
+	// over it directly.
+	if diff == nil {
+		diff = []git.FileDiff{}
+	}
+	c.JSON(http.StatusOK, diff)
+}
+
 // GetGraph returns commit graph data for branch visualization
 // @Summary      Get branch graph
 // @Description  Get commit graph data for branch visualization

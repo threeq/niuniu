@@ -64,9 +64,17 @@ export interface LineCell {
   /**
    * The coordinate attachments anchor to — always the NEW-side line number, so
    * a given anchor names exactly one thread no matter which surface or view
-   * mode produced it. Pure deletions have no anchor and take no attachments.
+   * mode produced it.
    */
   anchor?: number;
+  /**
+   * The OLD-side line number, set only on a line the diff DELETES. A deletion
+   * has no new-side number, which is exactly why it used to be un-commentable —
+   * "you shouldn't have removed this" was inexpressible. Comments anchored here
+   * are stored with `side: 'old'` and live in their own coordinate space, so
+   * they cannot collide with the new-side thread that shares the integer.
+   */
+  oldAnchor?: number;
 }
 
 /**
@@ -86,6 +94,8 @@ export type CodeRow =
       cells: LineCell[];
       /** New-side anchor for this row's attachment, if it has one. */
       anchor?: number;
+      /** Old-side anchor (deleted line), if this row has one. */
+      oldAnchor?: number;
     };
 
 /**
@@ -109,9 +119,11 @@ export interface CodeLineRenderer {
    * the row is what `measureElement` observes, so a card that grows or collapses
    * re-measures in place instead of shifting every index after it.
    *
-   * Return `null` for lines with nothing attached.
+   * `side` says which coordinate space the anchor is in: `'new'` for the normal
+   * case, `'old'` for a deleted line. Return `null` for lines with nothing
+   * attached.
    */
-  attachment?(anchor: number): ReactNode;
+  attachment?(anchor: number, side: 'old' | 'new'): ReactNode;
   /**
    * The gutter affordance revealed on row hover (currently "add a comment").
    * Return `undefined` to leave the gutter inert for this cell.
