@@ -1,6 +1,7 @@
 package api
 
 import (
+	"database/sql"
 	"errors"
 	"log/slog"
 	"net/http"
@@ -129,13 +130,13 @@ func (h *ReviewHandler) ListComments(c *gin.Context) {
 		}
 	}
 
-	comments, err := h.reviewSvc.ListComments(c.Request.Context(), workspaceID)
+	comments, err := h.reviewSvc.ListCommentsWithAnchors(c.Request.Context(), workspaceID)
 	if err != nil {
 		InternalError(c, err)
 		return
 	}
 
-	c.JSON(http.StatusOK, toCommentResponses(comments))
+	c.JSON(http.StatusOK, toAnchoredCommentResponses(comments))
 }
 
 type CreateCommentRequest struct {
@@ -143,6 +144,14 @@ type CreateCommentRequest struct {
 	FilePath   string `json:"file_path" binding:"required"`
 	LineNumber *int   `json:"line_number"`
 	Content    string `json:"content" binding:"required"`
+	// Side is "old" (a line the diff DELETES) or "new" (default). Old-side is how
+	// a reviewer says "you shouldn't have deleted this" — impossible to express
+	// while comments could only anchor to new-side line numbers.
+	Side string `json:"side"`
+	// ContextLines is an optional caller-supplied anchor snapshot (JSON). The old
+	// side of a diff isn't in the working tree, so only the client that rendered
+	// the diff can snapshot it; new-side comments omit it and the server snapshots.
+	ContextLines string `json:"context_lines"`
 }
 
 // CreateComment creates a new comment for a workspace.
@@ -187,10 +196,12 @@ func (h *ReviewHandler) CreateComment(c *gin.Context) {
 	}
 
 	comment, err := h.reviewSvc.CreateComment(c.Request.Context(), workspaceID, service.CreateCommentInput{
-		Repo:       req.Repo,
-		FilePath:   req.FilePath,
-		LineNumber: req.LineNumber,
-		Content:    req.Content,
+		Repo:         req.Repo,
+		FilePath:     req.FilePath,
+		LineNumber:   req.LineNumber,
+		Content:      req.Content,
+		Side:         req.Side,
+		ContextLines: req.ContextLines,
 	})
 	if err != nil {
 		InternalError(c, err)
@@ -198,6 +209,68 @@ func (h *ReviewHandler) CreateComment(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusCreated, toCommentResponse(comment))
+}
+
+// ResolveCommentRequest is the PATCH /comments/:id/resolved body.
+type ResolveCommentRequest struct {
+	// Resolved is the review verdict. Pointer so an omitted field is rejected
+	// rather than silently read as false (un-resolving a comment by accident).
+	Resolved *bool  `json:"resolved" binding:"required"`
+	By       string `json:"by"`
+}
+
+// SetCommentResolved records the review verdict on a line-level comment.
+// @Summary      Resolve or reopen a comment
+// @Description  Set a comment's review verdict. Independent of send-to-agent, which only records delivery — an injected comment stays unresolved until a reviewer judges it.
+// @Tags         Review
+// @Accept       json
+// @Produce      json
+// @Param        id       path      string                 true  "Comment ID"
+// @Param        request  body      ResolveCommentRequest  true  "Verdict"
+// @Success      200  {object}  CommentResponse
+// @Failure      400  {object}  Error
+// @Failure      404  {object}  Error
+// @Router       /comments/{id}/resolved [patch]
+func (h *ReviewHandler) SetCommentResolved(c *gin.Context) {
+	commentID, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		BadRequest(c, "invalid comment ID")
+		return
+	}
+
+	wsID, werr := h.reviewSvc.CommentWorkspaceID(c.Request.Context(), commentID)
+	if werr != nil {
+		NotFound(c, "COMMENT")
+		return
+	}
+	if userID := c.GetInt64("auth_user_id"); userID > 0 && h.Authz != nil {
+		if _, aerr := h.Authz.CanAccessWorkspace(c.Request.Context(), userID, wsID); aerr != nil {
+			writeAuthzError(c, aerr)
+			return
+		}
+	}
+
+	var req ResolveCommentRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		BadRequest(c, err.Error())
+		return
+	}
+
+	comment, err := h.reviewSvc.SetCommentResolved(c.Request.Context(), commentID, *req.Resolved, req.By)
+	if err != nil {
+		// The comment can vanish between the authorization lookup above and this
+		// write (concurrent delete, or a workspace cascade). That is a 404, not a
+		// server fault — reporting 500 would send the client retrying a request
+		// that can never succeed.
+		if errors.Is(err, sql.ErrNoRows) {
+			NotFound(c, "COMMENT")
+			return
+		}
+		InternalError(c, err)
+		return
+	}
+
+	c.JSON(http.StatusOK, toCommentResponse(comment))
 }
 
 // SendCommentToAgent sends a comment to the agent as feedback.

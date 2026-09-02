@@ -289,6 +289,8 @@ CREATE TABLE IF NOT EXISTS workspace_local_runner (
 -- ============================================================
 -- Comments table
 -- ============================================================
+-- See schema.sql for why side/commit_sha/blob_sha/context_lines (the anchor) and
+-- resolved (the review verdict, orthogonal to the sent_to_agent outbox flag) exist.
 CREATE TABLE IF NOT EXISTS comments (
     id            BIGSERIAL PRIMARY KEY,
     workspace_id  BIGINT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
@@ -297,7 +299,14 @@ CREATE TABLE IF NOT EXISTS comments (
     line_number   INTEGER,
     content       TEXT NOT NULL,
     sent_to_agent BOOLEAN DEFAULT FALSE,
-    created_at    TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+    created_at    TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    side          TEXT NOT NULL DEFAULT 'new',
+    commit_sha    TEXT NOT NULL DEFAULT '',
+    blob_sha      TEXT NOT NULL DEFAULT '',
+    context_lines TEXT NOT NULL DEFAULT '',
+    resolved      BOOLEAN NOT NULL DEFAULT FALSE,
+    resolved_at   TIMESTAMP DEFAULT NULL,
+    resolved_by   TEXT NOT NULL DEFAULT ''
 );
 
 -- ============================================================

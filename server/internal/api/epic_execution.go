@@ -143,6 +143,53 @@ func (h *EpicExecutionHandler) RequestChanges(c *gin.Context) {
 	c.JSON(http.StatusOK, res)
 }
 
+// ApproveReviewRequest is the POST .../approve-review body (#683 wave 1).
+type ApproveReviewRequest struct {
+	Comment string `json:"comment"`
+	Author  string `json:"author"`
+	// ToColumn optionally advances the card; empty records the approval without
+	// moving (Epic / 人工审查 cards are moved by a human).
+	ToColumn string `json:"to_column"`
+	// ResolveComments marks the workspace's outstanding line-level diff comments
+	// resolved. Only for an approval that genuinely covers all of them.
+	ResolveComments bool `json:"resolve_comments"`
+}
+
+// ApproveReview is the POSITIVE review conclusion, the counterpart to
+// RequestChanges (#683 wave 1). Previously a passing review left no record at
+// all — approving meant dragging the card, so "who approved this and on what
+// basis" was unanswerable. Backs the approve_review MCP tool and
+// POST /api/issues/:id/approve-review.
+func (h *EpicExecutionHandler) ApproveReview(c *gin.Context) {
+	userID := c.GetInt64("auth_user_id")
+	issueID, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		BadRequest(c, "invalid issue ID")
+		return
+	}
+	if !h.authzIssueProject(c, userID, issueID) {
+		return
+	}
+	var req ApproveReviewRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		BadRequest(c, "invalid request body")
+		return
+	}
+	res, err := h.svc.ApproveReview(c.Request.Context(), service.ApproveReviewInput{
+		IssueID:         issueID,
+		Comment:         req.Comment,
+		Author:          req.Author,
+		ToColumn:        req.ToColumn,
+		ResolveComments: req.ResolveComments,
+		CallerUserID:    userID,
+	})
+	if err != nil {
+		BadRequest(c, err.Error())
+		return
+	}
+	c.JSON(http.StatusOK, res)
+}
+
 // AdvanceIssue moves an issue to another column and, when the destination is an
 // `instruct` column, ensures its workspace and sends the column's instruction to
 // the agent (spec §6). Backs the advance_issue MCP tool. Skips / back-tracks are

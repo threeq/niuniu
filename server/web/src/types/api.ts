@@ -1014,8 +1014,38 @@ export interface IssueComment extends BaseEntity {
 }
 
 // Workspace review comment (line-level diff comment).
-// Anchored to repo + file_path + line_number; sent_to_agent distinguishes
-// "queued" (pending) from "sent".
+//
+// Anchoring (#683 wave 1): read `anchor.status` before trusting `line_number`.
+// A comment whose file changed is either relocated (line_number已更新) or
+// outdated (锚点失效，必须按 anchor.context 呈现原文，不能当作仍指向该行渲染) —
+// the old behaviour of silently re-pointing at the new line 42 is gone.
+//
+// `resolved` is the REVIEW verdict; `sent_to_agent` is only delivery state.
+// They are orthogonal: an injected comment stays unresolved until judged.
+export type CommentAnchorStatus = 'current' | 'relocated' | 'outdated'
+
+export interface CommentAnchorContext {
+  before?: string[]
+  line?: string
+  after?: string[]
+}
+
+export interface CommentAnchor {
+  status: CommentAnchorStatus
+  original_line?: number
+  // Absent/0 when status is 'outdated' — there is no honest current position.
+  effective_line?: number
+  side: 'old' | 'new'
+  // What the reviewer commented on.
+  context?: CommentAnchorContext
+  // What stands there NOW, when it differs from `context`. Present only for a
+  // relocated anchor in a changed region — render the two side by side to answer
+  // "was this actually addressed?". Absent when the region is unchanged (context
+  // already shows it) or the anchor is outdated (nothing honest to show).
+  current?: CommentAnchorContext
+  current_blob_sha?: string
+}
+
 export interface WorkspaceComment {
   id: number
   workspace_id: number
@@ -1025,6 +1055,16 @@ export interface WorkspaceComment {
   content: string
   sent_to_agent?: boolean | null
   created_at: string
+  // 'old' = a line the diff DELETES (only anchorable this way), 'new' = default.
+  side?: 'old' | 'new'
+  commit_sha?: string
+  blob_sha?: string
+  context_lines?: string
+  resolved?: boolean
+  resolved_at?: string | null
+  resolved_by?: string
+  // Present on the list endpoint; re-resolved against current content.
+  anchor?: CommentAnchor
 }
 
 export interface CreateWorkspaceCommentInput {
@@ -1032,6 +1072,10 @@ export interface CreateWorkspaceCommentInput {
   file_path: string
   line_number?: number | null
   content: string
+  // Set 'old' to comment on a deleted line. The old side isn't in the working
+  // tree, so the client must supply context_lines (JSON snapshot) for it.
+  side?: 'old' | 'new'
+  context_lines?: string
 }
 
 // Issue timeline

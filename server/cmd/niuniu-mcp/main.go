@@ -1138,6 +1138,46 @@ func registerIssueWriteTools(s *server.MCPServer, api *apiClient) {
 		},
 	)
 
+	// approve_review — the POSITIVE review conclusion (#683 wave 1), the counterpart
+	// request_changes never had. Before this the review column could only bounce: a
+	// passing review left no record, so approving meant silently dragging the card and
+	// "who approved this, when, on what basis" was unanswerable.
+	s.AddTool(
+		mcp.NewTool("approve_review",
+			mcp.WithDescription("Record that a review PASSED. Leave what you checked and why it passes in `comment` — it is saved as a durable issue comment plus an audit event. "+
+				"By default this records the approval WITHOUT moving the card (Epic and 人工审查 cards must be moved by a human); pass `to_column` to also advance it. "+
+				"Pass resolve_comments=true ONLY when the approval genuinely covers every outstanding line-level diff comment — otherwise resolve them individually so the record stays truthful. "+
+				"Use this instead of a bare advance_issue when a review passes. No-access returns 403/404."),
+			mcp.WithNumber("issue_id", mcp.Description("Issue ID being approved"), mcp.Required()),
+			mcp.WithString("comment", mcp.Description("Approval rationale: what was checked and why it passes (recommended)")),
+			mcp.WithString("to_column", mcp.Description("Optional: column ID or name to advance to on approval. Omit to record the approval without moving the card.")),
+			mcp.WithBoolean("resolve_comments", mcp.Description("Mark all outstanding line-level diff comments resolved (default false)")),
+		),
+		func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			args := req.GetArguments()
+			issueIDF, errRes := requireNumber(args, "issue_id")
+			if errRes != nil {
+				return errRes, nil
+			}
+			body := map[string]any{}
+			if comment, ok := args["comment"].(string); ok {
+				body["comment"] = comment
+			}
+			if toColumn, ok := args["to_column"].(string); ok {
+				body["to_column"] = toColumn
+			}
+			if resolve, ok := args["resolve_comments"].(bool); ok {
+				body["resolve_comments"] = resolve
+			}
+			issueID := strconv.FormatInt(int64(issueIDF), 10)
+			data, err := api.post("/mcp/issues/"+issueID+"/approve-review", body)
+			if err != nil {
+				return mcp.NewToolResultError(err.Error()), nil
+			}
+			return mcp.NewToolResultText(string(data)), nil
+		},
+	)
+
 	s.AddTool(
 		mcp.NewTool("add_checklist_item",
 			mcp.WithDescription("Add a checklist item to an issue. No-access returns 403/404."),

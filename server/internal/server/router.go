@@ -188,6 +188,9 @@ func (s *Server) setupRoutes() {
 		// Review 闭环 (#623): reviewer marks 需修改; bounce back to implement lane and
 		// inject the two-layer review context (issue comments + unresolved diff comments).
 		mcpGroup.POST("/issues/:id/request-changes", s.epicExecHandler.RequestChanges)
+		// The positive counterpart (#683): record that a review PASSED, optionally
+		// resolving its line comments and advancing the card.
+		mcpGroup.POST("/issues/:id/approve-review", s.epicExecHandler.ApproveReview)
 		mcpGroup.PUT("/issues/:id/labels", s.issueHandler.SetLabels)
 		mcpGroup.POST("/issues/:id/checklists", s.issueChecklistHandler.Create)
 		// Checklist update/toggle/delete keys off the checklist row id (it resolves
@@ -616,6 +619,8 @@ func (s *Server) setupRoutes() {
 		// Review 闭环 (#623): human reviewer marks 需修改 → bounce back to implement
 		// lane with the two-layer review context injected into the agent's continuation.
 		issues.POST("/:id/request-changes", s.epicExecHandler.RequestChanges)
+		// Approval — the positive review conclusion (#683 wave 1).
+		issues.POST("/:id/approve-review", s.epicExecHandler.ApproveReview)
 		issues.GET("/:id/timeline", s.issueTimelineHandler.GetTimeline)
 		// Per-issue execution timeline (spec §23.7): advance / gate / ask_user /
 		// terminal / intervention / cost events + cumulative cost.
@@ -900,6 +905,9 @@ func (s *Server) setupRoutes() {
 	comments := api.Group("/comments")
 	{
 		comments.POST("/:id/send-to-agent", s.reviewHandler.SendCommentToAgent)
+		// Review verdict — distinct from send-to-agent above, which only records
+		// delivery (#683 wave 1).
+		comments.PATCH("/:id/resolved", s.reviewHandler.SetCommentResolved)
 	}
 
 	// Owner-level IM Bot (shared bot / multi-project routing). A bot is owned by

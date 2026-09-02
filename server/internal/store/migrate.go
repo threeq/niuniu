@@ -41,6 +41,34 @@ func Migrate(db *sql.DB) {
 	// repo + file_path + line in multi-repo workspaces (existing databases).
 	addColumnIfNotExists(db, "comments", "repo", "TEXT NOT NULL DEFAULT ''")
 
+	// Review-comment anchoring + a real resolved state (#683 wave 1). One
+	// migration, one table. Two orthogonal concerns:
+	//
+	//   1. Anchor. A bare line_number silently re-points at whatever now occupies
+	//      that line after the agent edits the file, and pure-deletion lines were
+	//      un-commentable (no new line number to anchor to). side records which
+	//      side of the diff the comment sits on ('old' = a deleted line, 'new');
+	//      commit_sha/blob_sha pin the version the reviewer actually read; and
+	//      context_lines snapshots the surrounding source so the comment can be
+	//      RELOCATED against new content — or honestly marked outdated when it
+	//      cannot. Never silently drift.
+	//   2. Verdict. sent_to_agent is a one-shot delivery flag (an outbox), not a
+	//      review conclusion — code that read it as "unresolved" reported success
+	//      the moment a comment was injected, whether or not the agent changed
+	//      anything. resolved is the actual verdict and moves independently.
+	//
+	// Defaults are chosen so pre-existing rows read back sensibly: side='new'
+	// (every legacy comment anchored to a new-side line number), empty anchors
+	// (unknown, so relocation degrades to "cannot verify" rather than a false
+	// match), resolved=FALSE (no verdict recorded yet).
+	addColumnIfNotExists(db, "comments", "side", "TEXT NOT NULL DEFAULT 'new'")
+	addColumnIfNotExists(db, "comments", "commit_sha", "TEXT NOT NULL DEFAULT ''")
+	addColumnIfNotExists(db, "comments", "blob_sha", "TEXT NOT NULL DEFAULT ''")
+	addColumnIfNotExists(db, "comments", "context_lines", "TEXT NOT NULL DEFAULT ''")
+	addColumnIfNotExists(db, "comments", "resolved", "BOOLEAN NOT NULL DEFAULT FALSE")
+	addColumnIfNotExists(db, "comments", "resolved_at", "TIMESTAMP DEFAULT NULL")
+	addColumnIfNotExists(db, "comments", "resolved_by", "TEXT NOT NULL DEFAULT ''")
+
 	// Add attachments column (JSON) to agent_messages for file attachment metadata.
 	addColumnIfNotExists(db, "agent_messages", "attachments", "TEXT DEFAULT NULL")
 

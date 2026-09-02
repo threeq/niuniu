@@ -144,6 +144,20 @@ type Comment struct {
 	Content     string        `json:"content"`
 	SentToAgent sql.NullBool  `json:"sent_to_agent"`
 	CreatedAt   time.Time     `json:"created_at"`
+	// Side is "old" (a line the diff deletes) or "new". Old-side anchoring is what
+	// makes pure-deletion lines commentable at all.
+	Side string `json:"side"`
+	// CommitSha / BlobSha pin the version the reviewer actually read; ContextLines
+	// snapshots the surrounding source so the comment can be relocated in changed
+	// content — or honestly marked outdated instead of silently drifting.
+	CommitSha    string `json:"commit_sha"`
+	BlobSha      string `json:"blob_sha"`
+	ContextLines string `json:"context_lines"`
+	// Resolved is the REVIEW verdict. Orthogonal to SentToAgent, which only records
+	// delivery: a comment can be delivered to the agent and still unresolved.
+	Resolved   bool         `json:"resolved"`
+	ResolvedAt sql.NullTime `json:"resolved_at"`
+	ResolvedBy string       `json:"resolved_by"`
 }
 
 type CommunityAgent struct {
