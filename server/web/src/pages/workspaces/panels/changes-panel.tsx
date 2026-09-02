@@ -379,7 +379,7 @@ export function DiffPane({
   // Resolved repos lazily load the line-level diff by id (cached per repo, so
   // opening multiple files in one repo shares one request). Groups with no
   // registered repository (repoId null) cannot fetch by id — but the workspace
-  // diff response already carried their full per-file diffs (hunks + raw_patch),
+  // diff response already carried their full per-file diffs (structured hunks),
   // so the viewer renders those inline instead of showing "unresolved".
   const usingInline = !repo.repoId;
   const {

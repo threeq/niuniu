@@ -32,9 +32,10 @@ export interface RepoDiffResponse {
   /** The worktree's own checked-out branch (HEAD). */
   current_branch: string;
   // Per-file diffs. The list view reads only the summary fields. The backend
-  // includes hunks + raw_patch ONLY for unresolved groups (repository_id 0),
+  // includes structured hunks ONLY for unresolved groups (repository_id 0),
   // whose line-level viewer reuses them directly; resolved groups are shipped
-  // summary-only and re-fetch the line-level diff by id on demand.
+  // summary-only and re-fetch the line-level diff by id on demand. No path
+  // carries raw_patch — clients render from hunks and have no parser.
   files: GitFileDiff[];
 }
 
@@ -66,7 +67,7 @@ export interface RepoDiffGroup {
   aheadCount: number;
   files: DiffFileRow[];
   /**
-   * Full per-file diffs from the workspace diff response (hunks + raw_patch).
+   * Full per-file diffs from the workspace diff response (structured hunks).
    * The line-level viewer renders these directly for repoId-null groups, which
    * have no repository to lazily re-fetch the diff by id.
    */

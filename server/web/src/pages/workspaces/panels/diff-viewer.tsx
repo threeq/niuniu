@@ -2,8 +2,7 @@ import { Fragment, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Package, ChevronRight, FileCode2, ChevronsDownUp } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { parseUnifiedDiff, type DiffFile, type DiffLine } from '@/lib/hooks/use-diff';
-import type { GitFileDiff } from '@/lib/hooks/use-file-diff';
+import type { GitFileDiff, GitDiffLine } from '@/lib/hooks/use-file-diff';
 import { highlightCode } from '@/lib/syntax-highlight';
 import type { WorkspaceComment } from '@/types/api';
 import { Gutter, CommentRow, type CommentApi } from './diff-comments';
@@ -14,13 +13,12 @@ const COLLAPSE_EDGE = 3; // lines kept visible on each side of a collapsed run
 
 export type ViewMode = 'unified' | 'split';
 
-// A diff line with its resolved old/new line numbers.
-interface NumberedLine {
-  type: DiffLine['type'];
-  content: string;
-  oldNumber?: number;
-  newNumber?: number;
-}
+/**
+ * A diff line ready to render. This is the backend's git.DiffLine with its
+ * line numbers already resolved server-side — the viewer no longer parses
+ * `raw_patch` or walks running counters to derive them.
+ */
+type NumberedLine = GitDiffLine;
 
 // Render items: a hunk header, a collapsed gap, or a numbered line.
 type RenderItem =
@@ -34,6 +32,7 @@ const STATUS_META: Record<string, { letter: string; badge: string }> = {
   modified: { letter: 'M', badge: 'bg-warning text-warning-foreground' },
   deleted: { letter: 'D', badge: 'bg-destructive text-destructive-foreground' },
   renamed: { letter: 'R', badge: 'bg-info text-info-foreground' },
+  copied: { letter: 'C', badge: 'bg-info text-info-foreground' },
 };
 
 /**
@@ -44,38 +43,28 @@ const STATUS_META: Record<string, { letter: string; badge: string }> = {
  * deletions (no new number) are therefore not commentable.
  */
 function anchorOf(line: NumberedLine): number | undefined {
-  return line.newNumber;
-}
-
-/** Resolve old/new line numbers for every line in a hunk. */
-function numberHunkLines(hunk: { oldStart: number; newStart: number; lines: DiffLine[] }): NumberedLine[] {
-  let oldNo = hunk.oldStart;
-  let newNo = hunk.newStart;
-  return hunk.lines.map((line) => {
-    if (line.type === 'add') return { type: 'add', content: line.content, newNumber: newNo++ };
-    if (line.type === 'delete') return { type: 'delete', content: line.content, oldNumber: oldNo++ };
-    return { type: 'context', content: line.content, oldNumber: oldNo++, newNumber: newNo++ };
-  });
+  return line.new_line;
 }
 
 /** Build the flat render-item list for a file, folding long unchanged runs.
  *  `disableCollapse` renders every line (used for full-file views where the
  *  whole file is context and folding it would hide the content). */
 function buildRenderItems(
-  file: DiffFile,
+  file: GitFileDiff,
   expandedGaps: Set<string>,
   disableCollapse = false,
 ): RenderItem[] {
   const items: RenderItem[] = [];
 
-  file.hunks.forEach((hunk, hi) => {
+  (file.hunks ?? []).forEach((hunk, hi) => {
+    const heading = hunk.header ? ` ${hunk.header}` : '';
     items.push({
       kind: 'hunk',
       key: `h${hi}`,
-      content: `@@ -${hunk.oldStart},${hunk.oldLines} +${hunk.newStart},${hunk.newLines} @@`,
+      content: `@@ -${hunk.old_start},${hunk.old_count} +${hunk.new_start},${hunk.new_count} @@${heading}`,
     });
 
-    const lines = numberHunkLines(hunk);
+    const lines = hunk.lines ?? [];
     let i = 0;
     while (i < lines.length) {
       if (lines[i].type !== 'context') {
@@ -197,19 +186,14 @@ export function DiffViewer({
   const [expandedGaps, setExpandedGaps] = useState<Set<string>>(() => new Set());
   const [activeLine, setActiveLine] = useState<number | null>(null);
 
-  const parsed: DiffFile | null = useMemo(() => {
-    const files = parseUnifiedDiff(fileDiff.raw_patch || '');
-    return files[0] ?? null;
-  }, [fileDiff.raw_patch]);
-
   const totalLines = useMemo(
-    () => (parsed ? parsed.hunks.reduce((n, h) => n + h.lines.length, 0) : 0),
-    [parsed],
+    () => (fileDiff.hunks ?? []).reduce((n, h) => n + (h.lines?.length ?? 0), 0),
+    [fileDiff.hunks],
   );
 
   const items = useMemo(
-    () => (parsed ? buildRenderItems(parsed, expandedGaps, disableCollapse) : []),
-    [parsed, expandedGaps, disableCollapse],
+    () => buildRenderItems(fileDiff, expandedGaps, disableCollapse),
+    [fileDiff, expandedGaps, disableCollapse],
   );
 
   // Comments grouped by their anchored line number for inline rendering.
@@ -244,12 +228,13 @@ export function DiffViewer({
     : '';
   const name = dir ? fileDiff.path.slice(dir.length) : fileDiff.path;
 
-  // A file is "binary" only when git said so ("Binary files ... differ"). A
-  // zero-hunk diff is otherwise a text file whose change carried no content —
-  // a mode flip (chmod +x on a .sh) or a pure rename — and must NOT be shown
-  // as an un-previewable binary.
-  const isBinary = !!parsed?.isBinary;
-  const isNoContentChange = !!parsed && !isBinary && parsed.hunks.length === 0;
+  // A file is "binary" only when git said so ("Binary files ... differ") — a
+  // flag the backend parser now carries, so this no longer depends on the
+  // client re-detecting it. A zero-hunk diff is otherwise a text file whose
+  // change carried no content (a mode flip, a pure rename, an empty file) and
+  // must NOT be shown as an un-previewable binary.
+  const isBinary = !!fileDiff.is_binary;
+  const isNoContentChange = !isBinary && (fileDiff.hunks?.length ?? 0) === 0;
   const isLarge = totalLines > MAX_DIFF_LINES;
 
   const header = (
@@ -279,7 +264,7 @@ export function DiffViewer({
   );
 
   let body: React.ReactNode;
-  if (!parsed || isBinary) {
+  if (isBinary) {
     body = (
       <Degraded
         message={t('panels.changes.diff.binary')}
@@ -291,9 +276,9 @@ export function DiffViewer({
     // Text file with no content hunks: describe the actual change (mode/rename)
     // rather than the misleading "binary" message.
     const modeMsg =
-      parsed.oldMode && parsed.newMode
-        ? t('panels.changes.diff.modeChange', { old: parsed.oldMode, new: parsed.newMode })
-        : status === 'renamed'
+      fileDiff.old_mode && fileDiff.new_mode && fileDiff.old_mode !== fileDiff.new_mode
+        ? t('panels.changes.diff.modeChange', { old: fileDiff.old_mode, new: fileDiff.new_mode })
+        : status === 'renamed' || status === 'copied'
           ? t('panels.changes.diff.renameOnly')
           : t('panels.changes.diff.noContentChange');
     body = (
@@ -413,8 +398,8 @@ function UnifiedTable({
           return (
             <Fragment key={item.key}>
               <tr className="group/line">
-                <Gutter value={line.oldNumber} tone={tone} />
-                <Gutter value={line.newNumber} tone={tone} onAdd={addOn} />
+                <Gutter value={line.old_line} tone={tone} />
+                <Gutter value={line.new_line} tone={tone} onAdd={addOn} />
                 <CodeCell line={line} />
               </tr>
               {comments && anchor != null && (
@@ -467,25 +452,25 @@ function SplitTable({
         const right = adds[k] ?? EMPTY_LINE;
         // Comments anchor on the new side only (see anchorOf): the right gutter.
         const rightAdd =
-          comments && right.newNumber != null
-            ? () => comments.setActiveLine(right.newNumber!)
+          comments && right.new_line != null
+            ? () => comments.setActiveLine(right.new_line!)
             : undefined;
         rows.push(
           <tr key={`p${rows.length}`} className="group/line">
             <Gutter
-              value={left.oldNumber}
-              tone={left.content || left.oldNumber ? 'del' : undefined}
+              value={left.old_line}
+              tone={left.content || left.old_line ? 'del' : undefined}
             />
             <CodeCell line={left} className="border-r border-border" />
             <Gutter
-              value={right.newNumber}
-              tone={right.content || right.newNumber ? 'add' : undefined}
+              value={right.new_line}
+              tone={right.content || right.new_line ? 'add' : undefined}
               onAdd={rightAdd}
             />
             <CodeCell line={right} />
           </tr>,
         );
-        pushComments([right.newNumber]);
+        pushComments([right.new_line]);
       }
       dels.length = 0;
       adds.length = 0;
@@ -496,16 +481,16 @@ function SplitTable({
       else {
         emitPaired();
         const ctxAdd =
-          comments && l.newNumber != null ? () => comments.setActiveLine(l.newNumber!) : undefined;
+          comments && l.new_line != null ? () => comments.setActiveLine(l.new_line!) : undefined;
         rows.push(
           <tr key={`c${rows.length}`} className="group/line">
-            <Gutter value={l.oldNumber} />
+            <Gutter value={l.old_line} />
             <CodeCell line={l} className="border-r border-border" />
-            <Gutter value={l.newNumber} onAdd={ctxAdd} />
+            <Gutter value={l.new_line} onAdd={ctxAdd} />
             <CodeCell line={l} />
           </tr>,
         );
-        pushComments([l.newNumber]);
+        pushComments([l.new_line]);
       }
     }
     emitPaired();

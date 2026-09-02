@@ -10,22 +10,63 @@ import (
 )
 
 // FileDiff represents the diff for a single file.
+//
+// This is the single source of truth for diff structure: clients render from
+// Hunks/Lines and never re-parse RawPatch. RawPatch is retained only for
+// consumers that must replay the patch verbatim (the local-runner sync applies
+// it with git apply), so it MUST stay byte-identical to git's output.
 type FileDiff struct {
-	Path      string     `json:"path"`
-	Status    string     `json:"status"` // added|modified|deleted|renamed
-	Additions int        `json:"additions"`
-	Deletions int        `json:"deletions"`
-	Hunks     []DiffHunk `json:"hunks"`
-	RawPatch  string     `json:"raw_patch"`
+	Path   string `json:"path"`
+	Status string `json:"status"` // added|modified|deleted|renamed|copied
+	// OldPath is the pre-change path, set only for renames and copies (where it
+	// differs from Path). Empty otherwise.
+	OldPath   string `json:"old_path,omitempty"`
+	Additions int    `json:"additions"`
+	Deletions int    `json:"deletions"`
+	// IsBinary is true only when git reported the file as an actual binary blob
+	// ("Binary files ... differ" / "GIT binary patch"). A diff with zero hunks is
+	// NOT necessarily binary — mode-only changes (chmod +x), pure renames and
+	// empty files also produce no hunks. Clients must gate the "can't preview"
+	// message on this flag, never on len(Hunks) == 0.
+	IsBinary bool `json:"is_binary,omitempty"`
+	// OldMode/NewMode carry the file mode pair when the diff reports one, so a
+	// content-less mode change can be described instead of shown as binary.
+	OldMode  string     `json:"old_mode,omitempty"`
+	NewMode  string     `json:"new_mode,omitempty"`
+	Hunks    []DiffHunk `json:"hunks"`
+	RawPatch string     `json:"raw_patch"`
 }
 
-// DiffHunk represents a single hunk in a diff.
+// DiffHunk represents a single hunk in a diff, fully decomposed into lines.
 type DiffHunk struct {
-	OldStart int    `json:"old_start"`
-	OldCount int    `json:"old_count"`
-	NewStart int    `json:"new_start"`
-	NewCount int    `json:"new_count"`
-	Content  string `json:"content"`
+	OldStart int `json:"old_start"`
+	OldCount int `json:"old_count"`
+	NewStart int `json:"new_start"`
+	NewCount int `json:"new_count"`
+	// Header is the optional section heading git appends after the closing "@@"
+	// (usually the enclosing function), with surrounding spaces trimmed.
+	Header string     `json:"header,omitempty"`
+	Lines  []DiffLine `json:"lines"`
+}
+
+// Diff line types, mirrored verbatim in the client's DiffLine union.
+const (
+	DiffLineContext = "context"
+	DiffLineAdd     = "add"
+	DiffLineDelete  = "delete"
+)
+
+// DiffLine is one line inside a hunk, with its resolved line numbers already
+// computed so clients need no running counters to index or virtualize the view.
+type DiffLine struct {
+	Type    string `json:"type"` // context|add|delete
+	Content string `json:"content"`
+	// OldLine/NewLine are 1-based line numbers, 0 when the line does not exist
+	// on that side (adds have no OldLine, deletes have no NewLine).
+	OldLine int `json:"old_line,omitempty"`
+	NewLine int `json:"new_line,omitempty"`
+	// NoNewline marks a line followed by git's "\ No newline at end of file".
+	NoNewline bool `json:"no_newline,omitempty"`
 }
 
 // Diff returns the tracked changes for a worktree relative to a baseline and
@@ -159,123 +200,278 @@ func untrackedFileDiff(worktreePath, filePath string) (*FileDiff, error) {
 	return &fd, nil
 }
 
-// parseDiff parses the unified diff output into structured FileDiff objects.
+// parseDiff parses unified diff output into structured FileDiff objects.
+//
+// This is the ONLY diff parser in the product — clients consume FileDiff.Hunks
+// directly instead of re-parsing RawPatch, so every git metadata line that a
+// renderer needs to distinguish (binary marker, mode pair, rename paths, missing
+// trailing newline) has to be captured here.
 func parseDiff(diffOutput string) ([]FileDiff, error) {
 	if strings.TrimSpace(diffOutput) == "" {
 		return []FileDiff{}, nil
 	}
 
-	// Split by file boundaries
-	filePattern := regexp.MustCompile(`(?m)^diff --git a/(.+?) b/(.+?)$`)
-	matches := filePattern.FindAllStringSubmatchIndex(diffOutput, -1)
+	lines, offsets := splitLinesWithOffsets(diffOutput)
 
-	if len(matches) == 0 {
+	var (
+		diffs   []FileDiff
+		cur     *FileDiff
+		curHunk *DiffHunk
+		start   int // byte offset of the current file's "diff --git" line
+		oldNo   int
+		newNo   int
+	)
+
+	// flush finalizes the file being parsed, slicing its RawPatch out of the
+	// original text so it stays byte-identical to git's output (the runner sync
+	// feeds it to `git apply`).
+	flush := func(end int) {
+		if cur == nil {
+			return
+		}
+		if curHunk != nil {
+			cur.Hunks = append(cur.Hunks, *curHunk)
+			curHunk = nil
+		}
+		cur.RawPatch = diffOutput[start:end]
+		diffs = append(diffs, *cur)
+		cur = nil
+	}
+
+	for i, line := range lines {
+		if strings.HasPrefix(line, "diff --git ") {
+			flush(offsets[i])
+			start = offsets[i]
+			oldPath, newPath := parseGitHeaderPaths(line)
+			cur = &FileDiff{Path: newPath, Status: "modified"}
+			if oldPath != "" && oldPath != newPath {
+				cur.OldPath = oldPath
+			}
+			continue
+		}
+		if cur == nil {
+			continue
+		}
+
+		// Inside a hunk, the payload lines are prefix-coded and must be consumed
+		// before the metadata checks below — a context line can legitimately hold
+		// text like "rename from x" or "Binary files ... differ".
+		if curHunk != nil {
+			switch {
+			case strings.HasPrefix(line, "+"):
+				curHunk.Lines = append(curHunk.Lines, DiffLine{
+					Type: DiffLineAdd, Content: line[1:], NewLine: newNo,
+				})
+				newNo++
+				cur.Additions++
+				continue
+			case strings.HasPrefix(line, "-"):
+				curHunk.Lines = append(curHunk.Lines, DiffLine{
+					Type: DiffLineDelete, Content: line[1:], OldLine: oldNo,
+				})
+				oldNo++
+				cur.Deletions++
+				continue
+			case strings.HasPrefix(line, " "):
+				curHunk.Lines = append(curHunk.Lines, DiffLine{
+					Type: DiffLineContext, Content: line[1:], OldLine: oldNo, NewLine: newNo,
+				})
+				oldNo++
+				newNo++
+				continue
+			case strings.HasPrefix(line, `\`):
+				// "\ No newline at end of file" annotates the line just emitted.
+				if n := len(curHunk.Lines); n > 0 {
+					curHunk.Lines[n-1].NoNewline = true
+				}
+				continue
+			case line == "":
+				// An empty line is ambiguous: git writes an empty context line as
+				// a single space, so a truly empty line is normally the newline
+				// terminating the diff body. But some producers strip that trailing
+				// space, and dropping the line would desynchronize every line number
+				// after it. Treat it as an empty context line while the hunk is still
+				// short of its declared counts, and as the terminator once it is full.
+				// oldNo/newNo advanced from the hunk's declared starts, so the lines
+				// consumed so far are exactly the difference.
+				if oldNo-curHunk.OldStart >= curHunk.OldCount &&
+					newNo-curHunk.NewStart >= curHunk.NewCount {
+					continue
+				}
+				curHunk.Lines = append(curHunk.Lines, DiffLine{
+					Type: DiffLineContext, OldLine: oldNo, NewLine: newNo,
+				})
+				oldNo++
+				newNo++
+				continue
+			}
+			// A non-payload line closes the hunk and falls through to metadata.
+			cur.Hunks = append(cur.Hunks, *curHunk)
+			curHunk = nil
+		}
+
+		if m := hunkHeaderPattern.FindStringSubmatch(line); m != nil {
+			oldStart, oldCount := parseInt(m[1]), 1
+			if m[2] != "" {
+				oldCount = parseInt(m[2])
+			}
+			newStart, newCount := parseInt(m[3]), 1
+			if m[4] != "" {
+				newCount = parseInt(m[4])
+			}
+			curHunk = &DiffHunk{
+				OldStart: oldStart, OldCount: oldCount,
+				NewStart: newStart, NewCount: newCount,
+				Header: strings.TrimSpace(m[5]),
+			}
+			oldNo, newNo = oldStart, newStart
+			continue
+		}
+
+		switch {
+		case strings.HasPrefix(line, "new file mode"):
+			cur.Status = "added"
+			cur.NewMode = strings.TrimSpace(strings.TrimPrefix(line, "new file mode"))
+		case strings.HasPrefix(line, "deleted file mode"):
+			cur.Status = "deleted"
+			cur.OldMode = strings.TrimSpace(strings.TrimPrefix(line, "deleted file mode"))
+		case strings.HasPrefix(line, "old mode"):
+			cur.OldMode = strings.TrimSpace(strings.TrimPrefix(line, "old mode"))
+		case strings.HasPrefix(line, "new mode"):
+			cur.NewMode = strings.TrimSpace(strings.TrimPrefix(line, "new mode"))
+		case strings.HasPrefix(line, "rename from "):
+			cur.Status = "renamed"
+			cur.OldPath = decodeQuotedPath(strings.TrimSpace(strings.TrimPrefix(line, "rename from ")))
+		case strings.HasPrefix(line, "rename to "):
+			cur.Status = "renamed"
+			cur.Path = decodeQuotedPath(strings.TrimSpace(strings.TrimPrefix(line, "rename to ")))
+		case strings.HasPrefix(line, "copy from "):
+			cur.Status = "copied"
+			cur.OldPath = decodeQuotedPath(strings.TrimSpace(strings.TrimPrefix(line, "copy from ")))
+		case strings.HasPrefix(line, "copy to "):
+			cur.Status = "copied"
+			cur.Path = decodeQuotedPath(strings.TrimSpace(strings.TrimPrefix(line, "copy to ")))
+		case strings.HasPrefix(line, "Binary files "), strings.HasPrefix(line, "GIT binary patch"):
+			// The ONLY signal that a file is genuinely non-textual. Previously
+			// dropped on the floor here, which forced the client to keep its own
+			// parser just to recover it.
+			cur.IsBinary = true
+		case strings.HasPrefix(line, "--- "):
+			if p, ok := diffSidePath(line[4:], "a/"); ok {
+				if cur.OldPath == "" && p != cur.Path {
+					cur.OldPath = p
+				}
+			} else {
+				// "--- /dev/null": the file is new, so any OldPath seeded from the
+				// ambiguous "diff --git" header (e.g. the "a/dev/null" that
+				// --no-index emits for untracked files) is spurious.
+				cur.OldPath = ""
+			}
+		case strings.HasPrefix(line, "+++ "):
+			// The b-side name is unambiguous (one path per line), unlike the
+			// "diff --git" header, so it wins when both are present.
+			if p, ok := diffSidePath(line[4:], "b/"); ok {
+				cur.Path = p
+			}
+		}
+	}
+	flush(len(diffOutput))
+
+	if diffs == nil {
 		return []FileDiff{}, nil
 	}
-
-	var diffs []FileDiff
-
-	for i, match := range matches {
-		// Extract file path from the match
-		pathStart := match[4]
-		pathEnd := match[5]
-		filePath := diffOutput[pathStart:pathEnd]
-
-		// Determine the content for this file
-		var content string
-		if i < len(matches)-1 {
-			content = diffOutput[match[0]:matches[i+1][0]]
-		} else {
-			content = diffOutput[match[0]:]
-		}
-
-		// Determine status
-		status := "modified"
-		if strings.Contains(content, "new file mode") {
-			status = "added"
-		} else if strings.Contains(content, "deleted file mode") {
-			status = "deleted"
-		} else if strings.Contains(content, "rename from") {
-			status = "renamed"
-		}
-
-		// Count additions and deletions
-		additions, deletions := countAdditionsDeletions(content)
-
-		// Parse hunks
-		hunks := parseHunks(content)
-
-		diffs = append(diffs, FileDiff{
-			Path:      filePath,
-			Status:    status,
-			Additions: additions,
-			Deletions: deletions,
-			Hunks:     hunks,
-			RawPatch:  content,
-		})
-	}
-
 	return diffs, nil
 }
 
-// countAdditionsDeletions counts the number of addition and deletion lines in a diff.
-func countAdditionsDeletions(content string) (additions, deletions int) {
-	lines := strings.Split(content, "\n")
-	for _, line := range lines {
-		if len(line) == 0 {
-			continue
+// hunkHeaderPattern matches "@@ -l,s +l,s @@ optional section heading".
+var hunkHeaderPattern = regexp.MustCompile(`^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@(.*)$`)
+
+// splitLinesWithOffsets splits s on "\n", returning each line (without the
+// terminator) alongside its byte offset in s, so a slice of the original text
+// can be recovered verbatim.
+func splitLinesWithOffsets(s string) ([]string, []int) {
+	var lines []string
+	var offsets []int
+	for pos := 0; pos <= len(s); {
+		nl := strings.IndexByte(s[pos:], '\n')
+		if nl < 0 {
+			lines = append(lines, s[pos:])
+			offsets = append(offsets, pos)
+			break
 		}
-		// Additions: lines starting with + but not +++ (binary file indicator)
-		if line[0] == '+' && !strings.HasPrefix(line, "+++") {
-			additions++
-		}
-		// Deletions: lines starting with - but not --- (binary file indicator)
-		if line[0] == '-' && !strings.HasPrefix(line, "---") {
-			deletions++
-		}
+		lines = append(lines, s[pos:pos+nl])
+		offsets = append(offsets, pos)
+		pos += nl + 1
 	}
-	return
+	return lines, offsets
 }
 
-// parseHunks extracts hunk information from a file diff.
-func parseHunks(content string) []DiffHunk {
-	hunkPattern := regexp.MustCompile(`@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@`)
-	matches := hunkPattern.FindAllStringSubmatchIndex(content, -1)
+// diffSidePath extracts the real path from a "---"/"+++" header body, stripping
+// git's a//b/ prefix. It reports false for "/dev/null" (the absent side of an
+// add or delete) and for the timestamp-suffixed forms git never emits here.
+func diffSidePath(body, prefix string) (string, bool) {
+	body = strings.TrimRight(body, "\r")
+	if body == "" || body == "/dev/null" {
+		return "", false
+	}
+	p := decodeQuotedPath(body)
+	if p == "/dev/null" {
+		return "", false
+	}
+	return strings.TrimPrefix(p, prefix), true
+}
 
-	var hunks []DiffHunk
+// parseGitHeaderPaths pulls the a-side and b-side paths out of a "diff --git"
+// line. The unquoted form is genuinely ambiguous when a path contains " b/", so
+// this prefers the split whose two sides agree (the overwhelmingly common
+// same-path case) and otherwise falls back to the last candidate. Callers treat
+// the result as a seed: the "---"/"+++" and "rename to" lines override it.
+func parseGitHeaderPaths(line string) (oldPath, newPath string) {
+	body := strings.TrimRight(strings.TrimPrefix(line, "diff --git "), "\r")
 
-	for i, match := range matches {
-		// Extract hunk header values
-		oldStart := parseInt(content[match[2]:match[3]])
-		oldCount := 1
-		if match[4] != -1 && match[5] != -1 {
-			oldCount = parseInt(content[match[4]:match[5]])
+	// Quoted form: git C-quotes either side independently when it needs to.
+	if strings.HasPrefix(body, `"`) {
+		if end := closingQuote(body); end > 0 {
+			a := decodeQuotedPath(body[:end+1])
+			rest := strings.TrimSpace(body[end+1:])
+			b := decodeQuotedPath(rest)
+			return strings.TrimPrefix(a, "a/"), strings.TrimPrefix(b, "b/")
 		}
-
-		newStart := parseInt(content[match[6]:match[7]])
-		newCount := 1
-		if match[8] != -1 && match[9] != -1 {
-			newCount = parseInt(content[match[8]:match[9]])
-		}
-
-		// Extract hunk content
-		var hunkContent string
-		if i < len(matches)-1 {
-			hunkContent = content[match[0]:matches[i+1][0]]
-		} else {
-			hunkContent = content[match[0]:]
-		}
-
-		hunks = append(hunks, DiffHunk{
-			OldStart: oldStart,
-			OldCount: oldCount,
-			NewStart: newStart,
-			NewCount: newCount,
-			Content:  hunkContent,
-		})
 	}
 
-	return hunks
+	best := -1
+	for idx := strings.Index(body, " b/"); idx >= 0; {
+		a := strings.TrimPrefix(body[:idx], "a/")
+		b := strings.TrimPrefix(body[idx+1:], "b/")
+		if a == b {
+			return a, b
+		}
+		best = idx
+		next := strings.Index(body[idx+1:], " b/")
+		if next < 0 {
+			break
+		}
+		idx += next + 1
+	}
+	if best >= 0 {
+		return strings.TrimPrefix(body[:best], "a/"),
+			strings.TrimPrefix(decodeQuotedPath(strings.TrimSpace(body[best+1:])), "b/")
+	}
+	return "", ""
+}
+
+// closingQuote returns the index of the quote closing the C-quoted string that
+// starts at s[0], skipping backslash escapes, or -1 when unterminated.
+func closingQuote(s string) int {
+	for i := 1; i < len(s); i++ {
+		switch s[i] {
+		case '\\':
+			i++
+		case '"':
+			return i
+		}
+	}
+	return -1
 }
 
 // parseInt safely parses a string to int, returning 0 on error.

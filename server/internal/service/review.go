@@ -134,15 +134,22 @@ func (s *ReviewService) getDiff(ctx context.Context, workspaceID int64, keepPatc
 			diffs = []git.FileDiff{}
 		}
 
-		// Line-level data (hunks + raw_patch) is only consumed inline for
-		// unresolved groups (repoID 0), which the client cannot re-fetch by id.
-		// Resolved groups lazily re-fetch via GetRepoDiff, so ship them
-		// summary-only — otherwise every file's full unified diff rides on the
-		// list response (10–100× the bytes the list view actually reads). The
-		// runner sync path opts into full patches via keepPatch (it needs them to
-		// mirror the worktree).
-		if repoID > 0 && !keepPatch {
-			diffs = summariseDiffs(diffs)
+		// Line-level data is only consumed inline for unresolved groups (repoID 0),
+		// which the client cannot re-fetch by id. Resolved groups lazily re-fetch
+		// via GetRepoDiff, so ship them summary-only — otherwise every file's full
+		// diff rides on the list response (10–100× the bytes the list view reads).
+		//
+		// Either way the response carries NO raw_patch: clients render from the
+		// structured Hunks, so shipping the unified-diff text alongside would just
+		// invite a second parser (the double-parse this endpoint used to force).
+		// The runner sync opts into full patches via keepPatch — it applies them
+		// with git apply and needs the bytes verbatim.
+		if !keepPatch {
+			if repoID > 0 {
+				diffs = summariseDiffs(diffs)
+			} else {
+				diffs = stripRawPatch(diffs)
+			}
 		}
 
 		result = append(result, RepoDiff{
@@ -180,7 +187,10 @@ func (s *ReviewService) workspaceOwnerRepos(ctx context.Context, workspaceID int
 	return repos
 }
 
-// GetRepoDiff returns the diff for a specific repository in a workspace.
+// GetRepoDiff returns the line-level diff for a specific repository in a
+// workspace: structured hunks, no raw_patch (see stripRawPatch). This is the
+// same per-file shape the workspace diff gives an unresolved group, so the
+// viewer renders both through one code path.
 func (s *ReviewService) GetRepoDiff(ctx context.Context, workspaceID, repoID int64) ([]git.FileDiff, error) {
 	// Direct association first.
 	wt, err := s.q.GetWorktreeByWorkspaceAndRepo(ctx, store.GetWorktreeByWorkspaceAndRepoParams{
@@ -197,7 +207,11 @@ func (s *ReviewService) GetRepoDiff(ctx context.Context, workspaceID, repoID int
 		}
 	}
 
-	return worktreeDiff(wt.WorktreePath, wt.BaseBranch)
+	diffs, err := worktreeDiff(wt.WorktreePath, wt.BaseBranch)
+	if err != nil {
+		return nil, err
+	}
+	return stripRawPatch(diffs), nil
 }
 
 // repoMatchesSource reports whether a registered repository is the source repo
@@ -249,6 +263,18 @@ func summariseDiffs(files []git.FileDiff) []git.FileDiff {
 	out := make([]git.FileDiff, len(files))
 	for i, f := range files {
 		f.Hunks = nil
+		f.RawPatch = ""
+		out[i] = f
+	}
+	return out
+}
+
+// stripRawPatch drops the unified-diff text while keeping the structured hunks.
+// This is the shape every diff-rendering client gets: the hunks are the contract,
+// and withholding the raw text keeps a second text parser from creeping back in.
+func stripRawPatch(files []git.FileDiff) []git.FileDiff {
+	out := make([]git.FileDiff, len(files))
+	for i, f := range files {
 		f.RawPatch = ""
 		out[i] = f
 	}

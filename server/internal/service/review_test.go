@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -282,9 +283,17 @@ func TestGetDiff(t *testing.T) {
 		if g.RepositoryID != 0 {
 			t.Errorf("foreign-owner repo must not be matched; RepositoryID = %d, want 0", g.RepositoryID)
 		}
-		// Unmatched groups keep full line-level data for inline rendering.
-		if len(g.Files) == 0 || g.Files[0].RawPatch == "" {
-			t.Errorf("unmatched group must retain raw_patch for inline diff, got %d files", len(g.Files))
+		// Unmatched groups keep the structured hunks for inline rendering — but
+		// never raw_patch: clients render from hunks, and shipping the text too
+		// would re-open the door to a second, divergent parser.
+		if len(g.Files) == 0 {
+			t.Fatal("expected changed files (untracked.txt)")
+		}
+		if len(g.Files[0].Hunks) == 0 {
+			t.Error("unmatched group must retain hunks for inline diff")
+		}
+		if g.Files[0].RawPatch != "" {
+			t.Errorf("raw_patch must not ship to diff-rendering clients, got %q", g.Files[0].RawPatch)
 		}
 	})
 
@@ -331,9 +340,12 @@ func TestGetRepoDiff(t *testing.T) {
 		if len(files) == 0 {
 			t.Fatal("expected files")
 		}
-		// Line-level endpoint returns full diffs (raw_patch present).
-		if files[0].RawPatch == "" {
-			t.Error("GetRepoDiff must return full diffs (raw_patch)")
+		// Line-level endpoint returns structured hunks, no raw_patch.
+		if len(files[0].Hunks) == 0 {
+			t.Error("GetRepoDiff must return line-level hunks")
+		}
+		if files[0].RawPatch != "" {
+			t.Errorf("GetRepoDiff must not ship raw_patch, got %q", files[0].RawPatch)
 		}
 	})
 
@@ -364,4 +376,84 @@ func TestGetRepoDiff(t *testing.T) {
 			t.Fatal("expected files via source-repo fallback")
 		}
 	})
+}
+
+// The two ways a client can obtain line-level diffs must agree byte-for-byte on
+// structure. Historically they did not — the unresolved-repo path shipped
+// raw_patch and the resolved path shipped summary-only, which is exactly why the
+// frontend had to keep its own unified-diff parser as a fallback. With the
+// parser gone there is no fallback left, so this pins the parity.
+func TestDiffPathsAgreeOnStructure(t *testing.T) {
+	svc, q := setupReviewTest(t)
+	ctx := context.Background()
+
+	remote := "https://example.com/acme/parity.git"
+	// Two worktrees with identical content (worktree_path is UNIQUE, so the same
+	// dir cannot be attached twice). initWorktree is deterministic, so any
+	// structural difference in the output comes from the code path, not the data.
+	resolvedDir := initWorktree(t, remote)
+	orphanDir := initWorktree(t, "https://example.com/acme/parity-orphan.git")
+
+	// Same content, reached two ways: a workspace whose repo IS registered
+	// (resolved -> GetRepoDiff) and one whose repo is NOT (unresolved -> inline
+	// files on the workspace diff response).
+	repo, err := q.CreateRepository(ctx, store.CreateRepositoryParams{
+		Name: "parity", Path: resolvedDir, GitRemote: sql.NullString{String: remote, Valid: true},
+		OwnerType: "user", OwnerID: 1,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolvedWS, err := q.CreateWorkspace(ctx, store.CreateWorkspaceParams{Name: "resolved", Path: t.TempDir(), Status: "created", OwnerType: "user", OwnerID: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := q.CreateWorktree(ctx, store.CreateWorktreeParams{
+		WorkspaceID: resolvedWS.ID, RepositoryID: repo.ID, WorktreePath: resolvedDir, Branch: "main", BaseBranch: "main",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	// Owner 2 has no registered repo for its worktree, so its group is unresolved.
+	orphanWS, err := q.CreateWorkspace(ctx, store.CreateWorkspaceParams{Name: "orphan", Path: t.TempDir(), Status: "created", OwnerType: "user", OwnerID: 2})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := q.CreateWorktree(ctx, store.CreateWorktreeParams{
+		WorkspaceID: orphanWS.ID, RepositoryID: 777777, WorktreePath: orphanDir, Branch: "main", BaseBranch: "main",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	viaRepoEndpoint, err := svc.GetRepoDiff(ctx, resolvedWS.ID, repo.ID)
+	if err != nil {
+		t.Fatalf("GetRepoDiff: %v", err)
+	}
+	groups, err := svc.GetDiff(ctx, orphanWS.ID)
+	if err != nil {
+		t.Fatalf("GetDiff: %v", err)
+	}
+	if len(groups) != 1 || groups[0].RepositoryID != 0 {
+		t.Fatalf("expected exactly one unresolved group, got %+v", groups)
+	}
+	viaWorkspaceDiff := groups[0].Files
+
+	if len(viaWorkspaceDiff) == 0 {
+		t.Fatal("expected changed files")
+	}
+	if !reflect.DeepEqual(viaRepoEndpoint, viaWorkspaceDiff) {
+		t.Errorf("the two line-level paths disagree:\n repo endpoint: %+v\nworkspace diff: %+v",
+			viaRepoEndpoint, viaWorkspaceDiff)
+	}
+
+	// And both must actually carry renderable structure — a parity test that
+	// passes because both sides are empty would prove nothing.
+	for _, f := range viaRepoEndpoint {
+		if len(f.Hunks) == 0 {
+			t.Errorf("%s has no hunks; clients have no parser to fall back on", f.Path)
+			continue
+		}
+		if len(f.Hunks[0].Lines) == 0 {
+			t.Errorf("%s hunk has no decomposed lines", f.Path)
+		}
+	}
 }

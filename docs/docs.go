@@ -4490,8 +4490,15 @@ const docTemplate = `{
         "git.DiffHunk": {
             "type": "object",
             "properties": {
-                "content": {
+                "header": {
+                    "description": "Header is the optional section heading git appends after the closing \"@@\"\n(usually the enclosing function), with surrounding spaces trimmed.",
                     "type": "string"
+                },
+                "lines": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/git.DiffLine"
+                    }
                 },
                 "new_count": {
                     "type": "integer"
@@ -4504,6 +4511,29 @@ const docTemplate = `{
                 },
                 "old_start": {
                     "type": "integer"
+                }
+            }
+        },
+        "git.DiffLine": {
+            "type": "object",
+            "properties": {
+                "content": {
+                    "type": "string"
+                },
+                "new_line": {
+                    "description": "OldLine/NewLine are 1-based line numbers, 0 when the line does not exist\non that side (adds have no OldLine, deletes have no NewLine).",
+                    "type": "integer"
+                },
+                "no_newline": {
+                    "description": "NoNewline marks a line followed by git's \"\\ No newline at end of file\".",
+                    "type": "boolean"
+                },
+                "old_line": {
+                    "type": "integer"
+                },
+                "type": {
+                    "description": "context|add|delete",
+                    "type": "string"
                 }
             }
         },
@@ -4533,6 +4563,21 @@ const docTemplate = `{
                         "$ref": "#/definitions/git.DiffHunk"
                     }
                 },
+                "is_binary": {
+                    "description": "IsBinary is true only when git reported the file as an actual binary blob\n(\"Binary files ... differ\" / \"GIT binary patch\"). A diff with zero hunks is\nNOT necessarily binary - mode-only changes (chmod +x), pure renames and\nempty files also produce no hunks.",
+                    "type": "boolean"
+                },
+                "new_mode": {
+                    "type": "string"
+                },
+                "old_mode": {
+                    "description": "OldMode/NewMode carry the file mode pair when the diff reports one, so a\ncontent-less mode change can be described instead of shown as binary.",
+                    "type": "string"
+                },
+                "old_path": {
+                    "description": "OldPath is the pre-change path, set only for renames and copies (where it\ndiffers from Path). Empty otherwise.",
+                    "type": "string"
+                },
                 "path": {
                     "type": "string"
                 },
@@ -4540,7 +4585,7 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "status": {
-                    "description": "added|modified|deleted|renamed",
+                    "description": "added|modified|deleted|renamed|copied",
                     "type": "string"
                 }
             }

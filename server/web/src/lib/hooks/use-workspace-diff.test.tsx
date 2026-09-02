@@ -19,13 +19,22 @@ function wrapper(qc: QueryClient) {
   };
 }
 
+// Mirrors the backend git.FileDiff shape: structured hunks, no raw_patch — the
+// client has no unified-diff parser, so hunks are the only renderable payload.
 const file = (path: string, additions: number, deletions: number, status = 'modified') => ({
   path,
   status,
   additions,
   deletions,
-  hunks: [],
-  raw_patch: `patch-${path}`,
+  hunks: [
+    {
+      old_start: 1,
+      old_count: 1,
+      new_start: 1,
+      new_count: 1,
+      lines: [{ type: 'add' as const, content: `line in ${path}`, new_line: 1 }],
+    },
+  ],
 });
 
 beforeEach(() => {
@@ -85,9 +94,10 @@ describe('useWorkspaceDiff', () => {
     const byName = Object.fromEntries(result.current.repos.map((r) => [r.name, r]));
     // Resolved group: rawFiles dropped (it re-fetches line-level by id).
     expect(byName.zebra.rawFiles).toHaveLength(0);
-    // Orphan group: rawFiles kept (inline line-level rendering, incl. raw_patch).
+    // Orphan group: rawFiles kept, carrying the structured hunks the inline
+    // line-level viewer renders from.
     expect(byName.alpha.rawFiles).toHaveLength(1);
-    expect(byName.alpha.rawFiles[0].raw_patch).toBe('patch-b.ts');
+    expect(byName.alpha.rawFiles[0].hunks[0].lines[0].content).toBe('line in b.ts');
   });
 
   it('sorts groups by name and attaches comment counts + ahead count', async () => {
