@@ -330,11 +330,12 @@ func (s *EpicExecutionService) AdvanceIssue(ctx context.Context, in AdvanceIssue
 	if reused || isStandaloneIssue(issue) {
 		s.sendKickoff(ctx, ws, composeInstructMessage(target, issue, extra))
 		res.Instructed = true
-		// Mark the injected diff comments consumed so the next bounce does not
-		// re-inject them (mirrors SendCommentToAgent's MarkCommentSent).
+		// Mark the injected diff comments DELIVERED. This is delivery state only —
+		// it no longer hides them from the pending view (#683 wave 1), so an unfixed
+		// comment reappears next round until a reviewer resolves it.
 		for _, id := range consumedDiffIDs {
 			if err := s.q.MarkCommentSent(ctx, id); err != nil {
-				slog.Warn("advance_issue: mark diff comment consumed", "commentID", id, "error", err)
+				slog.Warn("advance_issue: mark diff comment delivered", "commentID", id, "error", err)
 			}
 		}
 	}

@@ -797,6 +797,23 @@ type CommentResponse struct {
 	Content     string    `json:"content" example:"This is a great comment!"`
 	SentToAgent *bool     `json:"sent_to_agent,omitempty" example:"true"`
 	CreatedAt   time.Time `json:"created_at" example:"2026-03-17T12:00:00Z"`
+	// Side is "old" (a line the diff deletes) or "new" — old-side anchoring is
+	// what makes deleted lines commentable.
+	Side string `json:"side" example:"new"`
+	// CommitSha/BlobSha pin the version the reviewer read; ContextLines is the
+	// JSON snapshot of the surrounding source used to relocate the anchor.
+	CommitSha    string `json:"commit_sha,omitempty"`
+	BlobSha      string `json:"blob_sha,omitempty"`
+	ContextLines string `json:"context_lines,omitempty"`
+	// Resolved is the REVIEW verdict, independent of SentToAgent (delivery).
+	Resolved   bool       `json:"resolved" example:"false"`
+	ResolvedAt *time.Time `json:"resolved_at,omitempty"`
+	ResolvedBy string     `json:"resolved_by,omitempty"`
+	// Anchor is the position re-derived against CURRENT content, present on the
+	// list endpoint. Read anchor.status before trusting line_number: "outdated"
+	// means the comment's target is gone and the line must not be rendered as if
+	// it still pointed at the reviewed code.
+	Anchor *service.CommentAnchor `json:"anchor,omitempty"`
 }
 
 func toCommentResponse(c store.Comment) CommentResponse {
@@ -808,15 +825,26 @@ func toCommentResponse(c store.Comment) CommentResponse {
 	if c.SentToAgent.Valid {
 		sent = &c.SentToAgent.Bool
 	}
+	var resolvedAt *time.Time
+	if c.ResolvedAt.Valid {
+		resolvedAt = &c.ResolvedAt.Time
+	}
 	return CommentResponse{
-		ID:          c.ID,
-		WorkspaceID: c.WorkspaceID,
-		Repo:        c.Repo,
-		FilePath:    c.FilePath,
-		LineNumber:  lineNum,
-		Content:     c.Content,
-		SentToAgent: sent,
-		CreatedAt:   c.CreatedAt,
+		ID:           c.ID,
+		WorkspaceID:  c.WorkspaceID,
+		Repo:         c.Repo,
+		FilePath:     c.FilePath,
+		LineNumber:   lineNum,
+		Content:      c.Content,
+		SentToAgent:  sent,
+		CreatedAt:    c.CreatedAt,
+		Side:         c.Side,
+		CommitSha:    c.CommitSha,
+		BlobSha:      c.BlobSha,
+		ContextLines: c.ContextLines,
+		Resolved:     c.Resolved,
+		ResolvedAt:   resolvedAt,
+		ResolvedBy:   c.ResolvedBy,
 	}
 }
 
@@ -824,6 +852,20 @@ func toCommentResponses(cs []store.Comment) []CommentResponse {
 	out := make([]CommentResponse, len(cs))
 	for i, c := range cs {
 		out[i] = toCommentResponse(c)
+	}
+	return out
+}
+
+// toAnchoredCommentResponses renders comments with their re-resolved anchors —
+// the shape the review panel reads so it can show relocated / outdated states
+// instead of a line number that quietly points at the wrong code.
+func toAnchoredCommentResponses(cs []service.AnchoredComment) []CommentResponse {
+	out := make([]CommentResponse, len(cs))
+	for i, c := range cs {
+		r := toCommentResponse(c.Comment)
+		anchor := c.Anchor
+		r.Anchor = &anchor
+		out[i] = r
 	}
 	return out
 }

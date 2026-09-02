@@ -296,6 +296,14 @@ CREATE TABLE IF NOT EXISTS workspace_local_runner (
 -- ============================================================
 -- Comments table
 -- ============================================================
+-- side / commit_sha / blob_sha / context_lines are the anchor (#683 wave 1): a
+-- line number alone silently re-points at whatever now occupies that line after
+-- the agent edits the file. The context snapshot lets the reader relocate the
+-- comment, or mark it outdated — never silently drift.
+-- resolved is the REVIEW verdict and is orthogonal to sent_to_agent (a one-shot
+-- delivery/outbox flag): a comment can be delivered and still unresolved.
+-- NOTE: the columns after created_at are appended in the same order migrate.go
+-- adds them, so fresh and upgraded databases end up with identical layouts.
 CREATE TABLE IF NOT EXISTS comments (
     id            INTEGER PRIMARY KEY AUTOINCREMENT,
     workspace_id  INTEGER NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
@@ -304,7 +312,14 @@ CREATE TABLE IF NOT EXISTS comments (
     line_number   INTEGER,
     content       TEXT NOT NULL,
     sent_to_agent BOOLEAN DEFAULT FALSE,
-    created_at    TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+    created_at    TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    side          TEXT NOT NULL DEFAULT 'new',
+    commit_sha    TEXT NOT NULL DEFAULT '',
+    blob_sha      TEXT NOT NULL DEFAULT '',
+    context_lines TEXT NOT NULL DEFAULT '',
+    resolved      BOOLEAN NOT NULL DEFAULT FALSE,
+    resolved_at   TIMESTAMP DEFAULT NULL,
+    resolved_by   TEXT NOT NULL DEFAULT ''
 );
 
 -- ============================================================
