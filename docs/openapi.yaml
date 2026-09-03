@@ -1692,9 +1692,38 @@ components:
         - date
         - message
 
+    DiffLine:
+      type: object
+      description: >-
+        One line inside a hunk. Line numbers are resolved server-side, so clients
+        render without running counters.
+      properties:
+        type:
+          type: string
+          enum: [context, add, delete]
+          example: add
+        content:
+          type: string
+          description: The line text, without its diff prefix character.
+          example: "  return nil"
+        old_line:
+          type: integer
+          description: 1-based old-file line number; omitted for added lines.
+          example: 12
+        new_line:
+          type: integer
+          description: 1-based new-file line number; omitted for deleted lines.
+          example: 14
+        no_newline:
+          type: boolean
+          description: 'The line is followed by git''s "\ No newline at end of file".'
+      required:
+        - type
+        - content
+
     DiffHunk:
       type: object
-      description: Git diff hunk
+      description: Git diff hunk, decomposed into lines
       properties:
         old_start:
           type: integer
@@ -1708,39 +1737,70 @@ components:
         new_count:
           type: integer
           example: 7
-        content:
+        header:
           type: string
-          example: "@@ -1,5 +1,7 @@ context"
+          description: Section heading git appends after the closing "@@".
+          example: func main()
+        lines:
+          type: array
+          items:
+            $ref: '#/components/schemas/DiffLine'
       required:
         - old_start
         - old_count
         - new_start
         - new_count
-        - content
+        - lines
 
     FileDiff:
       type: object
-      description: Git file diff
+      description: >-
+        Git file diff. The server is the only diff parser: clients render from
+        `hunks` and never re-parse a patch. `raw_patch` is therefore omitted by
+        the diff endpoints and present only where a consumer must replay the
+        patch verbatim (the local-runner sync, GET /workspaces/{id}/diff?patch=1).
       properties:
         path:
           type: string
           example: main.go
+        old_path:
+          type: string
+          description: Pre-change path; present only for renames and copies.
+          example: old_main.go
         status:
           type: string
-          enum: [added, modified, deleted, renamed]
+          enum: [added, modified, deleted, renamed, copied]
           example: modified
+        additions:
+          type: integer
+          example: 7
+        deletions:
+          type: integer
+          example: 2
+        is_binary:
+          type: boolean
+          description: >-
+            True only when git reported an actual binary blob. Zero hunks alone
+            does NOT mean binary — mode-only changes, pure renames and empty
+            files also produce none.
+        old_mode:
+          type: string
+          example: "100644"
+        new_mode:
+          type: string
+          example: "100755"
         hunks:
           type: array
           items:
             $ref: '#/components/schemas/DiffHunk'
         raw_patch:
           type: string
+          description: Unified diff text; empty unless the caller opted in via ?patch=1.
           example: diff --git a/main.go b/main.go...
       required:
         - path
         - status
         - hunks
-        - raw_patch
 
     GitCommitRequest:
       type: object

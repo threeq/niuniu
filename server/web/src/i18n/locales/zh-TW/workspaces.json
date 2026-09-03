@@ -45,7 +45,6 @@
     "submitArtifactDone": "已將「{{name}}」提交為產物",
     "submitArtifactFailed": "提交為產物失敗",
     "close": "關閉",
-    "highlightDisabledLargeFile": "檔案較大，已關閉語法高亮以保證效能",
     "imageZoomActual": "檢視原始尺寸",
     "imageZoomFit": "適應視窗"
   },
@@ -440,8 +439,6 @@
         "modeChange": "僅檔案許可權變更（{{old}} → {{new}}），無內容差異。",
         "renameOnly": "僅重新命名檔案，無內容差異。",
         "noContentChange": "該檔案無內容差異（僅後設資料變更）。",
-        "largeFile": "差異較大（{{count}} 行）——已摺疊以保證效能。",
-        "renderAnyway": "仍然渲染",
         "openInVSCode": "在 VS Code 中開啟",
         "expandLines": "展開 {{count}} 行未改動內容",
         "loadError": "載入 diff 失敗。",
@@ -460,7 +457,33 @@
         "queued": "已加入佇列",
         "sentOne": "已傳送給 Agent",
         "sentAll": "已傳送 {{count}} 條評論給 Agent",
-        "sentPartial": "已傳送 {{sent}} 條，{{failed}} 條失敗"
+        "sentPartial": "已傳送 {{sent}} 條，{{failed}} 條失敗",
+        "oldSide": "刪除行",
+        "oldSideHint": "這條評論指向本次改動刪除的一行，錨點是當時的內容快照",
+        "composingOldSide": "評論刪除的第 {{line}} 行（舊側）",
+        "anchor": {
+          "outdated": "錨點已失效",
+          "outdatedHint": "該處內容已不在，行號不可信 —— 展開查看寫下這條意見時的原文",
+          "outdatedBanner": "{{count}} 條評論的錨點已失效（內容已變，無法定位到具體行）",
+          "relocated": "已隨內容移動",
+          "relocatedHint": "原第 {{from}} 行，現在第 {{to}} 行",
+          "showSnapshot": "查看當時的上下文",
+          "compare": "對比：當時 vs 現在",
+          "thenLabel": "當時（寫下這條意見時）",
+          "nowLabel": "現在"
+        },
+        "verdict": {
+          "open": "未解決",
+          "resolved": "已解決",
+          "resolveHint": "標記為已解決（審閱結論，與是否發給 Agent 無關）",
+          "reopenHint": "重新打開",
+          "markedResolved": "已標記為已解決",
+          "reopened": "已重新打開"
+        },
+        "openOnFile": "{{count}} 條未解決的評論",
+        "allResolvedOnFile": "{{count}} 條評論已全部標記為已解決",
+        "reviewProgress": "已解決 {{resolved}}/{{total}}",
+        "reviewProgressHint": "審閱結論進度：已解決 / 總數。與「發送給 Agent」無關——發出去不等於改好了"
       },
       "syncFromBranchPrompt": "請把分支 `{{sourceBranch}}` 的最新程式碼合併到下述指定 worktree 的當前分支 `{{currentBranch}}` 中。\n\n⚠️ 此工作空間下可能有多個 worktree，請嚴格只在下面這一個 worktree 中操作，不要切換到其他 worktree、不要 cd 離開它：\n- worktree 名稱：{{worktreeName}}\n- worktree 絕對路徑：{{worktreePath}}\n- 當前分支：{{currentBranch}}\n- 要合入的分支：{{sourceBranch}}\n\n請按以下步驟操作（始終用 `git -C \"{{worktreePath}}\"` 顯式定位，不要靠 cwd 推斷）：\n1. 執行 `git -C \"{{worktreePath}}\" status` 檢查工作區是否乾淨；若有未提交修改，先停下來告訴我，等我確認後再繼續；\n2. 執行 `git -C \"{{worktreePath}}\" merge {{sourceBranch}}` 進行合併；\n3. 如果產生合併衝突：先列出全部衝突檔案，再嘗試逐個解決（保留雙方意圖，避免丟失改動），完成後用 `git -C \"{{worktreePath}}\" commit --no-edit` 提交合並；遇到無法判斷如何取捨的衝突，停下來告訴我具體檔案和原因，**不要** 執行 `git merge --abort`，把現場保留給我；\n4. 合併成功後簡要報告：合併方式（fast-forward / merge commit）、新的 HEAD commit、是否還有未提交內容。"
     },
@@ -998,5 +1021,27 @@
     "viewFile": "檔案",
     "viewPreview": "預覽",
     "viewSource": "原始碼"
+  },
+  "search": {
+    "title": "搜尋工作空間",
+    "description": "依檔名或檔案內容搜尋此工作空間下的所有儲存庫。",
+    "open": "搜尋",
+    "openHint": "搜尋檔案與內容（Ctrl/Cmd+Shift+F）",
+    "placeholder": "搜尋檔名與檔案內容…",
+    "hint": "輸入即可同時搜尋檔名與檔案內容。",
+    "noResults": "沒有相符的檔案或內容。",
+    "filesHeading": "檔名",
+    "contentHeading": "檔案內容",
+    "optionsLabel": "內容：",
+    "optionCase": "區分大小寫",
+    "optionWord": "全字匹配",
+    "optionRegex": "使用正規表達式",
+    "contentMinLength": "至少輸入 2 個字元才會搜尋檔案內容。",
+    "engineMissing": "內容搜尋無法使用：本機未找到 ripgrep，也未找到 git。",
+    "invalidQuery": "搜尋運算式無效 —— 請檢查正規表達式。",
+    "contentFailed": "內容搜尋失敗：{{message}}",
+    "truncatedLimit": "結果已截斷 —— 相符過多，請縮小搜尋範圍。",
+    "truncatedTimeout": "結果已截斷 —— 搜尋逾時。",
+    "fileTruncated": "（還有更多相符）"
   }
 }

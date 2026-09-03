@@ -50,7 +50,11 @@
       },
       "confirmDiscardAll": "確定回滾所有更改? 此操作不可恢復!",
       "confirmDiscardFile": "確定回滾 \"{{path}}\" 的更改?",
-      "confirmDeleteBranch": "確定刪除分支 \"{{name}}\"?"
+      "confirmDeleteBranch": "確定刪除分支 \"{{name}}\"?",
+      "backToGraph": "返回提交圖",
+      "diffUnified": "統一",
+      "diffSplit": "分欄",
+      "noDiffForFile": "該檔案在此提交中沒有可顯示的行級改動"
     },
     "files": {
       "refresh": "重新整理",

@@ -21,6 +21,8 @@ import { PinnedMessagesPanel } from './panels/pinned-messages-panel';
 import { ArtifactPanelContainer } from './panels/artifact-panel-container';
 import { WorkspaceKBsPanel } from './panels/workspace-kbs-panel';
 import { ContentViewerPanel } from './panels/content-viewer-panel';
+import { WorkspaceSearchDialog } from './panels/workspace-search-dialog';
+import { useWorkspaceSearchShortcut } from '@/lib/hooks/use-workspace-search-shortcut';
 import { ArchivedPlaceholder } from './panels/archived-placeholder';
 import { WorkspaceProjectionBanner } from './panels/workspace-projection-banner';
 import { StudioDraftBanner } from './panels/studio-draft-banner';
@@ -61,6 +63,9 @@ export function WorkspacePage({ workspaceId }: WorkspacePageProps) {
   const { t } = useTranslation('workspaces');
   const { openPanels, isSidebarOpen, toggleSidebar } = useWorkspacePanelStore();
   const contentViewer = useWorkspacePanelStore((s) => s.contentViewer[workspaceId] ?? null);
+  // Unified search (file names + contents). Lives on the page, not the toolbar,
+  // so the Ctrl/Cmd+Shift+F and Ctrl/Cmd+P shortcuts work anywhere in the page.
+  const { open: searchOpen, setOpen: setSearchOpen } = useWorkspaceSearchShortcut();
 
   const { data: workspace, isLoading } = useQuery({
     queryKey: ['workspace', workspaceId],
@@ -153,7 +158,7 @@ export function WorkspacePage({ workspaceId }: WorkspacePageProps) {
       )}
 
       <div className="flex flex-col flex-1 min-w-0">
-        <WorkspaceToolbar workspace={workspace} />
+        <WorkspaceToolbar workspace={workspace} onOpenSearch={() => setSearchOpen(true)} />
 
         {/* empty:hidden collapses the wrapper (and its pt-2) when the banner
             renders null — otherwise a dead 8px band sits atop the chat flow. */}
@@ -252,6 +257,17 @@ export function WorkspacePage({ workspaceId }: WorkspacePageProps) {
           </div>
         )}
       </div>
+
+      {/* Unified search over file names + file contents (#685). Archived
+          workspaces have no working tree left to search, so the entry point is
+          withheld there — same rule as the other filesystem panels. */}
+      {!isArchived && (
+        <WorkspaceSearchDialog
+          workspaceId={workspaceId}
+          open={searchOpen}
+          onOpenChange={setSearchOpen}
+        />
+      )}
     </div>
   );
 }

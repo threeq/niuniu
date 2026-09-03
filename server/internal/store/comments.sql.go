@@ -11,15 +11,19 @@ import (
 )
 
 const createComment = `-- name: CreateComment :one
-INSERT INTO comments (workspace_id, repo, file_path, line_number, content) VALUES (?, ?, ?, ?, ?) RETURNING id, workspace_id, repo, file_path, line_number, content, sent_to_agent, created_at
+INSERT INTO comments (workspace_id, repo, file_path, line_number, content, side, commit_sha, blob_sha, context_lines) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id, workspace_id, repo, file_path, line_number, content, sent_to_agent, created_at, side, commit_sha, blob_sha, context_lines, resolved, resolved_at, resolved_by
 `
 
 type CreateCommentParams struct {
-	WorkspaceID int64         `json:"workspace_id"`
-	Repo        string        `json:"repo"`
-	FilePath    string        `json:"file_path"`
-	LineNumber  sql.NullInt64 `json:"line_number"`
-	Content     string        `json:"content"`
+	WorkspaceID  int64         `json:"workspace_id"`
+	Repo         string        `json:"repo"`
+	FilePath     string        `json:"file_path"`
+	LineNumber   sql.NullInt64 `json:"line_number"`
+	Content      string        `json:"content"`
+	Side         string        `json:"side"`
+	CommitSha    string        `json:"commit_sha"`
+	BlobSha      string        `json:"blob_sha"`
+	ContextLines string        `json:"context_lines"`
 }
 
 func (q *Queries) CreateComment(ctx context.Context, arg CreateCommentParams) (Comment, error) {
@@ -29,6 +33,10 @@ func (q *Queries) CreateComment(ctx context.Context, arg CreateCommentParams) (C
 		arg.FilePath,
 		arg.LineNumber,
 		arg.Content,
+		arg.Side,
+		arg.CommitSha,
+		arg.BlobSha,
+		arg.ContextLines,
 	)
 	var i Comment
 	err := row.Scan(
@@ -40,12 +48,19 @@ func (q *Queries) CreateComment(ctx context.Context, arg CreateCommentParams) (C
 		&i.Content,
 		&i.SentToAgent,
 		&i.CreatedAt,
+		&i.Side,
+		&i.CommitSha,
+		&i.BlobSha,
+		&i.ContextLines,
+		&i.Resolved,
+		&i.ResolvedAt,
+		&i.ResolvedBy,
 	)
 	return i, err
 }
 
 const getComment = `-- name: GetComment :one
-SELECT id, workspace_id, repo, file_path, line_number, content, sent_to_agent, created_at FROM comments WHERE id = ?
+SELECT id, workspace_id, repo, file_path, line_number, content, sent_to_agent, created_at, side, commit_sha, blob_sha, context_lines, resolved, resolved_at, resolved_by FROM comments WHERE id = ?
 `
 
 func (q *Queries) GetComment(ctx context.Context, id int64) (Comment, error) {
@@ -60,12 +75,19 @@ func (q *Queries) GetComment(ctx context.Context, id int64) (Comment, error) {
 		&i.Content,
 		&i.SentToAgent,
 		&i.CreatedAt,
+		&i.Side,
+		&i.CommitSha,
+		&i.BlobSha,
+		&i.ContextLines,
+		&i.Resolved,
+		&i.ResolvedAt,
+		&i.ResolvedBy,
 	)
 	return i, err
 }
 
 const listCommentsByWorkspace = `-- name: ListCommentsByWorkspace :many
-SELECT id, workspace_id, repo, file_path, line_number, content, sent_to_agent, created_at FROM comments WHERE workspace_id = ? ORDER BY created_at
+SELECT id, workspace_id, repo, file_path, line_number, content, sent_to_agent, created_at, side, commit_sha, blob_sha, context_lines, resolved, resolved_at, resolved_by FROM comments WHERE workspace_id = ? ORDER BY created_at
 `
 
 func (q *Queries) ListCommentsByWorkspace(ctx context.Context, workspaceID int64) ([]Comment, error) {
@@ -86,6 +108,13 @@ func (q *Queries) ListCommentsByWorkspace(ctx context.Context, workspaceID int64
 			&i.Content,
 			&i.SentToAgent,
 			&i.CreatedAt,
+			&i.Side,
+			&i.CommitSha,
+			&i.BlobSha,
+			&i.ContextLines,
+			&i.Resolved,
+			&i.ResolvedAt,
+			&i.ResolvedBy,
 		); err != nil {
 			return nil, err
 		}
@@ -106,5 +135,79 @@ UPDATE comments SET sent_to_agent = TRUE WHERE id = ?
 
 func (q *Queries) MarkCommentSent(ctx context.Context, id int64) error {
 	_, err := q.db.ExecContext(ctx, markCommentSent, id)
+	return err
+}
+
+const resolveComment = `-- name: ResolveComment :one
+UPDATE comments SET resolved = TRUE, resolved_at = CURRENT_TIMESTAMP, resolved_by = ? WHERE id = ? RETURNING id, workspace_id, repo, file_path, line_number, content, sent_to_agent, created_at, side, commit_sha, blob_sha, context_lines, resolved, resolved_at, resolved_by
+`
+
+type ResolveCommentParams struct {
+	ResolvedBy string `json:"resolved_by"`
+	ID         int64  `json:"id"`
+}
+
+func (q *Queries) ResolveComment(ctx context.Context, arg ResolveCommentParams) (Comment, error) {
+	row := q.db.QueryRowContext(ctx, resolveComment, arg.ResolvedBy, arg.ID)
+	var i Comment
+	err := row.Scan(
+		&i.ID,
+		&i.WorkspaceID,
+		&i.Repo,
+		&i.FilePath,
+		&i.LineNumber,
+		&i.Content,
+		&i.SentToAgent,
+		&i.CreatedAt,
+		&i.Side,
+		&i.CommitSha,
+		&i.BlobSha,
+		&i.ContextLines,
+		&i.Resolved,
+		&i.ResolvedAt,
+		&i.ResolvedBy,
+	)
+	return i, err
+}
+
+const unresolveComment = `-- name: UnresolveComment :one
+UPDATE comments SET resolved = FALSE, resolved_at = NULL, resolved_by = '' WHERE id = ? RETURNING id, workspace_id, repo, file_path, line_number, content, sent_to_agent, created_at, side, commit_sha, blob_sha, context_lines, resolved, resolved_at, resolved_by
+`
+
+func (q *Queries) UnresolveComment(ctx context.Context, id int64) (Comment, error) {
+	row := q.db.QueryRowContext(ctx, unresolveComment, id)
+	var i Comment
+	err := row.Scan(
+		&i.ID,
+		&i.WorkspaceID,
+		&i.Repo,
+		&i.FilePath,
+		&i.LineNumber,
+		&i.Content,
+		&i.SentToAgent,
+		&i.CreatedAt,
+		&i.Side,
+		&i.CommitSha,
+		&i.BlobSha,
+		&i.ContextLines,
+		&i.Resolved,
+		&i.ResolvedAt,
+		&i.ResolvedBy,
+	)
+	return i, err
+}
+
+const updateCommentAnchor = `-- name: UpdateCommentAnchor :exec
+UPDATE comments SET line_number = ?, blob_sha = ? WHERE id = ?
+`
+
+type UpdateCommentAnchorParams struct {
+	LineNumber sql.NullInt64 `json:"line_number"`
+	BlobSha    string        `json:"blob_sha"`
+	ID         int64         `json:"id"`
+}
+
+func (q *Queries) UpdateCommentAnchor(ctx context.Context, arg UpdateCommentAnchorParams) error {
+	_, err := q.db.ExecContext(ctx, updateCommentAnchor, arg.LineNumber, arg.BlobSha, arg.ID)
 	return err
 }

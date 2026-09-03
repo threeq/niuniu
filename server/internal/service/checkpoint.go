@@ -196,6 +196,9 @@ func (s *CheckpointService) Timeline(ctx context.Context, issueID int64) ([]Chec
 // parent is always resolvable in this repo, whereas a stored parent_hash could be
 // stale (e.g. a workspace re-created for the same issue, whose earlier checkpoint
 // commit lives in a different object store) and make git diff fail.
+//
+// Returned in the same structured shape as the workspace diff — hunks, no
+// raw_patch — since the checkpoint viewer renders through the same component.
 func (s *CheckpointService) StepDiff(ctx context.Context, checkpointID int64) ([]git.FileDiff, error) {
 	if s == nil || s.db == nil {
 		return nil, fmt.Errorf("checkpoint diff: service unavailable")
@@ -207,7 +210,11 @@ func (s *CheckpointService) StepDiff(ctx context.Context, checkpointID int64) ([
 	if err != nil {
 		return nil, fmt.Errorf("checkpoint diff: load row %d: %w", checkpointID, err)
 	}
-	return git.CheckpointDiff(wtPath, "", commit)
+	diffs, err := git.CheckpointDiff(wtPath, "", commit)
+	if err != nil {
+		return nil, err
+	}
+	return stripRawPatch(diffs), nil
 }
 
 // RevertRepoResult reports the outcome of reverting one repo to a checkpoint.

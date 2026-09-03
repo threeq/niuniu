@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
-import { RefreshCw, Settings, GitBranch, FileText, File, Folder, GitBranchIcon, FolderGit2, Save, Terminal as TerminalIcon, ChevronDown, ChevronRight, Search, Globe, Monitor, Plus, Undo2, Check, AlertCircle } from 'lucide-react';
+import { RefreshCw, Settings, GitBranch, FileText, File, Folder, GitBranchIcon, FolderGit2, Save, Terminal as TerminalIcon, ChevronDown, ChevronRight, ChevronLeft, Search, Globe, Monitor, Plus, Undo2, Check, AlertCircle } from 'lucide-react';
 import { VSCodeIcon } from '@/components/ui/vscode-icon';
 import { useParams } from '@tanstack/react-router';
 import i18n from '@/i18n';
@@ -22,6 +22,8 @@ import { getAccessToken } from '@/stores/auth-store';
 import { useThemeStore } from '@/stores/theme-store';
 import { LIGHT_TERMINAL_THEME, DARK_TERMINAL_THEME } from '@/lib/terminal-themes';
 import { computeGraphLayout } from '@/lib/commit-graph';
+import { DiffViewer } from '@/pages/workspaces/panels/diff-viewer';
+import type { GitFileDiff } from '@/lib/hooks/use-file-diff';
 import { RepoGitIdentitySection } from './repo-git-identity-section';
 
 type Tab = 'files' | 'branches' | 'worktrees' | 'settings';
@@ -116,7 +118,7 @@ export function RepositoryDetailPage() {
       <div className="flex-1 min-h-0 flex flex-col">
         <div className="flex-1 min-h-0 overflow-hidden">
           {activeTab === 'files' && <RepoFilesTab repoId={id!} />}
-          {activeTab === 'branches' && <RepoBranchesTab repoId={id!} />}
+          {activeTab === 'branches' && <RepoBranchesTab repoId={id!} repoName={repository?.name ?? ''} />}
           {activeTab === 'worktrees' && <RepoWorktreesTab repoId={id!} />}
           {activeTab === 'settings' && <RepoSettingsTab repoId={id!} repository={repository} />}
         </div>
@@ -128,19 +130,101 @@ export function RepositoryDetailPage() {
 
 // ==================== Branches Tab (3-panel: tree + graph + detail) ====================
 
-function RepoBranchesTab({ repoId }: { repoId: string }) {
+/**
+ * One file's line-level diff from a commit, shown in the center pane in place of
+ * the graph (the detail sidebar is `w-72` — nowhere near enough for a diff).
+ *
+ * This is the whole of #689 item 4: `DiffViewer` already existed and the
+ * commit-detail view already knew which files changed; the two were simply never
+ * connected, so a commit's actual content was unreadable in-app.
+ *
+ * Comments are deliberately not wired: they anchor to a WORKSPACE worktree, and
+ * this is a bare repository view with no workspace to attach them to. Passing no
+ * comment callbacks makes DiffViewer render read-only.
+ */
+function CommitFileDiffPane({
+  repoName,
+  path,
+  shortHash,
+  diff,
+  isLoading,
+  onBack,
+}: {
+  repoName: string;
+  path: string;
+  shortHash: string;
+  diff?: GitFileDiff[];
+  isLoading: boolean;
+  onBack: () => void;
+}) {
+  const { t } = useTranslation('repositories');
+  const [mode, setMode] = useState<'unified' | 'split'>('unified');
+  const fileDiff = diff?.find((f) => f.path === path);
+
+  return (
+    <div className="flex h-full min-h-0 flex-col">
+      <div className="flex items-center gap-2 px-3 py-1.5 border-b border-[#313244] bg-[#1e1e2e] shrink-0">
+        <button
+          type="button"
+          onClick={onBack}
+          className="flex items-center gap-1 rounded px-1.5 py-0.5 text-xs text-[#a6adc8] hover:bg-[#313244] hover:text-[#cdd6f4]"
+        >
+          <ChevronLeft className="w-3.5 h-3.5" />
+          {t('detail.branches.backToGraph')}
+        </button>
+        <code className="text-xs font-mono text-[#89b4fa]">{shortHash}</code>
+        <div className="ml-auto flex rounded-lg bg-[#313244] p-0.5 text-[11px]">
+          {(['unified', 'split'] as const).map((m) => (
+            <button
+              key={m}
+              type="button"
+              onClick={() => setMode(m)}
+              className={cn(
+                'rounded-md px-2 py-0.5 transition-colors',
+                mode === m ? 'bg-[#1e1e2e] font-medium text-[#cdd6f4]' : 'text-[#6c7086] hover:text-[#cdd6f4]',
+              )}
+            >
+              {t(m === 'unified' ? 'detail.branches.diffUnified' : 'detail.branches.diffSplit')}
+            </button>
+          ))}
+        </div>
+      </div>
+      <div className="min-h-0 flex-1">
+        {isLoading ? (
+          <div className="flex h-full items-center justify-center text-sm text-[#6c7086]">
+            {t('common:actions.loading')}
+          </div>
+        ) : fileDiff ? (
+          <DiffViewer fileDiff={fileDiff} repoName={repoName} mode={mode} />
+        ) : (
+          <div className="flex h-full items-center justify-center text-sm text-[#6c7086]">
+            {t('detail.branches.noDiffForFile')}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function RepoBranchesTab({ repoId, repoName }: { repoId: string; repoName: string }) {
   const { t } = useTranslation('repositories');
   const queryClient = useQueryClient();
   const [selectedCommit, setSelectedCommit] = useState<string | null>(null);
+  // Which file's line-level diff is open in the commit view. Cleared whenever the
+  // selected commit changes, so a path from the previous commit is never shown
+  // against the new one.
+  const [selectedCommitFile, setSelectedCommitFile] = useState<string | null>(null);
   const selectedCommitRepoRef = useRef(repoId);
 
   useEffect(() => {
     setSelectedCommit(null);
+    setSelectedCommitFile(null);
     selectedCommitRepoRef.current = repoId;
   }, [repoId]);
 
   const selectCommit = (hash: string | null) => {
     setSelectedCommit(hash);
+    setSelectedCommitFile(null);
     selectedCommitRepoRef.current = repoId;
   };
   const [branchFilter, setBranchFilter] = useState('');
@@ -171,6 +255,17 @@ function RepoBranchesTab({ repoId }: { repoId: string }) {
     queryKey: ['repository', repoId, 'commit-detail', selectedCommit],
     queryFn: () => api.get<CommitDetail>(`/repositories/${repoId}/commits/${selectedCommit}`),
     enabled: !!selectedCommit && selectedCommitRepoRef.current === repoId,
+  });
+
+  // The commit's line-level diff (#689). Previously this view listed file names
+  // only, so "what did this commit change" needed an external tool. Fetched
+  // lazily — only once a file is actually opened — since a commit touching many
+  // files can carry a large patch and the file list alone is the common case.
+  const { data: commitDiff, isLoading: commitDiffLoading } = useQuery<GitFileDiff[]>({
+    queryKey: ['repository', repoId, 'commit-diff', selectedCommit],
+    queryFn: () => api.get<GitFileDiff[]>(`/repositories/${repoId}/commits/${selectedCommit}/diff`),
+    enabled:
+      !!selectedCommit && !!selectedCommitFile && selectedCommitRepoRef.current === repoId,
   });
 
   const { data: gitStatus, refetch: refetchStatus } = useQuery<{ modified: string[]; added: string[]; deleted: string[]; untracked: string[] }>({
@@ -247,6 +342,11 @@ function RepoBranchesTab({ repoId }: { repoId: string }) {
   const graphScrollRef = useRef<HTMLDivElement>(null);
   const [graphScrollTop, setGraphScrollTop] = useState(0);
   const [graphViewportH, setGraphViewportH] = useState(0);
+  // The center pane shows EITHER the graph or a commit's file diff, so the graph
+  // scroll container is unmounted while a diff is open. `showCommitDiff` is in
+  // the deps for that reason: without it the listeners would never re-attach on
+  // the way back and the graph would render a frozen window.
+  const showCommitDiff = !!selectedCommit && !!selectedCommitFile;
   useEffect(() => {
     const el = graphScrollRef.current;
     if (!el) return;
@@ -256,7 +356,7 @@ function RepoBranchesTab({ repoId }: { repoId: string }) {
     const ro = new ResizeObserver(update);
     ro.observe(el);
     return () => { el.removeEventListener('scroll', update); ro.disconnect(); };
-  }, [layout.nodes.length]);
+  }, [layout.nodes.length, showCommitDiff]);
   const OVERSCAN = 12;
   const totalRows = layout.nodes.length;
   const visibleStart = Math.max(0, Math.floor(graphScrollTop / ROW_HEIGHT) - OVERSCAN);
@@ -506,10 +606,21 @@ function RepoBranchesTab({ repoId }: { repoId: string }) {
         </div>
       </div>
 
-      {/* Center: Git graph */}
+      {/* Center: git graph, or the selected commit file's line-level diff */}
       <div className="flex-1 min-w-0 flex flex-col">
-        {/* Graph toolbar */}
-        <div className="flex items-center justify-between px-3 py-1.5 border-b border-[#313244] bg-[#1e1e2e] shrink-0">
+        {showCommitDiff ? (
+          <CommitFileDiffPane
+            repoName={repoName}
+            path={selectedCommitFile!}
+            shortHash={commitDetail?.short_hash ?? selectedCommit!.slice(0, 7)}
+            diff={commitDiff}
+            isLoading={commitDiffLoading}
+            onBack={() => setSelectedCommitFile(null)}
+          />
+        ) : (
+          <>
+            {/* Graph toolbar */}
+            <div className="flex items-center justify-between px-3 py-1.5 border-b border-[#313244] bg-[#1e1e2e] shrink-0">
           <div className="flex items-center gap-2 text-xs text-[#a6adc8]">
             <GitBranchIcon className="w-3.5 h-3.5" />
             <span>{t('detail.branches.commitsCount', { count: graphCommits?.length ?? 0 })}</span>
@@ -638,22 +749,39 @@ function RepoBranchesTab({ repoId }: { repoId: string }) {
             </div>
           )}
         </div>
+          </>
+        )}
       </div>
 
       {/* Right: Commit detail panel */}
       {selectedCommit && commitDetail && (
         <div className="w-72 shrink-0 border-l border-[#313244] bg-[#181825] flex flex-col overflow-hidden">
-          {/* Files changed */}
+          {/* Files changed. Each row opens that file's line-level diff in the
+              center pane — the detail sidebar is far too narrow to hold a diff,
+              and the graph is the thing the reader is done with once they have
+              picked a file. */}
           <div className="p-3 border-b border-[#313244] shrink-0">
             <div className="text-xs text-[#6c7086] mb-2">{t('detail.branches.filesChanged')}</div>
             <div className="space-y-0.5 max-h-40 overflow-auto">
               {commitDetail.files_changed?.map((file) => {
                 const st = fileStatusLabel(file.status);
+                const active = selectedCommitFile === file.path;
                 return (
-                  <div key={file.path} className="flex items-center gap-1.5 text-xs py-0.5">
+                  <button
+                    key={file.path}
+                    type="button"
+                    onClick={() => setSelectedCommitFile(active ? null : file.path)}
+                    title={file.path}
+                    className={cn(
+                      'flex w-full items-center gap-1.5 text-xs py-0.5 px-1 rounded text-left',
+                      active ? 'bg-[#313244]' : 'hover:bg-[#313244]/60',
+                    )}
+                  >
                     <span className={cn('font-mono w-3 text-center shrink-0', st.color)}>{st.label}</span>
-                    <span className="text-[#cdd6f4] truncate" title={file.path}>{file.path.split('/').pop()}</span>
-                  </div>
+                    <span className={cn('truncate', active ? 'text-[#89b4fa]' : 'text-[#cdd6f4]')}>
+                      {file.path.split('/').pop()}
+                    </span>
+                  </button>
                 );
               })}
               {(!commitDetail.files_changed || commitDetail.files_changed.length === 0) && (

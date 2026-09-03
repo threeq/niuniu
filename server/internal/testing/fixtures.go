@@ -109,5 +109,10 @@ func TestComment(id, workspaceID int64, filePath string, lineNumber int, content
 		Content:     content,
 		SentToAgent: sql.NullBool{Bool: false, Valid: true},
 		CreatedAt:   now,
+		// Match the column defaults a real insert lands on: new-side anchor, no
+		// verdict yet. Resolved is deliberately separate from SentToAgent —
+		// delivery is not a review conclusion (#683 wave 1).
+		Side:     "new",
+		Resolved: false,
 	}
 }

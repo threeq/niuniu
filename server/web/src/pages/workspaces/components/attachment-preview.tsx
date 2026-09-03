@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ExternalLink, ChevronDown, ChevronUp } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { simpleHighlight } from '@/lib/simple-highlight';
+import { HighlightedCode } from '@/lib/syntax';
 import { getFileContentUrl } from '@/lib/workspace-file-url';
 import type { ChatAttachment } from '@/types/api';
 import { ImageLightbox } from './image-lightbox';
@@ -119,7 +119,7 @@ export function AttachmentPreview({ attachment, workspaceId }: AttachmentPreview
             'bg-muted font-mono text-[11px] text-muted-foreground leading-relaxed px-3 py-2 overflow-hidden relative',
             !codeExpanded && 'max-h-[160px]',
           )}>
-            <pre className="whitespace-pre-wrap break-all">{simpleHighlight(codePreview, attachment.name)}</pre>
+            <HighlightedCode code={codePreview} path={attachment.name} />
             {!codeExpanded && codeTruncated && (
               <div className="absolute bottom-0 left-0 right-0 h-10 bg-gradient-to-t from-muted to-transparent" />
             )}

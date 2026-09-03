@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { http, HttpResponse } from 'msw';
 import { describe, expect, it } from 'vitest';
 import { server } from '@/mocks/server-node';
@@ -72,10 +72,18 @@ describe('FilePreview — text/code', () => {
     const { container } = render(<FilePreview workspaceId="ws1" path="a.ts" />);
 
     // Keyword + string get wrapped in the shared --syntax-* token classes.
-    await screen.findByText('const');
-    expect(container.querySelector('.text-syntax-keyword')).not.toBeNull();
-    expect(container.querySelector('.text-syntax-string')).not.toBeNull();
-  });
+    // Tokenization is asynchronous (worker in the browser, the same tokenizer
+    // inline under jsdom), so the classes appear after the grammar loads rather
+    // than on the first paint.
+    await screen.findByText('const', undefined, { timeout: 15_000 });
+    await waitFor(
+      () => {
+        expect(container.querySelector('.text-syntax-keyword')).not.toBeNull();
+        expect(container.querySelector('.text-syntax-string')).not.toBeNull();
+      },
+      { timeout: 15_000 },
+    );
+  }, 20_000);
 
   it('renders a line-number gutter for code', async () => {
     serveFile('line one\nline two');
@@ -92,13 +100,22 @@ describe('FilePreview — text/code', () => {
     expect(container.querySelector('.text-syntax-keyword')).toBeNull();
   });
 
-  it('falls back to plain text and shows a notice for an oversized code file', async () => {
+  // Inverted from the assertion this replaced, which asserted the "highlighting
+  // disabled for a large file" notice appears. That notice is gone: the code
+  // view windows its rows, so a big file mounts and tokenizes only the visible
+  // slice and keeps its highlighting. The old cutoff was backwards — past 5000
+  // lines you lost readability AND still paid for every DOM node.
+  it('keeps highlighting an oversized code file, and windows it', async () => {
     const big = Array.from({ length: 5001 }, () => 'const x = 1').join('\n');
     serveFile(big);
-    render(<FilePreview workspaceId="ws1" path="big.ts" />);
-    // Perf 兜底: above MAX_HIGHLIGHT_LINES we degrade to an un-highlighted <pre>.
-    expect(
-      await screen.findByText(/已关闭语法高亮/),
-    ).toBeInTheDocument();
+    const { container } = render(<FilePreview workspaceId="ws1" path="big.ts" />);
+
+    await screen.findAllByText('const');
+    expect(container.querySelector('.text-syntax-keyword')).not.toBeNull();
+    expect(screen.queryByText(/已关闭语法高亮/)).not.toBeInTheDocument();
+
+    const mounted = container.querySelectorAll('[data-code-line]').length;
+    expect(mounted).toBeGreaterThan(0);
+    expect(mounted).toBeLessThan(200);
   });
 });

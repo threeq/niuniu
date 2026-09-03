@@ -16,6 +16,15 @@ export default defineConfig({
       '/ws': { target: 'ws://localhost:3000', ws: true },
     },
   },
+  // The syntax highlighter's worker loads one TextMate grammar per file type
+  // via dynamic import. Vite's default worker format is `iife`, which cannot
+  // code-split — every dynamic import gets inlined, which silently pulled all
+  // ~200 shiki grammars into a single 1.9MB worker chunk. `es` lets the worker
+  // share the same lazily-loaded grammar chunks as the main thread, so opening
+  // a Go file fetches only the Go grammar.
+  worker: {
+    format: 'es',
+  },
   build: {
     // Route-split page chunks + already-dynamic heavy viewers (echarts, xlsx,
     // xterm, mammoth, pptx, hls/mpegts) keep most weight out of the entry. The

@@ -1,5 +1,5 @@
 import { useMemo } from 'react';
-import { FolderTree, GitCompareArrows, CircleDot, Archive, Sparkles, Pin, Presentation, Loader2, Library } from 'lucide-react';
+import { FolderTree, GitCompareArrows, CircleDot, Archive, Sparkles, Pin, Presentation, Loader2, Library, Search } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { cn } from '@/lib/utils';
 import { useWorkspacePanelStore, type PanelId } from '@/stores/workspace-panel-store';
@@ -10,6 +10,9 @@ import type { Workspace } from '@/types/api';
 
 interface WorkspaceToolbarProps {
   workspace: Workspace;
+  /** Opens the unified search dialog; the dialog itself lives on the page so
+   *  its keyboard shortcut works regardless of toolbar mount state. */
+  onOpenSearch: () => void;
 }
 
 // Panel view toggles. `chat` is intentionally absent: it is the always-open
@@ -25,7 +28,7 @@ const allPanelButtons: { id: PanelId; icon: React.ComponentType<{ className?: st
   { id: 'kbs', icon: Library, i18nKey: 'toolbar.panels.kbs' },
 ];
 
-export function WorkspaceToolbar({ workspace }: WorkspaceToolbarProps) {
+export function WorkspaceToolbar({ workspace, onOpenSearch }: WorkspaceToolbarProps) {
   const { t } = useTranslation('workspaces');
   const { togglePanel, isPanelOpen } = useWorkspacePanelStore();
   const workspaceId = Number(workspace.id);
@@ -109,8 +112,24 @@ export function WorkspaceToolbar({ workspace }: WorkspaceToolbarProps) {
           })}
         </div>
 
-        {/* Secondary actions: pinned-charts drawer + extract learnings. */}
+        {/* Secondary actions: search + pinned-charts drawer + extract learnings. */}
         <div className="flex items-center gap-0.5">
+          {/* Unified search — file names AND file contents in one panel. Also
+              reachable via Ctrl/Cmd+Shift+F and Ctrl/Cmd+P. Hidden for archived
+              workspaces, whose working tree no longer exists to search. */}
+          {workspace.is_archived !== 1 && (
+            <Button
+              variant="ghost"
+              onClick={onOpenSearch}
+              aria-label={t('search.open')}
+              title={t('search.openHint')}
+              className={cn(toolbarBtn, 'text-warm-text-muted')}
+            >
+              <Search className="w-3.5 h-3.5" aria-hidden="true" />
+              <span className="hidden sm:inline">{t('search.open')}</span>
+            </Button>
+          )}
+
           {/* Pinned-charts entry — appears only when this workspace has any. */}
           <WorkspaceDataButton
             workspaceId={Number(workspace.id)}

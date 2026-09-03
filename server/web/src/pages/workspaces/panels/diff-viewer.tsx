@@ -1,32 +1,25 @@
-import { Fragment, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Package, ChevronRight, FileCode2, ChevronsDownUp } from 'lucide-react';
+import { Package, ChevronRight, FileCode2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { parseUnifiedDiff, type DiffFile, type DiffLine } from '@/lib/hooks/use-diff';
-import type { GitFileDiff } from '@/lib/hooks/use-file-diff';
-import { highlightCode } from '@/lib/syntax-highlight';
-import type { WorkspaceComment } from '@/types/api';
-import { Gutter, CommentRow, type CommentApi } from './diff-comments';
-
-const MAX_DIFF_LINES = 2000; // beyond this we degrade to a "render anyway" notice
-const COLLAPSE_THRESHOLD = 10; // context runs longer than this collapse
-const COLLAPSE_EDGE = 3; // lines kept visible on each side of a collapsed run
+import type { GitFileDiff, GitDiffLine } from '@/lib/hooks/use-file-diff';
+import type { CommentAnchorContext, WorkspaceComment } from '@/types/api';
+import { useDiffHighlight, renderTokens } from '@/lib/syntax';
+import { effectiveLine } from '@/lib/hooks/use-workspace-comments';
+import {
+  CommentThread,
+  OutdatedCommentList,
+  type CommentApi,
+  type ComposeTarget,
+} from './diff-comments';
+import {
+  CodeSurface,
+  buildUnifiedRows,
+  buildSplitRows,
+  type CodeLineRenderer,
+} from './code-surface';
 
 export type ViewMode = 'unified' | 'split';
-
-// A diff line with its resolved old/new line numbers.
-interface NumberedLine {
-  type: DiffLine['type'];
-  content: string;
-  oldNumber?: number;
-  newNumber?: number;
-}
-
-// Render items: a hunk header, a collapsed gap, or a numbered line.
-type RenderItem =
-  | { kind: 'hunk'; key: string; content: string }
-  | { kind: 'gap'; key: string; hidden: NumberedLine[] }
-  | { kind: 'line'; key: string; line: NumberedLine };
 
 const STATUS_META: Record<string, { letter: string; badge: string }> = {
   added: { letter: 'A', badge: 'bg-success text-success-foreground' },
@@ -34,154 +27,86 @@ const STATUS_META: Record<string, { letter: string; badge: string }> = {
   modified: { letter: 'M', badge: 'bg-warning text-warning-foreground' },
   deleted: { letter: 'D', badge: 'bg-destructive text-destructive-foreground' },
   renamed: { letter: 'R', badge: 'bg-info text-info-foreground' },
+  copied: { letter: 'C', badge: 'bg-info text-info-foreground' },
 };
-
-/**
- * The line number a comment anchors to: the NEW-file line number. We anchor on
- * a single coordinate space (the new side) so a comment's stored line_number is
- * unambiguous — anchoring deletes by old-line numbers would collide with
- * add/context lines that share the same integer, duplicating threads. Pure
- * deletions (no new number) are therefore not commentable.
- */
-function anchorOf(line: NumberedLine): number | undefined {
-  return line.newNumber;
-}
-
-/** Resolve old/new line numbers for every line in a hunk. */
-function numberHunkLines(hunk: { oldStart: number; newStart: number; lines: DiffLine[] }): NumberedLine[] {
-  let oldNo = hunk.oldStart;
-  let newNo = hunk.newStart;
-  return hunk.lines.map((line) => {
-    if (line.type === 'add') return { type: 'add', content: line.content, newNumber: newNo++ };
-    if (line.type === 'delete') return { type: 'delete', content: line.content, oldNumber: oldNo++ };
-    return { type: 'context', content: line.content, oldNumber: oldNo++, newNumber: newNo++ };
-  });
-}
-
-/** Build the flat render-item list for a file, folding long unchanged runs.
- *  `disableCollapse` renders every line (used for full-file views where the
- *  whole file is context and folding it would hide the content). */
-function buildRenderItems(
-  file: DiffFile,
-  expandedGaps: Set<string>,
-  disableCollapse = false,
-): RenderItem[] {
-  const items: RenderItem[] = [];
-
-  file.hunks.forEach((hunk, hi) => {
-    items.push({
-      kind: 'hunk',
-      key: `h${hi}`,
-      content: `@@ -${hunk.oldStart},${hunk.oldLines} +${hunk.newStart},${hunk.newLines} @@`,
-    });
-
-    const lines = numberHunkLines(hunk);
-    let i = 0;
-    while (i < lines.length) {
-      if (lines[i].type !== 'context') {
-        items.push({ kind: 'line', key: `${hi}-${i}`, line: lines[i] });
-        i++;
-        continue;
-      }
-      // Gather a maximal run of context lines.
-      let j = i;
-      while (j < lines.length && lines[j].type === 'context') j++;
-      const run = lines.slice(i, j);
-      const atStart = i === 0;
-      const atEnd = j === lines.length;
-      const gapKey = `g${hi}-${i}`;
-
-      if (disableCollapse || run.length <= COLLAPSE_THRESHOLD || expandedGaps.has(gapKey)) {
-        run.forEach((l, k) => items.push({ kind: 'line', key: `${hi}-${i}-${k}`, line: l }));
-      } else {
-        const head = atStart ? [] : run.slice(0, COLLAPSE_EDGE);
-        const tail = atEnd ? [] : run.slice(run.length - COLLAPSE_EDGE);
-        const hidden = run.slice(head.length, run.length - tail.length);
-        head.forEach((l, k) => items.push({ kind: 'line', key: `${hi}-${i}-h${k}`, line: l }));
-        items.push({ kind: 'gap', key: gapKey, hidden });
-        tail.forEach((l, k) => items.push({ kind: 'line', key: `${hi}-${i}-t${k}`, line: l }));
-      }
-      i = j;
-    }
-  });
-
-  return items;
-}
-
-function CodeCell({
-  line,
-  className,
-}: {
-  line: NumberedLine;
-  className?: string;
-}) {
-  const sign = line.type === 'add' ? '+' : line.type === 'delete' ? '−' : ' ';
-  return (
-    <td
-      className={cn(
-        'whitespace-pre px-3 align-top font-mono text-[12.5px] leading-5 text-foreground',
-        line.type === 'add' && 'bg-diff-add border-l-2 border-diff-add-fg',
-        line.type === 'delete' && 'bg-diff-del border-l-2 border-diff-del-fg',
-        line.type === 'context' && 'border-l-2 border-transparent',
-        className,
-      )}
-    >
-      <span
-        className={cn(
-          'mr-2 select-none font-semibold',
-          line.type === 'add' && 'text-diff-add-fg',
-          line.type === 'delete' && 'text-diff-del-fg',
-          line.type === 'context' && 'text-muted-foreground/40',
-        )}
-      >
-        {sign}
-      </span>
-      {highlightCode(line.content)}
-    </td>
-  );
-}
-
-function GapRow({
-  colSpan,
-  onExpand,
-  label,
-}: {
-  colSpan: number;
-  onExpand: () => void;
-  label: string;
-}) {
-  return (
-    <tr>
-      <td colSpan={colSpan} className="border-y border-border bg-muted/40 p-0">
-        <button
-          onClick={onExpand}
-          className="flex w-full items-center gap-2 px-3 py-1 text-left text-[11px] text-muted-foreground hover:bg-accent hover:text-foreground"
-        >
-          <ChevronsDownUp className="h-3 w-3 shrink-0" />
-          {label}
-        </button>
-      </td>
-    </tr>
-  );
-}
 
 interface DiffViewerProps {
   fileDiff: GitFileDiff;
   repoName: string;
   /** Unified vs split — owned by the changes-panel toolbar. */
   mode: ViewMode;
-  /** Optional VS Code fallback for binary / oversized diffs. */
+  /** Optional VS Code fallback for binary diffs. */
   onOpenExternal?: () => void;
-  /** Existing review comments for this file (anchored by line_number). */
+  /** Existing review comments for this file (positioned by their anchor). */
   comments?: WorkspaceComment[];
   /** Queue a comment on a line (persist only). */
-  onQueueComment?: (line: number, content: string) => Promise<void>;
+  onQueueComment?: (target: ComposeTarget, content: string) => Promise<void>;
   /** Send a comment on a line directly to the agent. */
-  onSendComment?: (line: number, content: string) => Promise<void>;
+  onSendComment?: (target: ComposeTarget, content: string) => Promise<void>;
+  /** Set/clear a comment's review verdict. */
+  onSetResolved?: (commentId: number, resolved: boolean) => Promise<void>;
   /** Render every line without folding long unchanged runs (full-file view). */
   disableCollapse?: boolean;
 }
 
+/** How many neighbours each side of an old-side snapshot, matching the server. */
+const OLD_CONTEXT_RADIUS = 3;
+
+/**
+ * Snapshot the OLD side of the diff around a deleted line.
+ *
+ * The old side does not exist in the working tree, so the server cannot capture
+ * this itself — only the client holding the rendered diff can. Without it the
+ * comment reaches the backend with no anchor at all and is reported outdated
+ * from the moment it is created, which would make deleted-line comments
+ * technically possible but useless.
+ */
+function captureOldContext(file: GitFileDiff, oldLine: number): CommentAnchorContext | undefined {
+  // Reconstruct the old side of the file from the hunks: every line that exists
+  // before the change (context + delete), keyed by its old line number.
+  const byOldLine = new Map<number, string>();
+  for (const hunk of file.hunks ?? []) {
+    for (const l of hunk.lines ?? []) {
+      if (l.old_line != null) byOldLine.set(l.old_line, l.content);
+    }
+  }
+  const line = byOldLine.get(oldLine);
+  if (line == null) return undefined;
+
+  const before: string[] = [];
+  for (let n = oldLine - OLD_CONTEXT_RADIUS; n < oldLine; n++) {
+    const text = byOldLine.get(n);
+    // Only contiguous neighbours are real context. A gap (folded run, hunk
+    // boundary) means the intervening lines are simply not in the diff, and
+    // pretending otherwise would hand the server a window that never existed.
+    if (text == null) {
+      before.length = 0;
+      continue;
+    }
+    before.push(text);
+  }
+  const after: string[] = [];
+  for (let n = oldLine + 1; n <= oldLine + OLD_CONTEXT_RADIUS; n++) {
+    const text = byOldLine.get(n);
+    if (text == null) break;
+    after.push(text);
+  }
+  return { before, line, after };
+}
+
+/**
+ * DiffViewer renders one file's structured diff, unified or side-by-side.
+ *
+ * Both modes flatten to a `CodeRow[]` and go through the shared windowed
+ * `CodeSurface`, which mounts only the rows on screen. That is what retired the
+ * old `MAX_DIFF_LINES = 2000` guard — whose only "protection" was a notice with
+ * a *Render anyway* button, i.e. the user's options were "don't look at the
+ * diff" or "hang the tab".
+ *
+ * Split mode is one row holding both halves rather than two independently
+ * scrolled lists, so the left and right sides cannot drift out of alignment:
+ * there is a single measured height per row.
+ */
 export function DiffViewer({
   fileDiff,
   repoName,
@@ -190,38 +115,59 @@ export function DiffViewer({
   comments,
   onQueueComment,
   onSendComment,
+  onSetResolved,
   disableCollapse = false,
 }: DiffViewerProps) {
   const { t } = useTranslation('workspaces');
-  const [forceRender, setForceRender] = useState(false);
   const [expandedGaps, setExpandedGaps] = useState<Set<string>>(() => new Set());
-  const [activeLine, setActiveLine] = useState<number | null>(null);
+  const [active, setActive] = useState<ComposeTarget | null>(null);
 
-  const parsed: DiffFile | null = useMemo(() => {
-    const files = parseUnifiedDiff(fileDiff.raw_patch || '');
-    return files[0] ?? null;
-  }, [fileDiff.raw_patch]);
-
-  const totalLines = useMemo(
-    () => (parsed ? parsed.hunks.reduce((n, h) => n + h.lines.length, 0) : 0),
-    [parsed],
+  const rows = useMemo(
+    () =>
+      mode === 'split'
+        ? buildSplitRows(fileDiff, expandedGaps, disableCollapse)
+        : buildUnifiedRows(fileDiff, expandedGaps, disableCollapse),
+    [fileDiff, mode, expandedGaps, disableCollapse],
   );
 
-  const items = useMemo(
-    () => (parsed ? buildRenderItems(parsed, expandedGaps, disableCollapse) : []),
-    [parsed, expandedGaps, disableCollapse],
-  );
+  // Both sides are reconstructed into documents and tokenized whole, so
+  // multi-line constructs inside a hunk are scoped correctly — see
+  // `useDiffHighlight` for the hunk-boundary caveat. Binary diffs render a
+  // placeholder instead of code, so there is nothing to highlight.
+  const highlight = useDiffHighlight(fileDiff, !fileDiff.is_binary);
 
-  // Comments grouped by their anchored line number for inline rendering.
-  const byLine = useMemo(() => {
-    const m = new Map<number, WorkspaceComment[]>();
-    for (const c of comments ?? []) {
-      if (c.line_number == null) continue;
-      const arr = m.get(c.line_number) ?? [];
+  // Comments split three ways by where they can honestly be shown.
+  //
+  //   byLine    — new-side, anchor still resolves: rendered inline at the
+  //               EFFECTIVE line, which is not necessarily where it was written.
+  //   byOldLine — anchored to a line this diff deletes.
+  //   outdated  — no honest position left; surfaced in the banner with its
+  //               snapshot instead of being pinned to unrelated code.
+  const { byLine, byOldLine, outdated } = useMemo(() => {
+    const byLine = new Map<number, WorkspaceComment[]>();
+    const byOldLine = new Map<number, WorkspaceComment[]>();
+    const outdated: WorkspaceComment[] = [];
+    const push = (m: Map<number, WorkspaceComment[]>, k: number, c: WorkspaceComment) => {
+      const arr = m.get(k) ?? [];
       arr.push(c);
-      m.set(c.line_number, arr);
+      m.set(k, arr);
+    };
+    for (const c of comments ?? []) {
+      // `effectiveLine` is the single authority on where a comment may render;
+      // it returns null precisely when there is no honest position (outdated
+      // anchor, or none recorded). Duplicating that test here would let the two
+      // copies drift apart, which is how silent drift got in the first time.
+      const line = effectiveLine(c);
+      if (line == null) {
+        // Collected rather than dropped: written feedback must never vanish
+        // just because the code moved out from under it.
+        outdated.push(c);
+        continue;
+      }
+      const side = c.anchor?.side ?? c.side ?? 'new';
+      push(side === 'old' ? byOldLine : byLine, line, c);
     }
-    return m;
+    return { byLine, byOldLine, outdated };
   }, [comments]);
 
   const commentApi: CommentApi | null =
@@ -230,12 +176,51 @@ export function DiffViewer({
           repoName,
           filePath: fileDiff.path,
           byLine,
-          activeLine,
-          setActiveLine,
+          active,
+          setActive,
           onQueue: onQueueComment,
           onSend: onSendComment,
+          onSetResolved,
         }
       : null;
+
+  // The old-side thread reads the same CommentApi shape but a different map, so
+  // a deleted line's comments cannot leak into the new-side thread that happens
+  // to share its integer.
+  const oldCommentApi: CommentApi | null = commentApi ? { ...commentApi, byLine: byOldLine } : null;
+
+  const renderer: CodeLineRenderer = {
+    // `build-rows` puts the very `GitDiffLine` objects from `fileDiff` into the
+    // cells, so the highlighter can key on object identity — which is what
+    // keeps tokens attached to the right line across folding and the
+    // unified↔split switch, both of which reorder rows but reuse the objects.
+    tokenize: (line) => renderTokens(highlight(line as GitDiffLine), line.content),
+    attachment: commentApi
+      ? (anchor, side) =>
+          side === 'old' ? (
+            <CommentThread anchor={anchor} side="old" api={oldCommentApi!} />
+          ) : (
+            <CommentThread anchor={anchor} side="new" api={commentApi} />
+          )
+      : undefined,
+    gutterAction: commentApi
+      ? (cell) => {
+          if (cell.anchor != null) {
+            return () => setActive({ line: cell.anchor!, side: 'new' });
+          }
+          if (cell.oldAnchor != null) {
+            const oldLine = cell.oldAnchor;
+            return () =>
+              setActive({
+                line: oldLine,
+                side: 'old',
+                context: captureOldContext(fileDiff, oldLine),
+              });
+          }
+          return undefined;
+        }
+      : undefined,
+  };
 
   const status = fileDiff.status || 'modified';
   const meta = STATUS_META[status] ?? STATUS_META.modified;
@@ -244,13 +229,13 @@ export function DiffViewer({
     : '';
   const name = dir ? fileDiff.path.slice(dir.length) : fileDiff.path;
 
-  // A file is "binary" only when git said so ("Binary files ... differ"). A
-  // zero-hunk diff is otherwise a text file whose change carried no content —
-  // a mode flip (chmod +x on a .sh) or a pure rename — and must NOT be shown
-  // as an un-previewable binary.
-  const isBinary = !!parsed?.isBinary;
-  const isNoContentChange = !!parsed && !isBinary && parsed.hunks.length === 0;
-  const isLarge = totalLines > MAX_DIFF_LINES;
+  // A file is "binary" only when git said so ("Binary files ... differ") — a
+  // flag the backend parser now carries, so this no longer depends on the
+  // client re-detecting it. A zero-hunk diff is otherwise a text file whose
+  // change carried no content (a mode flip, a pure rename, an empty file) and
+  // must NOT be shown as an un-previewable binary.
+  const isBinary = !!fileDiff.is_binary;
+  const isNoContentChange = !isBinary && (fileDiff.hunks?.length ?? 0) === 0;
 
   const header = (
     <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-border bg-card px-3 py-2">
@@ -279,7 +264,7 @@ export function DiffViewer({
   );
 
   let body: React.ReactNode;
-  if (!parsed || isBinary) {
+  if (isBinary) {
     body = (
       <Degraded
         message={t('panels.changes.diff.binary')}
@@ -291,9 +276,9 @@ export function DiffViewer({
     // Text file with no content hunks: describe the actual change (mode/rename)
     // rather than the misleading "binary" message.
     const modeMsg =
-      parsed.oldMode && parsed.newMode
-        ? t('panels.changes.diff.modeChange', { old: parsed.oldMode, new: parsed.newMode })
-        : status === 'renamed'
+      fileDiff.old_mode && fileDiff.new_mode && fileDiff.old_mode !== fileDiff.new_mode
+        ? t('panels.changes.diff.modeChange', { old: fileDiff.old_mode, new: fileDiff.new_mode })
+        : status === 'renamed' || status === 'copied'
           ? t('panels.changes.diff.renameOnly')
           : t('panels.changes.diff.noContentChange');
     body = (
@@ -303,30 +288,13 @@ export function DiffViewer({
         onAction={onOpenExternal}
       />
     );
-  } else if (isLarge && !forceRender) {
-    body = (
-      <Degraded
-        message={t('panels.changes.diff.largeFile', { count: totalLines })}
-        actionLabel={t('panels.changes.diff.renderAnyway')}
-        onAction={() => setForceRender(true)}
-      />
-    );
-  } else if (mode === 'unified') {
-    body = (
-      <UnifiedTable
-        items={items}
-        onExpand={(k) => setExpandedGaps((s) => new Set(s).add(k))}
-        t={t}
-        comments={commentApi}
-      />
-    );
   } else {
     body = (
-      <SplitTable
-        items={items}
-        onExpand={(k) => setExpandedGaps((s) => new Set(s).add(k))}
-        t={t}
-        comments={commentApi}
+      <CodeSurface
+        rows={rows}
+        renderer={renderer}
+        onExpandGap={(k) => setExpandedGaps((s) => new Set(s).add(k))}
+        gapLabel={(count) => t('panels.changes.diff.expandLines', { count })}
       />
     );
   }
@@ -337,7 +305,11 @@ export function DiffViewer({
   return (
     <div className="flex h-full min-h-0 flex-col bg-card">
       {header}
-      <div className="min-h-0 flex-1 overflow-auto">{body}</div>
+      {/* Comments whose anchor no longer resolves sit ABOVE the diff, not inside
+          it — there is no line left to attach them to, and hiding them would
+          silently discard review feedback. */}
+      {commentApi && <OutdatedCommentList comments={outdated} api={commentApi} />}
+      <div className="min-h-0 flex-1">{body}</div>
     </div>
   );
 }
@@ -364,187 +336,5 @@ function Degraded({
         </button>
       )}
     </div>
-  );
-}
-
-type TFn = ReturnType<typeof useTranslation>['t'];
-
-function UnifiedTable({
-  items,
-  onExpand,
-  t,
-  comments,
-}: {
-  items: RenderItem[];
-  onExpand: (key: string) => void;
-  t: TFn;
-  comments: CommentApi | null;
-}) {
-  return (
-    <table className="w-full border-collapse">
-      <tbody>
-        {items.map((item) => {
-          if (item.kind === 'hunk') {
-            return (
-              <tr key={item.key}>
-                <td
-                  colSpan={3}
-                  className="border-y border-border bg-muted/60 px-3 py-1 font-mono text-[11px] text-muted-foreground"
-                >
-                  {item.content}
-                </td>
-              </tr>
-            );
-          }
-          if (item.kind === 'gap') {
-            return (
-              <GapRow
-                key={item.key}
-                colSpan={3}
-                onExpand={() => onExpand(item.key)}
-                label={t('panels.changes.diff.expandLines', { count: item.hidden.length })}
-              />
-            );
-          }
-          const { line } = item;
-          const tone = line.type === 'add' ? 'add' : line.type === 'delete' ? 'del' : undefined;
-          const anchor = comments ? anchorOf(line) : undefined;
-          const addOn = comments && anchor != null ? () => comments.setActiveLine(anchor) : undefined;
-          return (
-            <Fragment key={item.key}>
-              <tr className="group/line">
-                <Gutter value={line.oldNumber} tone={tone} />
-                <Gutter value={line.newNumber} tone={tone} onAdd={addOn} />
-                <CodeCell line={line} />
-              </tr>
-              {comments && anchor != null && (
-                <CommentRow anchor={anchor} colSpan={3} api={comments} />
-              )}
-            </Fragment>
-          );
-        })}
-      </tbody>
-    </table>
-  );
-}
-
-const EMPTY_LINE: NumberedLine = { type: 'context', content: '' };
-
-function SplitTable({
-  items,
-  onExpand,
-  t,
-  comments,
-}: {
-  items: RenderItem[];
-  onExpand: (key: string) => void;
-  t: TFn;
-  comments: CommentApi | null;
-}) {
-  // Pair consecutive lines into left (old) / right (new) columns.
-  const rows: React.ReactNode[] = [];
-  let buffer: NumberedLine[] = [];
-
-  // After a row, emit inline comment threads for the lines it covered.
-  const pushComments = (anchors: Array<number | undefined>) => {
-    if (!comments) return;
-    const seen = new Set<number>();
-    for (const a of anchors) {
-      if (a == null || seen.has(a)) continue;
-      seen.add(a);
-      rows.push(<CommentRow key={`cm${a}-${rows.length}`} anchor={a} colSpan={4} api={comments} />);
-    }
-  };
-
-  const flush = () => {
-    if (buffer.length === 0) return;
-    const dels: NumberedLine[] = [];
-    const adds: NumberedLine[] = [];
-    const emitPaired = () => {
-      const max = Math.max(dels.length, adds.length);
-      for (let k = 0; k < max; k++) {
-        const left = dels[k] ?? EMPTY_LINE;
-        const right = adds[k] ?? EMPTY_LINE;
-        // Comments anchor on the new side only (see anchorOf): the right gutter.
-        const rightAdd =
-          comments && right.newNumber != null
-            ? () => comments.setActiveLine(right.newNumber!)
-            : undefined;
-        rows.push(
-          <tr key={`p${rows.length}`} className="group/line">
-            <Gutter
-              value={left.oldNumber}
-              tone={left.content || left.oldNumber ? 'del' : undefined}
-            />
-            <CodeCell line={left} className="border-r border-border" />
-            <Gutter
-              value={right.newNumber}
-              tone={right.content || right.newNumber ? 'add' : undefined}
-              onAdd={rightAdd}
-            />
-            <CodeCell line={right} />
-          </tr>,
-        );
-        pushComments([right.newNumber]);
-      }
-      dels.length = 0;
-      adds.length = 0;
-    };
-    for (const l of buffer) {
-      if (l.type === 'delete') dels.push(l);
-      else if (l.type === 'add') adds.push(l);
-      else {
-        emitPaired();
-        const ctxAdd =
-          comments && l.newNumber != null ? () => comments.setActiveLine(l.newNumber!) : undefined;
-        rows.push(
-          <tr key={`c${rows.length}`} className="group/line">
-            <Gutter value={l.oldNumber} />
-            <CodeCell line={l} className="border-r border-border" />
-            <Gutter value={l.newNumber} onAdd={ctxAdd} />
-            <CodeCell line={l} />
-          </tr>,
-        );
-        pushComments([l.newNumber]);
-      }
-    }
-    emitPaired();
-    buffer = [];
-  };
-
-  items.forEach((item) => {
-    if (item.kind === 'line') {
-      buffer.push(item.line);
-      return;
-    }
-    flush();
-    if (item.kind === 'hunk') {
-      rows.push(
-        <tr key={item.key}>
-          <td
-            colSpan={4}
-            className="border-y border-border bg-muted/60 px-3 py-1 font-mono text-[11px] text-muted-foreground"
-          >
-            {item.content}
-          </td>
-        </tr>,
-      );
-    } else {
-      rows.push(
-        <GapRow
-          key={item.key}
-          colSpan={4}
-          onExpand={() => onExpand(item.key)}
-          label={t('panels.changes.diff.expandLines', { count: item.hidden.length })}
-        />,
-      );
-    }
-  });
-  flush();
-
-  return (
-    <table className="w-full border-collapse">
-      <tbody>{rows}</tbody>
-    </table>
   );
 }

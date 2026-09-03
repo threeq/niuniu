@@ -17,6 +17,17 @@
       "failed": "重开失败"
     }
   },
+  "approveReview": {
+    "title": "审查通过（批准）",
+    "submit": "审查通过",
+    "hintMove": "记录一条「审查通过」的正向结论，并把卡片推进到「{{column}}」列",
+    "hintRecord": "记录一条「审查通过」的正向结论（不移动卡片）",
+    "hintEpic": "记录一条「审查通过」的正向结论。Epic 必须人工审核，不会自动进入「完成」列——请人工确认后手动移动",
+    "doneMoved": "已批准，卡片已移到「{{column}}」列",
+    "doneRecorded": "已记录审查通过（卡片未移动）",
+    "blocked": "已记录审查通过，但卡片未能移动：{{reason}}",
+    "failed": "批准失败"
+  },
   "goalCondition": {
     "title": "自动托管完成条件（可选）",
     "set": "已设置",

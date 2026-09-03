@@ -72,6 +72,7 @@
     "react-i18next": "^14",
     "react-markdown": "^10.1.0",
     "react-resizable-panels": "^4.7.3",
+    "shiki": "^4.4.3",
     "sonner": "^2.0.7",
     "tailwind-merge": "^2.5.4",
     "tlds": "^1.252.0",

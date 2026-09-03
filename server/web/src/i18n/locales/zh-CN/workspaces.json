@@ -45,7 +45,6 @@
     "submitArtifactDone": "已将「{{name}}」提交为产物",
     "submitArtifactFailed": "提交为产物失败",
     "close": "关闭",
-    "highlightDisabledLargeFile": "文件较大，已关闭语法高亮以保证性能",
     "imageZoomActual": "查看原始尺寸",
     "imageZoomFit": "适应窗口"
   },
@@ -440,8 +439,6 @@
         "modeChange": "仅文件权限变更（{{old}} → {{new}}），无内容差异。",
         "renameOnly": "仅重命名文件，无内容差异。",
         "noContentChange": "该文件无内容差异（仅元数据变更）。",
-        "largeFile": "差异较大（{{count}} 行）——已折叠以保证性能。",
-        "renderAnyway": "仍然渲染",
         "openInVSCode": "在 VS Code 中打开",
         "expandLines": "展开 {{count}} 行未改动内容",
         "loadError": "加载 diff 失败。",
@@ -460,7 +457,33 @@
         "queued": "已加入队列",
         "sentOne": "已发送给 Agent",
         "sentAll": "已发送 {{count}} 条评论给 Agent",
-        "sentPartial": "已发送 {{sent}} 条，{{failed}} 条失败"
+        "sentPartial": "已发送 {{sent}} 条，{{failed}} 条失败",
+        "oldSide": "删除行",
+        "oldSideHint": "这条评论指向本次改动删除的一行，锚点是当时的内容快照",
+        "composingOldSide": "评论删除的第 {{line}} 行（旧侧）",
+        "anchor": {
+          "outdated": "锚点已失效",
+          "outdatedHint": "该处内容已不在，行号不可信 —— 展开查看写下这条意见时的原文",
+          "outdatedBanner": "{{count}} 条评论的锚点已失效（内容已变，无法定位到具体行）",
+          "relocated": "已随内容移动",
+          "relocatedHint": "原第 {{from}} 行，现在第 {{to}} 行",
+          "showSnapshot": "查看当时的上下文",
+          "compare": "对比：当时 vs 现在",
+          "thenLabel": "当时（写下这条意见时）",
+          "nowLabel": "现在"
+        },
+        "verdict": {
+          "open": "未解决",
+          "resolved": "已解决",
+          "resolveHint": "标记为已解决（审阅结论，与是否发给 Agent 无关）",
+          "reopenHint": "重新打开",
+          "markedResolved": "已标记为已解决",
+          "reopened": "已重新打开"
+        },
+        "openOnFile": "{{count}} 条未解决的评论",
+        "allResolvedOnFile": "{{count}} 条评论已全部标记为已解决",
+        "reviewProgress": "已解决 {{resolved}}/{{total}}",
+        "reviewProgressHint": "审阅结论进度：已解决 / 总数。与「发送给 Agent」无关——发出去不等于改好了"
       },
       "syncFromBranchPrompt": "请把分支 `{{sourceBranch}}` 的最新代码合并到下述指定 worktree 的当前分支 `{{currentBranch}}` 中。\n\n⚠️ 此工作空间下可能有多个 worktree，请严格只在下面这一个 worktree 中操作，不要切换到其他 worktree、不要 cd 离开它：\n- worktree 名称：{{worktreeName}}\n- worktree 绝对路径：{{worktreePath}}\n- 当前分支：{{currentBranch}}\n- 要合入的分支：{{sourceBranch}}\n\n请按以下步骤操作（始终用 `git -C \"{{worktreePath}}\"` 显式定位，不要靠 cwd 推断）：\n1. 执行 `git -C \"{{worktreePath}}\" status` 检查工作区是否干净；若有未提交修改，先停下来告诉我，等我确认后再继续；\n2. 执行 `git -C \"{{worktreePath}}\" merge {{sourceBranch}}` 进行合并；\n3. 如果产生合并冲突：先列出全部冲突文件，再尝试逐个解决（保留双方意图，避免丢失改动），完成后用 `git -C \"{{worktreePath}}\" commit --no-edit` 提交合并；遇到无法判断如何取舍的冲突，停下来告诉我具体文件和原因，**不要** 执行 `git merge --abort`，把现场保留给我；\n4. 合并成功后简要报告：合并方式（fast-forward / merge commit）、新的 HEAD commit、是否还有未提交内容。"
     },
@@ -998,5 +1021,27 @@
     "viewFile": "文件",
     "viewPreview": "预览",
     "viewSource": "源码"
+  },
+  "search": {
+    "title": "搜索工作空间",
+    "description": "按文件名或文件内容搜索该工作空间下的所有仓库。",
+    "open": "搜索",
+    "openHint": "搜索文件与内容（Ctrl/Cmd+Shift+F）",
+    "placeholder": "搜索文件名与文件内容…",
+    "hint": "输入即可同时搜索文件名与文件内容。",
+    "noResults": "没有匹配的文件或内容。",
+    "filesHeading": "文件名",
+    "contentHeading": "文件内容",
+    "optionsLabel": "内容：",
+    "optionCase": "区分大小写",
+    "optionWord": "全词匹配",
+    "optionRegex": "使用正则表达式",
+    "contentMinLength": "至少输入 2 个字符才会搜索文件内容。",
+    "engineMissing": "内容搜索不可用：本机未找到 ripgrep，也未找到 git。",
+    "invalidQuery": "搜索表达式无效 —— 请检查正则表达式。",
+    "contentFailed": "内容搜索失败：{{message}}",
+    "truncatedLimit": "结果已截断 —— 匹配过多，请缩小搜索范围。",
+    "truncatedTimeout": "结果已截断 —— 搜索超时。",
+    "fileTruncated": "（还有更多匹配）"
   }
 }

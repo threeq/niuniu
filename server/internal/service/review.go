@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"log/slog"
 	"path/filepath"
+	"strings"
+	"unicode/utf8"
 
 	"github.com/niuniu-dev/niuniu/internal/git"
 	"github.com/niuniu-dev/niuniu/internal/store"
@@ -134,15 +136,22 @@ func (s *ReviewService) getDiff(ctx context.Context, workspaceID int64, keepPatc
 			diffs = []git.FileDiff{}
 		}
 
-		// Line-level data (hunks + raw_patch) is only consumed inline for
-		// unresolved groups (repoID 0), which the client cannot re-fetch by id.
-		// Resolved groups lazily re-fetch via GetRepoDiff, so ship them
-		// summary-only — otherwise every file's full unified diff rides on the
-		// list response (10–100× the bytes the list view actually reads). The
-		// runner sync path opts into full patches via keepPatch (it needs them to
-		// mirror the worktree).
-		if repoID > 0 && !keepPatch {
-			diffs = summariseDiffs(diffs)
+		// Line-level data is only consumed inline for unresolved groups (repoID 0),
+		// which the client cannot re-fetch by id. Resolved groups lazily re-fetch
+		// via GetRepoDiff, so ship them summary-only — otherwise every file's full
+		// diff rides on the list response (10–100× the bytes the list view reads).
+		//
+		// Either way the response carries NO raw_patch: clients render from the
+		// structured Hunks, so shipping the unified-diff text alongside would just
+		// invite a second parser (the double-parse this endpoint used to force).
+		// The runner sync opts into full patches via keepPatch — it applies them
+		// with git apply and needs the bytes verbatim.
+		if !keepPatch {
+			if repoID > 0 {
+				diffs = summariseDiffs(diffs)
+			} else {
+				diffs = stripRawPatch(diffs)
+			}
 		}
 
 		result = append(result, RepoDiff{
@@ -180,7 +189,10 @@ func (s *ReviewService) workspaceOwnerRepos(ctx context.Context, workspaceID int
 	return repos
 }
 
-// GetRepoDiff returns the diff for a specific repository in a workspace.
+// GetRepoDiff returns the line-level diff for a specific repository in a
+// workspace: structured hunks, no raw_patch (see stripRawPatch). This is the
+// same per-file shape the workspace diff gives an unresolved group, so the
+// viewer renders both through one code path.
 func (s *ReviewService) GetRepoDiff(ctx context.Context, workspaceID, repoID int64) ([]git.FileDiff, error) {
 	// Direct association first.
 	wt, err := s.q.GetWorktreeByWorkspaceAndRepo(ctx, store.GetWorktreeByWorkspaceAndRepoParams{
@@ -197,7 +209,11 @@ func (s *ReviewService) GetRepoDiff(ctx context.Context, workspaceID, repoID int
 		}
 	}
 
-	return worktreeDiff(wt.WorktreePath, wt.BaseBranch)
+	diffs, err := worktreeDiff(wt.WorktreePath, wt.BaseBranch)
+	if err != nil {
+		return nil, err
+	}
+	return stripRawPatch(diffs), nil
 }
 
 // repoMatchesSource reports whether a registered repository is the source repo
@@ -255,6 +271,18 @@ func summariseDiffs(files []git.FileDiff) []git.FileDiff {
 	return out
 }
 
+// stripRawPatch drops the unified-diff text while keeping the structured hunks.
+// This is the shape every diff-rendering client gets: the hunks are the contract,
+// and withholding the raw text keeps a second text parser from creeping back in.
+func stripRawPatch(files []git.FileDiff) []git.FileDiff {
+	out := make([]git.FileDiff, len(files))
+	for i, f := range files {
+		f.RawPatch = ""
+		out[i] = f
+	}
+	return out
+}
+
 // worktreeDiff returns the full "vs baseline" file list for a worktree: the
 // committed+uncommitted tracked diff against base, with untracked files merged
 // in (base...HEAD does not include untracked files).
@@ -275,28 +303,182 @@ func (s *ReviewService) ListComments(ctx context.Context, workspaceID int64) ([]
 	return s.q.ListCommentsByWorkspace(ctx, workspaceID)
 }
 
-// CreateCommentInput holds the data for creating a comment.
-type CreateCommentInput struct {
-	Repo       string
-	FilePath   string
-	LineNumber *int
-	Content    string
+// AnchoredComment pairs a stored comment with its anchor re-resolved against the
+// worktree's CURRENT content (#683 wave 1). Callers render Anchor.Status, not the
+// raw line_number: a comment whose file changed is either relocated or flagged
+// outdated, never presented as if it still pointed where it was written.
+type AnchoredComment struct {
+	store.Comment
+	Anchor CommentAnchor `json:"anchor"`
 }
 
-// CreateComment creates a new comment for a workspace.
+// ListCommentsWithAnchors returns the workspace's comments with every anchor
+// re-derived against current content. Comments that relocated cleanly are
+// re-pinned in the DB (line + blob) so the next read is a cheap blob match
+// instead of another content search; the persist is best-effort and a failure
+// only costs a re-search, never correctness.
+func (s *ReviewService) ListCommentsWithAnchors(ctx context.Context, workspaceID int64) ([]AnchoredComment, error) {
+	comments, err := s.q.ListCommentsByWorkspace(ctx, workspaceID)
+	if err != nil {
+		return nil, err
+	}
+	// One worktree lookup per repo, not per comment.
+	paths := worktreePathsByRepo(ctx, s.q, workspaceID)
+	// One git hash-object per distinct FILE, not per comment: review comments
+	// cluster on the same files by nature, and that subprocess dominates the cost.
+	fc := newFileStateCache()
+	out := make([]AnchoredComment, 0, len(comments))
+	for _, c := range comments {
+		anchor := resolveCommentAnchor(paths[c.Repo], c, fc)
+		if anchor.Status == AnchorStatusRelocated && anchor.EffectiveLine > 0 {
+			// Re-pin the POSITION (line + blob) only. context_lines deliberately keeps
+			// the comment-time snapshot: it is the evidence of what the reviewer
+			// actually saw, and overwriting it with current content would destroy the
+			// "原文 vs 现在" comparison that answers whether the point was addressed.
+			if err := s.q.UpdateCommentAnchor(ctx, store.UpdateCommentAnchorParams{
+				LineNumber: sql.NullInt64{Int64: anchor.EffectiveLine, Valid: true},
+				BlobSha:    anchor.CurrentBlobSha,
+				ID:         c.ID,
+			}); err != nil {
+				slog.Warn("review: re-pin relocated comment", "commentID", c.ID, "error", err)
+			} else {
+				c.LineNumber = sql.NullInt64{Int64: anchor.EffectiveLine, Valid: true}
+				c.BlobSha = anchor.CurrentBlobSha
+			}
+		}
+		out = append(out, AnchoredComment{Comment: c, Anchor: anchor})
+	}
+	return out, nil
+}
+
+// worktreePathsByRepo maps a workspace's repo names to worktree dirs, including
+// "" for the single-repo case where comments carry no repo name. An unresolvable
+// repo simply has no entry — ResolveCommentAnchor then reports outdated rather
+// than pretending to have verified content it never read.
+//
+// A free function over *store.Queries rather than a ReviewService method: the
+// review-bounce path (EpicExecutionService) resolves the same anchors when it
+// injects comments into an agent, and both must agree on which worktree a
+// comment's repo refers to.
+func worktreePathsByRepo(ctx context.Context, q *store.Queries, workspaceID int64) map[string]string {
+	paths := map[string]string{}
+	worktrees, err := q.ListWorktrees(ctx, workspaceID)
+	if err != nil {
+		return paths
+	}
+	// Registered repo names first and as the authority: a directory basename is
+	// only a fallback label (the diff list uses it for unresolvable worktrees), so
+	// it must never displace a real repo name it happens to collide with.
+	for _, wt := range worktrees {
+		if repo, err := q.GetRepository(ctx, wt.RepositoryID); err == nil {
+			paths[repo.Name] = wt.WorktreePath
+		}
+	}
+	for _, wt := range worktrees {
+		if base := filepath.Base(wt.WorktreePath); paths[base] == "" {
+			paths[base] = wt.WorktreePath
+		}
+	}
+	// Comments created before repo-scoping (and single-repo workspaces) store
+	// repo="". Bind that to the only worktree when there is exactly one; with
+	// several, "" is genuinely ambiguous and stays unresolved.
+	if len(worktrees) == 1 {
+		paths[""] = worktrees[0].WorktreePath
+	}
+	return paths
+}
+
+// CreateCommentInput holds the data for creating a comment.
+type CreateCommentInput struct {
+	Repo     string
+	FilePath string
+	// LineNumber is 1-based, on the side named by Side.
+	LineNumber *int
+	Content    string
+	// Side is "old" (a line the diff DELETES — commentable only because of this
+	// field) or "new". Empty means new.
+	Side string
+	// ContextLines optionally carries a caller-supplied snapshot. The old side of
+	// a diff isn't in the working tree, so only the client that rendered the diff
+	// can snapshot it; new-side comments leave this empty and the server snapshots
+	// from the worktree.
+	ContextLines string
+}
+
+// CreateComment creates a new comment for a workspace, pinning the anchor at
+// creation time: the commit, the blob of the exact content the reviewer saw, and
+// a snapshot of the surrounding lines. Those three are what let a later read
+// relocate the comment or honestly call it outdated instead of silently
+// re-pointing at whatever now occupies the line (#683 wave 1).
 func (s *ReviewService) CreateComment(ctx context.Context, workspaceID int64, input CreateCommentInput) (store.Comment, error) {
 	var lineNumber sql.NullInt64
 	if input.LineNumber != nil {
 		lineNumber = sql.NullInt64{Int64: int64(*input.LineNumber), Valid: true}
 	}
 
+	side := normalizeSide(input.Side)
+	worktreePath := worktreePathsByRepo(ctx, s.q, workspaceID)[input.Repo]
+
+	var commitSha, blobSha string
+	contextLines := strings.TrimSpace(input.ContextLines)
+	if worktreePath != "" {
+		commitSha = git.HeadSHA(worktreePath)
+		// An old-side line does not exist in the working tree, so hashing the
+		// current file would pin a blob the comment isn't about. Leave it empty:
+		// old-side anchors are held by their snapshot alone.
+		if side == CommentSideNew {
+			blobSha = git.WorkingBlobSHA(worktreePath, input.FilePath)
+			if contextLines == "" && lineNumber.Valid {
+				contextLines = captureCommentContext(worktreePath, input.FilePath, lineNumber.Int64)
+			}
+		}
+	}
+
 	return s.q.CreateComment(ctx, store.CreateCommentParams{
-		WorkspaceID: workspaceID,
-		Repo:        input.Repo,
-		FilePath:    input.FilePath,
-		LineNumber:  lineNumber,
-		Content:     input.Content,
+		WorkspaceID:  workspaceID,
+		Repo:         input.Repo,
+		FilePath:     input.FilePath,
+		LineNumber:   lineNumber,
+		Content:      input.Content,
+		Side:         side,
+		CommitSha:    commitSha,
+		BlobSha:      blobSha,
+		ContextLines: contextLines,
 	})
+}
+
+// SetCommentResolved records the REVIEW verdict on a comment. This is orthogonal
+// to sent_to_agent, which only records delivery (#683 wave 1): marking a comment
+// sent says the agent was told, not that anything was fixed, and the two flags
+// never write to each other. resolvedBy is the reviewer identity, kept for the
+// audit trail and cleared on reopen.
+func (s *ReviewService) SetCommentResolved(ctx context.Context, commentID int64, resolved bool, resolvedBy string) (store.Comment, error) {
+	if !resolved {
+		return s.q.UnresolveComment(ctx, commentID)
+	}
+	by := strings.TrimSpace(resolvedBy)
+	if by == "" {
+		by = "审查"
+	}
+	by = truncateRunes(by, 200)
+	return s.q.ResolveComment(ctx, store.ResolveCommentParams{ResolvedBy: by, ID: commentID})
+}
+
+// truncateRunes caps a string at maxBytes WITHOUT splitting a multi-byte rune.
+// A plain s[:n] cuts mid-rune for any non-ASCII text — and reviewer names and
+// review comments here are routinely Chinese — storing invalid UTF-8 that then
+// renders as a replacement character (and, on PostgreSQL, can be rejected
+// outright by a text column).
+func truncateRunes(s string, maxBytes int) string {
+	if len(s) <= maxBytes {
+		return s
+	}
+	// Walk back to the last rune boundary at or before maxBytes.
+	cut := maxBytes
+	for cut > 0 && !utf8.RuneStart(s[cut]) {
+		cut--
+	}
+	return s[:cut]
 }
 
 // SendCommentToAgent delivers a review comment to the workspace's chat agent as

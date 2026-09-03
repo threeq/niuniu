@@ -12,7 +12,7 @@ import {
   useWorkspacePanelStore,
   type ContentViewerTarget,
 } from '@/stores/workspace-panel-store';
-import { useWorkspaceComments } from '@/lib/hooks/use-workspace-comments';
+import { useWorkspaceComments, isPending } from '@/lib/hooks/use-workspace-comments';
 import { useWorkspaceDiff } from '@/lib/hooks/use-workspace-diff';
 import { useCanvasBridge } from '@/hooks/use-canvas-bridge';
 import type { WorkspaceComment } from '@/types/api';
@@ -22,6 +22,7 @@ import { FilePreview } from '../components/file-preview';
 import { DiffPane } from './changes-panel';
 import { CodeFileView } from './code-file-view';
 import { DiffViewer } from './diff-viewer';
+import type { ComposeTarget } from './diff-comments';
 import { checkpointApi } from '@/lib/api';
 
 // The diagram editors are heavy; only pull them in when a diagram is opened.
@@ -100,7 +101,9 @@ export function ContentViewerPanel({ workspaceId, target }: ContentViewerPanelPr
 
       {/* Body — children own their scroll so per-view scrollbars stay pinned. */}
       <div className="min-h-0 flex-1 overflow-hidden">
-        {target.kind === 'file' && <FileBody workspaceId={workspaceId} path={path} />}
+        {target.kind === 'file' && (
+          <FileBody workspaceId={workspaceId} path={path} jumpToLine={target.line} />
+        )}
         {target.kind === 'diff' && (
           <CodeView workspaceId={workspaceId} repo={target.repo} relPath={path} allowDiff />
         )}
@@ -125,7 +128,16 @@ export function ContentViewerPanel({ workspaceId, target }: ContentViewerPanelPr
 
 /** File body: commentable code view when it's a text file in a worktree, else
  *  the generic type-dispatched preview. */
-function FileBody({ workspaceId, path }: { workspaceId: string; path: string }) {
+function FileBody({
+  workspaceId,
+  path,
+  jumpToLine,
+}: {
+  workspaceId: string;
+  path: string;
+  /** 1-based line to reveal, when opened from a content-search hit. */
+  jumpToLine?: number;
+}) {
   const wt = resolveWorktreePath(path);
   // Comments anchor on (repo, file_path). Worktree files use the worktree name
   // as repo + the worktree-relative path; workspace-root files (e.g. .mcp.json,
@@ -138,14 +150,29 @@ function FileBody({ workspaceId, path }: { workspaceId: string; path: string }) 
   // Markdown gets a rendered-preview / raw-source toggle; the source side is a
   // commentable full-file view, so markdown too can be annotated.
   if (isMarkdownFile(path)) {
-    return <MarkdownFileBody workspaceId={workspaceId} path={path} repo={repo} relPath={relPath} />;
+    return (
+      <MarkdownFileBody
+        workspaceId={workspaceId}
+        path={path}
+        repo={repo}
+        relPath={relPath}
+        jumpToLine={jumpToLine}
+      />
+    );
   }
   // Any other text/code file (json, config, code, …) becomes a commentable
   // full-file view; rich formats (images/pdf/office) fall back to the
   // type-dispatched preview. `allowDiff={false}` keeps it a plain content view.
   if (isTextLikeFile(path)) {
     return (
-      <CodeView workspaceId={workspaceId} repo={repo} relPath={relPath} rawPath={path} allowDiff={false} />
+      <CodeView
+        workspaceId={workspaceId}
+        repo={repo}
+        relPath={relPath}
+        rawPath={path}
+        allowDiff={false}
+        jumpToLine={jumpToLine}
+      />
     );
   }
   return (
@@ -268,18 +295,40 @@ function ViewModeToggle({ mode, onChange }: { mode: ViewMode; onChange: (m: View
  *  queue/send/send-all handlers with the same toasts. */
 function useFileCommentActions(workspaceId: string, repo: string, relPath: string) {
   const { t } = useTranslation('workspaces');
-  const { comments, queueComment, sendComment, sendAllPending } = useWorkspaceComments(workspaceId);
+  const { comments, queueComment, sendComment, sendAllPending, setResolved } =
+    useWorkspaceComments(workspaceId);
   const fileComments = comments.filter((c) => c.repo === repo && c.file_path === relPath);
-  const pendingCount = fileComments.filter((c) => c.sent_to_agent !== true).length;
+  const pendingCount = fileComments.filter(isPending).length;
   const [sendingAll, setSendingAll] = useState(false);
 
-  const handleQueue = (line: number, content: string) =>
-    queueComment({ repo, file_path: relPath, line_number: line, content }).then(() => {
+  // A ComposeTarget carries the side and, for a deleted line, the client-side
+  // snapshot the server cannot take itself (the old side is not on disk).
+  const toInput = (target: ComposeTarget, content: string) => ({
+    repo,
+    file_path: relPath,
+    line_number: target.line,
+    content,
+    side: target.side,
+    context_lines: target.context ? JSON.stringify(target.context) : undefined,
+  });
+
+  const handleQueue = (target: ComposeTarget, content: string) =>
+    queueComment(toInput(target, content)).then(() => {
       toast.success(t('panels.changes.comments.queued'));
     });
-  const handleSend = (line: number, content: string) =>
-    sendComment({ repo, file_path: relPath, line_number: line, content }).then(() => {
+  const handleSend = (target: ComposeTarget, content: string) =>
+    sendComment(toInput(target, content)).then(() => {
       toast.success(t('panels.changes.comments.sentOne'));
+    });
+  const handleSetResolved = (commentId: number, resolved: boolean) =>
+    setResolved(commentId, resolved).then(() => {
+      toast.success(
+        t(
+          resolved
+            ? 'panels.changes.comments.verdict.markedResolved'
+            : 'panels.changes.comments.verdict.reopened',
+        ),
+      );
     });
   const handleSendAll = async () => {
     setSendingAll(true);
@@ -292,7 +341,15 @@ function useFileCommentActions(workspaceId: string, repo: string, relPath: strin
     }
   };
 
-  return { fileComments, pendingCount, sendingAll, handleQueue, handleSend, handleSendAll };
+  return {
+    fileComments,
+    pendingCount,
+    sendingAll,
+    handleQueue,
+    handleSend,
+    handleSetResolved,
+    handleSendAll,
+  };
 }
 
 /** The "send N queued comments to agent" button; renders nothing when empty. */
@@ -325,16 +382,27 @@ function MarkdownFileBody({
   path,
   repo,
   relPath,
+  jumpToLine,
 }: {
   workspaceId: string;
   path: string;
   repo: string;
   relPath: string;
+  jumpToLine?: number;
 }) {
   const { t } = useTranslation('workspaces');
-  const [mode, setMode] = useState<MarkdownMode>('preview');
-  const { fileComments, pendingCount, sendingAll, handleQueue, handleSend, handleSendAll } =
-    useFileCommentActions(workspaceId, repo, relPath);
+  // A content-search hit points at a line of SOURCE, which the rendered preview
+  // has no way to show — so open markdown on the source side when jumping.
+  const [mode, setMode] = useState<MarkdownMode>(jumpToLine ? 'source' : 'preview');
+  const {
+    fileComments,
+    pendingCount,
+    sendingAll,
+    handleQueue,
+    handleSend,
+    handleSetResolved,
+    handleSendAll,
+  } = useFileCommentActions(workspaceId, repo, relPath);
 
   return (
     <div className="flex h-full flex-col">
@@ -374,6 +442,8 @@ function MarkdownFileBody({
             comments={fileComments}
             onQueue={handleQueue}
             onSend={handleSend}
+            onSetResolved={handleSetResolved}
+            jumpToLine={jumpToLine}
           />
         )}
       </div>
@@ -395,6 +465,7 @@ function CodeView({
   relPath,
   rawPath,
   allowDiff,
+  jumpToLine,
 }: {
   workspaceId: string;
   repo: string;
@@ -405,9 +476,13 @@ function CodeView({
   /** Show the diff/file toggle. Only the changes list (which always has a diff)
    *  enables it; the file tree opens a plain content view with no toggle. */
   allowDiff: boolean;
+  /** 1-based line to reveal in file mode, from a content-search hit. */
+  jumpToLine?: number;
 }) {
   const { t } = useTranslation('workspaces');
-  const [mode, setMode] = useState<CodeMode>(allowDiff ? 'diff' : 'file');
+  // A search hit anchors to a line in the FULL file, which the diff view may not
+  // even contain (unchanged lines aren't in the diff) — so jump lands in file mode.
+  const [mode, setMode] = useState<CodeMode>(allowDiff && !jumpToLine ? 'diff' : 'file');
   const [viewMode, setViewMode] = useState<ViewMode>('unified');
 
   // The changes-list diff group's `name` is the REPOSITORY name, not the
@@ -421,8 +496,15 @@ function CodeView({
       ? `.worktrees/${worktreeSubdir(group.worktreePath)}/${relPath}`
       : `.worktrees/${repo}/${relPath}`);
 
-  const { fileComments, pendingCount, sendingAll, handleQueue, handleSend, handleSendAll } =
-    useFileCommentActions(workspaceId, repo, relPath);
+  const {
+    fileComments,
+    pendingCount,
+    sendingAll,
+    handleQueue,
+    handleSend,
+    handleSetResolved,
+    handleSendAll,
+  } = useFileCommentActions(workspaceId, repo, relPath);
 
   return (
     <div className="flex h-full flex-col">
@@ -461,6 +543,7 @@ function CodeView({
             comments={fileComments}
             onQueue={handleQueue}
             onSend={handleSend}
+            onSetResolved={handleSetResolved}
           />
         ) : (
           <FileContentBody
@@ -471,6 +554,8 @@ function CodeView({
             comments={fileComments}
             onQueue={handleQueue}
             onSend={handleSend}
+            onSetResolved={handleSetResolved}
+            jumpToLine={jumpToLine}
           />
         )}
       </div>
@@ -487,14 +572,16 @@ function DiffModeBody({
   comments,
   onQueue,
   onSend,
+  onSetResolved,
 }: {
   workspaceId: string;
   repo: string;
   relPath: string;
   viewMode: ViewMode;
   comments: WorkspaceComment[];
-  onQueue: (line: number, content: string) => Promise<void>;
-  onSend: (line: number, content: string) => Promise<void>;
+  onQueue: (target: ComposeTarget, content: string) => Promise<void>;
+  onSend: (target: ComposeTarget, content: string) => Promise<void>;
+  onSetResolved: (commentId: number, resolved: boolean) => Promise<void>;
 }) {
   const { t } = useTranslation('workspaces');
   const { repos, isLoading } = useWorkspaceDiff(workspaceId);
@@ -510,6 +597,7 @@ function DiffModeBody({
       comments={comments}
       onQueueComment={onQueue}
       onSendComment={onSend}
+      onSetResolved={onSetResolved}
     />
   );
 }
@@ -524,14 +612,18 @@ function FileContentBody({
   comments,
   onQueue,
   onSend,
+  onSetResolved,
+  jumpToLine,
 }: {
   workspaceId: string;
   rawPath: string;
   repo: string;
   relPath: string;
   comments: WorkspaceComment[];
-  onQueue: (line: number, content: string) => Promise<void>;
-  onSend: (line: number, content: string) => Promise<void>;
+  onQueue: (target: ComposeTarget, content: string) => Promise<void>;
+  onSend: (target: ComposeTarget, content: string) => Promise<void>;
+  onSetResolved: (commentId: number, resolved: boolean) => Promise<void>;
+  jumpToLine?: number;
 }) {
   const { t } = useTranslation('workspaces');
   const { data: text, isLoading, error } = useQuery({
@@ -551,6 +643,8 @@ function FileContentBody({
       comments={comments}
       onQueueComment={onQueue}
       onSendComment={onSend}
+      onSetResolved={onSetResolved}
+      jumpToLine={jumpToLine}
     />
   );
 }

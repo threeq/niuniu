@@ -1068,6 +1068,20 @@ func (s *RepositoryService) GetCommitDetail(ctx context.Context, id, commitHash 
 	return git.GetCommitDetail(repo.Path, commitHash)
 }
 
+// GetCommitDiff returns the line-level diff a single commit introduced, so the
+// commit-detail view can show the actual change instead of only file names.
+func (s *RepositoryService) GetCommitDiff(ctx context.Context, id, commitHash string) ([]git.FileDiff, error) {
+	repoID, err := s.parseRepoID(id)
+	if err != nil {
+		return nil, err
+	}
+	repo, err := s.q.GetRepository(ctx, repoID)
+	if err != nil {
+		return nil, err
+	}
+	return git.CommitDiff(repo.Path, commitHash)
+}
+
 // GetGraphLog returns commit graph data for the repository.
 func (s *RepositoryService) GetGraphLog(ctx context.Context, id string, limit int, allBranches bool) ([]git.GraphCommit, error) {
 	repoID, err := s.parseRepoID(id)

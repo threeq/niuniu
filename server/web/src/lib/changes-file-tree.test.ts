@@ -8,6 +8,7 @@ const file = (path: string): DiffFileRow => ({
   additions: 1,
   deletions: 0,
   commentCount: 0,
+  totalCommentCount: 0,
 });
 
 // Compact shape for assertions: dirs as "name/...children", files as "name".

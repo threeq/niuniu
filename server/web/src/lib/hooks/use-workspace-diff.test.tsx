@@ -19,13 +19,22 @@ function wrapper(qc: QueryClient) {
   };
 }
 
+// Mirrors the backend git.FileDiff shape: structured hunks, no raw_patch — the
+// client has no unified-diff parser, so hunks are the only renderable payload.
 const file = (path: string, additions: number, deletions: number, status = 'modified') => ({
   path,
   status,
   additions,
   deletions,
-  hunks: [],
-  raw_patch: `patch-${path}`,
+  hunks: [
+    {
+      old_start: 1,
+      old_count: 1,
+      new_start: 1,
+      new_count: 1,
+      lines: [{ type: 'add' as const, content: `line in ${path}`, new_line: 1 }],
+    },
+  ],
 });
 
 beforeEach(() => {
@@ -85,9 +94,10 @@ describe('useWorkspaceDiff', () => {
     const byName = Object.fromEntries(result.current.repos.map((r) => [r.name, r]));
     // Resolved group: rawFiles dropped (it re-fetches line-level by id).
     expect(byName.zebra.rawFiles).toHaveLength(0);
-    // Orphan group: rawFiles kept (inline line-level rendering, incl. raw_patch).
+    // Orphan group: rawFiles kept, carrying the structured hunks the inline
+    // line-level viewer renders from.
     expect(byName.alpha.rawFiles).toHaveLength(1);
-    expect(byName.alpha.rawFiles[0].raw_patch).toBe('patch-b.ts');
+    expect(byName.alpha.rawFiles[0].hunks[0].lines[0].content).toBe('line in b.ts');
   });
 
   it('sorts groups by name and attaches comment counts + ahead count', async () => {
@@ -115,5 +125,60 @@ describe('useWorkspaceDiff', () => {
     expect(result.current.totalAdditions).toBe(7); // 2 + 5
     expect(result.current.totalDeletions).toBe(1); // 1 + 0
     expect([...result.current.baseBranches].sort()).toEqual(['develop', 'main']);
+  });
+
+  // The file badge counts the review VERDICT, not how many comments were ever
+  // written. Counting resolved ones would keep a settled file demanding
+  // attention, which is the conflation this wave exists to remove.
+  it('counts only unresolved comments in commentCount, keeping the total separately', async () => {
+    getMock.mockImplementation((url: string) => {
+      if (url.endsWith('/diff')) {
+        return Promise.resolve([
+          { name: 'zebra', repository_id: 5, files: [file('a.ts', 1, 0)] },
+        ]);
+      }
+      if (url.endsWith('/comments')) {
+        return Promise.resolve([
+          // Sent to the agent but NOT judged — still open.
+          { id: 1, repo: 'zebra', file_path: 'a.ts', sent_to_agent: true, resolved: false },
+          // Judged — settled, must not inflate the badge.
+          { id: 2, repo: 'zebra', file_path: 'a.ts', sent_to_agent: true, resolved: true },
+          // Never sent, never judged — open.
+          { id: 3, repo: 'zebra', file_path: 'a.ts', resolved: false },
+        ]);
+      }
+      return Promise.resolve({ worktrees: [] });
+    });
+
+    const { result } = render();
+    await waitFor(() => expect(result.current.repos).toHaveLength(1));
+    const row = result.current.repos[0].files[0];
+    expect(row.commentCount).toBe(2);
+    expect(row.totalCommentCount).toBe(3);
+  });
+
+  it('reports a fully-resolved file as zero open but non-zero total', async () => {
+    getMock.mockImplementation((url: string) => {
+      if (url.endsWith('/diff')) {
+        return Promise.resolve([
+          { name: 'zebra', repository_id: 5, files: [file('a.ts', 1, 0)] },
+        ]);
+      }
+      if (url.endsWith('/comments')) {
+        return Promise.resolve([
+          { id: 1, repo: 'zebra', file_path: 'a.ts', resolved: true },
+          { id: 2, repo: 'zebra', file_path: 'a.ts', resolved: true },
+        ]);
+      }
+      return Promise.resolve({ worktrees: [] });
+    });
+
+    const { result } = render();
+    await waitFor(() => expect(result.current.repos).toHaveLength(1));
+    const row = result.current.repos[0].files[0];
+    // The two must differ — collapsing them would make "reviewed and settled"
+    // indistinguishable from "never looked at".
+    expect(row.commentCount).toBe(0);
+    expect(row.totalCommentCount).toBe(2);
   });
 });
