@@ -573,9 +573,11 @@ export function ChangesPanel({ workspaceId }: ChangesPanelProps) {
     }
   };
 
-  // The path-filter search box appears only once there are enough files to make
-  // it useful (> 10).
-  const showSearch = totalFiles > 10;
+  // The path-filter box is available whenever there is at least one changed
+  // file. It used to appear only past 10 files, which made it invisible in
+  // exactly the case where someone goes looking for it — a short list still
+  // needs filtering, and a hidden control reads as a missing feature.
+  const showSearch = totalFiles > 0;
   const activeSearch = showSearch ? fileSearch : '';
   const fileQuery = activeSearch.trim().toLowerCase();
   const hasMatches =
