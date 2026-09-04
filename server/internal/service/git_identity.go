@@ -86,8 +86,22 @@ func (s *GitIdentityService) Resolve(ctx context.Context, userID int64) (git.Ide
 // ("", "", nil) for zero / unknown user_id so agentproxy can stay decoupled
 // from internal/git. Defined separately (rather than reusing Resolve) to
 // keep the agentproxy interface narrow.
+//
+// Spawn paths use ResolveConfiguredNameEmail instead — see why there.
 func (s *GitIdentityService) ResolveNameEmail(ctx context.Context, userID int64) (name, email string, err error) {
 	id, err := s.Resolve(ctx, userID)
+	if err != nil {
+		return "", "", err
+	}
+	return id.Name, id.Email, nil
+}
+
+// ResolveConfiguredNameEmail is ResolveNameEmail without the synthetic
+// fallback: ("", "", nil) when the user configured no signature, so the spawned
+// process inherits the user's own repo/global git config rather than being
+// forced to <username>@niuniu.local.
+func (s *GitIdentityService) ResolveConfiguredNameEmail(ctx context.Context, userID int64) (name, email string, err error) {
+	id, err := s.ResolveConfigured(ctx, userID, 0)
 	if err != nil {
 		return "", "", err
 	}
@@ -198,10 +212,15 @@ func (s *GitIdentityService) SyncWorktreeIdentities(ctx context.Context, q *stor
 		return false, fmt.Errorf("list worktrees: %w", err)
 	}
 	for _, wt := range worktrees {
-		id, rErr := s.ResolveForRepository(ctx, userID, wt.RepositoryID)
+		id, rErr := s.ResolveConfigured(ctx, userID, wt.RepositoryID)
 		if rErr != nil {
 			slog.Warn("git identity: resolve for worktree failed; leaving its config untouched",
 				"workspaceID", workspaceID, "repoID", wt.RepositoryID, "err", rErr)
+			continue
+		}
+		// Zero = the user configured nothing; leave this worktree's config alone
+		// so their own repo-local / OS-global git config still governs.
+		if id.IsZero() {
 			continue
 		}
 		if id != global {
@@ -213,6 +232,64 @@ func (s *GitIdentityService) SyncWorktreeIdentities(ctx context.Context, q *stor
 		}
 	}
 	return needsLocalPinning, nil
+}
+
+// ResolveConfigured is Resolve minus the synthetic fallback: it returns a zero
+// Identity when the user has configured no git signature anywhere (no
+// per-repo override, no users.email, no display_name).
+//
+// Resolve always yields something — "<username>" / "<username>@niuniu.local" —
+// because the settings UI needs a concrete value to display. Commit paths need
+// the opposite: a user who configured nothing must fall through to their
+// repo-local / OS-global git config, which is the last tier of the required
+// precedence chain (个人设置 > 仓库设置 > 全局配置). Injecting the synthetic
+// placeholder there would shadow the global config and make that tier
+// unreachable — every commit would be signed <username>@niuniu.local, an
+// address that by design cannot receive mail.
+//
+// A user who set only one of name/email still counts as configured; the other
+// side keeps its Resolve-derived value so the pair stays complete (git needs
+// both, and validateIdentity rejects a half-filled Identity).
+func (s *GitIdentityService) ResolveConfigured(ctx context.Context, userID, repositoryID int64) (git.Identity, error) {
+	if userID == 0 || s == nil || s.db == nil {
+		return git.Identity{}, nil
+	}
+	configured, err := s.hasConfiguredIdentity(ctx, userID, repositoryID)
+	if err != nil || !configured {
+		return git.Identity{}, err
+	}
+	return s.ResolveForRepository(ctx, userID, repositoryID)
+}
+
+// hasConfiguredIdentity reports whether the user has deliberately set a git
+// signature — either a per-repository override, or a global email/display name.
+func (s *GitIdentityService) hasConfiguredIdentity(ctx context.Context, userID, repositoryID int64) (bool, error) {
+	if repositoryID != 0 {
+		var name, email string
+		err := s.db.QueryRowContext(ctx,
+			`SELECT COALESCE(name, ''), COALESCE(email, '')
+			 FROM user_repository_git_identities
+			 WHERE user_id = ? AND repository_id = ?`,
+			userID, repositoryID,
+		).Scan(&name, &email)
+		if err != nil && !errors.Is(err, sql.ErrNoRows) {
+			return false, err
+		}
+		if name != "" || email != "" {
+			return true, nil
+		}
+	}
+	var displayName, email string
+	err := s.db.QueryRowContext(ctx,
+		`SELECT display_name, COALESCE(email, '') FROM users WHERE id = ?`, userID,
+	).Scan(&displayName, &email)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return false, nil
+		}
+		return false, err
+	}
+	return strings.TrimSpace(displayName) != "" || email != "", nil
 }
 
 // --- Per-(user, repository) overrides (v5.1 Phase 2 sub-phase A) ---

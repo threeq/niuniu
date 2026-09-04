@@ -305,7 +305,7 @@ func (s *WorkspaceOpsService) identityFor(ctx context.Context, workspaceID, user
 		return git.Identity{}
 	}
 	repoID := s.repositoryIDForWorktreePath(ctx, workspaceID, path)
-	id, err := s.gitIdentity.ResolveForRepository(ctx, userID, repoID)
+	id, err := s.gitIdentity.ResolveConfigured(ctx, userID, repoID)
 	if err != nil {
 		slog.Warn("resolve git identity for worktree; committing with ambient git config",
 			"workspaceID", workspaceID, "userID", userID, "repoID", repoID, "err", err)

@@ -388,15 +388,16 @@ func (s *RepositoryService) finishCreate(ctx context.Context, input CreateReposi
 				warnings = append(warnings, WarnGitLFSMissing)
 			}
 			// Step 6c: Ensure first commit so HEAD exists.
-			// Attribute it to the creating user when the repo is user-owned —
-			// the repository row does not exist yet, so there is no per-repo
-			// override to consult and the user's global identity is the most
-			// specific thing available. For an org-owned repo there is no single
-			// creator identity here, so Identity{} falls through to git's global
-			// config (the pre-flight above verified user.name/email are set).
+			// Attribute it to the creating user when the repo is user-owned and
+			// that user actually configured a signature. The repository row does
+			// not exist yet, so there is no per-repo override to consult; the
+			// user's global niuniu identity is the most specific thing available.
+			// ResolveConfigured returns zero when they configured nothing, which
+			// falls through to git's global config — the pre-flight above already
+			// verified user.name/user.email are set there.
 			var initIdent git.Identity
 			if s.gitIdentity != nil && input.OwnerType == "user" && input.OwnerID > 0 {
-				if resolved, rErr := s.gitIdentity.Resolve(ctx, input.OwnerID); rErr == nil {
+				if resolved, rErr := s.gitIdentity.ResolveConfigured(ctx, input.OwnerID, 0); rErr == nil {
 					initIdent = resolved
 				} else {
 					slog.Warn("repository.finishCreate: resolve creator git identity; using global config",
@@ -1185,7 +1186,7 @@ func (s *RepositoryService) CommitAll(ctx context.Context, id, message string, u
 		if convErr != nil {
 			return fmt.Errorf("invalid repository id %q: %w", id, convErr)
 		}
-		ident, err = s.gitIdentity.ResolveForRepository(ctx, userID, repoID)
+		ident, err = s.gitIdentity.ResolveConfigured(ctx, userID, repoID)
 		if err != nil {
 			return fmt.Errorf("resolve git identity: %w", err)
 		}

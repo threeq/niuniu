@@ -75,9 +75,11 @@ func (s *GitOpsService) Commit(ctx context.Context, workspaceID, repoID int64, m
 	// Resolve per-(user, repository) identity. repoID is the niuniu
 	// repository row, which is exactly the override key — so a user who set a
 	// different signature for this one repo gets it honored here.
+	// ResolveConfigured (not ResolveForRepository) so a user who configured
+	// nothing falls through to their repo/global git config.
 	var id git.Identity
 	if s.gitIdentity != nil && userID > 0 {
-		id, err = s.gitIdentity.ResolveForRepository(ctx, userID, repoID)
+		id, err = s.gitIdentity.ResolveConfigured(ctx, userID, repoID)
 		if err != nil {
 			return fmt.Errorf("resolve git identity: %w", err)
 		}

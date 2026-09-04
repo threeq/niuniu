@@ -186,3 +186,97 @@ func TestSyncWorktreeIdentities_MissingWorktreeDir_IsSkipped(t *testing.T) {
 	require.NoError(t, err, "a missing worktree must not fail the whole sync")
 	assert.Equal(t, "alice@global.com", localConfig(t, good, "user.email"))
 }
+
+// --- 全局配置 tier reachability (个人设置 > 仓库设置 > 全局配置) ---
+
+// clearDisplayName models a user who registered without a display name and
+// never set an email — i.e. configured no git signature in niuniu at all.
+// The shared newOrgTestUser helper always fills display_name, which would
+// otherwise mask the very case these tests exist to cover.
+func clearDisplayName(t *testing.T, db *sql.DB, userID int64) {
+	t.Helper()
+	_, err := db.ExecContext(context.Background(),
+		`UPDATE users SET display_name = '' WHERE id = ?`, userID)
+	require.NoError(t, err)
+}
+
+// A user who configured nothing in niuniu must NOT be pinned to the synthetic
+// <username>@niuniu.local: that would shadow their own git config and make the
+// third precedence tier unreachable.
+func TestResolveConfigured_UnconfiguredUser_YieldsZero(t *testing.T) {
+	db := openOrgTestDB(t)
+	ctx := context.Background()
+	userID := newOrgTestUser(t, db, "alice", "member")
+	clearDisplayName(t, db, userID)
+	svc := NewGitIdentityService(db)
+
+	id, err := svc.ResolveConfigured(ctx, userID, 0)
+	require.NoError(t, err)
+	assert.True(t, id.IsZero(), "unconfigured user must fall through to git config, got %+v", id)
+
+	// Resolve (display path) still synthesizes — that contract is unchanged.
+	shown, err := svc.Resolve(ctx, userID)
+	require.NoError(t, err)
+	assert.Equal(t, "alice@niuniu.local", shown.Email)
+}
+
+// Setting only the global email counts as configured: 个人设置 applies.
+func TestResolveConfigured_GlobalEmailSet_IsHonored(t *testing.T) {
+	db := openOrgTestDB(t)
+	ctx := context.Background()
+	userID := newOrgTestUser(t, db, "alice", "member")
+	svc := NewGitIdentityService(db)
+	require.NoError(t, svc.UpdateEmail(ctx, userID, "alice@personal.com"))
+
+	id, err := svc.ResolveConfigured(ctx, userID, 0)
+	require.NoError(t, err)
+	assert.Equal(t, "alice@personal.com", id.Email)
+	assert.Equal(t, "alice", id.Name)
+}
+
+// A per-repo override applies even when the user set no global identity.
+func TestResolveConfigured_OverrideOnly_IsHonored(t *testing.T) {
+	db := openOrgTestDB(t)
+	ctx := context.Background()
+	userID := newOrgTestUser(t, db, "alice", "member")
+	svc := NewGitIdentityService(db)
+	clearDisplayName(t, db, userID)
+	repoID := insertTestRepository(t, db, "R", "/tmp/r", userID)
+
+	_, err := svc.UpsertOverride(ctx, userID, repoID, "Alice Work", "alice@work.com")
+	require.NoError(t, err)
+
+	id, err := svc.ResolveConfigured(ctx, userID, repoID)
+	require.NoError(t, err)
+	assert.Equal(t, "Alice Work", id.Name)
+	assert.Equal(t, "alice@work.com", id.Email)
+
+	// ...but a different repo, with nothing configured, still falls through.
+	other := insertTestRepository(t, db, "Other", "/tmp/o", userID)
+	id2, err := svc.ResolveConfigured(ctx, userID, other)
+	require.NoError(t, err)
+	assert.True(t, id2.IsZero(), "unconfigured repo must fall through, got %+v", id2)
+}
+
+// The pinning pass must leave an unconfigured user's repo config untouched.
+func TestSyncWorktreeIdentities_UnconfiguredUser_LeavesConfigAlone(t *testing.T) {
+	db := openOrgTestDB(t)
+	q := store.New(db)
+	ctx := context.Background()
+	userID := newOrgTestUser(t, db, "alice", "member")
+	clearDisplayName(t, db, userID)
+	svc := NewGitIdentityService(db)
+
+	base := t.TempDir()
+	wtPath := filepath.Join(base, "repo-a")
+	initTestRepo(t, wtPath)
+	repoID := insertTestRepository(t, db, "RepoA", wtPath, userID)
+	wsID := insertTestWorkspace(t, db, userID, base)
+	insertTestWorktree(t, db, wsID, repoID, wtPath)
+
+	pinned, err := svc.SyncWorktreeIdentities(ctx, q, wsID, userID)
+	require.NoError(t, err)
+	assert.False(t, pinned)
+	assert.Equal(t, "AmbientName", localConfig(t, wtPath, "user.name"),
+		"must not overwrite the user's own git config with a synthetic identity")
+}

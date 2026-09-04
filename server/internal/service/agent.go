@@ -246,7 +246,7 @@ func (m *AgentManager) Start(ctx context.Context, workspaceID int64, workDir, in
 				"workspaceID", workspaceID, "userID", userID, "err", sErr)
 		}
 		if !pinned {
-			if id, err := m.gitIdentity.Resolve(ctx, userID); err == nil {
+			if id, err := m.gitIdentity.ResolveConfigured(ctx, userID, 0); err == nil {
 				envSlice = append(envSlice, EnvVarsForIdentity(id)...)
 			} else {
 				slog.Warn("agent: resolve git identity failed; spawn without GIT_AUTHOR_*",
@@ -539,7 +539,7 @@ func (m *AgentManager) StartTerminal(ctx context.Context, workspaceID int64) (*t
 				"workspaceID", workspaceID, "userID", uid, "err", sErr)
 		}
 		if !pinned {
-			if id, err := m.gitIdentity.Resolve(ctx, uid); err == nil {
+			if id, err := m.gitIdentity.ResolveConfigured(ctx, uid, 0); err == nil {
 				ptyEnv = EnvVarsForIdentity(id)
 			} else {
 				slog.Warn("terminal: resolve git identity failed; spawn without GIT_AUTHOR_*",

@@ -181,7 +181,7 @@ type SessionStateRecorder interface {
 // config — preserving personal-edition behavior.
 // Spec: docs/superpowers/specs/2026-05-19-per-user-git-identity-design.md §3.1
 type GitIdentityResolver interface {
-	ResolveNameEmail(ctx context.Context, userID int64) (name, email string, err error)
+	ResolveConfiguredNameEmail(ctx context.Context, userID int64) (name, email string, err error)
 	// SyncWorktreeIdentities pins each of the workspace's worktrees to its
 	// effective per-(user, repository) signature via that worktree's local git
 	// config, and reports whether any repo resolved to something other than the
@@ -791,7 +791,7 @@ func (s *WorkspaceSession) resolveGitAuthorEnv(ctx context.Context) (name, email
 		// Per-repo config is authoritative for this workspace; stay out of its way.
 		return "", ""
 	}
-	n, e, err := s.gitIdentity.ResolveNameEmail(ctx, gitUID)
+	n, e, err := s.gitIdentity.ResolveConfiguredNameEmail(ctx, gitUID)
 	if err != nil {
 		slog.Warn("agentproxy: resolve git identity failed; spawn without GIT_AUTHOR_*",
 			"workspaceID", s.workspaceID, "userID", gitUID, "err", err)
