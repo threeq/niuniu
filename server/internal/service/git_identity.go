@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"log/slog"
 	"regexp"
 	"strings"
 
@@ -97,6 +98,11 @@ func (s *GitIdentityService) ResolveNameEmail(ctx context.Context, userID int64)
 // for injecting into a child process environment. Returns nil when id is
 // zero — the caller appends ...nil safely, and an unset env means git falls
 // back to repo / OS-global config as before.
+//
+// Callers spawning an agent over a workspace should prefer
+// SyncWorktreeIdentities + skipping this injection when any worktree carries a
+// per-repository override: these env vars are per-process and outrank local
+// config, so injecting them would flatten every repo to one signature.
 func EnvVarsForIdentity(id git.Identity) []string {
 	if id.IsZero() {
 		return nil
@@ -151,6 +157,62 @@ func (s *GitIdentityService) GetEmail(ctx context.Context, userID int64) (string
 		return "", err
 	}
 	return email, nil
+}
+
+// --- Worktree identity pinning (agent spawn path) ---
+
+// SyncWorktreeIdentities writes each of the workspace's worktrees' effective
+// per-(user, repository) signature into that worktree's LOCAL git config, and
+// reports whether any worktree resolved to something other than the user's
+// global identity.
+//
+// Why this exists: agents commit from a subprocess, and the only per-process
+// lever is GIT_AUTHOR_*/GIT_COMMITTER_*. Those env vars outrank local config
+// and apply to every repo the process touches, so in a workspace holding more
+// than one repository they cannot express "sign repo A as X, repo B as Y".
+// Pinning local config per worktree can — but only if the caller then skips
+// the env injection, otherwise the env wins and the pin is dead weight.
+//
+// Returns needsLocalPinning=true when at least one worktree has a per-repo
+// override in play. The caller should then spawn WITHOUT the env vars and let
+// local config drive attribution. When false, no override exists, every repo
+// wants the same signature, and env injection is the more robust choice — it
+// also covers repos cloned into the workspace after spawn, which have no
+// pinned config.
+//
+// Errors on individual worktrees are logged and skipped rather than failing the
+// spawn: an unattributed commit is better than no agent.
+func (s *GitIdentityService) SyncWorktreeIdentities(ctx context.Context, q *store.Queries, workspaceID, userID int64) (needsLocalPinning bool, err error) {
+	if s == nil || s.db == nil || userID <= 0 || q == nil {
+		return false, nil
+	}
+	global, err := s.Resolve(ctx, userID)
+	if err != nil {
+		return false, err
+	}
+	if global.IsZero() {
+		return false, nil
+	}
+	worktrees, err := q.ListWorktrees(ctx, workspaceID)
+	if err != nil {
+		return false, fmt.Errorf("list worktrees: %w", err)
+	}
+	for _, wt := range worktrees {
+		id, rErr := s.ResolveForRepository(ctx, userID, wt.RepositoryID)
+		if rErr != nil {
+			slog.Warn("git identity: resolve for worktree failed; leaving its config untouched",
+				"workspaceID", workspaceID, "repoID", wt.RepositoryID, "err", rErr)
+			continue
+		}
+		if id != global {
+			needsLocalPinning = true
+		}
+		if wErr := git.SetLocalIdentity(ctx, wt.WorktreePath, id); wErr != nil {
+			slog.Warn("git identity: pin local config failed; commits there use ambient config",
+				"workspaceID", workspaceID, "path", wt.WorktreePath, "err", wErr)
+		}
+	}
+	return needsLocalPinning, nil
 }
 
 // --- Per-(user, repository) overrides (v5.1 Phase 2 sub-phase A) ---

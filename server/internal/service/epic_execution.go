@@ -57,9 +57,13 @@ type ReviewConfirmer interface {
 // engine skips the commit/merge step entirely (fake-based tests do no real git).
 type WorkspaceMerger interface {
 	// CommitWorktree commits any pending work in the named worktree.
-	CommitWorktree(ctx context.Context, workspaceID int64, worktreeName, message string) error
+	// userID attributes the commit to a niuniu user; the Epic engine passes 0
+	// (no HTTP caller), which makes the implementation derive the acting user
+	// from the workspace itself rather than falling back to OS-global config.
+	CommitWorktree(ctx context.Context, workspaceID int64, worktreeName, message string, userID int64) error
 	// MergeWorktree merges the named worktree's branch into targetBranch.
-	MergeWorktree(ctx context.Context, workspaceID int64, worktreeName, targetBranch string) error
+	// userID attributes the merge commit; see CommitWorktree.
+	MergeWorktree(ctx context.Context, workspaceID int64, worktreeName, targetBranch string, userID int64) error
 	// SyncBranchIntoWorktree fast-forwards the named worktree's current branch to
 	// sourceBranch (the opposite direction of MergeWorktree). The Epic engine uses
 	// it to bring the epic feature branch's accumulated child work into the epic's
@@ -924,11 +928,11 @@ func (s *EpicExecutionService) mergeChildIntoEpic(ctx context.Context, workspace
 		if name == "" {
 			continue
 		}
-		if cErr := s.merger.CommitWorktree(ctx, workspaceID, name, msg); cErr != nil {
+		if cErr := s.merger.CommitWorktree(ctx, workspaceID, name, msg, 0); cErr != nil {
 			// Likely "nothing to commit" — not fatal; merge still proceeds.
 			slog.Info("epic mergeChildIntoEpic: commit (non-fatal)", "workspaceID", workspaceID, "worktree", name, "error", cErr)
 		}
-		if mErr := s.merger.MergeWorktree(ctx, workspaceID, name, branch); mErr != nil {
+		if mErr := s.merger.MergeWorktree(ctx, workspaceID, name, branch, 0); mErr != nil {
 			slog.Error("epic mergeChildIntoEpic: merge into epic branch", "workspaceID", workspaceID, "worktree", name, "branch", branch, "error", mErr)
 			if len(merged) > 0 {
 				// Partial cross-repo failure: some repos already integrated. Land a

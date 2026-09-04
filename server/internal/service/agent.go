@@ -233,12 +233,25 @@ func (m *AgentManager) Start(ctx context.Context, workspaceID int64, workDir, in
 	// (or any of the four) wins — same precedence rule as the agentproxy
 	// chat path. Spec §3.1.5 calls authorship a declarative non-coercive
 	// element, so a user override should be respected.
+	//
+	// Per-repository overrides cannot ride on env vars: those are per-process
+	// and outrank local config, so in a multi-repo workspace they would flatten
+	// every repo to one signature. SyncWorktreeIdentities pins each worktree's
+	// local config instead and tells us when an override is actually in play;
+	// only then do we withhold the env vars so the pins take effect.
 	if m.gitIdentity != nil && userID > 0 && !EnvHasKey(envSlice, "GIT_AUTHOR_NAME") {
-		if id, err := m.gitIdentity.Resolve(ctx, userID); err == nil {
-			envSlice = append(envSlice, EnvVarsForIdentity(id)...)
-		} else {
-			slog.Warn("agent: resolve git identity failed; spawn without GIT_AUTHOR_*",
-				"workspaceID", workspaceID, "userID", userID, "err", err)
+		pinned, sErr := m.gitIdentity.SyncWorktreeIdentities(ctx, m.q, workspaceID, userID)
+		if sErr != nil {
+			slog.Warn("agent: sync worktree git identities failed",
+				"workspaceID", workspaceID, "userID", userID, "err", sErr)
+		}
+		if !pinned {
+			if id, err := m.gitIdentity.Resolve(ctx, userID); err == nil {
+				envSlice = append(envSlice, EnvVarsForIdentity(id)...)
+			} else {
+				slog.Warn("agent: resolve git identity failed; spawn without GIT_AUTHOR_*",
+					"workspaceID", workspaceID, "userID", userID, "err", err)
+			}
 		}
 	}
 
@@ -513,13 +526,25 @@ func (m *AgentManager) StartTerminal(ctx context.Context, workspaceID int64) (*t
 	// workspace (via the agent path) we attribute the user's manual `git
 	// commit` to them. When no session is set, fall through to OS-global
 	// config (typical for personal-edition browsing).
+	//
+	// As in the agent path, a per-repository override is expressed by pinning
+	// each worktree's local config rather than by env vars, which would apply
+	// one signature to every repo in the workspace.
 	var ptyEnv []string
 	if m.gitIdentity != nil && ws.CurrentSessionUserID.Valid && ws.CurrentSessionUserID.Int64 > 0 {
-		if id, err := m.gitIdentity.Resolve(ctx, ws.CurrentSessionUserID.Int64); err == nil {
-			ptyEnv = EnvVarsForIdentity(id)
-		} else {
-			slog.Warn("terminal: resolve git identity failed; spawn without GIT_AUTHOR_*",
-				"workspaceID", workspaceID, "userID", ws.CurrentSessionUserID.Int64, "err", err)
+		uid := ws.CurrentSessionUserID.Int64
+		pinned, sErr := m.gitIdentity.SyncWorktreeIdentities(ctx, m.q, workspaceID, uid)
+		if sErr != nil {
+			slog.Warn("terminal: sync worktree git identities failed",
+				"workspaceID", workspaceID, "userID", uid, "err", sErr)
+		}
+		if !pinned {
+			if id, err := m.gitIdentity.Resolve(ctx, uid); err == nil {
+				ptyEnv = EnvVarsForIdentity(id)
+			} else {
+				slog.Warn("terminal: resolve git identity failed; spawn without GIT_AUTHOR_*",
+					"workspaceID", workspaceID, "userID", uid, "err", err)
+			}
 		}
 	}
 

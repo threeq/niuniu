@@ -74,12 +74,7 @@ func (s *WorkspaceSession) buildQwenOneShotExec(ctx context.Context, workDir str
 		}
 	}
 
-	var gitName, gitEmail string
-	if gitUID := s.effectiveGitUserID(ctx); s.gitIdentity != nil && gitUID > 0 {
-		if name, email, err := s.gitIdentity.ResolveNameEmail(ctx, gitUID); err == nil && name != "" && email != "" {
-			gitName, gitEmail = name, email
-		}
-	}
+	gitName, gitEmail := s.resolveGitAuthorEnv(ctx)
 
 	env := qwenAdapter.InjectEnv(os.Environ(), adapter.EnvOptions{
 		WorkspaceEnv:   workspaceEnv,

@@ -78,11 +78,17 @@ type RepositoryService struct {
 	db      *store.DB
 	authz   *Authz
 	dataDir string // root data directory (e.g. ~/.niuniu)
+	// gitIdentity resolves per-(user, repository) commit signatures. Optional /
+	// nil-safe; when unset, commits use ambient repo/global git config.
+	gitIdentity *GitIdentityService
 }
 
 func NewRepositoryService(q *store.Queries, db *sql.DB, authz *Authz, dataDir string) *RepositoryService {
 	return &RepositoryService{q: q, db: store.Wrap(db), authz: authz, dataDir: dataDir}
 }
+
+// SetGitIdentityService wires the commit-signature resolver. Wired once at boot.
+func (s *RepositoryService) SetGitIdentityService(gi *GitIdentityService) { s.gitIdentity = gi }
 
 func (s *RepositoryService) List(ctx context.Context) ([]store.Repository, error) {
 	return s.q.ListRepositories(ctx)
@@ -382,11 +388,22 @@ func (s *RepositoryService) finishCreate(ctx context.Context, input CreateReposi
 				warnings = append(warnings, WarnGitLFSMissing)
 			}
 			// Step 6c: Ensure first commit so HEAD exists.
-			// Identity{} = fall through to git's global config — this code path
-			// is only reached for first-time auto-init where the pre-flight
-			// above already verified user.name/user.email are set globally.
-			// Per-user attribution at commit time arrives in Phase 1.
-			if err := git.EnsureInitialCommit(ctx, input.Path, git.Identity{}); err != nil {
+			// Attribute it to the creating user when the repo is user-owned —
+			// the repository row does not exist yet, so there is no per-repo
+			// override to consult and the user's global identity is the most
+			// specific thing available. For an org-owned repo there is no single
+			// creator identity here, so Identity{} falls through to git's global
+			// config (the pre-flight above verified user.name/email are set).
+			var initIdent git.Identity
+			if s.gitIdentity != nil && input.OwnerType == "user" && input.OwnerID > 0 {
+				if resolved, rErr := s.gitIdentity.Resolve(ctx, input.OwnerID); rErr == nil {
+					initIdent = resolved
+				} else {
+					slog.Warn("repository.finishCreate: resolve creator git identity; using global config",
+						"ownerID", input.OwnerID, "err", rErr)
+				}
+			}
+			if err := git.EnsureInitialCommit(ctx, input.Path, initIdent); err != nil {
 				// Cleanup half-initialized state so the user can retry without
 				// conflicts (spec §3.3: no half-initialized state on failure).
 				_ = os.RemoveAll(filepath.Join(input.Path, ".git"))
@@ -1152,12 +1169,28 @@ func (s *RepositoryService) GetPath(ctx context.Context, id string) (string, err
 }
 
 // CommitAll stages and commits all changes in the repository.
-func (s *RepositoryService) CommitAll(ctx context.Context, id, message string) error {
+//
+// userID is the acting niuniu user, driving author attribution through the
+// per-(user, repository) override → user global → synthetic fallback chain.
+// Pass 0 when there is no authenticated caller; the commit then falls through
+// to repo-local then OS-global git config.
+func (s *RepositoryService) CommitAll(ctx context.Context, id, message string, userID int64) error {
 	path, err := s.GetPath(ctx, id)
 	if err != nil {
 		return err
 	}
-	return git.CommitAll(path, message)
+	var ident git.Identity
+	if s.gitIdentity != nil && userID > 0 {
+		repoID, convErr := strconv.ParseInt(id, 10, 64)
+		if convErr != nil {
+			return fmt.Errorf("invalid repository id %q: %w", id, convErr)
+		}
+		ident, err = s.gitIdentity.ResolveForRepository(ctx, userID, repoID)
+		if err != nil {
+			return fmt.Errorf("resolve git identity: %w", err)
+		}
+	}
+	return git.CommitAs(ctx, path, ident, message, true)
 }
 
 // DiscardAll discards all changes in the repository.

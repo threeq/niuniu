@@ -87,6 +87,33 @@ func writeGlobalKey(ctx context.Context, key, value string) error {
 	return nil
 }
 
+// SetLocalIdentity writes user.name / user.email into the repo-local config at
+// `path` (a worktree's own config, i.e. `git config --local`).
+//
+// This exists because GIT_AUTHOR_*/GIT_COMMITTER_* env vars are per-PROCESS and
+// outrank local config, so a single agent process spawned over a workspace that
+// contains several repositories cannot express a different signature per repo.
+// Writing local config per worktree can — provided the caller does NOT also
+// inject the env vars, which would override it. See
+// service.SyncWorktreeIdentities for that coordination.
+//
+// A zero id is a no-op (nothing to pin); a partially-filled id is rejected.
+func SetLocalIdentity(ctx context.Context, path string, id Identity) error {
+	if id.IsZero() {
+		return nil
+	}
+	if err := validateIdentity(id); err != nil {
+		return err
+	}
+	for _, kv := range [][2]string{{"user.name", id.Name}, {"user.email", id.Email}} {
+		cmd := exec.CommandContext(ctx, "git", "-C", path, "config", "--local", kv[0], kv[1])
+		if out, err := cmd.CombinedOutput(); err != nil {
+			return fmt.Errorf("git config --local %s: %s: %w", kv[0], strings.TrimSpace(string(out)), err)
+		}
+	}
+	return nil
+}
+
 // keepNiuniuFileName is the placeholder created in an otherwise-empty
 // directory so the first commit has tracked content.
 const keepNiuniuFileName = ".keep-niuniu"

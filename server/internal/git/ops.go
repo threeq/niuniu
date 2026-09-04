@@ -638,7 +638,22 @@ func Fetch(worktreePath string) error {
 // Merge merges the source branch into the target branch without switching branches.
 // Strategy: fast-forward if possible, otherwise create a merge commit using
 // git merge-tree (requires Git 2.38+) to avoid branch checkout in worktrees.
+//
+// The resulting merge commit (when one is needed) is authored with the ambient
+// repo/global git config. Use MergeAs to attribute it to a specific niuniu user.
 func Merge(worktreePath, sourceBranch, targetBranch string) error {
+	return MergeAs(worktreePath, sourceBranch, targetBranch, Identity{})
+}
+
+// MergeAs is Merge with explicit author/committer attribution for the merge
+// commit. A zero id falls through to repo-local then OS-global git config.
+//
+// Note the asymmetry with CommitAs: a fast-forward merge creates no commit at
+// all, so id is simply unused on that path — there is nothing to attribute.
+func MergeAs(worktreePath, sourceBranch, targetBranch string, id Identity) error {
+	if err := validateIdentity(id); err != nil {
+		return err
+	}
 	// Resolve both branches to commit hashes
 	sourceHash, err := resolveRef(worktreePath, sourceBranch)
 	if err != nil {
@@ -676,10 +691,15 @@ func Merge(worktreePath, sourceBranch, targetBranch string) error {
 
 	// Create a merge commit with two parents
 	msg := fmt.Sprintf("Merge branch '%s' into %s", sourceBranch, targetBranch)
-	commitTreeCmd := exec.Command("git", "-C", worktreePath,
+	ctArgs := []string{"-C", worktreePath}
+	if !id.IsZero() {
+		ctArgs = append(ctArgs, "-c", "user.name="+id.Name, "-c", "user.email="+id.Email)
+	}
+	ctArgs = append(ctArgs,
 		"commit-tree", treeHash,
 		"-p", targetHash, "-p", sourceHash,
 		"-m", msg)
+	commitTreeCmd := exec.Command("git", ctArgs...)
 	ctOut, ctErr := commitTreeCmd.Output()
 	if ctErr != nil {
 		return fmt.Errorf("merge %s into %s: commit-tree failed: %w", sourceBranch, targetBranch, ctErr)

@@ -60,7 +60,7 @@ func (h *WorkspaceOpsHandler) Commit(c *gin.Context) {
 		BadRequest(c, "commit message too long (max 10000 chars)")
 		return
 	}
-	if err := h.Svc.CommitWorktree(c.Request.Context(), id, name, req.Message); err != nil {
+	if err := h.Svc.CommitWorktree(c.Request.Context(), id, name, req.Message, c.GetInt64("auth_user_id")); err != nil {
 		InternalError(c, err)
 		return
 	}
@@ -163,7 +163,7 @@ func (h *WorkspaceOpsHandler) Merge(c *gin.Context) {
 		BadRequest(c, "target_branch must not start with '-'")
 		return
 	}
-	if err := h.Svc.MergeWorktree(c.Request.Context(), id, name, req.TargetBranch); err != nil {
+	if err := h.Svc.MergeWorktree(c.Request.Context(), id, name, req.TargetBranch, c.GetInt64("auth_user_id")); err != nil {
 		InternalError(c, err)
 		return
 	}
@@ -270,7 +270,7 @@ func (h *WorkspaceOpsHandler) Complete(c *gin.Context) {
 			return
 		}
 	}
-	results, err := h.Svc.CompleteWorkspace(c.Request.Context(), id, req.Mode, req.Worktrees)
+	results, err := h.Svc.CompleteWorkspace(c.Request.Context(), id, req.Mode, req.Worktrees, c.GetInt64("auth_user_id"))
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{
 			"results": results,

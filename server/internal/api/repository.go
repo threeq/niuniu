@@ -718,7 +718,7 @@ func (h *RepositoryHandler) CommitAll(c *gin.Context) {
 		BadRequest(c, err.Error())
 		return
 	}
-	if err := h.svc.CommitAll(c.Request.Context(), c.Param("id"), strings.TrimSpace(req.Message)); err != nil {
+	if err := h.svc.CommitAll(c.Request.Context(), c.Param("id"), strings.TrimSpace(req.Message), c.GetInt64("auth_user_id")); err != nil {
 		InternalError(c, err)
 		return
 	}

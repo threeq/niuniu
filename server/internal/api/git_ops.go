@@ -243,7 +243,7 @@ func (h *GitOpsHandler) Commit(c *gin.Context) {
 		return
 	}
 
-	if err := h.gitOpsSvc.Commit(c.Request.Context(), workspaceID, repoID, req.Message); err != nil {
+	if err := h.gitOpsSvc.Commit(c.Request.Context(), workspaceID, repoID, req.Message, c.GetInt64("auth_user_id")); err != nil {
 		InternalError(c, err)
 		return
 	}

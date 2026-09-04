@@ -502,6 +502,11 @@ func New(cfg *config.Config, db *sql.DB, frontendFS fs.FS) *Server {
 	// can inject GIT_AUTHOR_*/GIT_COMMITTER_* into the Claude CLI subprocess.
 	s.gitIdentitySvc = service.NewGitIdentityService(db)
 	s.agentMgr.SetGitIdentityService(s.gitIdentitySvc)
+	// Server-initiated commits (workspace "commit" button, complete-workspace,
+	// repository commit-all) must carry the acting user's signature too, not
+	// just agent subprocess commits.
+	s.gitOpsSvc.WithGitIdentity(s.gitIdentitySvc)
+	s.repositorySvc.SetGitIdentityService(s.gitIdentitySvc)
 	s.gitIdentityHandler = api.NewGitIdentityHandler(s.gitIdentitySvc)
 
 	// Server settings (admin-tunable global K/V). Backs the admin settings
@@ -818,6 +823,7 @@ func New(cfg *config.Config, db *sql.DB, frontendFS fs.FS) *Server {
 	workspaceOpsSvc := service.NewWorkspaceOpsService(s.queries, s.workspaceSvc, s.kanbanSvc, s.eventBus)
 	workspaceOpsSvc.SetExecEventService(execEventSvc)
 	workspaceOpsSvc.SetCheckpointService(s.checkpointSvc)
+	workspaceOpsSvc.SetGitIdentityService(s.gitIdentitySvc)
 	s.workspaceOpsHandler = api.NewWorkspaceOpsHandler(workspaceOpsSvc, s.workspaceSvc)
 	s.workspaceOpsHandler.Authz = authz
 

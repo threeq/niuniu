@@ -12,10 +12,22 @@ import (
 type GitOpsService struct {
 	q         *store.Queries
 	notifyHub *notify.NotificationHub
+	// gitIdentity resolves the niuniu user's author signature for a commit.
+	// Nil-safe: when unset, commits fall through to repo-local then OS-global
+	// git config, which is the pre-per-user-identity behavior.
+	gitIdentity *GitIdentityService
 }
 
 func NewGitOpsService(q *store.Queries, notifyHub *notify.NotificationHub) *GitOpsService {
 	return &GitOpsService{q: q, notifyHub: notifyHub}
+}
+
+// WithGitIdentity attaches the identity resolver so server-initiated commits
+// are attributed to the acting niuniu user rather than whatever OS-global
+// git config the daemon happens to run under.
+func (s *GitOpsService) WithGitIdentity(gi *GitIdentityService) *GitOpsService {
+	s.gitIdentity = gi
+	return s
 }
 
 // Status returns the git status for a repository in a workspace.
@@ -45,7 +57,13 @@ func (s *GitOpsService) Log(ctx context.Context, workspaceID, repoID int64, limi
 }
 
 // Commit creates a commit with all staged changes in a repository.
-func (s *GitOpsService) Commit(ctx context.Context, workspaceID, repoID int64, message string) error {
+//
+// userID is the acting niuniu user; it drives author attribution through the
+// precedence chain in GitIdentityService.ResolveForRepository (per-(user,repo)
+// override → user global → synthetic fallback). Pass 0 for callers with no
+// authenticated user — the commit then falls through to repo-local then
+// OS-global git config, matching legacy behavior.
+func (s *GitOpsService) Commit(ctx context.Context, workspaceID, repoID int64, message string, userID int64) error {
 	wsRepo, err := s.q.GetWorktreeByWorkspaceAndRepo(ctx, store.GetWorktreeByWorkspaceAndRepoParams{
 		WorkspaceID:  workspaceID,
 		RepositoryID: repoID,
@@ -54,7 +72,18 @@ func (s *GitOpsService) Commit(ctx context.Context, workspaceID, repoID int64, m
 		return fmt.Errorf("get workspace repo: %w", err)
 	}
 
-	if err := git.CommitAll(wsRepo.WorktreePath, message); err != nil {
+	// Resolve per-(user, repository) identity. repoID is the niuniu
+	// repository row, which is exactly the override key — so a user who set a
+	// different signature for this one repo gets it honored here.
+	var id git.Identity
+	if s.gitIdentity != nil && userID > 0 {
+		id, err = s.gitIdentity.ResolveForRepository(ctx, userID, repoID)
+		if err != nil {
+			return fmt.Errorf("resolve git identity: %w", err)
+		}
+	}
+
+	if err := git.CommitAs(ctx, wsRepo.WorktreePath, id, message, true); err != nil {
 		return err
 	}
 

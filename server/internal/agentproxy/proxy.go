@@ -182,6 +182,16 @@ type SessionStateRecorder interface {
 // Spec: docs/superpowers/specs/2026-05-19-per-user-git-identity-design.md §3.1
 type GitIdentityResolver interface {
 	ResolveNameEmail(ctx context.Context, userID int64) (name, email string, err error)
+	// SyncWorktreeIdentities pins each of the workspace's worktrees to its
+	// effective per-(user, repository) signature via that worktree's local git
+	// config, and reports whether any repo resolved to something other than the
+	// user's global identity.
+	//
+	// When it reports true the caller must spawn WITHOUT GIT_AUTHOR_*: those
+	// env vars are per-process and outrank local config, so injecting them
+	// would collapse a multi-repo workspace onto a single signature and discard
+	// the per-repo overrides just written.
+	SyncWorktreeIdentities(ctx context.Context, q *store.Queries, workspaceID, userID int64) (bool, error)
 }
 
 // PermissionGate bridges codex `approval/request` notifications to niuniu's
@@ -756,6 +766,41 @@ func (s *WorkspaceSession) effectiveGitUserID(ctx context.Context) int64 {
 		return s.ownerID
 	}
 	return 0
+}
+
+// resolveGitAuthorEnv returns the GIT_AUTHOR name/email to inject into a spawn,
+// after first pinning per-repository signatures into each worktree's local git
+// config.
+//
+// Returns ("", "") in two distinct cases, both meaning "inject nothing":
+//   - no identity to apply (no acting user / resolver unwired / lookup failed)
+//   - a per-repository override IS in play, and was written to local config;
+//     injecting env vars now would override those pins, since env beats local
+//     config and one process-wide pair cannot vary per repo
+func (s *WorkspaceSession) resolveGitAuthorEnv(ctx context.Context) (name, email string) {
+	gitUID := s.effectiveGitUserID(ctx)
+	if s.gitIdentity == nil || gitUID <= 0 {
+		return "", ""
+	}
+	pinned, err := s.gitIdentity.SyncWorktreeIdentities(ctx, s.q, s.workspaceID, gitUID)
+	if err != nil {
+		slog.Warn("agentproxy: sync worktree git identities failed",
+			"workspaceID", s.workspaceID, "userID", gitUID, "err", err)
+	}
+	if pinned {
+		// Per-repo config is authoritative for this workspace; stay out of its way.
+		return "", ""
+	}
+	n, e, err := s.gitIdentity.ResolveNameEmail(ctx, gitUID)
+	if err != nil {
+		slog.Warn("agentproxy: resolve git identity failed; spawn without GIT_AUTHOR_*",
+			"workspaceID", s.workspaceID, "userID", gitUID, "err", err)
+		return "", ""
+	}
+	if n == "" || e == "" {
+		return "", ""
+	}
+	return n, e
 }
 
 // SetSessionUser records the authenticated, interacting user as the workspace's
@@ -2353,16 +2398,9 @@ func (s *WorkspaceSession) ensureProcess(ctx context.Context, workDir string) er
 
 	// Inject per-user GIT_AUTHOR_*/GIT_COMMITTER_* so commits Claude makes
 	// in the chat session are attributed to the niuniu user that started it.
-	// Spec: docs/superpowers/specs/2026-05-19-per-user-git-identity-design.md §3.1
-	var gitName, gitEmail string
-	if gitUID := s.effectiveGitUserID(cmdCtx); s.gitIdentity != nil && gitUID > 0 {
-		if name, email, err := s.gitIdentity.ResolveNameEmail(cmdCtx, gitUID); err == nil && name != "" && email != "" {
-			gitName, gitEmail = name, email
-		} else if err != nil {
-			slog.Warn("agentproxy: resolve git identity failed; spawn without GIT_AUTHOR_*",
-				"workspaceID", s.workspaceID, "userID", gitUID, "err", err)
-		}
-	}
+	// Empty when a per-repository override applies — that case is handled by
+	// local git config instead; see resolveGitAuthorEnv.
+	gitName, gitEmail := s.resolveGitAuthorEnv(cmdCtx)
 	cmdEnv := driverAdapter.InjectEnv(os.Environ(), adapter.EnvOptions{
 		WorkspaceEnv:     workspaceEnv,
 		AccountConfigDir: accountConfigDir,

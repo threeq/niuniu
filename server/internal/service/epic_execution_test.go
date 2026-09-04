@@ -613,12 +613,12 @@ type fakeMerger struct {
 	mergeFail map[string]error
 }
 
-func (f *fakeMerger) CommitWorktree(_ context.Context, _ int64, worktreeName, _ string) error {
+func (f *fakeMerger) CommitWorktree(_ context.Context, _ int64, worktreeName, _ string, _ int64) error {
 	f.commits = append(f.commits, worktreeName)
 	return nil
 }
 
-func (f *fakeMerger) MergeWorktree(_ context.Context, _ int64, worktreeName, targetBranch string) error {
+func (f *fakeMerger) MergeWorktree(_ context.Context, _ int64, worktreeName, targetBranch string, _ int64) error {
 	if f.mergeFail != nil {
 		if err, ok := f.mergeFail[worktreeName]; ok {
 			return err

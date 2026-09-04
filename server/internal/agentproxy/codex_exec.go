@@ -392,12 +392,7 @@ func (s *WorkspaceSession) buildOneShotExec(ctx context.Context, workDir string)
 	// Per-account CODEX_HOME switching removed; codex uses the host's global
 	// ~/.codex/.
 	var accountConfigDir string
-	var gitName, gitEmail string
-	if gitUID := s.effectiveGitUserID(ctx); s.gitIdentity != nil && gitUID > 0 {
-		if name, email, err := s.gitIdentity.ResolveNameEmail(ctx, gitUID); err == nil && name != "" && email != "" {
-			gitName, gitEmail = name, email
-		}
-	}
+	gitName, gitEmail := s.resolveGitAuthorEnv(ctx)
 	env := oneShotAdapter.InjectEnv(os.Environ(), adapter.EnvOptions{
 		WorkspaceEnv:     workspaceEnv,
 		AccountConfigDir: accountConfigDir,

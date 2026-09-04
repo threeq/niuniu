@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"path/filepath"
 	"sync"
 	"time"
 
@@ -62,6 +63,11 @@ type WorkspaceOpsService struct {
 	// recorded on the linked issue's execution timeline (spec §23.7).
 	execEvents *ExecEventService
 
+	// gitIdentity resolves per-(user, repository) commit signatures. Optional /
+	// nil-safe; when unset, commits fall through to repo-local then OS-global
+	// git config (pre-per-user-identity behavior).
+	gitIdentity *GitIdentityService
+
 	// checkpoints is optional (nil in tests). When set, the floor gate takes a
 	// gate-passing hidden-ref checkpoint on green and, on an auto (autohost) failure,
 	// rewinds the worktree to the last gate-passing checkpoint before re-engaging the
@@ -113,15 +119,19 @@ func (s *WorkspaceOpsService) publishWorkspaceCompleted(workspaceID, issueID int
 	})
 }
 
-func (s *WorkspaceOpsService) CommitWorktree(ctx context.Context, workspaceID int64, worktreeName, message string) error {
+// SetGitIdentityService wires the per-user/per-repo commit signature resolver.
+// Optional / nil-safe; wired once at boot (server.New).
+func (s *WorkspaceOpsService) SetGitIdentityService(gi *GitIdentityService) { s.gitIdentity = gi }
+
+func (s *WorkspaceOpsService) CommitWorktree(ctx context.Context, workspaceID int64, worktreeName, message string, userID int64) error {
 	path, err := s.resolveWorktreePath(ctx, workspaceID, worktreeName)
 	if err != nil {
 		return err
 	}
-	return git.CommitAll(path, message)
+	return git.CommitAs(ctx, path, s.identityFor(ctx, workspaceID, userID, path), message, true)
 }
 
-func (s *WorkspaceOpsService) MergeWorktree(ctx context.Context, workspaceID int64, worktreeName, targetBranch string) error {
+func (s *WorkspaceOpsService) MergeWorktree(ctx context.Context, workspaceID int64, worktreeName, targetBranch string, userID int64) error {
 	path, err := s.resolveWorktreePath(ctx, workspaceID, worktreeName)
 	if err != nil {
 		return err
@@ -130,7 +140,7 @@ func (s *WorkspaceOpsService) MergeWorktree(ctx context.Context, workspaceID int
 	if err != nil {
 		return fmt.Errorf("get current branch: %w", err)
 	}
-	return git.Merge(path, sourceBranch, targetBranch)
+	return git.MergeAs(path, sourceBranch, targetBranch, s.identityFor(ctx, workspaceID, userID, path))
 }
 
 // SyncBranchIntoWorktree fast-forwards the named worktree's currently checked-out
@@ -176,7 +186,7 @@ type WorktreeCompletionResult struct {
 	Error  string `json:"error,omitempty"`
 }
 
-func (s *WorkspaceOpsService) CompleteWorkspace(ctx context.Context, workspaceID int64, mode string, steps []WorktreeCompletionStep) ([]WorktreeCompletionResult, error) {
+func (s *WorkspaceOpsService) CompleteWorkspace(ctx context.Context, workspaceID int64, mode string, steps []WorktreeCompletionStep, userID int64) ([]WorktreeCompletionResult, error) {
 	results := make([]WorktreeCompletionResult, 0, len(steps))
 
 	for _, step := range steps {
@@ -193,7 +203,7 @@ func (s *WorkspaceOpsService) CompleteWorkspace(ctx context.Context, workspaceID
 		}
 
 		if len(statuses) > 0 && step.CommitMessage != "" {
-			if err := git.CommitAll(path, step.CommitMessage); err != nil {
+			if err := git.CommitAs(ctx, path, s.identityFor(ctx, workspaceID, userID, path), step.CommitMessage, true); err != nil {
 				results = append(results, WorktreeCompletionResult{Name: step.Name, Status: "error", Error: err.Error()})
 				return results, fmt.Errorf("commit %s: %w", step.Name, err)
 			}
@@ -205,7 +215,7 @@ func (s *WorkspaceOpsService) CompleteWorkspace(ctx context.Context, workspaceID
 				results = append(results, WorktreeCompletionResult{Name: step.Name, Status: "error", Error: err.Error()})
 				return results, fmt.Errorf("get branch %s: %w", step.Name, err)
 			}
-			if err := git.Merge(path, sourceBranch, step.TargetBranch); err != nil {
+			if err := git.MergeAs(path, sourceBranch, step.TargetBranch, s.identityFor(ctx, workspaceID, userID, path)); err != nil {
 				results = append(results, WorktreeCompletionResult{Name: step.Name, Status: "error", Error: err.Error()})
 				return results, fmt.Errorf("merge %s: %w", step.Name, err)
 			}
@@ -249,6 +259,78 @@ func (s *WorkspaceOpsService) resolveWorktreePath(ctx context.Context, workspace
 		}
 	}
 	return "", fmt.Errorf("worktree %q not found in workspace %d (path: %s)", worktreeName, workspaceID, ws.Path)
+}
+
+// repositoryIDForWorktreePath maps an on-disk worktree path back to its niuniu
+// repository row, which is the key for per-(user, repository) git identity
+// overrides. resolveWorktreePath walks the filesystem (.worktrees/*) and so
+// cannot supply this; the worktrees table carries the authoritative mapping.
+//
+// Returns 0 (no error) when the path has no matching row — a workspace can
+// legitimately contain a directory git doesn't know about. Callers treat 0 as
+// "no per-repo override applies", falling back to the user's global identity.
+func (s *WorkspaceOpsService) repositoryIDForWorktreePath(ctx context.Context, workspaceID int64, path string) int64 {
+	rows, err := s.q.ListWorktrees(ctx, workspaceID)
+	if err != nil {
+		return 0
+	}
+	clean := filepath.Clean(path)
+	for _, wt := range rows {
+		if filepath.Clean(wt.WorktreePath) == clean {
+			return wt.RepositoryID
+		}
+	}
+	return 0
+}
+
+// identityFor resolves the commit signature for a given user acting on a given
+// worktree. Precedence (GitIdentityService.ResolveForRepository): per-(user,
+// repository) override → the user's global niuniu identity → synthetic
+// <username>@niuniu.local. A zero Identity means "fall through to repo-local
+// then OS-global git config".
+//
+// userID <= 0 means the caller had no authenticated user (autonomous paths such
+// as the Epic integration engine). Rather than drop attribution to whatever
+// OS-global config the daemon runs under — which on a team install misattributes
+// every autonomous commit to one arbitrary identity — the workspace itself is
+// asked who it belongs to, mirroring agentproxy's effectiveGitUserID.
+func (s *WorkspaceOpsService) identityFor(ctx context.Context, workspaceID, userID int64, path string) git.Identity {
+	if s.gitIdentity == nil {
+		return git.Identity{}
+	}
+	if userID <= 0 {
+		userID = s.workspaceActingUserID(ctx, workspaceID)
+	}
+	if userID <= 0 {
+		return git.Identity{}
+	}
+	repoID := s.repositoryIDForWorktreePath(ctx, workspaceID, path)
+	id, err := s.gitIdentity.ResolveForRepository(ctx, userID, repoID)
+	if err != nil {
+		slog.Warn("resolve git identity for worktree; committing with ambient git config",
+			"workspaceID", workspaceID, "userID", userID, "repoID", repoID, "err", err)
+		return git.Identity{}
+	}
+	return id
+}
+
+// workspaceActingUserID picks the niuniu user autonomous commits on this
+// workspace should be attributed to: the user who sent the most recent turn,
+// else the workspace owner when it is user-owned. Returns 0 for an org-owned
+// workspace with no recorded sender — there is no single right answer there, so
+// the caller falls back to ambient git config rather than guessing a member.
+func (s *WorkspaceOpsService) workspaceActingUserID(ctx context.Context, workspaceID int64) int64 {
+	ws, err := s.q.GetWorkspace(ctx, workspaceID)
+	if err != nil {
+		return 0
+	}
+	if ws.CurrentSessionUserID.Valid && ws.CurrentSessionUserID.Int64 > 0 {
+		return ws.CurrentSessionUserID.Int64
+	}
+	if ws.OwnerType == "user" && ws.OwnerID > 0 {
+		return ws.OwnerID
+	}
+	return 0
 }
 
 // MarkWorkspaceDoneResult is the outcome of a successful MarkWorkspaceDone
