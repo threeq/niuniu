@@ -25,6 +25,7 @@ import { computeGraphLayout } from '@/lib/commit-graph';
 import { DiffViewer } from '@/pages/workspaces/panels/diff-viewer';
 import type { GitFileDiff } from '@/lib/hooks/use-file-diff';
 import { RepoGitIdentitySection } from './repo-git-identity-section';
+import { RepoSearchPanel, FileHistoryPanel } from './repo-file-search';
 
 type Tab = 'files' | 'branches' | 'worktrees' | 'settings';
 
@@ -920,6 +921,10 @@ function RepoFilesTab({ repoId }: { repoId: string }) {
   const { t } = useTranslation('repositories');
   const [currentPath, setCurrentPath] = useState('');
   const [selectedFile, setSelectedFile] = useState<string | null>(null);
+  // Browse the tree, or search it — the left pane switches between the two.
+  const [leftMode, setLeftMode] = useState<'browse' | 'search'>('browse');
+  // Content vs history for the file on the right.
+  const [rightTab, setRightTab] = useState<'content' | 'history'>('content');
 
   const { data: files, isLoading, refetch: refetchFiles } = useQuery<FileEntry[]>({
     queryKey: ['repository', repoId, 'files', currentPath],
@@ -933,7 +938,15 @@ function RepoFilesTab({ repoId }: { repoId: string }) {
       setSelectedFile(null);
     } else {
       setSelectedFile(file.path);
+      setRightTab('content');
     }
+  };
+
+  // A search hit is repo-relative and may live in another directory, so opening
+  // one selects it directly rather than navigating the tree to it.
+  const handleOpenSearchHit = (path: string) => {
+    setSelectedFile(path);
+    setRightTab('content');
   };
 
   const handleNavigateUp = () => {
@@ -945,46 +958,98 @@ function RepoFilesTab({ repoId }: { repoId: string }) {
 
   return (
     <div className="h-full flex">
-      <div className="w-1/3 border-r bg-card overflow-auto">
-        <div className="flex items-center gap-1 px-3 py-2 border-b bg-muted">
-          <button onClick={() => refetchFiles()} className="p-0.5 rounded hover:bg-accent text-muted-foreground hover:text-foreground shrink-0" title={t('detail.files.refresh')}><RefreshCw className="w-3.5 h-3.5" /></button>
-          <button onClick={() => { setCurrentPath(''); setSelectedFile(null); }} className="text-xs text-info hover:underline">root</button>
-          {currentPath && (
-            <>
-              <span className="text-muted-foreground">/</span>
-              {currentPath.split('/').filter(Boolean).map((part, i, arr) => (
-                <span key={i} className="flex items-center">
-                  <span className="text-xs text-foreground">{part}</span>
-                  {i < arr.length - 1 && <span className="text-muted-foreground">/</span>}
-                </span>
-              ))}
-              <button onClick={handleNavigateUp} className="ml-auto text-xs text-muted-foreground hover:text-foreground">{t('detail.files.navigateUp')}</button>
-            </>
-          )}
+      <div className="w-1/3 border-r bg-card flex flex-col min-h-0">
+        <div className="flex shrink-0 gap-1 border-b px-2 py-1.5">
+          {(['browse', 'search'] as const).map((m) => (
+            <button
+              key={m}
+              type="button"
+              onClick={() => setLeftMode(m)}
+              className={cn(
+                'flex items-center gap-1 rounded px-2 py-0.5 text-[11px] transition-colors',
+                leftMode === m ? 'bg-accent font-medium text-foreground' : 'text-muted-foreground hover:text-foreground',
+              )}
+            >
+              {m === 'browse' ? <Folder className="w-3 h-3" /> : <Search className="w-3 h-3" />}
+              {m === 'browse' ? t('detail.tabs.files') : t('detail.files.searchTabContent')}
+            </button>
+          ))}
         </div>
-        <div className="p-2">
-          {isLoading ? (
-            <div className="space-y-1">{[...Array(5)].map((_, i) => <div key={i} className="h-8 bg-muted rounded animate-pulse" />)}</div>
-          ) : files && files.length > 0 ? (
-            files.map((file) => (
-              <div key={file.path} onClick={() => handleFileClick(file)} className={cn('flex items-center gap-2 px-2 py-1.5 rounded cursor-pointer text-sm', selectedFile === file.path ? 'bg-info/10 text-info' : 'hover:bg-accent')}>
-                {file.type === 'dir' ? (
-                  <Folder className="w-4 h-4 text-info shrink-0" />
-                ) : (
-                  <File className="w-4 h-4 text-muted-foreground shrink-0" />
-                )}
-                <span className={cn('truncate', file.type === 'dir' && 'font-medium')}>{file.name}</span>
-                {file.type === 'file' && <span className="ml-auto text-xs text-muted-foreground shrink-0">{formatBytes(file.size)}</span>}
-              </div>
-            ))
-          ) : (
-            <div className="text-center py-8 text-muted-foreground text-sm">{t('detail.files.emptyDir')}</div>
-          )}
-        </div>
+
+        {leftMode === 'search' ? (
+          <div className="min-h-0 flex-1">
+            <RepoSearchPanel repoId={repoId} onOpenFile={handleOpenSearchHit} />
+          </div>
+        ) : (
+          <div className="min-h-0 flex-1 overflow-auto">
+            <div className="flex items-center gap-1 px-3 py-2 border-b bg-muted">
+              <button onClick={() => refetchFiles()} className="p-0.5 rounded hover:bg-accent text-muted-foreground hover:text-foreground shrink-0" title={t('detail.files.refresh')}><RefreshCw className="w-3.5 h-3.5" /></button>
+              <button onClick={() => { setCurrentPath(''); setSelectedFile(null); }} className="text-xs text-info hover:underline">root</button>
+              {currentPath && (
+                <>
+                  <span className="text-muted-foreground">/</span>
+                  {currentPath.split('/').filter(Boolean).map((part, i, arr) => (
+                    <span key={i} className="flex items-center">
+                      <span className="text-xs text-foreground">{part}</span>
+                      {i < arr.length - 1 && <span className="text-muted-foreground">/</span>}
+                    </span>
+                  ))}
+                  <button onClick={handleNavigateUp} className="ml-auto text-xs text-muted-foreground hover:text-foreground">{t('detail.files.navigateUp')}</button>
+                </>
+              )}
+            </div>
+            <div className="p-2">
+              {isLoading ? (
+                <div className="space-y-1">{[...Array(5)].map((_, i) => <div key={i} className="h-8 bg-muted rounded animate-pulse" />)}</div>
+              ) : files && files.length > 0 ? (
+                files.map((file) => (
+                  <div key={file.path} onClick={() => handleFileClick(file)} className={cn('flex items-center gap-2 px-2 py-1.5 rounded cursor-pointer text-sm', selectedFile === file.path ? 'bg-info/10 text-info' : 'hover:bg-accent')}>
+                    {file.type === 'dir' ? (
+                      <Folder className="w-4 h-4 text-info shrink-0" />
+                    ) : (
+                      <File className="w-4 h-4 text-muted-foreground shrink-0" />
+                    )}
+                    <span className={cn('truncate', file.type === 'dir' && 'font-medium')}>{file.name}</span>
+                    {file.type === 'file' && <span className="ml-auto text-xs text-muted-foreground shrink-0">{formatBytes(file.size)}</span>}
+                  </div>
+                ))
+              ) : (
+                <div className="text-center py-8 text-muted-foreground text-sm">{t('detail.files.emptyDir')}</div>
+              )}
+            </div>
+          </div>
+        )}
       </div>
-      <div className="flex-1 min-h-0 overflow-auto bg-card">
+
+      <div className="flex-1 min-h-0 flex flex-col bg-card">
         {selectedFile ? (
-          <FilePreviewByUrl key={selectedFile} url={getRepoFileContentUrl(repoId, selectedFile)} path={selectedFile} />
+          <>
+            <div className="flex shrink-0 items-center gap-1 border-b px-2 py-1.5">
+              <span className="truncate text-xs text-muted-foreground">{selectedFile}</span>
+              <div className="ml-auto flex gap-1">
+                {(['content', 'history'] as const).map((k) => (
+                  <button
+                    key={k}
+                    type="button"
+                    onClick={() => setRightTab(k)}
+                    className={cn(
+                      'rounded px-2 py-0.5 text-[11px] transition-colors',
+                      rightTab === k ? 'bg-accent font-medium text-foreground' : 'text-muted-foreground hover:text-foreground',
+                    )}
+                  >
+                    {t(k === 'content' ? 'detail.files.contentTab' : 'detail.files.historyTab')}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="min-h-0 flex-1 overflow-auto">
+              {rightTab === 'content' ? (
+                <FilePreviewByUrl key={selectedFile} url={getRepoFileContentUrl(repoId, selectedFile)} path={selectedFile} />
+              ) : (
+                <FileHistoryPanel key={selectedFile} repoId={repoId} path={selectedFile} />
+              )}
+            </div>
+          </>
         ) : (
           <div className="flex items-center justify-center h-full text-muted-foreground text-sm">{t('detail.files.selectFile')}</div>
         )}
