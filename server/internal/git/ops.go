@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	stdpath "path"
 	"path/filepath"
 	"strings"
 )
@@ -235,6 +236,155 @@ func Log(worktreePath string, limit int) ([]LogEntry, error) {
 	}
 
 	return entries, nil
+}
+
+// FileLogEntry is one commit that touched a specific file. PathAtCommit is the
+// name the file had in that commit, which differs from the caller's path once
+// `--follow` walks past a rename — a diff request for the *current* name at an
+// older commit would come back empty, so the caller must use this instead.
+type FileLogEntry struct {
+	Hash         string `json:"hash"`
+	Author       string `json:"author"`
+	Date         string `json:"date"`
+	Message      string `json:"message"`
+	PathAtCommit string `json:"path_at_commit"`
+}
+
+// FileLog returns the commit history of a single file, following renames.
+//
+// A file that no longer exists still has history, so the path is NOT required
+// to be present on disk — only to be repo-relative.
+func FileLog(repoPath, filePath string, limit int) ([]FileLogEntry, error) {
+	rel, err := cleanRepoRelPath(filePath)
+	if err != nil {
+		return nil, err
+	}
+
+	// A NUL prefix marks commit-header lines so they can never be confused with
+	// a filename emitted by --name-only (a filename may legitimately contain
+	// '|', but not NUL).
+	args := []string{"-C", repoPath, "log", "--follow", "--name-only", "--format=%x00%H|%an|%ai|%s"}
+	if limit > 0 {
+		args = append(args, "-n", fmt.Sprintf("%d", limit))
+	}
+	args = append(args, "--", rel)
+
+	cmd := exec.Command("git", args...)
+	out, err := cmd.Output()
+	if err != nil {
+		return nil, fmt.Errorf("git log --follow %s: %w", rel, err)
+	}
+
+	entries := make([]FileLogEntry, 0)
+	var cur *FileLogEntry
+	for _, line := range strings.Split(string(out), "\n") {
+		line = strings.TrimRight(line, "\r")
+		if strings.HasPrefix(line, "\x00") {
+			// Flush the previous commit before starting the next one.
+			if cur != nil {
+				entries = append(entries, *cur)
+			}
+			cur = nil
+			parts := strings.SplitN(strings.TrimPrefix(line, "\x00"), "|", 4)
+			if len(parts) != 4 {
+				continue
+			}
+			cur = &FileLogEntry{
+				Hash:    parts[0],
+				Author:  parts[1],
+				Date:    parts[2],
+				Message: parts[3],
+				// Default to the requested path; overwritten by the --name-only
+				// line below when the file went by another name back then.
+				PathAtCommit: rel,
+			}
+			continue
+		}
+		if cur == nil || line == "" {
+			continue
+		}
+		// First filename after the header is this commit's name for the file.
+		cur.PathAtCommit = line
+	}
+	if cur != nil {
+		entries = append(entries, *cur)
+	}
+
+	return entries, nil
+}
+
+// cleanRepoRelPath collapses a caller-supplied path to a repo-relative form and
+// rejects traversal. It is purely lexical — it never touches the filesystem, so
+// it also works for paths that exist only in history.
+func cleanRepoRelPath(filePath string) (string, error) {
+	// Normalise separators first so a Windows-style path is handled too.
+	unified := strings.ReplaceAll(filePath, "\\", "/")
+
+	// Reject traversal outright rather than clamping into the repo. Anchoring at
+	// "/" would rewrite "../other.txt" to "other.txt" — safe from escape, but it
+	// would answer with a DIFFERENT file's history than the caller asked for.
+	// For a history view that silent substitution is worse than an error.
+	for _, seg := range strings.Split(unified, "/") {
+		if seg == ".." {
+			return "", fmt.Errorf("path escape attempt detected: %q", filePath)
+		}
+	}
+
+	rel := strings.TrimPrefix(stdpath.Clean("/"+unified), "/")
+	if rel == "" || rel == "." {
+		return "", fmt.Errorf("invalid path: %q", filePath)
+	}
+	return rel, nil
+}
+
+// FileDiffAtCommit returns the structured diff a single commit introduced to one
+// file. Backs "what did this commit change here" in the history view, and feeds
+// the same DiffViewer component as workspace diffs — so the frontend never has
+// to parse a unified patch itself.
+func FileDiffAtCommit(repoPath, commitHash, filePath string) (*FileDiff, error) {
+	rel, err := cleanRepoRelPath(filePath)
+	if err != nil {
+		return nil, err
+	}
+	if err := validateCommitish(commitHash); err != nil {
+		return nil, err
+	}
+
+	all, err := CommitDiff(repoPath, commitHash)
+	if err != nil {
+		return nil, err
+	}
+	for _, fd := range all {
+		// Match on either current or old name — the FileLog entry gives the
+		// path as it was at that commit, so Path == rel for most entries, and
+		// OldPath == rel when the file was renamed INTO its current name right
+		// at that commit.
+		if fd.Path == rel || fd.OldPath == rel {
+			return &fd, nil
+		}
+	}
+	return nil, fmt.Errorf("file %q not found in commit %s", filePath, commitHash)
+}
+
+// validateCommitish rejects anything that is not a plausible git object name, so
+// a caller-supplied value can never be mistaken for a flag. Accepts hex SHAs and
+// ordinary ref names.
+func validateCommitish(s string) error {
+	if s == "" {
+		return fmt.Errorf("empty commit-ish")
+	}
+	if strings.HasPrefix(s, "-") {
+		return fmt.Errorf("invalid commit-ish: %q", s)
+	}
+	for _, r := range s {
+		switch {
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9':
+		case r == '_', r == '-', r == '.', r == '/', r == '^', r == '~':
+		default:
+			return fmt.Errorf("invalid commit-ish: %q", s)
+		}
+	}
+	return nil
 }
 
 // LogRange returns commit history between two refs (e.g., "main..feature").

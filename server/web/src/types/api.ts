@@ -1911,3 +1911,41 @@ export interface ContentSearchOptions {
   wholeWord?: boolean
   regex?: boolean
 }
+
+// --- Repository search & file history --------------------------------------
+
+/** One file-name hit from `GET /repositories/:id/search`, repo-relative. */
+export interface RepoFileHit {
+  path: string
+  name: string
+}
+
+/**
+ * Payload of `GET /repositories/:id/search`.
+ *
+ * Carries BOTH halves of the search so the caller never picks a mode up front.
+ * `contentError` means the file-name half succeeded but grep could not run —
+ * the file results are still valid, so this is not a failed request.
+ */
+export interface RepoSearchResponse {
+  query: string
+  files: RepoFileHit[]
+  filesTruncated: boolean
+  content?: ContentSearchResponse
+  contentError?: 'no_engine' | 'failed'
+}
+
+/**
+ * One commit that touched a file, from `GET /repositories/:id/files/history`.
+ *
+ * `path_at_commit` is the name the file had AT that commit, which differs from
+ * the current name once history crosses a rename. Always send THIS value (not
+ * the current path) when requesting that commit's diff.
+ */
+export interface FileLogEntry {
+  hash: string
+  author: string
+  date: string
+  message: string
+  path_at_commit: string
+}
