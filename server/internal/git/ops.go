@@ -337,27 +337,33 @@ func cleanRepoRelPath(filePath string) (string, error) {
 	return rel, nil
 }
 
-// FileDiffAtCommit returns the diff a single commit introduced to one file, as a
-// unified patch. Backs "what did this commit change here" in the history view.
-func FileDiffAtCommit(repoPath, commitHash, filePath string) (string, error) {
+// FileDiffAtCommit returns the structured diff a single commit introduced to one
+// file. Backs "what did this commit change here" in the history view, and feeds
+// the same DiffViewer component as workspace diffs — so the frontend never has
+// to parse a unified patch itself.
+func FileDiffAtCommit(repoPath, commitHash, filePath string) (*FileDiff, error) {
 	rel, err := cleanRepoRelPath(filePath)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 	if err := validateCommitish(commitHash); err != nil {
-		return "", err
+		return nil, err
 	}
 
-	// `show -m` renders each parent for a merge commit instead of the empty
-	// default; --first-parent keeps that to the mainline so the output stays one
-	// readable patch.
-	cmd := exec.Command("git", "-C", repoPath, "show", "-m", "--first-parent",
-		"--format=", "--patch", commitHash, "--", rel)
-	out, err := cmd.Output()
+	all, err := CommitDiff(repoPath, commitHash)
 	if err != nil {
-		return "", fmt.Errorf("git show %s -- %s: %w", commitHash, rel, err)
+		return nil, err
 	}
-	return string(out), nil
+	for _, fd := range all {
+		// Match on either current or old name — the FileLog entry gives the
+		// path as it was at that commit, so Path == rel for most entries, and
+		// OldPath == rel when the file was renamed INTO its current name right
+		// at that commit.
+		if fd.Path == rel || fd.OldPath == rel {
+			return &fd, nil
+		}
+	}
+	return nil, fmt.Errorf("file %q not found in commit %s", filePath, commitHash)
 }
 
 // validateCommitish rejects anything that is not a plausible git object name, so

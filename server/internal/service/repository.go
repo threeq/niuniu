@@ -756,17 +756,17 @@ func (s *RepositoryService) FileHistory(ctx context.Context, id string, path str
 	return git.FileLog(repo.Path, path, limit)
 }
 
-// FileDiffAtCommit returns the unified patch one commit introduced to one file.
-// The caller must pass the name the file had AT that commit (FileLogEntry's
-// PathAtCommit), or a post-rename name yields an empty patch.
-func (s *RepositoryService) FileDiffAtCommit(ctx context.Context, id string, commitHash string, path string) (string, error) {
+// FileDiffAtCommit returns the structured diff one commit introduced to one
+// file. The caller must pass the name the file had AT that commit
+// (FileLogEntry's PathAtCommit), or a post-rename name is not found.
+func (s *RepositoryService) FileDiffAtCommit(ctx context.Context, id string, commitHash string, path string) (*git.FileDiff, error) {
 	repoID, err := s.parseRepoID(id)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 	repo, err := s.q.GetRepository(ctx, repoID)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 	return git.FileDiffAtCommit(repo.Path, commitHash, path)
 }

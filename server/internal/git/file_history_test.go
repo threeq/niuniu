@@ -128,22 +128,35 @@ func TestFileDiffAtCommitUsesHistoricalName(t *testing.T) {
 		t.Fatalf("FileLog: %v", err)
 	}
 
-	patch, err := FileDiffAtCommit(repo, entries[0].Hash, entries[0].PathAtCommit)
+	fd, err := FileDiffAtCommit(repo, entries[0].Hash, entries[0].PathAtCommit)
 	if err != nil {
 		t.Fatalf("FileDiffAtCommit: %v", err)
 	}
-	if !strings.Contains(patch, "+line two") {
-		t.Errorf("patch missing added line:\n%s", patch)
+	if fd.Additions != 1 {
+		t.Errorf("additions = %d, want 1", fd.Additions)
+	}
+	if len(fd.Hunks) == 0 {
+		t.Error("want structured hunks, got none")
+	}
+	if !strings.Contains(fd.RawPatch, "+line two") {
+		t.Errorf("patch missing added line:\n%s", fd.RawPatch)
 	}
 
-	// The oldest commit only resolves under its historical name.
+	// The oldest commit only resolves under its historical name — this is the
+	// silent-empty-diff trap PathAtCommit exists to avoid.
 	oldest := entries[2]
-	patchOld, err := FileDiffAtCommit(repo, oldest.Hash, oldest.PathAtCommit)
+	fdOld, err := FileDiffAtCommit(repo, oldest.Hash, oldest.PathAtCommit)
 	if err != nil {
 		t.Fatalf("FileDiffAtCommit(oldest): %v", err)
 	}
-	if !strings.Contains(patchOld, "+line one") {
-		t.Errorf("oldest patch missing content:\n%s", patchOld)
+	if !strings.Contains(fdOld.RawPatch, "+line one") {
+		t.Errorf("oldest patch missing content:\n%s", fdOld.RawPatch)
+	}
+
+	// Asking for the CURRENT name at that old commit must fail loudly rather
+	// than return an empty diff that reads as "this commit changed nothing".
+	if _, err := FileDiffAtCommit(repo, oldest.Hash, "new-name.txt"); err == nil {
+		t.Error("current name at pre-rename commit succeeded, want not-found error")
 	}
 }
 

@@ -182,15 +182,19 @@ func (h *RepositoryHandler) FileHistory(c *gin.Context) {
 
 // FileDiffAtCommit handles GET /repositories/:id/files/history/:hash/diff?path=…
 //
+// Returns a structured git.FileDiff (hunks + status + binary flag), matching the
+// shape used by workspace diffs. The frontend DiffViewer consumes it directly,
+// so no client-side diff parsing is needed (#684).
+//
 // `path` must be the name the file had AT that commit (FileLogEntry's
-// path_at_commit), otherwise a pre-rename commit returns an empty patch.
+// path_at_commit); a pre-rename name is required for rename commits.
 // @Summary      Get the diff a commit introduced to one file
 // @Tags         Repositories
 // @Produce      json
 // @Param        id    path   string true "Repository ID"
 // @Param        hash  path   string true "Commit hash"
 // @Param        path  query  string true "File path as of that commit"
-// @Success      200   {object} map[string]string
+// @Success      200   {object} git.FileDiff
 // @Failure      400   {object} Error
 // @Failure      404   {object} Error
 // @Router       /repositories/{id}/files/history/{hash}/diff [get]
@@ -200,10 +204,10 @@ func (h *RepositoryHandler) FileDiffAtCommit(c *gin.Context) {
 		BadRequest(c, "path is required")
 		return
 	}
-	patch, err := h.svc.FileDiffAtCommit(c.Request.Context(), c.Param("id"), c.Param("hash"), path)
+	diff, err := h.svc.FileDiffAtCommit(c.Request.Context(), c.Param("id"), c.Param("hash"), path)
 	if err != nil {
 		NotFound(c, "REPOSITORY")
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"patch": patch})
+	c.JSON(http.StatusOK, diff)
 }
