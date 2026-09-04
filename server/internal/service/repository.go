@@ -728,6 +728,49 @@ func (s *RepositoryService) ListFiles(ctx context.Context, id string, path strin
 	return git.ListFiles(repo.Path, repo.DefaultBranch.String, path)
 }
 
+// fileHistoryDefaultLimit / fileHistoryMaxLimit bound the history query: the
+// view is a scrollable list, not a full log, and an unbounded --follow on a
+// long-lived file is slow.
+const (
+	fileHistoryDefaultLimit = 50
+	fileHistoryMaxLimit     = 200
+)
+
+// FileHistory returns the commit history of a single file, following renames.
+// Backs the history view shown alongside an open file.
+func (s *RepositoryService) FileHistory(ctx context.Context, id string, path string, limit int) ([]git.FileLogEntry, error) {
+	repoID, err := s.parseRepoID(id)
+	if err != nil {
+		return nil, err
+	}
+	repo, err := s.q.GetRepository(ctx, repoID)
+	if err != nil {
+		return nil, err
+	}
+	if limit <= 0 {
+		limit = fileHistoryDefaultLimit
+	}
+	if limit > fileHistoryMaxLimit {
+		limit = fileHistoryMaxLimit
+	}
+	return git.FileLog(repo.Path, path, limit)
+}
+
+// FileDiffAtCommit returns the unified patch one commit introduced to one file.
+// The caller must pass the name the file had AT that commit (FileLogEntry's
+// PathAtCommit), or a post-rename name yields an empty patch.
+func (s *RepositoryService) FileDiffAtCommit(ctx context.Context, id string, commitHash string, path string) (string, error) {
+	repoID, err := s.parseRepoID(id)
+	if err != nil {
+		return "", err
+	}
+	repo, err := s.q.GetRepository(ctx, repoID)
+	if err != nil {
+		return "", err
+	}
+	return git.FileDiffAtCommit(repo.Path, commitHash, path)
+}
+
 // GetFileContent returns the content of a file at the given path.
 func (s *RepositoryService) GetFileContent(ctx context.Context, id string, path string) (string, error) {
 	repoID, err := s.parseRepoID(id)
