@@ -131,6 +131,27 @@ export interface KBDocument {
   chunk_count: number
 }
 
+/** One page of a KB's document list. `total` counts every match, ignoring paging. */
+export interface KBDocumentPage {
+  items: KBDocument[]
+  total: number
+}
+
+/** One document's text, as served to the reader. */
+export interface KBDocumentContent {
+  id: number
+  kb_id: number
+  path: string
+  title: string
+  /** Text content, capped server-side; see `truncated`. */
+  content: string
+  size: number
+  /** True when the file was longer than the server's cap. */
+  truncated: boolean
+  /** True when the text was extracted from a binary document (PDF/Office). */
+  extracted: boolean
+}
+
 /** A single FTS hit: a matched chunk plus a pointer back to its document. */
 export interface KBSearchHit {
   document_id: number
@@ -199,6 +220,17 @@ export async function retryKnowledgeBaseIngest(
 }
 
 /**
+ * Force a full re-index from the KB's source files. Distinct from retry: retry
+ * re-downloads a `url` source, whereas reindex re-reads whatever is on disk —
+ * the only way to pick up edits made to a `local` corpus outside niuniu, and the
+ * recovery path for a corrupt FTS sidecar. Returns 202 with the KB now marked
+ * `indexing`; poll the list for completion.
+ */
+export async function reindexKnowledgeBase(id: number): Promise<KnowledgeBase> {
+  return api.post<KnowledgeBase>(`/me/knowledge-bases/${id}/reindex`, {})
+}
+
+/**
  * Uploads files into an `upload`-kind KB and triggers ingestion. Modeled on
  * `api.uploadAttachment`: multipart/form-data with one or more `files` fields;
  * the auth bearer is attached manually since the JSON `apiFetch` default
@@ -233,11 +265,35 @@ export async function uploadKnowledgeBaseFiles(
 
 // --- Browse + search --------------------------------------------------------
 
-export async function listKBDocuments(id: number): Promise<KBDocument[]> {
-  const r = await api.get<{ items: KBDocument[] }>(
+/**
+ * One page of a KB's documents. `q` filters by path substring server-side (a
+ * corpus can hold tens of thousands of files, so filtering a fetched page on the
+ * client would silently hide matches beyond the page boundary).
+ */
+export async function listKBDocuments(
+  id: number,
+  opts?: { q?: string; limit?: number; offset?: number },
+): Promise<KBDocumentPage> {
+  const params: Record<string, string | number> = {}
+  if (opts?.q) params.q = opts.q
+  if (opts?.limit != null) params.limit = opts.limit
+  if (opts?.offset != null) params.offset = opts.offset
+  const r = await api.get<{ items: KBDocument[]; total?: number }>(
     `/me/knowledge-bases/${id}/documents`,
+    { params },
   )
-  return r.items ?? []
+  const items = r.items ?? []
+  return { items, total: r.total ?? items.length }
+}
+
+/** Read one document's text (for the in-app reader / opening a search hit). */
+export async function readKBDocument(
+  kbId: number,
+  docId: number,
+): Promise<KBDocumentContent> {
+  return api.get<KBDocumentContent>(
+    `/me/knowledge-bases/${kbId}/documents/${docId}/content`,
+  )
 }
 
 /** Keyword (FTS) search within one KB. Honest: keyword match, not semantic. */

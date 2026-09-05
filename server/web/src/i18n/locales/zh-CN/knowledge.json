@@ -135,5 +135,53 @@
     "mounting": "挂载中…",
     "datasetPath": "datasets/{{name}}",
     "readOnly": "只读"
+  },
+  "list": {
+    "searchPlaceholder": "搜索知识库…",
+    "empty": "还没有知识库"
+  },
+  "empty": {
+    "title": "还没有知识库",
+    "hintLocal": "指向本机已有的资料目录",
+    "hintUpload": "上传文档（含 PDF / Word / Excel / PowerPoint）",
+    "hintUrl": "从网络地址下载公开数据集"
+  },
+  "detail": {
+    "tabs": {
+      "overview": "概览",
+      "documents": "文档",
+      "search": "搜索",
+      "settings": "设置"
+    },
+    "reindex": "重建索引",
+    "reindexStarted": "已开始重建索引",
+    "deleted": "知识库已删除",
+    "notFound": "知识库不存在",
+    "notFoundHint": "它可能已被删除。请从左侧列表另选一个。"
+  },
+  "overview": {
+    "documents": "文档数",
+    "chunks": "分片数",
+    "lastIndexed": "最近索引",
+    "neverIndexed": "尚未索引",
+    "source": "数据来源",
+    "location": "位置",
+    "unboundWarning": "尚未绑定任何项目，因此对所有智能体不可见。可在「设置」中添加绑定。"
+  },
+  "documents": {
+    "filterPlaceholder": "按文件路径筛选…",
+    "range": "第 {{from}}–{{to}} 条，共 {{total}} 条",
+    "prev": "上一页",
+    "next": "下一页"
+  },
+  "reader": {
+    "extracted": "已从文档中提取文本",
+    "truncated": "内容较长，仅显示开头部分",
+    "loadError": "无法读取该文档"
+  },
+  "settings": {
+    "identity": "基本信息",
+    "identityHint": "名称与描述；数据来源在创建后不可更改。",
+    "noDescription": "未填写"
   }
 }

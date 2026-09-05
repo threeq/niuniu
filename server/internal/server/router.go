@@ -409,8 +409,10 @@ func (s *Server) setupRoutes() {
 		me.PATCH("/knowledge-bases/:id", s.knowledgeBaseHandler.Update)
 		me.DELETE("/knowledge-bases/:id", s.knowledgeBaseHandler.Delete)
 		me.POST("/knowledge-bases/:id/retry", s.knowledgeBaseHandler.Retry)
+		me.POST("/knowledge-bases/:id/reindex", s.knowledgeBaseHandler.Reindex)
 		me.POST("/knowledge-bases/:id/files", s.knowledgeBaseHandler.Upload)
 		me.GET("/knowledge-bases/:id/documents", s.knowledgeBaseHandler.ListDocuments)
+		me.GET("/knowledge-bases/:id/documents/:docid/content", s.knowledgeBaseHandler.DocumentContent)
 		me.GET("/knowledge-bases/:id/search", s.knowledgeBaseHandler.Search)
 		me.GET("/kb-presets", s.knowledgeBaseHandler.Presets)
 

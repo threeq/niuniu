@@ -135,5 +135,53 @@
     "mounting": "Mounting…",
     "datasetPath": "datasets/{{name}}",
     "readOnly": "read-only"
+  },
+  "list": {
+    "searchPlaceholder": "Search knowledge bases…",
+    "empty": "No knowledge bases yet"
+  },
+  "empty": {
+    "title": "No knowledge bases yet",
+    "hintLocal": "Point at a folder of material already on this machine",
+    "hintUpload": "Upload documents (including PDF / Word / Excel / PowerPoint)",
+    "hintUrl": "Download a public dataset from a URL"
+  },
+  "detail": {
+    "tabs": {
+      "overview": "Overview",
+      "documents": "Documents",
+      "search": "Search",
+      "settings": "Settings"
+    },
+    "reindex": "Rebuild index",
+    "reindexStarted": "Rebuilding the index",
+    "deleted": "Knowledge base deleted",
+    "notFound": "Knowledge base not found",
+    "notFoundHint": "It may have been deleted. Pick another one from the list."
+  },
+  "overview": {
+    "documents": "Documents",
+    "chunks": "Chunks",
+    "lastIndexed": "Last indexed",
+    "neverIndexed": "Not indexed yet",
+    "source": "Source",
+    "location": "Location",
+    "unboundWarning": "Not bound to any project, so no agent can see it. Add a binding under Settings."
+  },
+  "documents": {
+    "filterPlaceholder": "Filter by file path…",
+    "range": "{{from}}–{{to}} of {{total}}",
+    "prev": "Previous",
+    "next": "Next"
+  },
+  "reader": {
+    "extracted": "Text extracted from document",
+    "truncated": "Long file — showing the beginning only",
+    "loadError": "Could not read this document"
+  },
+  "settings": {
+    "identity": "Basics",
+    "identityHint": "Name and description. The source cannot be changed after creation.",
+    "noDescription": "Not set"
   }
 }

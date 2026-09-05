@@ -1,26 +1,12 @@
 import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import {
-  Library,
-  Plus,
-  Pencil,
-  Trash2,
-  Search,
-  RefreshCw,
-  AlertCircle,
-  FolderOpen,
-  Upload,
-  Globe,
-  Plug,
-} from 'lucide-react'
+import { Library, Trash2, FolderOpen } from 'lucide-react'
 import { toast } from 'sonner'
-import { confirm } from '@/lib/confirm'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { Label } from '@/components/ui/label'
-import { Switch } from '@/components/ui/switch'
 import {
   Dialog,
   DialogContent,
@@ -32,278 +18,28 @@ import { api } from '@/lib/api'
 import { integrationApi } from '@/lib/integration-api'
 import { useConfigStore } from '@/stores/config-store'
 import { DirectoryPicker } from '@/components/shared/directory-picker'
+import {
+  KB_SOURCE_ICON,
+  KB_SOURCE_KINDS,
+} from '@/components/knowledge/kb-source-meta'
+import { KB_LIST_KEY } from '@/lib/hooks/use-knowledge-bases'
 import type { Project } from '@/types/api'
 import {
-  listKnowledgeBases,
   createKnowledgeBase,
   updateKnowledgeBase,
-  removeKnowledgeBase,
   uploadKnowledgeBaseFiles,
-  retryKnowledgeBaseIngest,
   listKBPresets,
-  isKBBusy,
   type KnowledgeBase,
   type KBSourceKind,
   type KBBinding,
   type KBPreset,
 } from '@/lib/kb-api'
-import { KnowledgeBaseBrowserDialog } from './knowledge-base-browser-dialog'
 
-const SOURCE_KINDS: KBSourceKind[] = ['local', 'upload', 'url', 'mcp']
-
-const SOURCE_ICON: Record<KBSourceKind, typeof FolderOpen> = {
-  local: FolderOpen,
-  upload: Upload,
-  url: Globe,
-  mcp: Plug,
-}
-
-export function KnowledgeBasesPanel() {
-  const { t } = useTranslation('knowledge')
-  const { data, isLoading, isError } = useQuery({
-    queryKey: ['knowledge-bases'],
-    queryFn: listKnowledgeBases,
-    // Poll while any KB is mid-ingest so the progress bar advances live, then
-    // fall idle once everything is terminal (ready/failed/disabled). 2s is fast
-    // enough for a live bar without hammering the list endpoint for the whole
-    // (potentially multi-minute) download window.
-    refetchInterval: (query) => {
-      const items = query.state.data as KnowledgeBase[] | undefined
-      return items?.some(isKBBusy) ? 2000 : false
-    },
-  })
-  const [dialogOpen, setDialogOpen] = useState(false)
-  const [editing, setEditing] = useState<KnowledgeBase | null>(null)
-  const [browsing, setBrowsing] = useState<KnowledgeBase | null>(null)
-
-  const handleAdd = () => {
-    setEditing(null)
-    setDialogOpen(true)
-  }
-  const handleEdit = (kb: KnowledgeBase) => {
-    setEditing(kb)
-    setDialogOpen(true)
-  }
-
-  return (
-    <section className="flex flex-col gap-3 rounded border border-warm-border p-4">
-      <div className="flex items-start justify-between gap-2">
-        <div>
-          <h2 className="text-sm font-medium">{t('panel.title')}</h2>
-          <p className="text-xs text-warm-text-muted mt-1">
-            {t('panel.description')}
-          </p>
-        </div>
-        <Button size="sm" onClick={handleAdd}>
-          <Plus className="size-4 mr-1" />
-          {t('panel.add')}
-        </Button>
-      </div>
-
-      {isLoading && (
-        <div className="text-sm text-warm-text-muted py-2">
-          {t('panel.loading')}
-        </div>
-      )}
-
-      {isError && !isLoading && (
-        <div className="flex items-center gap-2 text-sm text-destructive py-2">
-          <AlertCircle className="size-4" aria-hidden />
-          {t('panel.loadError')}
-        </div>
-      )}
-
-      {!isLoading && !isError && (!data || data.length === 0) && (
-        <div className="text-sm text-warm-text-muted py-2">
-          {t('panel.empty')}
-        </div>
-      )}
-
-      {!isLoading && data && data.length > 0 && (
-        <div className="flex flex-col divide-y divide-warm-border/60">
-          {data.map((kb) => (
-            <KnowledgeBaseRow
-              key={kb.id}
-              kb={kb}
-              onEdit={() => handleEdit(kb)}
-              onBrowse={() => setBrowsing(kb)}
-            />
-          ))}
-        </div>
-      )}
-
-      <KnowledgeBaseDialog
-        open={dialogOpen}
-        onOpenChange={(next) => {
-          setDialogOpen(next)
-          if (!next) setEditing(null)
-        }}
-        editing={editing}
-      />
-
-      <KnowledgeBaseBrowserDialog
-        kb={browsing}
-        onOpenChange={(open) => {
-          if (!open) setBrowsing(null)
-        }}
-      />
-    </section>
-  )
-}
-
-interface RowProps {
-  kb: KnowledgeBase
-  onEdit: () => void
-  onBrowse: () => void
-}
-
-function KnowledgeBaseRow({ kb, onEdit, onBrowse }: RowProps) {
-  const { t } = useTranslation('knowledge')
-  const queryClient = useQueryClient()
-  const invalidate = () =>
-    queryClient.invalidateQueries({ queryKey: ['knowledge-bases'] })
-
-  const toggle = useMutation({
-    mutationFn: () =>
-      updateKnowledgeBase(kb.id, {
-        status: kb.status === 'enabled' ? 'disabled' : 'enabled',
-      }),
-    onSuccess: invalidate,
-    onError: (e) => toast.error(e instanceof Error ? e.message : String(e)),
-  })
-
-  const retry = useMutation({
-    mutationFn: () => retryKnowledgeBaseIngest(kb.id),
-    onSuccess: invalidate,
-    onError: (e) => toast.error(e instanceof Error ? e.message : String(e)),
-  })
-
-  const del = useMutation({
-    mutationFn: () => removeKnowledgeBase(kb.id),
-    onSuccess: invalidate,
-    onError: (e) => toast.error(e instanceof Error ? e.message : String(e)),
-  })
-
-  const handleDelete = async () => {
-    if (!(await confirm(t('row.deleteConfirm', { name: kb.name })))) return
-    del.mutate()
-  }
-
-  const busy = isKBBusy(kb)
-  const failed = kb.ingest_status === 'failed'
-  const ready = kb.ingest_status === 'ready'
-  const SourceIcon = SOURCE_ICON[kb.source_kind]
-
-  return (
-    <div className="flex flex-col gap-2 py-3">
-      <div className="flex items-center gap-3">
-        <Library className="size-5 text-warm-text shrink-0" aria-hidden />
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2">
-            <span className="text-sm font-medium truncate">{kb.name}</span>
-            {kb.status === 'disabled' && (
-              <span className="shrink-0 rounded bg-warm-muted px-1.5 py-0.5 text-xs text-warm-text-muted">
-                {t('row.disabledBadge')}
-              </span>
-            )}
-            {kb.bindings.length === 0 && (
-              <span className="shrink-0 rounded bg-warm-muted px-1.5 py-0.5 text-xs text-warm-text-muted">
-                {t('row.unboundBadge')}
-              </span>
-            )}
-          </div>
-          <div className="flex items-center gap-1.5 text-xs text-warm-text-muted truncate">
-            <SourceIcon className="size-3.5 shrink-0" aria-hidden />
-            <span>{t(`sourceKind.${kb.source_kind}`)}</span>
-            {ready && (
-              <span className="truncate">
-                {' · '}
-                {t('row.counts', { docs: kb.doc_count, chunks: kb.chunk_count })}
-              </span>
-            )}
-          </div>
-        </div>
-
-        {/* Enable/disable — only meaningful once the corpus is indexed. */}
-        {ready && (
-          <Switch
-            aria-label={
-              kb.status === 'enabled' ? t('row.disable') : t('row.enable')
-            }
-            checked={kb.status === 'enabled'}
-            onCheckedChange={() => toggle.mutate()}
-          />
-        )}
-
-        {ready && (
-          <Button size="sm" variant="outline" onClick={onBrowse}>
-            <Search className="size-4 mr-1" />
-            {t('row.browse')}
-          </Button>
-        )}
-
-        {failed && (
-          <Button
-            size="sm"
-            variant="outline"
-            disabled={retry.isPending}
-            onClick={() => retry.mutate()}
-          >
-            <RefreshCw className="size-4 mr-1" />
-            {t('row.retry')}
-          </Button>
-        )}
-
-        <Button
-          size="sm"
-          variant="outline"
-          aria-label={t('row.edit')}
-          onClick={onEdit}
-        >
-          <Pencil className="size-4" />
-        </Button>
-        <Button
-          size="sm"
-          variant="ghost"
-          aria-label={t('row.delete')}
-          disabled={del.isPending}
-          onClick={handleDelete}
-        >
-          <Trash2 className="size-4" />
-        </Button>
-      </div>
-
-      {busy && (
-        <div className="pl-8 flex flex-col gap-1">
-          <div className="flex items-center justify-between text-xs text-warm-text-muted">
-            <span>{t(`ingest.${kb.ingest_status}`)}</span>
-            <span>{Math.round(kb.ingest_progress)}%</span>
-          </div>
-          <ProgressBar value={kb.ingest_progress} />
-        </div>
-      )}
-
-      {failed && kb.ingest_error && (
-        <p className="pl-8 text-xs text-destructive break-words">
-          {kb.ingest_error}
-        </p>
-      )}
-    </div>
-  )
-}
-
-/** Token-only progress bar (no arbitrary colors; width is an inline style). */
-function ProgressBar({ value }: { value: number }) {
-  const pct = Math.max(0, Math.min(100, value))
-  return (
-    <div className="h-1.5 w-full overflow-hidden rounded-full bg-warm-muted">
-      <div
-        className="h-full rounded-full bg-info transition-[width] duration-500"
-        style={{ width: `${pct}%` }}
-      />
-    </div>
-  )
-}
+// Create / edit dialog for a knowledge base, plus its project-visibility editor.
+//
+// Extracted from knowledge-bases-panel.tsx when the KB UI became a master-detail
+// page: the dialog is opened from two places now (the sidebar's "+" and the
+// detail page's settings tab), so it can no longer live inside the list panel.
 
 interface DialogProps {
   open: boolean
@@ -313,7 +49,7 @@ interface DialogProps {
 
 // Outer wrapper keys the inner form on (open, editing.id) so it fully remounts
 // with fresh useState initializers — same pattern as DataSourceDialog.
-function KnowledgeBaseDialog({ open, onOpenChange, editing }: DialogProps) {
+export function KnowledgeBaseDialog({ open, onOpenChange, editing }: DialogProps) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-h-[85vh]">
@@ -442,7 +178,7 @@ function KnowledgeBaseForm({ editing, onClose }: FormProps) {
       return created
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['knowledge-bases'] })
+      queryClient.invalidateQueries({ queryKey: KB_LIST_KEY })
       toast.success(isEdit ? t('dialog.saveSuccess') : t('dialog.createSuccess'))
       onClose()
     },
@@ -491,8 +227,8 @@ function KnowledgeBaseForm({ editing, onClose }: FormProps) {
         <div className="flex flex-col gap-2">
           <Label>{t('dialog.sourceKindLabel')}</Label>
           <div className="grid grid-cols-2 gap-2">
-            {SOURCE_KINDS.map((k) => {
-              const Icon = SOURCE_ICON[k]
+            {KB_SOURCE_KINDS.map((k) => {
+              const Icon = KB_SOURCE_ICON[k]
               const active = sourceKind === k
               return (
                 <Button
