@@ -326,9 +326,9 @@
     "routeOk": "已更新路由方式。",
     "agentModeTitle": "員工模式",
     "agentModeCommand": "聽命令",
-    "agentModeCommandHint": "只在被 @ 提到、私聊或使用命令時才行動。",
+    "agentModeCommandHint": "只在被 @ 提到、私訊或使用命令時才行動。",
     "agentModeObserve": "主動觀察",
-    "agentModeObserveHint": "記錄群裡的討論並定期分析，必要時主動提醒或直接開始任務。",
+    "agentModeObserveHint": "記錄群組裡的討論並定期分析，必要時主動提醒或直接開始任務。",
     "agentModeOk": "員工模式已更新",
     "unbindConfirm": "解除繫結「{{name}}」？該群需要重新審批才能再次路由。",
     "unbind": "解除繫結",
@@ -463,7 +463,7 @@
       "disableSuccess": "二次驗證已關閉",
       "regenerateSuccess": "備份碼已重新生成",
       "incorrectCode": "驗證碼不正確",
-      "requiredByPolicy": "團隊安全策略要求你的角色保持兩步驗證開啟，因此無法關閉。如需重置（例如更換手機後無法驗證），請聯絡管理員。"
+      "requiredByPolicy": "團隊安全政策要求你的角色保持兩步驗證開啟，因此無法關閉。如需重設（例如更換手機後無法驗證），請聯絡管理員。"
     }
   },
   "about": {
@@ -625,15 +625,15 @@
       "notLoggedIn": "未登入",
       "loginInBrowser": "登入",
       "relogin": "重新登入",
-      "loginAdminOnly": "伺服器上的 CLI 憑據為全域性共享，僅管理員可執行登入",
+      "loginAdminOnly": "伺服器上的 CLI 憑證為全域共用，僅管理員可執行登入",
       "loginCopyUrl": "複製連結",
       "loginUrlLabel": "登入連結（瀏覽器未自動開啟時，複製到瀏覽器中開啟）",
       "loginUrlCopied": "已複製",
       "loginOpenInBrowser": "在瀏覽器中開啟",
       "loginTerminalTitle": "{{tool}} 登入",
-      "loginTerminalHint": "登入流程在伺服器上執行，請在下面的終端中按提示完成授權（如需開啟連結，可複製到瀏覽器）。完成後關閉本視窗即可。",
-      "loginTerminalClosed": "會話已結束。如已完成授權，關閉視窗後點選「重新檢測」確認狀態。",
-      "loginTerminalError": "終端連線失敗，請確認伺服器上已安裝該 CLI 且你具有管理員許可權。"
+      "loginTerminalHint": "登入流程在伺服器上執行，請在下面的終端中依提示完成授權（如需開啟連結，可複製到瀏覽器）。完成後關閉本視窗即可。",
+      "loginTerminalClosed": "工作階段已結束。如已完成授權，關閉視窗後點選「重新偵測」確認狀態。",
+      "loginTerminalError": "終端連線失敗，請確認伺服器上已安裝該 CLI 且你具有管理員權限。"
     },
     "account": {
       "default": "預設",

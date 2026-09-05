@@ -57,29 +57,11 @@
       "noDiffForFile": "該檔案在此提交中沒有可顯示的行級改動"
     },
     "files": {
-      "contentTab": "檔案內容",
-      "emptyDir": "空目錄",
-      "historyClose": "關閉歷史",
-      "historyDiffEmpty": "該提交未改動此檔案",
-      "historyEmpty": "該檔案沒有提交歷史",
-      "historyLoading": "載入歷史...",
-      "historyRenamed": "此前名為 {{path}}",
-      "historyTab": "變更歷史",
-      "loading": "載入中...",
-      "navigateUp": "↑ 返回",
       "refresh": "重新整理",
-      "searchBackToFiles": "返回檔案列表",
-      "searchBackToResults": "返回搜尋結果：{{query}}",
-      "searchClear": "清除搜尋",
-      "searchFailed": "內容搜尋失敗",
-      "searchNoEngine": "內容搜尋不可用：未安裝 ripgrep 或 git",
-      "searchNoResults": "沒有匹配結果",
-      "searchPlaceholder": "搜尋檔名或內容",
-      "searchResultCount": "{{count}} 條結果",
-      "searchTabContent": "檔案內容",
-      "searchTabFiles": "檔名",
-      "searchTruncated": "結果過多，僅顯示部分",
-      "selectFile": "選擇檔案預覽"
+      "navigateUp": "↑ 返回",
+      "emptyDir": "空目錄",
+      "selectFile": "選擇檔案預覽",
+      "loading": "載入中..."
     },
     "worktrees": {
       "title": "工作樹",
