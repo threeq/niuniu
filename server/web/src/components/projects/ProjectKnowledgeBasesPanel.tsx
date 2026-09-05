@@ -123,7 +123,7 @@ export function ProjectKnowledgeBasesPanel({ projectId }: Props) {
             variant="outline"
             size="sm"
             className="mt-2"
-            onClick={() => navigate({ to: '/settings', search: { tab: 'integrations' } })}
+            onClick={() => navigate({ to: '/knowledge-bases' })}
           >
             <ExternalLink className="h-3.5 w-3.5 mr-1" aria-hidden="true" />
             {t('project.goToIntegrations')}
