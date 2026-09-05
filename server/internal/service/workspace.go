@@ -692,10 +692,9 @@ type CreateWorkspaceInput struct {
 	// unrecognized code falls back to a generic "follow the user" directive.
 	Language string
 	// PermissionMode overrides the seeded NIUNIU_PERMISSION_MODE for this
-	// workspace. Empty defaults to "autohost" (bypassPermissions + the
-	// auto-continue watchdog). Interactive flows that must wait for the user
-	// (e.g. IM-bot onboarding) pass "bypassPermissions" so the agent still skips
-	// permission prompts but the watchdog does NOT auto-continue turns.
+	// workspace. Empty defaults to "bypassPermissions" (skip permission prompts,
+	// no auto-continue watchdog). Autonomous flows pass "autohost" to add the
+	// auto-continue watchdog on top (Epic paths set it via enableAutohost).
 	PermissionMode string
 }
 
@@ -1063,14 +1062,16 @@ func (s *WorkspaceService) Create(ctx context.Context, input CreateWorkspaceInpu
 	s.generateWorkspaceAgentInstructions(ctx, wsDir, input.Name, input.CliType, result.Repos, input.NoRepo, input.Language)
 
 	// Seed the permission mode for newly created workspaces. Default is
-	// "autohost" — niuniu's superset of bypassPermissions (skip CLI permission
-	// prompts + run the watchdog that auto-continues turns). Interactive flows
-	// (e.g. IM-bot onboarding) pass "bypassPermissions" so the agent skips
-	// prompts but the watchdog does NOT auto-continue — it waits for the user.
+	// "bypassPermissions" (skip CLI permission prompts; the agent acts on its
+	// own but nothing auto-continues turns — it waits for the user). Autonomous
+	// flows that DO want the auto-continue watchdog set "autohost" explicitly:
+	// Epic orchestration/children/review (epic_execution.go enableAutohost),
+	// the AI-native instruct drag path (startStandaloneAutohost), and anything
+	// passing PermissionMode through RouteHint / CreateWorkspaceInput.
 	// Users can switch modes anytime via the PermissionSelector. Non-fatal.
 	permMode := input.PermissionMode
 	if permMode == "" {
-		permMode = "autohost"
+		permMode = "bypassPermissions"
 	}
 	if err := s.q.SetWorkspaceEnv(ctx, store.SetWorkspaceEnvParams{
 		WorkspaceID: workspace.ID,
