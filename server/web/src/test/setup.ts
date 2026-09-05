@@ -43,6 +43,13 @@ if (typeof globalThis.EventSource === 'undefined') {
   globalThis.EventSource = EventSourceMock as unknown as typeof EventSource;
 }
 
+// jsdom does not implement scrollIntoView — polyfill with a noop so anchor
+// jumps (search-hit line jumps, comment permalinks) don't crash the component
+// under test. Tests assert the resulting marked/target row, not the scroll.
+if (typeof Element !== 'undefined' && !Element.prototype.scrollIntoView) {
+  Element.prototype.scrollIntoView = function scrollIntoViewMock() {};
+}
+
 // Start server before all tests
 beforeAll(() => server.listen({ onUnhandledRequest: 'warn' }));
 

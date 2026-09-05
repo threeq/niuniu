@@ -933,6 +933,9 @@ function RepoFilesTab({ repoId }: { repoId: string }) {
   // content area, so both stay visible at once.
   const [historyOpen, setHistoryOpen] = useState(false);
   const [historyCommit, setHistoryCommit] = useState<FileLogEntry | null>(null);
+  // Line to reveal in the opened file, set by a content-search hit.
+  const [targetLine, setTargetLine] = useState<number | undefined>(undefined);
+  const [jumpSeq, setJumpSeq] = useState(0);
 
   const { data: files, isLoading, refetch: refetchFiles } = useQuery<FileEntry[]>({
     queryKey: ['repository', repoId, 'files', currentPath],
@@ -950,8 +953,13 @@ function RepoFilesTab({ repoId }: { repoId: string }) {
   });
 
   // Opening a different file invalidates any commit selected for the old one.
-  const openFile = (path: string) => {
+  // `line` comes from a content-search hit. The bumped counter is what makes
+  // clicking the SAME hit twice re-scroll: the line number alone is unchanged,
+  // so without it the jump effect would not re-run.
+  const openFile = (path: string, line?: number) => {
     setSelectedFile(path);
+    setTargetLine(line);
+    setJumpSeq((n) => n + 1);
     setHistoryCommit(null);
   };
 
@@ -1095,7 +1103,7 @@ function RepoFilesTab({ repoId }: { repoId: string }) {
                   <div className="flex h-full items-center justify-center text-xs text-muted-foreground">{t('detail.files.historyDiffEmpty')}</div>
                 )
               ) : (
-                <FilePreviewByUrl key={selectedFile} url={getRepoFileContentUrl(repoId, selectedFile)} path={selectedFile} />
+                <FilePreviewByUrl key={selectedFile} url={getRepoFileContentUrl(repoId, selectedFile)} path={selectedFile} targetLine={targetLine} targetKey={`${selectedFile}:${jumpSeq}`} />
               )}
             </div>
           </>

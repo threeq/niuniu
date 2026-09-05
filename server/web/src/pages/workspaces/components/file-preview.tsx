@@ -5,7 +5,7 @@ import { ChevronLeft, ChevronRight, Download, FileText, Pause, Play } from 'luci
 import { Button } from '@/components/ui/button';
 import { getFileContentUrl } from '@/lib/workspace-file-url';
 import { MarkdownMessage } from '@/components/shared/markdown-message';
-import { CodeSurface, buildFileRows, type CodeLineRenderer } from '@/pages/workspaces/panels/code-surface';
+import { CodeSurface, buildFileRows, findRowForLine, type CodeLineRenderer } from '@/pages/workspaces/panels/code-surface';
 import { useSyntaxHighlight, renderTokens } from '@/lib/syntax';
 import {
   extOf,
@@ -36,7 +36,23 @@ export function FilePreview({ workspaceId, path }: FilePreviewProps) {
 // plus the file path (used only for extension detection and titles), so any
 // surface with its own raw file endpoint — the workspace artifact panel or the
 // repository file browser — can reuse the same renderers.
-export function FilePreviewByUrl({ url, path }: { url: string; path: string }) {
+//
+// `targetLine` (1-based) scrolls a text/code file to that line and marks it,
+// which is what makes a content-search hit land on the matched line instead of
+// the top of the file. It is ignored by the non-text renderers, since "line 42"
+// is meaningless in a PDF or an image.
+export function FilePreviewByUrl({
+  url,
+  path,
+  targetLine,
+  targetKey,
+}: {
+  url: string;
+  path: string;
+  targetLine?: number;
+  /** Changing this re-runs the jump even when `targetLine` is unchanged. */
+  targetKey?: string | null;
+}) {
   const ext = extOf(path);
 
   if (IMAGE_EXTS.includes(ext)) {
@@ -110,7 +126,7 @@ export function FilePreviewByUrl({ url, path }: { url: string; path: string }) {
   if (BINARY_EXTS.has(ext)) {
     return <DownloadFallback url={url} />;
   }
-  return <TextFilePreview url={url} ext={ext} path={path} />;
+  return <TextFilePreview url={url} ext={ext} path={path} targetLine={targetLine} targetKey={targetKey} />;
 }
 
 // DownloadFallback is the shared "can't preview — download instead" state, used
@@ -322,7 +338,19 @@ function MarkdownFilePreview({ url }: { url: string }) {
 // tokens, so light/dark switching is automatic (the CSS vars re-resolve; no
 // re-highlight needed). Plain-data text (txt/log) renders as an un-highlighted
 // <pre>; code goes through the windowed code surface, which has no size cutoff.
-function TextFilePreview({ url, ext, path }: { url: string; ext: string; path: string }) {
+function TextFilePreview({
+  url,
+  ext,
+  path,
+  targetLine,
+  targetKey,
+}: {
+  url: string;
+  ext: string;
+  path: string;
+  targetLine?: number;
+  targetKey?: string | null;
+}) {
   const { t } = useTranslation('workspaces');
   const { text, loading, error } = useRawText(url);
 
@@ -334,7 +362,14 @@ function TextFilePreview({ url, ext, path }: { url: string; ext: string; path: s
   // degrades to plain text rather than failing. There is no size cutoff: the
   // code view windows its rows, so only the visible slice is ever tokenized.
   if (!NO_HIGHLIGHT_EXTS.has(ext)) {
-    return <HighlightedCode text={text} path={path} />;
+    return <HighlightedCode text={text} path={path} targetLine={targetLine} targetKey={targetKey} />;
+  }
+
+  // Prose/tabular text renders as a plain <pre>, which has no line rows to
+  // anchor to. A line jump would silently do nothing here, so route these
+  // through the code surface too whenever a specific line was requested.
+  if (targetLine != null) {
+    return <HighlightedCode text={text} path={path} targetLine={targetLine} targetKey={targetKey} />;
   }
 
   return (
@@ -351,20 +386,52 @@ function TextFilePreview({ url, ext, path }: { url: string; ext: string; path: s
 // tokenizes) only the lines on screen. This replaced a full-DOM table gated by
 // a MAX_HIGHLIGHT_LINES cutoff, which degraded backwards: past the limit the
 // file lost its highlighting yet still rendered every line.
-function HighlightedCode({ text, path }: { text: string; path: string }) {
+function HighlightedCode({
+  text,
+  path,
+  targetLine,
+  targetKey,
+}: {
+  text: string;
+  path: string;
+  targetLine?: number;
+  targetKey?: string | null;
+}) {
   // Normalize CRLF/CR so the grammar and the rows agree on line boundaries.
   const normalized = useMemo(() => text.replace(/\r\n?/g, '\n'), [text]);
   const rows = useMemo(() => buildFileRows(normalized.split('\n')), [normalized]);
   const highlight = useSyntaxHighlight({ code: normalized, path });
+  const targetRow = useMemo(
+    () => (targetLine != null ? findRowForLine(rows, targetLine) : -1),
+    [rows, targetLine],
+  );
 
   const renderer: CodeLineRenderer = {
     // A plain file's row index is its line number − 1, which is the index the
     // highlighter keys on.
     tokenize: (line) =>
       renderTokens(line.new_line != null ? highlight(line.new_line - 1) : undefined, line.content),
+    // Tint the jumped-to line: scrolling alone leaves the eye hunting for which
+    // of the ~40 visible lines was the actual hit. `anchor` is the new-side line
+    // number, which for a plain file is simply its line number.
+    rowClassName: (row) =>
+      targetLine != null && row.kind === 'line' && row.anchor === targetLine
+        ? 'bg-warning/15'
+        : undefined,
   };
 
-  return <CodeSurface rows={rows} renderer={renderer} showSigns={false} />;
+  return (
+    <CodeSurface
+      rows={rows}
+      renderer={renderer}
+      showSigns={false}
+      // Resolve the line to a row index rather than assuming line−1: a line past
+      // the end of the file resolves to -1, which CodeSurface ignores instead of
+      // scrolling somewhere arbitrary.
+      scrollToRow={targetRow >= 0 ? targetRow : undefined}
+      scrollToKey={targetKey}
+    />
+  );
 }
 
 function DocxFilePreview({ url }: { url: string }) {
