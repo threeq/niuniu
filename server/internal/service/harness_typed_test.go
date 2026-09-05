@@ -304,9 +304,36 @@ func TestHarness_AIJudge_Registered(t *testing.T) {
 		"ai_judge checker should be registered and return skip on empty prompt")
 }
 
-// TestHarness_CheckRunner_LegacyFallback ensures rows without a Kind hint
-// still dispatch through the legacy category/name registry.
-func TestHarness_CheckRunner_LegacyFallback(t *testing.T) {
+// A spec with no Kind can no longer dispatch: the legacy category/name registry
+// was removed. It must report "error", not silently pass — a spec that cannot be
+// evaluated is not evidence that the standard was met. `kind` is NOT NULL with a
+// default and validated on write, so this state is unreachable in practice; the
+// test pins the fail-loud behaviour if it ever occurs.
+func TestHarness_CheckRunner_NoKindIsError(t *testing.T) {
+	ctx := context.Background()
+	db := setupHarnessTestDB(t)
+	q := store.New(db)
+	svc := NewHarnessService(q, nil)
+
+	spec := harness.Spec{
+		ID:       1,
+		Category: "commit",
+		Name:     "conventional-commits",
+		Enabled:  true,
+		Severity: "error",
+		Kind:     "", // no Kind => nothing can evaluate it
+	}
+	res := svc.CheckRunner().RunSingle(ctx, spec, harness.CheckEnv{
+		CommitMessage: "fix: a conventional commit",
+	})
+	require.Equal(t, "error", res.Status,
+		"an unevaluatable spec must fail loudly, not pass")
+	require.True(t, svc.CheckRunner().HasBlockingFailure([]harness.Spec{spec}, []harness.CheckResult{res}),
+		"an error-severity spec that cannot run must block")
+}
+
+// The typed path still works for the same spec once its Kind is set.
+func TestHarness_CheckRunner_TypedRegexMatch(t *testing.T) {
 	ctx := context.Background()
 	db := setupHarnessTestDB(t)
 	q := store.New(db)
@@ -318,12 +345,17 @@ func TestHarness_CheckRunner_LegacyFallback(t *testing.T) {
 		Name:     "conventional-commits",
 		Enabled:  true,
 		Severity: "warning",
-		Kind:     "", // forces legacy lookup
+		Kind:     harness.KindRegexMatch,
+		Target:   harness.TargetCommitMessage,
+		Pattern:  `^(feat|fix|refactor|docs|test|chore|perf|ci)(\(.+\))?: .+`,
 	}
 	res := svc.CheckRunner().RunSingle(ctx, spec, harness.CheckEnv{
-		CommitMessage: "fix: legacy path still wired",
+		CommitMessage: "fix: typed path is wired",
 	})
-	require.Equal(t, "pass", res.Status, "legacy commit-lint should accept conventional commit")
+	require.Equal(t, "pass", res.Status)
 
-	_ = q
+	res = svc.CheckRunner().RunSingle(ctx, spec, harness.CheckEnv{
+		CommitMessage: "did some stuff",
+	})
+	require.Equal(t, "fail", res.Status, "a non-conventional message must fail")
 }

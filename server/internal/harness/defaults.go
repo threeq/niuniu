@@ -128,6 +128,34 @@ func DefaultSpecs() []Spec {
 			TriggerOn:  TriggerPhaseExit,
 		},
 		{
+			// P2: the check this architecture can do that nothing else can —
+			// "does the change actually implement what the issue asked for?".
+			// A regex spec cannot express it and neither can a git hook; only a
+			// judge shown the issue text next to the diff can.
+			//
+			// Ships DISABLED because it needs ANTHROPIC_API_KEY and costs money per
+			// commit (haiku, ~512 output tokens). Severity is 'warning' on purpose:
+			// an LLM opinion should surface, not hard-block a commit. A user who
+			// wants it blocking can raise the severity.
+			Scope:      "global",
+			Category:   "workflow",
+			Name:       "issue-conformance-ai",
+			Enabled:    false,
+			Severity:   "warning",
+			Config:     `{}`,
+			Kind:       KindAIJudge,
+			Target:     TargetIssueConformance,
+			TimeoutSec: 90,
+			TriggerOn:  TriggerPreCommit,
+			JudgeModel: "claude-haiku-4-5-20251001",
+			JudgePrompt: `你会看到一个 issue 的需求描述和本次的代码改动。判断这次改动是否真正实现了 issue 所要求的东西。
+
+判 pass：改动确实在解决 issue 描述的问题（允许只完成其中一部分，只要方向正确、没有遗漏明确要求的关键点）。
+判 fail：改动与需求无关、只动了无关文件、只加了 TODO/注释而没有实质实现、或明显遗漏了需求中点明的核心点。
+
+不要评价代码风格、命名或测试覆盖率 —— 只判断"做的是不是要求的这件事"。在 reason 里用一句话说明依据。`,
+		},
+		{
 			// ai_judge example spec. Disabled by default because it requires
 			// ANTHROPIC_API_KEY to be set on the server. Users enable it and
 			// customise judge_prompt to match their codebase's rubric.

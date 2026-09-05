@@ -3,6 +3,7 @@ package checkers
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -179,5 +180,74 @@ func TestComputeJudgeCost_KnownModel(t *testing.T) {
 func TestComputeJudgeCost_UnknownModelZero(t *testing.T) {
 	if got := computeJudgeCost("nonexistent-model", 100, 50); got != 0 {
 		t.Errorf("unknown model cost=%v, want 0", got)
+	}
+}
+
+// --- issue_conformance target (P2) ----------------------------------------
+
+// The issue_conformance target must send BOTH the issue requirement and the diff,
+// so the judge can compare them. Sending only one half is the failure mode that
+// would silently make the check meaningless.
+func TestAIJudge_IssueConformance_SendsIssueAndDiff(t *testing.T) {
+	var body string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		b, _ := io.ReadAll(r.Body)
+		body = string(b)
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"id": "msg_test", "model": "claude-haiku-4-5-20251001", "stop_reason": "end_turn",
+			"content": []map[string]string{{"type": "text", "text": `{"pass":true,"reason":"implements the ask"}`}},
+			"usage":   map[string]int64{"input_tokens": 100, "output_tokens": 30},
+		})
+	}))
+	defer srv.Close()
+
+	j := NewAIJudge().WithEndpoint(srv.URL).WithAPIKey("test-key")
+	spec := harness.Spec{
+		Kind:        harness.KindAIJudge,
+		Target:      harness.TargetIssueConformance,
+		JudgePrompt: "Does the change implement the issue?",
+	}
+	res := j.Run(context.Background(), spec, harness.CheckEnv{
+		IssueText:     "Add a retry to the uploader",
+		AgentOutput:   "+++ uploader.go\n+ retry(3)",
+		CommitMessage: "fix: retry upload",
+	})
+
+	if res.Status != "pass" {
+		t.Fatalf("expected pass, got %s: %s", res.Status, res.Message)
+	}
+	for _, want := range []string{"Add a retry to the uploader", "retry(3)", "fix: retry upload"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("request body missing %q; judge cannot compare without it\nbody: %s", want, body)
+		}
+	}
+}
+
+// With no linked issue there is nothing to compare against. The judge must skip
+// rather than burn a paid API call judging a diff in a vacuum.
+func TestAIJudge_IssueConformance_SkipsWithoutIssueText(t *testing.T) {
+	called := false
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		called = true
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	j := NewAIJudge().WithEndpoint(srv.URL).WithAPIKey("test-key")
+	spec := harness.Spec{
+		Kind:        harness.KindAIJudge,
+		Target:      harness.TargetIssueConformance,
+		JudgePrompt: "Does the change implement the issue?",
+	}
+	res := j.Run(context.Background(), spec, harness.CheckEnv{
+		AgentOutput: "+++ uploader.go\n+ retry(3)", // diff but no issue text
+	})
+
+	if res.Status != "skip" {
+		t.Fatalf("expected skip without issue text, got %s: %s", res.Status, res.Message)
+	}
+	if called {
+		t.Error("must not call the model when there is no issue text to compare against")
 	}
 }

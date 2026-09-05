@@ -292,6 +292,27 @@ func pickJudgeTarget(target string, env harness.CheckEnv) string {
 		return env.CommitMessage
 	case harness.TargetBranchName:
 		return env.BranchName
+	case harness.TargetIssueConformance:
+		// Compose both halves the judge needs to answer "does this change do what
+		// the issue asked?". With no issue text there is nothing to compare against,
+		// so return "" and let Run skip rather than judge the diff in a vacuum.
+		if strings.TrimSpace(env.IssueText) == "" {
+			return ""
+		}
+		var b strings.Builder
+		b.WriteString("## 本次 issue 的需求\n")
+		b.WriteString(strings.TrimSpace(env.IssueText))
+		b.WriteString("\n\n## 本次改动\n")
+		if strings.TrimSpace(env.AgentOutput) == "" {
+			b.WriteString("(无 diff)")
+		} else {
+			b.WriteString(strings.TrimSpace(env.AgentOutput))
+		}
+		if msg := strings.TrimSpace(env.CommitMessage); msg != "" {
+			b.WriteString("\n\n## 提交信息\n")
+			b.WriteString(msg)
+		}
+		return b.String()
 	case harness.TargetAgentOutput, "":
 		return env.AgentOutput
 	default:

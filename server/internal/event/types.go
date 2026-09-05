@@ -311,6 +311,21 @@ type GateDonePayload struct {
 	Passed       bool  `json:"passed"`
 	FailureCount int   `json:"failureCount"`
 	DurationMs   int64 `json:"durationMs"`
+	// Failures carries each blocking check's captured output so the UI can show
+	// WHY the gate blocked, not just that it did. Without this the user sees only
+	// "spec#16(exit_nonzero)" and has to go digging in the server log — the reason
+	// a gate that does run is still not trusted.
+	Failures []GateFailureDetail `json:"failures,omitempty"`
+}
+
+// GateFailureDetail is one blocking check's outcome, for display.
+type GateFailureDetail struct {
+	// SpecID is the harness spec that failed; 0 means the project's 底线 command.
+	SpecID int64  `json:"specId"`
+	Name   string `json:"name"`
+	Reason string `json:"reason"`
+	// Output is the captured stdout/stderr, truncated upstream.
+	Output string `json:"output"`
 }
 
 // NewOutputEvent creates an OutputEvent with current timestamp.

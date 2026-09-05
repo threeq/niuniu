@@ -1645,7 +1645,7 @@ func registerMemoryTools(s *server.MCPServer, api *apiClient, wsid string) {
 func registerHarnessTools(s *server.MCPServer, api *apiClient, wsid string) {
 	s.AddTool(
 		mcp.NewTool("gate_run",
-			mcp.WithDescription("Execute gate checks for the current workspace and return the verdict"),
+			mcp.WithDescription("Execute the workspace's engineering-standard gate checks now and return the verdict ({checks, blocking}). Results are persisted, so gate_results replays them afterwards."),
 		),
 		func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 			data, err := api.post("/mcp/workspaces/"+wsid+"/harness/gate-check", nil)

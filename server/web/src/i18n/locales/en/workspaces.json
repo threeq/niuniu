@@ -1043,5 +1043,9 @@
     "truncatedLimit": "Showing partial results — too many matches. Narrow the search.",
     "truncatedTimeout": "Showing partial results — the search timed out.",
     "fileTruncated": "(more matches)"
+  },
+  "gate": {
+    "blocked": "Floor gate blocked completion",
+    "blockedWith": "Floor gate blocked: {{name}} ({{reason}})"
   }
 }

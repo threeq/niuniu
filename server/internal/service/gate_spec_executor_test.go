@@ -23,7 +23,6 @@ func newGateTestExec(t *testing.T) (GateSpecExecutor, *store.Queries) {
 	cr.RegisterTyped(checkers.NewCmdExit())
 	cr.RegisterTyped(checkers.NewCmdOutputMatch())
 	cr.RegisterTyped(checkers.NewFileExistsV2())
-	cr.Register("workflow/command-exit-code", &checkers.CommandExitCode{})
 
 	return NewCheckRunnerExec(cr, q), q
 }
@@ -42,15 +41,11 @@ func seedSpec(t *testing.T, q *store.Queries, category, name, kind, command stri
 }
 
 // A UI-configured spec populates the typed columns and leaves Config as "{}".
-// ExecuteSpec must carry Kind through so the typed checker runs. The earlier
-// hand-rolled conversion dropped Kind, so dispatch fell back to the legacy
-// category/name checker, which read its command out of the empty Config and
-// returned skip — every gate built on such a spec silently passed.
+// ExecuteSpec must carry Kind through so the right typed checker runs. A prior
+// hand-rolled conversion dropped Kind, and every gate built on such a spec
+// silently passed.
 func TestExecuteSpecHonorsTypedKind(t *testing.T) {
-	// Both cases use the canonical "workflow/command-exit-code" name — the one key
-	// that DOES have a legacy checker registered — so the test exercises the real
-	// dispatch ambiguity rather than dodging it via an unregistered name. Separate
-	// stores because (category, name) is UNIQUE.
+	// Separate stores per case because (category, name) is UNIQUE.
 	ctx := context.Background()
 
 	execFail, qFail := newGateTestExec(t)
@@ -59,9 +54,9 @@ func TestExecuteSpecHonorsTypedKind(t *testing.T) {
 	require.NoError(t, err)
 	require.False(t, passed, "a spec whose command exits 7 must block")
 	// Assert the verdict came from actually running the command, not from a
-	// mis-dispatch that happened to look like a failure.
+	// mis-dispatch that merely happened to look like a failure.
 	require.Contains(t, out, "exited with code 7",
-		"verdict must come from running the typed command, not a fallback skip")
+		"verdict must come from running the typed command")
 
 	execOK, qOK := newGateTestExec(t)
 	okID := seedSpec(t, qOK, "workflow", "command-exit-code", harness.KindCommandExitCode, "exit 0", "error")
@@ -70,10 +65,9 @@ func TestExecuteSpecHonorsTypedKind(t *testing.T) {
 	require.True(t, passed, "a spec whose command exits 0 must pass")
 }
 
-// quality/build-test-pass is the designated severity=error floor spec and has no
-// legacy category/name checker at all. With Kind dropped it produced no result,
-// which ExecuteSpec reported as passed — so the floor gate it anchors could
-// never hold the line.
+// quality/build-test-pass is the designated severity=error floor spec. With Kind
+// dropped it produced no result, which ExecuteSpec reported as passed — so the
+// floor gate it anchors could never hold the line.
 func TestExecuteSpecFloorSpecCanActuallyBlock(t *testing.T) {
 	exec, q := newGateTestExec(t)
 	id := seedSpec(t, q, "quality", "build-test-pass", harness.KindCommandExitCode, "exit 1", "error")

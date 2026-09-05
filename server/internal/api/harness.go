@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/niuniu-dev/niuniu/internal/agentproxy"
@@ -377,14 +378,24 @@ func (h *HarnessHandler) PreCommitCheck(c *gin.Context) {
 	// already validated access; we just read the row for its `path`.
 	wsRow, wsErr := h.Q.GetWorkspace(c.Request.Context(), workspaceID)
 	workspacePath := ""
+	issueText := ""
 	if wsErr == nil {
 		workspacePath = wsRow.Path
+		// The linked issue's title + description is what the issue_conformance
+		// judge compares the staged diff against. Best-effort: with no linked
+		// issue that judge simply skips (it has nothing to compare to).
+		if wsRow.IssueID.Valid {
+			if issue, ierr := h.Q.GetIssue(c.Request.Context(), wsRow.IssueID.Int64); ierr == nil {
+				issueText = strings.TrimSpace(issue.Title + "\n\n" + issue.Description.String)
+			}
+		}
 	}
 
 	results := h.Svc.CheckRunner().RunAll(c.Request.Context(), preCommitSpecs, harness.CheckOpts{
 		CommitMessage: body.CommitMessage,
 		BranchName:    body.BranchName,
 		AgentOutput:   body.StagedDiff, // diff sits in the same slot as agent_output for now
+		IssueText:     issueText,
 		Phase:         "pre_commit",
 		WorkspacePath: workspacePath,
 	})
@@ -437,15 +448,30 @@ func (h *HarnessHandler) PreCommitCheck(c *gin.Context) {
 }
 
 // POST /api/workspaces/:id/harness/gate-check
-// Returns existing check results for the workspace. In future this will
-// trigger live gate checks; for now the Agent calls this after the pipeline
-// runner has already executed checks.
+// Actually executes the workspace's phase_exit specs and returns the verdict.
+// It previously only replayed rows from harness_checks, so an agent calling
+// `gate_run` before anything had executed got `{checks: [], blocking: false}` —
+// indistinguishable from "everything passed". Results are persisted by
+// RunForWorkspace, so the follow-up `gate_results` read still works.
 func (h *HarnessHandler) RunGateCheck(c *gin.Context) {
 	workspaceID, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil {
 		BadRequest(c, "invalid workspace ID")
 		return
 	}
+	userID := c.GetInt64("auth_user_id")
+	if userID > 0 && h.Authz != nil {
+		if _, aerr := h.Authz.CanAccessWorkspace(c.Request.Context(), userID, workspaceID); aerr != nil {
+			writeAuthzError(c, aerr)
+			return
+		}
+	}
+	if _, _, err := h.Svc.RunForWorkspace(c.Request.Context(), workspaceID, harness.TriggerPhaseExit); err != nil {
+		InternalError(c, err)
+		return
+	}
+	// Read back the persisted rows so the response shape (and the severity join
+	// that decides `blocking`) stays identical to GET .../harness/checks.
 	checks, err := h.Q.ListHarnessChecksByWorkspace(c.Request.Context(), workspaceID)
 	if err != nil {
 		InternalError(c, err)
@@ -453,7 +479,7 @@ func (h *HarnessHandler) RunGateCheck(c *gin.Context) {
 	}
 	hasBlocking := false
 	for _, ch := range checks {
-		if ch.Status == "fail" && ch.Severity == "error" {
+		if (ch.Status == "fail" || ch.Status == "error") && ch.Severity == "error" {
 			hasBlocking = true
 			break
 		}

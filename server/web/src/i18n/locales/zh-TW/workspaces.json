@@ -1043,5 +1043,9 @@
     "truncatedLimit": "結果已截斷 —— 相符過多，請縮小搜尋範圍。",
     "truncatedTimeout": "結果已截斷 —— 搜尋逾時。",
     "fileTruncated": "（還有更多相符）"
+  },
+  "gate": {
+    "blocked": "底線閘未透過，已阻止完成",
+    "blockedWith": "底線閘未透過：{{name}}（{{reason}}）"
   }
 }

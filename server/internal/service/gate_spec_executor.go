@@ -3,15 +3,26 @@ package service
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/niuniu-dev/niuniu/internal/harness"
 	"github.com/niuniu-dev/niuniu/internal/store"
 )
 
-// GateSpecExecutor runs a single spec against a workspace and returns pass/fail + log.
+// defaultFloorCommandTimeoutSec bounds a project 底线 command that was stored
+// without an explicit timeout. Generous because a floor is typically a full
+// build+test run.
+const defaultFloorCommandTimeoutSec = 600
+
+// GateSpecExecutor runs a gate check against a workspace and returns pass/fail + log.
 // Implemented by an adapter over existing harness.CheckRunner.
 type GateSpecExecutor interface {
 	ExecuteSpec(ctx context.Context, runID, specID int64, workspacePath string) (passed bool, output string, err error)
+	// ExecuteCommand runs a bare shell command as a gate check, for the project's
+	// 底线 command (projects.floor_command) which is a plain column rather than a
+	// harness_specs row. It reuses the same checker so timeout / exit-code / output
+	// capture semantics are identical to a command_exit_code spec.
+	ExecuteCommand(ctx context.Context, command string, timeoutSec int, workspacePath string) (passed bool, output string, err error)
 }
 
 // GateFailure records one failed spec execution within a gate run.
@@ -30,10 +41,39 @@ type checkRunnerExec struct {
 }
 
 // NewCheckRunnerExec creates a GateSpecExecutor backed by the existing harness
-// CheckRunner infrastructure. The CheckRunner must have checkers registered for
-// all spec category/name keys that column gate specs reference.
+// CheckRunner infrastructure. The CheckRunner must have a TypedChecker registered
+// for every Kind that column gate specs reference.
 func NewCheckRunnerExec(cr *harness.CheckRunner, q *store.Queries) GateSpecExecutor {
 	return &checkRunnerExec{cr: cr, q: q}
+}
+
+// ExecuteCommand runs command as a synthetic command_exit_code spec (ID 0, not
+// persisted). A blank command passes: an unconfigured floor must never block.
+func (e *checkRunnerExec) ExecuteCommand(ctx context.Context, command string, timeoutSec int, workspacePath string) (bool, string, error) {
+	if strings.TrimSpace(command) == "" {
+		return true, "", nil
+	}
+	if e.cr == nil {
+		return true, "", nil
+	}
+	if timeoutSec <= 0 {
+		timeoutSec = defaultFloorCommandTimeoutSec
+	}
+	res := e.cr.RunSingle(ctx, harness.Spec{
+		Category:   "quality",
+		Name:       "floor-command",
+		Enabled:    true,
+		Severity:   "error",
+		Kind:       harness.KindCommandExitCode,
+		Command:    command,
+		TimeoutSec: timeoutSec,
+	}, harness.CheckEnv{WorkspacePath: workspacePath})
+
+	output := res.Message
+	if res.Details != "" {
+		output += "\n" + res.Details
+	}
+	return res.Status != "fail" && res.Status != "error", output, nil
 }
 
 // ExecuteSpec fetches specID from the store, runs it via CheckRunner.RunAll, and
@@ -61,15 +101,17 @@ func (e *checkRunnerExec) ExecuteSpec(ctx context.Context, runID, specID int64, 
 		WorkspacePath: workspacePath,
 	})
 	if len(results) == 0 {
-		// No checker registered — treat as skip (passed).
-		return true, "", nil
+		// RunAll only drops disabled specs, and the caller already filtered on
+		// enabled=1. Reaching here means nothing ran, which is not evidence the
+		// standard was met — report it rather than passing quietly.
+		return false, "", fmt.Errorf("spec %d produced no result", specID)
 	}
 	r := results[0]
-	// Only an explicit "fail" blocks. A "skip" means the spec is not
-	// configured enough to judge anything (e.g. an empty command) — treating
-	// that as a failure would false-block completion on the shipped-disabled
-	// defaults, which are documented as never false-blocking.
-	passed := r.Status != "fail"
+	// "fail" (checker judged it failing) and "error" (checker could not run,
+	// e.g. unknown kind) both block. "skip" does not: it means the spec is not
+	// configured enough to judge anything — an empty command, say — and the
+	// shipped defaults are documented as never false-blocking until configured.
+	passed := r.Status != "fail" && r.Status != "error"
 	output := r.Message
 	if r.Details != "" {
 		output += "\n" + r.Details

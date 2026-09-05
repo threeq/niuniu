@@ -793,7 +793,8 @@
         "commit_message": "提交信息",
         "branch_name": "分支名",
         "agent_output": "Agent 输出",
-        "working_dir": "工作目录"
+        "working_dir": "工作目录",
+        "issue_conformance": "issue 符合度（需求 vs 改动）"
       },
       "trigger": {
         "phase_exit": "阶段退出时",

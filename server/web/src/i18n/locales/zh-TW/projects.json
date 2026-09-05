@@ -673,6 +673,19 @@
         "saveFailed": "儲存失敗：{{message}}",
         "runFailed": "清理失敗：{{message}}"
       },
+      "floor": {
+        "title": "底線（完成前必須透過的命令）",
+        "description": "一條 shell 命令，在 issue 移入「完成」前必須成功（退出碼 0）。留空表示不設底線，完成不做校驗。這是 AI 自動託管鏈路裡唯一非 LLM 的客觀校驗。",
+        "command": "命令",
+        "commandPlaceholder": "例如：make test",
+        "commandHint": "在每個 repo 工作樹中執行。失敗會阻止完成；自動託管會讓 AI 先自行修復。",
+        "timeout": "超時",
+        "secondsUnit": "秒（最大 600）",
+        "save": "儲存",
+        "saving": "儲存中…",
+        "saved": "已儲存",
+        "saveFailed": "儲存失敗：{{message}}"
+      },
       "templates": {
         "title": "專案模板",
         "saveAs": "另存為專案模板",

@@ -26,9 +26,13 @@ type HarnessService struct {
 
 // NewHarnessService creates the service and registers built-in checkers.
 //
-// Typed checkers (4) are the canonical implementations dispatched by Kind.
-// Legacy category/name checkers (8) remain registered as a fallback so rows
-// that have not been migrated to a known Kind still execute.
+// Every checker is a TypedChecker dispatched by Spec.Kind. The legacy
+// category/name registry was removed: `kind` is NOT NULL with a default, is
+// validated on Create/Update, and seeded rows were backfilled by
+// migrateHarnessSpecsTypedColumns, so no row can reach dispatch without a valid
+// Kind. Keeping the fallback only let a dropped Kind resolve to a checker that
+// read its config from the legacy Config JSON — which the UI never writes —
+// turning a real misconfiguration into a silent pass.
 func NewHarnessService(q *store.Queries, authz *Authz) *HarnessService {
 	cr := harness.NewCheckRunner()
 
@@ -38,14 +42,6 @@ func NewHarnessService(q *store.Queries, authz *Authz) *HarnessService {
 	cr.RegisterTyped(checkers.NewFileExistsV2())
 	cr.RegisterTyped(checkers.NewAIJudge())
 
-	cr.Register("commit/conventional-commits", &checkers.CommitLint{})
-	cr.Register("commit/branch-name", &checkers.BranchName{})
-	cr.Register("quality/linter", &checkers.Linter{})
-	cr.Register("quality/test-coverage", &checkers.TestCoverage{})
-	cr.Register("workflow/output-pattern", &checkers.OutputPattern{})
-	cr.Register("workflow/file-exists", &checkers.FileExists{})
-	cr.Register("workflow/command-exit-code", &checkers.CommandExitCode{})
-	cr.Register("workflow/command-output", &checkers.CommandOutput{})
 	return &HarnessService{q: q, checkRunner: cr, authz: authz}
 }
 
@@ -462,16 +458,4 @@ func storeSpecsToHarness(rows []store.HarnessSpec) []harness.Spec {
 		}
 	}
 	return specs
-}
-
-// ---- Prompt generation (legacy, kept for existing callers) ----
-
-// GeneratePrompt builds a prompt using the old phase-based HarnessPromptConfig.
-// The harness template is no longer stored in DB; this method is a no-op
-// preserved for build compatibility. It returns an empty string.
-//
-// Deprecated: Use buildPromptForTemplate in the harness package instead.
-func (s *HarnessService) GeneratePrompt(_ context.Context, _ int64, goal string) (string, error) {
-	// Legacy harness templates removed in Phase 7. Return minimal prompt.
-	return strings.TrimSpace("Goal: " + goal), nil
 }
