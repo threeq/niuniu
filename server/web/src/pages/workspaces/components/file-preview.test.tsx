@@ -2,7 +2,7 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { http, HttpResponse } from 'msw';
 import { describe, expect, it } from 'vitest';
 import { server } from '@/mocks/server-node';
-import { FilePreview } from './file-preview';
+import { FilePreview, FilePreviewByUrl } from './file-preview';
 
 const FILE_CONTENT = '/api/workspaces/:id/file-content';
 
@@ -119,3 +119,68 @@ describe('FilePreview — text/code', () => {
     expect(mounted).toBeLessThan(200);
   });
 });
+
+// A content-search hit reports "file X, line N". If the preview ignores N, the
+// user lands at the top of the file and has to re-find the match by hand — the
+// jump silently doing nothing is the failure mode worth pinning down.
+describe('FilePreviewByUrl — line jump', () => {
+  const RAW = '/api/repositories/:id/files/content';
+
+  function serveRaw(body: string) {
+    server.use(http.get(RAW, () => HttpResponse.text(body)));
+  }
+
+  it('marks the requested line so the hit is identifiable on arrival', async () => {
+    serveRaw(Array.from({ length: 40 }, (_, i) => `line ${i + 1}`).join('\n'));
+    const { container } = render(
+      <FilePreviewByUrl url="/api/repositories/1/files/content" path="a.go" targetLine={7} />,
+    );
+
+    await screen.findByText('line 1');
+    await waitFor(() => {
+      const marked = container.querySelectorAll('.bg-warning\\/15');
+      expect(marked.length).toBe(1);
+    });
+  });
+
+  it('marks nothing when no line was requested', async () => {
+    serveRaw('line one\nline two');
+    const { container } = render(
+      <FilePreviewByUrl url="/api/repositories/1/files/content" path="a.go" />,
+    );
+
+    await screen.findByText('line one');
+    expect(container.querySelector('.bg-warning\\/15')).toBeNull();
+  });
+
+  // A .txt normally renders as a plain <pre>, which has no addressable rows. A
+  // requested line must still be reachable, so it routes through the code
+  // surface instead of dropping the jump on the floor.
+  it('still honours a line jump in plain-data text that has no highlighting', async () => {
+    serveRaw(Array.from({ length: 20 }, (_, i) => `note ${i + 1}`).join('\n'));
+    const { container } = render(
+      <FilePreviewByUrl url="/api/repositories/1/files/content" path="notes.txt" targetLine={5} />,
+    );
+
+    await screen.findByText('note 1');
+    // Rows exist (not a bare <pre>) and the target is marked.
+    expect(container.querySelectorAll('[data-code-line]').length).toBeGreaterThan(0);
+    await waitFor(() => {
+      expect(container.querySelectorAll('.bg-warning\\/15').length).toBe(1);
+    });
+  });
+
+  // A stale hit (file shrank since the search) must degrade to "no jump" rather
+  // than scroll to an arbitrary row — findRowForLine returns -1 and the surface
+  // ignores it.
+  it('ignores a line past the end of the file', async () => {
+    serveRaw('only one line');
+    const { container } = render(
+      <FilePreviewByUrl url="/api/repositories/1/files/content" path="a.go" targetLine={9999} />,
+    );
+
+    await screen.findByText('only one line');
+    expect(container.querySelector('.bg-warning\\/15')).toBeNull();
+  });
+});
+
