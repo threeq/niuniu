@@ -47,16 +47,17 @@ func (e *checkRunnerExec) ExecuteSpec(ctx context.Context, runID, specID int64, 
 	if err != nil {
 		return false, "", fmt.Errorf("get spec %d: %w", specID, err)
 	}
-	spec := harness.Spec{
-		ID:        raw.ID,
-		Scope:     "global", // harness_specs is a global library
-		Category:  raw.Category,
-		Name:      raw.Name,
-		Enabled:   raw.Enabled != 0,
-		Severity:  raw.Severity,
-		Config:    raw.Config,
-	}
-	results := e.cr.RunAll(ctx, []harness.Spec{spec}, harness.CheckOpts{
+	// Convert via storeSpecsToHarness so ALL typed columns (Kind, Command,
+	// Pattern, Target, TimeoutSec, threshold, judge_*, ...) reach the checker.
+	// Hand-copying only the legacy subset here dropped Kind, which made
+	// CheckRunner.dispatch fall back to the legacy category/name registry: a
+	// UI-configured spec (typed columns populated, Config left "{}") then read
+	// its command out of the empty Config and returned skip — or, for
+	// quality/build-test-pass which has no legacy checker at all, produced no
+	// result and passed unconditionally. Every column/floor/exit gate was
+	// silently vacuous.
+	specs := storeSpecsToHarness([]store.HarnessSpec{raw})
+	results := e.cr.RunAll(ctx, specs, harness.CheckOpts{
 		WorkspacePath: workspacePath,
 	})
 	if len(results) == 0 {
@@ -64,7 +65,11 @@ func (e *checkRunnerExec) ExecuteSpec(ctx context.Context, runID, specID int64, 
 		return true, "", nil
 	}
 	r := results[0]
-	passed := r.Status == "pass"
+	// Only an explicit "fail" blocks. A "skip" means the spec is not
+	// configured enough to judge anything (e.g. an empty command) — treating
+	// that as a failure would false-block completion on the shipped-disabled
+	// defaults, which are documented as never false-blocking.
+	passed := r.Status != "fail"
 	output := r.Message
 	if r.Details != "" {
 		output += "\n" + r.Details
