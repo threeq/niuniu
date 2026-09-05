@@ -27,9 +27,22 @@ interface FilePreviewProps {
 // FilePreview renders a workspace deliverable by type: markdown, docx, image,
 // audio, video (native + HLS/FLV), pdf, or plain text. Falls back to a download
 // link for unknown binaries. Thin wrapper over FilePreviewByUrl that builds the
-// workspace raw-bytes URL.
-export function FilePreview({ workspaceId, path }: FilePreviewProps) {
-  return <FilePreviewByUrl url={getFileContentUrl(workspaceId, path, 'raw')} path={path} />;
+// workspace raw-bytes URL. cacheBust (a monotonically bumped tick) appends a
+// `_ts` query param so the browser's `max-age=3600` on the raw endpoint is
+// bypassed and the file re-downloads — the refresh button's "must show the
+// latest bytes" guarantee.
+export function FilePreview({
+  workspaceId,
+  path,
+  cacheBust,
+}: FilePreviewProps & { cacheBust?: number }) {
+  const url = getFileContentUrl(workspaceId, path, 'raw');
+  return (
+    <FilePreviewByUrl
+      url={cacheBust != null ? `${url}&_ts=${cacheBust}` : url}
+      path={path}
+    />
+  );
 }
 
 // FilePreviewByUrl is the type-dispatching renderer. It takes a raw-bytes URL
