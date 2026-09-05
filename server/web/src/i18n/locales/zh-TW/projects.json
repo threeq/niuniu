@@ -940,9 +940,9 @@
     "bindNoIssues": "本專案暫無任務可釘。",
     "agentModeTitle": "員工模式",
     "agentModeCommand": "聽命令",
-    "agentModeCommandHint": "只在被 @ 提到、私訊或使用命令時才行動。",
+    "agentModeCommandHint": "只在被 @ 提到、私聊或使用命令時才行動。",
     "agentModeObserve": "主動觀察",
-    "agentModeObserveHint": "記錄群組裡的討論並定期分析，必要時主動提醒或直接開始任務。",
+    "agentModeObserveHint": "記錄群裡的討論並定期分析，必要時主動提醒或直接開始任務。",
     "wechat": {
       "scanHint": "請使用微信「掃一掃」掃描下方二維碼以連線機器人。",
       "starting": "正在獲取二維碼…",

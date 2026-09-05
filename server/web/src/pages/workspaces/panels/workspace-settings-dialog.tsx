@@ -98,8 +98,8 @@ const AGENT_HINTS: Record<string, Record<string, string>> = {
     NIUNIU_ALLOWED_TOOLS: 'Bash Edit Read',
   },
   cursor: {
-    NIUNIU_AGENT_COMMAND: 'cursor-agent',
-    NIUNIU_AGENT_ARGS: '--trust --force',
+    NIUNIU_AGENT_COMMAND: 'agent',
+    NIUNIU_AGENT_ARGS: '(ACP 模式，无需额外参数)',
     NIUNIU_MODEL: 'sonnet-4, sonnet-4-thinking, gpt-5',
     NIUNIU_ALLOWED_TOOLS: 'Bash Edit Read',
   },

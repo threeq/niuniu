@@ -656,11 +656,17 @@ func (s *SystemDepsService) commandFor(tool, pm string) (string, []string) {
 		return "npm", []string{"install", "-g", "@block/goose"}
 	}
 	if tool == "cursor-agent" {
-		// Cursor ships its agent CLI as a versioned tarball behind an install
-		// script (`curl https://cursor.com/install -fsS | bash`) rather than an
+		// Cursor ships its CLI as a versioned tarball behind an install script
+		// (`curl https://cursor.com/install -fsS | bash`) rather than an
 		// npm/brew/winget package. Returning "" makes Install fall back to the
 		// docs URL, exactly like uv on linux — piping a remote script through a
 		// shell on the user's behalf is not something niuniu should do silently.
+		//
+		// NOTE the probe deliberately looks for `cursor-agent`, not the newer
+		// primary name `agent`: both are installed, and `agent` is generic enough
+		// that an unrelated binary on PATH could satisfy the check and report a
+		// working Cursor install that isn't one. The default spawn command is still
+		// `agent` (config.CursorCliConfig).
 		return "", nil
 	}
 	if tool == "cairosvg" {

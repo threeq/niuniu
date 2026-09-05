@@ -187,9 +187,9 @@ func oneShotArgv(t adapter.Type, command string) (string, []string) {
 		// blocks on a workspace-trust confirmation it can never receive headlessly.
 		// No --force: this call is a pure generation with no tool access needed.
 		//
-		// NOTE: the cursor ADAPTER uses `-p --output-format stream-json` for
-		// interactive sessions; that is a different surface from this one-shot
-		// call. Do not "align" them.
+		// NOTE: the interactive cursor path uses `agent acp` (ACP over stdio via
+		// agentbackend/cursor) — a different surface from this one-shot call. Do
+		// not "align" them.
 		return command, []string{"-p", "--trust"}
 	}
 	return "", nil

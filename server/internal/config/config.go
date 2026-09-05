@@ -295,12 +295,14 @@ type GooseCliConfig struct {
 	Args    []string `mapstructure:"args"`
 }
 
-// CursorCliConfig configures the Cursor agent CLI binary used by cursor-type
-// workspaces (niuniu's sixth agent engine). Mirrors QwenCliConfig. Default
-// Command "cursor-agent" is set in the Viper defaults block. The engine runs
-// one-shot per turn via `cursor-agent -p --output-format stream-json` with the
-// prompt on stdin; continuity comes from --resume <chatId>. Credentials come
-// from the host's `cursor-agent login` or a CURSOR_API_KEY env var.
+// CursorCliConfig configures the Cursor CLI binary used by cursor-type
+// workspaces (niuniu's sixth agent engine). Mirrors GooseCliConfig. Default
+// Command "agent" is set in the Viper defaults block (`cursor-agent` also works
+// — Cursor keeps it as a back-compat alias). The engine is driven over the Agent
+// Client Protocol (`agent acp`) on stdio by agentbackend/cursor, which gives it a
+// real permission gate, multi-turn sessions, cooperative cancel, and explicit
+// MCP server registration. Credentials come from the host's `agent login` or a
+// CURSOR_API_KEY / CURSOR_AUTH_TOKEN env var.
 type CursorCliConfig struct {
 	Command string   `mapstructure:"command"`
 	Args    []string `mapstructure:"args"`
@@ -407,7 +409,7 @@ func Load() (*Config, error) {
 	viper.SetDefault("agent.omp_cli.args", []string{})
 	viper.SetDefault("agent.goose_cli.command", "goose")
 	viper.SetDefault("agent.goose_cli.args", []string{})
-	viper.SetDefault("agent.cursor_cli.command", "cursor-agent")
+	viper.SetDefault("agent.cursor_cli.command", "agent")
 	viper.SetDefault("agent.cursor_cli.args", []string{})
 	viper.SetDefault("log.level", "debug")
 	viper.SetDefault("log.output", "terminal")

@@ -42,7 +42,6 @@ type oneShotExecBuilder func(s *WorkspaceSession, ctx context.Context, workDir s
 // behavior that codex_appserver.go also depends on.
 var oneShotExecBuilders = map[adapter.Type]oneShotExecBuilder{
 	adapter.TypeQwen:   (*WorkspaceSession).buildQwenOneShotExec,
-	adapter.TypeCursor: (*WorkspaceSession).buildCursorOneShotExec,
 	adapter.TypeCodex:  (*WorkspaceSession).buildCodexOneShotExec,
 }
 

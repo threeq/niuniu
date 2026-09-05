@@ -355,6 +355,11 @@ type WorkspaceSession struct {
 	// the session. Guarded by s.mu.
 	gooseBackend agentbackend.Backend
 
+	// cursorBackend is the reusable agentbackend.Backend driving cursor
+	// workspaces (ACP over `agent acp`). Lazily created on the first cursor turn;
+	// owned by the session. Guarded by s.mu.
+	cursorBackend agentbackend.Backend
+
 	// Per-turn state (reset each Send)
 	turnDone  chan struct{} // signaled when result event arrives
 	turnMsgId string        // current message correlation ID
@@ -3548,6 +3553,9 @@ func (s *WorkspaceSession) Send(ctx context.Context, workDir, content, attachmen
 	if cliAdapter.Type() == adapter.TypeGoose {
 		return s.runGooseBackendTurn(ctx, workDir, contentToSend, msgId)
 	}
+	if cliAdapter.Type() == adapter.TypeCursor {
+		return s.runCursorBackendTurn(ctx, workDir, contentToSend, msgId)
+	}
 	switch cliAdapter.ProcessMode() {
 	case adapter.ProcessOneShot:
 		return s.runOneShotTurn(ctx, workDir, contentToSend, msgId)
@@ -3763,6 +3771,16 @@ func (s *WorkspaceSession) killProcess() {
 	if gooseBackend != nil {
 		_ = gooseBackend.Close(context.Background())
 		slog.Info("agent: goose backend killed", "workspaceID", s.workspaceID)
+	}
+
+	// Tear down the cursor backend process (ACP over stdio) if one was started.
+	s.mu.Lock()
+	cursorBackend := s.cursorBackend
+	s.cursorBackend = nil
+	s.mu.Unlock()
+	if cursorBackend != nil {
+		_ = cursorBackend.Close(context.Background())
+		slog.Info("agent: cursor backend killed", "workspaceID", s.workspaceID)
 	}
 
 	s.procMu.Lock()
