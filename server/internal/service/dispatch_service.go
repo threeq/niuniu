@@ -67,8 +67,8 @@ type RouteHint struct {
 	// Language seeds the workspace CLAUDE.md "User Language" directive.
 	Language string
 	// PermissionMode overrides the created workspace's NIUNIU_PERMISSION_MODE.
-	// Empty defaults to "autohost". Interactive flows (e.g. IM-bot onboarding)
-	// pass "bypassPermissions" so the auto-continue watchdog does not run.
+	// Empty defaults to "bypassPermissions". Autonomous flows pass "autohost"
+	// to add the auto-continue watchdog on top of prompt-skipping.
 	PermissionMode string
 }
 
@@ -79,7 +79,7 @@ type PlanCreateOpts struct {
 	Repos     []RepoBranch
 	CreatedBy *int64
 	// PermissionMode overrides the created workspace's NIUNIU_PERMISSION_MODE
-	// ("" => "autohost"). See RouteHint.PermissionMode.
+	// ("" => "bypassPermissions"). See RouteHint.PermissionMode.
 	PermissionMode string
 }
 
