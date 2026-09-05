@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/niuniu-dev/niuniu/internal/docextract"
 	"github.com/niuniu-dev/niuniu/internal/store"
 )
 
@@ -18,14 +19,29 @@ const (
 	KBSourceMcp   = "mcp"   // an external knowledge-base MCP endpoint (no local corpus; projected as an inline MCP server when selected by a scene/workspace)
 )
 
-// kbTextExts is the allow-list of extensions ingested as plain UTF-8 text. The
-// KB base reads text/markdown directly; richer extraction (PDF/Office) is out of
-// scope for the foundation and can be layered on later.
+// kbTextExts is the allow-list of extensions ingested as plain UTF-8 text.
+// Binary document formats (PDF/Word/Excel/PowerPoint) are handled separately via
+// docextract — see kbIngestible.
 var kbTextExts = map[string]bool{
 	".txt": true, ".md": true, ".markdown": true, ".mdx": true,
 	".rst": true, ".text": true, ".csv": true, ".tsv": true,
 	".log": true, ".json": true, ".yaml": true, ".yml": true,
 	".html": true, ".htm": true,
+}
+
+// kbIngestible reports whether a file is worth walking into the ingest loop:
+// either plain text read verbatim, or a binary document whose text docextract
+// can recover.
+//
+// The document half is load-bearing: the upload UI advertises PDF/Word/Excel/
+// PowerPoint support, and before this predicate existed those files were written
+// to the dataset dir and then silently skipped here, so an uploaded PDF produced
+// a permanently empty knowledge base with no error anywhere.
+func kbIngestible(path string) bool {
+	if kbTextExts[strings.ToLower(filepath.Ext(path))] {
+		return true
+	}
+	return docextract.IsSupported(path)
 }
 
 // resolveSourceRoot turns a KB's configured source into a local directory whose
@@ -150,8 +166,9 @@ func copyDirContent(src, dst string) error {
 	})
 }
 
-// gatherTextFiles walks root and returns text files (by extension), skipping
-// hidden entries (dotfiles, .git, etc.). rel paths use forward slashes.
+// gatherTextFiles walks root and returns every ingestible file (plain text by
+// extension, plus PDF/Office documents — see kbIngestible), skipping hidden
+// entries (dotfiles, .git, etc.). rel paths use forward slashes.
 func gatherTextFiles(root string) ([]kbFile, error) {
 	var out []kbFile
 	err := filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
@@ -168,7 +185,7 @@ func gatherTextFiles(root string) ([]kbFile, error) {
 		if d.IsDir() {
 			return nil
 		}
-		if !kbTextExts[strings.ToLower(filepath.Ext(name))] {
+		if !kbIngestible(name) {
 			return nil
 		}
 		rel, rerr := filepath.Rel(root, p)

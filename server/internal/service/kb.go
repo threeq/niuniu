@@ -5,11 +5,15 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
+	"path/filepath"
 	"sort"
 	"strings"
+	"unicode/utf8"
 
+	"github.com/niuniu-dev/niuniu/internal/docextract"
 	"github.com/niuniu-dev/niuniu/internal/kbindex"
 	"github.com/niuniu-dev/niuniu/internal/store"
 )
@@ -151,6 +155,92 @@ func (s *KBService) Search(ctx context.Context, owner OwnerRef, kbID int64, quer
 		return nil, err
 	}
 	return idx.Search(ctx, kb.ID, query, limit)
+}
+
+// KBMaxDocumentBytes caps how much of one document the browse endpoint returns.
+// A corpus routinely holds multi-MB files; the reader only needs a readable head,
+// and an uncapped read would pin that much memory per request.
+const KBMaxDocumentBytes = 512 << 10
+
+// ReadDocumentText returns the text of one ingested document, capped at
+// maxBytes. It is the read side of the browse UI (preview a document, open a
+// search hit in context); the on-disk corpus stays the source of truth, so
+// nothing here reads the index sidecar.
+//
+// Security: this is the only path that turns a DB-recorded document back into a
+// filesystem read, so it re-derives the KB's source root and refuses anything
+// outside it. That matters because rel_path/uri are data — a stale row (corpus
+// moved), or one written before a source change, must not become an arbitrary
+// file read. relPath is preferred and joined onto the root; the stored uri is
+// only a fallback for a single-file `local` source, whose root is the parent
+// directory.
+//
+// PDF/Office documents hold no readable bytes, so they are run through the same
+// extractor the ingest path uses — what you browse is what was indexed.
+//
+// Returns (text, truncated, extracted, error). truncated is true when the text
+// was longer than maxBytes and stops at a rune boundary before the cap;
+// extracted is true when the text was recovered from a binary document.
+func (s *KBService) ReadDocumentText(ctx context.Context, owner OwnerRef, kbID int64, relPath, uri string, maxBytes int) (string, bool, bool, error) {
+	if maxBytes <= 0 {
+		maxBytes = KBMaxDocumentBytes
+	}
+	// Re-resolve the root from the KB row rather than trusting uri. GetKB also
+	// re-verifies ownership, so this stays safe even if a caller skipped that.
+	kb, err := s.GetKB(ctx, owner, kbID)
+	if err != nil {
+		return "", false, false, err
+	}
+	root, err := s.resolveSourceRoot(owner, kb)
+	if err != nil {
+		return "", false, false, err
+	}
+
+	abs := filepath.Join(root, filepath.FromSlash(relPath))
+	if !pathWithin(abs, root) {
+		// relPath contained traversal (".."). Never fall back to uri here: a
+		// hostile rel_path must fail closed.
+		return "", false, false, fmt.Errorf("document path escapes the knowledge base root")
+	}
+	if _, statErr := os.Stat(abs); statErr != nil {
+		// Single-file `local` source: resolveSourceRoot returns the containing
+		// directory, so rel_path may not join cleanly. Accept the recorded uri
+		// only when it still lives under the same root.
+		if uri != "" && pathWithin(uri, root) {
+			abs = uri
+		} else {
+			return "", false, false, fmt.Errorf("document is no longer readable: %w", statErr)
+		}
+	}
+
+	// Binary document: extract rather than read verbatim.
+	if docextract.IsSupported(abs) {
+		text, xerr := docextract.PlainText(abs)
+		if xerr != nil {
+			return "", false, false, xerr
+		}
+		truncated := len(text) > maxBytes
+		if truncated {
+			text = trimToValidUTF8(text[:maxBytes])
+		}
+		return text, truncated, true, nil
+	}
+
+	f, err := os.Open(abs)
+	if err != nil {
+		return "", false, false, fmt.Errorf("document is no longer readable: %w", err)
+	}
+	defer f.Close()
+	// Read one byte past the cap purely to detect truncation.
+	buf, err := io.ReadAll(io.LimitReader(f, int64(maxBytes)+1))
+	if err != nil {
+		return "", false, false, err
+	}
+	truncated := len(buf) > maxBytes
+	if truncated {
+		return trimToValidUTF8(string(buf[:maxBytes])), true, false, nil
+	}
+	return string(buf), false, false, nil
 }
 
 // ListVisibleKBs returns the knowledge bases visible to a workspace: owned by
@@ -373,7 +463,22 @@ func (s *KBService) Ingest(ctx context.Context, owner OwnerRef, kbID int64, opts
 			}
 		}
 
-		chunks := kbindex.ChunkText(string(raw), opts.MaxChunkChars)
+		// PDF/Office files carry no indexable bytes: hand them to the extractor and
+		// index the recovered text. A document the extractor gives up on is recorded
+		// as an error and skipped rather than indexed as binary noise. Hashing still
+		// uses the on-disk bytes, so idempotency is unaffected.
+		text := string(raw)
+		if docextract.IsSupported(f.abs) {
+			extracted, xerr := docextract.PlainText(f.abs)
+			if xerr != nil {
+				res.Errors = append(res.Errors, fmt.Sprintf("%s: %v", f.rel, xerr))
+				continue
+			}
+			text = extracted
+		}
+
+		chunks := kbindex.ChunkText(text, opts.MaxChunkChars)
+
 		doc, derr := s.q.UpsertKBDocument(ctx, store.UpsertKBDocumentParams{
 			KbID:        kb.ID,
 			RelPath:     f.rel,
@@ -421,4 +526,17 @@ func (s *KBService) RebuildIndex(ctx context.Context, owner OwnerRef, kbID int64
 // shared Postgres index).
 func (s *KBService) ownerIndex(owner OwnerRef) (kbindex.KBIndex, error) {
 	return s.idx.Get(owner.KBIndexPath(s.dataDir))
+}
+
+
+// trimToValidUTF8 drops trailing bytes until s is valid UTF-8. Cutting a corpus
+// at a fixed byte offset lands mid-rune for any multi-byte character — routine
+// for the Chinese corpora these KBs are built from — and an invalid tail would
+// be replaced with U+FFFD once the response is marshalled to JSON. Trimming at
+// most three bytes is cheaper than shipping mojibake.
+func trimToValidUTF8(s string) string {
+	for len(s) > 0 && !utf8.ValidString(s) {
+		s = s[:len(s)-1]
+	}
+	return s
 }

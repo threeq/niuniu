@@ -40,6 +40,8 @@ const RepositoryListPage = lazyNamed(() => import('./pages/repositories/reposito
 const RepositoryDetailPage = lazyNamed(() => import('./pages/repositories'), 'RepositoryDetailPage');
 const RepositoryLayout = lazyNamed(() => import('./pages/repositories/repository-layout'), 'RepositoryLayout');
 const KnowledgeBasesPage = lazyNamed(() => import('./pages/knowledge-bases/knowledge-bases-page'), 'KnowledgeBasesPage');
+const KnowledgeBaseLayout = lazyNamed(() => import('./pages/knowledge-bases/knowledge-base-layout'), 'KnowledgeBaseLayout');
+const KnowledgeBaseDetailPage = lazyNamed(() => import('./pages/knowledge-bases/knowledge-base-detail-page'), 'KnowledgeBaseDetailPage');
 const SettingsPage = lazyNamed(() => import('./pages/settings'), 'SettingsPage');
 const SchedulesPage = lazyNamed(() => import('./pages/schedules'), 'SchedulesPage');
 const SceneListPage = lazyNamed(() => import('./pages/scenes/scene-list-page'), 'SceneListPage');
@@ -189,11 +191,24 @@ const repositoryDetailRoute = createRoute({
 
 // Knowledge bases are a first-class resource like repositories: a top-level
 // entry (mirroring /repositories) instead of being buried under
-// /settings/integrations. The page hosts the full create/manage/browse panel.
-const knowledgeBasesRoute = createRoute({
+// /settings/integrations. Same master-detail shape — a persistent sidebar list
+// with a resizable detail pane, so a KB is a place you navigate to and stay in.
+const knowledgeBasesLayoutRoute = createRoute({
   getParentRoute: () => layoutRoute,
   path: '/knowledge-bases',
+  component: KnowledgeBaseLayout,
+});
+
+const knowledgeBasesIndexRoute = createRoute({
+  getParentRoute: () => knowledgeBasesLayoutRoute,
+  path: '/',
   component: KnowledgeBasesPage,
+});
+
+const knowledgeBaseDetailRoute = createRoute({
+  getParentRoute: () => knowledgeBasesLayoutRoute,
+  path: '/$id',
+  component: KnowledgeBaseDetailPage,
 });
 
 // Legacy ?tab= values for tabs that were promoted out of /settings to their
@@ -340,7 +355,10 @@ const routeTree = rootRoute.addChildren([
       repositoriesIndexRoute,
       repositoryDetailRoute,
     ]),
-    knowledgeBasesRoute,
+    knowledgeBasesLayoutRoute.addChildren([
+      knowledgeBasesIndexRoute,
+      knowledgeBaseDetailRoute,
+    ]),
     settingsRoute,
     schedulesRoute,
     scenesRoute,

@@ -22,6 +22,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -289,6 +290,37 @@ func (h *KnowledgeBaseHandler) startIngest(ctx context.Context, owner service.Ow
 	go func() {
 		defer h.ingesting.Delete(id)
 		h.runIngest(owner, id, sourceKind)
+	}()
+}
+
+// startReindex drops the KB's index and rebuilds it from the files already on
+// disk, in the background. Unlike startIngest it never re-downloads: a url KB's
+// corpus stays as fetched, so this is a cheap local repair/refresh rather than a
+// second trip to the network. Shares the single-flight guard and the same
+// ingest_status transitions, so the UI's progress polling covers it unchanged.
+func (h *KnowledgeBaseHandler) startReindex(ctx context.Context, owner service.OwnerRef, id int64) {
+	if _, busy := h.ingesting.LoadOrStore(id, struct{}{}); busy {
+		return
+	}
+	h.setIngest(ctx, id, "indexing", 10, "")
+	go func() {
+		defer h.ingesting.Delete(id)
+		bg := context.Background()
+		if err := h.kb.RebuildIndex(bg, owner, id); err != nil {
+			h.setIngest(bg, id, "failed", 0, err.Error())
+			return
+		}
+		// RebuildIndex re-ingests every file but returns no counts, so refresh
+		// them from the documents table it just rewrote.
+		var docs, chunks int64
+		_ = h.db.QueryRowContext(bg,
+			`SELECT COUNT(*), COALESCE(SUM(chunk_count), 0) FROM kb_documents WHERE kb_id = ?`,
+			id).Scan(&docs, &chunks)
+		_, _ = h.db.ExecContext(bg,
+			`UPDATE knowledge_bases
+			    SET ingest_status = 'ready', ingest_progress = 100, ingest_error = '',
+			        doc_count = ?, chunk_count = ?, last_indexed_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+			  WHERE id = ?`, docs, chunks, id)
 	}()
 }
 
@@ -584,6 +616,15 @@ func (h *KnowledgeBaseHandler) Retry(c *gin.Context) {
 
 const kbMaxUploadBytes = 8 << 20
 
+// kbMaxDocumentPage caps one page of the document browser, and
+// kbMaxPreviewBytes caps a single document preview. A KB document is plain text
+// (the ingest allow-list), so 512 KiB is far more than a reader consumes in one
+// screen while keeping a pathological multi-MB file from being shipped whole.
+const (
+	kbMaxDocumentPage = 500
+	kbMaxPreviewBytes = 512 << 10
+)
+
 func (h *KnowledgeBaseHandler) Upload(c *gin.Context) {
 	id, ok := kbIDParam(c, "id")
 	if !ok {
@@ -648,6 +689,14 @@ func (h *KnowledgeBaseHandler) Upload(c *gin.Context) {
 
 // ---- browse + search -------------------------------------------------------
 
+// ListDocuments returns one page of a KB's ingested files. A corpus can hold
+// tens of thousands of documents (the chinese-poetry preset alone is ~380k
+// poems across thousands of files), so the browse UI pages through them and
+// filters server-side by path substring instead of pulling the whole list.
+//
+// Wire shape is `{items, total}`: `total` counts every document matching `q`
+// (ignoring limit/offset) so the client can render "showing N of M" and decide
+// whether a next page exists.
 func (h *KnowledgeBaseHandler) ListDocuments(c *gin.Context) {
 	id, ok := kbIDParam(c, "id")
 	if !ok {
@@ -662,8 +711,28 @@ func (h *KnowledgeBaseHandler) ListDocuments(c *gin.Context) {
 		h.mapErr(c, err)
 		return
 	}
+
+	limit, offset := kbPageParams(c)
+	// Path filter. LIKE with an escaped pattern: the user's raw text may contain
+	// %/_ which would otherwise act as wildcards.
+	q := strings.TrimSpace(c.Query("q"))
+	where := `kb_id = ?`
+	args := []any{id}
+	if q != "" {
+		where += ` AND rel_path LIKE ? ESCAPE '\'`
+		args = append(args, "%"+escapeLikePattern(q)+"%")
+	}
+
+	var total int64
+	if err := h.db.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM kb_documents WHERE `+where, args...).Scan(&total); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
 	rows, err := h.db.QueryContext(ctx,
-		`SELECT id, kb_id, rel_path, byte_size, chunk_count FROM kb_documents WHERE kb_id = ? ORDER BY rel_path`, id)
+		`SELECT id, kb_id, rel_path, byte_size, chunk_count FROM kb_documents WHERE `+where+
+			` ORDER BY rel_path LIMIT ? OFFSET ?`, append(args, limit, offset)...)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -680,7 +749,132 @@ func (h *KnowledgeBaseHandler) ListDocuments(c *gin.Context) {
 			})
 		}
 	}
-	c.JSON(http.StatusOK, gin.H{"items": items})
+	c.JSON(http.StatusOK, gin.H{"items": items, "total": total})
+}
+
+// kbPageParams reads limit/offset with sane bounds. The cap keeps a hostile or
+// buggy client from asking for an unbounded page.
+//
+// Returns int64 to match how sqlc types LIMIT/OFFSET placeholders elsewhere in
+// the tree: pgx binds Go ints as int8/int4 by inference, and the generated code
+// standardizes on int64 for these two, so this keeps the driver contract uniform.
+func kbPageParams(c *gin.Context) (limit, offset int64) {
+	n, _ := strconv.Atoi(c.Query("limit"))
+	limit = int64(n)
+	if limit <= 0 {
+		limit = 100
+	}
+	if limit > kbMaxDocumentPage {
+		limit = kbMaxDocumentPage
+	}
+	o, _ := strconv.Atoi(c.Query("offset"))
+	offset = int64(o)
+	if offset < 0 {
+		offset = 0
+	}
+	return limit, offset
+}
+
+// escapeLikePattern neutralizes LIKE metacharacters in user input so a query
+// containing % or _ matches those characters literally. Pairs with
+// `ESCAPE '\'` on the LIKE, and works identically on SQLite and Postgres.
+func escapeLikePattern(s string) string {
+	var b strings.Builder
+	for _, r := range s {
+		if r == '%' || r == '_' || r == '\\' {
+			b.WriteRune('\\')
+		}
+		b.WriteRune(r)
+	}
+	return b.String()
+}
+
+// DocumentContent returns one document's text so the browse UI can preview it
+// (and a search hit can be opened in context). The on-disk corpus is the source
+// of truth; PDF/Office documents are run through the shared extractor so the
+// reader shows text rather than binary noise.
+//
+// Two things make this safe to expose: the KB is resolved through kbOwner (so
+// cross-owner reads 403), and the document's rel_path is re-resolved against the
+// KB's own source root inside the service — a KB never becomes a read primitive
+// for the rest of the filesystem.
+func (h *KnowledgeBaseHandler) DocumentContent(c *gin.Context) {
+	id, ok := kbIDParam(c, "id")
+	if !ok {
+		return
+	}
+	docID, ok := kbIDParam(c, "docid")
+	if !ok {
+		return
+	}
+	_, owner, ok := h.kbOwner(c, id)
+	if !ok {
+		return
+	}
+	ctx := c.Request.Context()
+
+	var relPath, uri string
+	var size int64
+	// The kb_id predicate is the authorization join: a doc id from another KB
+	// simply does not match, so it 404s rather than leaking content.
+	err := h.db.QueryRowContext(ctx,
+		`SELECT rel_path, uri, byte_size FROM kb_documents WHERE id = ? AND kb_id = ?`,
+		docID, id).Scan(&relPath, &uri, &size)
+	if err == sql.ErrNoRows {
+		c.JSON(http.StatusNotFound, gin.H{"error": "document not found"})
+		return
+	}
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	text, truncated, extracted, err := h.kb.ReadDocumentText(ctx, owner, id, relPath, uri, service.KBMaxDocumentBytes)
+	if err != nil {
+		// The row exists but its bytes don't (corpus deleted/moved under us), or
+		// the extractor gave up. Neither is retryable server-side, so report a
+		// gone document rather than a 500.
+		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"id": docID, "kb_id": id, "path": relPath,
+		"title": filepath.Base(relPath), "size": size,
+		"content": text, "truncated": truncated,
+		"extracted": extracted,
+	})
+}
+
+// Reindex force-rebuilds a KB's search index from its source files. Exposed for
+// the management UI's "rebuild index" action: recovers from a corrupt/missing
+// sidecar and picks up files changed on disk since the last ingest (the common
+// case for a `local` KB pointed at a directory the user keeps editing).
+//
+// Runs on the same background path + single-flight guard as the initial ingest,
+// so the UI's existing progress polling reports it with no extra machinery.
+func (h *KnowledgeBaseHandler) Reindex(c *gin.Context) {
+	id, ok := kbIDParam(c, "id")
+	if !ok {
+		return
+	}
+	_, owner, ok := h.kbOwner(c, id)
+	if !ok {
+		return
+	}
+	ctx := c.Request.Context()
+	kb, err := h.kb.GetKB(ctx, owner, id)
+	if err != nil {
+		h.mapErr(c, err)
+		return
+	}
+	// An mcp KB has no local corpus to index — it is a remote search endpoint.
+	if kb.SourceKind == service.KBSourceMcp {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "mcp knowledge bases have no local index to rebuild"})
+		return
+	}
+	h.startReindex(ctx, owner, id)
+	kb, _ = h.kb.GetKB(ctx, owner, id)
+	c.JSON(http.StatusOK, h.kbToJSON(ctx, kb))
 }
 
 func (h *KnowledgeBaseHandler) Search(c *gin.Context) {

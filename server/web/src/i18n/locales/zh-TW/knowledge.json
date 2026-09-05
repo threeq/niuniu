@@ -135,5 +135,53 @@
     "mounting": "掛載中…",
     "datasetPath": "datasets/{{name}}",
     "readOnly": "只讀"
+  },
+  "list": {
+    "searchPlaceholder": "搜尋知識庫…",
+    "empty": "還沒有知識庫"
+  },
+  "empty": {
+    "title": "還沒有知識庫",
+    "hintLocal": "指向本機已有的資料目錄",
+    "hintUpload": "上傳文件（含 PDF / Word / Excel / PowerPoint）",
+    "hintUrl": "從網路地址下載公開資料集"
+  },
+  "detail": {
+    "tabs": {
+      "overview": "概覽",
+      "documents": "文件",
+      "search": "搜尋",
+      "settings": "設定"
+    },
+    "reindex": "重建索引",
+    "reindexStarted": "已開始重建索引",
+    "deleted": "知識庫已刪除",
+    "notFound": "知識庫不存在",
+    "notFoundHint": "它可能已被刪除。請從左側列表另選一個。"
+  },
+  "overview": {
+    "documents": "文件數",
+    "chunks": "分片數",
+    "lastIndexed": "最近索引",
+    "neverIndexed": "尚未索引",
+    "source": "資料來源",
+    "location": "位置",
+    "unboundWarning": "尚未繫結任何專案，因此對所有智慧體不可見。可在「設定」中新增繫結。"
+  },
+  "documents": {
+    "filterPlaceholder": "按檔案路徑篩選…",
+    "range": "第 {{from}}–{{to}} 條，共 {{total}} 條",
+    "prev": "上一頁",
+    "next": "下一頁"
+  },
+  "reader": {
+    "extracted": "已從文件中提取文字",
+    "truncated": "內容較長，僅顯示開頭部分",
+    "loadError": "無法讀取該文件"
+  },
+  "settings": {
+    "identity": "基本資訊",
+    "identityHint": "名稱與描述；資料來源在建立後不可更改。",
+    "noDescription": "未填寫"
   }
 }
