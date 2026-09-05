@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
-import { RefreshCw, Settings, GitBranch, FileText, File, Folder, GitBranchIcon, FolderGit2, Save, Terminal as TerminalIcon, ChevronDown, ChevronRight, ChevronLeft, Search, Globe, Monitor, Plus, Undo2, Check, AlertCircle } from 'lucide-react';
+import { RefreshCw, Settings, GitBranch, FileText, File, Folder, GitBranchIcon, FolderGit2, Save, Terminal as TerminalIcon, ChevronDown, ChevronRight, ChevronLeft, Search, Globe, Monitor, Plus, Undo2, Check, AlertCircle, GitCommitHorizontal } from 'lucide-react';
 import { VSCodeIcon } from '@/components/ui/vscode-icon';
 import { useParams } from '@tanstack/react-router';
 import i18n from '@/i18n';
@@ -13,7 +13,7 @@ import { getRepoFileContentUrl } from '@/lib/repo-file-url';
 import { openInVSCode } from '@/lib/vscode';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import type { Repository, RepositoryStats, FileEntry, WorktreeWithWorkspace, GraphCommit, BranchTree, CommitDetail } from '@/types/api';
+import type { Repository, RepositoryStats, FileEntry, WorktreeWithWorkspace, GraphCommit, BranchTree, CommitDetail, FileLogEntry } from '@/types/api';
 import { cn } from '@/lib/utils';
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
@@ -25,7 +25,7 @@ import { computeGraphLayout } from '@/lib/commit-graph';
 import { DiffViewer } from '@/pages/workspaces/panels/diff-viewer';
 import type { GitFileDiff } from '@/lib/hooks/use-file-diff';
 import { RepoGitIdentitySection } from './repo-git-identity-section';
-import { RepoSearchPanel, FileHistoryPanel } from './repo-file-search';
+import { RepoSearchBox, RepoSearchResults, FileHistorySidebar } from './repo-file-search';
 
 type Tab = 'files' | 'branches' | 'worktrees' | 'settings';
 
@@ -921,10 +921,18 @@ function RepoFilesTab({ repoId }: { repoId: string }) {
   const { t } = useTranslation('repositories');
   const [currentPath, setCurrentPath] = useState('');
   const [selectedFile, setSelectedFile] = useState<string | null>(null);
-  // Browse the tree, or search it — the left pane switches between the two.
-  const [leftMode, setLeftMode] = useState<'browse' | 'search'>('browse');
-  // Content vs history for the file on the right.
-  const [rightTab, setRightTab] = useState<'content' | 'history'>('content');
+  // Search input text vs the SUBMITTED query. Only the submitted one hits the
+  // server: content search shells out to ripgrep, so firing per keystroke would
+  // spawn a process per character.
+  const [searchInput, setSearchInput] = useState('');
+  const [submittedQuery, setSubmittedQuery] = useState('');
+  // Results survive a trip back to the file list, so this is a view toggle
+  // rather than a reason to discard them. Cleared only when the box is cleared.
+  const [showResults, setShowResults] = useState(false);
+  // History is a closable right rail; its selected commit renders in the main
+  // content area, so both stay visible at once.
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [historyCommit, setHistoryCommit] = useState<FileLogEntry | null>(null);
 
   const { data: files, isLoading, refetch: refetchFiles } = useQuery<FileEntry[]>({
     queryKey: ['repository', repoId, 'files', currentPath],
@@ -932,21 +940,29 @@ function RepoFilesTab({ repoId }: { repoId: string }) {
     enabled: !!repoId,
   });
 
+  const { data: historyDiff, isLoading: historyDiffLoading } = useQuery<GitFileDiff>({
+    queryKey: ['repository', repoId, 'file-history-diff', historyCommit?.hash, historyCommit?.path_at_commit],
+    queryFn: () =>
+      api.get<GitFileDiff>(
+        `/repositories/${repoId}/files/history/${historyCommit!.hash}/diff?path=${encodeURIComponent(historyCommit!.path_at_commit)}`,
+      ),
+    enabled: !!historyCommit,
+  });
+
+  // Opening a different file invalidates any commit selected for the old one.
+  const openFile = (path: string) => {
+    setSelectedFile(path);
+    setHistoryCommit(null);
+  };
+
   const handleFileClick = (file: FileEntry) => {
     if (file.type === 'dir') {
       setCurrentPath(file.path);
       setSelectedFile(null);
+      setHistoryCommit(null);
     } else {
-      setSelectedFile(file.path);
-      setRightTab('content');
+      openFile(file.path);
     }
-  };
-
-  // A search hit is repo-relative and may live in another directory, so opening
-  // one selects it directly rather than navigating the tree to it.
-  const handleOpenSearchHit = (path: string) => {
-    setSelectedFile(path);
-    setRightTab('content');
   };
 
   const handleNavigateUp = () => {
@@ -954,37 +970,54 @@ function RepoFilesTab({ repoId }: { repoId: string }) {
     parts.pop();
     setCurrentPath(parts.join('/'));
     setSelectedFile(null);
+    setHistoryCommit(null);
+  };
+
+  const clearSearch = () => {
+    setSearchInput('');
+    setSubmittedQuery('');
+    setShowResults(false);
   };
 
   return (
     <div className="h-full flex">
       <div className="w-1/3 border-r bg-card flex flex-col min-h-0">
-        <div className="flex shrink-0 gap-1 border-b px-2 py-1.5">
-          {(['browse', 'search'] as const).map((m) => (
-            <button
-              key={m}
-              type="button"
-              onClick={() => setLeftMode(m)}
-              className={cn(
-                'flex items-center gap-1 rounded px-2 py-0.5 text-[11px] transition-colors',
-                leftMode === m ? 'bg-accent font-medium text-foreground' : 'text-muted-foreground hover:text-foreground',
-              )}
-            >
-              {m === 'browse' ? <Folder className="w-3 h-3" /> : <Search className="w-3 h-3" />}
-              {m === 'browse' ? t('detail.tabs.files') : t('detail.files.searchTabContent')}
-            </button>
-          ))}
-        </div>
+        <RepoSearchBox
+          value={searchInput}
+          onChange={setSearchInput}
+          onSubmit={() => {
+            if (!searchInput.trim()) return;
+            setSubmittedQuery(searchInput);
+            setShowResults(true);
+          }}
+          onClear={clearSearch}
+        />
 
-        {leftMode === 'search' ? (
+        {showResults && submittedQuery ? (
           <div className="min-h-0 flex-1">
-            <RepoSearchPanel repoId={repoId} onOpenFile={handleOpenSearchHit} />
+            <RepoSearchResults
+              repoId={repoId}
+              query={submittedQuery}
+              onOpenFile={openFile}
+              onBackToFiles={() => setShowResults(false)}
+            />
           </div>
         ) : (
           <div className="min-h-0 flex-1 overflow-auto">
+            {/* Once a search has run, offer a way back to its results. */}
+            {submittedQuery && (
+              <button
+                type="button"
+                onClick={() => setShowResults(true)}
+                className="flex w-full items-center gap-1 border-b border-border px-3 py-1 text-left text-[11px] text-info hover:bg-accent"
+              >
+                <Search className="h-3 w-3" />
+                {t('detail.files.searchBackToResults', { query: submittedQuery })}
+              </button>
+            )}
             <div className="flex items-center gap-1 px-3 py-2 border-b bg-muted">
               <button onClick={() => refetchFiles()} className="p-0.5 rounded hover:bg-accent text-muted-foreground hover:text-foreground shrink-0" title={t('detail.files.refresh')}><RefreshCw className="w-3.5 h-3.5" /></button>
-              <button onClick={() => { setCurrentPath(''); setSelectedFile(null); }} className="text-xs text-info hover:underline">root</button>
+              <button onClick={() => { setCurrentPath(''); setSelectedFile(null); setHistoryCommit(null); }} className="text-xs text-info hover:underline">root</button>
               {currentPath && (
                 <>
                   <span className="text-muted-foreground">/</span>
@@ -1024,29 +1057,45 @@ function RepoFilesTab({ repoId }: { repoId: string }) {
       <div className="flex-1 min-h-0 flex flex-col bg-card">
         {selectedFile ? (
           <>
-            <div className="flex shrink-0 items-center gap-1 border-b px-2 py-1.5">
+            <div className="flex shrink-0 items-center gap-2 border-b px-2 py-1.5">
               <span className="truncate text-xs text-muted-foreground">{selectedFile}</span>
-              <div className="ml-auto flex gap-1">
-                {(['content', 'history'] as const).map((k) => (
-                  <button
-                    key={k}
-                    type="button"
-                    onClick={() => setRightTab(k)}
-                    className={cn(
-                      'rounded px-2 py-0.5 text-[11px] transition-colors',
-                      rightTab === k ? 'bg-accent font-medium text-foreground' : 'text-muted-foreground hover:text-foreground',
-                    )}
-                  >
-                    {t(k === 'content' ? 'detail.files.contentTab' : 'detail.files.historyTab')}
-                  </button>
-                ))}
-              </div>
+              {/* A commit's diff is a sub-view of the file; offer a way back to
+                  the plain content without closing the history rail. */}
+              {historyCommit && (
+                <button
+                  type="button"
+                  onClick={() => setHistoryCommit(null)}
+                  className="flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-[11px] text-muted-foreground hover:bg-accent hover:text-foreground"
+                >
+                  <ChevronLeft className="h-3 w-3" />
+                  {t('detail.files.contentTab')}
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => setHistoryOpen((v) => !v)}
+                className={cn(
+                  'ml-auto flex shrink-0 items-center gap-1 rounded px-2 py-0.5 text-[11px] transition-colors',
+                  historyOpen ? 'bg-accent font-medium text-foreground' : 'text-muted-foreground hover:text-foreground',
+                )}
+              >
+                <GitCommitHorizontal className="h-3 w-3" />
+                {t('detail.files.historyTab')}
+              </button>
             </div>
             <div className="min-h-0 flex-1 overflow-auto">
-              {rightTab === 'content' ? (
-                <FilePreviewByUrl key={selectedFile} url={getRepoFileContentUrl(repoId, selectedFile)} path={selectedFile} />
+              {historyCommit ? (
+                historyDiffLoading ? (
+                  <div className="flex h-full items-center justify-center text-xs text-muted-foreground">{t('detail.files.historyLoading')}</div>
+                ) : historyDiff ? (
+                  // Comments are not wired: they anchor to a workspace worktree,
+                  // and this is a bare repository view. No callbacks = read-only.
+                  <DiffViewer fileDiff={historyDiff} repoName="" mode="unified" />
+                ) : (
+                  <div className="flex h-full items-center justify-center text-xs text-muted-foreground">{t('detail.files.historyDiffEmpty')}</div>
+                )
               ) : (
-                <FileHistoryPanel key={selectedFile} repoId={repoId} path={selectedFile} />
+                <FilePreviewByUrl key={selectedFile} url={getRepoFileContentUrl(repoId, selectedFile)} path={selectedFile} />
               )}
             </div>
           </>
@@ -1054,6 +1103,17 @@ function RepoFilesTab({ repoId }: { repoId: string }) {
           <div className="flex items-center justify-center h-full text-muted-foreground text-sm">{t('detail.files.selectFile')}</div>
         )}
       </div>
+
+      {selectedFile && historyOpen && (
+        <FileHistorySidebar
+          key={selectedFile}
+          repoId={repoId}
+          path={selectedFile}
+          selectedHash={historyCommit?.hash}
+          onSelect={setHistoryCommit}
+          onClose={() => { setHistoryOpen(false); setHistoryCommit(null); }}
+        />
+      )}
     </div>
   );
 }
