@@ -6,32 +6,18 @@ import (
 	"time"
 )
 
-// CheckRunner dispatches checks for harness specs. It supports two registries:
-//
-//	typedCheckers — keyed by Kind (new, post-2026-05-20). Each TypedChecker
-//	reads typed Spec fields directly.
-//	checkers      — legacy registry keyed by category/name. Retained for
-//	                rows that have not been migrated to a known Kind.
-//
-// Dispatch prefers typedCheckers[Kind] when available; falls back to the
-// legacy lookup otherwise.
+// CheckRunner dispatches checks for harness specs. Every checker is a
+// TypedChecker registered under its Kind(); dispatch is a single lookup on
+// Spec.Kind.
 type CheckRunner struct {
-	checkers      map[string]Checker
 	typedCheckers map[string]TypedChecker
 }
 
 // NewCheckRunner creates an empty runner.
 func NewCheckRunner() *CheckRunner {
 	return &CheckRunner{
-		checkers:      make(map[string]Checker),
 		typedCheckers: make(map[string]TypedChecker),
 	}
-}
-
-// Register adds a legacy checker under the given key (typically category/name).
-// Deprecated: prefer RegisterTyped.
-func (r *CheckRunner) Register(key string, c Checker) {
-	r.checkers[key] = c
 }
 
 // RegisterTyped adds a TypedChecker under its Kind().
@@ -40,7 +26,7 @@ func (r *CheckRunner) RegisterTyped(c TypedChecker) {
 }
 
 // RunSingle executes one spec synchronously and returns the result. Used by
-// the on-demand API endpoint. Returns a skip result when no checker matches.
+// the on-demand API endpoint.
 func (r *CheckRunner) RunSingle(ctx context.Context, spec Spec, env CheckEnv) CheckResult {
 	if !spec.Enabled {
 		return CheckResult{SpecID: spec.ID, Status: "skip", Message: "spec disabled"}
@@ -54,35 +40,26 @@ func (r *CheckRunner) RunSingle(ctx context.Context, spec Spec, env CheckEnv) Ch
 	return res
 }
 
-// dispatch picks a typed checker by Kind, falling back to legacy by SpecKey.
-// Caller is responsible for setting SpecID + DurationMs.
+// dispatch routes the spec to the TypedChecker registered under its Kind.
+// An unknown Kind is an "error", not a "skip": a spec that cannot execute must
+// never read as a quiet pass, or a gate built on it silently lets everything
+// through. Caller sets SpecID + DurationMs.
 func (r *CheckRunner) dispatch(ctx context.Context, spec Spec, env CheckEnv) CheckResult {
-	if spec.Kind != "" {
-		if tc, ok := r.typedCheckers[spec.Kind]; ok {
-			return tc.Run(ctx, spec, env)
+	tc, ok := r.typedCheckers[spec.Kind]
+	if !ok {
+		slog.Error("harness: no checker registered for kind",
+			"kind", spec.Kind, "spec", SpecKey(spec))
+		return CheckResult{
+			Status:  "error",
+			Message: "no checker registered for kind " + spec.Kind,
 		}
 	}
-	key := SpecKey(spec)
-	legacy, ok := r.checkers[key]
-	if !ok {
-		slog.Warn("harness: no checker registered for spec",
-			"kind", spec.Kind, "spec", key)
-		return CheckResult{Status: "skip", Message: "no checker for this spec"}
-	}
-	opts := CheckOpts{
-		WorkspacePath: env.WorkspacePath,
-		WorktreePaths: env.WorktreePaths,
-		CommitMessage: env.CommitMessage,
-		BranchName:    env.BranchName,
-		AgentOutput:   env.AgentOutput,
-		Phase:         env.Phase,
-		SpecConfig:    spec.Config,
-	}
-	return legacy.Check(ctx, opts)
+	return tc.Run(ctx, spec, env)
 }
 
-// RunAll executes all enabled specs that have a registered checker (typed or
-// legacy). Disabled specs and specs without any matching checker are skipped.
+// RunAll executes every enabled spec. Disabled specs are skipped; a spec whose
+// Kind has no checker yields an "error" result so the misconfiguration surfaces
+// rather than passing quietly.
 func (r *CheckRunner) RunAll(ctx context.Context, specs []Spec, opts CheckOpts) []CheckResult {
 	slog.Info("harness: running gate checks", "specCount", len(specs), "workspacePath", opts.WorkspacePath)
 	env := CheckOptsToEnv(opts)
@@ -95,10 +72,6 @@ func (r *CheckRunner) RunAll(ctx context.Context, specs []Spec, opts CheckOpts) 
 		}
 		start := time.Now()
 		res := r.dispatch(ctx, s, env)
-		// dispatch returns skip for "no checker" — only surface real results
-		if res.Status == "skip" && res.Message == "no checker for this spec" {
-			continue
-		}
 		res.SpecID = s.ID
 		if res.DurationMs == 0 {
 			res.DurationMs = time.Since(start).Milliseconds()
@@ -122,14 +95,19 @@ func (r *CheckRunner) RunAll(ctx context.Context, specs []Spec, opts CheckOpts) 
 	return results
 }
 
-// HasBlockingFailure returns true if any result with error-severity spec has a failed status.
+// HasBlockingFailure returns true if any error-severity spec failed or could not
+// be executed. Both "fail" and "error" block: an unexecutable error-severity spec
+// is not evidence that the standard was met.
 func (r *CheckRunner) HasBlockingFailure(specs []Spec, results []CheckResult) bool {
 	severityByID := make(map[int64]string, len(specs))
 	for _, s := range specs {
 		severityByID[s.ID] = s.Severity
 	}
 	for _, res := range results {
-		if res.Status == "fail" && severityByID[res.SpecID] == "error" {
+		if severityByID[res.SpecID] != "error" {
+			continue
+		}
+		if res.Status == "fail" || res.Status == "error" {
 			return true
 		}
 	}

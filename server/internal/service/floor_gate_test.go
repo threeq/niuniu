@@ -21,12 +21,16 @@ import (
 // 2026-06-05-ai-native-board-execution-design.md §5/§11.3/§22/§23.3).
 
 // floorExecStub is a GateSpecExecutor that records every (specID, path) call and
-// can be told to fail specific specs and/or specific repo paths.
+// can be told to fail specific specs and/or specific repo paths. A project floor
+// command is recorded as specID 0 (matching floorSpec.isProjectFloorCommand), and
+// failCommand marks such a call as failing.
 type floorExecStub struct {
-	mu       sync.Mutex
-	calls    []floorCall
-	failSpec map[int64]bool
-	failPath func(specID int64, path string) bool
+	mu          sync.Mutex
+	calls       []floorCall
+	failSpec    map[int64]bool
+	failPath    func(specID int64, path string) bool
+	failCommand bool
+	commands    []string
 }
 
 type floorCall struct {
@@ -45,6 +49,24 @@ func (f *floorExecStub) ExecuteSpec(_ context.Context, _, specID int64, path str
 		return false, "spec boom", nil
 	}
 	return true, "ok", nil
+}
+
+func (f *floorExecStub) ExecuteCommand(_ context.Context, command string, _ int, path string) (bool, string, error) {
+	f.mu.Lock()
+	f.calls = append(f.calls, floorCall{specID: 0, path: path})
+	f.commands = append(f.commands, command)
+	failing := f.failCommand
+	f.mu.Unlock()
+	if failing {
+		return false, "command boom", nil
+	}
+	return true, "ok", nil
+}
+
+func (f *floorExecStub) commandCalls() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]string(nil), f.commands...)
 }
 
 func (f *floorExecStub) callCount() int {
@@ -92,9 +114,19 @@ type floorGateFixture struct {
 	wsID    int64
 	issueID int64
 	colID   int64
+	projID  int64
 	wsPath  string
 	exec    *floorExecStub
 	kicker  *floorKickerStub
+}
+
+// setFloorCommand stores the project's 底线 command (the P1 single-field floor).
+func (fx *floorGateFixture) setFloorCommand(t *testing.T, command string) {
+	t.Helper()
+	_, err := fx.db.Exec(
+		`UPDATE projects SET floor_command = ?, floor_timeout_sec = 120 WHERE id = ?`,
+		command, fx.projID)
+	require.NoError(t, err)
 }
 
 func (fx *floorGateFixture) execStatus(t *testing.T) string {
@@ -172,6 +204,7 @@ func setupFloorGate(t *testing.T, wsStatus string, retryLimit int) *floorGateFix
 
 	return &floorGateFixture{
 		ops: ops, db: db, q: q, wsID: ws.ID, issueID: issue.ID, colID: col.ID,
+		projID: proj.ID,
 		wsPath: wsPath, exec: exec, kicker: kicker,
 	}
 }
@@ -462,4 +495,64 @@ func TestRecoverFloorGates_ResetsStuckGateChecking(t *testing.T) {
 
 	require.Equal(t, "gate_blocked", fx.execStatus(t))
 	require.Equal(t, "attention", fx.wsStatus(t))
+}
+
+// --- P1: the project's single 底线 command ---------------------------------
+
+// A project with only floor_command set (no bound specs at all) must still gate
+// completion. This is the whole point of P1: the floor is reachable without
+// touching the harness rule library.
+func TestRequestCompletion_ProjectFloorCommand_Blocks(t *testing.T) {
+	fx := setupFloorGate(t, "needs_review", 0)
+	fx.setFloorCommand(t, "make test")
+	fx.exec.failCommand = true
+
+	res, err := fx.ops.RequestWorkspaceCompletion(context.Background(), fx.wsID, service.TriggerHuman)
+	require.NoError(t, err)
+	require.Equal(t, service.CompletionGateChecking, res.Status)
+
+	waitFor(t, func() bool { return fx.execStatus(t) == "gate_blocked" }, "floor command failure blocks")
+	require.NotEqual(t, "completed", fx.wsStatus(t), "a failing 底线 command must not complete")
+	require.Equal(t, []string{"make test"}, fx.exec.commandCalls(), "the configured command ran")
+}
+
+func TestRequestCompletion_ProjectFloorCommand_Passes(t *testing.T) {
+	fx := setupFloorGate(t, "needs_review", 0)
+	fx.setFloorCommand(t, "make test")
+
+	res, err := fx.ops.RequestWorkspaceCompletion(context.Background(), fx.wsID, service.TriggerHuman)
+	require.NoError(t, err)
+	require.Equal(t, service.CompletionGateChecking, res.Status)
+
+	waitFor(t, func() bool { return fx.wsStatus(t) == "completed" }, "passing floor command completes")
+	require.Equal(t, "done", fx.execStatus(t))
+	require.Equal(t, []string{"make test"}, fx.exec.commandCalls())
+}
+
+// An empty floor_command (the default) must leave completion ungated — upgrading
+// must not suddenly start blocking every project.
+func TestRequestCompletion_EmptyFloorCommand_FinalizesInline(t *testing.T) {
+	fx := setupFloorGate(t, "needs_review", 0)
+	fx.setFloorCommand(t, "   ") // whitespace only == unset
+
+	res, err := fx.ops.RequestWorkspaceCompletion(context.Background(), fx.wsID, service.TriggerHuman)
+	require.NoError(t, err)
+	require.Equal(t, service.CompletionFinalized, res.Status)
+	require.Equal(t, "completed", fx.wsStatus(t))
+	require.Empty(t, fx.exec.commandCalls(), "a blank floor command never executes")
+}
+
+// The floor command and bound specs coexist: the command is one more check, not a
+// replacement for the advanced path.
+func TestRequestCompletion_FloorCommandAndSpecsBothRun(t *testing.T) {
+	fx := setupFloorGate(t, "needs_review", 0)
+	fx.setFloorCommand(t, "make test")
+	specID := fx.seedFloorSpec(t, 0, "error")
+
+	_, err := fx.ops.RequestWorkspaceCompletion(context.Background(), fx.wsID, service.TriggerHuman)
+	require.NoError(t, err)
+
+	waitFor(t, func() bool { return fx.wsStatus(t) == "completed" }, "both green -> completes")
+	require.Equal(t, []string{"make test"}, fx.exec.commandCalls(), "floor command ran")
+	require.Equal(t, []string{fx.wsPath}, fx.exec.pathsFor(specID), "bound spec ran too")
 }

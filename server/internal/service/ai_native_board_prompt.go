@@ -49,6 +49,21 @@ type boardMenuStats struct {
 	estTokens      int // rough token estimate (chars/4); §16 chain-budget seam
 }
 
+// projectFloorCommand returns the project's 底线 command, or "" when unset / on any
+// read error (the menu is best-effort; a missing line must never fail injection).
+func (s *EpicExecutionService) projectFloorCommand(ctx context.Context, projectID int64) string {
+	if s.db == nil {
+		return ""
+	}
+	var cmd string
+	if err := s.db.QueryRowContext(ctx,
+		`SELECT floor_command FROM projects WHERE id = ?`, projectID).Scan(&cmd); err != nil {
+		slog.Warn("board menu: read project floor_command", "projectID", projectID, "error", err)
+		return ""
+	}
+	return strings.TrimSpace(cmd)
+}
+
 // listBoardColumns reads every column of a project with its AI-native fields and
 // its bound gate specs (partitioned into if_routed / always). Raw SQL: the AI-native
 // columns are migrate-only and not modelled in sqlc (stage-1a/4 convention).
@@ -166,6 +181,12 @@ func (s *EpicExecutionService) buildBoardMenu(ctx context.Context, projectID, en
 	var stageCols, completeCols []boardColumn
 	floorSeen := make(map[string]struct{})
 	var floorSpecs []string
+	// The project 底线 command (P1) is part of the floor the agent must clear, so it
+	// belongs in the same "底线" line as the always-bound specs. Listed first because
+	// it is the check most likely to be the one that blocks.
+	if cmd := s.projectFloorCommand(ctx, projectID); cmd != "" {
+		floorSpecs = append(floorSpecs, "`"+cmd+"` 必须成功(exit 0)")
+	}
 	for _, c := range cols {
 		for _, fs := range c.floorSpecs {
 			if _, ok := floorSeen[fs]; !ok {
@@ -343,6 +364,10 @@ func (s *EpicExecutionService) injectBoardMenu(ctx context.Context, ws store.Wor
 	// heading, explicit "本节独立于看板流程" note) but shares one marker pair, so the
 	// two never collapse onto a single rendered line at a BOARD:END/AUTOHOST:START seam.
 	section += "\n" + renderAutohostSentinel(issue.GoalCondition)
+	// Strip any HARNESS section left by an older build. Nothing writes it any
+	// more, and a stale copy would keep instructing the agent about a pipeline
+	// (phase_current/phase_advance) whose MCP tools no longer exist.
+	harness.RemoveLegacyHarnessSection(ws.Path, ws.CliType)
 	if err := harness.InjectBoardSection(ws.Path, ws.CliType, section); err != nil {
 		slog.Warn("board menu: inject", "workspaceID", ws.ID, "error", err)
 		return

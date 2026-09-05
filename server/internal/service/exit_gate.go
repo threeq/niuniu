@@ -51,7 +51,7 @@ specLoop:
 	for _, sp := range specs {
 		for _, p := range paths {
 			jobCtx, cancel := context.WithTimeout(ctx, floorSpecJobTimeout)
-			gOK, output, execErr := s.gateExec.ExecuteSpec(jobCtx, 0, sp.specID, p)
+			gOK, output, execErr := runFloorCheck(jobCtx, s.gateExec, sp, p)
 			cancel()
 			idx++
 			s.publishFloorProgress(ws, sp.specID, idx, total, gOK && execErr == nil)
@@ -76,7 +76,7 @@ specLoop:
 		}
 	}
 
-	s.publishFloorDone(ws, passed, len(failures))
+	s.publishFloorDone(ws, passed, failures)
 	if passed {
 		s.recordIssueExec(ctx, ws, "gate", "列出口闸: 通过")
 		return
@@ -95,7 +95,7 @@ specLoop:
 			slog.Warn("exit gate: set exec_status gate_blocked", "issueID", issueID, "error", err)
 		}
 	}
-	s.recordIssueExec(ctx, ws, "gate", "列出口闸: 阻断 - "+reason)
+	s.recordIssueExec(ctx, ws, "gate", "列出口闸: 阻断 - "+reason+gateFailureOutputTail(failures))
 	slog.Info("exit gate: blocked", "issueID", issueID, "srcColumn", srcColumnID, "failures", len(failures))
 }
 

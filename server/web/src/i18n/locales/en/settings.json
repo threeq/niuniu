@@ -793,7 +793,8 @@
         "commit_message": "Commit message",
         "branch_name": "Branch name",
         "agent_output": "Agent output",
-        "working_dir": "Working directory"
+        "working_dir": "Working directory",
+        "issue_conformance": "Issue conformance (requirement vs change)"
       },
       "trigger": {
         "phase_exit": "On phase exit",

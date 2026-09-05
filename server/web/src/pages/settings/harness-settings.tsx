@@ -38,9 +38,16 @@ import {
 const CATEGORY_OPTIONS: HarnessCategory[] = ['commit', 'quality', 'workflow', 'agent']
 const SEVERITY_OPTIONS: HarnessSeverity[] = ['error', 'warning', 'info']
 const REGEX_TARGET_OPTIONS: HarnessTarget[] = ['commit_message', 'branch_name', 'agent_output']
-// ai_judge reuses the same three string targets that regex_match supports —
-// the judge prompt sees the raw text from whichever target is selected.
-const AI_JUDGE_TARGET_OPTIONS: HarnessTarget[] = ['commit_message', 'branch_name', 'agent_output']
+// ai_judge supports the three raw string targets that regex_match does, plus
+// issue_conformance — which composes the linked issue's text with the staged diff
+// so the judge can answer "does this change do what the issue asked?". That target
+// is judge-only: no regex can express it.
+const AI_JUDGE_TARGET_OPTIONS: HarnessTarget[] = [
+  'commit_message',
+  'branch_name',
+  'agent_output',
+  'issue_conformance',
+]
 
 const DEFAULT_JUDGE_MODEL = JUDGE_MODELS[0].value
 

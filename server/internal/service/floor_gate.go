@@ -75,14 +75,37 @@ const (
 	floorSpecJobTimeout    = 10 * time.Minute
 )
 
-// floorSpec is one resolved floor gate spec with the severity that decides whether
+// floorSpec is one resolved floor gate check with the severity that decides whether
 // its failure blocks (§5.1: only severity='error' blocks; warning/info are advisory)
 // and code_probe_only, which marks it build/test-class so it is auto-N/A'd for a
 // no-code-diff (doc/research) issue (§23.6).
+//
+// specID == 0 identifies the project's 底线 command (projects.floor_command) rather
+// than a harness_specs row: the P1 single-field floor. It carries its command inline
+// and is always error-severity + code-probe-class (a build/test command is exactly
+// what §23.6 means by code-class).
 type floorSpec struct {
 	specID        int64
 	severity      string
 	codeProbeOnly bool
+	// command is set only for the project floor command (specID == 0).
+	command    string
+	timeoutSec int
+}
+
+// isProjectFloorCommand reports whether this entry is the project's floor_command
+// rather than a harness_specs-backed spec.
+func (f floorSpec) isProjectFloorCommand() bool { return f.specID == 0 }
+
+// runFloorCheck executes one floor entry against one repo path, routing the
+// project 底线 command to ExecuteCommand and everything else to ExecuteSpec.
+// Shared by the floor gate and the column exit gate so both treat the two
+// sources identically.
+func runFloorCheck(ctx context.Context, exec GateSpecExecutor, sp floorSpec, repoPath string) (bool, string, error) {
+	if sp.isProjectFloorCommand() {
+		return exec.ExecuteCommand(ctx, sp.command, sp.timeoutSec, repoPath)
+	}
+	return exec.ExecuteSpec(ctx, 0, sp.specID, repoPath)
 }
 
 // SetFloorGateDeps wires the dependencies the column-native floor gate needs.
@@ -163,13 +186,20 @@ func (s *WorkspaceOpsService) RequestWorkspaceCompletion(ctx context.Context, wo
 	return RequestCompletionResult{Status: CompletionGateChecking}, nil
 }
 
-// listFloorSpecs resolves the workspace's project's floor gate: the DISTINCT set of
-// enabled harness specs bound with applicability='always' on ANY column of the
-// project (the底线 is project-level, §11.2). Returns nil when the workspace has no
-// linked issue/project or the project has no always-specs.
+// listFloorSpecs resolves the workspace's project's floor gate. It is the union of:
 //
-// applicability is migrate-only (not in sqlc), so this is raw SQL. project_id anchors
-// the only bound parameter to a typed column, so it is PG-safe (no 42P18).
+//   - the project's 底线 command (projects.floor_command), when set — the P1
+//     single-field floor, carried as a floorSpec with specID 0; and
+//   - the DISTINCT set of enabled harness specs bound with applicability='always'
+//     on ANY column of the project (the底线 is project-level, §11.2) — the advanced
+//     path, for users who want more than one condition.
+//
+// Returns nil when the workspace has no linked issue/project and neither source
+// yields anything.
+//
+// floor_command / applicability are migrate-only (not in sqlc), so these are raw
+// SQL. project_id anchors the only bound parameter to a typed column, so it is
+// PG-safe (no 42P18).
 func (s *WorkspaceOpsService) listFloorSpecs(ctx context.Context, ws store.Workspace) []floorSpec {
 	if s.db == nil || !ws.IssueID.Valid {
 		return nil
@@ -184,6 +214,27 @@ func (s *WorkspaceOpsService) listFloorSpecs(ctx context.Context, ws store.Works
 		slog.Warn("floor gate: load column", "workspaceID", ws.ID, "error", err)
 		return nil
 	}
+
+	var specs []floorSpec
+
+	// The project 底线 command comes first so it is the first thing evaluated (and,
+	// with fail-fast, the failure a user most likely wants reported).
+	var floorCmd string
+	var floorTimeout int
+	if err := s.db.QueryRowContext(ctx,
+		`SELECT floor_command, floor_timeout_sec FROM projects WHERE id = ?`,
+		col.ProjectID).Scan(&floorCmd, &floorTimeout); err != nil {
+		slog.Warn("floor gate: read project floor_command", "projectID", col.ProjectID, "error", err)
+	} else if strings.TrimSpace(floorCmd) != "" {
+		specs = append(specs, floorSpec{
+			specID:        0,
+			severity:      "error", // the floor is by definition blocking
+			codeProbeOnly: true,    // a build/test command is code-class (§23.6)
+			command:       floorCmd,
+			timeoutSec:    floorTimeout,
+		})
+	}
+
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT DISTINCT cgs.spec_id, hs.severity, hs.code_probe_only
 		FROM column_gate_specs cgs
@@ -193,16 +244,15 @@ func (s *WorkspaceOpsService) listFloorSpecs(ctx context.Context, ws store.Works
 		col.ProjectID)
 	if err != nil {
 		slog.Warn("floor gate: list floor specs", "projectID", col.ProjectID, "error", err)
-		return nil
+		return specs
 	}
 	defer rows.Close()
-	var specs []floorSpec
 	for rows.Next() {
 		var fs floorSpec
 		var codeProbe int64
 		if err := rows.Scan(&fs.specID, &fs.severity, &codeProbe); err != nil {
 			slog.Warn("floor gate: scan floor spec", "error", err)
-			return nil
+			return specs
 		}
 		fs.codeProbeOnly = codeProbe != 0
 		specs = append(specs, fs)
@@ -258,7 +308,7 @@ specLoop:
 	for _, sp := range runSpecs {
 		for _, p := range paths {
 			jobCtx, cancel := context.WithTimeout(ctx, floorSpecJobTimeout)
-			ok, output, execErr := s.gateExec.ExecuteSpec(jobCtx, 0, sp.specID, p)
+			ok, output, execErr := runFloorCheck(jobCtx, s.gateExec, sp, p)
 			cancel()
 			idx++
 			s.publishFloorProgress(ws, sp.specID, idx, total, ok && execErr == nil)
@@ -299,18 +349,27 @@ specLoop:
 		slog.Info("floor gate: non-code产出非空兜底 blocked (empty workspace)", "workspaceID", ws.ID)
 	}
 
-	s.publishFloorDone(ws, passed, len(failures))
+	s.publishFloorDone(ws, passed, failures)
 	s.onFloorGateDone(ctx, ws, passed, failures, trigger)
 }
 
 // summarizeGateFailures renders a short human-readable reason from the failing
-// gate specs (spec id + failure reason), for the gate_blocked card chip + timeline.
+// gate checks, for the gate_blocked card chip + timeline. SpecID 0 is the project's
+// 底线 command, which has no spec row to name.
 func summarizeGateFailures(failures []GateFailure) string {
 	if len(failures) == 0 {
 		return "底线未通过"
 	}
 	parts := make([]string, 0, len(failures))
 	for _, f := range failures {
+		if f.SpecID == 0 && f.Reason != "no_output" {
+			parts = append(parts, fmt.Sprintf("底线命令(%s)", f.Reason))
+			continue
+		}
+		if f.SpecID == 0 {
+			parts = append(parts, f.Reason)
+			continue
+		}
 		parts = append(parts, fmt.Sprintf("spec#%d(%s)", f.SpecID, f.Reason))
 	}
 	return strings.Join(parts, ", ")
@@ -382,7 +441,7 @@ func (s *WorkspaceOpsService) onFloorGateDone(ctx context.Context, ws store.Work
 			slog.Warn("floor gate: set exec_status gate_blocked", "workspaceID", ws.ID, "error", err)
 		}
 	}
-	s.recordIssueExec(ctx, ws, "gate", "底线闸: 阻断 - "+blockReason)
+	s.recordIssueExec(ctx, ws, "gate", "底线闸: 阻断 - "+blockReason+gateFailureOutputTail(failures))
 	slog.Info("floor gate: blocked", "workspaceID", ws.ID, "trigger", trigger, "failures", len(failures))
 
 	switch trigger {
@@ -551,9 +610,20 @@ func (s *WorkspaceOpsService) publishFloorProgress(ws store.Workspace, specID in
 	})
 }
 
-func (s *WorkspaceOpsService) publishFloorDone(ws store.Workspace, passed bool, failureCount int) {
+// publishFloorDone emits gate_done, carrying each blocking check's captured output
+// so the UI can show WHY the gate blocked rather than only that it did.
+func (s *WorkspaceOpsService) publishFloorDone(ws store.Workspace, passed bool, failures []GateFailure) {
 	if s.bus == nil {
 		return
+	}
+	details := make([]event.GateFailureDetail, 0, len(failures))
+	for _, f := range failures {
+		details = append(details, event.GateFailureDetail{
+			SpecID: f.SpecID,
+			Name:   gateFailureName(f),
+			Reason: f.Reason,
+			Output: f.Output,
+		})
 	}
 	s.bus.Publish(event.OutputEvent{
 		Type:        event.EventGateDone,
@@ -561,9 +631,37 @@ func (s *WorkspaceOpsService) publishFloorDone(ws store.Workspace, passed bool, 
 		Ts:          time.Now().UnixMilli(),
 		WorkspaceId: ws.ID,
 		GateDone: &event.GateDonePayload{
-			Passed: passed, FailureCount: failureCount,
+			Passed: passed, FailureCount: len(failures), Failures: details,
 		},
 	})
+}
+
+// gateFailureOutputTail renders the first failing check's captured output as a
+// short appendix for the issue timeline, so the persisted record answers "why"
+// and not just "blocked". The live gate_done event carries the full set; this is
+// the durable breadcrumb after the SSE stream is gone. Capped tight — the
+// timeline is a summary surface, not a log viewer.
+func gateFailureOutputTail(failures []GateFailure) string {
+	for _, f := range failures {
+		out := strings.TrimSpace(f.Output)
+		if out == "" {
+			continue
+		}
+		return "\n" + gateFailureName(f) + ": " + truncateStr(out, 600)
+	}
+	return ""
+}
+
+// gateFailureName labels a failing check for display. SpecID 0 is the project's
+// 底线 command (no spec row to name); the 产出非空 fallback is its own case.
+func gateFailureName(f GateFailure) string {
+	if f.SpecID != 0 {
+		return fmt.Sprintf("spec#%d", f.SpecID)
+	}
+	if f.Reason == "no_output" {
+		return "底线(产出非空)"
+	}
+	return "底线命令"
 }
 
 // floorFailureOutput tags gate output with the repo path it came from so a multi-repo

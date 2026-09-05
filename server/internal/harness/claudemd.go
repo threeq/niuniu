@@ -12,6 +12,15 @@ import (
 const harnessSectionStart = "<!-- HARNESS:START -->"
 const harnessSectionEnd = "<!-- HARNESS:END -->"
 
+// RemoveLegacyHarnessSection strips the retired HARNESS section from a workspace
+// instruction file. Nothing writes that section any more — engineering standards
+// reach the agent through generateWorkspaceAgentInstructions (which renders them
+// inline) and the BOARD menu below. This exists only to clean up files written by
+// an older build, so a stale section does not keep instructing the agent forever.
+func RemoveLegacyHarnessSection(wsPath, cliType string) {
+	removeSection(wsPath, instructionFileForCLI(cliType), harnessSectionStart, harnessSectionEnd)
+}
+
 // Board menu markers (AI-native board, stage 5). The board column "menu" is a
 // separate marked section so it can be replaced/removed independently of the
 // HARNESS section.
@@ -91,51 +100,6 @@ func removeSection(wsPath, fileName, startMarker, endMarker string) {
 		content = content[:startIdx] + content[end:]
 	}
 	os.WriteFile(claudePath, []byte(content), 0644)
-}
-
-// InjectIntoCLAUDEMD writes the harness prompt into the workspace CLAUDE.md
-// wrapped in markers so it can be replaced or removed later.
-func InjectIntoCLAUDEMD(wsPath, prompt string) error {
-	if err := injectSection(wsPath, "CLAUDE.md", harnessSectionStart, harnessSectionEnd, prompt); err != nil {
-		return err
-	}
-	slog.Info("harness: injected prompt into CLAUDE.md", "wsPath", wsPath)
-	return nil
-}
-
-// InjectIntoAgentInstructions writes the harness prompt into the instruction
-// file read by the workspace's configured CLI. Codex reads AGENTS.md; Claude
-// reads CLAUDE.md.
-func InjectIntoAgentInstructions(wsPath, cliType, prompt string) error {
-	fileName := instructionFileForCLI(cliType)
-	if err := injectSection(wsPath, fileName, harnessSectionStart, harnessSectionEnd, prompt); err != nil {
-		return err
-	}
-	slog.Info("harness: injected prompt into agent instructions", "wsPath", wsPath, "file", fileName)
-	return nil
-}
-
-// HasHarnessSection returns true if the workspace CLAUDE.md contains a harness section.
-func HasHarnessSection(wsPath string) bool {
-	data, err := os.ReadFile(filepath.Join(wsPath, "CLAUDE.md"))
-	if err != nil {
-		return false
-	}
-	return strings.Contains(string(data), harnessSectionStart)
-}
-
-// RemoveFromCLAUDEMD removes the harness section from the workspace CLAUDE.md.
-func RemoveFromCLAUDEMD(wsPath string) {
-	removeSection(wsPath, "CLAUDE.md", harnessSectionStart, harnessSectionEnd)
-	slog.Info("harness: removed prompt from CLAUDE.md", "wsPath", wsPath)
-}
-
-// RemoveFromAgentInstructions removes the harness prompt from the instruction
-// file read by the workspace's configured CLI.
-func RemoveFromAgentInstructions(wsPath, cliType string) {
-	fileName := instructionFileForCLI(cliType)
-	removeSection(wsPath, fileName, harnessSectionStart, harnessSectionEnd)
-	slog.Info("harness: removed prompt from agent instructions", "wsPath", wsPath, "file", fileName)
 }
 
 // InjectBoardSection writes the AI-native board column menu into the instruction

@@ -104,6 +104,8 @@ type Server struct {
 	memoryHandler        *api.MemoryHandler
 	cleanupSvc           *service.WorkspaceCleanupService
 	cleanupHandler       *api.WorkspaceCleanupHandler
+	projectFloorSvc      *service.ProjectFloorService
+	projectFloorHandler  *api.ProjectFloorHandler
 
 	// External credential management (encrypted token storage).
 	intgKeyring          *crypto.Keyring
@@ -791,6 +793,10 @@ func New(cfg *config.Config, db *sql.DB, frontendFS fs.FS) *Server {
 	// window. OFF by default (projects.cleanup_enabled=0); opt in via settings.
 	s.cleanupSvc = service.NewWorkspaceCleanupService(s.queries, db, s.workspaceSvc, s.kanbanSvc)
 	s.cleanupHandler = api.NewWorkspaceCleanupHandler(s.cleanupSvc, authz)
+	// Per-project 底线 command: the single build/test command that must exit 0
+	// before an issue may complete. Empty by default (no floor).
+	s.projectFloorSvc = service.NewProjectFloorService(db, s.queries)
+	s.projectFloorHandler = api.NewProjectFloorHandler(s.projectFloorSvc, authz)
 	s.worktreeHandler = api.NewWorktreeHandler(s.worktreeSvc)
 	s.agentHandler = api.NewAgentHandler(s.agentMgr, s.workspaceSvc)
 	s.agentHandler.Authz = authz

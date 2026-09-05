@@ -1044,5 +1044,9 @@
     "truncatedLimit": "结果已截断 —— 匹配过多，请缩小搜索范围。",
     "truncatedTimeout": "结果已截断 —— 搜索超时。",
     "fileTruncated": "（还有更多匹配）"
+  },
+  "gate": {
+    "blocked": "底线闸未通过，已阻止完成",
+    "blockedWith": "底线闸未通过：{{name}}（{{reason}}）"
   }
 }

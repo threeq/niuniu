@@ -13,6 +13,7 @@ import { LabelsSection } from './labels-section';
 import { ColumnsEditorSection } from './columns-editor-section';
 import { DefaultScenesSection } from './default-scenes-section';
 import { ProjectCleanupPolicyCard } from './cleanup-policy-card';
+import { ProjectFloorCard } from './project-floor-card';
 import { SaveAsTemplateDialog } from './save-as-template-dialog';
 import { ExternalSourcesPanel } from '@/components/projects/ExternalSourcesPanel';
 import { ProjectDataSourcesPanel } from '@/components/projects/ProjectDataSourcesPanel';
@@ -225,6 +226,7 @@ export function ProjectSettingsTab({ projectId }: Props) {
       {activeSection === 'board' && (
         <div className="space-y-6">
           <ColumnsEditorSection projectId={projectId} />
+          <ProjectFloorCard projectId={projectId} />
           <DefaultScenesSection projectId={projectId} canManage={isAdmin} />
           {isAdmin && (
             <div className="border rounded-lg p-4 flex items-start justify-between gap-4">

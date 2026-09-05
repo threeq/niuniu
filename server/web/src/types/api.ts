@@ -1357,6 +1357,13 @@ export interface CleanupResult {
   errors: number
 }
 
+// ProjectFloor is a project's 底线: one shell command that must exit 0 before an
+// issue may complete. An empty command means no floor (completion is not gated).
+export interface ProjectFloor {
+  command: string
+  timeout_sec: number
+}
+
 export interface MemoryVersion {
   id: number
   memory_id: number

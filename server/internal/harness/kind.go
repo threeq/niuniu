@@ -16,6 +16,11 @@ const (
 	TargetBranchName    = "branch_name"
 	TargetAgentOutput   = "agent_output"
 	TargetWorkingDir    = "working_dir"
+	// TargetIssueConformance is an ai_judge-only target: the judge is shown the
+	// linked issue (title + description) alongside the staged change, and asked
+	// whether the change actually implements what the issue asked for. This is
+	// the check no regex can express and the one users actually care about.
+	TargetIssueConformance = "issue_conformance"
 )
 
 // Trigger constants identify when a Spec runs. phase_exit (default) preserves

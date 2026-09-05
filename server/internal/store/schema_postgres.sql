@@ -27,6 +27,15 @@ CREATE TABLE IF NOT EXISTS projects (
     cleanup_enabled       INTEGER NOT NULL DEFAULT 0,
     cleanup_inactive_days INTEGER NOT NULL DEFAULT 0,
     cleanup_statuses      TEXT NOT NULL DEFAULT 'completed,not_started',
+    -- The project's 底线 (floor): a single shell command that must exit 0 before
+    -- an issue may complete. Empty (default) = no floor, completion is not gated.
+    -- This is the one engineering standard that is universally applicable and has
+    -- no sensible default, because only the user knows how their project builds.
+    -- It is deliberately a plain project column rather than a harness_specs row:
+    -- that table is a global library keyed by (category, name), so it cannot hold
+    -- a different command per project. The floor gate reads this column directly.
+    floor_command      TEXT NOT NULL DEFAULT '',
+    floor_timeout_sec  INTEGER NOT NULL DEFAULT 600,
     created_at  TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at  TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );

@@ -1,7 +1,20 @@
 import { useEffect } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
+import { useTranslation } from 'react-i18next'
+import { toast } from 'sonner'
 import { useAgentSSEStore } from '@/stores/agent-sse-store'
 import type { AgentMessage } from '@/types/api'
+
+// Gate output is captured up to 4KB server-side; a toast can only show a few
+// lines. Keep the head — a build/test failure states the problem first.
+const GATE_OUTPUT_TOAST_MAX = 400
+
+function truncateGateOutput(output: string): string {
+  const trimmed = output.trim()
+  return trimmed.length > GATE_OUTPUT_TOAST_MAX
+    ? `${trimmed.slice(0, GATE_OUTPUT_TOAST_MAX)}…`
+    : trimmed
+}
 
 /**
  * useRunSSE — subscribes to Phase 2 harness SSE event topics and
@@ -34,6 +47,7 @@ interface GateProgressCache {
 
 export function useRunSSE({ workspaceId, projectId }: Args) {
   const qc = useQueryClient()
+  const { t } = useTranslation('workspaces')
 
   useEffect(() => {
     const store = useAgentSSEStore.getState()
@@ -79,6 +93,18 @@ export function useRunSSE({ workspaceId, projectId }: Args) {
           if (projectId > 0) {
             qc.invalidateQueries({ queryKey: ['issues', { projectId }] })
           }
+          // Surface WHY a gate blocked. Without this the failure only ever
+          // reached the server log, so a gate that did run still could not be
+          // trusted or acted on.
+          if (!p.passed) {
+            const first = p.failures?.[0]
+            toast.error(
+              first
+                ? t('gate.blockedWith', { name: first.name, reason: first.reason })
+                : t('gate.blocked'),
+              first?.output ? { description: truncateGateOutput(first.output) } : undefined,
+            )
+          }
           break
         }
 
@@ -94,5 +120,5 @@ export function useRunSSE({ workspaceId, projectId }: Args) {
     return () => {
       unsub()
     }
-  }, [workspaceId, projectId, qc])
+  }, [workspaceId, projectId, qc, t])
 }

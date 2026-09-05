@@ -15,6 +15,7 @@ export type HarnessTarget =
   | 'branch_name'
   | 'agent_output'
   | 'working_dir'
+  | 'issue_conformance'
   | ''
 
 export type HarnessThresholdOp =
@@ -176,12 +177,23 @@ export type GateProgressPayload = {
   output?: string;
 };
 
+// GateFailureDetail is one blocking check's outcome. specId 0 is the project's
+// 底线 command (no spec row to name). `output` is the captured stdout/stderr —
+// the answer to "why did this block?".
+export type GateFailureDetail = {
+  specId: number;
+  name: string;
+  reason: string;
+  output: string;
+};
+
 export type GateDonePayload = {
   jobId: number;
   runId: number;
   passed: boolean;
   failureCount: number;
   durationMs: number;
+  failures?: GateFailureDetail[];
 };
 
 export type AgentLifecycleAction = 'start_for_column' | 'stop_for_run';

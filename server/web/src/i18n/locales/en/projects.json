@@ -673,6 +673,19 @@
         "saveFailed": "Save failed: {{message}}",
         "runFailed": "Cleanup failed: {{message}}"
       },
+      "floor": {
+        "title": "Floor (command required before done)",
+        "description": "One shell command that must succeed (exit 0) before an issue can move to Done. Leave empty for no floor. This is the only non-LLM objective check in the autohost loop.",
+        "command": "Command",
+        "commandPlaceholder": "e.g. make test",
+        "commandHint": "Runs in each repo worktree. A failure blocks completion; autohost lets the AI self-fix first.",
+        "timeout": "Timeout",
+        "secondsUnit": "seconds (max 600)",
+        "save": "Save",
+        "saving": "Saving…",
+        "saved": "Saved",
+        "saveFailed": "Save failed: {{message}}"
+      },
       "templates": {
         "title": "Project templates",
         "saveAs": "Save as project template",

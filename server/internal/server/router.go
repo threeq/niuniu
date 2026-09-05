@@ -568,6 +568,10 @@ func (s *Server) setupRoutes() {
 		projects.PUT("/:id/cleanup-policy", s.cleanupHandler.SetCleanupPolicy)
 		// Manual "clean now" sweep trigger.
 		projects.POST("/:id/cleanup/run", s.cleanupHandler.RunCleanupOnce)
+		// Per-project 底线 command: one build/test command that must exit 0 before
+		// an issue may complete. Empty by default (completion is not gated).
+		projects.GET("/:id/floor", s.projectFloorHandler.GetFloor)
+		projects.PUT("/:id/floor", s.projectFloorHandler.SetFloor)
 
 	}
 

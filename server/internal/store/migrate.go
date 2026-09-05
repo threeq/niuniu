@@ -104,6 +104,11 @@ func Migrate(db *sql.DB) {
 	addColumnIfNotExists(db, "projects", "cleanup_inactive_days", "INTEGER NOT NULL DEFAULT 0")
 	addColumnIfNotExists(db, "projects", "cleanup_statuses", "TEXT NOT NULL DEFAULT 'completed,not_started'")
 
+	// Per-project 底线 command (P1: collapse the harness rule-library config matrix
+	// into the one field that is universally applicable). Empty = no floor.
+	addColumnIfNotExists(db, "projects", "floor_command", "TEXT NOT NULL DEFAULT ''")
+	addColumnIfNotExists(db, "projects", "floor_timeout_sec", "INTEGER NOT NULL DEFAULT 600")
+
 	// NOTE: harness_phase_agents.agent_id is NOT added here — table dropped in Phase 7.
 
 	// NOTE: idx_agent_messages_harness_run is intentionally NOT created here.
@@ -2608,12 +2613,46 @@ func dropLegacyUniqueConstraintsPostgres(db *sql.DB) {
 	}
 }
 
+// stripSQLComments removes `-- line` and `/* block */` comments from SQL text.
+// Used before substring-matching stored DDL, so a keyword appearing in a comment
+// is not mistaken for the real constraint.
+func stripSQLComments(sql string) string {
+	var b strings.Builder
+	b.Grow(len(sql))
+	for i := 0; i < len(sql); {
+		if strings.HasPrefix(sql[i:], "--") {
+			nl := strings.IndexByte(sql[i:], '\n')
+			if nl < 0 {
+				break
+			}
+			i += nl // keep the newline
+			continue
+		}
+		if strings.HasPrefix(sql[i:], "/*") {
+			end := strings.Index(sql[i+2:], "*/")
+			if end < 0 {
+				break
+			}
+			i += 2 + end + 2
+			continue
+		}
+		b.WriteByte(sql[i])
+		i++
+	}
+	return b.String()
+}
+
 func dropProjectsNameUniqueSQLite(db *sql.DB) {
 	var ddl string
 	if err := db.QueryRow(`SELECT sql FROM sqlite_master WHERE type='table' AND name='projects'`).Scan(&ddl); err != nil {
 		return
 	}
-	if !strings.Contains(ddl, "UNIQUE") {
+	// Match on the DDL with comments stripped. sqlite_master.sql preserves comments
+	// verbatim, so a bare strings.Contains(ddl, "UNIQUE") fires on the *word* in a
+	// column comment and triggers the destructive rebuild below — which recreates
+	// projects with only the original 8 columns and silently drops every column
+	// added since (color, memory_sweep_cron, floor_command, ...).
+	if !strings.Contains(stripSQLComments(ddl), "UNIQUE") {
 		return // already clean
 	}
 
