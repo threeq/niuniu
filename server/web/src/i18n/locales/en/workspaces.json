@@ -1020,7 +1020,8 @@
     "viewDiff": "Diff",
     "viewFile": "File",
     "viewPreview": "Preview",
-    "viewSource": "Source"
+    "viewSource": "Source",
+    "refresh": "Refresh"
   },
   "search": {
     "title": "Search workspace",

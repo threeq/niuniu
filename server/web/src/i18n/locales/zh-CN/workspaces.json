@@ -1020,7 +1020,8 @@
     "viewDiff": "变更",
     "viewFile": "文件",
     "viewPreview": "预览",
-    "viewSource": "源码"
+    "viewSource": "源码",
+    "refresh": "刷新"
   },
   "search": {
     "title": "搜索工作空间",

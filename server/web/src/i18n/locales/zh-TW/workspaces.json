@@ -1020,7 +1020,8 @@
     "viewDiff": "變更",
     "viewFile": "檔案",
     "viewPreview": "預覽",
-    "viewSource": "原始碼"
+    "viewSource": "原始碼",
+    "refresh": "重新整理"
   },
   "search": {
     "title": "搜尋工作空間",

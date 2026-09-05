@@ -2,7 +2,7 @@ import { Suspense, lazy, useCallback, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Download, Loader2, PackagePlus, Save, Send, X } from 'lucide-react';
+import { Download, Loader2, PackagePlus, RefreshCw, Save, Send, X } from 'lucide-react';
 import { api, ApiError } from '@/lib/api';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
@@ -72,6 +72,11 @@ async function fetchRawText(workspaceId: string, path: string): Promise<string> 
 export function ContentViewerPanel({ workspaceId, target }: ContentViewerPanelProps) {
   const { t } = useTranslation('workspaces');
   const closeViewer = useWorkspacePanelStore((s) => s.closeContentViewer);
+  // Refresh bumps a counter that file bodies watch: clicking it must re-fetch
+  // the file from disk, not serve the previous render (query cache / browser
+  // HTTP cache would otherwise show stale content after the agent edits it).
+  const [refreshTick, setRefreshTick] = useState(0);
+  const refresh = useCallback(() => setRefreshTick((n) => n + 1), []);
 
   const path = 'path' in target ? target.path : '';
   const title = target.kind === 'file' ? target.title ?? baseName(path) : baseName(path);
@@ -88,6 +93,17 @@ export function ContentViewerPanel({ workspaceId, target }: ContentViewerPanelPr
         {(target.kind === 'file' || target.kind === 'canvas' || target.kind === 'drawio') && (
           <FileHeaderActions workspaceId={workspaceId} path={path} name={baseName(path)} />
         )}
+        {target.kind === 'file' && (
+          <button
+            type="button"
+            onClick={refresh}
+            aria-label={t('contentViewer.refresh')}
+            title={t('contentViewer.refresh')}
+            className="shrink-0 rounded p-0.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+          >
+            <RefreshCw className="h-4 w-4" />
+          </button>
+        )}
         <button
           type="button"
           onClick={() => closeViewer(workspaceId)}
@@ -102,7 +118,12 @@ export function ContentViewerPanel({ workspaceId, target }: ContentViewerPanelPr
       {/* Body — children own their scroll so per-view scrollbars stay pinned. */}
       <div className="min-h-0 flex-1 overflow-hidden">
         {target.kind === 'file' && (
-          <FileBody workspaceId={workspaceId} path={path} jumpToLine={target.line} />
+          <FileBody
+            workspaceId={workspaceId}
+            path={path}
+            jumpToLine={target.line}
+            refreshTick={refreshTick}
+          />
         )}
         {target.kind === 'diff' && (
           <CodeView workspaceId={workspaceId} repo={target.repo} relPath={path} allowDiff />
@@ -132,11 +153,14 @@ function FileBody({
   workspaceId,
   path,
   jumpToLine,
+  refreshTick,
 }: {
   workspaceId: string;
   path: string;
   /** 1-based line to reveal, when opened from a content-search hit. */
   jumpToLine?: number;
+  /** Bumped by the header refresh button; re-fetches the file from disk. */
+  refreshTick: number;
 }) {
   const wt = resolveWorktreePath(path);
   // Comments anchor on (repo, file_path). Worktree files use the worktree name
@@ -157,6 +181,7 @@ function FileBody({
         repo={repo}
         relPath={relPath}
         jumpToLine={jumpToLine}
+        refreshTick={refreshTick}
       />
     );
   }
@@ -172,12 +197,21 @@ function FileBody({
         rawPath={path}
         allowDiff={false}
         jumpToLine={jumpToLine}
+        refreshTick={refreshTick}
       />
     );
   }
   return (
     <div className="h-full overflow-auto">
-      <FilePreview workspaceId={workspaceId} path={path} />
+      {/* The `_ts` param cache-busts the browser's `max-age=3600` on the raw
+          endpoint so a refresh after the agent edits the file re-downloads it;
+          the key remounts the (stateful) type-dispatched renderer clean. */}
+      <FilePreview
+        key={refreshTick}
+        workspaceId={workspaceId}
+        path={path}
+        cacheBust={refreshTick > 0 ? refreshTick : undefined}
+      />
     </div>
   );
 }
@@ -383,12 +417,15 @@ function MarkdownFileBody({
   repo,
   relPath,
   jumpToLine,
+  refreshTick,
 }: {
   workspaceId: string;
   path: string;
   repo: string;
   relPath: string;
   jumpToLine?: number;
+  /** Bumped by the header refresh button; re-fetches the file from disk. */
+  refreshTick: number;
 }) {
   const { t } = useTranslation('workspaces');
   // A content-search hit points at a line of SOURCE, which the rendered preview
@@ -431,7 +468,13 @@ function MarkdownFileBody({
       <div className="min-h-0 flex-1">
         {mode === 'preview' ? (
           <div className="h-full overflow-auto">
-            <FilePreview workspaceId={workspaceId} path={path} />
+            {/* `_ts` cache-bust + key: see FileBody's FilePreview comment. */}
+            <FilePreview
+              key={refreshTick}
+              workspaceId={workspaceId}
+              path={path}
+              cacheBust={refreshTick > 0 ? refreshTick : undefined}
+            />
           </div>
         ) : (
           <FileContentBody
@@ -444,6 +487,7 @@ function MarkdownFileBody({
             onSend={handleSend}
             onSetResolved={handleSetResolved}
             jumpToLine={jumpToLine}
+            refreshTick={refreshTick}
           />
         )}
       </div>
@@ -466,6 +510,7 @@ function CodeView({
   rawPath,
   allowDiff,
   jumpToLine,
+  refreshTick,
 }: {
   workspaceId: string;
   repo: string;
@@ -478,6 +523,9 @@ function CodeView({
   allowDiff: boolean;
   /** 1-based line to reveal in file mode, from a content-search hit. */
   jumpToLine?: number;
+  /** Bumped by the header refresh button; re-fetches the file from disk.
+   *  Only meaningful with a rawPath (the file-tree content view). */
+  refreshTick?: number;
 }) {
   const { t } = useTranslation('workspaces');
   // A search hit anchors to a line in the FULL file, which the diff view may not
@@ -556,6 +604,7 @@ function CodeView({
             onSend={handleSend}
             onSetResolved={handleSetResolved}
             jumpToLine={jumpToLine}
+            refreshTick={refreshTick}
           />
         )}
       </div>
@@ -614,6 +663,7 @@ function FileContentBody({
   onSend,
   onSetResolved,
   jumpToLine,
+  refreshTick,
 }: {
   workspaceId: string;
   rawPath: string;
@@ -624,10 +674,14 @@ function FileContentBody({
   onSend: (target: ComposeTarget, content: string) => Promise<void>;
   onSetResolved: (commentId: number, resolved: boolean) => Promise<void>;
   jumpToLine?: number;
+  /** Bumped by the header refresh button. In the query key so a bump makes a
+   *  NEW query — the old cached copy is bypassed and the file re-fetches even
+   *  inside the 15s staleTime window. */
+  refreshTick?: number;
 }) {
   const { t } = useTranslation('workspaces');
   const { data: text, isLoading, error } = useQuery({
-    queryKey: ['content-viewer-file', workspaceId, rawPath],
+    queryKey: ['content-viewer-file', workspaceId, rawPath, refreshTick ?? 0],
     queryFn: () => fetchRawText(workspaceId, rawPath),
     staleTime: 15_000,
   });
