@@ -243,6 +243,7 @@ type AgentConfig struct {
 	QwenCli    QwenCliConfig    `mapstructure:"qwen_cli"`
 	OmpCli     OmpCliConfig     `mapstructure:"omp_cli"`
 	GooseCli   GooseCliConfig   `mapstructure:"goose_cli"`
+	CursorCli  CursorCliConfig  `mapstructure:"cursor_cli"`
 }
 
 type LogConfig struct {
@@ -290,6 +291,19 @@ type OmpCliConfig struct {
 // workspace-level and injected as env by agentbackend.goose. Goose has no
 // native domestic models — wire OpenRouter/Ollama/compatible endpoints.
 type GooseCliConfig struct {
+	Command string   `mapstructure:"command"`
+	Args    []string `mapstructure:"args"`
+}
+
+// CursorCliConfig configures the Cursor CLI binary used by cursor-type
+// workspaces (niuniu's sixth agent engine). Mirrors GooseCliConfig. Default
+// Command "agent" is set in the Viper defaults block (`cursor-agent` also works
+// — Cursor keeps it as a back-compat alias). The engine is driven over the Agent
+// Client Protocol (`agent acp`) on stdio by agentbackend/cursor, which gives it a
+// real permission gate, multi-turn sessions, cooperative cancel, and explicit
+// MCP server registration. Credentials come from the host's `agent login` or a
+// CURSOR_API_KEY / CURSOR_AUTH_TOKEN env var.
+type CursorCliConfig struct {
 	Command string   `mapstructure:"command"`
 	Args    []string `mapstructure:"args"`
 }
@@ -395,6 +409,8 @@ func Load() (*Config, error) {
 	viper.SetDefault("agent.omp_cli.args", []string{})
 	viper.SetDefault("agent.goose_cli.command", "goose")
 	viper.SetDefault("agent.goose_cli.args", []string{})
+	viper.SetDefault("agent.cursor_cli.command", "agent")
+	viper.SetDefault("agent.cursor_cli.args", []string{})
 	viper.SetDefault("log.level", "debug")
 	viper.SetDefault("log.output", "terminal")
 	viper.SetDefault("log.file_dir", "")
@@ -515,6 +531,8 @@ func Save(cfg *Config) error {
 	viper.Set("agent.omp_cli.args", cfg.Agent.OmpCli.Args)
 	viper.Set("agent.goose_cli.command", cfg.Agent.GooseCli.Command)
 	viper.Set("agent.goose_cli.args", cfg.Agent.GooseCli.Args)
+	viper.Set("agent.cursor_cli.command", cfg.Agent.CursorCli.Command)
+	viper.Set("agent.cursor_cli.args", cfg.Agent.CursorCli.Args)
 	viper.Set("editor.vscode_mode", cfg.Editor.VSCodeMode)
 	viper.Set("editor.vscode_remote_url", cfg.Editor.VSCodeRemoteURL)
 	viper.Set("telemetry.enabled", cfg.Telemetry.Enabled)

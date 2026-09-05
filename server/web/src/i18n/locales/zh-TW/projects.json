@@ -366,7 +366,8 @@
         "codex": "OpenAI Codex",
         "qwen": "Qwen Code",
         "omp": "Oh My Pi (omp)",
-        "goose": "Goose"
+        "goose": "Goose",
+        "cursor": "Cursor Agent"
       },
       "claudeAccount": "Claude 賬號",
       "claudeAccountDefault": "（預設賬號）",

@@ -800,6 +800,11 @@ func Migrate(db *sql.DB) {
 	// is incremental.
 	migrateAllowGooseCLIType(db)
 
+	// 2026-09-05 Cursor agent 接入: admit 'cursor' (Cursor's headless
+	// cursor-agent CLI) to the same cli_type enums. Runs after the goose widening
+	// so the old→new enum chain stays incremental.
+	migrateAllowCursorCLIType(db)
+
 	// 2026-08-12 KB first-class citizen: admit 'mcp' to knowledge_bases.source_kind
 	// so an external knowledge-base MCP endpoint can be a KB source kind (managed
 	// in the unified KB list) instead of a hand-configured scene MCP server.
@@ -1118,8 +1123,58 @@ func migrateAllowGooseCLITypeSQLite(db *sql.DB, w *DB, oldEnum, newEnum string) 
 	slog.Info("migrateAllowGooseCLIType: workspaces.cli_type / projects.default_cli_type CHECK widened for 'goose'")
 }
 
-// migrateAllowMcpKBSource widens knowledge_bases.source_kind to admit 'mcp'
-// (an external knowledge-base MCP endpoint as a first-class KB source kind).
+// migrateAllowCursorCLIType widens the cli_type enums on workspaces.cli_type and
+// projects.default_cli_type to admit 'cursor' (Cursor's headless cursor-agent
+// CLI). Same dual-driver strategy as the goose widening: it advances the enum
+// from the 5-value set to the 6-value set.
+func migrateAllowCursorCLIType(db *sql.DB) {
+	oldEnum := "('claude','codex','qwen','omp','goose')"
+	newEnum := "('claude','codex','qwen','omp','goose','cursor')"
+	if Driver == "postgres" {
+		migrateAllowCursorCLITypePostgres(db)
+		return
+	}
+	migrateAllowCursorCLITypeSQLite(db, Wrap(db), oldEnum, newEnum)
+}
+
+func migrateAllowCursorCLITypePostgres(db *sql.DB) {
+	w := Wrap(db)
+	if migrationApplied(w, "allow_cursor_cli_type_v1") {
+		return
+	}
+	stmts := []string{
+		`ALTER TABLE workspaces DROP CONSTRAINT IF EXISTS workspaces_cli_type_check`,
+		`ALTER TABLE workspaces ADD CONSTRAINT workspaces_cli_type_check
+			CHECK (cli_type IN ('claude','codex','qwen','omp','goose','cursor'))`,
+		`ALTER TABLE projects DROP CONSTRAINT IF EXISTS projects_default_cli_type_check`,
+		`ALTER TABLE projects ADD CONSTRAINT projects_default_cli_type_check
+			CHECK (default_cli_type IN ('claude','codex','qwen','omp','goose','cursor'))`,
+	}
+	for _, s := range stmts {
+		if _, err := db.Exec(s); err != nil {
+			slog.Warn("migrateAllowCursorCLIType (pg): step failed", "error", err)
+			return // leave marker unset; next start retries
+		}
+	}
+	markMigration(w, "allow_cursor_cli_type_v1")
+	slog.Info("migrateAllowCursorCLIType: workspaces.cli_type / projects.default_cli_type CHECK widened for 'cursor'")
+}
+
+// migrateAllowCursorCLITypeSQLite rebuilds the workspaces and projects tables
+// with the widened cli_type CHECK (reusing the stored-DDL rebuild helper).
+func migrateAllowCursorCLITypeSQLite(db *sql.DB, w *DB, oldEnum, newEnum string) {
+	if migrationApplied(w, "allow_cursor_cli_type_v1") {
+		return
+	}
+	for _, table := range []string{"workspaces", "projects"} {
+		if err := rebuildSQLiteWidenCheck(db, table, oldEnum, newEnum); err != nil {
+			slog.Warn("migrateAllowCursorCLIType (sqlite): rebuild failed", "table", table, "error", err)
+			return // leave marker unset; next start retries
+		}
+	}
+	markMigration(w, "allow_cursor_cli_type_v1")
+	slog.Info("migrateAllowCursorCLIType: workspaces.cli_type / projects.default_cli_type CHECK widened for 'cursor'")
+}// (an external knowledge-base MCP endpoint as a first-class KB source kind).
 // Dual-driver, marker-gated. On fresh installs the schema files already carry
 // 'mcp', so the rebuild is a one-time no-op that reproduces the same table.
 //

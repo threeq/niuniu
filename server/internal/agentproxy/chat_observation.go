@@ -80,7 +80,7 @@ func RunOneShotStructured(parentCtx context.Context, req OneShotRequest, dst any
 			return err
 		}
 		return ParseOneShotOutput(out, dst)
-	case adapter.TypeCodex, adapter.TypeQwen, adapter.TypeOmp, adapter.TypeGoose:
+	case adapter.TypeCodex, adapter.TypeQwen, adapter.TypeOmp, adapter.TypeGoose, adapter.TypeCursor:
 		out, err := runGenericOneShot(parentCtx, t, req)
 		if err != nil {
 			return err
@@ -174,6 +174,23 @@ func oneShotArgv(t adapter.Type, command string) (string, []string) {
 		// NOTE: the goose ADAPTER uses `goose acp` (ACP over stdio) for interactive
 		// sessions — again a different surface from this one-shot call.
 		return command, []string{"run", "-i", "-", "-q", "--no-session"}
+	case adapter.TypeCursor:
+		if command == "" {
+			command = "cursor-agent"
+		}
+		// `-p` is cursor-agent's non-interactive print mode; piped stdin becomes
+		// the prompt when no positional prompt is given. Default output is plain
+		// text (the final answer only) — exactly what ParseOneShotOutput wants, so
+		// no --output-format flag here.
+		//
+		// --trust is required even for a throwaway analysis: without it cursor
+		// blocks on a workspace-trust confirmation it can never receive headlessly.
+		// No --force: this call is a pure generation with no tool access needed.
+		//
+		// NOTE: the interactive cursor path uses `agent acp` (ACP over stdio via
+		// agentbackend/cursor) — a different surface from this one-shot call. Do
+		// not "align" them.
+		return command, []string{"-p", "--trust"}
 	}
 	return "", nil
 }

@@ -47,7 +47,7 @@ const defaultVersionTimeout = 3 * time.Second
 // nor an OS-PM/npm package — it is probed via `python -m cairosvg --version` and
 // installed via `python -m pip install --user cairosvg`, so its probe/install
 // paths are special-cased below.
-var toolNames = []string{"node", "python3", "git", "claude", "codex", "qwen", "omp", "goose", "tesseract", "uv", "cairosvg"}
+var toolNames = []string{"node", "python3", "git", "claude", "codex", "qwen", "omp", "goose", "cursor-agent", "tesseract", "uv", "cairosvg"}
 
 // ocrGuideURL is the canonical Tesseract install guide on the marketing site
 // (website/src/content/docs-zh/install/ocr-tesseract.mdx, issue #284). It is
@@ -481,6 +481,7 @@ var fallbackURLs = map[string]string{
 	"qwen":      "https://qwen.code/",
 	"omp":       "https://github.com/can1357/oh-my-pi",
 	"goose":     "https://github.com/block/goose",
+	"cursor-agent": "https://cursor.com/docs/cli/overview",
 	"tesseract": ocrGuideURL,
 	"uv":        "https://docs.astral.sh/uv/getting-started/installation/",
 	"cairosvg":  "https://cairosvg.org/documentation/",
@@ -653,6 +654,20 @@ func (s *SystemDepsService) commandFor(tool, pm string) (string, []string) {
 	}
 	if tool == "goose" {
 		return "npm", []string{"install", "-g", "@block/goose"}
+	}
+	if tool == "cursor-agent" {
+		// Cursor ships its CLI as a versioned tarball behind an install script
+		// (`curl https://cursor.com/install -fsS | bash`) rather than an
+		// npm/brew/winget package. Returning "" makes Install fall back to the
+		// docs URL, exactly like uv on linux — piping a remote script through a
+		// shell on the user's behalf is not something niuniu should do silently.
+		//
+		// NOTE the probe deliberately looks for `cursor-agent`, not the newer
+		// primary name `agent`: both are installed, and `agent` is generic enough
+		// that an unrelated binary on PATH could satisfy the check and report a
+		// working Cursor install that isn't one. The default spawn command is still
+		// `agent` (config.CursorCliConfig).
+		return "", nil
 	}
 	if tool == "cairosvg" {
 		// Pip on every platform — deliberately NOT rsvg-convert/librsvg, which is

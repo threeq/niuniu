@@ -212,8 +212,10 @@ func TestSkillManager_EnableValidation(t *testing.T) {
 	m := newTestSkillManager(t)
 	ctx := context.Background()
 
-	// Unknown agent.
-	res := m.Enable(ctx, SkillTargetRequest{Name: "site-audit", Targets: []SkillTarget{{Agent: "cursor", Scope: "global"}}})
+	// Unknown agent. NOTE: this used to use "cursor", which became a real agent
+	// when cursor-agent was integrated. Use a name that is not a niuniu engine so
+	// the case keeps testing rejection rather than silently passing a valid one.
+	res := m.Enable(ctx, SkillTargetRequest{Name: "site-audit", Targets: []SkillTarget{{Agent: "not-an-agent", Scope: "global"}}})
 	require.Len(t, res, 1)
 	assert.Contains(t, res[0].Error, "unknown agent")
 

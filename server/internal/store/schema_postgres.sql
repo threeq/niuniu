@@ -16,7 +16,7 @@ CREATE TABLE IF NOT EXISTS projects (
     -- Default agent CLI for workspaces created under this project. Pre-selected
     -- in the create UI and used verbatim when a workspace is auto-created from
     -- an issue. Mirrors workspaces.cli_type's closed set.
-    default_cli_type TEXT NOT NULL DEFAULT 'claude' CHECK (default_cli_type IN ('claude','codex','qwen','omp','goose')),
+    default_cli_type TEXT NOT NULL DEFAULT 'claude' CHECK (default_cli_type IN ('claude','codex','qwen','omp','goose','cursor')),
     env_provider_id BIGINT DEFAULT NULL REFERENCES env_providers(id) ON DELETE SET NULL,
     env_provider_group TEXT NOT NULL DEFAULT '', -- bind to a provider GROUP instead of one provider
     -- Per-project workspace auto-cleanup policy. cleanup_enabled=0 (default) is
@@ -247,7 +247,7 @@ CREATE TABLE IF NOT EXISTS workspaces (
     is_archived    INTEGER NOT NULL DEFAULT 0,
     archived_at    TIMESTAMP DEFAULT NULL,
     mcp_servers JSONB NOT NULL DEFAULT '[]'::jsonb,
-    cli_type TEXT NOT NULL DEFAULT 'claude' CHECK (cli_type IN ('claude','codex','qwen','omp','goose')),
+    cli_type TEXT NOT NULL DEFAULT 'claude' CHECK (cli_type IN ('claude','codex','qwen','omp','goose','cursor')),
     codex_sandbox_mode TEXT NOT NULL DEFAULT 'danger-full-access'
         CHECK (codex_sandbox_mode IN ('read-only','workspace-write','danger-full-access')),
     codex_approval_policy TEXT NOT NULL DEFAULT 'never'

@@ -23,6 +23,12 @@ const (
 	// workspaces to the agentbackend.goose Backend (see agentproxy.Send). Goose
 	// is MCP-first (70+ extensions) and plays MCP client to niuniu-mcp.
 	TypeGoose Type = "goose"
+	// TypeCursor is Cursor's headless agent CLI (`cursor-agent`). Like Codex and
+	// Qwen it is a parse-the-stdout, one-shot engine driven by
+	// `cursor-agent -p --output-format stream-json`, but its NDJSON is cursor's
+	// own schema (tool calls are standalone tool_call lines, not tool_use content
+	// blocks), so CursorAdapter hand-maps it rather than reusing ParseStreamLine.
+	TypeCursor Type = "cursor"
 )
 
 // Adapter encapsulates the CLI-specific concerns that vary between Claude and
@@ -89,6 +95,8 @@ func For(t Type) Adapter {
 		return OmpAdapter{}
 	case TypeGoose:
 		return GooseAdapter{}
+	case TypeCursor:
+		return CursorAdapter{}
 	}
 	return ClaudeAdapter{}
 }

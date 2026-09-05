@@ -707,9 +707,14 @@ func normalizeCodexApproval(v string) string {
 // addWorkspaceCliTypeColumn migration backfills them, and a defensive
 // fallback here keeps the API contract tight (cli_type is never empty in
 // responses).
+//
+// This list MUST carry every value the cli_type CHECK admits. It previously
+// stopped at qwen, so omp and goose workspaces were reported to clients as
+// "claude" — the SPA then showed the wrong engine and pre-selected the wrong
+// hints. Keep in sync with service.ValidCliTypes and the schema CHECK.
 func normalizeCliType(v string) string {
 	switch v {
-	case "claude", "codex", "qwen":
+	case "claude", "codex", "qwen", "omp", "goose", "cursor":
 		return v
 	default:
 		return "claude"
