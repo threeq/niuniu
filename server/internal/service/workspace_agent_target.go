@@ -13,6 +13,9 @@ import (
 //	claude → <ws>/.claude/agents/<name>.md    (markdown + YAML frontmatter)
 //	qwen   → <ws>/.qwen/agents/<name>.md       (same markdown format)
 //	codex  → <ws>/.codex/agents/<name>.toml     (TOML, body → developer_instructions)
+//	omp    → <ws>/.omp/agents/<name>.md         (same markdown format)
+//	goose  → <ws>/.goose/agents/<name>.md       (same markdown format)
+//	cursor → <ws>/.cursor/agents/<name>.md      (same markdown format)
 //
 // render produces the file content from the source agent markdown plus the
 // authoritative name/description from the DB row.
@@ -25,7 +28,7 @@ type workspaceAgentTarget struct {
 // agentCliTypes is the set of CLIs that have a workspace subagent directory.
 // Used to clean every CLI's managed agents on each recompute so switching a
 // workspace's CliType doesn't leave stale niuniu-managed files behind.
-var agentCliTypes = []string{"claude", "qwen", "codex", "omp", "goose"}
+var agentCliTypes = []string{"claude", "qwen", "codex", "omp", "goose", "cursor"}
 
 // workspaceAgentTargetFor returns the materialization target for a CLI type.
 // Unknown types fall back to the Claude layout (the historic default).
@@ -54,6 +57,13 @@ func workspaceAgentTargetFor(cliType string) workspaceAgentTarget {
 		// goose agents are markdown (.goose/agents/*.md), like Claude's.
 		return workspaceAgentTarget{
 			dir:    filepath.Join(".goose", "agents"),
+			ext:    ".md",
+			render: RewriteNiuniuAgentContent,
+		}
+	case "cursor":
+		// cursor subagents are markdown (.cursor/agents/*.md), like Claude's.
+		return workspaceAgentTarget{
+			dir:    filepath.Join(".cursor", "agents"),
 			ext:    ".md",
 			render: RewriteNiuniuAgentContent,
 		}

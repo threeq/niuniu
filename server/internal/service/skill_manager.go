@@ -1,7 +1,7 @@
 // Package service: cross-agent skill management (SkillsGate-style).
 //
 // A dedicated manager for Agent Skills (SKILL.md payloads) across the CLI
-// agents niuniu drives - claude / codex / qwen / omp / goose. Install and
+// agents niuniu drives - claude / codex / qwen / omp / goose / cursor. Install and
 // enable are deliberately SEPARATE (issue #666):
 //
 //   - INSTALL (global)   <dataDir>/skills/<name>/        niuniu's store - on
@@ -51,7 +51,7 @@ import (
 
 // skillDirFor returns the skills directory (relative to an agent root - the
 // user home for the global scope, the workspace dir for the workspace scope)
-// for a CLI type. All five agents niuniu drives follow the same
+// for a CLI type. All six agents niuniu drives follow the same
 // ".<cli>/skills" convention for the open Agent Skills format.
 func skillDirFor(agent string) string {
 	switch agent {
@@ -63,13 +63,15 @@ func skillDirFor(agent string) string {
 		return filepath.Join(".omp", "skills")
 	case "goose":
 		return filepath.Join(".goose", "skills")
+	case "cursor":
+		return filepath.Join(".cursor", "skills")
 	default: // claude (and any unknown CLI) keep the historic layout.
 		return filepath.Join(".claude", "skills")
 	}
 }
 
 // SkillAgents is the ordered set of agents the skill manager covers.
-var SkillAgents = []string{"claude", "codex", "qwen", "omp", "goose"}
+var SkillAgents = []string{"claude", "codex", "qwen", "omp", "goose", "cursor"}
 
 // marketplaceSkillPlugins is the curated set of skill-type marketplace plugins
 // surfaced in the catalog. They are pure Agent Skills bundles (not

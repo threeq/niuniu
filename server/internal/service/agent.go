@@ -179,6 +179,13 @@ func (m *AgentManager) Start(ctx context.Context, workspaceID int64, workDir, in
 		}
 		args = make([]string, len(m.cfg.GooseCli.Args))
 		copy(args, m.cfg.GooseCli.Args)
+	case "cursor":
+		command = m.cfg.CursorCli.Command
+		if command == "" {
+			command = "cursor-agent"
+		}
+		args = make([]string, len(m.cfg.CursorCli.Args))
+		copy(args, m.cfg.CursorCli.Args)
 	default: // claude (and empty, normalized above)
 		command = m.cfg.ClaudeCode.Command
 		args = make([]string, len(m.cfg.ClaudeCode.Args))

@@ -371,7 +371,9 @@
         "omp": "Oh My Pi (omp)",
         "ompHint": "需要本机安装 omp CLI。通用 agent（编码/办公/数据/内容）。实验性。",
         "goose": "Goose",
-        "gooseHint": "需要本机安装 goose CLI。MCP-first 通用 agent，作为 MCP client 消费 niuniu-mcp。实验性。"
+        "gooseHint": "需要本机安装 goose CLI。MCP-first 通用 agent，作为 MCP client 消费 niuniu-mcp。实验性。",
+        "cursor": "Cursor Agent",
+        "cursorHint": "需要本机安装 cursor-agent 命令。Cursor 无界面 agent，用 cursor-agent login 登录或配置 CURSOR_API_KEY。实验性。"
       }
     },
     "deleteWorkspace": {

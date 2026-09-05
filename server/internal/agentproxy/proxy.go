@@ -3999,6 +3999,8 @@ func normalizedCliType(cliType string) string {
 		return "omp"
 	case "goose":
 		return "goose"
+	case "cursor":
+		return "cursor"
 	}
 	return "claude"
 }

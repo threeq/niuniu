@@ -708,13 +708,14 @@ var ValidCliTypes = map[string]struct{}{
 	"qwen":   {},
 	"omp":    {},
 	"goose":  {},
+	"cursor": {},
 }
 
 // ErrInvalidCliType is returned by Create when input.CliType is outside the
 // closed set in ValidCliTypes. API handlers should map this to HTTP 400
 // (BadRequest) rather than the generic 500, both so monitoring does not
 // page on user-input mistakes and so clients get an actionable response.
-var ErrInvalidCliType = errors.New("invalid cli_type: must be 'claude', 'codex', 'qwen', 'omp' or 'goose'")
+var ErrInvalidCliType = errors.New("invalid cli_type: must be 'claude', 'codex', 'qwen', 'omp', 'goose' or 'cursor'")
 
 // ErrCodexSandboxNotCodexWorkspace is returned by UpdateCodexSandbox when the
 // target workspace is not cli_type='codex'. UI should not surface the option
@@ -1185,6 +1186,23 @@ func (s *WorkspaceService) generateWorkspaceAgentInstructions(ctx context.Contex
 		// surface to the qwen agent.
 		instructionFile = "QWEN.md"
 		worktreeInstructionFiles = []string{"QWEN.md", "CLAUDE.md"}
+	case "omp":
+		// Must stay in sync with agentproxy.kbInstructionFile and
+		// harness.instructionFileForCLI, which write the KB block and the board
+		// menu into OMP.md for omp workspaces. Without this case the primary file
+		// was CLAUDE.md while those two wrote OMP.md, so the agent read a file
+		// that carried neither section.
+		instructionFile = "OMP.md"
+		worktreeInstructionFiles = []string{"OMP.md", "CLAUDE.md"}
+	case "goose":
+		// Same sync requirement as omp (kbInstructionFile → GOOSE.md).
+		instructionFile = "GOOSE.md"
+		worktreeInstructionFiles = []string{"GOOSE.md", "CLAUDE.md"}
+	case "cursor":
+		// cursor-agent reads AGENTS.md, the open cross-tool convention it shares
+		// with Codex.
+		instructionFile = "AGENTS.md"
+		worktreeInstructionFiles = []string{"AGENTS.md", "CLAUDE.md"}
 	}
 
 	if noRepo || len(repos) == 0 {

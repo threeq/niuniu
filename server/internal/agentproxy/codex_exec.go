@@ -305,6 +305,11 @@ func (s *WorkspaceSession) buildOneShotExec(ctx context.Context, workDir string)
 	if oneShotAdapter.Type() == adapter.TypeQwen {
 		return s.buildQwenOneShotExec(ctx, workDir)
 	}
+	// Cursor's agent CLI is likewise one-shot with none of Codex's account /
+	// sandbox / config.toml plumbing.
+	if oneShotAdapter.Type() == adapter.TypeCursor {
+		return s.buildCursorOneShotExec(ctx, workDir)
+	}
 	command := s.cfg.Agent.CodexCli.Command
 	if command == "" {
 		command = "codex"

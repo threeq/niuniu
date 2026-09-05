@@ -97,6 +97,12 @@ const AGENT_HINTS: Record<string, Record<string, string>> = {
     NIUNIU_MODEL: 'openrouter:<model>, ollama:<model>, anthropic:<model>',
     NIUNIU_ALLOWED_TOOLS: 'Bash Edit Read',
   },
+  cursor: {
+    NIUNIU_AGENT_COMMAND: 'cursor-agent',
+    NIUNIU_AGENT_ARGS: '--trust --force',
+    NIUNIU_MODEL: 'sonnet-4, sonnet-4-thinking, gpt-5',
+    NIUNIU_ALLOWED_TOOLS: 'Bash Edit Read',
+  },
 };
 
 interface WorkspaceSettingsDialogProps {

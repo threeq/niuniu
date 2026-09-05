@@ -168,6 +168,14 @@ func instructionFileForCLI(cliType string) string {
 		// WorkspaceService.generateWorkspaceAgentInstructions, so the board menu
 		// lands where the qwen agent actually reads it.
 		return "QWEN.md"
+	case "omp":
+		// Same sync requirement as qwen — see generateWorkspaceAgentInstructions.
+		return "OMP.md"
+	case "goose":
+		return "GOOSE.md"
+	case "cursor":
+		// cursor-agent reads AGENTS.md, like Codex.
+		return "AGENTS.md"
 	default:
 		return "CLAUDE.md"
 	}

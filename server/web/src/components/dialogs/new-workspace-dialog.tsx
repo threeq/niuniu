@@ -62,7 +62,7 @@ export function NewWorkspaceDialog({ open, onOpenChange, defaultIssueId, default
   // cliType chooses the agent CLI for the workspace. Immutable after create.
   // Codex workspaces skip the Claude account picker since codex has its own
   // ~/.codex/auth.json (M2 will introduce a codex_accounts table).
-  const [cliType, setCliType] = useState<'claude' | 'codex' | 'qwen' | 'omp' | 'goose'>('claude');
+  const [cliType, setCliType] = useState<'claude' | 'codex' | 'qwen' | 'omp' | 'goose' | 'cursor'>('claude');
   const [isSubmitting, setIsSubmitting] = useState(false);
   // MCP picker state — per-workspace MCP config (spec
   // docs/superpowers/specs/2026-05-17-per-workspace-mcp-config-design.md §7).
@@ -475,7 +475,7 @@ export function NewWorkspaceDialog({ open, onOpenChange, defaultIssueId, default
                 aria-labelledby="cliTypeLabel"
                 className="flex gap-2"
                 onKeyDown={(e) => {
-                  const order: Array<'claude' | 'codex' | 'qwen' | 'omp' | 'goose'> = ['claude', 'codex', 'qwen', 'goose', 'omp'];
+                  const order: Array<'claude' | 'codex' | 'qwen' | 'omp' | 'goose' | 'cursor'> = ['claude', 'codex', 'qwen', 'cursor', 'goose', 'omp'];
                   const i = order.indexOf(cliType);
                   if (e.key === 'ArrowRight' || e.key === 'ArrowDown') {
                     e.preventDefault();
@@ -486,7 +486,7 @@ export function NewWorkspaceDialog({ open, onOpenChange, defaultIssueId, default
                   }
                 }}
               >
-                {(['claude', 'codex', 'qwen', 'goose', 'omp'] as const).map((opt) => (
+                {(['claude', 'codex', 'qwen', 'cursor', 'goose', 'omp'] as const).map((opt) => (
                   <Button
                     key={opt}
                     type="button"

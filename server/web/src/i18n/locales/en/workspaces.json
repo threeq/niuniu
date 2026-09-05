@@ -371,7 +371,9 @@
         "omp": "Oh My Pi (omp)",
         "ompHint": "Requires the omp CLI on this machine. General-purpose agent (coding, office, data, content). Experimental.",
         "goose": "Goose",
-        "gooseHint": "Requires the goose CLI on this machine. MCP-first general-purpose agent; speaks MCP client to niuniu-mcp. Experimental."
+        "gooseHint": "Requires the goose CLI on this machine. MCP-first general-purpose agent; speaks MCP client to niuniu-mcp. Experimental.",
+        "cursor": "Cursor Agent",
+        "cursorHint": "Requires the cursor-agent CLI on this machine. Cursor's headless agent; sign in with cursor-agent login or set CURSOR_API_KEY. Experimental."
       }
     },
     "deleteWorkspace": {

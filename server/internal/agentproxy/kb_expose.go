@@ -61,6 +61,10 @@ func kbInstructionFile(cliType string) string {
 		return "OMP.md"
 	case "goose":
 		return "GOOSE.md"
+	case "cursor":
+		// cursor-agent reads AGENTS.md (the open cross-tool convention) as its
+		// project instruction file.
+		return "AGENTS.md"
 	default:
 		return "CLAUDE.md"
 	}
