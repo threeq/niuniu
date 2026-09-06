@@ -170,7 +170,7 @@ payload 体积分布（`archify/` 目录，git tree 实测）：
 | # | 问题 | 事实依据 | 处理建议 |
 |:-:|------|----------|----------|
 | ① | **联网更新检查与 local-first 冲突** | SKILL.md 有 "Update awareness" 段，要求 agent 在首个候选件产出后**主动跑 `scripts/check-update.mjs`**；README 说明会 GET 固定 manifest（约 72h 一次，服务端只看到 IP+时间）。牛牛的承诺是"No data leaves your machine unless you connect an external source"，且 `scene_skills.go` 的整个设计前提就是"纯本地文件拷贝、不联网、不跑安装器" | 双保险：场景 `env_presets` 注入 `ARCHIFY_UPDATE_CHECK_DISABLED=1`（上游支持的官方开关，同时也禁掉 reminder 状态写盘）**并且**在 vendor 时删掉 SKILL.md 的 "Update awareness" 段——单靠 env 挡不住 agent 读到指令后的行为噪音 |
-| ② | **产物预览沙箱会拦掉导出** | `file-preview.tsx:108` 对 html 用 `sandbox="allow-scripts"`。脚本能跑 → **交互式 viewer 可用**（搜索/focus/route/theme 都正常）；但缺 `allow-downloads` → **Export 菜单的 PNG/SVG/WebM 下载被浏览器静默拦截**；缺 `allow-same-origin` → clipboard 写入和 localStorage 主题记忆失效 | 短期：场景 prompt 说明"要导出图片请在浏览器打开该 HTML"，同时让 archify 直接产出 PNG/SVG 文件一并登记 artifacts.json（绕开 viewer 内导出）。中期：给 html 预览加 `allow-downloads`——它不放开同源，不引入跨源数据泄露面，是低风险改动，但属于独立改动应单独评审 |
+| ② | **产物预览沙箱会拦掉导出** — ✅ **本次已修** | `file-preview.tsx:108` 对 html 原为 `sandbox="allow-scripts"`。脚本能跑 → **交互式 viewer 可用**（搜索/focus/route/theme 都正常）；但缺 `allow-downloads` → **Export 菜单的 PNG/SVG/WebM 下载被浏览器静默拦截**（无报错、无提示，表现为点了没反应）；缺 `allow-same-origin` → clipboard 写入和 localStorage 主题记忆失效。**已用 Playwright 对真实 715 KB archify 产物 A/B 实测**：`allow-scripts` 单独 → PNG/SVG 导出均为 `null`；加 `allow-downloads` → 两者均成功落盘，导出 PNG 为 4320×2352 有效图像（此前担心的 opaque origin 下 `canvas.toBlob` 污染问题**未出现**） | 已改为 `sandbox="allow-scripts allow-downloads"`（commit `72b9802`）。**仍不给 `allow-same-origin`**——那才是真正有代价的一位，保持 opaque origin 让产物碰不到我们的 cookie/localStorage；代价（viewer 内剪贴板与主题记忆失效）可接受。另注：`file-preview.tsx` 约 724 行另有一处 `sandbox="allow-same-origin"` 供其他 renderer 使用，语义不同，未改动 |
 | ③ | **内嵌体积翻倍** | 裁剪后实测 **2.4 MB**（初评估 2.2 MB），`builtin_skills/` 原 1.7 MB → 落地后 **3.4 MB / 8 skills / 176 文件**，内嵌 skill payload 翻倍有余（drawio 856 KB 是原最大者，archify 约为其 2.9 倍） | 已接受，在此显式记录。若要压：`assets/`(662 KB) 与 `renderers/`(1087 KB) 是硬需求不可裁，进一步压缩只能靠 gzip 存储 + 物化时解压（drawio 的 `shape-index.json.gz` 已有此先例） |
 
 补充（非阻塞）：**Node 可用性**。archify 全程需要 Node ≥18。驱动 claude CLI 的用户几乎必然有 Node（Claude Code 本身是 Node 应用），但 codex / qwen / goose 等 agent 不保证。SKILL.md 自带 `doctor` 子命令，场景 prompt 里应写明：**`doctor` 不过时明确告知用户并降级到 `fireworks-tech-graph`**，而不是静默失败——这与 viz-architecture 场景对 cairosvg 缺失的"优雅降级，绝不报错"纪律保持一致。
@@ -182,7 +182,7 @@ payload 体积分布（`archify/` 目录，git tree 实测）：
 | 优先级 | 事项 | 说明 |
 |:---:|------|------|
 | ~~**P1**~~ ✅ 已落地 | 按 §5.1–5.4 vendor archify + **扩展 `viz-architecture`（含支持有仓库）**，处理 §5.5① | 这是"收编"的最小完整闭环；①是硬前提，不能留着一个会联网的 skill 进 local-first 产品。①的处理方式：直接删掉 `scripts/check-update.mjs` + `scripts/update-contract.mjs` 并重写 SKILL.md 的 "Update awareness" 段（仅设 env 挡不住 agent 读到指令） |
-| **P2** | html 预览 iframe 加 `allow-downloads`（§5.5②） | 独立小改动，收益不止 archify——office-design 等场景的 HTML 产物同样受益。**未做**：属 UI 改动，需按 `docs/design-system.md` 单独评审 |
+| ~~**P2**~~ ✅ 已落地 | html 预览 iframe 加 `allow-downloads`（§5.5②） | 独立小改动，收益不止 archify——office-design 等场景的 HTML 产物同样受益。`docs/design-system.md` 的硬性裁决线是"禁止硬编码色值 / 间距字号圆角阴影走 token"，sandbox 属性不触及任何 token，故不触发该门禁。已用 Playwright 对真实 archify 产物 A/B 实测确认（详见 §5.5②修订） |
 | ~~**P3**~~ ✅ 已落地 | 清理 §5.2 记录的 `info-radar` 镜像 drift | 实际比初评记录的严重（scene YAML 同样 drift 且被场景引用），已回填源码树并加守卫测试 |
 | **不做** | 把 archify 做成牛牛内置的 Go 渲染服务 | 上游是活跃演进的 JS 项目（220 commits，v2.17 仍在 dev），重写即刻过时；vendored skill 是正确的耦合强度 |
 | **不做** | 用 archify 替换现有三个画图 skill | 定位互补不重叠：要"可再编辑源文件"仍是 drawio/excalidraw，要"贴文档的静态成品图"仍是 fireworks |
