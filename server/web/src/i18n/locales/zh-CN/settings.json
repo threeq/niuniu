@@ -491,7 +491,8 @@
       "lastChecked": "上次检查：{{time}}",
       "toastDescription": "前往官网下载最新版本",
       "dismiss": "稍后",
-      "networkUnavailable": "无法获取最新版本信息（可能因网络环境受限）。可点击下方按钮前往官网查看最新版本。"
+      "networkUnavailable": "无法获取最新版本信息（可能因网络环境受限）。可点击下方按钮前往官网查看最新版本。",
+      "notesTitle": "本次更新内容"
     }
   },
   "general": {
