@@ -43,7 +43,7 @@ export function startUpdateChecker(currentVersion: string) {
       if (!result.available) return
       const dismissed = localStorage.getItem(LS_DISMISSED)
       if (dismissed === result.latest) return
-      surfaceToast(result.latest, result.download_url, result.release_url)
+      surfaceToast(result.latest, result.download_url, result.release_url, result.notes)
     } catch {
       // Network / upstream-unreachable / GFW / etc. — silent here. The
       // Settings → 关于 panel surfaces a friendlier error inline when the
@@ -80,11 +80,14 @@ if (import.meta.hot) {
   })
 }
 
-function surfaceToast(version: string, downloadURL: string, releaseURL: string) {
+function surfaceToast(version: string, downloadURL: string, releaseURL: string, notes?: string) {
   const t = i18n.getFixedT(null, 'settings')
   const target = downloadURL || releaseURL || releasesPageURL
+  // Notes summary: the first few release-note lines instead of a fixed blurb,
+  // so the toast itself answers "what changed". Long entries truncate.
+  const summary = notesSummary(notes)
   toast(t('about.update.newVersion', { version }), {
-    description: t('about.update.toastDescription'),
+    description: summary || t('about.update.toastDescription'),
     duration: 12_000,
     action: {
       label: t('about.update.download'),
@@ -97,4 +100,19 @@ function surfaceToast(version: string, downloadURL: string, releaseURL: string) 
       },
     },
   })
+}
+
+// notesSummary condenses the release notes into a toast-sized blurb: the first
+// three non-heading lines, joined; a trailing ellipsis when there is more.
+// Undefined when there is nothing usable (caller falls back to the fixed
+// description).
+function notesSummary(notes?: string): string | undefined {
+  if (!notes) return undefined
+  const lines = notes
+    .split('\n')
+    .map((l) => l.trim())
+    .filter((l) => l && !l.startsWith('#'))
+  if (lines.length === 0) return undefined
+  const head = lines.slice(0, 3).map((l) => l.replace(/^[-*]\s+/, '').replace(/\*\*/g, ''))
+  return head.join('；') + (lines.length > 3 ? '…' : '')
 }

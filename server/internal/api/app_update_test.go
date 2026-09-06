@@ -34,6 +34,11 @@ func TestAppUpdate_LatestProxiesChangelog(t *testing.T) {
 	}))
 	defer srv.Close()
 
+	// This test exercises the changelog fallback, so point the GitHub source
+	// at a dead address — otherwise the handler's fetch hits the real
+	// api.github.com and the local upstream is never consulted.
+	t.Setenv("NIUNIU_RELEASE_API_URL", "http://127.0.0.1:0/repos/threeq/niuniu/releases/latest")
+
 	r := newAppUpdateRouter(t, srv.URL)
 
 	for i := 0; i < 2; i++ {
@@ -71,6 +76,9 @@ func TestAppUpdate_UpstreamErrorIs502(t *testing.T) {
 		http.Error(w, "blocked", http.StatusForbidden)
 	}))
 	defer srv.Close()
+
+	// Both sources must fail for a 502: pin the GitHub source dead too.
+	t.Setenv("NIUNIU_RELEASE_API_URL", "http://127.0.0.1:0/repos/threeq/niuniu/releases/latest")
 
 	r := newAppUpdateRouter(t, srv.URL)
 	w := httptest.NewRecorder()

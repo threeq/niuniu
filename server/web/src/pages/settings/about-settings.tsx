@@ -187,6 +187,7 @@ export function AboutSettings() {
               <div className="text-sm font-medium">
                 {t('about.update.newVersion', { version: result.latest })}
               </div>
+              {result.notes && <ReleaseNotes notes={result.notes} releaseURL={result.release_url || releasesPageURL} />}
               <div className="flex items-center gap-2 flex-wrap">
                 {result.download_url && (
                   <Button
@@ -220,6 +221,69 @@ export function AboutSettings() {
           )}
         </div>
       )}
+    </div>
+  )
+}
+
+// ReleaseNotes renders the update's 优化点 in the new-version card. The GitHub
+// source ships a markdown body ("## What's Changed" + one bullet per PR, each
+// ending in a PR link); the changelog fallback ships plain lines. Rendering
+// stays deliberately light: drop boilerplate headings, turn each remaining
+// line into a list row, and rewrite trailing `…/pull/123` links into a
+// clickable `#123` chip pointing at the release page (per-release anchor, so
+// it always lands on the right notes). Raw markdown syntax that isn't worth a
+// renderer (bold markers, compare links) is stripped to plain text.
+function ReleaseNotes({ notes, releaseURL }: { notes: string; releaseURL: string }) {
+  const { t } = useTranslation('settings')
+  const tag = releaseURL.match(/releases\/tag\/(v[\w.\-]+)/)?.[1]
+  const compareURL = tag
+    ? releaseURL.replace(/releases\/tag\/.*/, `releases/tag/${tag}`)
+    : releaseURL
+  const lines = notes
+    .split('\n')
+    .map((l) => l.trim())
+    .filter((l) => l.length > 0)
+    .filter((l) => !/^#{1,6}\s/.test(l)) // markdown headings ("## What's Changed")
+    .map((l) => {
+      const text = l
+        .replace(/^[-*]\s+/, '') // list bullet
+        .replace(/\*\*/g, '') // bold markers
+        .replace(/\s*(in|by)\s+https?:\/\/\S+$/i, '') // trailing PR/author link
+        .replace(/\s*https?:\/\/\S+$/i, '') // any other bare trailing link
+        .trim()
+      return text
+    })
+    .filter((l) => l.length > 0)
+  if (lines.length === 0) return null
+  return (
+    <div className="space-y-1">
+      <p className="text-xs font-medium text-muted-foreground">{t('about.update.notesTitle')}</p>
+      <ul className="space-y-0.5">
+        {lines.map((l, i) => {
+          const pr = l.match(/#(\d+)\s*$/)
+          return (
+            <li key={i} className="flex items-start gap-1.5 text-xs text-foreground">
+              <span className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-muted-foreground/50" aria-hidden />
+              <span className="min-w-0">
+                {l.replace(/\s*#\d+\s*$/, '')}
+                {pr && (
+                  <>
+                    {' '}
+                    <a
+                      href={compareURL}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-info hover:underline"
+                    >
+                      {pr[0].trim()}
+                    </a>
+                  </>
+                )}
+              </span>
+            </li>
+          )
+        })}
+      </ul>
     </div>
   )
 }

@@ -490,7 +490,8 @@
       "lastChecked": "上次檢查：{{time}}",
       "toastDescription": "前往官網下載最新版本",
       "dismiss": "稍後",
-      "networkUnavailable": "無法獲取最新版本資訊（可能因網路環境受限）。可點選下方按鈕前往官網檢視最新版本。"
+      "networkUnavailable": "無法獲取最新版本資訊（可能因網路環境受限）。可點選下方按鈕前往官網檢視最新版本。",
+      "notesTitle": "本次更新內容"
     }
   },
   "general": {

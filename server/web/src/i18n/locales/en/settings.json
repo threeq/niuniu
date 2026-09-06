@@ -490,7 +490,8 @@
       "lastChecked": "Last checked: {{time}}",
       "toastDescription": "Open the official site to download the latest version",
       "dismiss": "Later",
-      "networkUnavailable": "Couldn't fetch the latest version (your network may be restricted). Open the official site to check for updates."
+      "networkUnavailable": "Couldn't fetch the latest version (your network may be restricted). Open the official site to check for updates.",
+      "notesTitle": "What's changed"
     }
   },
   "general": {

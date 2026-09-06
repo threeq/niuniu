@@ -40,6 +40,9 @@ export interface LatestRelease {
   html_url: string
   assets: ReleaseAsset[]
   published_at: string
+  /** Release notes (优化点): markdown from the GitHub release body; plain-text
+   *  lines from the changelog fallback; empty when unavailable. */
+  notes?: string
 }
 
 export interface UpdateCheckResult {
@@ -49,6 +52,7 @@ export interface UpdateCheckResult {
   release_url: string
   download_url: string // platform-matched asset; empty if no match
   published_at: string
+  notes?: string
 }
 
 export async function fetchLatestRelease(): Promise<LatestRelease> {
@@ -186,6 +190,7 @@ export async function checkForUpdates(currentVersion: string): Promise<UpdateChe
     release_url: release.html_url || RELEASES_URL,
     download_url: findPlatformAsset(release.assets),
     published_at: release.published_at,
+    notes: release.notes?.trim() || undefined,
   }
 }
 
