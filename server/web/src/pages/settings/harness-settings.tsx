@@ -16,6 +16,7 @@ import {
 } from '@/components/ui/dialog'
 import { confirm } from '@/lib/confirm'
 import { harnessSpecApi } from '@/lib/harness-api'
+import { ProjectFloorOverview } from './project-floor-overview'
 import type {
   HarnessSpec,
   HarnessCategory,
@@ -324,6 +325,11 @@ export function HarnessSettings() {
 
   return (
     <div className="space-y-8">
+      {/* Per-project 底线 — the part that is actually enforced today, and the only
+          harness state most users configure. Kept first so this page answers
+          "is anything gating my projects?" before listing the global rule library. */}
+      <ProjectFloorOverview />
+
       {/* Global Specs */}
       <div className="space-y-4">
         <div className="flex items-center justify-between">

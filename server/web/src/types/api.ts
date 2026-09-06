@@ -1370,6 +1370,11 @@ export interface ProjectFloor {
   timeout_sec: number
 }
 
+// One project's floor in the cross-project overview on the 工程规范 page.
+export interface ProjectFloorSummary extends ProjectFloor {
+  project_id: number
+}
+
 export interface MemoryVersion {
   id: number
   memory_id: number

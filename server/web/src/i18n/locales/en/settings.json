@@ -765,6 +765,15 @@
     }
   },
   "harness": {
+    "floors": {
+      "title": "Project Floor Gates",
+      "subtitle": "The floor command each project must pass before an issue can reach Done. Edited per project under Project → Settings → Board.",
+      "noProjects": "No active projects",
+      "summary": "{{active}} of {{total}} projects have a floor gate configured",
+      "notSet": "No floor gate — nothing is enforced for this project",
+      "edit": "Edit",
+      "configure": "Configure"
+    },
     "specs": {
       "title": "Global Engineering Standards",
       "subtitle": "Define code-quality and workflow gate rules",

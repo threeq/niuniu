@@ -62,6 +62,47 @@ func (s *ProjectFloorService) GetFloor(ctx context.Context, projectID int64) (Pr
 	return f, nil
 }
 
+// ProjectFloorSummary is one project's floor in the cross-project overview shown
+// on the engineering-standards page. The embedded ProjectFloor flattens into the
+// same JSON shape GetFloor returns, plus the owning project's id.
+type ProjectFloorSummary struct {
+	ProjectID int64 `json:"project_id"`
+	ProjectFloor
+}
+
+// ListFloors returns the floors of the given projects, skipping ids that do not
+// exist. Callers are responsible for having authorized every id first — this is
+// a plain read keyed by the ids it is handed.
+func (s *ProjectFloorService) ListFloors(ctx context.Context, ids []int64) ([]ProjectFloorSummary, error) {
+	if len(ids) == 0 {
+		return nil, nil
+	}
+	// Build the IN placeholder list; ids are int64 so there is nothing to escape.
+	ph := make([]string, len(ids))
+	args := make([]any, len(ids))
+	for i, id := range ids {
+		ph[i] = "?"
+		args[i] = id
+	}
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT id, floor_command, floor_timeout_sec FROM projects WHERE id IN (`+
+			strings.Join(ph, ",")+`)`, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	out := make([]ProjectFloorSummary, 0, len(ids))
+	for rows.Next() {
+		var f ProjectFloorSummary
+		if err := rows.Scan(&f.ProjectID, &f.Command, &f.TimeoutSec); err != nil {
+			return nil, err
+		}
+		out = append(out, f)
+	}
+	return out, rows.Err()
+}
+
 // SetFloor stores a project's floor command. A blank command clears the floor.
 // The timeout is defaulted when unset and capped at maxFloorTimeoutSec so a value
 // the floor gate could not honour is never persisted.

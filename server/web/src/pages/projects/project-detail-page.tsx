@@ -10,11 +10,20 @@ import { ProjectSettingsTab } from '../project/settings-tab'
 
 interface ProjectDetailPageProps {
   projectId: string
+  // Deep-link entry point: which tab (and, for settings, which sub-section) to
+  // open on mount. Used by the 工程规范 page to link straight at a project's
+  // 底线 editor instead of dropping the user on the board.
+  initialTab?: 'kanban' | 'memory' | 'settings'
+  initialSettingsSection?: string
 }
 
-export function ProjectDetailPage({ projectId }: ProjectDetailPageProps) {
+export function ProjectDetailPage({
+  projectId,
+  initialTab,
+  initialSettingsSection,
+}: ProjectDetailPageProps) {
   const { t } = useTranslation('projects')
-  const [activeTab, setActiveTab] = useState<'kanban' | 'memory' | 'settings'>('kanban')
+  const [activeTab, setActiveTab] = useState<'kanban' | 'memory' | 'settings'>(initialTab ?? 'kanban')
   // The kanban toolbar (rendered deep inside the board) portals itself into this
   // slot, merging into the tab row as a single 40px header. A ref-callback into
   // state so the portal target is available after the slot element mounts.
@@ -78,7 +87,7 @@ export function ProjectDetailPage({ projectId }: ProjectDetailPageProps) {
           )}
           {activeTab === 'settings' && (
             <div className="h-full overflow-y-auto">
-              <ProjectSettingsTab projectId={projectIdNum} />
+              <ProjectSettingsTab projectId={projectIdNum} initialSection={initialSettingsSection} />
             </div>
           )}
         </div>
