@@ -26,17 +26,26 @@ import { ProjectColorPicker } from '@/components/shared/project-color-picker';
 
 type SettingsSection = 'basic' | 'repos' | 'labels' | 'board' | 'externalSources' | 'imbot' | 'cleanup' | 'danger';
 
-interface Props {
-  projectId: number;
+const SETTINGS_SECTIONS: SettingsSection[] = ['basic', 'repos', 'labels', 'board', 'externalSources', 'imbot', 'cleanup', 'danger'];
+
+// Narrow an untrusted deep-link value (?section=board) to a real section.
+function asSettingsSection(v: string | undefined): SettingsSection {
+  return SETTINGS_SECTIONS.includes(v as SettingsSection) ? (v as SettingsSection) : 'basic';
 }
 
-export function ProjectSettingsTab({ projectId }: Props) {
+interface Props {
+  projectId: number;
+  // Sub-section to open on mount, from a deep link. Unknown values fall back to 'basic'.
+  initialSection?: string;
+}
+
+export function ProjectSettingsTab({ projectId, initialSection }: Props) {
   const { t } = useTranslation(['projects', 'presets']);
   const qc = useQueryClient();
   const navigate = useNavigate();
   const updateStatus = useUpdateProjectStatus();
   const [deleteOpen, setDeleteOpen] = useState(false);
-  const [activeSection, setActiveSection] = useState<SettingsSection>('basic');
+  const [activeSection, setActiveSection] = useState<SettingsSection>(asSettingsSection(initialSection));
   const { data: project, isLoading } = useQuery({
     queryKey: ['project', String(projectId)],
     queryFn: () => api.get<Project>(`/projects/${projectId}`),

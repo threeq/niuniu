@@ -1222,6 +1222,11 @@ func (s *Server) setupRoutes() {
 		wsTeam.POST("/blackboard", teamH.WriteBlackboard)
 	}
 
+	// Cross-project 底线 overview for the engineering-standards page. Lives under
+	// /harness (not /projects) because /projects/:id already owns that position in
+	// the route tree — a static /projects/floors sibling would conflict.
+	api.GET("/harness/project-floors", s.projectFloorHandler.ListFloors)
+
 	// Harness spec routes — order: /resolve must come before /:id
 	harnessSpecs := api.Group("/harness/specs")
 	{

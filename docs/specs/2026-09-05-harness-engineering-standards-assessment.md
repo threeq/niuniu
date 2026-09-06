@@ -273,3 +273,23 @@ staged diff **拼在一起**送给 judge，问"这次改动是否真的实现了
 - 前端测试：`workspace-sidebar.test.tsx` 在全量并发下有 1~2 条超时 flake，
   **修改前的 HEAD 同样失败**、单独跑该文件 11 条全过，与本次改动无关
 
+
+### P4 · 补做：底线的可发现性
+
+用户第一反馈是「我看 UI 界面没有变化啊」。核对下来功能确实在跑，
+但**入口藏错了地方**：底线编辑器在 项目 → 设置 → 看板，而顶栏「工程规范」页
+只列全局规范库（默认全空、默认不启用），于是用户最自然会去看的那一页，
+恰恰对"我的项目到底有没有被拦"这个唯一有意义的问题只字不提。
+
+补齐的是这条链路：
+
+| 文件 | 改动 |
+|------|------|
+| `service/project_floor.go` | 新增 `ListFloors(ids)` —— 一次性读多个项目的底线（`ProjectFloorSummary` 内嵌 `ProjectFloor`，JSON 形状与单项目接口一致，只多一个 `project_id`） |
+| `api/project_floor.go` | `GET /harness/project-floors?ids=1,2,3`，逐 id 过 `CanAccessProject`：无权的 id 直接跳过而不是整个请求失败，越权看不到、有权的照常看 |
+| `server/router.go` | 路由挂在 `/harness/` 而非 `/projects/floors` —— gin 路由树里静态段不能和同位置的 `:id` 做兄弟，同文件既有注释已踩过这个坑 |
+| `pages/settings/project-floor-overview.tsx` | 新增。「工程规范」页顶部列出每个活跃项目的底线状态（已设/未设 + 命令原文 + `x/y 已配置`），每行直达该项目的编辑器 |
+| `router.tsx` / `project-layout.tsx` / `project-detail-page.tsx` / `project/settings-tab.tsx` | 打通深链 `?tab=settings&section=board`。tab 与子分区状态原本是两层组件内的局部 `useState`，外部无法定位；现在 `validateSearch` 里两个键**都是可选**的，既有指向 `/projects/$id` 的链接不受影响 |
+
+顺序上把这一段放在全局规范库**之前**：这一页要先回答"我的项目现在被什么拦着"，
+再谈那个默认空着的规则库。

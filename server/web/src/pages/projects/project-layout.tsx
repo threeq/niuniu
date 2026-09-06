@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Link, useParams, useNavigate } from '@tanstack/react-router';
+import { Link, useParams, useNavigate, useSearch } from '@tanstack/react-router';
 import { useTranslation } from 'react-i18next';
 import { Plus, Search, Eye, EyeOff } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -128,6 +128,15 @@ export function ProjectLayout() {
 
   const params = useParams({ strict: false });
   const selectedProjectId = (params as Record<string, string | undefined>).id;
+
+  // Deep link from elsewhere in the app (?tab=settings&section=board). The tab bar
+  // lives in ProjectDetailPage, which is mounted here rather than by the route, so
+  // the search params have to be read at this level and passed down.
+  const deepLink = useSearch({ strict: false }) as { tab?: string; section?: string };
+  const initialTab =
+    deepLink.tab === 'settings' || deepLink.tab === 'memory' || deepLink.tab === 'kanban'
+      ? deepLink.tab
+      : undefined;
 
   // Record last opened project
   useEffect(() => {
@@ -295,7 +304,12 @@ export function ProjectLayout() {
       {/* Right content - Project detail */}
       <div className="flex-1 min-w-0 flex flex-col">
         {selectedProjectId ? (
-          <ProjectDetailPage projectId={selectedProjectId} />
+          <ProjectDetailPage
+            key={selectedProjectId}
+            projectId={selectedProjectId}
+            initialTab={initialTab}
+            initialSettingsSection={deepLink.section}
+          />
         ) : isLoading ? (
           <div className="flex items-center justify-center h-full text-muted-foreground text-sm">
             {t('common:actions.loading')}

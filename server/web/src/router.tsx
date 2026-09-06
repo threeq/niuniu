@@ -156,6 +156,15 @@ const projectsLayoutRoute = createRoute({
 const projectDetailRoute = createRoute({
   getParentRoute: () => projectsLayoutRoute,
   path: '/$id',
+  // Deep-link support: ?tab=settings&section=board opens a project straight at a
+  // settings sub-section. Used by the 工程规范 page to link at the 底线 editor.
+  // Both keys stay optional so existing links to /projects/$id need no search prop.
+  validateSearch: (search: Record<string, unknown>): { tab?: string; section?: string } => {
+    const out: { tab?: string; section?: string } = {};
+    if (typeof search.tab === 'string') out.tab = search.tab;
+    if (typeof search.section === 'string') out.section = search.section;
+    return out;
+  },
   component: () => {
     const { id } = projectDetailRoute.useParams();
     return <ProjectKanbanPage projectId={id} />;
