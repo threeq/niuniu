@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"testing"
@@ -53,10 +54,47 @@ func TestIsSafeSkillName(t *testing.T) {
 // TestBuiltinSkillsEmbed asserts the //go:embed picked up the synced skill
 // payloads (fails fast if `make builtin-skills-sync` was not run).
 func TestBuiltinSkillsEmbed(t *testing.T) {
-	for _, name := range []string{"fireworks-tech-graph", "drawio-skill", "excalidraw-skill", "geo-citation-audit", "site-audit"} {
+	for _, name := range []string{"fireworks-tech-graph", "drawio-skill", "excalidraw-skill", "geo-citation-audit", "site-audit", "info-radar", "archify"} {
 		_, err := builtinSkillsFS.Open(filepath.ToSlash(filepath.Join(builtinSkillsRoot, name, "SKILL.md")))
 		require.NoErrorf(t, err, "embedded %s/SKILL.md missing — run `make builtin-skills-sync`", name)
 	}
+}
+
+// TestBuiltinSkillsMirrorMatchesSource guards the invariant that
+// `make builtin-skills-sync` maintains: builtin_skills/ (the embedded mirror)
+// holds exactly the skill dirs under docs/scenes/skills/ (the source of truth).
+//
+// Both directions matter and each has already broken once:
+//   - source-only  → the skill is declared by a scene but missing from the binary,
+//     so projection silently no-ops ("vendored skill not found").
+//   - mirror-only  → the source was never committed, so the next sync (which
+//     starts with `rm -rf`) deletes the skill. This is exactly how info-radar
+//     came to exist only in the mirror.
+func TestBuiltinSkillsMirrorMatchesSource(t *testing.T) {
+	// service/ → server/ → repo root → docs/scenes/skills
+	srcRoot := filepath.Join("..", "..", "..", "docs", "scenes", "skills")
+	entries, err := os.ReadDir(srcRoot)
+	require.NoError(t, err, "vendored skill source tree must be readable")
+
+	var want []string
+	for _, e := range entries {
+		if e.IsDir() { // skips loose helper files (e.g. svg2png.py)
+			want = append(want, e.Name())
+		}
+	}
+	require.NotEmpty(t, want, "docs/scenes/skills must contain skill dirs")
+
+	mirrored, err := fs.ReadDir(builtinSkillsFS, builtinSkillsRoot)
+	require.NoError(t, err)
+	var got []string
+	for _, e := range mirrored {
+		if e.IsDir() {
+			got = append(got, e.Name())
+		}
+	}
+
+	assert.ElementsMatch(t, want, got,
+		"builtin_skills/ drifted from docs/scenes/skills/ — run `make builtin-skills-sync`")
 }
 
 // TestMaterializeWorkspaceSkills_CopyAndDetach exercises the full lifecycle:
@@ -161,8 +199,10 @@ func TestGeoSeoSceneSeedsWithSiteAudit(t *testing.T) {
 	assert.ElementsMatch(t, []string{"site-audit"}, names)
 }
 
-// TestVizArchitectureSceneSeedsWithSkills asserts the new builtin scene seeds and
-// carries the three vendored drawing skills in its definition.
+// TestVizArchitectureSceneSeedsWithSkills asserts the builtin scene seeds and
+// carries its four vendored drawing skills in its definition. archify is the
+// repo-attached one (code-anchored architecture maps + Architecture Delta); the
+// other three are the no-repo drawing tools.
 func TestVizArchitectureSceneSeedsWithSkills(t *testing.T) {
 	ctx := context.Background()
 	db := setupSceneTestDB(t)
@@ -180,5 +220,23 @@ func TestVizArchitectureSceneSeedsWithSkills(t *testing.T) {
 	for i, s := range def.Skills {
 		names[i] = s.Name
 	}
-	assert.ElementsMatch(t, []string{"fireworks-tech-graph", "drawio-skill", "excalidraw-skill"}, names)
+	assert.ElementsMatch(t, []string{"fireworks-tech-graph", "drawio-skill", "excalidraw-skill", "archify"}, names)
+
+	// The scene must stay reachable from BOTH workspace shapes. Before archify it
+	// only scored on `has_repo_count max: 0`, which biased it to no-repo
+	// workspaces; archify's whole value needs a repo to read.
+	var hasNoRepoRule, hasRepoRule bool
+	for _, r := range def.Match.Rules {
+		if r.Signal != "workspace.has_repo_count" {
+			continue
+		}
+		if _, ok := r.Args["max"]; ok {
+			hasNoRepoRule = true
+		}
+		if _, ok := r.Args["min"]; ok {
+			hasRepoRule = true
+		}
+	}
+	assert.True(t, hasNoRepoRule, "viz-architecture must still match no-repo drawing workspaces")
+	assert.True(t, hasRepoRule, "viz-architecture must also match repo-attached workspaces (archify)")
 }

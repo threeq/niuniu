@@ -1,10 +1,10 @@
 ---
 name: imbot-onboarding
-version: 1.1.0
-description: 当 agent 需要引导用户为当前项目接入 IM 机器人（飞书/Lark、Telegram、钉钉/DingTalk、企业微信/WeCom）时使用。涵盖平台侧手动步骤说明、凭据安全录入、连通性验证、聊天配对审批，直到双向闭环确认。触发词：接入机器人、连接飞书、连接 Telegram、连接钉钉、连接企业微信、IM bot 设置、imbot onboarding。
+version: 1.2.0
+description: 当 agent 需要引导用户为当前项目接入 IM 机器人（飞书/Lark、Telegram、钉钉/DingTalk、企业微信/WeCom、微信ClawBot/WeChat）时使用。涵盖平台侧手动步骤说明、凭据安全录入（微信为扫码登录）、连通性验证、聊天配对审批，直到双向闭环确认。触发词：接入机器人、连接飞书、连接 Telegram、连接钉钉、连接企业微信、连接微信、微信ClawBot、IM bot 设置、imbot onboarding。
 license: MIT
 platforms: [macos, linux, windows]
-metadata: {"hermes":{"tags":["imbot","feishu","lark","telegram","dingtalk","wework","wecom","onboarding","channel","bot"],"category":"integration"},"author":"niuniu"}
+metadata: {"hermes":{"tags":["imbot","feishu","lark","telegram","dingtalk","wework","wecom","wechat","weixin","clawbot","onboarding","channel","bot"],"category":"integration"},"author":"niuniu"}
 ---
 
 # IM 机器人接入向导
@@ -93,13 +93,26 @@ metadata: {"hermes":{"tags":["imbot","feishu","lark","telegram","dingtalk","wewo
 
 ---
 
+## 微信ClawBot(WeChat) 人工步骤（精确）
+
+> **微信个人号机器人（腾讯 openclaw-weixin / iLink 协议）不需要在后台创建应用、也不需要粘贴任何密钥——凭据由「扫码登录」当场生成。**
+
+1. 调用 `imbot_request_credential_link(platform="wechat", ...)` 拿到安全链接，发给用户。
+2. 用户在浏览器打开该链接后，页面会**自动展示一个二维码**（无需填任何表单）。
+3. 用户用**手机微信**「扫一扫」扫描二维码，并在手机上确认登录（如提示，输入手机上显示的数字验证码）。
+4. 确认成功后，系统会用微信返回的 `bot_token` 自动创建渠道并分配 `channel_id`（页面会显示该 id）。
+
+凭据 = 扫码自动获取（`bot_token` 等，无需手工输入）；`platform = "wechat"`；`connection_mode = "stream"`。之后与其他平台一样调用 `imbot_test_channel` 验证连通性、把机器人拉入会话完成配对。
+
+---
+
 ## 完整流程剧本
 
 按以下步骤有序推进，每步等用户确认再继续：
 
 ### 步骤 1 — 确认平台
 
-询问用户想接入哪个平台：**飞书(lark)** / **Telegram(telegram)** / **钉钉(dingtalk)** / **企业微信(wework)**（均已支持）。
+询问用户想接入哪个平台：**飞书(lark)** / **Telegram(telegram)** / **钉钉(dingtalk)** / **企业微信(wework)** / **微信ClawBot(wechat)**（均已支持）。微信ClawBot 是个人号扫码接入，无需任何密钥。
 
 ### 步骤 2 — 讲解人工步骤
 
@@ -110,12 +123,12 @@ metadata: {"hermes":{"tags":["imbot","feishu","lark","telegram","dingtalk","wewo
 调用：
 ```
 imbot_request_credential_link(
-  platform = "lark" | "telegram" | "dingtalk" | "wework",
+  platform = "lark" | "telegram" | "dingtalk" | "wework" | "wechat",
   name     = "<用户给的渠道名，如"飞书-研发群">",
-  connection_mode = "stream"   // 飞书/Telegram/钉钉用 stream；企业微信用 "webhook"
+  connection_mode = "stream"   // 飞书/Telegram/钉钉/微信ClawBot 用 stream；企业微信用 "webhook"
 )
 ```
-把返回的链接发给用户，并说明：
+工具返回的 `url` 是站点内相对路径，浏览器会按用户当前所在页面自动补全协议与域名/端口（个人版、团队版通用）。把返回的 `link_markdown` 原样发给用户（会渲染成可点击链接），并说明：
 - 链接有效期 **15 分钟**，提交即失效，不能重用。
 - 在页面里粘贴凭据，不要在对话里发。
 

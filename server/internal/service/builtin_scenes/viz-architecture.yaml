@@ -1,7 +1,7 @@
 slug: viz-architecture
 display_name: 可视化/架构图
-description: 一句话出图工作舱 — 投射三个画图 skill：fireworks-tech-graph 直出只读 SVG/PNG 技术图（架构/流程/时序/UML），drawio-skill 与 excalidraw-skill 产出可再编辑的 .drawio/.excalidraw 文件并导出 PNG/SVG。说「画个 XX 架构图」即出图，说「生成可编辑的 drawio/excalidraw」即出可改文件。适合无仓库的画图/可视化工作空间。
-tags: [viz, diagram, architecture, drawio, excalidraw, fireworks, svg]
+description: 出图工作舱 — 投射四个画图 skill：fireworks-tech-graph 直出只读 SVG/PNG 技术图（架构/流程/时序/UML），drawio-skill 与 excalidraw-skill 产出可再编辑的 .drawio/.excalidraw 文件并导出 PNG/SVG，archify 从**已绑定仓库的真实代码**生成带 SRC 证据锚点的交互式 HTML 架构图，并能对两个 commit 做 Architecture Delta 对比。无仓库时说「画个 XX 架构图」即出图；有仓库时说「梳理这个仓库的架构」即按代码出图。无仓库/有仓库都适用。
+tags: [viz, diagram, architecture, drawio, excalidraw, fireworks, archify, svg, codebase]
 
 mcp: []
 
@@ -10,10 +10,13 @@ plugins: []
 # Vendored 本地画图 skill：随场景启用自动物化到 <workspace>/.claude/skills/，
 # 纯本地文件拷贝（不联网、不跑安装 CLI）。SKILL.md 的双语触发词（画图/架构图/
 # 流程图/draw diagram/visualize…）由 agent 自动激活。
+# archify 依赖 Node.js ≥18（零运行时依赖），缺 Node 时按 prompt 降级到
+# fireworks-tech-graph；vendor 说明见 docs/scenes/skills/archify/VENDOR.md。
 skills:
   - name: fireworks-tech-graph
   - name: drawio-skill
   - name: excalidraw-skill
+  - name: archify
 
 assets:
   env_presets: []
@@ -27,6 +30,12 @@ assets:
     - slug: draw-editable-excalidraw
       label: 出可编辑 excalidraw
       prompt: "用 excalidraw-skill 生成**可再编辑**的 .excalidraw 文件（手绘风）：1) 明确图类型与元素；2) 产出 .excalidraw JSON，需要时导出 PNG/SVG；3) 落到当前工作空间目录，文件名语义化。强调 .excalidraw 是可在 excalidraw.com / 插件里打开继续编辑的源文件——交付时说明其可二次编辑。不嵌入编辑器，只产出文件。"
+    - slug: map-repo-architecture
+      label: 按代码梳理架构图
+      prompt: "用 archify 技能，从本工作空间**已绑定仓库的真实代码**生成架构图（需要仓库；无仓库时改用 draw-architecture）：1) 先定位 archify 目录（本工作空间下当前 CLI 的 skills 目录，如 `.claude/skills/archify/`；若该 skill 是全局启用的则在 agent 全局 skills 目录），把 `<archify>/bin/archify.mjs` 记为 ARCHIFY，跑 `node $ARCHIFY doctor`，不通过就明确告知并降级到 fireworks-tech-graph；2) 用 `git -C <repo> rev-parse HEAD` 记下当前 commit，作为本图的锚点；3) 实际读代码（入口、模块边界、依赖方向、外部依赖），**不要凭目录名猜**；4) 按 archify 的 JSON IR 写 architecture 类型的图，每个节点尽量挂 SRC 证据（文件路径 + 行区间 + 该 commit），没读到证据的节点如实标注为推断；5) `validate` 通过后再 `deliver` 到工作空间目录，文件名带 commit 短哈希；6) 交付时说明这是「该 commit 时刻的架构」，并列出未取证的节点。产物是自包含 HTML（约 700KB），登记到 .niuniu/artifacts.json，**不要提交进仓库**。"
+    - slug: architecture-delta
+      label: 架构变更对比(Delta)
+      prompt: "用 archify 的 Architecture Delta 对比两个版本的架构（需要仓库）：1) 先与我确认 base 与 head 两个 ref（默认 base=主干、head=当前分支 HEAD）；2) 分别在两个 ref 上按代码产出并 validate 通过的 architecture JSON（各自记录 commit）；3) 跑 `node <archify>/bin/archify.mjs compare architecture <base>.json <head>.json` 生成 delta 产物；4) 用**新增/删除/变更/移动/改道**这五类事实汇报差异，并给出机器回执（baseComposition / headComposition 是否 pass）。纪律：Delta 只陈述作者标注的拓扑差异，**不推断影响面、不判断风险、不给合并结论**——要评估影响请另行读代码论证。产物登记到 .niuniu/artifacts.json，不提交进仓库。"
   project_templates: []
   harness_specs: []
   agents: []
@@ -35,28 +44,48 @@ prompts:
   - id: viz-architecture-workflow
     title: 画图场景指引（选型 → 出图/出可编辑文件 → 回看）
     body: |
-      本场景已投射三个画图技能，按「要不要可二次编辑」选技能：
+      本场景已投射四个画图技能。**先看有没有仓库**，再按「要不要可二次编辑」选技能：
 
+      - **archify** —— 仅在工作空间**绑定了仓库**时使用：读真实代码产出交互式自包含
+        HTML 架构图，节点可挂 **SRC 证据**（文件 + 行区间 + commit），并支持
+        **Architecture Delta**（两个 commit 的架构差异 + 机器回执）。适合「这个仓库现在
+        是什么架构」「这次改动动了哪些边界」。依赖 **Node.js ≥18**（零运行时依赖）；
+        先跑 `doctor`，**不通过就明确告知并降级到 fireworks-tech-graph，不要硬报错**。
       - **fireworks-tech-graph** —— 直出**只读** SVG/PNG 技术图（架构、数据流、流程、
         时序、UML、网络拓扑、思维导图等）。手写 SVG + 模板，SVG 零依赖永远可用；
         PNG 经 cairosvg headless 导出，**cairosvg 缺失时优雅降级为仅 SVG，绝不报错**。
-        适合贴文档/PPT/GitHub 的成品图。
+        适合贴文档/PPT/GitHub 的成品图，也是无仓库时的默认选择。
       - **drawio-skill** —— 产出**可再编辑**的 `.drawio`（draw.io XML），可继续在
         draw.io 里手改；需要时导出 PNG/SVG/PDF。适合要交给他人继续维护的图。
       - **excalidraw-skill** —— 产出**可再编辑**的 `.excalidraw`（手绘风 JSON），可在
         excalidraw 里继续改；需要时导出 PNG/SVG。适合轻量、手绘观感的草图。
 
       推进四步：
-      1. **选型**：先判断「只读成品」还是「可二次编辑源文件」，再选技能；同一需求别同时
-         三个都画，避免冗余。
+      1. **选型**：先判断「图的事实来源是代码，还是用户口述」——来源是代码且有仓库就用
+         archify（其它三个不读代码，只画用户说的）；再判断「只读成品」还是「可二次编辑
+         源文件」。同一需求别同时几个都画，避免冗余。
       2. **明确结构**：确认图类型、节点/组件、层次分组、关键连线与方向，再动手。
+         走 archify 时这一步是**读代码**，不是问用户；读不到的部分如实标注为推断。
       3. **产出**：调用对应 skill 生成，**一律落到当前工作空间目录**，文件名语义化；
          可编辑文件（.drawio/.excalidraw）与导出图（.png/.svg）分清楚，交付时说明哪个能改。
       4. **回看**：若运行时可读图，用 `read_image` 回看导出图，检查箭头不穿框体、
          标签不重叠、文字不截断；有问题就改 SVG/源文件再导出。SVG/源文件是事实来源。
+         archify 走 `validate` → `deliver`：**validate 不过就修 JSON，不要绕过校验交付**。
 
-      纪律：原创绘制，不临摹在世或知名作者的具体作品；不在工作空间里内嵌任何编辑器，
-      只产出文件；信息以用户提供为准，缺失就标占位并索取，不编造。
+      有仓库时的额外纪律：
+      - **只读代码，不改代码**。除非用户明确要求，别为了出图去动仓库里的文件。
+      - 图产物（HTML/PNG/SVG/JSON）属于工作空间产物，**默认不提交进仓库**；archify 单张
+        HTML 约 700KB、Delta 约 2MB，提交进去会污染仓库体积。
+      - 架构图必须锚定 commit：交付时说清「这是哪个 commit 的架构」，否则图会随代码悄悄过期。
+      - Architecture Delta 只陈述作者标注的拓扑差异，**不推断影响面、不给风险或合并结论**。
+
+      通用纪律：原创绘制，不临摹在世或知名作者的具体作品；不在工作空间里内嵌任何编辑器，
+      只产出文件；信息以用户提供或代码实读为准，缺失就标占位并索取，不编造。
+
+      产物预览限制：工作空间的 HTML 预览是 `sandbox="allow-scripts"` 的 iframe——脚本能跑，
+      archify 的搜索/聚焦/主题切换在产品内可用；但**没有 allow-downloads / allow-same-origin**，
+      查看器内的「导出」按钮和复制到剪贴板不会生效。要给用户 PNG/SVG 时，用 CLI 直接导出成
+      文件，别让用户去查看器里点导出。
 
   - id: viz-assistant-voice
     title: 画图助手沟通风格（面向非技术用户）
@@ -67,6 +96,8 @@ prompts:
         但当「可否二次编辑」是关键信息时要讲清楚（如「这是可以继续编辑的 drawio 文件」）。
       - 用「做了什么、得到什么图」描述进展，而不是「跑了哪条命令」。
       - 需要确认图类型/内容时用日常话术提问。
+      - 按代码出的架构图，要用平实话说明它对应「代码的哪个版本」，以及哪些部分是读代码
+        确认的、哪些是推断的——这是可信度信息，不能因为「面向非技术用户」就略过。
 
       交付物登记：把要给用户看的最终图/可编辑文件登记到工作空间根目录的
       `.niuniu/artifacts.json`（无则新建），格式：
@@ -76,16 +107,32 @@ prompts:
 
 required_credentials: []
 
-# Single-agent, no-repo scene: hide cross-agent (blackboard/inbox) and
-# git/harness (gate/pre-commit) tools it never needs.
-disable_tool_groups: [multi-agent, harness]
+# Single-agent scene: hide cross-agent (blackboard/inbox) tools it never needs.
+# `harness` is NOT disabled: since archify made this scene usable in repo-attached
+# workspaces, a commit can legitimately happen here, and disabling the harness group
+# would silently let it bypass the repo's configured pre-commit gate specs.
+disable_tool_groups: [multi-agent]
 
+# Matches both shapes of drawing workspace:
+#   - no repo  → pure drawing workbench (fireworks / drawio / excalidraw)
+#   - has repo → code-anchored architecture mapping (archify)
+# The repo rule is deliberately light (6): a Go/TS repo whose board is generically
+# about code should still land on go-dev / ts-react-dev. Only a board that actually
+# asks for an architecture *diagram* (both term rules fire) outscores them.
 match:
   base_weight: 0
   rules:
     - signal: workspace.has_repo_count
       args: { max: 0 }
       weight: 16
+    - signal: workspace.has_repo_count
+      args: { min: 1 }
+      weight: 6
     - signal: kanban.label_term_frequency
       args: { terms: ["画图", "画个", "出图", "架构图", "流程图", "时序图", "拓扑图", "可视化", "diagram", "draw", "drawio", "excalidraw", "flowchart", "architecture", "visualize", "uml"] }
       weight: 18
+    # Code-anchored architecture work. Deliberately disjoint from the list above
+    # (no "架构图"/"architecture") so a plain drawing board is not double-counted.
+    - signal: kanban.label_term_frequency
+      args: { terms: ["代码架构", "架构梳理", "架构演进", "架构评审", "模块依赖", "依赖图", "调用链", "系统梳理", "archify", "codebase", "code map", "call graph", "dependency graph", "module map"] }
+      weight: 20
