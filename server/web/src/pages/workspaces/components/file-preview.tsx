@@ -103,14 +103,28 @@ export function FilePreviewByUrl({
   }
 
   // Rendered HTML deliverables (e.g. the office-design scene's single-file
-  // pages). Sandboxed to a unique origin: scripts run for fidelity but can't
-  // touch our origin/cookies.
+  // pages, archify's architecture diagrams). Sandboxed to a unique origin:
+  // scripts run for fidelity but can't touch our origin/cookies.
+  //
+  // `allow-downloads` is granted because these artifacts are export tools, not
+  // documents: their whole value is the "save as PNG/SVG" button. Without the
+  // token Chromium silently blocks the `URL.createObjectURL` + `<a download>` +
+  // `click()` pattern they all use, so the button appears to do nothing. The
+  // risk it opens — a drive-by download — is not a real escalation here: the
+  // file is a workspace artifact this same iframe already runs arbitrary JS
+  // from, and the agent that produced it has full filesystem access anyway.
+  // Downloads still go through the browser's normal (visible) download flow.
+  //
+  // `allow-same-origin` stays withheld deliberately: it is what would actually
+  // matter (it would let the artifact reach our cookies/localStorage). The cost
+  // is that clipboard writes and localStorage theme memory inside these viewers
+  // stay inert — an acceptable trade for keeping the origin opaque.
   if (ext === 'html' || ext === 'htm') {
     return (
       <iframe
         src={url}
         title={path}
-        sandbox="allow-scripts"
+        sandbox="allow-scripts allow-downloads"
         className="w-full h-full min-h-[70vh] rounded-md border border-border bg-white"
       />
     );
