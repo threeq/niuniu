@@ -1,7 +1,12 @@
 # Archify skill 评估：牛牛该不该收编、以及怎么收编
 
-> 状态：技术选型评估结论（issue #697）｜日期：2026-09-06｜类型：非编码 / 选型评估
+> 状态：技术选型评估结论（issue #697）→ **已落地**（2026-09-06）｜类型：选型评估 + 实施记录
 > 评估对象：[`tt-a1i/archify`](https://github.com/tt-a1i/archify)（MIT，49.8k star，v2.17.0-dev.1）
+>
+> **落地结果**：archify 已 vendor 进 `docs/scenes/skills/archify/`（切断联网更新检查，见
+> `VENDOR.md`），并**接入 `viz-architecture` 场景**——同时让该场景从"无仓库专用"扩展为
+> 支持有仓库工作空间。§5.3 的初评建议（新增独立 `code-architecture` 场景）已被覆盖，
+> 定案与理由见该节。顺带修复了 `info-radar` 的 mirror drift 并加了守卫测试（§5.2）。
 >
 > **结论（TL;DR）：值得收编，但理由不是"再多一个画图 skill"。**
 > - 牛牛已有三个画图 skill（`fireworks-tech-graph` / `drawio-skill` / `excalidraw-skill`），它们全部挂在 `viz-architecture` 场景下，而该场景的匹配规则是 **`workspace.has_repo_count max: 0`——明确面向无仓库工作空间**。所有 code 场景（`generic-code` / `go-dev` / `ts-react-dev`）**一个画图 skill 都没声明**。
@@ -99,16 +104,62 @@ payload 体积分布（`archify/` 目录，git tree 实测）：
     geo-citation-audit site-audit imbot-onboarding -type f ! -name '*.png' ...
 ```
 
-接入 archify 需要：把 `archify` 加进列表，并补 `! -path 'archify/test/*' ! -name '*.html'` 的排除。
+接入 archify 需要改这个 target。**注意初评给的排除写法 `! -name '*.html'` 是错的**——
+`archify/assets/template.html`（678 KB）是渲染器模板而非样例，被 blanket `*.html` 规则删掉后
+镜像里的 skill 是坏的（源 2.4 MB / 镜像 1.7 MB，72 → 71 文件）。定案做法：
 
-> ⚠️ **顺带发现的既有 drift（本次不修，仅记录）**：`server/internal/service/builtin_skills/info-radar/` 存在于镜像目录，但**既不在 `docs/scenes/skills/` 里、也不在 Makefile 的 find 列表里**。由于该 target 第一步是 `rm -rf server/internal/service/builtin_skills`，**任何人执行一次 `make builtin-skills-sync` 都会静默删掉 info-radar**。目前没有场景声明它（`grep` 全仓无引用），所以暂时无感，但改这个 target 时容易被误认为是自己引入的问题。
+- **skill 列表从源码树枚举，不再硬编码**（`find . -mindepth 1 -maxdepth 1 -type d`）。这条
+  target 第一步是 `rm -rf`，硬编码列表意味着"漏写 = 静默删除"——info-radar 的 drift 正是这么来的。
+- **只保留 `*.png` 一条排除**。per-skill 的裁剪（上游测试套件、预渲染样例）一律在
+  **vendor 时**于源码树完成，并记进该 skill 的 `VENDOR.md`，而不是在 Makefile 里写后缀规则。
+- 新增守卫测试 `TestBuiltinSkillsMirrorMatchesSource`：断言 `builtin_skills/` 的目录集合
+  **恰好等于** `docs/scenes/skills/` 的目录集合，双向都查（源多了 = 没同步进二进制；镜像多了 = 下次 sync 会删）。
 
-### 5.3 场景接入：不要塞进 `viz-architecture`
+> ✅ **顺带发现的既有 drift（本次已修）**：`server/internal/service/builtin_skills/info-radar/`
+> 存在于镜像目录，但**既不在 `docs/scenes/skills/` 里、也不在 Makefile 的 find 列表里**；
+> 由于该 target 第一步是 `rm -rf`，**任何人执行一次 `make builtin-skills-sync` 都会静默删掉它**。
+> 复查后发现比初评记录的更严重：`builtin_scenes/info-radar.yaml` 同样只存在于镜像，且它
+> **确实声明了 `skills: - name: info-radar`**（初评"无场景引用"的判断有误），
+> `TestBuiltinScenes_InfoRadarShape` 与 `TestBuiltinSkills_InfoRadarPresentAndValid` 都在跑。
+> 两个 sync target 的危险性并不对称：`builtin-scenes-sync` 只 `cp`（additive，drift 无害），
+> `builtin-skills-sync` 先 `rm -rf`（破坏性）。修法：把两份文件回填进 `docs/` 源码树，
+> 再叠加上面的枚举改造 + 守卫测试，使这类 drift 不可能再无声发生。
 
-`viz-architecture` 的匹配规则明确偏好无仓库工作空间（`has_repo_count max: 0`, weight 16），而 archify 的核心价值需要仓库。两种做法：
+### 5.3 场景接入：扩展 `viz-architecture`（已定案，覆盖初评建议）
 
-- **推荐：新增 `code-architecture` 场景** —— 匹配 `has_repo_count min: 1` + 架构/重构/review 类关键词，`skills: [archify]`，配 quick_actions：`map-repo-architecture`（映射当前仓库运行时架构）、`architecture-delta`（对比改动前后架构）。这样"无仓库画图"和"有仓库映射架构"两个心智不互相污染。
-- 备选：`viz-architecture` 追加 archify 并放宽匹配 —— 成本低，但会让该场景同时投射 4 个画图 skill，选型 prompt 变复杂，且 `has_repo_count max: 0` 的匹配意图被破坏。
+> **决策变更**：初评建议新增 `code-architecture` 场景。经与需求方确认后**改为扩展现有
+> `viz-architecture`**，并同步让该场景支持有仓库工作空间。下面记录定案方案与理由；被否决
+> 的初评方案保留在末尾备查。
+
+`viz-architecture` 原本的匹配规则明确偏好无仓库工作空间（`has_repo_count max: 0`, weight 16），
+而 archify 的核心价值需要仓库——所以"接入"必须同时解决"这个场景能不能在有仓库时用"。定案改动：
+
+1. **`skills:` 追加 `archify`**，场景从 3 个画图 skill 变 4 个。
+2. **匹配规则改为双形态覆盖**：保留 `max: 0` weight 16（纯画图工作舱），新增 `min: 1`
+   weight 6（有仓库也算命中）。仓库权重刻意压低，避免抢走 `go-dev`(40) / `ts-react-dev` /
+   `generic-code`(25) 的常规代码工作空间。
+3. **新增一条代码架构关键词规则**（weight 20），词表与原画图词表**刻意不重叠**（不含
+   "架构图"/"architecture"），因此普通画图看板不会被重复计分；只有看板确实在谈"代码架构 +
+   出图"时两条同时命中（0+6+18+20 = 44）才会压过 `go-dev`(40)——这正是应该让 archify 上场的场景。
+4. **`disable_tool_groups` 去掉 `harness`**，只保留 `multi-agent`。既然该场景现在会跑在有
+   仓库的工作空间里，就可能发生提交；继续禁用 harness 会让这些提交静默绕过仓库配置的
+   pre-commit gate。
+5. **选型 prompt 改为先判断"图的事实来源是代码还是用户口述"**，再判断"要不要可二次编辑"，
+   避免 4 个 skill 挤在一起时选型含糊；并写明 `doctor` 不过就降级到 `fireworks-tech-graph`。
+6. 新增两个 quick_actions：`map-repo-architecture`（按代码出带 SRC 证据的架构图）、
+   `architecture-delta`（两个 ref 的架构差异）。
+
+代价是初评担心的"一个场景 4 个画图 skill、选型 prompt 变复杂"确实发生了，用 §5.3-5 的
+两级选型问题来抵消。换来的好处是用户不需要为"画图"和"按代码画图"记两个场景名，且
+`viz-architecture` 从"无仓库专用"升级成通用出图舱——这本身就是需求方要的第二件事。
+
+<details><summary>被否决的初评方案（备查）</summary>
+
+- 新增 `code-architecture` 场景，匹配 `has_repo_count min: 1` + 架构/重构/review 类关键词，
+  `skills: [archify]`。优点是"无仓库画图"与"有仓库映射架构"两个心智不互相污染；缺点是
+  多一个场景名要用户记，且两个场景的画图选型知识会分叉维护。
+
+</details>
 
 ### 5.4 写 `VENDOR.md`
 
@@ -120,7 +171,7 @@ payload 体积分布（`archify/` 目录，git tree 实测）：
 |:-:|------|----------|----------|
 | ① | **联网更新检查与 local-first 冲突** | SKILL.md 有 "Update awareness" 段，要求 agent 在首个候选件产出后**主动跑 `scripts/check-update.mjs`**；README 说明会 GET 固定 manifest（约 72h 一次，服务端只看到 IP+时间）。牛牛的承诺是"No data leaves your machine unless you connect an external source"，且 `scene_skills.go` 的整个设计前提就是"纯本地文件拷贝、不联网、不跑安装器" | 双保险：场景 `env_presets` 注入 `ARCHIFY_UPDATE_CHECK_DISABLED=1`（上游支持的官方开关，同时也禁掉 reminder 状态写盘）**并且**在 vendor 时删掉 SKILL.md 的 "Update awareness" 段——单靠 env 挡不住 agent 读到指令后的行为噪音 |
 | ② | **产物预览沙箱会拦掉导出** | `file-preview.tsx:108` 对 html 用 `sandbox="allow-scripts"`。脚本能跑 → **交互式 viewer 可用**（搜索/focus/route/theme 都正常）；但缺 `allow-downloads` → **Export 菜单的 PNG/SVG/WebM 下载被浏览器静默拦截**；缺 `allow-same-origin` → clipboard 写入和 localStorage 主题记忆失效 | 短期：场景 prompt 说明"要导出图片请在浏览器打开该 HTML"，同时让 archify 直接产出 PNG/SVG 文件一并登记 artifacts.json（绕开 viewer 内导出）。中期：给 html 预览加 `allow-downloads`——它不放开同源，不引入跨源数据泄露面，是低风险改动，但属于独立改动应单独评审 |
-| ③ | **内嵌体积翻倍** | 裁剪后约 2.2 MB，`builtin_skills/` 现共 1.7 MB → 内嵌 skill payload 大致翻倍（drawio 856 KB 是当前最大者，archify 约为其 2.6 倍） | 可接受，但需在 PR 里显式说明。若要压：`assets/`(662 KB) 与 `renderers/`(1087 KB) 是硬需求不可裁，进一步压缩只能靠 gzip 存储 + 物化时解压（drawio 的 `shape-index.json.gz` 已有此先例） |
+| ③ | **内嵌体积翻倍** | 裁剪后实测 **2.4 MB**（初评估 2.2 MB），`builtin_skills/` 原 1.7 MB → 落地后 **3.4 MB / 8 skills / 176 文件**，内嵌 skill payload 翻倍有余（drawio 856 KB 是原最大者，archify 约为其 2.9 倍） | 已接受，在此显式记录。若要压：`assets/`(662 KB) 与 `renderers/`(1087 KB) 是硬需求不可裁，进一步压缩只能靠 gzip 存储 + 物化时解压（drawio 的 `shape-index.json.gz` 已有此先例） |
 
 补充（非阻塞）：**Node 可用性**。archify 全程需要 Node ≥18。驱动 claude CLI 的用户几乎必然有 Node（Claude Code 本身是 Node 应用），但 codex / qwen / goose 等 agent 不保证。SKILL.md 自带 `doctor` 子命令，场景 prompt 里应写明：**`doctor` 不过时明确告知用户并降级到 `fireworks-tech-graph`**，而不是静默失败——这与 viz-architecture 场景对 cairosvg 缺失的"优雅降级，绝不报错"纪律保持一致。
 
@@ -130,9 +181,11 @@ payload 体积分布（`archify/` 目录，git tree 实测）：
 
 | 优先级 | 事项 | 说明 |
 |:---:|------|------|
-| **P1** | 按 §5.1–5.4 vendor archify + 新增 `code-architecture` 场景，处理 §5.5① | 这是"收编"的最小完整闭环；①是硬前提，不能留着一个会联网的 skill 进 local-first 产品 |
-| **P2** | html 预览 iframe 加 `allow-downloads`（§5.5②） | 独立小改动，收益不止 archify——office-design 等场景的 HTML 产物同样受益 |
-| **P3** | 顺手清理 §5.2 记录的 `info-radar` 镜像 drift | 与本 issue 无关，但改 sync target 时会正面撞上 |
+| ~~**P1**~~ ✅ 已落地 | 按 §5.1–5.4 vendor archify + **扩展 `viz-architecture`（含支持有仓库）**，处理 §5.5① | 这是"收编"的最小完整闭环；①是硬前提，不能留着一个会联网的 skill 进 local-first 产品。①的处理方式：直接删掉 `scripts/check-update.mjs` + `scripts/update-contract.mjs` 并重写 SKILL.md 的 "Update awareness" 段（仅设 env 挡不住 agent 读到指令） |
+| **P2** | html 预览 iframe 加 `allow-downloads`（§5.5②） | 独立小改动，收益不止 archify——office-design 等场景的 HTML 产物同样受益。**未做**：属 UI 改动，需按 `docs/design-system.md` 单独评审 |
+| ~~**P3**~~ ✅ 已落地 | 清理 §5.2 记录的 `info-radar` 镜像 drift | 实际比初评记录的严重（scene YAML 同样 drift 且被场景引用），已回填源码树并加守卫测试 |
+| **不做** | 把 archify 做成牛牛内置的 Go 渲染服务 | 上游是活跃演进的 JS 项目（220 commits，v2.17 仍在 dev），重写即刻过时；vendored skill 是正确的耦合强度 |
+| **不做** | 用 archify 替换现有三个画图 skill | 定位互补不重叠：要"可再编辑源文件"仍是 drawio/excalidraw，要"贴文档的静态成品图"仍是 fireworks |
 | **不做** | 把 archify 做成牛牛内置的 Go 渲染服务 | 上游是活跃演进的 JS 项目（220 commits，v2.17 仍在 dev），重写即刻过时；vendored skill 是正确的耦合强度 |
 | **不做** | 用 archify 替换现有三个画图 skill | 定位互补不重叠：要"可再编辑源文件"仍是 drawio/excalidraw，要"贴文档的静态成品图"仍是 fireworks |
 

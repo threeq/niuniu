@@ -1,0 +1,49 @@
+slug: info-radar
+display_name: 资讯雷达
+description: 主动资讯雷达工作舱 — 配合周期托管任务，定时以用户关注主题 + 牛牛工作信息为透镜过滤外部资讯，命中才经 imbot/收件箱推送。挂 info-radar skill 固化「搜索→判相关→去重→推送」管线；保留跨 agent 工具（blackboard 去重 / inbox 推送）。
+tags: [radar, digest, proactive, news, automation, generic]
+
+# Phase 1 取外部资讯用 agent 自带的 WebSearch/WebFetch，无需额外 MCP。
+# 未来数据源（RSS、浏览器记录 MCP）在此 mcp: 列表扩展 —— 这是数据源的唯一扩展点。
+mcp: []
+
+plugins: []
+
+skills:
+  - name: info-radar
+
+assets:
+  env_presets: []
+  quick_actions:
+    - slug: new-radar
+      label: 新建资讯雷达
+      prompt: "帮我建一个资讯雷达：1) 先问清我的关注主题/方向、期望频率（每天/每周几点）、是否结合我的牛牛工作信息、推送到哪个 imbot 频道或站内收件箱、每轮最多几条；2) 把这些整理成一段 info-radar 雷达指令，调用 create_managed_task(cron_expr, description) 建立周期托管任务（description 里引用 info-radar skill 的管线与我的偏好）；3) 告诉我它已建在 /schedules 页、可暂停/删除，并说明首轮何时触发。"
+  project_templates: []
+  harness_specs: []
+  agents: []
+
+prompts:
+  - id: info-radar-workflow
+    title: 资讯雷达运行约定（精准 > 数量）
+    body: |
+      本场景用于"主动资讯雷达"。作为周期托管任务运行时，遵循 info-radar skill 的管线：
+      组装语境（关注主题 + 可选牛牛工作信息）→ WebSearch/WebFetch 取外部资讯 →
+      逐条判相关（达不到门槛丢弃）→ blackboard 键 radar:pushed 去重 →
+      命中项经 imbot 频道 / inbox_send 推送、无命中则静默 → 回写已推 hash。
+      底线：宁可当轮不推，也不发"无更新"噪音；拿不准相关性时倾向不推。
+
+required_credentials: []
+
+# 保留 multi-agent（blackboard 去重 + inbox 推送）；本场景无 git/pre-commit 需求，可关 harness。
+disable_tool_groups: [harness]
+
+# 开启隐私敏感的浏览器历史工具组（read_browser_history，路子 A：本地直接读历史库）。
+# 该组默认关闭，仅此场景显式启用 —— 未挂本场景的工作空间不会出现该工具。
+enable_tool_groups: [browser-history]
+
+match:
+  base_weight: 0
+  rules:
+    - signal: kanban.label_term_frequency
+      args: { terms: ["资讯", "雷达", "radar", "digest", "订阅", "情报", "news", "推送", "盯"] }
+      weight: 18

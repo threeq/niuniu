@@ -324,16 +324,28 @@ builtin-scenes-sync:
 # Sync docs/scenes/skills/<skill>/ → server/internal/service/builtin_skills/.
 # The server binary embeds the latter via //go:embed (scene_skills.go) and the
 # scene projector copies a declared skill into <wsDir>/.claude/skills/<name>/.
-# *.png samples are excluded — they bloat the binary and are not needed for the
-# skills to generate output. Run after re-vendoring any skill under
-# docs/scenes/skills/. Git Bash on Windows ships find+cp (--parents).
+#
+# The skill set is enumerated from the source tree, NOT hardcoded: this target
+# starts with `rm -rf`, so a hardcoded list silently DELETES any skill missing
+# from it (this is exactly how info-radar came to exist only in the mirror).
+# TestBuiltinSkillsMirrorMatchesSource guards the resulting invariant:
+# builtin_skills/ holds exactly the skill dirs under docs/scenes/skills/.
+#
+# Excluded from the mirror: *.png rendered samples (bloat the binary, not needed
+# to generate output). Everything else is mirrored verbatim — per-skill trimming
+# (upstream test suites, pre-rendered samples) happens at VENDOR TIME in the
+# source tree and is recorded in that skill's VENDOR.md, NOT by a suffix rule
+# here: a blanket `*.html` rule would silently drop archify's assets/template.html,
+# which is its renderer template.
+# Run after re-vendoring any skill. Git Bash on Windows ships find+cp (--parents).
 builtin-skills-sync:
 	@echo "Syncing vendored skills → server/internal/service/builtin_skills/ (excluding *.png)"
 	@rm -rf server/internal/service/builtin_skills
 	@mkdir -p server/internal/service/builtin_skills
-	@cd docs/scenes/skills && find fireworks-tech-graph drawio-skill excalidraw-skill geo-citation-audit site-audit imbot-onboarding -type f ! -name '*.png' \
+	@cd docs/scenes/skills && find $$(find . -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | sort) \
+		-type f ! -name '*.png' \
 		-exec cp --parents {} ../../../server/internal/service/builtin_skills/ \;
-	@echo "  OK — $$(find server/internal/service/builtin_skills -type f | wc -l) skill files synced"
+	@echo "  OK — $$(find server/internal/service/builtin_skills -mindepth 1 -maxdepth 1 -type d | wc -l) skills / $$(find server/internal/service/builtin_skills -type f | wc -l) files synced"
 
 # ─── Personal edition ────────────────────────────────────────────────
 # Opt-in bundle: embeds server into the desktop-v2 (Tauri) shell as sidecars.
