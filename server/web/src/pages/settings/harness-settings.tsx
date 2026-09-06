@@ -324,7 +324,15 @@ export function HarnessSettings() {
     : t('harness.specs.dialog.test')
 
   return (
-    <div className="space-y-8">
+    // Settings-tab layout (see orchestration-settings.tsx): py-6 + space-y-8, led
+    // by an h2/description pair. This used to be a standalone top-nav page that
+    // supplied its own h1 and padding; those now come from SettingsPage.
+    <div className="py-6 space-y-8">
+      <div>
+        <h2 className="text-lg font-medium text-foreground">{t('harness.page.title')}</h2>
+        <p className="text-sm text-muted-foreground mt-1">{t('harness.page.description')}</p>
+      </div>
+
       {/* Per-project 底线 — the part that is actually enforced today, and the only
           harness state most users configure. Kept first so this page answers
           "is anything gating my projects?" before listing the global rule library. */}
@@ -334,7 +342,7 @@ export function HarnessSettings() {
       <div className="space-y-4">
         <div className="flex items-center justify-between">
           <div>
-            <h2 className="text-base font-semibold text-foreground">{t('harness.specs.title')}</h2>
+            <h3 className="text-base font-medium text-foreground">{t('harness.specs.title')}</h3>
             <p className="text-sm text-muted-foreground mt-0.5">{t('harness.specs.subtitle')}</p>
           </div>
           <Button size="sm" onClick={openCreateSpec}>

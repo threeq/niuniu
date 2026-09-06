@@ -6,6 +6,7 @@ import {
   Boxes,
   Building2,
   ChartColumn,
+  ClipboardCheck,
   Cpu,
   GitBranch,
   Info,
@@ -30,6 +31,7 @@ import { ProviderUsageSettings } from './provider-usage-settings'
 import { GeneralSettings } from './general-settings'
 import { GitCredentialsSettings } from './git-credentials-settings'
 import { GitIdentitySettings } from './git-identity-settings'
+import { HarnessSettings } from './harness-settings'
 import { LicenseSettings } from './license-settings'
 import { MobileAccessSettings } from './mobile-access'
 import { SkillSettings } from './skill-settings'
@@ -45,7 +47,7 @@ import { useAuthStore } from '@/stores/auth-store'
 import { useConfigStore } from '@/stores/config-store'
 import { useLicenseStore } from '@/stores/license-store'
 
-type SettingsTab = 'general' | 'users' | 'security' | 'env' | 'providers' | 'provider-usage' | 'git-identity' | 'mobile-access' | 'system-deps' | 'skills' | 'integrations' | 'license' | 'orchestration' | 'blueprints' | 'imbot' | 'about' | 'claude'
+type SettingsTab = 'general' | 'users' | 'security' | 'env' | 'providers' | 'provider-usage' | 'git-identity' | 'mobile-access' | 'system-deps' | 'skills' | 'integrations' | 'license' | 'orchestration' | 'blueprints' | 'imbot' | 'harness' | 'about' | 'claude'
 
 interface TabVisibilityCtx {
   authEnabled: boolean
@@ -71,13 +73,14 @@ const tabs: { id: SettingsTab; labelKey: string; icon?: LucideIcon; visible?: (c
   { id: 'orchestration', labelKey: 'tabs.orchestration', icon: Workflow },
   { id: 'blueprints', labelKey: 'tabs.blueprints', icon: Boxes },
   { id: 'imbot', labelKey: 'tabs.imbot', icon: Bot },
+  { id: 'harness', labelKey: 'tabs.harness', icon: ClipboardCheck },
   { id: 'about', labelKey: 'tabs.about', icon: Info },
 ]
 
 const navGroups: { id: string; labelKey: string; tabIds: SettingsTab[] }[] = [
   { id: 'personal', labelKey: 'groups.personal', tabIds: ['general', 'security'] },
   { id: 'team', labelKey: 'groups.team', tabIds: ['users'] },
-  { id: 'agents', labelKey: 'groups.agents', tabIds: ['claude', 'skills', 'integrations', 'orchestration', 'blueprints', 'imbot'] },
+  { id: 'agents', labelKey: 'groups.agents', tabIds: ['claude', 'skills', 'integrations', 'orchestration', 'blueprints', 'imbot', 'harness'] },
   { id: 'system', labelKey: 'groups.system', tabIds: ['system-deps', 'env', 'providers', 'provider-usage', 'git-identity', 'license', 'about'] },
 ]
 
@@ -249,6 +252,7 @@ export function SettingsPage({ children, orgsActive = false }: SettingsPageProps
                 {activeTab === 'orchestration' && <OrchestrationSettings />}
                 {activeTab === 'blueprints' && <ProjectBlueprintsSettings />}
                 {activeTab === 'imbot' && <ImBotSettings />}
+                {activeTab === 'harness' && <HarnessSettings />}
                 {activeTab === 'about' && <AboutSettings />}
               </>
             )}

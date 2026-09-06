@@ -243,6 +243,7 @@
     "orchestration": "Orchestration",
     "blueprints": "Project templates",
     "imbot": "IM bots",
+    "harness": "Engineering Standards",
     "about": "About",
     "providerUsage": "Usage stats"
   },
@@ -765,9 +766,13 @@
     }
   },
   "harness": {
+    "page": {
+      "title": "Engineering Standards",
+      "description": "Checks an agent's work must satisfy before it is delivered. Everything is empty/disabled by default — nothing is blocked until you configure it."
+    },
     "floors": {
       "title": "Project Floor Gates",
-      "subtitle": "The floor command each project must pass before an issue can reach Done. Edited per project under Project → Settings → Board.",
+      "subtitle": "Command that must pass when a workspace is marked done (epic auto-completion is checked too). Empty = no gate. Configured per Project under Project → Settings → Kanban.",
       "noProjects": "No active projects",
       "summary": "{{active}} of {{total}} projects have a floor gate configured",
       "notSet": "No floor gate — nothing is enforced for this project",
