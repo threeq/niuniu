@@ -243,6 +243,7 @@
     "orchestration": "编排",
     "blueprints": "项目模板",
     "imbot": "IM 机器人",
+    "harness": "工程规范",
     "about": "关于",
     "providerUsage": "用量统计"
   },
@@ -765,9 +766,13 @@
     }
   },
   "harness": {
+    "page": {
+      "title": "工程规范",
+      "description": "定义 agent 交付时必须满足的检查项。默认全部为空/不启用 —— 不配置就不会拦住任何东西。"
+    },
     "floors": {
       "title": "项目底线闸",
-      "subtitle": "每个项目的问题移入「完成」前必须通过的底线命令。在 项目 → 设置 → 看板 中按项目配置。",
+      "subtitle": "工作空间标记完成时必须通过的命令（Epic 自动完成同样校验）。留空 = 不设闸。在 项目 → 设置 → 看板 中按项目配置。",
       "noProjects": "暂无活跃项目",
       "summary": "{{total}} 个项目中有 {{active}} 个已配置底线闸",
       "notSet": "未配置底线闸 — 该项目当前没有任何强制校验",

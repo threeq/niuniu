@@ -225,9 +225,22 @@ UI 就是项目设置→看板下的一个输入框：**「完成前必须通过
 
 落地上**没有新建表、没有新引擎**：底线命令被包装成一条 `specID=0` 的 `floorSpec`，
 走既有的 `runFloorCheck` 分派，因此多 worktree 执行、`code_probe_only` 产出探测、
-失败回退 checkpoint、有界重试、崩溃恢复、SSE 进度**全部原样复用**。
+崩溃恢复、SSE 进度**全部原样复用**。
 `harness_specs` 规则库保留为「高级」路径（想要多条件的用户仍可用 `always` 绑定），
 两者是并集而非替代。
+
+> **更正（P4 复核时发现，原文写错两处）**
+>
+> 1. 原文称「失败回退 checkpoint、有界重试」也一并复用 —— **实际未生效**。
+>    `server.go:1094` 的 `SetFloorGateDeps(db, gateExec, nil, 0)` 把 `FloorRetryKicker`
+>    传成 `nil`（该处注释亦已言明），因此 `TriggerAuto` 失败不走
+>    `RevertToLastPassing` + 重试，而是直接 `escalateBlocked` → 工作空间转 `attention`。
+>    回退与重试的代码在 `floor_gate.go:460` 存在但无人调用。
+> 2. 原文（及一度上线的 UI 文案）称底线在「问题移入完成列」时校验 —— **不是**。
+>    唯一触发点是 `RequestWorkspaceCompletion`（`floor_gate.go:146`），即
+>    人工「工作空间标记完成」与 Epic 自动完成两条路径。
+>    `AdvanceIssue` 移入 `complete` 列只做未提交检查与 Epic 子任务合并，
+>    **不调用底线闸** —— `ai_native_advance.go:157-159` 自己的注释就标注这是 follow-on。
 
 底线命令同时写入看板菜单的「底线」行，agent 因此知道它的存在。
 

@@ -51,7 +51,6 @@ const SceneEditPage = lazyNamed(() => import('./pages/scenes/scene-edit-page'), 
 const OrgsListPage = lazyNamed(() => import('./pages/settings/orgs'), 'OrgsListPage');
 const OrgDetailPage = lazyNamed(() => import('./pages/settings/orgs/org-detail-page'), 'OrgDetailPage');
 const IntegrationsPage = lazyNamed(() => import('./pages/settings/integrations'), 'IntegrationsPage');
-const HarnessPage = lazyNamed(() => import('./pages/harness'), 'HarnessPage');
 const AgentsPage = lazyNamed(() => import('./pages/agents'), 'AgentsPage');
 const DashboardsPage = lazyNamed(() => import('./pages/dashboards/dashboards-page'), 'DashboardsPage');
 const DashboardDetail = lazyNamed(() => import('./pages/dashboards/dashboard-detail'), 'DashboardDetail');
@@ -223,8 +222,10 @@ const knowledgeBaseDetailRoute = createRoute({
 // Legacy ?tab= values for tabs that were promoted out of /settings to their
 // own top-level routes. Old bookmarks / desktop tray entries land on the new
 // home instead of silently falling back to "general".
+//
+// `harness` was promoted out and has now been moved BACK in as a settings tab,
+// so it is deliberately absent here — ?tab=harness must resolve to the tab.
 const promotedSettingsTabs: Record<string, string> = {
-  harness: '/settings/harness',
   agent: '/settings/agents',
   'agent-registry': '/settings/agents',
 };
@@ -321,10 +322,15 @@ const integrationsRoute = createRoute({
   component: IntegrationsPage,
 });
 
+// 工程规范 now lives inside /settings as a tab. The old top-level path is kept
+// as a redirect so existing bookmarks and the desktop tray still land on it
+// instead of 404-ing.
 const harnessRoute = createRoute({
   getParentRoute: () => layoutRoute,
   path: '/settings/harness',
-  component: HarnessPage,
+  beforeLoad: () => {
+    throw redirect({ to: '/settings', search: { tab: 'harness' } });
+  },
 });
 
 const agentsRoute = createRoute({

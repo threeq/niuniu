@@ -243,6 +243,7 @@
     "orchestration": "編排",
     "blueprints": "專案模板",
     "imbot": "IM 機器人",
+    "harness": "工程規範",
     "about": "關於",
     "providerUsage": "用量統計"
   },
@@ -765,9 +766,13 @@
     }
   },
   "harness": {
+    "page": {
+      "title": "工程規範",
+      "description": "定義 agent 交付時必須滿足的檢查項。預設全部為空/不啟用 —— 不配置就不會攔住任何東西。"
+    },
     "floors": {
       "title": "專案底線閘",
-      "subtitle": "每個專案的問題移入「完成」前必須通過的底線命令。在 專案 → 設定 → 看板 中按專案配置。",
+      "subtitle": "工作空間標記完成時必須通過的命令（Epic 自動完成同樣校驗）。留空 = 不設閘。在 專案 → 設定 → 看板 中按專案配置。",
       "noProjects": "暫無活躍專案",
       "summary": "{{total}} 個專案中有 {{active}} 個已配置底線閘",
       "notSet": "未配置底線閘 — 該專案當前沒有任何強制校驗",
