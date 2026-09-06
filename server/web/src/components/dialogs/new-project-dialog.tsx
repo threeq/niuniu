@@ -16,6 +16,7 @@ import {
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
+import { CLI_TYPES, DEFAULT_CLI_TYPE, type CliType } from '@/lib/cli-types';
 
 interface NewProjectDialogProps {
   open: boolean;
@@ -29,7 +30,7 @@ export function NewProjectDialog({ open, onOpenChange }: NewProjectDialogProps) 
   const [blueprintId, setBlueprintId] = useState<number | ''>('');
   // Project default agent CLI — pre-selected when creating workspaces under this
   // project and used verbatim for issue-auto-created workspaces. Default Claude.
-  const [defaultCliType, setDefaultCliType] = useState<'claude' | 'codex' | 'qwen' | 'omp' | 'goose' | 'cursor'>('claude');
+  const [defaultCliType, setDefaultCliType] = useState<CliType>(DEFAULT_CLI_TYPE);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const currentUser = useAuthStore((s) => s.user);
@@ -78,13 +79,13 @@ export function NewProjectDialog({ open, onOpenChange }: NewProjectDialogProps) 
         { name, description };
       if (owner.id > 0) body.owner = owner;
       if (blueprintId) body.blueprint_id = blueprintId as number;
-      if (defaultCliType !== 'claude') body.default_cli_type = defaultCliType;
+      if (defaultCliType !== DEFAULT_CLI_TYPE) body.default_cli_type = defaultCliType;
       await api.post('/projects', body);
       queryClient.invalidateQueries({ queryKey: ['projects'] });
       setName('');
       setDescription('');
       setBlueprintId('');
-      setDefaultCliType('claude');
+      setDefaultCliType(DEFAULT_CLI_TYPE);
       onOpenChange(false);
     } catch (err) {
       console.error('Failed to create project:', err);
@@ -106,7 +107,7 @@ export function NewProjectDialog({ open, onOpenChange }: NewProjectDialogProps) 
       setName('');
       setDescription('');
       setBlueprintId('');
-      setDefaultCliType('claude');
+      setDefaultCliType(DEFAULT_CLI_TYPE);
       setOwner({ type: 'user', id: userId });
       setError(null);
     }
@@ -178,16 +179,13 @@ export function NewProjectDialog({ open, onOpenChange }: NewProjectDialogProps) 
               <select
                 id="new-project-default-agent"
                 value={defaultCliType}
-                onChange={(e) => setDefaultCliType(e.target.value as 'claude' | 'codex' | 'qwen' | 'omp' | 'goose' | 'cursor')}
+                onChange={(e) => setDefaultCliType(e.target.value as CliType)}
                 disabled={isSubmitting}
                 className="h-9 rounded-md border border-input bg-background px-3 py-1 text-sm"
               >
-                <option value="claude">{t('issue.workspace.cliType.claude')}</option>
-                <option value="codex">{t('issue.workspace.cliType.codex')}</option>
-                <option value="qwen">{t('issue.workspace.cliType.qwen')}</option>
-                <option value="cursor">{t('issue.workspace.cliType.cursor')}</option>
-                <option value="omp">{t('issue.workspace.cliType.omp')}</option>
-                <option value="goose">{t('issue.workspace.cliType.goose')}</option>
+                {CLI_TYPES.map((opt) => (
+                  <option key={opt} value={opt}>{t(`issue.workspace.cliType.${opt}`)}</option>
+                ))}
               </select>
             </div>
           </div>

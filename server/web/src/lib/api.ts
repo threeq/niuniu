@@ -87,6 +87,7 @@ import type {
 // Type-only (erased at runtime, so no cycle with use-file-diff -> api): reuse the
 // git.FileDiff shape for the checkpoint diff response.
 import type { GitFileDiff } from './hooks/use-file-diff'
+import type { CliType } from './cli-types'
 
 const API_BASE = '/api'
 
@@ -411,7 +412,7 @@ export const api = {
     api.get<AvailableIssue[]>('/workspaces/available-issues'),
 
   getWorkspaceIssueDefaults: (issueId: string | number) =>
-    api.get<{ repos: IssueDefaultRepo[]; project_default_cli_type?: 'claude' | 'codex' | 'qwen' | 'omp' | 'goose' | 'cursor' }>(
+    api.get<{ repos: IssueDefaultRepo[]; project_default_cli_type?: CliType }>(
       `/workspaces/issue-defaults?issue_id=${encodeURIComponent(String(issueId))}`
     ),
 

@@ -17,6 +17,7 @@ import {
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { WORKSPACE_STATUS_LABELS } from '@/lib/workspace-status'
+import { CLI_TYPES, DEFAULT_CLI_TYPE, cliTypeForArrowKey, type CliType } from '@/lib/cli-types'
 import { toast } from 'sonner'
 
 const statusColors: Record<WorkspaceStatus, string> = {
@@ -113,7 +114,7 @@ export function IssueWorkspace({ issueId, issueTitle }: IssueWorkspaceProps) {
   const [repoBranches, setRepoBranches] = useState<Map<number, string[]>>(new Map())
   const [loadingBranches, setLoadingBranches] = useState<Set<number>>(new Set())
   const [searchKeyword, setSearchKeyword] = useState('')
-  const [cliType, setCliType] = useState<'claude' | 'codex' | 'qwen' | 'omp' | 'goose' | 'cursor'>('claude')
+  const [cliType, setCliType] = useState<CliType>(DEFAULT_CLI_TYPE)
 
   const agentStatusLabels: Record<string, string> = {
     idle: t('issue.workspace.agentIdle'),
@@ -206,7 +207,7 @@ export function IssueWorkspace({ issueId, issueTitle }: IssueWorkspaceProps) {
   }, [showRepoPicker, issueDefaultsQuery.data, issueDefaultsQuery.isError])
 
   const createWorkspaceMutation = useMutation({
-    mutationFn: (data: { name: string; repos: { repo_id: number; branch: string }[]; claude_account_id?: number; cli_type?: 'claude' | 'codex' | 'qwen' | 'omp' | 'goose' | 'cursor' }) =>
+    mutationFn: (data: { name: string; repos: { repo_id: number; branch: string }[]; claude_account_id?: number; cli_type?: CliType }) =>
       api.post<CreateWorkspaceResponse>(`/issues/${issueId}/workspace`, data),
     onSuccess: (result) => {
       queryClient.invalidateQueries({ queryKey: ['workspace', 'by-issue', issueId] })
@@ -215,7 +216,7 @@ export function IssueWorkspace({ issueId, issueTitle }: IssueWorkspaceProps) {
       setRepoSelections(new Map())
       setRepoBranches(new Map())
       setSearchKeyword('')
-      setCliType('claude')
+      setCliType(DEFAULT_CLI_TYPE)
       // Surface partial-success: workspace shell is created but a worktree
       // failed (e.g. base branch not in repo). Without this the dialog just
       // closes and the missing worktree is only noticed via inspection.
@@ -233,7 +234,7 @@ export function IssueWorkspace({ issueId, issueTitle }: IssueWorkspaceProps) {
     setShowRepoPicker(true)
     setRepoSelections(new Map())
     setSearchKeyword('')
-    setCliType('claude')
+    setCliType(DEFAULT_CLI_TYPE)
   }
 
   const fetchBranches = async (repoId: number) => {
@@ -385,20 +386,19 @@ export function IssueWorkspace({ issueId, issueTitle }: IssueWorkspaceProps) {
                 aria-label={t('issue.workspace.cliType.label')}
                 className="grid gap-1.5"
                 onKeyDown={(e) => {
-                  const order: Array<'claude' | 'codex' | 'qwen' | 'omp' | 'goose' | 'cursor'> = ['claude', 'codex', 'qwen', 'cursor', 'goose', 'omp']
-                  const i = order.indexOf(cliType)
-                  if (e.key === 'ArrowRight' || e.key === 'ArrowDown') {
-                    e.preventDefault()
-                    setCliType(order[(i + 1) % order.length])
-                  } else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') {
-                    e.preventDefault()
-                    setCliType(order[(i - 1 + order.length) % order.length])
-                  }
+                  const next = cliTypeForArrowKey(cliType, e.key)
+                  if (!next) return
+                  e.preventDefault()
+                  setCliType(next)
                 }}
               >
                 <span className="text-xs font-medium">{t('issue.workspace.cliType.label')}</span>
-                <div className="flex gap-1.5">
-                  {(['claude', 'codex', 'qwen', 'cursor', 'goose', 'omp'] as const).map((opt) => (
+                {/* Fixed-column grid, not a flex row: this panel is narrower
+                    than the new-workspace dialog, so a single row ran out of
+                    width first. Wrapping keeps every engine legible and lets
+                    additions to CLI_TYPES flow onto a new row. */}
+                <div className="grid grid-cols-3 gap-1.5">
+                  {CLI_TYPES.map((opt) => (
                     <button
                       key={opt}
                       type="button"
@@ -406,7 +406,7 @@ export function IssueWorkspace({ issueId, issueTitle }: IssueWorkspaceProps) {
                       aria-checked={cliType === opt}
                       tabIndex={cliType === opt ? 0 : -1}
                       onClick={() => setCliType(opt)}
-                      className={`flex-1 h-7 rounded-md border text-xs transition-colors ${
+                      className={`h-7 min-w-0 truncate rounded-md border px-1 text-xs transition-colors ${
                         cliType === opt
                           ? 'border-primary bg-primary text-primary-foreground'
                           : 'border-border bg-background text-foreground hover:bg-accent'
@@ -470,7 +470,7 @@ export function IssueWorkspace({ issueId, issueTitle }: IssueWorkspaceProps) {
                 <Button
                   variant="outline"
                   size="sm"
-                  onClick={() => { setShowRepoPicker(false); setRepoSelections(new Map()); setRepoBranches(new Map()); setSearchKeyword(''); setCliType('claude') }}
+                  onClick={() => { setShowRepoPicker(false); setRepoSelections(new Map()); setRepoBranches(new Map()); setSearchKeyword(''); setCliType(DEFAULT_CLI_TYPE) }}
                   className="flex-1"
                 >
                   {t('issue.workspace.cancel')}
