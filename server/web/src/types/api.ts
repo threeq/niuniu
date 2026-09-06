@@ -3,6 +3,12 @@ import type {
   GateProgressPayload, GateDonePayload, AgentLifecyclePayload,
 } from './harness'
 import type { SelectedUser } from './org'
+import type { CliType } from '@/lib/cli-types'
+
+// Re-exported so API consumers can keep importing engine types from one place.
+// The enum itself lives in `@/lib/cli-types` alongside the ordered list the
+// pickers render, which is what keeps the two from drifting apart.
+export type { CliType }
 
 // Base types
 export interface BaseEntity {
@@ -17,7 +23,7 @@ export interface Project extends BaseEntity {
   description: string | null;
   status: 'active' | 'hidden';
   color?: string | null;            // palette key like 'emerald'，null/缺失为未设
-  default_cli_type?: 'claude' | 'codex' | 'qwen' | 'omp' | 'goose' | 'cursor';  // 项目默认 agent，新建工作区时预选
+  default_cli_type?: CliType;  // 项目默认 agent，新建工作区时预选
   env_provider_id?: number | null;  // 默认 Provider，工作空间继承
   env_provider_group?: string;      // 默认分组绑定，工作空间继承（与 env_provider_id 互斥）
   issue_stats?: { column_name: string; count: number }[];
@@ -366,7 +372,7 @@ export interface Workspace {
    * different on-disk config (.codex/config.toml) and skip the Claude-specific
    * cost / account UI elements.
    */
-  cli_type: 'claude' | 'codex' | 'qwen' | 'omp' | 'goose' | 'cursor';
+  cli_type: CliType;
   /** Directly-bound subscription-platform provider (issue #653). null = none. */
   env_provider_id?: number | null;
   /** Provider-group binding ('' = none). Mutually exclusive with env_provider_id. */
@@ -585,7 +591,7 @@ export interface CreateWorkspaceRequest {
    * Optional CLI selector. Omit / empty string defaults to 'claude' in the
    * SQL layer. Pass 'codex' to create a Codex workspace.
    */
-  cli_type?: 'claude' | 'codex' | 'qwen' | 'omp' | 'goose' | 'cursor';
+  cli_type?: CliType;
   /**
    * Create a plain owner-isolated directory with no git worktrees (office /
    * non-code tasks). When true, `repos` must be empty; when false, at least
@@ -655,7 +661,7 @@ export interface CreateWorkspaceFromDirectoryRequest {
   dir: string;
   owner?: import('./org').OwnerRef;
   name?: string;
-  cli_type?: 'claude' | 'codex' | 'qwen' | 'omp' | 'goose' | 'cursor';
+  cli_type?: CliType;
   /** Optional workflow (project_templates) pre-selection. */
   workflow_template_id?: number | null;
 }
@@ -1753,7 +1759,7 @@ export interface ApplyResult {
 
 /** One enable location: an agent CLI at a scope. */
 export interface SkillTarget {
-  agent: 'claude' | 'codex' | 'qwen' | 'omp' | 'goose' | 'cursor';
+  agent: CliType;
   scope: 'global' | 'workspace';
 }
 

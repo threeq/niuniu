@@ -22,6 +22,7 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { Checkbox } from '@/components/ui/checkbox';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Label } from '@/components/ui/label';
+import { CLI_TYPES, DEFAULT_CLI_TYPE, cliTypeForArrowKey, type CliType } from '@/lib/cli-types';
 import { toast } from 'sonner';
 
 interface NewWorkspaceDialogProps {
@@ -62,7 +63,7 @@ export function NewWorkspaceDialog({ open, onOpenChange, defaultIssueId, default
   // cliType chooses the agent CLI for the workspace. Immutable after create.
   // Codex workspaces skip the Claude account picker since codex has its own
   // ~/.codex/auth.json (M2 will introduce a codex_accounts table).
-  const [cliType, setCliType] = useState<'claude' | 'codex' | 'qwen' | 'omp' | 'goose' | 'cursor'>('claude');
+  const [cliType, setCliType] = useState<CliType>(DEFAULT_CLI_TYPE);
   const [isSubmitting, setIsSubmitting] = useState(false);
   // MCP picker state — per-workspace MCP config (spec
   // docs/superpowers/specs/2026-05-17-per-workspace-mcp-config-design.md §7).
@@ -465,7 +466,12 @@ export function NewWorkspaceDialog({ open, onOpenChange, defaultIssueId, default
                 tech the correct single-select semantics (role=radio +
                 aria-checked, not toggle's aria-pressed). Roving tabindex
                 (selected button = 0, other = -1) plus arrow-key handler
-                make keyboard navigation match native radio groups. */}
+                make keyboard navigation match native radio groups.
+                Laid out as a fixed-column grid rather than a single flex
+                row: the row forced every engine onto one line, so each new
+                engine squeezed the others until the group overflowed the
+                dialog. The grid wraps instead, and engines added to
+                CLI_TYPES flow onto a new row on their own. */}
             <div className="grid gap-2">
               <Label id="cliTypeLabel" className="text-sm font-medium">
                 {t('dialogs.newWorkspace.cliType.label')}
@@ -473,20 +479,15 @@ export function NewWorkspaceDialog({ open, onOpenChange, defaultIssueId, default
               <div
                 role="radiogroup"
                 aria-labelledby="cliTypeLabel"
-                className="flex gap-2"
+                className="grid grid-cols-3 gap-2"
                 onKeyDown={(e) => {
-                  const order: Array<'claude' | 'codex' | 'qwen' | 'omp' | 'goose' | 'cursor'> = ['claude', 'codex', 'qwen', 'cursor', 'goose', 'omp'];
-                  const i = order.indexOf(cliType);
-                  if (e.key === 'ArrowRight' || e.key === 'ArrowDown') {
-                    e.preventDefault();
-                    setCliType(order[(i + 1) % order.length]);
-                  } else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') {
-                    e.preventDefault();
-                    setCliType(order[(i - 1 + order.length) % order.length]);
-                  }
+                  const next = cliTypeForArrowKey(cliType, e.key);
+                  if (!next) return;
+                  e.preventDefault();
+                  setCliType(next);
                 }}
               >
-                {(['claude', 'codex', 'qwen', 'cursor', 'goose', 'omp'] as const).map((opt) => (
+                {CLI_TYPES.map((opt) => (
                   <Button
                     key={opt}
                     type="button"
@@ -497,7 +498,7 @@ export function NewWorkspaceDialog({ open, onOpenChange, defaultIssueId, default
                     size="sm"
                     onClick={() => setCliType(opt)}
                     disabled={isSubmitting}
-                    className="flex-1"
+                    className="w-full min-w-0 truncate"
                   >
                     {t(`dialogs.newWorkspace.cliType.${opt}`)}
                   </Button>

@@ -23,6 +23,7 @@ import { useIsProjectAdmin } from '@/lib/use-is-project-admin';
 import { useUpdateProjectStatus, useUpdateProjectColor } from '@/lib/hooks/use-projects';
 import { DeleteProjectDialog } from '@/components/dialogs/delete-project-dialog';
 import { ProjectColorPicker } from '@/components/shared/project-color-picker';
+import { CLI_TYPES, DEFAULT_CLI_TYPE } from '@/lib/cli-types';
 
 type SettingsSection = 'basic' | 'repos' | 'labels' | 'board' | 'externalSources' | 'imbot' | 'cleanup' | 'danger';
 
@@ -264,15 +265,17 @@ export function ProjectSettingsTab({ projectId }: Props) {
           <div className="grid gap-2">
             <label className="text-sm font-medium">{t('tabs.settings.defaultAgent')}</label>
             <select
-              value={project.default_cli_type ?? 'claude'}
+              value={project.default_cli_type ?? DEFAULT_CLI_TYPE}
               onChange={(e) => defaultAgentMut.mutate(e.target.value)}
               disabled={!isAdmin || defaultAgentMut.isPending}
               className="h-9 rounded-md border border-input bg-background px-3 py-1 text-sm"
             >
-              <option value="claude">{t('issue.workspace.cliType.claude')}</option>
-              <option value="codex">{t('issue.workspace.cliType.codex')}</option>
-              <option value="qwen">{t('issue.workspace.cliType.qwen')}</option>
-              <option value="omp">{t('issue.workspace.cliType.omp')}</option>
+              {/* Driven by CLI_TYPES so a newly supported engine cannot be
+                  offered on the create-project dialog yet be missing here —
+                  which is exactly how goose and cursor went unselectable. */}
+              {CLI_TYPES.map((opt) => (
+                <option key={opt} value={opt}>{t(`issue.workspace.cliType.${opt}`)}</option>
+              ))}
             </select>
             <p className="text-xs text-muted-foreground">{t('tabs.settings.defaultAgentHint')}</p>
           </div>
