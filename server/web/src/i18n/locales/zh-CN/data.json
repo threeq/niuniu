@@ -121,7 +121,12 @@
     "bindingAdd": "添加关联",
     "bindingRemove": "移除关联",
     "bindingSelectTarget": "请选择…",
-    "unboundBadge": "未关联"
+    "unboundBadge": "未关联",
+    "ownerLabel": "归属",
+    "ownerPersonal": "个人",
+    "ownerOrg": "组织：{name}",
+    "ownerHint": "选择组织后，该数据源对组织内所有成员的智能体可用",
+    "orgBadge": "组织"
   },
   "dashboard": {
     "title": "数据看板",

@@ -48,6 +48,52 @@ func (h *DataSourceHandler) resolveCaller(c *gin.Context) (userID int64, ok bool
 	return uid, true
 }
 
+// callerOrgIDs resolves the orgs the caller belongs to (for owner-visible
+// queries). Nil when Authz is unwired (some test setups) — personal scope only.
+func (h *DataSourceHandler) callerOrgIDs(c *gin.Context, uid int64) []int64 {
+	if h.Authz == nil {
+		return nil
+	}
+	owners, err := h.Authz.Accessible(c.Request.Context(), uid)
+	if err != nil {
+		return nil
+	}
+	return owners.OrgIDs
+}
+
+// resolveCreateOwner validates the owner fields on a create body and returns
+// the (ownerType, ownerID) the row should carry. Personal owner must be the
+// caller; org owner requires live membership (EnsureOwnerWritable — any role
+// may create resources, spec §6.5). Writes the error response and returns
+// ok=false on rejection.
+func (h *DataSourceHandler) resolveCreateOwner(c *gin.Context, uid int64, ownerType string, ownerID int64) (string, int64, bool) {
+	switch ownerType {
+	case "", "user":
+		if ownerID != 0 && ownerID != uid {
+			writeAuthzError(c, service.ErrForbidden)
+			return "", 0, false
+		}
+		return "user", uid, true
+	case "org":
+		if ownerID <= 0 {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "owner_id is required for owner_type=org"})
+			return "", 0, false
+		}
+		if h.Authz == nil {
+			writeAuthzError(c, service.ErrForbidden)
+			return "", 0, false
+		}
+		if err := h.Authz.EnsureOwnerWritable(c.Request.Context(), uid, service.OwnerRef{Type: "org", ID: ownerID}); err != nil {
+			writeAuthzError(c, err)
+			return "", 0, false
+		}
+		return "org", ownerID, true
+	default:
+		c.JSON(http.StatusBadRequest, gin.H{"error": "owner_type must be user or org"})
+		return "", 0, false
+	}
+}
+
 // dtoToJSON renders a DataSourceDTO with last_verified_at as RFC3339-or-null.
 func dtoToJSON(d service.DataSourceDTO) gin.H {
 	bindings := d.Bindings
@@ -84,14 +130,14 @@ func toServiceBindings(in []bindingBody) []service.DataSourceBinding {
 	return out
 }
 
-// List returns redacted DTOs for every data source in the caller's personal
-// owner.
+// List returns redacted DTOs for every data source in the caller's accessible
+// owner set (personal + orgs).
 func (h *DataSourceHandler) List(c *gin.Context) {
 	uid, ok := h.resolveCaller(c)
 	if !ok {
 		return
 	}
-	sources, err := h.svc.ListForOwner(c.Request.Context(), uid, nil)
+	sources, err := h.svc.ListForOwner(c.Request.Context(), uid, h.callerOrgIDs(c, uid))
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -103,11 +149,16 @@ func (h *DataSourceHandler) List(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"items": items})
 }
 
-// createDataSourceBody is the POST body shape. Bindings, when present, scope
-// the new source's visibility (empty/omitted -> invisible to every agent).
+// createDataSourceBody is the POST body shape. OwnerType/OwnerID select the
+// owning account: omitted -> the caller's personal owner; owner_type=org
+// creates a TEAM source (any org member may, EnsureOwnerWritable). Bindings,
+// when present, scope the new source's visibility (empty/omitted -> invisible
+// to every agent).
 type createDataSourceBody struct {
 	Name              string         `json:"name" binding:"required"`
 	Kind              string         `json:"kind" binding:"required"`
+	OwnerType         string         `json:"owner_type"`
+	OwnerID           int64          `json:"owner_id"`
 	Config            map[string]any `json:"config"`
 	ScopeConfig       map[string]any `json:"scope_config"`
 	DefaultAccessMode string         `json:"default_access_mode"`
@@ -116,7 +167,9 @@ type createDataSourceBody struct {
 }
 
 // Create inserts a new data source. Unsupported kinds return 422; per-owner
-// name clashes return 409.
+// name clashes return 409. Returns the full redacted DTO (the SPA's
+// createDataSource is typed as DataSource and renders the owner badge from
+// it).
 func (h *DataSourceHandler) Create(c *gin.Context) {
 	uid, ok := h.resolveCaller(c)
 	if !ok {
@@ -127,9 +180,13 @@ func (h *DataSourceHandler) Create(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
+	ownerType, ownerID, ok := h.resolveCreateOwner(c, uid, b.OwnerType, b.OwnerID)
+	if !ok {
+		return
+	}
 	id, err := h.svc.Create(c.Request.Context(), service.CreateDataSourceInput{
-		OwnerType:         "user",
-		OwnerID:           uid,
+		OwnerType:         ownerType,
+		OwnerID:           ownerID,
 		UserID:            uid,
 		Name:              b.Name,
 		Kind:              b.Kind,
@@ -142,14 +199,25 @@ func (h *DataSourceHandler) Create(c *gin.Context) {
 		h.mapErr(c, err)
 		return
 	}
+	// The creator manages the new row within its owner's scope: personal
+	// sources scope to the caller, org sources to the org.
+	var orgIDs []int64
+	if ownerType == "org" {
+		orgIDs = []int64{ownerID}
+	}
 	// Visibility bindings are stored after the row exists. A create with no
 	// bindings leaves the source invisible to every agent (the intended
 	// default) until the user associates it with a workspace/project/scene.
-	if err := h.svc.SetBindings(c.Request.Context(), id, uid, nil, toServiceBindings(b.Bindings)); err != nil {
+	if err := h.svc.SetBindings(c.Request.Context(), id, uid, orgIDs, toServiceBindings(b.Bindings)); err != nil {
 		h.mapErr(c, err)
 		return
 	}
-	c.JSON(http.StatusCreated, gin.H{"id": id})
+	dto, err := h.svc.Get(c.Request.Context(), id, uid, orgIDs)
+	if err != nil {
+		h.mapErr(c, err)
+		return
+	}
+	c.JSON(http.StatusCreated, dtoToJSON(*dto))
 }
 
 // updateDataSourceBody is the PATCH body. Config is optional: when omitted the
@@ -166,12 +234,14 @@ type updateDataSourceBody struct {
 	Bindings *[]bindingBody `json:"bindings"`
 }
 
-// Update applies a full update to a data source the caller owns.
+// Update applies a full update to a data source in the caller's accessible
+// owner set (personal sources; org sources for members).
 func (h *DataSourceHandler) Update(c *gin.Context) {
 	uid, ok := h.resolveCaller(c)
 	if !ok {
 		return
 	}
+	orgIDs := h.callerOrgIDs(c, uid)
 	id, err := parseIDParam(c)
 	if err != nil {
 		return
@@ -181,7 +251,7 @@ func (h *DataSourceHandler) Update(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	if err := h.svc.Update(c.Request.Context(), id, uid, nil, service.UpdateDataSourceInput{
+	if err := h.svc.Update(c.Request.Context(), id, uid, orgIDs, service.UpdateDataSourceInput{
 		Name:              b.Name,
 		Config:            b.Config,
 		ScopeConfig:       b.ScopeConfig,
@@ -192,7 +262,7 @@ func (h *DataSourceHandler) Update(c *gin.Context) {
 		return
 	}
 	if b.Bindings != nil {
-		if err := h.svc.SetBindings(c.Request.Context(), id, uid, nil, toServiceBindings(*b.Bindings)); err != nil {
+		if err := h.svc.SetBindings(c.Request.Context(), id, uid, orgIDs, toServiceBindings(*b.Bindings)); err != nil {
 			h.mapErr(c, err)
 			return
 		}
@@ -200,8 +270,8 @@ func (h *DataSourceHandler) Update(c *gin.Context) {
 	c.Status(http.StatusOK)
 }
 
-// Delete removes a data source the caller owns and evicts any pooled
-// connection for it.
+// Delete removes a data source in the caller's accessible owner set and evicts
+// any pooled connection for it.
 func (h *DataSourceHandler) Delete(c *gin.Context) {
 	uid, ok := h.resolveCaller(c)
 	if !ok {
@@ -211,7 +281,7 @@ func (h *DataSourceHandler) Delete(c *gin.Context) {
 	if err != nil {
 		return
 	}
-	if err := h.svc.Delete(c.Request.Context(), id, uid, nil); err != nil {
+	if err := h.svc.Delete(c.Request.Context(), id, uid, h.callerOrgIDs(c, uid)); err != nil {
 		h.mapErr(c, err)
 		return
 	}
@@ -231,7 +301,7 @@ func (h *DataSourceHandler) Verify(c *gin.Context) {
 	if err != nil {
 		return
 	}
-	if err := h.svc.Verify(c.Request.Context(), id, uid, nil); err != nil {
+	if err := h.svc.Verify(c.Request.Context(), id, uid, h.callerOrgIDs(c, uid)); err != nil {
 		if errors.Is(err, service.ErrDataSourceNotFound) {
 			c.JSON(http.StatusNotFound, gin.H{"error": "data source not found"})
 			return
@@ -305,7 +375,7 @@ func (h *DataSourceHandler) ListProjectSources(c *gin.Context) {
 		writeAuthzError(c, err)
 		return
 	}
-	sources, err := h.svc.ListForProject(c.Request.Context(), pid, uid, nil)
+	sources, err := h.svc.ListForProject(c.Request.Context(), pid, uid, h.callerOrgIDs(c, uid))
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -348,7 +418,7 @@ func (h *DataSourceHandler) AddProjectSource(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	if err := h.svc.AddBinding(c.Request.Context(), b.SourceID, uid, nil,
+	if err := h.svc.AddBinding(c.Request.Context(), b.SourceID, uid, h.callerOrgIDs(c, uid),
 		service.DataSourceBinding{TargetType: "project", TargetID: pid}); err != nil {
 		h.mapErr(c, err)
 		return
@@ -380,7 +450,7 @@ func (h *DataSourceHandler) RemoveProjectSource(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "bad data source id"})
 		return
 	}
-	if err := h.svc.RemoveBinding(c.Request.Context(), sid, uid, nil,
+	if err := h.svc.RemoveBinding(c.Request.Context(), sid, uid, h.callerOrgIDs(c, uid),
 		service.DataSourceBinding{TargetType: "project", TargetID: pid}); err != nil {
 		h.mapErr(c, err)
 		return

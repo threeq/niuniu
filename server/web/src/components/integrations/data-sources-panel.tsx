@@ -50,6 +50,13 @@ import {
   type DataSourceBinding,
   type SSHAuthMethod,
 } from '@/lib/data-sources-api';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { api } from '@/lib/api';
 import type { Project } from '@/types/api';
 import type { DataSourceKind } from '@/types/data';
@@ -306,6 +313,11 @@ function DataSourceRow({ source: s, onEdit }: RowProps) {
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2">
           <span className="text-sm font-medium truncate">{s.name}</span>
+          {s.owner_type === 'org' && (
+            <span className="shrink-0 rounded bg-info/10 px-1.5 py-0.5 text-xs text-info">
+              {t('sources.orgBadge')}
+            </span>
+          )}
           {s.bindings.length === 0 && (
             <span className="shrink-0 rounded bg-warm-muted px-1.5 py-0.5 text-xs text-warm-text-muted">
               {t('sources.unboundBadge')}
@@ -467,6 +479,18 @@ function DataSourceForm({ editing, onClose }: FormProps) {
   // blank in edit mode (config is never returned) — a blank password keeps
   // the current one server-side.
   const [name, setName] = useState(editing?.name ?? '');
+  // Owner config: personal by default; an org member may create the source
+  // under one of their orgs so the whole team's agents can use it. Owner is
+  // immutable after creation (it scopes the UNIQUE(name) namespace), hence
+  // no edit-mode UI.
+  const [ownerType, setOwnerType] = useState<'user' | 'org'>(editing?.owner_type ?? 'user');
+  const [ownerId, setOwnerId] = useState<number>(editing?.owner_id ?? 0);
+  const { data: myOrgs } = useQuery({
+    queryKey: ['my-orgs'],
+    queryFn: () => api.listMyOrgs(),
+    enabled: !isEdit,
+  });
+  const orgOptions = myOrgs ?? [];
   const [kind, setKind] = useState<DataSourceKind>(editing?.kind ?? 'mysql');
   const [host, setHost] = useState(editing?.config.host ?? '');
   const [port, setPort] = useState(
@@ -691,6 +715,11 @@ function DataSourceForm({ editing, onClose }: FormProps) {
       return createDataSource({
         name: name.trim(),
         kind,
+        // Owner config (team edition): an org selection makes the source a
+        // team-shared one; omitted fields mean the caller's personal owner.
+        ...(ownerType === 'org' && ownerId > 0
+          ? { owner_type: 'org' as const, owner_id: ownerId }
+          : {}),
         config,
         scope_config,
         default_access_mode: 'read',
@@ -730,6 +759,37 @@ function DataSourceForm({ editing, onClose }: FormProps) {
               onChange={(e) => setName(e.target.value)}
             />
           </div>
+
+          {!isEdit && orgOptions.length > 0 && (
+            <div className="flex flex-col gap-2">
+              <Label htmlFor="ds-owner">{t('sources.ownerLabel')}</Label>
+              <Select
+                value={ownerType === 'org' ? `org:${ownerId}` : 'user'}
+                onValueChange={(v) => {
+                  if (v === 'user') {
+                    setOwnerType('user');
+                    setOwnerId(0);
+                  } else {
+                    setOwnerType('org');
+                    setOwnerId(Number(v.slice('org:'.length)));
+                  }
+                }}
+              >
+                <SelectTrigger id="ds-owner">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="user">{t('sources.ownerPersonal')}</SelectItem>
+                  {orgOptions.map((o) => (
+                    <SelectItem key={o.id} value={`org:${o.id}`}>
+                      {t('sources.ownerOrg', { name: o.name })}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-warm-text-muted">{t('sources.ownerHint')}</p>
+            </div>
+          )}
 
           <div className="flex flex-col gap-2">
             <Label htmlFor="ds-kind">{t('sources.kindLabel')}</Label>

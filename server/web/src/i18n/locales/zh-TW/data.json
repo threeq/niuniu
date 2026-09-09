@@ -121,7 +121,12 @@
     "bindingAdd": "新增關聯",
     "bindingRemove": "移除關聯",
     "bindingSelectTarget": "請選擇…",
-    "unboundBadge": "未關聯"
+    "unboundBadge": "未關聯",
+    "ownerLabel": "歸屬",
+    "ownerPersonal": "個人",
+    "ownerOrg": "組織：{name}",
+    "ownerHint": "選擇組織後，該資料源對組織內所有成員的智慧型代理可用",
+    "orgBadge": "組織"
   },
   "dashboard": {
     "title": "資料看板",
