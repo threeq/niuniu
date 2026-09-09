@@ -80,6 +80,9 @@ export interface DataSource {
   id: number
   name: string
   kind: DataSourceKind
+  /** Owning account: 'user' (creator's personal) or 'org' (team-shared). */
+  owner_type: 'user' | 'org'
+  owner_id: number
   config: DataSourceConfig
   scope_config: ScopeConfig
   default_access_mode: AccessMode
@@ -92,6 +95,10 @@ export interface DataSource {
 export interface CreateDataSourceBody {
   name: string
   kind: DataSourceKind
+  /** Omitted -> the caller's personal owner; {owner_type:'org', owner_id}
+   *  creates a TEAM source every org member's agent can use. */
+  owner_type?: 'user' | 'org'
+  owner_id?: number
   config: DataSourceConfig
   scope_config: ScopeConfig
   default_access_mode: AccessMode
