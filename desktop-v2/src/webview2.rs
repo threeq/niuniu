@@ -3,11 +3,15 @@
 //! main() 里先行检测的做法一致：检测不到就弹原生模态框提示安装后退出。
 
 /// Microsoft 公布的 Evergreen WebView2 Runtime 客户端 ID（检测契约见官方文档）。
+#[cfg(windows)]
 const WEBVIEW2_CLIENT_GUID: &str = "{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}";
 
+#[cfg(windows)]
 const WEBVIEW2_DOWNLOAD_URL: &str = "https://developer.microsoft.com/microsoft-edge/webview2/";
 
 /// 按文档顺序探测：HKLM-64 → HKLM-WOW64 → HKCU，返回第一个有 pv 的版本号。
+/// Windows-only（winreg crate 仅存在于 Windows）；其它平台 no-op 返回 None。
+#[cfg(windows)]
 pub fn find_webview2_version() -> Option<String> {
     let base = format!(r"Microsoft\EdgeUpdate\Clients\{WEBVIEW2_CLIENT_GUID}");
     let probes: [(winreg::HKEY, String); 3] = [
@@ -29,6 +33,11 @@ pub fn find_webview2_version() -> Option<String> {
             return Some(pv);
         }
     }
+    None
+}
+
+#[cfg(not(windows))]
+pub fn find_webview2_version() -> Option<String> {
     None
 }
 
