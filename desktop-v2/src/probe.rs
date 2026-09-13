@@ -111,7 +111,9 @@ fn pid_alive(pid: u32) -> bool {
     if pid == 0 {
         return false;
     }
-    unsafe { libc::kill(pid as i32, 0) == 0 || *libc::__errno_location() != libc::ESRCH }
+    // 取 errno 用跨平台 std API：libc::__errno_location() 是 glibc/Linux 符号，
+    // macOS 上是 libc::__error()，直接引用会在 darwin 构建报 E0425。
+    unsafe { libc::kill(pid as i32, 0) == 0 || std::io::Error::last_os_error().raw_os_error() != Some(libc::ESRCH) }
 }
 
 #[cfg(windows)]
