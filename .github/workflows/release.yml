@@ -59,7 +59,9 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
-        with: { ref: '${{ env.TAG }}' }
+        with:
+          fetch-depth: 0
+          ref: '${{ env.TAG }}'
       - uses: actions/setup-go@v5
         with: { go-version-file: server/go.mod, cache-dependency-path: server/go.sum }
       - uses: pnpm/action-setup@v4
@@ -92,7 +94,9 @@ jobs:
     environment: Apple Build
     steps:
       - uses: actions/checkout@v4
-        with: { ref: '${{ env.TAG }}' }
+        with:
+          fetch-depth: 0
+          ref: '${{ env.TAG }}'
       - uses: actions/setup-go@v5
         with: { go-version-file: server/go.mod, cache-dependency-path: server/go.sum }
       - uses: pnpm/action-setup@v4
@@ -162,7 +166,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-        with: { ref: '${{ env.TAG }}' }
+        with:
+          fetch-depth: 0
+          ref: '${{ env.TAG }}'
       - name: Install Tauri Linux deps (GTK / WebKit2GTK 4.1 / libsoup3)
         run: |
           sudo apt-get update
@@ -197,7 +203,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-        with: { ref: '${{ env.TAG }}' }
+        with:
+          fetch-depth: 0
+          ref: '${{ env.TAG }}'
       - name: Flip draft → public
         env:
           GH_TOKEN: ${{ github.token }}
