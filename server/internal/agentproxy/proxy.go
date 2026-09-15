@@ -4202,10 +4202,7 @@ func (s *WorkspaceSession) handleTodoWrite(ctx context.Context, toolUseId, fullI
 		taskRunID := s.ActiveRunID()
 
 		for _, todo := range arrayInput.Todos {
-			status := todo.Status
-			if status == "" {
-				status = "pending"
-			}
+			status := normalizeTodoStatus(todo.Status)
 
 			// Stable agent_task_id derivation:
 			//   1. Explicit todo.id from the caller (preferred — survives renames).
@@ -4283,6 +4280,33 @@ func (s *WorkspaceSession) handleTodoWrite(ctx context.Context, toolUseId, fullI
 // Same content always yields the same id, so repeated TodoWrite calls
 // collapse identical todos onto the same row via UPSERT instead of inserting
 // fresh rows each time.
+// normalizeTodoStatus maps a TodoWrite status onto the workspace_tasks CHECK
+// allow-list ('pending','in_progress','completed','deleted','interrupted').
+// Agents (notably codex plan updates) emit vendor-specific or newer status
+// values that would otherwise violate the constraint and silently drop the
+// whole task update (SQLSTATE 23514). Empty/unknown → pending (a just-added
+// todo hasn't started).
+func normalizeTodoStatus(status string) string {
+	switch status {
+	case "in_progress", "completed", "deleted", "interrupted":
+		return status
+	case "":
+		return "pending"
+	default:
+		// Unknown vendor value: keep the row alive as pending rather than
+		// violating the CHECK. in-progress synonyms still map correctly.
+		switch status {
+		case "in-progress", "running", "active", "started":
+			return "in_progress"
+		case "done", "success", "finished":
+			return "completed"
+		case "cancelled", "canceled", "aborted":
+			return "deleted"
+		}
+		return "pending"
+	}
+}
+
 func contentHashTaskID(content string) string {
 	h := sha256.Sum256([]byte(content))
 	return "todo-c-" + hex.EncodeToString(h[:8])
