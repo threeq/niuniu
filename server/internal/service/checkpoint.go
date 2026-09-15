@@ -102,9 +102,14 @@ func (s *CheckpointService) Snapshot(ctx context.Context, issueID, workspaceID i
 	// don't read an identical MAX(step) and merge into one timeline entry.
 	s.stepMu.Lock()
 	defer s.stepMu.Unlock()
-	step := s.nextStep(ctx, issueID)
+	step := s.nextStep(ctx, workspaceID)
 	wsStr := strconv.FormatInt(workspaceID, 10)
+	// 无 issue 的工作空间：ref 第二段用 workspace id 兜底，保持
+	// refs/niuniu/<ws>/<key>/<step> 的三段形状（每段数字、工作空间内唯一）。
 	issueStr := strconv.FormatInt(issueID, 10)
+	if issueID <= 0 {
+		issueStr = wsStr
+	}
 	msg := fmt.Sprintf("[%s step %d] %s", kind, step, strings.TrimSpace(label))
 
 	var repos []CheckpointRepo
@@ -137,16 +142,18 @@ func (s *CheckpointService) Snapshot(ctx context.Context, issueID, workspaceID i
 	return SnapshotResult{Step: step, Repos: repos}, nil
 }
 
-// Timeline returns the issue's checkpoint steps in ascending order, each grouping
-// its per-repo snapshots.
-func (s *CheckpointService) Timeline(ctx context.Context, issueID int64) ([]CheckpointStep, error) {
+// Timeline returns the workspace's checkpoint steps in ascending order, each
+// grouping its per-repo snapshots. Workspace-keyed: workspaces may exist without
+// a linked issue (their rows carry a NULL issue_id), and rows for issueful
+// workspaces carry workspace_id regardless.
+func (s *CheckpointService) Timeline(ctx context.Context, workspaceID int64) ([]CheckpointStep, error) {
 	if s == nil || s.db == nil {
 		return nil, nil
 	}
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT id, repository_id, repo_name, worktree_path, git_ref, commit_hash, parent_hash,
 		       step, kind, gate_status, label, created_at
-		FROM issue_checkpoints WHERE issue_id = ? ORDER BY step ASC, id ASC`, issueID)
+		FROM issue_checkpoints WHERE workspace_id = ? ORDER BY step ASC, id ASC`, workspaceID)
 	if err != nil {
 		return nil, fmt.Errorf("checkpoint timeline: %w", err)
 	}
@@ -230,13 +237,13 @@ type RevertRepoResult struct {
 // Revert restores every repo worktree to its snapshot at the given step. It never
 // deletes checkpoint refs, so newer work is not destroyed — a later Revert forward
 // re-applies it. Returns a per-repo result; an error only when the step is unknown.
-func (s *CheckpointService) Revert(ctx context.Context, issueID int64, step int) ([]RevertRepoResult, error) {
+func (s *CheckpointService) Revert(ctx context.Context, workspaceID int64, step int) ([]RevertRepoResult, error) {
 	if s == nil || s.db == nil {
 		return nil, fmt.Errorf("checkpoint revert: service unavailable")
 	}
 	rows, err := s.db.QueryContext(ctx,
 		`SELECT repository_id, repo_name, worktree_path, commit_hash FROM issue_checkpoints
-		 WHERE issue_id = ? AND step = ? ORDER BY id ASC`, issueID, step)
+		 WHERE workspace_id = ? AND step = ? ORDER BY id ASC`, workspaceID, step)
 	if err != nil {
 		return nil, fmt.Errorf("checkpoint revert: load step: %w", err)
 	}
@@ -254,7 +261,7 @@ func (s *CheckpointService) Revert(ctx context.Context, issueID int64, step int)
 		res := RevertRepoResult{RepositoryID: repoID.Int64, RepoName: repoName, WorktreePath: wt, CommitHash: commit}
 		if err := git.RevertToCheckpoint(wt, commit); err != nil {
 			res.Error = err.Error()
-			slog.Warn("checkpoint: revert failed", "issueID", issueID, "step", step, "repo", repoName, "error", err)
+			slog.Warn("checkpoint: revert failed", "workspaceID", workspaceID, "step", step, "repo", repoName, "error", err)
 		} else {
 			res.OK = true
 		}
@@ -264,9 +271,9 @@ func (s *CheckpointService) Revert(ctx context.Context, issueID int64, step int)
 		return nil, err
 	}
 	if len(results) == 0 {
-		return nil, fmt.Errorf("checkpoint revert: no checkpoint at step %d for issue %d", step, issueID)
+		return nil, fmt.Errorf("checkpoint revert: no checkpoint at step %d for workspace %d", step, workspaceID)
 	}
-	slog.Info("checkpoint: reverted", "issueID", issueID, "step", step, "repos", len(results))
+	slog.Info("checkpoint: reverted", "workspaceID", workspaceID, "step", step, "repos", len(results))
 	return results, nil
 }
 
@@ -294,22 +301,31 @@ func (s *CheckpointService) RevertToLastPassing(ctx context.Context, issueID int
 	if !ok {
 		return 0, false, nil
 	}
-	_, err := s.Revert(ctx, issueID, step)
+	// 工作空间 1:1 于 issue，但 timeline/revert 现在按 workspace 键控——从该步
+	// 的行里取 workspace_id（无 issue 的工作空间不会走 gate 自动回滚路径）。
+	var wsID int64
+	if err := s.db.QueryRowContext(ctx,
+		`SELECT workspace_id FROM issue_checkpoints WHERE issue_id = ? AND step = ? LIMIT 1`,
+		issueID, step).Scan(&wsID); err != nil {
+		return 0, false, fmt.Errorf("checkpoint revert: resolve workspace: %w", err)
+	}
+	_, err := s.Revert(ctx, wsID, step)
 	return step, true, err
 }
 
-// CheckpointIssueID returns the issue a checkpoint row belongs to (for authz /
-// validation on the diff endpoint).
-func (s *CheckpointService) CheckpointIssueID(ctx context.Context, checkpointID int64) (int64, bool) {
+// CheckpointWorkspaceID returns the workspace a checkpoint row belongs to (for
+// authz / validation on the diff endpoint). Checkpoints are workspace-keyed:
+// rows for issue-less workspaces carry a NULL issue but always a workspace.
+func (s *CheckpointService) CheckpointWorkspaceID(ctx context.Context, checkpointID int64) (int64, bool) {
 	if s == nil || s.db == nil {
 		return 0, false
 	}
-	var issueID int64
+	var wsID int64
 	if err := s.db.QueryRowContext(ctx,
-		`SELECT issue_id FROM issue_checkpoints WHERE id = ?`, checkpointID).Scan(&issueID); err != nil {
+		`SELECT workspace_id FROM issue_checkpoints WHERE id = ?`, checkpointID).Scan(&wsID); err != nil {
 		return 0, false
 	}
-	return issueID, true
+	return wsID, true
 }
 
 // --- internals ---
@@ -339,12 +355,12 @@ func (s *CheckpointService) repoTargets(ctx context.Context, workspaceID int64) 
 	return nil
 }
 
-// nextStep returns MAX(step)+1 for the issue (1 for the first checkpoint).
-func (s *CheckpointService) nextStep(ctx context.Context, issueID int64) int {
+// nextStep returns MAX(step)+1 for the workspace (1 for the first checkpoint).
+func (s *CheckpointService) nextStep(ctx context.Context, workspaceID int64) int {
 	var maxStep sql.NullInt64
 	if err := s.db.QueryRowContext(ctx,
-		`SELECT MAX(step) FROM issue_checkpoints WHERE issue_id = ?`, issueID).Scan(&maxStep); err != nil {
-		slog.Warn("checkpoint: read max step", "issueID", issueID, "error", err)
+		`SELECT MAX(step) FROM issue_checkpoints WHERE workspace_id = ?`, workspaceID).Scan(&maxStep); err != nil {
+		slog.Warn("checkpoint: read max step", "workspaceID", workspaceID, "error", err)
 		return 1
 	}
 	if !maxStep.Valid {
@@ -353,12 +369,12 @@ func (s *CheckpointService) nextStep(ctx context.Context, issueID int64) int {
 	return int(maxStep.Int64) + 1
 }
 
-// lastCommitForRepo returns the most recent checkpoint commit for this (issue,repo)
+// lastCommitForRepo returns the most recent checkpoint commit for this (workspace,repo)
 // so the next snapshot chains onto it (making per-step diffs true deltas rather than
 // cumulative-since-HEAD); empty when the repo has no prior checkpoint (WriteCheckpoint
 // then falls back to HEAD). repositoryID==0 is the workspace-path fallback, whose rows
 // store repository_id as NULL, so it must be matched with IS NULL — not `= 0`.
-func (s *CheckpointService) lastCommitForRepo(ctx context.Context, issueID, repositoryID int64) string {
+func (s *CheckpointService) lastCommitForRepo(ctx context.Context, workspaceID, repositoryID int64) string {
 	var (
 		commit sql.NullString
 		err    error
@@ -366,13 +382,13 @@ func (s *CheckpointService) lastCommitForRepo(ctx context.Context, issueID, repo
 	if repositoryID == 0 {
 		err = s.db.QueryRowContext(ctx,
 			`SELECT commit_hash FROM issue_checkpoints
-			 WHERE issue_id = ? AND repository_id IS NULL ORDER BY step DESC, id DESC LIMIT 1`,
-			issueID).Scan(&commit)
+			 WHERE workspace_id = ? AND repository_id IS NULL ORDER BY step DESC, id DESC LIMIT 1`,
+			workspaceID).Scan(&commit)
 	} else {
 		err = s.db.QueryRowContext(ctx,
 			`SELECT commit_hash FROM issue_checkpoints
-			 WHERE issue_id = ? AND repository_id = ? ORDER BY step DESC, id DESC LIMIT 1`,
-			issueID, repositoryID).Scan(&commit)
+			 WHERE workspace_id = ? AND repository_id = ? ORDER BY step DESC, id DESC LIMIT 1`,
+			workspaceID, repositoryID).Scan(&commit)
 	}
 	if err != nil {
 		return ""
@@ -393,7 +409,7 @@ func (s *CheckpointService) insertRow(ctx context.Context, issueID, workspaceID 
 			 gate_status, label, git_ref, commit_hash, parent_hash)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		RETURNING id`,
-		issueID, workspaceID, nullableID(t.repositoryID), t.repoName, t.worktreePath, step, kind,
+		nullableID(issueID), workspaceID, nullableID(t.repositoryID), t.repoName, t.worktreePath, step, kind,
 		gateStatus, label, ref, commit, parent).Scan(&id)
 	if err != nil {
 		return 0, err

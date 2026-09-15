@@ -40,21 +40,6 @@ func (h *CheckpointHandler) authzWorkspace(c *gin.Context, userID, workspaceID i
 	return true
 }
 
-// issueForWorkspace resolves the issue linked to a workspace (1:1). Writes an error
-// and returns (0,false) when the workspace has no issue.
-func (h *CheckpointHandler) issueForWorkspace(c *gin.Context, workspaceID int64) (int64, bool) {
-	ws, err := h.q.GetWorkspace(c.Request.Context(), workspaceID)
-	if err != nil {
-		NotFound(c, "WORKSPACE")
-		return 0, false
-	}
-	if !ws.IssueID.Valid {
-		BadRequest(c, "workspace has no linked issue")
-		return 0, false
-	}
-	return ws.IssueID.Int64, true
-}
-
 // RevertRequest is the revert body: the step to rewind every repo worktree to.
 type RevertRequest struct {
 	Step int `json:"step"`
@@ -68,7 +53,7 @@ type RevertRequest struct {
 // takes a workspace id. /api callers are authorized via CanAccessWorkspace; the
 // /mcp twin relies on MCP token auth upstream (userID is 0, so authz is skipped).
 
-// TimelineForWorkspace returns the checkpoint timeline for a workspace's issue.
+// TimelineForWorkspace returns the checkpoint timeline for the workspace.
 // GET /api|/mcp /workspaces/:id/checkpoints
 func (h *CheckpointHandler) TimelineForWorkspace(c *gin.Context) {
 	userID := c.GetInt64("auth_user_id")
@@ -80,15 +65,11 @@ func (h *CheckpointHandler) TimelineForWorkspace(c *gin.Context) {
 	if !h.authzWorkspace(c, userID, wsID) {
 		return
 	}
-	issueID, ok := h.issueForWorkspace(c, wsID)
-	if !ok {
-		return
-	}
-	h.writeTimeline(c, issueID)
+	h.writeTimeline(c, wsID)
 }
 
 // DiffForWorkspace returns a single checkpoint's diff, validating it belongs to the
-// workspace's issue. GET /api|/mcp /workspaces/:id/checkpoints/:cid/diff
+// workspace. GET /api|/mcp /workspaces/:id/checkpoints/:cid/diff
 func (h *CheckpointHandler) DiffForWorkspace(c *gin.Context) {
 	userID := c.GetInt64("auth_user_id")
 	wsID, err := strconv.ParseInt(c.Param("id"), 10, 64)
@@ -99,14 +80,10 @@ func (h *CheckpointHandler) DiffForWorkspace(c *gin.Context) {
 	if !h.authzWorkspace(c, userID, wsID) {
 		return
 	}
-	issueID, ok := h.issueForWorkspace(c, wsID)
-	if !ok {
-		return
-	}
-	h.writeDiff(c, issueID)
+	h.writeDiff(c, wsID)
 }
 
-// RevertForWorkspace rewinds the workspace's issue to a checkpoint step.
+// RevertForWorkspace rewinds the workspace to a checkpoint step.
 // POST /api|/mcp /workspaces/:id/checkpoints/revert  body: {"step":N}
 func (h *CheckpointHandler) RevertForWorkspace(c *gin.Context) {
 	userID := c.GetInt64("auth_user_id")
@@ -118,11 +95,7 @@ func (h *CheckpointHandler) RevertForWorkspace(c *gin.Context) {
 	if !h.authzWorkspace(c, userID, wsID) {
 		return
 	}
-	issueID, ok := h.issueForWorkspace(c, wsID)
-	if !ok {
-		return
-	}
-	h.writeRevert(c, issueID)
+	h.writeRevert(c, wsID)
 }
 
 // CreateForWorkspace takes a manual checkpoint of the workspace's worktree(s).
@@ -137,9 +110,11 @@ func (h *CheckpointHandler) CreateForWorkspace(c *gin.Context) {
 	if !h.authzWorkspace(c, userID, wsID) {
 		return
 	}
-	issueID, ok := h.issueForWorkspace(c, wsID)
-	if !ok {
-		return
+	// 工作空间可以不关联 issue：有则把快照行挂到该 issue 作溯源，无则 issue_id
+	// 落 NULL（行始终以 workspace_id 键控）。
+	issueID := int64(0)
+	if ws, err := h.q.GetWorkspace(c.Request.Context(), wsID); err == nil && ws.IssueID.Valid {
+		issueID = ws.IssueID.Int64
 	}
 	var body struct {
 		Label string `json:"label"`
@@ -155,8 +130,8 @@ func (h *CheckpointHandler) CreateForWorkspace(c *gin.Context) {
 
 // --- shared bodies ---
 
-func (h *CheckpointHandler) writeTimeline(c *gin.Context, issueID int64) {
-	steps, err := h.svc.Timeline(c.Request.Context(), issueID)
+func (h *CheckpointHandler) writeTimeline(c *gin.Context, workspaceID int64) {
+	steps, err := h.svc.Timeline(c.Request.Context(), workspaceID)
 	if err != nil {
 		InternalError(c, err)
 		return
@@ -164,17 +139,17 @@ func (h *CheckpointHandler) writeTimeline(c *gin.Context, issueID int64) {
 	if steps == nil {
 		steps = []service.CheckpointStep{}
 	}
-	c.JSON(http.StatusOK, gin.H{"issue_id": issueID, "checkpoints": steps})
+	c.JSON(http.StatusOK, gin.H{"workspace_id": workspaceID, "checkpoints": steps})
 }
 
-func (h *CheckpointHandler) writeDiff(c *gin.Context, issueID int64) {
+func (h *CheckpointHandler) writeDiff(c *gin.Context, workspaceID int64) {
 	cid, err := strconv.ParseInt(c.Param("cid"), 10, 64)
 	if err != nil {
 		BadRequest(c, "invalid checkpoint ID")
 		return
 	}
-	owner, ok := h.svc.CheckpointIssueID(c.Request.Context(), cid)
-	if !ok || owner != issueID {
+	owner, ok := h.svc.CheckpointWorkspaceID(c.Request.Context(), cid)
+	if !ok || owner != workspaceID {
 		NotFound(c, "CHECKPOINT")
 		return
 	}
@@ -186,7 +161,7 @@ func (h *CheckpointHandler) writeDiff(c *gin.Context, issueID int64) {
 	c.JSON(http.StatusOK, gin.H{"checkpoint_id": cid, "files": diffs})
 }
 
-func (h *CheckpointHandler) writeRevert(c *gin.Context, issueID int64) {
+func (h *CheckpointHandler) writeRevert(c *gin.Context, workspaceID int64) {
 	var req RevertRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		BadRequest(c, "invalid request body")
@@ -196,10 +171,10 @@ func (h *CheckpointHandler) writeRevert(c *gin.Context, issueID int64) {
 		BadRequest(c, "step must be a positive checkpoint step")
 		return
 	}
-	results, err := h.svc.Revert(c.Request.Context(), issueID, req.Step)
+	results, err := h.svc.Revert(c.Request.Context(), workspaceID, req.Step)
 	if err != nil {
 		BadRequest(c, err.Error())
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"issue_id": issueID, "step": req.Step, "repos": results})
+	c.JSON(http.StatusOK, gin.H{"workspace_id": workspaceID, "step": req.Step, "repos": results})
 }
