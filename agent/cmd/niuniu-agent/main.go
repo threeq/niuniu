@@ -32,15 +32,36 @@ func newRegistry() *tools.Registry {
 	)
 }
 
+// subagentPreamble turns the base system prompt into a child's.
+const subagentPreamble = "\n\nYou are running as a subagent dispatched by a parent agent. You cannot ask the parent questions: complete the given task autonomously with the tools available and end with a final report the parent can act on."
+
 // sessionRegistry assembles one session's toolset: built-in tools plus the
-// MCP servers projected into cwd (.mcp.json) plus the Skill tool over the
-// discovered skills. The closer releases the MCP servers. MCP failures
-// degrade to built-in tools only — never fatal.
-func sessionRegistry(cwd string) (*tools.Registry, io.Closer) {
+// MCP servers projected into cwd (.mcp.json), the Skill tool over the
+// discovered skills, and the Agent tool (subagent). The closer releases the
+// MCP servers. MCP failures degrade to built-in tools only — never fatal.
+// Child sessions (via Agent) get the same capabilities minus the Agent tool,
+// which is what enforces the recursion depth limit of 1.
+func sessionRegistry(cwd string, m model.Model, perms perm.Checker) (*tools.Registry, io.Closer) {
 	reg := newRegistry()
 	mgr := mcp.Start(cwd)
 	mgr.RegisterInto(reg)
-	reg.Register(skills.NewTool(skills.Scan(cwd)))
+	skillList := skills.Scan(cwd)
+	reg.Register(skills.NewTool(skillList))
+
+	system := prompt.Build(cwd) + subagentPreamble
+	newChild := func() *tools.Registry {
+		child := newRegistry()
+		mgr.RegisterInto(child)
+		child.Register(skills.NewTool(skillList))
+		return child
+	}
+	reg.Register(loop.NewAgentTool(&loop.AgentFactory{
+		Model:            m,
+		System:           system,
+		NewChildRegistry: newChild,
+		Perms:            perms,
+		MaxDepth:         1,
+	}, 0))
 	return reg, mgr
 }
 
@@ -93,9 +114,10 @@ Configuration (env):
 	if err != nil {
 		fail(err)
 	}
-	// Session toolset: built-ins + MCP servers + Skill tool; server lifetime
-	// is the process's.
-	reg, closer := sessionRegistry(cwd)
+	// Session toolset: built-ins + MCP servers + Skill + Agent tools; server
+	// lifetime is the process's. Subagents inherit the parent's policy so
+	// they cannot bypass the -y write choice.
+	reg, closer := sessionRegistry(cwd, m, perm.NewPolicy(*yes))
 	defer closer.Close()
 
 	res, err := loop.Run(ctx, m, reg, prompt.Build(cwd), *promptText,
@@ -123,12 +145,15 @@ func runACP() {
 		func() (model.Model, error) {
 			return buildModel(*provider, *modelName)
 		},
-		// Per-session tool projection: MCP servers + Skill tool for the
-		// session cwd. The returned closer ties server lifetime to the
+		// Per-session tool projection: MCP servers + Skill + Agent tools for
+		// the session cwd. The returned closer ties server lifetime to the
 		// session's (== the process's in niuniu's one-agent-per-workspace
-		// deployment).
+		// deployment). Subagents run with the conservative policy: ACP
+		// approvals are dynamic (per prompt), so a subagent's mutating calls
+		// are refused rather than silently allowed — P4 wires the approval
+		// flow through to child sessions.
 		func(cwd string, m model.Model) (*tools.Registry, io.Closer, error) {
-			reg, closer := sessionRegistry(cwd)
+			reg, closer := sessionRegistry(cwd, m, perm.NewPolicy(false))
 			return reg, closer, nil
 		})
 	if err := srv.Serve(context.Background()); err != nil {
