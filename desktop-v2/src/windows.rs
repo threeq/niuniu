@@ -42,7 +42,7 @@ pub fn create_main_window(
     let title = i18n::local_title(lang);
     // 所有 build() 经 webview_gate 串行（并发创建会在 WebView2 重入泵里嵌套，
     // 挂死主线程——见 webview_gate.rs 模块注释）。
-    let win = crate::webview_gate::gated_create(|| {
+    let win = crate::webview_gate::gated_create(app, || {
         WebviewWindowBuilder::new(app, "main", WebviewUrl::External(splash_data_url(lang)))
             .title(title)
             .inner_size(1440.0, 900.0)
@@ -59,7 +59,7 @@ pub fn create_main_window(
 
 /// picker（连接管理）窗口：内嵌 /index.html。
 pub fn create_picker_window(app: &tauri::AppHandle, lang: &str) -> tauri::Result<WebviewWindow> {
-    crate::webview_gate::gated_create(|| {
+    crate::webview_gate::gated_create(app, || {
         WebviewWindowBuilder::new(app, "picker", WebviewUrl::App("index.html".into()))
             .title(i18n::manage_title(lang))
             .inner_size(1280.0, 800.0)
@@ -81,7 +81,7 @@ pub fn create_picker_window(app: &tauri::AppHandle, lang: &str) -> tauri::Result
 /// repositionActiveAIService；Tauri 的 Moved/Resized 事件逐次触发无 debounce，
 /// 拖动过程中即跟随）。
 pub fn create_ai_hub_window(app: &tauri::AppHandle, lang: &str) -> tauri::Result<WebviewWindow> {
-    let win = crate::webview_gate::gated_create(|| {
+    let win = crate::webview_gate::gated_create(app, || {
         WebviewWindowBuilder::new(app, "ai-hub", WebviewUrl::App("ai.html".into()))
             .title(i18n::ai_title(lang))
             .inner_size(980.0, 720.0)
@@ -109,7 +109,7 @@ pub fn create_ai_hub_window(app: &tauri::AppHandle, lang: &str) -> tauri::Result
 
 /// 执行器管理窗口（占位页；执行器子系统 v2 尚未移植）。
 pub fn create_runners_window(app: &tauri::AppHandle, lang: &str) -> tauri::Result<WebviewWindow> {
-    crate::webview_gate::gated_create(|| {
+    crate::webview_gate::gated_create(app, || {
         WebviewWindowBuilder::new(app, "runners", WebviewUrl::App("runners.html".into()))
             .title(i18n::runners_title(lang))
             .inner_size(900.0, 640.0)
@@ -152,7 +152,7 @@ pub fn open_connection_window(
         let base = crate::config::normalize_base_url(&info.host, info.port);
         let target = format!("{base}/");
         let url = connecting_splash_url(&lang, &info.name, &target);
-        let built = crate::webview_gate::gated_create(|| {
+        let built = crate::webview_gate::gated_create(&app, || {
             WebviewWindowBuilder::new(&app, &label, WebviewUrl::External(url))
                 .title(i18n::remote_title(&lang, &info.name, &base))
                 .inner_size(1280.0, 840.0)
@@ -168,9 +168,15 @@ pub fn open_connection_window(
                 // createAndRegisterConnWindow 的 WindowClosing 钩子）。
                 register_conn_close_cleanup(&win, &app, &key);
                 // 建后补挂高清图标（闭包返回 ()，builder 链上的 ? 传播不了）。
-                let _ = win.set_icon(app_icon());
-                let _ = win.show();
-                let _ = win.set_focus();
+                // 图标/显隐/焦点统一经 dispatch_main：排队的主线程窗口任务可能
+                // 落在另一创建的 WebView2 重入泵里被内联执行，同步 Win32 调用
+                // 不得在泵内跑。
+                let win2 = win.clone();
+                crate::webview_gate::dispatch_main(&app, move || {
+                    let _ = win2.set_icon(app_icon());
+                    let _ = win2.show();
+                    let _ = win2.set_focus();
+                });
             }
             // 连按两次快捷键的竞态：第二个线程撞已存在 label 报错，忽略即可。
             Err(e) => eprintln!("create connection window {label} failed: {e}"),
