@@ -714,7 +714,7 @@ func normalizeCodexApproval(v string) string {
 // hints. Keep in sync with service.ValidCliTypes and the schema CHECK.
 func normalizeCliType(v string) string {
 	switch v {
-	case "claude", "codex", "qwen", "omp", "goose", "cursor":
+	case "claude", "codex", "qwen", "omp", "goose", "cursor", "niuniu":
 		return v
 	default:
 		return "claude"

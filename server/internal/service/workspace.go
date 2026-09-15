@@ -709,6 +709,7 @@ var ValidCliTypes = map[string]struct{}{
 	"omp":    {},
 	"goose":  {},
 	"cursor": {},
+	"niuniu": {},
 }
 
 // ErrInvalidCliType is returned by Create when input.CliType is outside the

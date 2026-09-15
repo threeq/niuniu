@@ -31,15 +31,19 @@ const (
 	CLIQwen   = "qwen"
 	CLIOmp    = "omp"
 	CLIGoose  = "goose"
+	// CLINiuniu is niuniu's own agent (agent/ module); it reads
+	// Anthropic-protocol env natively and also speaks OpenAI-protocol.
+	CLINiuniu = "niuniu"
 )
 
 // ProtocolForCLI returns the API protocol a given agent CLI type consumes.
-// Claude Code reads Anthropic-protocol env (ANTHROPIC_*); every other CLI
-// (codex/qwen/omp/goose) reads OpenAI-protocol env (OPENAI_*). This mapping is
-// how one provider — which can hold a base_url per protocol — serves multiple
-// agent types from a single config.
+// Claude Code reads Anthropic-protocol env (ANTHROPIC_*); niuniu-agent also
+// reads ANTHROPIC_* natively (it speaks both families, Anthropic is its
+// default); every other CLI (codex/qwen/omp/goose) reads OpenAI-protocol env
+// (OPENAI_*). This mapping is how one provider — which can hold a base_url per
+// protocol — serves multiple agent types from a single config.
 func ProtocolForCLI(cliType string) string {
-	if cliType == "" || cliType == CLIClaude {
+	if cliType == "" || cliType == CLIClaude || cliType == CLINiuniu {
 		return ProviderProtocolAnthropic
 	}
 	return ProviderProtocolOpenAI

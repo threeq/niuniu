@@ -9,7 +9,9 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"io"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/niuniu-dev/niuniu/agent/internal/acp"
@@ -54,6 +56,16 @@ func main() {
 		yes       = flag.Bool("y", false, "auto-approve mutating tools (Write/Edit/Bash); without it headless mode refuses them")
 	)
 	flag.Parse()
+
+	if *prompt == "-" {
+		// Read the prompt from stdin (niuniu's one-shot observation path pipes
+		// it in rather than passing it as an argv value).
+		data, err := io.ReadAll(os.Stdin)
+		if err != nil {
+			fail(fmt.Errorf("read stdin prompt: %w", err))
+		}
+		*prompt = strings.TrimSpace(string(data))
+	}
 
 	if *prompt == "" {
 		fmt.Fprintf(os.Stderr, `niuniu-agent — niuniu's self-built coding agent (P1)

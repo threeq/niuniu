@@ -29,6 +29,12 @@ const (
 	// own schema (tool calls are standalone tool_call lines, not tool_use content
 	// blocks), so CursorAdapter hand-maps it rather than reusing ParseStreamLine.
 	TypeCursor Type = "cursor"
+	// TypeNiuniuAgent is niuniu's own agent (the agent/ Go module), driven over
+	// the Agent Client Protocol (ACP) on stdio (`niuniu-agent acp`). Like omp
+	// and goose it is not a parse-the-stdout adapter — the session layer routes
+	// TypeNiuniuAgent workspaces to the agentbackend.niuniuagent Backend (see
+	// agentproxy.Send). This is the engine niuniu controls end-to-end.
+	TypeNiuniuAgent Type = "niuniu"
 )
 
 // Adapter encapsulates the CLI-specific concerns that vary between Claude and
@@ -97,6 +103,8 @@ func For(t Type) Adapter {
 		return GooseAdapter{}
 	case TypeCursor:
 		return CursorAdapter{}
+	case TypeNiuniuAgent:
+		return NiuniuAgentAdapter{}
 	}
 	return ClaudeAdapter{}
 }

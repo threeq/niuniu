@@ -65,6 +65,9 @@ func kbInstructionFile(cliType string) string {
 		// cursor-agent reads AGENTS.md (the open cross-tool convention) as its
 		// project instruction file.
 		return "AGENTS.md"
+	case "niuniu":
+		// niuniu-agent reads AGENTS.md (the open cross-tool convention).
+		return "AGENTS.md"
 	default:
 		return "CLAUDE.md"
 	}

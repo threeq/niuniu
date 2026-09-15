@@ -5,12 +5,15 @@ niuniu 的自研编码 agent（issue #708 / #709）。可行性分析与总体�
 
 独立 Go 模块（挂入根 `go.work`），**零第三方依赖**，目标是单二进制分发（desktop sidecar 友好）。
 
-## 当前状态：P0
+## 当前状态：P1
 
-- ✅ `-p` headless 单轮模式（agent loop：tool_use → 执行 → tool_result 回填 → 终止）
+- ✅ `-p` headless 单轮（`-p -` 读 stdin；`-y` 放行变更类工具）
+- ✅ `acp` server：stdio JSON-RPC（initialize / session/new / session/prompt / session/update / session/request_permission / session/cancel），session cwd 经 chdir 生效
 - ✅ 双协议模型层：Anthropic `/v1/messages` 兼容（含 Bearer 网关）、OpenAI `/chat/completions` 兼容
-- ✅ 工具：`LS`、`Read`（Go 原生，跨平台一致）
-- ⏳ P1：ACP server（`acp` 子命令已占位）、流式、Write/Edit/Bash/Grep/Glob、session、MCP client、skills
+- ✅ 工具全集：`LS`、`Read`、`Grep`、`Glob`、`Write`、`Edit`、`Bash`、`TodoWrite`（零依赖、跨平台）
+- ✅ 权限层：读/写分类；headless 默认拒绝变更类，`-y` 放行；ACP 路径走 request_permission 审批
+- ✅ niuniu 引擎接入：`cli_type=niuniu`（agentbackend/niuniuagent 后端 + proxy 调度），真实二进制端到端验收通过
+- ⏳ P2：token 级流式、真实 usage/成本上报、MCP client、skills、session resume、compact
 
 ## 用法
 
