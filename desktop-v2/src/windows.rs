@@ -33,6 +33,41 @@ pub fn app_icon() -> tauri::image::Image<'static> {
         .expect("embedded assets/appicon.png must be a valid PNG")
 }
 
+/// 把窗口尺寸/位置夹到所在显示器的可见范围内。builder 里的固定 inner_size
+/// 是逻辑像素：DPI 缩放（125%/150%）下 900/840/800 逻辑高会超过屏幕的可用
+/// 逻辑高度（1080p@150% 仅 720），首次打开即表现为窗口下沿出屏。缩/夹之后
+/// 在显示器几何内重新居中（纵向预留 48 逻辑 px 给任务栏，横向 8）。
+fn clamp_to_monitor(win: &WebviewWindow) {
+    let Ok(cur) = win.inner_size() else {
+        return;
+    };
+    // 隐藏窗口可能还没有关联显示器，回退主显示器。
+    let mon = win
+        .current_monitor()
+        .ok()
+        .flatten()
+        .or_else(|| win.primary_monitor().ok().flatten());
+    let Some(mon) = mon else {
+        return;
+    };
+    let scale = mon.scale_factor();
+    let size = mon.size();
+    let avail_lw = ((size.width as f64) / scale - 16.0).max(320.0);
+    let avail_lh = ((size.height as f64) / scale - 48.0).max(240.0);
+    let lw = (cur.width as f64) / scale;
+    let lh = (cur.height as f64) / scale;
+    if lw <= avail_lw && lh <= avail_lh {
+        return;
+    }
+    let new_lw = lw.min(avail_lw);
+    let new_lh = lh.min(avail_lh);
+    let _ = win.set_size(tauri::LogicalSize::new(new_lw, new_lh));
+    let pos = mon.position();
+    let x = pos.x + ((size.width as f64 - new_lw * scale) / 2.0).round() as i32;
+    let y = pos.y + ((size.height as f64 - 48.0 * scale - new_lh * scale) / 2.0).round() as i32;
+    let _ = win.set_position(tauri::PhysicalPosition::new(x, y));
+}
+
 /// 主窗口初始加载页：data URL 旋转加载页（服务就绪后 navigate 到本地 SPA）。
 pub fn create_main_window(
     app: &tauri::AppHandle,
@@ -54,12 +89,13 @@ pub fn create_main_window(
             .data_directory(webview_data_dir())
             .build()
     })?;
+    clamp_to_monitor(&win);
     Ok(win)
 }
 
 /// picker（连接管理）窗口：内嵌 /index.html。
 pub fn create_picker_window(app: &tauri::AppHandle, lang: &str) -> tauri::Result<WebviewWindow> {
-    crate::webview_gate::gated_create(app, || {
+    let win = crate::webview_gate::gated_create(app, || {
         WebviewWindowBuilder::new(app, "picker", WebviewUrl::App("index.html".into()))
             .title(i18n::manage_title(lang))
             .inner_size(1280.0, 800.0)
@@ -68,7 +104,9 @@ pub fn create_picker_window(app: &tauri::AppHandle, lang: &str) -> tauri::Result
             .background_color(PICKER_BG)
             .data_directory(webview_data_dir())
             .build()
-    })
+    })?;
+    clamp_to_monitor(&win);
+    Ok(win)
 }
 
 /// AI 直达窗口：内嵌 /ai.html。hub 自带关闭钩子（spawn_aux_window 对 ai-hub
@@ -91,6 +129,7 @@ pub fn create_ai_hub_window(app: &tauri::AppHandle, lang: &str) -> tauri::Result
             .data_directory(webview_data_dir())
             .build()
     })?;
+    clamp_to_monitor(&win);
     let app2 = app.clone();
     let w2 = win.clone();
     win.on_window_event(move |event| match event {
@@ -109,7 +148,7 @@ pub fn create_ai_hub_window(app: &tauri::AppHandle, lang: &str) -> tauri::Result
 
 /// 执行器管理窗口（占位页；执行器子系统 v2 尚未移植）。
 pub fn create_runners_window(app: &tauri::AppHandle, lang: &str) -> tauri::Result<WebviewWindow> {
-    crate::webview_gate::gated_create(app, || {
+    let win = crate::webview_gate::gated_create(app, || {
         WebviewWindowBuilder::new(app, "runners", WebviewUrl::App("runners.html".into()))
             .title(i18n::runners_title(lang))
             .inner_size(900.0, 640.0)
@@ -118,7 +157,9 @@ pub fn create_runners_window(app: &tauri::AppHandle, lang: &str) -> tauri::Resul
             .background_color(HUB_BG)
             .data_directory(webview_data_dir())
             .build()
-    })
+    })?;
+    clamp_to_monitor(&win);
+    Ok(win)
 }
 
 /// 远端连接窗口：加载 connecting 过渡页（页面自身轮询健康后跳转到目标）。
@@ -173,6 +214,7 @@ pub fn open_connection_window(
                 // 不得在泵内跑。
                 let win2 = win.clone();
                 crate::webview_gate::dispatch_main(&app, move || {
+                    clamp_to_monitor(&win2);
                     let _ = win2.set_icon(app_icon());
                     let _ = win2.show();
                     let _ = win2.set_focus();
