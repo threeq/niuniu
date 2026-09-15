@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -23,6 +24,9 @@ type codexAppServerRuntime struct {
 	sandboxMode    string
 	approvalPolicy string
 	runtimeRoots   []string
+	// configArgs 是 -c 覆盖（provider 网关的 model_provider 声明），必须位于
+	// app-server 子命令之前传给 codex 根命令。
+	configArgs []string
 }
 
 func (s *WorkspaceSession) runCodexAppServerTurn(ctx context.Context, workDir, content, msgId string) error {
@@ -87,7 +91,7 @@ func (s *WorkspaceSession) ensureCodexAppServer(ctx context.Context, workDir str
 		return fmt.Errorf("workspace path is not a directory: %s", workDir)
 	}
 
-	app, err := startCodexAppServerClient(ctx, runtime.command, runtime.env)
+	app, err := startCodexAppServerClient(ctx, runtime.command, runtime.configArgs, runtime.env)
 	if err != nil {
 		return err
 	}
@@ -446,18 +450,42 @@ func (s *WorkspaceSession) buildCodexAppServerRuntime(ctx context.Context, workD
 	if envErr != nil {
 		return codexAppServerRuntime{}, fmt.Errorf("fetch workspace env vars: %w", envErr)
 	}
+	openaiBase, openaiKey, openaiModel := "", "", ""
+	compactBudget := int64(0)
 	for _, e := range wsEnvVars {
-		if e.Key == "NIUNIU_MODEL" && e.Value != "" {
+		switch {
+		case e.Key == "NIUNIU_MODEL" && e.Value != "":
 			out.model = e.Value
 			s.mu.Lock()
 			s.modelName = e.Value
 			s.mu.Unlock()
+		case e.Key == "OPENAI_MODEL":
+			openaiModel = e.Value
+		case e.Key == "OPENAI_BASE_URL":
+			openaiBase = e.Value
+		case e.Key == "OPENAI_API_KEY":
+			openaiKey = e.Value
+		case e.Key == "NIUNIU_AUTO_COMPACT_BUDGET":
+			if v, perr := strconv.ParseInt(e.Value, 10, 64); perr == nil {
+				compactBudget = v
+			}
 		}
 	}
-	// 注：codex-cli ≥0.13x 已移除 wire_api="chat"（upstream discussion #7782），
-	// Chat-Completions 型中转无法经 model_provider 覆盖接入——强行注入会让
-	// app-server 启动即退出（实测）。provider 对 codex 的支持需要
-	// Responses-API 中转或本地协议翻译层（待排期）。
+	// provider 中转接入：生成官方式 CODEX_HOME（config.toml + models.json，
+	// wire_api=responses），codex 以 CODEX_HOME 指向它。环境变量切换不了
+	// wire_api——codex-cli ≥0.13x 已移除 wire_api="chat"（discussion #7782，
+	// 强行 -c 注入实测会让 app-server 启动即退出）。
+	providerModel := out.model
+	if providerModel == "" {
+		providerModel = openaiModel
+	}
+	if homeDir, herr := prepareCodexProviderHome(s.workspaceID, codexProviderEnv{
+		BaseURL: openaiBase, APIKey: openaiKey, Model: providerModel, ContextWindow: compactBudget,
+	}); herr != nil {
+		slog.Warn("codex app-server: prepare provider home failed", "workspaceID", s.workspaceID, "err", herr)
+	} else if homeDir != "" {
+		out.env = append(out.env, "CODEX_HOME="+homeDir)
+	}
 
 	worktrees, wtErr := s.q.ListWorktrees(ctx, s.workspaceID)
 	if wtErr != nil {

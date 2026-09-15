@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/niuniu-dev/niuniu/internal/agentproxy/adapter"
@@ -38,8 +39,22 @@ func (s *WorkspaceSession) buildCodexOneShotExec(ctx context.Context, workDir st
 		return "", nil, nil, fmt.Errorf("fetch workspace env vars: %w", envErr)
 	}
 	workspaceEnv := make([]adapter.EnvVar, 0, len(wsEnvVars))
+	openaiBase, openaiKey, openaiModel := "", "", ""
+	compactBudget := int64(0)
 	for _, e := range wsEnvVars {
 		workspaceEnv = append(workspaceEnv, adapter.EnvVar{Key: e.Key, Value: e.Value})
+		switch e.Key {
+		case "OPENAI_BASE_URL":
+			openaiBase = e.Value
+		case "OPENAI_API_KEY":
+			openaiKey = e.Value
+		case "OPENAI_MODEL":
+			openaiModel = e.Value
+		case "NIUNIU_AUTO_COMPACT_BUDGET":
+			if v, perr := strconv.ParseInt(e.Value, 10, 64); perr == nil {
+				compactBudget = v
+			}
+		}
 		switch e.Key {
 		case "NIUNIU_AGENT_COMMAND":
 			if e.Value != "" {
@@ -121,6 +136,21 @@ func (s *WorkspaceSession) buildCodexOneShotExec(ctx context.Context, workDir st
 		GitAuthorName:    gitName,
 		GitAuthorEmail:   gitEmail,
 	})
+
+	// provider 中转接入：生成官方式 CODEX_HOME（config.toml + models.json，
+	// wire_api=responses），codex 以 CODEX_HOME 指向它——环境变量切换不了
+	// wire_api，provider 接入必须落成文件。
+	providerModel := model
+	if providerModel == "" {
+		providerModel = openaiModel
+	}
+	if homeDir, herr := prepareCodexProviderHome(s.workspaceID, codexProviderEnv{
+		BaseURL: openaiBase, APIKey: openaiKey, Model: providerModel, ContextWindow: compactBudget,
+	}); herr != nil {
+		slog.Warn("codex chat: prepare provider home failed", "workspaceID", s.workspaceID, "err", herr)
+	} else if homeDir != "" {
+		env = append(env, "CODEX_HOME="+homeDir)
+	}
 
 	if s.mcpWriter != nil && mcpOpts != nil {
 		if err := s.mcpWriter.GenerateCodexConfigToml(workDir, *mcpOpts); err != nil {
