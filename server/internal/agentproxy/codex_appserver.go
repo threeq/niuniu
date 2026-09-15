@@ -229,15 +229,29 @@ func (s *WorkspaceSession) codexAppServerEventLoop(ctx context.Context, app *cod
 		ID:          s.workspaceID,
 	})
 
+	// The REAL reason lives on stderr (bad flag / broken config / auth error
+	// all print there — stdout carries only the JSON protocol). Log it and
+	// attach the tail to the surfaced error so the user sees why, not just
+	// that it died.
+	stderrTail := strings.TrimSpace(app.StderrTail(800))
+	if stderrTail != "" {
+		slog.Error("codex app-server exited — stderr tail",
+			"workspace_id", s.workspaceID, "stderr", truncate(stderrTail, 800))
+	}
+
 	s.mu.Lock()
 	wasRunning := s.running
 	msgId := s.turnMsgId
 	s.mu.Unlock()
 	if wasRunning {
+		result := "Codex app-server exited unexpectedly"
+		if stderrTail != "" {
+			result += "：" + truncate(stderrTail, 400)
+		}
 		s.handleEvent(ctx, ParsedEvent{
 			Type:    "result",
 			IsError: true,
-			Result:  "Codex app-server exited unexpectedly",
+			Result:  result,
 		}, msgId)
 		return
 	}
