@@ -622,7 +622,7 @@ pub fn update_ai_service_visibility_at(app: &tauri::AppHandle, hub_visible: bool
         drop(ai);
         crate::webview_gate::dispatch_main(&app, move || {
             for (id, win) in windows {
-                let reveal_it = show_any && Some(id) == active;
+                let reveal_it = show_any && active.as_deref() == Some(id.as_str());
                 crate::boot_log(format!(
                     "[ai-diag] svc_visibility apply: {id} -> {} stage={stage:?}",
                     if reveal_it { "reveal" } else { "stash" }
