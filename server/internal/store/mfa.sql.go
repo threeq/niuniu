@@ -39,8 +39,17 @@ func (q *Queries) CountActiveBackupCodes(ctx context.Context, userID int64) (int
 }
 
 const createMFA = `-- name: CreateMFA :exec
+-- Upsert: re-running Setup (refresh / abandoned enrollment / leftover row
+-- from a pre-upgrade attempt) must overwrite the stale unconfirmed secret,
+-- not fail on the user_id primary key (SQLSTATE 23505 in production).
 INSERT INTO user_mfa (user_id, method, secret_ciphertext, created_at)
 VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+ON CONFLICT(user_id) DO UPDATE SET
+    method = excluded.method,
+    secret_ciphertext = excluded.secret_ciphertext,
+    created_at = CURRENT_TIMESTAMP,
+    enabled_at = NULL,
+    confirmed_at = NULL
 `
 
 type CreateMFAParams struct {
