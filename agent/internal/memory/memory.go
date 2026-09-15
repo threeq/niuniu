@@ -1,0 +1,363 @@
+// Package memory implements niuniu-agent's native memory: self-contained,
+// two-layer markdown storage that works with nothing but env and local
+// files — no niuniu server required. Entries are markdown files with a tiny
+// frontmatter (title / type / tags / created / updated) under
+//
+//	~/.niuniu-agent/memory/      (user layer — global across workspaces)
+//	<cwd>/.niuniu-agent/memory/  (project layer — this workspace only)
+//
+// Titles are the dedupe key (same title updates in place). At session
+// start a scored selection (keyword hits, recency, project layer first) is
+// injected into the system prompt under a byte cap; the MemorySave /
+// MemorySearch tools give the model explicit read/write access. Memory is
+// ADVISORY context: it may be stale — the model judges, never trusts
+// blindly.
+package memory
+
+import (
+	"fmt"
+	"os"
+	"path/filepath"
+	"sort"
+	"strings"
+	"time"
+)
+
+// Entry types (advisory taxonomy; open set — unknown values are kept).
+const (
+	TypePattern  = "pattern"
+	TypeGotcha   = "gotcha"
+	TypeDecision = "decision"
+	TypeUser     = "user"
+	TypeRef      = "ref"
+)
+
+// Anti-pollution limits. MaxEntryBytes caps one entry's whole file;
+// MaxEntriesPerLayer caps how many entries one layer may hold.
+const (
+	DefaultMaxEntryBytes      = 8 << 10 // 8KB
+	DefaultMaxEntriesPerLayer = 200
+)
+
+// Entry is one stored memory.
+type Entry struct {
+	ID      string // slug — also the filename base
+	Title   string
+	Type    string
+	Tags    []string
+	Content string
+	Created time.Time
+	Updated time.Time
+	Layer   string // "project" | "user"
+}
+
+// Store is the two-layer memory store for one workspace.
+type Store struct {
+	projectDir string // <cwd>/.niuniu-agent/memory
+	userDir    string // ~/.niuniu-agent/memory
+
+	MaxEntryBytes      int
+	MaxEntriesPerLayer int
+}
+
+// NewStore builds a store rooted at cwd: project layer <cwd>/.niuniu-agent/
+// memory, user layer from the OS home dir.
+func NewStore(cwd string) *Store {
+	s := &Store{
+		projectDir:         filepath.Join(cwd, ".niuniu-agent", "memory"),
+		MaxEntryBytes:      DefaultMaxEntryBytes,
+		MaxEntriesPerLayer: DefaultMaxEntriesPerLayer,
+	}
+	if home, err := os.UserHomeDir(); err == nil {
+		s.userDir = filepath.Join(home, ".niuniu-agent", "memory")
+	}
+	return s
+}
+
+// Save writes an entry to the PROJECT layer (memories gathered here belong
+// to this workspace). An existing entry with the same slug (title) is
+// updated in place — created is preserved, updated is refreshed. Returns
+// the entry id.
+func (s *Store) Save(e Entry) (string, error) {
+	e.Title = strings.TrimSpace(e.Title)
+	if e.Title == "" {
+		return "", fmt.Errorf("memory: title is required")
+	}
+	id := slug(e.Title)
+	if id == "" {
+		return "", fmt.Errorf("memory: title %q has no usable characters", e.Title)
+	}
+	if e.Type == "" {
+		e.Type = TypePattern
+	}
+	e.ID = id
+	e.Layer = "project"
+
+	path := filepath.Join(s.projectDir, id+".md")
+	if _, err := os.Stat(path); err == nil {
+		// Update: preserve the original created timestamp.
+		if prev, perr := readEntry(path, "project"); perr == nil {
+			e.Created = prev.Created
+		}
+	}
+	if e.Created.IsZero() {
+		e.Created = time.Now()
+	}
+	e.Updated = time.Now()
+
+	data := []byte(render(e))
+	if len(data) > s.maxEntryBytes() {
+		return "", fmt.Errorf("memory: entry %q is %d bytes, over the %d-byte cap — write a shorter lesson",
+			e.Title, len(data), s.maxEntryBytes())
+	}
+	if err := os.MkdirAll(s.projectDir, 0o755); err != nil {
+		return "", err
+	}
+	if _, statErr := os.Stat(path); os.IsNotExist(statErr) {
+		if n := s.countLayer(s.projectDir); n >= s.maxEntriesPerLayer() {
+			return "", fmt.Errorf("memory: project layer is full (%d entries) — search and clean up before saving more", n)
+		}
+	}
+	if err := os.WriteFile(path, data, 0o644); err != nil {
+		return "", err
+	}
+	return id, nil
+}
+
+// Search returns entries matching the keyword query (empty query = all),
+// ranked: keyword score desc, then updated desc, then project layer first.
+func (s *Store) Search(query string) ([]Entry, error) {
+	all := s.loadAll()
+	if strings.TrimSpace(query) == "" {
+		sortEntries(all, nil)
+		return all, nil
+	}
+	terms := splitTerms(query)
+	scored := make([]Entry, 0, len(all))
+	for _, e := range all {
+		if score(e, terms) > 0 {
+			scored = append(scored, e)
+		}
+	}
+	sortEntries(scored, terms)
+	return scored, nil
+}
+
+// Recall renders the top-N entries as a system-prompt section body, within
+// maxBytes. Empty store → empty string (the section is omitted).
+func (s *Store) Recall(topN, maxBytes int) (string, error) {
+	all := s.loadAll()
+	if len(all) == 0 {
+		return "", nil
+	}
+	sortEntries(all, nil)
+	if topN > 0 && len(all) > topN {
+		all = all[:topN]
+	}
+	var b strings.Builder
+	for _, e := range all {
+		line := "- [" + e.Type + "] " + e.Title + ": " + e.Content + "\n"
+		if b.Len()+len(line) > maxBytes {
+			break
+		}
+		b.WriteString(line)
+	}
+	return strings.TrimRight(b.String(), "\n"), nil
+}
+
+// loadAll reads project layer first, then user layer; a project entry
+// shadows a user entry with the same slug.
+func (s *Store) loadAll() []Entry {
+	var out []Entry
+	seen := map[string]bool{}
+	for _, layer := range []struct {
+		dir, name string
+	}{
+		{s.projectDir, "project"},
+		{s.userDir, "user"},
+	} {
+		entries, err := os.ReadDir(layer.dir)
+		if err != nil {
+			continue
+		}
+		for _, f := range entries {
+			if f.IsDir() || !strings.HasSuffix(f.Name(), ".md") {
+				continue
+			}
+			e, err := readEntry(filepath.Join(layer.dir, f.Name()), layer.name)
+			if err != nil {
+				continue // corrupt entry: skip, never block the session
+			}
+			if seen[e.ID] {
+				continue // project shadows user
+			}
+			seen[e.ID] = true
+			out = append(out, e)
+		}
+	}
+	return out
+}
+
+func readEntry(path, layer string) (Entry, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return Entry{}, err
+	}
+	text := string(data)
+	rest, ok := strings.CutPrefix(text, "---\n")
+	if !ok {
+		return Entry{}, fmt.Errorf("no frontmatter")
+	}
+	fm, body, found := strings.Cut(rest, "\n---")
+	if !found {
+		return Entry{}, fmt.Errorf("unterminated frontmatter")
+	}
+	var e Entry
+	e.Layer = layer
+	for _, line := range strings.Split(fm, "\n") {
+		key, val, ok := strings.Cut(strings.TrimSpace(line), ":")
+		if !ok {
+			continue
+		}
+		val = strings.TrimSpace(val)
+		switch strings.TrimSpace(key) {
+		case "title":
+			e.Title = val
+		case "type":
+			e.Type = val
+		case "tags":
+			if val != "" {
+				e.Tags = strings.Split(val, ",")
+			}
+		case "created":
+			e.Created = parseTime(val)
+		case "updated":
+			e.Updated = parseTime(val)
+		}
+	}
+	if e.Title == "" {
+		return Entry{}, fmt.Errorf("entry without title")
+	}
+	if e.ID == "" {
+		e.ID = strings.TrimSuffix(filepath.Base(path), ".md")
+	}
+	e.Content = strings.TrimSpace(body)
+	return e, nil
+}
+
+func render(e Entry) string {
+	return fmt.Sprintf("---\ntitle: %s\ntype: %s\ntags: %s\ncreated: %s\nupdated: %s\n---\n\n%s\n",
+		e.Title, e.Type, strings.Join(e.Tags, ","),
+		e.Created.UTC().Format(time.RFC3339), e.Updated.UTC().Format(time.RFC3339),
+		strings.TrimSpace(e.Content))
+}
+
+// score sums term hits: title ×3, tags ×2, content ×1.
+func score(e Entry, terms []string) int {
+	n := 0
+	for _, t := range terms {
+		if strings.Contains(strings.ToLower(e.Title), t) {
+			n += 3
+		}
+		for _, tag := range e.Tags {
+			if strings.Contains(strings.ToLower(tag), t) {
+				n += 2
+				break
+			}
+		}
+		if strings.Contains(strings.ToLower(e.Content), t) {
+			n++
+		}
+	}
+	return n
+}
+
+// sortEntries orders by keyword score (when terms given), then updated
+// desc, then project layer first.
+func sortEntries(entries []Entry, terms []string) {
+	scores := map[string]int{}
+	if terms != nil {
+		for _, e := range entries {
+			scores[e.ID+"/"+e.Layer] = score(e, terms)
+		}
+	}
+	sort.SliceStable(entries, func(i, j int) bool {
+		a, b := entries[i], entries[j]
+		if terms != nil {
+			sa, sb := scores[a.ID+"/"+a.Layer], scores[b.ID+"/"+b.Layer]
+			if sa != sb {
+				return sa > sb
+			}
+		}
+		if !a.Updated.Equal(b.Updated) {
+			return a.Updated.After(b.Updated)
+		}
+		if a.Layer != b.Layer {
+			return a.Layer == "project"
+		}
+		return a.Title < b.Title
+	})
+}
+
+func splitTerms(q string) []string {
+	fields := strings.FieldsFunc(strings.ToLower(q), func(r rune) bool {
+		return r == ' ' || r == '\t' || r == ',' || r == '，' || r == '、'
+	})
+	return fields
+}
+
+func (s *Store) countLayer(dir string) int {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return 0
+	}
+	n := 0
+	for _, f := range entries {
+		if !f.IsDir() && strings.HasSuffix(f.Name(), ".md") {
+			n++
+		}
+	}
+	return n
+}
+
+func (s *Store) maxEntryBytes() int {
+	if s.MaxEntryBytes > 0 {
+		return s.MaxEntryBytes
+	}
+	return DefaultMaxEntryBytes
+}
+
+func (s *Store) maxEntriesPerLayer() int {
+	if s.MaxEntriesPerLayer > 0 {
+		return s.MaxEntriesPerLayer
+	}
+	return DefaultMaxEntriesPerLayer
+}
+
+// slug converts a title into a filesystem-safe id: lowercased ASCII,
+// whitespace/illegal filename characters → '-', trimmed. Non-ASCII
+// (Chinese titles included) is preserved.
+func slug(title string) string {
+	var b strings.Builder
+	for _, r := range strings.ToLower(strings.TrimSpace(title)) {
+		switch {
+		case r >= 'a' && r <= 'z' || r >= '0' && r <= '9' || r >= 0x80:
+			b.WriteRune(r)
+		case r == '-' || r == '_':
+			b.WriteRune('-')
+		default:
+			b.WriteRune('-') // whitespace & illegal filename chars
+		}
+	}
+	out := strings.Trim(b.String(), "-")
+	out = strings.ReplaceAll(out, "--", "-")
+	return out
+}
+
+func parseTime(s string) time.Time {
+	t, err := time.Parse(time.RFC3339, s)
+	if err != nil {
+		return time.Time{}
+	}
+	return t
+}

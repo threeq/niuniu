@@ -17,11 +17,13 @@ import (
 	"github.com/niuniu-dev/niuniu/agent/internal/acp"
 	"github.com/niuniu-dev/niuniu/agent/internal/loop"
 	"github.com/niuniu-dev/niuniu/agent/internal/mcp"
+	"github.com/niuniu-dev/niuniu/agent/internal/memory"
 	"github.com/niuniu-dev/niuniu/agent/internal/model"
 	"github.com/niuniu-dev/niuniu/agent/internal/perm"
 	"github.com/niuniu-dev/niuniu/agent/internal/prompt"
 	"github.com/niuniu-dev/niuniu/agent/internal/skills"
 	"github.com/niuniu-dev/niuniu/agent/internal/tools"
+	"log/slog"
 )
 
 // newRegistry advertises the built-in tool suite.
@@ -35,24 +37,43 @@ func newRegistry() *tools.Registry {
 // subagentPreamble turns the base system prompt into a child's.
 const subagentPreamble = "\n\nYou are running as a subagent dispatched by a parent agent. You cannot ask the parent questions: complete the given task autonomously with the tools available and end with a final report the parent can act on."
 
+// buildSystem assembles the system prompt for a session rooted at cwd:
+// base prompt (identity/environment/tools/rules/project context) plus the
+// recalled-memory section. Both parts are session-constant, preserving the
+// stable-prefix property the prompt cache relies on.
+func buildSystem(cwd string) string {
+	store := memory.NewStore(cwd)
+	recall, err := store.Recall(5, 2048)
+	if err != nil {
+		slog.Warn("memory recall failed", "err", err)
+	}
+	return prompt.Build(cwd) + memory.Section(recall)
+}
+
 // sessionRegistry assembles one session's toolset: built-in tools plus the
 // MCP servers projected into cwd (.mcp.json), the Skill tool over the
-// discovered skills, and the Agent tool (subagent). The closer releases the
-// MCP servers. MCP failures degrade to built-in tools only — never fatal.
-// Child sessions (via Agent) get the same capabilities minus the Agent tool,
-// which is what enforces the recursion depth limit of 1.
+// discovered skills, the native memory tools, and the Agent tool (subagent).
+// The closer releases the MCP servers. MCP failures degrade to built-in
+// tools only — never fatal. Child sessions (via Agent) get the same
+// capabilities minus the Agent tool, which is what enforces the recursion
+// depth limit of 1.
 func sessionRegistry(cwd string, m model.Model, perms perm.Checker) (*tools.Registry, io.Closer) {
 	reg := newRegistry()
 	mgr := mcp.Start(cwd)
 	mgr.RegisterInto(reg)
 	skillList := skills.Scan(cwd)
 	reg.Register(skills.NewTool(skillList))
+	memStore := memory.NewStore(cwd)
+	reg.Register(memory.NewSaveTool(memStore))
+	reg.Register(memory.NewSearchTool(memStore))
 
-	system := prompt.Build(cwd) + subagentPreamble
+	system := buildSystem(cwd) + subagentPreamble
 	newChild := func() *tools.Registry {
 		child := newRegistry()
 		mgr.RegisterInto(child)
 		child.Register(skills.NewTool(skillList))
+		child.Register(memory.NewSaveTool(memStore))
+		child.Register(memory.NewSearchTool(memStore))
 		return child
 	}
 	reg.Register(loop.NewAgentTool(&loop.AgentFactory{
@@ -72,12 +93,14 @@ func main() {
 	}
 
 	var (
-		promptText = flag.String("p", "", "one-shot prompt: run headless and print the final answer")
-		provider   = flag.String("provider", "", "model provider: anthropic (default) or openai")
-		modelName  = flag.String("model", "", "model name override")
-		maxTurns   = flag.Int("max-turns", 0, "max model round-trips (default 16)")
-		timeout    = flag.Duration("timeout", 5*time.Minute, "overall timeout for the run")
-		yes        = flag.Bool("y", false, "auto-approve mutating tools (Write/Edit/Bash); without it headless mode refuses them")
+		promptText  = flag.String("p", "", "one-shot prompt: run headless and print the final answer")
+		provider    = flag.String("provider", "", "model provider: anthropic (default) or openai")
+		modelName   = flag.String("model", "", "model name override")
+		maxTurns    = flag.Int("max-turns", 0, "max model round-trips (default 16)")
+		timeout     = flag.Duration("timeout", 5*time.Minute, "overall timeout for the run")
+		yes         = flag.Bool("y", false, "auto-approve mutating tools (Write/Edit/Bash); without it headless mode refuses them")
+		reflectOn   = flag.Bool("reflect", false, "after the run, distill a durable lesson into memory (one extra model call)")
+		printSystem = flag.Bool("print-system", false, "print the assembled system prompt to stderr (debug)")
 	)
 	flag.Parse()
 
@@ -120,7 +143,16 @@ Configuration (env):
 	reg, closer := sessionRegistry(cwd, m, perm.NewPolicy(*yes))
 	defer closer.Close()
 
-	res, err := loop.Run(ctx, m, reg, prompt.Build(cwd), *promptText,
+	system := buildSystem(cwd)
+	if *printSystem {
+		// Observability for tests/debugging: what the model actually sees.
+		fmt.Fprintln(os.Stderr, "--- system ---\n"+system+"\n--- end system ---")
+	}
+
+	// Session form (not Run) so the transcript is available for the
+	// optional reflection pass.
+	sess := loop.NewSession(m, reg, system)
+	res, err := sess.Prompt(ctx, *promptText,
 		loop.Options{MaxTurns: *maxTurns, Perms: perm.NewPolicy(*yes)})
 	if err != nil {
 		fail(err)
@@ -131,6 +163,20 @@ Configuration (env):
 	u := res.Usage
 	fmt.Fprintf(os.Stderr, "[usage] rounds=%d input=%d output=%d cache-read=%d cache-write=%d\n",
 		res.Rounds, u.InputTokens, u.OutputTokens, u.CacheReadTokens, u.CacheCreationTokens)
+
+	// Optional reflection pass: one extra model call distills a durable
+	// lesson from the transcript into memory (same title updates in place).
+	if *reflectOn {
+		id, rerr := memory.Reflect(ctx, m, sess.Transcript(), memory.NewStore(cwd))
+		switch {
+		case rerr != nil:
+			fmt.Fprintf(os.Stderr, "[reflect] failed: %v\n", rerr)
+		case id == "":
+			fmt.Fprintf(os.Stderr, "[reflect] nothing worth remembering\n")
+		default:
+			fmt.Fprintf(os.Stderr, "[reflect] saved memory %s\n", id)
+		}
+	}
 }
 
 // runACP serves the ACP protocol over stdin/stdout.
@@ -141,7 +187,7 @@ func runACP() {
 	if err := fs.Parse(os.Args[2:]); err != nil {
 		fail(err)
 	}
-	srv := acp.New(os.Stdin, os.Stdout, newRegistry(), prompt.Build,
+	srv := acp.New(os.Stdin, os.Stdout, newRegistry(), buildSystem,
 		func() (model.Model, error) {
 			return buildModel(*provider, *modelName)
 		},

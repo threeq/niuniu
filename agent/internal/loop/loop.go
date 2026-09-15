@@ -6,6 +6,7 @@ package loop
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/niuniu-dev/niuniu/agent/internal/model"
 	"github.com/niuniu-dev/niuniu/agent/internal/perm"
@@ -186,4 +187,43 @@ func (s *Session) Prompt(ctx context.Context, userText string, opts Options) (Tu
 // prompt.
 func Run(ctx context.Context, m model.Model, reg *tools.Registry, system, userPrompt string, opts Options) (TurnResult, error) {
 	return NewSession(m, reg, system).Prompt(ctx, userPrompt, opts)
+}
+
+// Transcript renders the accumulated conversation as readable text for
+// post-turn processing (e.g. the memory reflection pass). Tool results are
+// truncated to keep the text bounded; the consumer applies its own cap too.
+func (s *Session) Transcript() string {
+	const toolCap = 500
+	var b strings.Builder
+	for _, m := range s.messages {
+		switch m.Role {
+		case model.RoleUser:
+			for _, blk := range m.Blocks {
+				switch blk.Type {
+				case model.BlockToolResult:
+					out := blk.Text
+					if len(out) > toolCap {
+						out = out[:toolCap] + "…"
+					}
+					fmt.Fprintf(&b, "TOOL result: %s\n", out)
+				default:
+					if txt := m.Text(); txt != "" {
+						fmt.Fprintf(&b, "USER: %s\n", txt)
+						break // one USER line per message
+					}
+				}
+				break // only render the first text/tool block per user message
+			}
+		case model.RoleAssistant:
+			for _, blk := range m.Blocks {
+				switch blk.Type {
+				case model.BlockToolUse:
+					fmt.Fprintf(&b, "TOOL %s(%s)\n", blk.Name, string(blk.Input))
+				case model.BlockText:
+					fmt.Fprintf(&b, "ASSISTANT: %s\n", blk.Text)
+				}
+			}
+		}
+	}
+	return strings.TrimRight(b.String(), "\n")
 }

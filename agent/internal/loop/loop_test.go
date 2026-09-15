@@ -150,3 +150,26 @@ func TestRunAggregatesUsage(t *testing.T) {
 		t.Errorf("rounds = %d, want 2", res.Rounds)
 	}
 }
+
+func TestSessionTranscript(t *testing.T) {
+	fm := &fakeModel{script: []*model.Response{
+		toolUseResp("tu_1", "Echo", json.RawMessage(`{"x":1}`)),
+		textResp("done"),
+	}}
+	reg := tools.NewRegistry(&stubTool{})
+	sess := NewSession(fm, reg, "sys")
+	if _, err := sess.Prompt(context.Background(), "first question", Options{}); err != nil {
+		t.Fatal(err)
+	}
+	tr := sess.Transcript()
+	for _, want := range []string{"USER: first question", "ASSISTANT: done", "TOOL Echo"} {
+		if !strings.Contains(tr, want) {
+			t.Errorf("transcript missing %q:\n%s", want, tr)
+		}
+	}
+	// 新会话 transcript 只含自己的历史。
+	sess2 := NewSession(fm, reg, "sys")
+	if strings.Contains(sess2.Transcript(), "first question") {
+		t.Error("fresh session transcript must be empty of other sessions")
+	}
+}
