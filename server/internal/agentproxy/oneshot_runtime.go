@@ -354,13 +354,29 @@ func (s *WorkspaceSession) finishOneShotTurn(ctx context.Context, msgId string, 
 	}, msgId)
 }
 
-// watchOneShotInactivity kills the one-shot process when it has produced NO
-// output for the inactivity window — the one-shot counterpart of
-// waitForTurnComplete's watchdog (this runner has no turnDone channel and no
-// separate waiter; without this, a wedged CLI hung the turn forever). The
-// cancel tears down cmdCtx, which kills the process, which EOFs the scanner
-// and unblocks the turn into the normal error path.
+// watchOneShotInactivity kills the one-shot process when the turn has gone
+// silent past the watchdog judgment (window + tool grace) — the one-shot
+// counterpart of waitForTurnComplete's watchdog (this runner has no turnDone
+// channel and no separate waiter; without this, a wedged CLI hung the turn
+// forever). The cancel tears down cmdCtx, which kills the process, which EOFs
+// the scanner and unblocks the turn into the normal error path.
 func watchOneShotInactivity(s *WorkspaceSession, cancel context.CancelFunc, done <-chan struct{}, window time.Duration) {
+	watchTurnInactivity(s, cancel, done, window, "agent one-shot")
+}
+
+// watchBackendTurnInactivity is the shared watchdog for the protocol-backend
+// engines (omp / goose / cursor): identical contract — cancel only when the
+// backend has produced no output for the window AND no tool has been in
+// flight past its grace ceiling. Replaces the old hard 15-min turn cap that
+// killed legitimate long turns mid-flight.
+func watchBackendTurnInactivity(s *WorkspaceSession, cancel context.CancelFunc, turnDone <-chan struct{}, window time.Duration) {
+	watchTurnInactivity(s, cancel, turnDone, window, "agent backend turn")
+}
+
+// watchTurnInactivity is the shared inactivity loop: every tick, judge the
+// turn (turnInactivityExceeded — streaming output and in-flight tools extend
+// the clock); only a genuinely silent turn past its grace gets cancelled.
+func watchTurnInactivity(s *WorkspaceSession, cancel context.CancelFunc, done <-chan struct{}, window time.Duration, label string) {
 	ticker := time.NewTicker(window / 5)
 	defer ticker.Stop()
 	for {
@@ -368,14 +384,14 @@ func watchOneShotInactivity(s *WorkspaceSession, cancel context.CancelFunc, done
 		case <-done:
 			return
 		case <-ticker.C:
+			if !turnInactivityExceeded(s, toolInactivityGrace, time.Now()) {
+				continue // still streaming, or a tool is legitimately running
+			}
 			s.mu.Lock()
 			idle := time.Since(s.lastActivityAt)
 			s.mu.Unlock()
-			if idle < window {
-				continue // still streaming — a long turn, not a wedged one
-			}
-			slog.Error("agent one-shot: inactivity watchdog — no output within window, killing unresponsive process",
-				"workspaceID", s.workspaceID, "idle", idle.String())
+			slog.Error(label+": inactivity watchdog — no output within window, killing unresponsive process",
+				"workspace_id", s.workspaceID, "idle", idle.String())
 			cancel()
 			return
 		}
