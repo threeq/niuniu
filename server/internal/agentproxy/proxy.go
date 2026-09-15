@@ -3483,9 +3483,17 @@ func (s *WorkspaceSession) Send(ctx context.Context, workDir, content, attachmen
 	s.thinkingLastFlush = time.Time{}
 	s.thinkingMsgID = ""
 	s.lastPhaseComplete = ""
-	// turnDone is created later, AFTER ensureProcess (see below): a stale
-	// process-monitor exit signal from a previously-killed process must never
-	// land on this turn's channel.
+	// Per-turn completion channel, allocated for EVERY engine before dispatch.
+	// The codex app-server runner blocks in waitForTurnComplete, and it returns
+	// from Send before the long-running-claude branch below is ever reached —
+	// when only that branch allocated the channel (7beb223), codex got nil and
+	// its turn/completed result event could never unblock the turn: the
+	// workspace stayed "running" until the inactivity watchdog killed the
+	// app-server. The claude branch re-allocates AFTER ensureProcess (see
+	// below) so a replaced process's stale exit signal lands on a discarded
+	// channel; the monitor's isCurrent guard suppresses that signal at the
+	// source, so this earlier allocation never resurrects the old race.
+	s.turnDone = make(chan struct{}, 1)
 	msgId := uuid.NewString()
 	userMsgId := uuid.NewString()
 	s.turnMsgId = msgId
@@ -3622,12 +3630,13 @@ func (s *WorkspaceSession) Send(ctx context.Context, workDir, content, attachmen
 		return err
 	}
 
-	// Allocate the per-turn completion channel only now, AFTER ensureProcess has
+	// Re-allocate the per-turn completion channel (first allocated in Send's
+	// per-turn reset block, before engine dispatch) AFTER ensureProcess has
 	// (re)spawned the process. A provider-fallback restart kills the old process
 	// and immediately respawns; the old process's monitor goroutine fires a
 	// stale turnDone signal shortly after its cmd.Wait() returns. If this turn's
 	// channel already existed at that point (created before ensureProcess), the
-	// stale signal would prematurely unblock the NEW turn. Creating it here —
+	// stale signal would prematurely unblock the NEW turn. Re-creating it here —
 	// after the respawn, with s.cmd already reassigned — plus the
 	// "still current process" guard in the monitor (see processMonitor) closes
 	// that race: any signal arriving before this point hits the PREVIOUS turn's
