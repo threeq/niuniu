@@ -69,7 +69,7 @@ fn handle_event(app: &tauri::AppHandle, event: &str, data: &str) {
         // 等是到主线程的同步往返），统一派发主线程执行。
         "open_ai_window" => {
             let app2 = app.clone();
-            let _ = app.run_on_main_thread(move || crate::commands::open_ai_window(&app2));
+            let _ = crate::webview_gate::dispatch_main(app, move || crate::commands::open_ai_window(&app2));
         }
         "agent_done" => {
             let focused = app

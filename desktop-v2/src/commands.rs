@@ -356,8 +356,12 @@ fn spawn_aux_window(
             if w.label() != "ai-hub" {
                 windows::register_close_to_tray(&w, &app);
             }
-            let _ = w.show();
-            let _ = w.set_focus();
+            // show/focus 经 dispatch_main：排队的主线程窗口任务可能落在另一
+            // 创建的 WebView2 重入泵里被内联执行。
+            crate::webview_gate::dispatch_main(&app, move || {
+                let _ = w.show();
+                let _ = w.set_focus();
+            });
         }
     });
 }
@@ -535,7 +539,7 @@ fn position_service_window(app: &tauri::AppHandle) {
     let (Some(hub), Some(win)) = (hub, win) else {
         return;
     };
-    let _ = app.run_on_main_thread(move || {
+    crate::webview_gate::dispatch_main(&app, move || {
         ai_embed::position_window(&hub, &win, stage);
     });
 }
@@ -565,7 +569,7 @@ pub fn update_ai_service_visibility(app: &tauri::AppHandle) {
             .map(|(k, v)| (k.clone(), v.clone()))
             .collect();
         drop(ai);
-        let _ = app.run_on_main_thread(move || {
+        crate::webview_gate::dispatch_main(&app, move || {
             for (id, win) in windows {
                 if show_any && Some(id) == active {
                     ai_embed::reveal_over_stage(&hub, &win, stage);
@@ -659,7 +663,7 @@ pub fn activate_ai_service(app: tauri::AppHandle, id: String) -> Result<AIActiva
             let _ = win.set_shadow(false);
             if let Some(hub) = app.get_webview_window("ai-hub") {
                 let (hub2, win2) = (hub, win.clone());
-                let _ = app.run_on_main_thread(move || {
+                crate::webview_gate::dispatch_main(&app, move || {
                     ai_embed::dock_over_stage(&hub2, &win2);
                 });
             }
@@ -698,7 +702,7 @@ pub fn activate_ai_service(app: tauri::AppHandle, id: String) -> Result<AIActiva
         };
         // build() 经 webview_gate 串行：并发创建会在 WebView2 重入泵里嵌套，
         // 挂死主线程（表现为同时开多窗口时整个应用卡死、页面加载不出）。
-        let built = crate::webview_gate::gated_create(|| {
+        let built = crate::webview_gate::gated_create(&app2, || {
             tauri::WebviewWindowBuilder::new(&app2, &label, tauri::WebviewUrl::External(parsed_url))
                 .title(format!("{} · {}", i18n::ai_title(&lang), name))
                 .decorations(false)
@@ -748,7 +752,7 @@ pub fn activate_ai_service(app: tauri::AppHandle, id: String) -> Result<AIActiva
                     if let Some(hub) = app2.get_webview_window("ai-hub") {
                         let hub2 = hub;
                         let win2 = win.clone();
-                        let _ = app2.run_on_main_thread(move || {
+                        crate::webview_gate::dispatch_main(&app2, move || {
                             ai_embed::dock_over_stage(&hub2, &win2);
                         });
                     }
@@ -805,7 +809,7 @@ pub fn reposition_active_ai_service(app: &tauri::AppHandle) {
             .cloned()
     };
     let Some(win) = win else { return };
-    let _ = app.run_on_main_thread(move || {
+    crate::webview_gate::dispatch_main(&app, move || {
         ai_embed::position_window(&hub, &win, stage);
     });
 }
