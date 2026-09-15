@@ -179,7 +179,7 @@ func startServerWithSystem(t *testing.T, turns [][]model.Block, permAns func(req
 	fm := &fakeModel{turns: turns}
 	srv := New(toSrvR, fromSrvW, tools.NewRegistry(tools.LS{}, tools.Read{}, tools.Write{}),
 		systemFor,
-		func() (model.Model, error) { return fm, nil })
+		func() (model.Model, error) { return fm, nil }, nil)
 	go func() { _ = srv.Serve(context.Background()) }()
 	return newClient(t, toSrvW, fromSrvR, permAns), fm
 }
@@ -334,5 +334,74 @@ func TestACPSessionLoadsProjectContext(t *testing.T) {
 	})
 	if sys := fm.lastSystem(); !strings.Contains(sys, "SESSION-CTX-MARKER") {
 		t.Errorf("session system prompt missing AGENTS.md content:\n%.300s", sys)
+	}
+}
+
+type closerFunc func() error
+
+func (f closerFunc) Close() error { return f() }
+
+// probeTool 返回固定文本，用于验证 extend 注入的会话注册表。
+type probePong struct{ name string }
+
+func (p probePong) Def() model.ToolDef {
+	return model.ToolDef{Name: p.name, Description: "probe", InputSchema: json.RawMessage(`{"type":"object"}`)}
+}
+func (p probePong) Execute(_ context.Context, _ json.RawMessage) (string, error) { return "pong", nil }
+
+func TestACPExtendSessionRegistryAndLifecycle(t *testing.T) {
+	// TempDir first: its cleanup must run AFTER the cwd-restore (LIFO), or
+	// Windows cannot delete a directory that is still the process cwd.
+	dir := t.TempDir()
+	if orig, err := os.Getwd(); err == nil {
+		t.Cleanup(func() { _ = os.Chdir(orig) })
+	}
+	toSrvR, toSrvW := io.Pipe()
+	fromSrvR, fromSrvW := io.Pipe()
+	fm := &fakeModel{turns: [][]model.Block{
+		{{Type: model.BlockToolUse, ID: "tu_1", Name: "mcp__proj__ping", Input: json.RawMessage(`{}`)}},
+		{{Type: model.BlockText, Text: "done"}},
+	}}
+	closed := make(chan struct{})
+	extend := func(cwd string, m model.Model) (*tools.Registry, io.Closer, error) {
+		reg := tools.NewRegistry(probePong{name: "mcp__proj__ping"})
+		return reg, closerFunc(func() error { close(closed); return nil }), nil
+	}
+	srv := New(toSrvR, fromSrvW, tools.NewRegistry(tools.LS{}),
+		func(string) string { return "sys" },
+		func() (model.Model, error) { return fm, nil }, extend)
+	go func() { _ = srv.Serve(context.Background()) }()
+	cl := newClient(t, toSrvW, fromSrvR, nil)
+
+	var sessRes sessionNewResult
+	if err := json.Unmarshal(cl.call("session/new", map[string]any{"cwd": dir}), &sessRes); err != nil {
+		t.Fatalf("session/new: %v", err)
+	}
+	cl.call("session/prompt", map[string]any{
+		"sessionId": sessRes.SessionID,
+		"prompt":    []map[string]string{{"type": "text", "text": "ping"}},
+	})
+
+	// Extend 注入的工具被会话真实调用并回填。
+	u1 := cl.nextUpdate(time.Second)
+	if u1.SessionUpdate != "tool_call" || u1.ToolCallID != "tu_1" {
+		t.Fatalf("update1 = %+v", u1)
+	}
+	u2 := cl.nextUpdate(time.Second)
+	if u2.SessionUpdate != "tool_call_update" || u2.Status != "completed" ||
+		u2.Output == nil || u2.Output.Text != "pong" {
+		t.Fatalf("update2 = %+v, want completed/pong", u2)
+	}
+	// 基础注册表不可见：模型请求里只有 extend 注入的工具。
+	if tools := fm.lastReq.Tools; len(tools) != 1 || tools[0].Name != "mcp__proj__ping" {
+		t.Errorf("session tools = %+v, want only mcp__proj__ping", tools)
+	}
+
+	// 生命周期：输入流结束（进程退出）时会话资源被关闭。
+	toSrvW.Close()
+	select {
+	case <-closed:
+	case <-time.After(3 * time.Second):
+		t.Fatal("session closer not closed after Serve returns")
 	}
 }

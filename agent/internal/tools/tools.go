@@ -40,6 +40,26 @@ func NewRegistry(tools ...Tool) *Registry {
 // Defs returns the tool definitions to advertise to the model.
 func (r *Registry) Defs() []model.ToolDef { return r.defs }
 
+// Register adds one tool after construction (appended to the definition
+// order). Re-registering a name replaces the implementation and keeps its
+// original position.
+func (r *Registry) Register(t Tool) {
+	def := t.Def()
+	if r.byName == nil {
+		r.byName = make(map[string]Tool)
+	}
+	if _, exists := r.byName[def.Name]; !exists {
+		r.defs = append(r.defs, def)
+	} else {
+		for i, d := range r.defs {
+			if d.Name == def.Name {
+				r.defs[i] = def
+			}
+		}
+	}
+	r.byName[def.Name] = t
+}
+
 // Execute runs the named tool; unknown names are an error (which the loop
 // turns into an error tool_result so the model can recover).
 func (r *Registry) Execute(ctx context.Context, name string, input json.RawMessage) (string, error) {

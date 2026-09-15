@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/niuniu-dev/niuniu/agent/internal/model"
 )
 
 func TestLSAndRead(t *testing.T) {
@@ -153,4 +155,37 @@ func mustJSON(t *testing.T, v any) json.RawMessage {
 		t.Fatal(err)
 	}
 	return b
+}
+
+type probeTool struct{ name string }
+
+func (p probeTool) Def() model.ToolDef {
+	return model.ToolDef{Name: p.name, Description: "probe", InputSchema: json.RawMessage(`{"type":"object"}`)}
+}
+func (p probeTool) Execute(_ context.Context, _ json.RawMessage) (string, error) { return p.name, nil }
+
+func TestRegistryRegisterAppendsAndReplaces(t *testing.T) {
+	reg := NewRegistry(probeTool{"a"})
+	reg.Register(probeTool{"b"})
+	reg.Register(probeTool{"c"})
+	names := []string{}
+	for _, d := range reg.Defs() {
+		names = append(names, d.Name)
+	}
+	if strings.Join(names, ",") != "a,b,c" {
+		t.Errorf("order = %v, want a,b,c", names)
+	}
+	// Re-registering the same name replaces in place.
+	reg.Register(probeTool{"a"})
+	names2 := []string{}
+	for _, d := range reg.Defs() {
+		names2 = append(names2, d.Name)
+	}
+	if strings.Join(names2, ",") != "a,b,c" {
+		t.Errorf("after re-register = %v, want a,b,c (no duplicate)", names2)
+	}
+	out, err := reg.Execute(context.Background(), "a", json.RawMessage(`{}`))
+	if err != nil || out != "a" {
+		t.Errorf("execute replaced = %q, %v", out, err)
+	}
 }

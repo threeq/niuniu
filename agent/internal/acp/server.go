@@ -28,6 +28,11 @@ type Server struct {
 	reg       *tools.Registry
 	systemFor func(cwd string) string
 	newModel  func() (model.Model, error)
+	// extend, when set, builds the per-session tool registry (base tools +
+	// session-local capabilities such as MCP servers) and a closer released
+	// when the session's lifetime ends. A nil registry + nil error keeps the
+	// base registry.
+	extend func(cwd string, m model.Model) (*tools.Registry, io.Closer, error)
 
 	writeMu sync.Mutex
 
@@ -47,26 +52,32 @@ type sessionState struct {
 	conv     *loop.Session
 	cancel   context.CancelFunc
 	promptMu sync.Mutex // one in-flight prompt per session
+	closer   io.Closer  // session-scoped resources (MCP servers)
 }
 
 // New builds a Server over the given transport. newModel is called once per
 // session to build the model backend (so config errors surface per session);
 // systemFor builds the system prompt per session cwd (project context such
-// as AGENTS.md is resolved against it).
-func New(in io.Reader, out io.Writer, reg *tools.Registry, systemFor func(cwd string) string, newModel func() (model.Model, error)) *Server {
+// as AGENTS.md is resolved against it); extend (optional) builds the
+// session's tool registry — used for MCP tool projection.
+func New(in io.Reader, out io.Writer, reg *tools.Registry, systemFor func(cwd string) string, newModel func() (model.Model, error), extend func(cwd string, m model.Model) (*tools.Registry, io.Closer, error)) *Server {
 	return &Server{
 		in:        in,
 		out:       out,
 		reg:       reg,
 		systemFor: systemFor,
 		newModel:  newModel,
+		extend:    extend,
 		sessions:  make(map[string]*sessionState),
 		pending:   make(map[int64]chan requestPermissionResult),
 	}
 }
 
-// Serve reads and dispatches until the input stream ends.
+// Serve reads and dispatches until the input stream ends. On return every
+// session's scoped resources (MCP servers) are shut down — the servers'
+// lifetime is the process's, which in niuniu's deployment is one workspace.
 func (s *Server) Serve(ctx context.Context) error {
+	defer s.closeSessions()
 	sc := bufio.NewScanner(s.in)
 	sc.Buffer(make([]byte, 0, 64<<10), 16<<20)
 	for sc.Scan() {
@@ -156,13 +167,25 @@ func (s *Server) handle(ctx context.Context, req rpcRequest) (json.RawMessage, *
 				slog.Warn("acp: chdir to session cwd failed", "cwd", p.CWD, "err", err)
 			}
 		}
+		// Per-session tool registry: base tools plus whatever extend projects
+		// for this cwd (MCP servers). An extend failure degrades to the base
+		// registry — never blocks the session.
+		reg, closer := s.reg, io.Closer(nil)
+		if s.extend != nil {
+			if r, c, err := s.extend(sessionCwd(p.CWD), m); err != nil {
+				slog.Warn("acp: session tool extension failed (using base tools)", "cwd", p.CWD, "err", err)
+			} else if r != nil {
+				reg, closer = r, c
+			}
+		}
 		s.sessMu.Lock()
 		s.nextID++
 		id := "s-" + strconv.Itoa(s.nextID)
 		st := &sessionState{
-			id:   id,
-			cwd:  p.CWD,
-			conv: loop.NewSession(m, s.reg, s.systemFor(sessionCwd(p.CWD))),
+			id:     id,
+			cwd:    p.CWD,
+			conv:   loop.NewSession(m, reg, s.systemFor(sessionCwd(p.CWD))),
+			closer: closer,
 		}
 		s.sessions[id] = st
 		s.sessMu.Unlock()
@@ -249,6 +272,21 @@ func (s *Server) dispatchNotification(req rpcRequest) {
 		}
 	}
 	// Unknown notifications are ignored per JSON-RPC.
+}
+
+// closeSessions releases every session's scoped resources (MCP servers).
+func (s *Server) closeSessions() {
+	s.sessMu.Lock()
+	sts := make([]*sessionState, 0, len(s.sessions))
+	for _, st := range s.sessions {
+		sts = append(sts, st)
+	}
+	s.sessMu.Unlock()
+	for _, st := range sts {
+		if st.closer != nil {
+			_ = st.closer.Close()
+		}
+	}
 }
 
 // promptRun carries per-prompt state for event streaming and permission

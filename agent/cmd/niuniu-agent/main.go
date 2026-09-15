@@ -16,6 +16,7 @@ import (
 
 	"github.com/niuniu-dev/niuniu/agent/internal/acp"
 	"github.com/niuniu-dev/niuniu/agent/internal/loop"
+	"github.com/niuniu-dev/niuniu/agent/internal/mcp"
 	"github.com/niuniu-dev/niuniu/agent/internal/model"
 	"github.com/niuniu-dev/niuniu/agent/internal/perm"
 	"github.com/niuniu-dev/niuniu/agent/internal/prompt"
@@ -80,6 +81,12 @@ Configuration (env):
 	if err != nil {
 		fail(err)
 	}
+	// MCP servers from the workspace's .mcp.json join the toolset; a broken
+	// server is logged and skipped. Their lifetime is the process's.
+	mgr := mcp.Start(cwd)
+	defer mgr.Close()
+	mgr.RegisterInto(reg)
+
 	res, err := loop.Run(ctx, m, reg, prompt.Build(cwd), *promptText,
 		loop.Options{MaxTurns: *maxTurns, Perms: perm.NewPolicy(*yes)})
 	if err != nil {
@@ -101,9 +108,20 @@ func runACP() {
 	if err := fs.Parse(os.Args[2:]); err != nil {
 		fail(err)
 	}
-	srv := acp.New(os.Stdin, os.Stdout, newRegistry(), prompt.Build, func() (model.Model, error) {
-		return buildModel(*provider, *modelName)
-	})
+	srv := acp.New(os.Stdin, os.Stdout, newRegistry(), prompt.Build,
+		func() (model.Model, error) {
+			return buildModel(*provider, *modelName)
+		},
+		// Per-session tool projection: MCP servers from the session cwd's
+		// .mcp.json. The returned closer ties server lifetime to the
+		// session's (== the process's in niuniu's one-agent-per-workspace
+		// deployment).
+		func(cwd string, m model.Model) (*tools.Registry, io.Closer, error) {
+			reg := newRegistry()
+			mgr := mcp.Start(cwd)
+			mgr.RegisterInto(reg)
+			return reg, mgr, nil
+		})
 	if err := srv.Serve(context.Background()); err != nil {
 		fail(err)
 	}
