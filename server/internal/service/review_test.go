@@ -203,6 +203,9 @@ func initWorktree(t *testing.T, remote string) string {
 func TestGetDiff(t *testing.T) {
 	svc, q := setupReviewTest(t)
 	ctx := context.Background()
+	// Each test builds a fresh SQLite file, so workspace IDs repeat across
+	// tests — drop the package-level diff cache so this test computes its own.
+	workspaceDiffCache.InvalidateAll()
 
 	mkWorkspace := func(ownerID int64) int64 {
 		ws, err := q.CreateWorkspace(ctx, store.CreateWorkspaceParams{
@@ -384,6 +387,7 @@ func TestGetRepoDiff(t *testing.T) {
 // frontend had to keep its own unified-diff parser as a fallback. With the
 // parser gone there is no fallback left, so this pins the parity.
 func TestDiffPathsAgreeOnStructure(t *testing.T) {
+	workspaceDiffCache.InvalidateAll() // fresh SQLite per test → repeated ws IDs
 	svc, q := setupReviewTest(t)
 	ctx := context.Background()
 

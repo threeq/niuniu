@@ -66,10 +66,24 @@ func (s *ReviewService) GetDiffWithPatch(ctx context.Context, workspaceID int64)
 	return s.getDiff(ctx, workspaceID, true)
 }
 
-// getDiff builds the per-worktree diff list. keepPatch retains each file's
-// raw_patch (and hunks); when false, resolved repos are summarised to keep the
-// list-view response small (the SPA re-fetches line-level data per repo lazily).
+// getDiff builds the per-worktree diff list, served through workspaceDiffCache
+// (TTL + single-flight — see review_diff_cache.go for why). The compute runs
+// on the FIRST caller's context: if that request went away mid-flight its
+// error reaches only that flight's waiters and is never cached, so a later
+// request recomputes with its own live context.
 func (s *ReviewService) getDiff(ctx context.Context, workspaceID int64, keepPatch bool) ([]RepoDiff, error) {
+	r := workspaceDiffCache.getOrCompute(wsDiffCacheKey(workspaceID, keepPatch), func() wsDiffResult {
+		diffs, err := s.computeWorkspaceDiff(ctx, workspaceID, keepPatch)
+		return wsDiffResult{diffs: diffs, err: err}
+	})
+	return r.diffs, r.err
+}
+
+// computeWorkspaceDiff is the uncached diff body. keepPatch retains each
+// file's raw_patch (and hunks); when false, resolved repos are summarised to
+// keep the list-view response small (the SPA re-fetches line-level data per
+// repo lazily).
+func (s *ReviewService) computeWorkspaceDiff(ctx context.Context, workspaceID int64, keepPatch bool) ([]RepoDiff, error) {
 	// Get all worktrees for the workspace.
 	worktrees, err := s.q.ListWorktrees(ctx, workspaceID)
 	if err != nil {
