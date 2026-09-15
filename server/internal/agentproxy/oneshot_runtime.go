@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/niuniu-dev/niuniu/internal/agentproxy/adapter"
 	"github.com/niuniu-dev/niuniu/internal/store"
@@ -153,6 +154,25 @@ func (s *WorkspaceSession) runOneShotTurn(ctx context.Context, workDir, content,
 	// open the block, so synthesizing again would double the block / leak a
 	// stray empty text buffer. Gate the synthesis on its absence.
 	sawRealBlockStart := false
+
+	// Inactivity watchdog, the one-shot counterpart of waitForTurnComplete's:
+	// this runner blocks on scanner.Scan() with NO turnDone channel and no
+	// other watchdog — a wedged process (alive, silent, never exits) would
+	// hang the turn forever and queue every later message. The watcher kills
+	// the process after the inactivity window; Scan() then returns and the
+	// turn fails into the normal error path. Every parsed line (below) bumps
+	// lastActivityAt, so a streaming turn is never killed.
+	window := s.turnInactivityTimeout
+	if window <= 0 {
+		window = defaultTurnInactivityTimeout
+	}
+	s.mu.Lock()
+	s.lastActivityAt = time.Now() // baseline: spawn counts as activity
+	s.mu.Unlock()
+	watchDone := make(chan struct{})
+	defer close(watchDone)
+	go watchOneShotInactivity(s, cancel, watchDone, window)
+
 	scanner := bufio.NewScanner(stdoutPipe)
 	scanner.Buffer(make([]byte, 0, 256*1024), 256*1024)
 	for scanner.Scan() {
@@ -160,6 +180,9 @@ func (s *WorkspaceSession) runOneShotTurn(ctx context.Context, workDir, content,
 		if strings.TrimSpace(line) == "" {
 			continue
 		}
+		s.mu.Lock()
+		s.lastActivityAt = time.Now() // feed the one-shot inactivity watchdog
+		s.mu.Unlock()
 		events, parseErr := parseAdapter.ParseLine(line)
 		if parseErr != nil {
 			slog.Warn("agent one-shot: parse error", "workspaceID", s.workspaceID, "err", parseErr, "line", truncate(line, 500))
@@ -329,4 +352,32 @@ func (s *WorkspaceSession) finishOneShotTurn(ctx context.Context, msgId string, 
 		IsError: isError,
 		Result:  result,
 	}, msgId)
+}
+
+// watchOneShotInactivity kills the one-shot process when it has produced NO
+// output for the inactivity window — the one-shot counterpart of
+// waitForTurnComplete's watchdog (this runner has no turnDone channel and no
+// separate waiter; without this, a wedged CLI hung the turn forever). The
+// cancel tears down cmdCtx, which kills the process, which EOFs the scanner
+// and unblocks the turn into the normal error path.
+func watchOneShotInactivity(s *WorkspaceSession, cancel context.CancelFunc, done <-chan struct{}, window time.Duration) {
+	ticker := time.NewTicker(window / 5)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-done:
+			return
+		case <-ticker.C:
+			s.mu.Lock()
+			idle := time.Since(s.lastActivityAt)
+			s.mu.Unlock()
+			if idle < window {
+				continue // still streaming — a long turn, not a wedged one
+			}
+			slog.Error("agent one-shot: inactivity watchdog — no output within window, killing unresponsive process",
+				"workspaceID", s.workspaceID, "idle", idle.String())
+			cancel()
+			return
+		}
+	}
 }

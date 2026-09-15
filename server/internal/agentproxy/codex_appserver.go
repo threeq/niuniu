@@ -178,7 +178,86 @@ func (s *WorkspaceSession) codexAppServerEventLoop(ctx context.Context, app *cod
 	if cliAdapter == nil {
 		cliAdapter = adapter.CodexAdapter{}
 	}
-	for notif := range app.Events() {
+	// Burst batching: while the channel has buffered notifications, drain up to
+	// codexPersistBatchLimit of them into ONE persist-batch window — N event
+	// writes then commit ONCE instead of N times (each commit is a round-trip
+	// to PostgreSQL; per-row commits were the consumer bottleneck that
+	// saturated the events channel). Idle streams dispatch immediately (no
+	// added latency).
+	closed := false
+	for !closed {
+		var notif codexAppServerNotification
+		var ok bool
+		select {
+		case notif, ok = <-app.Events():
+			if !ok {
+				closed = true
+				break
+			}
+		}
+		if closed {
+			break
+		}
+		batch := []codexAppServerNotification{notif}
+		for len(batch) < codexPersistBatchLimit && !closed {
+			select {
+			case n, ok := <-app.Events():
+				if !ok {
+					closed = true
+					break
+				}
+				batch = append(batch, n)
+			default:
+				closed = true
+			}
+		}
+		s.flushCodexBatch(ctx, app, cliAdapter, batch)
+	}
+
+	// The app-server process exited (events channel closed): clear the stale
+	// session plumbing and surface the crash as a turn result when a real main
+	// turn was in flight.
+	s.procMu.Lock()
+	if s.codexApp == app {
+		s.codexApp = nil
+		s.alive = false
+	}
+	s.procMu.Unlock()
+	_ = s.q.UpdateAgentStatus(ctx, store.UpdateAgentStatusParams{
+		AgentPid:    sql.NullInt64{Valid: false},
+		AgentStatus: sql.NullString{String: "idle", Valid: true},
+		ID:          s.workspaceID,
+	})
+
+	s.mu.Lock()
+	wasRunning := s.running
+	msgId := s.turnMsgId
+	s.mu.Unlock()
+	if wasRunning {
+		s.handleEvent(ctx, ParsedEvent{
+			Type:    "result",
+			IsError: true,
+			Result:  "Codex app-server exited unexpectedly",
+		}, msgId)
+		return
+	}
+	s.emitBgTaskNotify()
+}
+
+// codexPersistBatchLimit caps one persist-batch window.
+const codexPersistBatchLimit = 32
+
+// flushCodexBatch parses a batch of notifications and dispatches their events
+// inside ONE persist-batch transaction (when the session has a db wired).
+// Terminal notifications end the batch early: their result-side writes (cost,
+// stats) must commit with the batch, not after it.
+func (s *WorkspaceSession) flushCodexBatch(ctx context.Context, app *codexAppServerClient, cliAdapter adapter.Adapter, batch []codexAppServerNotification) {
+	if len(batch) == 0 {
+		return
+	}
+	var all []adapter.ParsedEvent
+	terminal := false
+	for _, notif := range batch {
 		if len(notif.ID) > 0 {
 			// Server->client request (approval).
 			go s.handleCodexAppServerRequest(ctx, app, notif)
@@ -197,35 +276,23 @@ func (s *WorkspaceSession) codexAppServerEventLoop(ctx context.Context, app *cod
 				"workspaceID", s.workspaceID, "method", notif.Method, "err", parseErr)
 			continue
 		}
-		s.dispatchCodexEvents(ctx, events)
+		if isTerminalCodexNotification(notif.Method) {
+			terminal = true
+		}
+		all = append(all, events...)
 	}
-
-	s.procMu.Lock()
-	if s.codexApp == app {
-		s.codexApp = nil
-		s.alive = false
-	}
-	s.procMu.Unlock()
-	_ = s.q.UpdateAgentStatus(ctx, store.UpdateAgentStatusParams{
-		AgentPid:    sql.NullInt64{Valid: false},
-		AgentStatus: sql.NullString{String: "idle", Valid: true},
-		ID:          s.workspaceID,
-	})
-
-	s.mu.Lock()
-	wasRunning := s.running
-	msgId := s.turnMsgId
-	s.mu.Unlock()
-	// Surface the crash as a turn result when a real main turn is in flight.
-	if wasRunning {
-		s.handleEvent(ctx, ParsedEvent{
-			Type:    "result",
-			IsError: true,
-			Result:  "Codex app-server exited unexpectedly",
-		}, msgId)
+	if len(all) == 0 {
 		return
 	}
-	s.emitBgTaskNotify()
+	// DB nil (tests) or a terminal notification in the batch (its multi-table
+	// result writes must not join a batch that could roll back) → plain path.
+	if s.db == nil || terminal {
+		s.dispatchCodexEvents(ctx, all)
+		return
+	}
+	s.beginPersistBatch(ctx)
+	s.dispatchCodexEvents(ctx, all)
+	s.commitPersistBatch(ctx)
 }
 
 // dispatchCodexEvents routes parsed app-server events to the normal turn handler.
