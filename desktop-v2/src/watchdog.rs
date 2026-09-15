@@ -10,8 +10,6 @@
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
-use tauri::Manager;
-
 /// 心跳计数：主线程每执行一次心跳任务 +1。
 static HEARTBEAT: AtomicU64 = AtomicU64::new(0);
 
