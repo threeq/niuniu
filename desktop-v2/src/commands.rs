@@ -302,6 +302,26 @@ pub fn toggle_main_window(app: &tauri::AppHandle) {
     }
 }
 
+/// 重新显示 hub 并强制 WebView2 重组帧。hide 过的窗口 WebView2 会挂起合成，
+/// 仅 show 回来内容区是空白的，要等一次移动/缩放才重绘（ai_embed_windows
+/// stash 注释记载的同款坑，这次出现在 hub 的 X 关闭→热键重开路径：顶栏正常、
+/// 停靠的服务页空白，挪一下窗口才显示）。±1px 尺寸抖动制造非零 WM_SIZE：
+/// hub 自身重绘，同时经 Resized 事件触发 reposition_active_ai_service，停靠
+/// 的服务窗口跟着重贴。经 dispatch_main 排在 reveal 任务之后执行，保证补绘
+/// 是最后一笔。
+fn reshow_hub(app: &tauri::AppHandle, hub: &tauri::WebviewWindow) {
+    let _ = hub.show();
+    let _ = hub.set_focus();
+    let hub2 = hub.clone();
+    crate::webview_gate::dispatch_main(app, move || {
+        if let Ok(size) = hub2.inner_size() {
+            let (w, h) = (size.width.max(2), size.height.max(2));
+            let _ = hub2.set_size(tauri::PhysicalSize::new(w, h - 1));
+            let _ = hub2.set_size(tauri::PhysicalSize::new(w, h));
+        }
+    });
+}
+
 /// AI 直达：显示/隐藏 hub（并联动服务窗口可见性）。首次打开经独立线程建窗
 /// （主线程同步建 webview 会死锁，见 spawn_aux_window）。
 pub fn toggle_ai_window(app: &tauri::AppHandle) {
@@ -310,8 +330,7 @@ pub fn toggle_ai_window(app: &tauri::AppHandle) {
             if win.is_visible().unwrap_or(false) {
                 let _ = win.hide();
             } else {
-                let _ = win.show();
-                let _ = win.set_focus();
+                reshow_hub(app, &win);
             }
             update_ai_service_visibility(app);
         }
@@ -327,8 +346,11 @@ pub fn toggle_ai_window(app: &tauri::AppHandle) {
 pub fn open_ai_window(app: &tauri::AppHandle) {
     match app.get_webview_window("ai-hub") {
         Some(win) => {
-            let _ = win.show();
-            let _ = win.set_focus();
+            if win.is_visible().unwrap_or(false) {
+                let _ = win.set_focus();
+            } else {
+                reshow_hub(app, &win);
+            }
             update_ai_service_visibility(app);
         }
         None => {
