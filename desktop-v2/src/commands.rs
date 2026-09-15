@@ -612,6 +612,13 @@ pub fn update_ai_service_visibility_at(app: &tauri::AppHandle, hub_visible: bool
         ai.active,
         ai.service_windows.len()
     ));
+    // ⚠️ service_windows 的键是窗口 label（"ai-service-{id}"），而 ai.active 存
+    // 裸服务 id（"deepseek"）——直接 Some(id)==active 比较永远 false，reveal
+    // 分支成为死代码、所有服务窗被错误 stash（hub 重开空白 + 挪窗口才显示的
+    // 根因）。比较必须统一到 label 维度。
+    let active_label = active
+        .as_deref()
+        .map(|a| format!("ai-service-{a}"));
     if ai_embed::AI_EMBED_SUPPORTED {
         let Some(hub) = hub else { return };
         let windows: Vec<(String, tauri::WebviewWindow)> = ai
@@ -622,10 +629,11 @@ pub fn update_ai_service_visibility_at(app: &tauri::AppHandle, hub_visible: bool
         drop(ai);
         crate::webview_gate::dispatch_main(&app, move || {
             for (id, win) in windows {
-                let reveal_it = show_any && active.as_deref() == Some(id.as_str());
+                let reveal_it = show_any && active_label.as_deref() == Some(id.as_str());
                 crate::boot_log(format!(
-                    "[ai-diag] svc_visibility apply: {id} -> {} stage={stage:?}",
-                    if reveal_it { "reveal" } else { "stash" }
+                    "[ai-diag] svc_visibility apply: {id} -> {} (active_label={:?}) stage={stage:?}",
+                    if reveal_it { "reveal" } else { "stash" },
+                    active_label
                 ));
                 if reveal_it {
                     ai_embed::reveal_over_stage(&hub, &win, stage);
