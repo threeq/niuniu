@@ -42,6 +42,19 @@ type promptBlock struct {
 	Text string `json:"text,omitempty"`
 }
 
+// promptResult is the session/prompt response payload. Usage carries the
+// turn's token accounting when the agent reports it (absent → zeros).
+type promptResult struct {
+	StopReason string     `json:"stopReason"`
+	Usage      *usageBody `json:"usage,omitempty"`
+}
+
+type usageBody struct {
+	InputTokens     int `json:"inputTokens"`
+	OutputTokens    int `json:"outputTokens"`
+	CacheReadTokens int `json:"cacheReadTokens"`
+}
+
 // sessionUpdate is one `session/update` notification payload.
 type sessionUpdate struct {
 	SessionID string     `json:"sessionId"`

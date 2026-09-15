@@ -324,18 +324,21 @@ func (b *Backend) Prompt(ctx context.Context, req agentbackend.PromptRequest) (<
 	b.mu.Unlock()
 
 	blocks := []promptBlock{{Type: "text", Text: req.Message}}
+	started := time.Now()
 	// niuniu-agent answers session/prompt only when the turn settles, which
 	// for real coding tasks is minutes — the per-turn inactivity watchdog
 	// upstream (turnCtx) is the real bound, so this is a generous backstop.
-	_, err := b.request(ctx, "session/prompt", promptParams{SessionID: sessionID, Prompt: blocks}, 30*time.Minute)
+	result, err := b.request(ctx, "session/prompt", promptParams{SessionID: sessionID, Prompt: blocks}, 30*time.Minute)
 	if err != nil {
 		b.finishTurn(agentbackend.Event{Type: agentbackend.EventError, Error: err.Error()})
 		return active, nil
 	}
 
-	// The prompt response IS the turn end for niuniu-agent (stopReason rides
-	// the response).
-	b.finishTurn(b.doneEvent(""))
+	// The prompt response IS the turn end for niuniu-agent (stopReason and
+	// usage ride the response).
+	var pr promptResult
+	_ = json.Unmarshal(result, &pr) // unparseable usage → zero-token done event
+	b.finishTurn(b.doneEvent("", pr.Usage, time.Since(started)))
 
 	go func() {
 		select {
@@ -347,14 +350,21 @@ func (b *Backend) Prompt(ctx context.Context, req agentbackend.PromptRequest) (<
 	return active, nil
 }
 
-// doneEvent builds the terminal success event (usage telemetry is not yet
-// reported by niuniu-agent; token columns stay 0 rather than guessed).
-func (b *Backend) doneEvent(errText string) agentbackend.Event {
+// doneEvent builds the terminal event. Usage (when the agent reported it in
+// the session/prompt result) feeds the same cost/token columns the other
+// engines use; CacheReadTokens drives the context-occupancy pill.
+func (b *Backend) doneEvent(errText string, usage *usageBody, dur time.Duration) agentbackend.Event {
 	kind := agentbackend.EventDone
 	if errText != "" {
 		kind = agentbackend.EventError
 	}
-	return agentbackend.Event{Type: kind, Error: errText, NumTurns: 1}
+	ev := agentbackend.Event{Type: kind, Error: errText, NumTurns: 1, DurationMs: dur.Milliseconds()}
+	if usage != nil {
+		ev.InputTokens = usage.InputTokens
+		ev.OutputTokens = usage.OutputTokens
+		ev.CacheReadTokens = usage.CacheReadTokens
+	}
+	return ev
 }
 
 // ResolvePermission is the agentbackend.Backend method; for niuniu-agent the

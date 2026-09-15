@@ -141,3 +141,55 @@ func TestPromptRequestShape(t *testing.T) {
 		t.Errorf("prompt frame = %s", out)
 	}
 }
+
+func TestPromptUsageFillsDoneEvent(t *testing.T) {
+	b, sb := newStartedBackend(t, nil)
+	b.mu.Lock()
+	b.active = nil
+	b.activeDone = nil
+	b.mu.Unlock()
+
+	// Prompt blocks until the response arrives, so drive it off the test
+	// goroutine and answer it from here.
+	chCh := make(chan (<-chan agentbackend.Event), 1)
+	go func() {
+		ch, err := b.Prompt(context.Background(), agentbackend.PromptRequest{Message: "hi"})
+		if err != nil {
+			t.Errorf("Prompt: %v", err)
+			chCh <- nil
+			return
+		}
+		chCh <- ch
+	}()
+
+	// Wait for the session/prompt request frame, then answer it with a
+	// usage-carrying result (request ids start at 1; Start() is not called).
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) && !strings.Contains(sb.String(), `"method":"session/prompt"`) {
+		time.Sleep(5 * time.Millisecond)
+	}
+	b.handleResponse([]byte(`{"jsonrpc":"2.0","id":1,"result":{"stopReason":"end_turn",`+
+		`"usage":{"inputTokens":120,"outputTokens":30,"cacheReadTokens":77}}}`), 1)
+
+	ch := <-chCh
+	if ch == nil {
+		t.Fatal("Prompt failed")
+	}
+	var done *agentbackend.Event
+	for ev := range ch {
+		if ev.Type == agentbackend.EventDone {
+			e := ev
+			done = &e
+		}
+	}
+	if done == nil {
+		t.Fatal("no EventDone event")
+	}
+	if done.InputTokens != 120 || done.OutputTokens != 30 || done.CacheReadTokens != 77 {
+		t.Errorf("done event tokens = in:%d out:%d cacheRead:%d, want 120/30/77",
+			done.InputTokens, done.OutputTokens, done.CacheReadTokens)
+	}
+	if done.DurationMs <= 0 {
+		t.Errorf("done event DurationMs = %d, want > 0", done.DurationMs)
+	}
+}
