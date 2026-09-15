@@ -121,3 +121,24 @@ func TestOpenAIHTTPError(t *testing.T) {
 		t.Errorf("error = %v, want it to mention HTTP status", err)
 	}
 }
+
+func TestOpenAICacheUsageParsing(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("content-type", "application/json")
+		_, _ = w.Write([]byte(`{"choices":[{"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}],` +
+			`"usage":{"prompt_tokens":100,"completion_tokens":10,` +
+			`"prompt_tokens_details":{"cached_tokens":1234}}}`))
+	}))
+	defer ts.Close()
+
+	m := NewOpenAI(Config{Provider: ProviderOpenAI, BaseURL: ts.URL, APIKey: "k", Model: "m"})
+	resp, err := m.Complete(context.Background(), Request{
+		Messages: []Message{{Role: RoleUser, Blocks: []Block{{Type: BlockText, Text: "hi"}}}},
+	})
+	if err != nil {
+		t.Fatalf("Complete: %v", err)
+	}
+	if resp.Usage.CacheReadTokens != 1234 {
+		t.Errorf("usage = %+v, want cache read 1234", resp.Usage)
+	}
+}

@@ -103,9 +103,22 @@ type Request struct {
 }
 
 // Usage is token accounting for one request.
+//
+// CacheReadTokens/CacheCreationTokens carry the provider's prompt-cache
+// breakdown when reported (Anthropic: cache_read_input_tokens /
+// cache_creation_input_tokens; OpenAI-compatible: prompt_tokens_details.
+// cached_tokens). Anthropic's input_tokens EXCLUDES cached tokens, so one
+// request's context size is InputTokens+CacheReadTokens+CacheCreationTokens.
 type Usage struct {
-	InputTokens  int
-	OutputTokens int
+	InputTokens         int
+	OutputTokens        int
+	CacheReadTokens     int
+	CacheCreationTokens int
+}
+
+// ContextTokens approximates the conversation size this request saw.
+func (u Usage) ContextTokens() int {
+	return u.InputTokens + u.CacheReadTokens + u.CacheCreationTokens
 }
 
 // Response is one completion result.

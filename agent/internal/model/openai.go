@@ -13,6 +13,14 @@ import (
 
 // openaiModel speaks the OpenAI /chat/completions protocol, which covers
 // OpenAI itself plus the wide family of OpenAI-compatible endpoints.
+//
+// Prompt caching on this family is IMPLICIT prefix caching: there is no
+// cache_control analogue to send. Hits happen automatically when successive
+// requests share a long identical prefix, so the adapter keeps the prompt
+// layout stable — system message first, tools in registry (sorted) order,
+// history strictly appended — and Usage surfaces the provider's
+// prompt_tokens_details.cached_tokens when it reports one (OpenAI does;
+// some compatible gateways don't — those simply report 0 here).
 type openaiModel struct {
 	cfg Config
 	hc  *http.Client
@@ -65,8 +73,11 @@ type oaResponse struct {
 		FinishReason string    `json:"finish_reason"`
 	} `json:"choices"`
 	Usage struct {
-		PromptTokens     int `json:"prompt_tokens"`
-		CompletionTokens int `json:"completion_tokens"`
+		PromptTokens       int `json:"prompt_tokens"`
+		CompletionTokens   int `json:"completion_tokens"`
+		PromptTokensDetail struct {
+			CachedTokens int `json:"cached_tokens"`
+		} `json:"prompt_tokens_details"`
 	} `json:"usage"`
 }
 
@@ -128,7 +139,11 @@ func (o *openaiModel) Complete(ctx context.Context, req Request) (*Response, err
 	return &Response{
 		Message:    msg,
 		StopReason: normalizeStop(choice.FinishReason),
-		Usage:      Usage{InputTokens: parsed.Usage.PromptTokens, OutputTokens: parsed.Usage.CompletionTokens},
+		Usage: Usage{
+			InputTokens:     parsed.Usage.PromptTokens,
+			OutputTokens:    parsed.Usage.CompletionTokens,
+			CacheReadTokens: parsed.Usage.PromptTokensDetail.CachedTokens,
+		},
 	}, nil
 }
 

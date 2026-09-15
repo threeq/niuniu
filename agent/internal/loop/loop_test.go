@@ -14,6 +14,7 @@ import (
 // fakeModel replays a scripted sequence of responses.
 type fakeModel struct {
 	script []*model.Response
+	errs   map[int]error // call index → error to return instead of the script
 	calls  int
 	reqs   []model.Request
 }
@@ -23,9 +24,12 @@ func (f *fakeModel) Complete(_ context.Context, req model.Request) (*model.Respo
 		return nil, fmt.Errorf("script exhausted")
 	}
 	f.reqs = append(f.reqs, req)
-	r := f.script[f.calls]
+	idx := f.calls
 	f.calls++
-	return r, nil
+	if err, ok := f.errs[idx]; ok {
+		return nil, err
+	}
+	return f.script[idx], nil
 }
 
 // stubTool records its invocations.
@@ -61,12 +65,15 @@ func TestRunToolThenAnswer(t *testing.T) {
 	tool := &stubTool{}
 	reg := tools.NewRegistry(tool)
 
-	answer, err := Run(context.Background(), fm, reg, "sys", "go look", Options{})
+	res, err := Run(context.Background(), fm, reg, "sys", "go look", Options{})
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
-	if answer != "all done" {
-		t.Errorf("answer = %q", answer)
+	if res.Text != "all done" {
+		t.Errorf("answer = %q", res.Text)
+	}
+	if res.Rounds != 2 {
+		t.Errorf("rounds = %d, want 2", res.Rounds)
 	}
 	if fm.calls != 2 {
 		t.Errorf("model calls = %d, want 2", fm.calls)
@@ -96,8 +103,8 @@ func TestRunUnknownToolRecovers(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
-	if answer != "recovered" {
-		t.Errorf("answer = %q", answer)
+	if answer.Text != "recovered" {
+		t.Errorf("answer = %q", answer.Text)
 	}
 	tr := fm.reqs[1].Messages[2].Blocks[0]
 	if !tr.IsError || !strings.Contains(tr.Text, "unknown tool") {
@@ -115,5 +122,31 @@ func TestRunBudgetExhausted(t *testing.T) {
 	_, err := Run(context.Background(), fm, reg, "", "go", Options{MaxTurns: 2})
 	if err == nil || !strings.Contains(err.Error(), "turn budget exhausted") {
 		t.Fatalf("err = %v, want budget exhaustion", err)
+	}
+}
+
+func TestRunAggregatesUsage(t *testing.T) {
+	fm := &fakeModel{script: []*model.Response{
+		{Message: model.Message{Role: model.RoleAssistant, Blocks: []model.Block{
+			{Type: model.BlockToolUse, ID: "tu_1", Name: "Echo", Input: json.RawMessage(`{}`)}}},
+			StopReason: model.StopToolUse,
+			Usage:      model.Usage{InputTokens: 100, OutputTokens: 10, CacheReadTokens: 50, CacheCreationTokens: 5}},
+		{Message: model.Message{Role: model.RoleAssistant, Blocks: []model.Block{
+			{Type: model.BlockText, Text: "all done"}}},
+			StopReason: model.StopEndTurn,
+			Usage:      model.Usage{InputTokens: 200, OutputTokens: 20, CacheReadTokens: 120}},
+	}}
+	reg := tools.NewRegistry(&stubTool{})
+
+	res, err := Run(context.Background(), fm, reg, "", "go", Options{})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	want := model.Usage{InputTokens: 300, OutputTokens: 30, CacheReadTokens: 170, CacheCreationTokens: 5}
+	if res.Usage != want {
+		t.Errorf("usage = %+v, want %+v", res.Usage, want)
+	}
+	if res.Rounds != 2 {
+		t.Errorf("rounds = %d, want 2", res.Rounds)
 	}
 }

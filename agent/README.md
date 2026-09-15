@@ -5,7 +5,7 @@ niuniu 的自研编码 agent（issue #708 / #709）。可行性分析与总体�
 
 独立 Go 模块（挂入根 `go.work`），**零第三方依赖**，目标是单二进制分发（desktop sidecar 友好）。
 
-## 当前状态：P1
+## 当前状态：P2
 
 - ✅ `-p` headless 单轮（`-p -` 读 stdin；`-y` 放行变更类工具）
 - ✅ `acp` server：stdio JSON-RPC（initialize / session/new / session/prompt / session/update / session/request_permission / session/cancel），session cwd 经 chdir 生效
@@ -13,7 +13,12 @@ niuniu 的自研编码 agent（issue #708 / #709）。可行性分析与总体�
 - ✅ 工具全集：`LS`、`Read`、`Grep`、`Glob`、`Write`、`Edit`、`Bash`、`TodoWrite`（零依赖、跨平台）
 - ✅ 权限层：读/写分类；headless 默认拒绝变更类，`-y` 放行；ACP 路径走 request_permission 审批
 - ✅ niuniu 引擎接入：`cli_type=niuniu`（agentbackend/niuniuagent 后端 + proxy 调度），真实二进制端到端验收通过
-- ⏳ P2：token 级流式、真实 usage/成本上报、MCP client、skills、session resume、compact
+- ✅ P2 usage 链路：loop 逐轮聚合（含 cache 读/写分解）→ ACP `session/prompt` result 携带 → 服务端 `EventDone` tokens 落库；headless 结束时 stderr 打印 `[usage]` 汇总
+- ✅ P2 prompt cache：Anthropic 族显式 `cache_control` 断点（system + 末位工具 + 末位消息，≤4）；GLM 网关缓存语义实测结论见 `internal/model/anthropic.go` 注释
+- ✅ P2 system prompt：稳定前缀工程（身份→环境→工具指引→规则→项目上下文），session 内逐字节稳定以保缓存命中
+- ✅ P2 项目上下文：session 启动读 cwd 的 `AGENTS.md`（退回 `CLAUDE.md`），上限 40KB，注入 system
+- ✅ P2 auto-compact：上下文超阈值时摘要压缩早期消息（默认 120k tokens / 保留最近 12 条，`loop.Options` 可调），切点保证 tool_use/tool_result 配对完整
+- ⏳ P3：token 级流式、MCP client、skills、subagent、hooks、session resume/checkpoint、sandbox
 
 ## 用法
 
@@ -39,11 +44,14 @@ go run ./cmd/niuniu-agent -p "列出当前目录下有哪些文件"
 
 ```
 agent/
-├── cmd/niuniu-agent/     CLI 入口（-p headless；acp 占位）
+├── cmd/niuniu-agent/     CLI 入口（-p headless；acp server）
 └── internal/
     ├── model/            中性消息 IR + anthropic/openai 双 adapter + env 配置
-    ├── loop/             核心 agent loop
-    └── tools/            工具注册表 + LS/Read
+    ├── loop/             核心 agent loop + auto-compact
+    ├── prompt/           system prompt 稳定前缀工程 + AGENTS.md/CLAUDE.md 加载
+    ├── acp/              ACP server（stdio JSON-RPC）
+    ├── perm/             权限层
+    └── tools/            LS/Read/Grep/Glob/Write/Edit/Bash/TodoWrite
 ```
 
 ## Clean-room 纪律（硬约束）

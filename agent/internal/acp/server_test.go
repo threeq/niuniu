@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/niuniu-dev/niuniu/agent/internal/model"
+	"github.com/niuniu-dev/niuniu/agent/internal/prompt"
 	"github.com/niuniu-dev/niuniu/agent/internal/tools"
 )
 
@@ -22,6 +23,7 @@ type fakeModel struct {
 	mu      sync.Mutex
 	turn    int
 	turns   [][]model.Block
+	usage   []model.Usage // optional per-round usage; indexed with turns
 	lastReq model.Request
 }
 
@@ -33,14 +35,25 @@ func (f *fakeModel) Complete(_ context.Context, req model.Request) (*model.Respo
 		return nil, fmt.Errorf("script exhausted")
 	}
 	blocks := f.turns[f.turn]
+	idx := f.turn
 	f.turn++
-	return &model.Response{Message: model.Message{Role: model.RoleAssistant, Blocks: blocks}}, nil
+	resp := &model.Response{Message: model.Message{Role: model.RoleAssistant, Blocks: blocks}}
+	if idx < len(f.usage) {
+		resp.Usage = f.usage[idx]
+	}
+	return resp, nil
 }
 
 func (f *fakeModel) rounds() int {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return f.turn
+}
+
+func (f *fakeModel) lastSystem() string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.lastReq.System
 }
 
 // client is the test-side ACP client.
@@ -145,8 +158,16 @@ func (c *client) nextUpdate(d time.Duration) updateBody {
 	}
 }
 
-// startServer runs an in-process ACP server over pipes.
+// startServer runs an in-process ACP server over pipes with a static system
+// prompt.
 func startServer(t *testing.T, turns [][]model.Block, permAns func(requestPermissionParams) string) (*client, *fakeModel) {
+	t.Helper()
+	return startServerWithSystem(t, turns, permAns, func(string) string { return "test-system" })
+}
+
+// startServerWithSystem runs an in-process ACP server with a custom
+// per-session system prompt builder.
+func startServerWithSystem(t *testing.T, turns [][]model.Block, permAns func(requestPermissionParams) string, systemFor func(string) string) (*client, *fakeModel) {
 	t.Helper()
 	// session/new chdirs into the session cwd; restore so TempDir cleanup
 	// can remove it on Windows (a process cannot delete its own cwd there).
@@ -156,7 +177,8 @@ func startServer(t *testing.T, turns [][]model.Block, permAns func(requestPermis
 	toSrvR, toSrvW := io.Pipe()     // client → server
 	fromSrvR, fromSrvW := io.Pipe() // server → client
 	fm := &fakeModel{turns: turns}
-	srv := New(toSrvR, fromSrvW, tools.NewRegistry(tools.LS{}, tools.Read{}, tools.Write{}), "test-system",
+	srv := New(toSrvR, fromSrvW, tools.NewRegistry(tools.LS{}, tools.Read{}, tools.Write{}),
+		systemFor,
 		func() (model.Model, error) { return fm, nil })
 	go func() { _ = srv.Serve(context.Background()) }()
 	return newClient(t, toSrvW, fromSrvR, permAns), fm
@@ -171,6 +193,12 @@ func TestACPHandshakeAndPrompt(t *testing.T) {
 		{{Type: model.BlockText, Text: "all done"}},
 	}
 	cl, fm := startServer(t, turns, nil)
+	fm.mu.Lock()
+	fm.usage = []model.Usage{
+		{InputTokens: 10, OutputTokens: 2},
+		{InputTokens: 20, OutputTokens: 3, CacheReadTokens: 7},
+	}
+	fm.mu.Unlock()
 
 	var initRes initializeResult
 	if err := json.Unmarshal(cl.call("initialize", map[string]any{"protocolVersion": 1}), &initRes); err != nil {
@@ -198,6 +226,14 @@ func TestACPHandshakeAndPrompt(t *testing.T) {
 	}
 	if pr.StopReason != "end_turn" {
 		t.Errorf("stopReason = %q", pr.StopReason)
+	}
+	// Usage telemetry rides the prompt result (aggregated across rounds).
+	if pr.Usage == nil {
+		t.Fatal("session/prompt result missing usage")
+	}
+	wantUsage := usageBody{InputTokens: 30, OutputTokens: 5, CacheReadTokens: 7}
+	if *pr.Usage != wantUsage {
+		t.Errorf("usage = %+v, want %+v", *pr.Usage, wantUsage)
 	}
 	if fm.rounds() != 2 {
 		t.Fatalf("model rounds = %d, want 2", fm.rounds())
@@ -276,4 +312,27 @@ func TestACPPermissionAllowAndDeny(t *testing.T) {
 // strings_has is a tiny helper avoiding repeated conversions in assertions.
 func strings_has(b json.RawMessage, sub string) bool {
 	return strings.Contains(string(b), sub)
+}
+
+func TestACPSessionLoadsProjectContext(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "AGENTS.md"), []byte("SESSION-CTX-MARKER"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	turns := [][]model.Block{{{Type: model.BlockText, Text: "done"}}}
+	cl, fm := startServerWithSystem(t, turns, nil, prompt.Build)
+
+	cl.call("initialize", map[string]any{"protocolVersion": 1})
+	sessRes := cl.call("session/new", map[string]any{"cwd": dir})
+	var sess sessionNewResult
+	if err := json.Unmarshal(sessRes, &sess); err != nil {
+		t.Fatalf("session/new: %v", err)
+	}
+	cl.call("session/prompt", map[string]any{
+		"sessionId": sess.SessionID,
+		"prompt":    []map[string]string{{"type": "text", "text": "hi"}},
+	})
+	if sys := fm.lastSystem(); !strings.Contains(sys, "SESSION-CTX-MARKER") {
+		t.Errorf("session system prompt missing AGENTS.md content:\n%.300s", sys)
+	}
 }

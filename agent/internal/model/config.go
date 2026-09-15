@@ -60,6 +60,12 @@ func LoadConfig(providerFlag, modelFlag string) (Config, error) {
 		return Config{}, fmt.Errorf("unknown provider %q (want %q or %q)", provider, ProviderAnthropic, ProviderOpenAI)
 	}
 	cfg.BaseURL = strings.TrimRight(cfg.BaseURL, "/")
+	// "[1m]"-style context-tier suffixes are an upstream harness decoration
+	// (the workspace model picker reuses Claude-style tiered names); the wire
+	// API rejects them, so normalize here at the protocol boundary.
+	if i := strings.IndexByte(cfg.Model, '['); i > 0 {
+		cfg.Model = cfg.Model[:i]
+	}
 	switch {
 	case cfg.Model == "":
 		return Config{}, errors.New("no model configured: pass -model or set the provider's *_MODEL env var")

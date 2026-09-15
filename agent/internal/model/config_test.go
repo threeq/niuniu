@@ -87,3 +87,20 @@ func TestLoadConfigErrors(t *testing.T) {
 		t.Errorf("err = %v, want unknown-provider error", err)
 	}
 }
+
+func TestLoadConfigStripsContextTierSuffix(t *testing.T) {
+	t.Setenv("NIUNIU_AGENT_PROVIDER", "")
+	t.Setenv("ANTHROPIC_BASE_URL", "")
+	t.Setenv("ANTHROPIC_API_KEY", "")
+	t.Setenv("ANTHROPIC_AUTH_TOKEN", "tok")
+	// "[1m]" 等上下文档位后缀是上游 harness 的装饰约定，API 不认。
+	t.Setenv("ANTHROPIC_MODEL", "GLM-5.3-Flash[1m]")
+
+	cfg, err := LoadConfig("", "")
+	if err != nil {
+		t.Fatalf("LoadConfig: %v", err)
+	}
+	if cfg.Model != "GLM-5.3-Flash" {
+		t.Errorf("model = %q, want GLM-5.3-Flash (tier suffix stripped)", cfg.Model)
+	}
+}

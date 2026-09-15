@@ -57,7 +57,7 @@ func TestACPRealModelEndToEnd(t *testing.T) {
 
 	toSrvR, toSrvW := ioPipe()
 	fromSrvR, fromSrvW := ioPipe()
-	srv := New(toSrvR, fromSrvW, tools.NewRegistry(tools.LS{}, tools.Read{}, tools.Grep{}, tools.Glob{}), systemPromptE2E(),
+	srv := New(toSrvR, fromSrvW, tools.NewRegistry(tools.LS{}, tools.Read{}, tools.Grep{}, tools.Glob{}), func(string) string { return systemPromptE2E() },
 		func() (model.Model, error) { return buildModelE2E() })
 	go func() { _ = srv.Serve(context.Background()) }()
 	cl := newClient(t, toSrvW, fromSrvR, func(p requestPermissionParams) string { return "allow_once" })

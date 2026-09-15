@@ -18,20 +18,9 @@ import (
 	"github.com/niuniu-dev/niuniu/agent/internal/loop"
 	"github.com/niuniu-dev/niuniu/agent/internal/model"
 	"github.com/niuniu-dev/niuniu/agent/internal/perm"
+	"github.com/niuniu-dev/niuniu/agent/internal/prompt"
 	"github.com/niuniu-dev/niuniu/agent/internal/tools"
 )
-
-// systemPrompt is niuniu-agent's own system prompt, written for the models
-// niuniu actually drives (GLM and friends) — clean-room, not copied from any
-// closed-source agent.
-const systemPrompt = `You are niuniu-agent, a careful coding agent working on the user's machine.
-
-Rules:
-- Reply in the language the user writes in.
-- When a question depends on local files, use the provided tools to inspect them; never invent file listings, file contents, or command output.
-- For multi-step work, maintain the task list with TodoWrite: mark items in_progress before starting and completed right after finishing.
-- Prefer targeted edits (Edit) over rewriting whole files (Write).
-- Keep answers short and factual.`
 
 // newRegistry advertises the full P1 tool suite.
 func newRegistry() *tools.Registry {
@@ -48,26 +37,26 @@ func main() {
 	}
 
 	var (
-		prompt    = flag.String("p", "", "one-shot prompt: run headless and print the final answer")
-		provider  = flag.String("provider", "", "model provider: anthropic (default) or openai")
-		modelName = flag.String("model", "", "model name override")
-		maxTurns  = flag.Int("max-turns", 0, "max model round-trips (default 16)")
-		timeout   = flag.Duration("timeout", 5*time.Minute, "overall timeout for the run")
-		yes       = flag.Bool("y", false, "auto-approve mutating tools (Write/Edit/Bash); without it headless mode refuses them")
+		promptText = flag.String("p", "", "one-shot prompt: run headless and print the final answer")
+		provider   = flag.String("provider", "", "model provider: anthropic (default) or openai")
+		modelName  = flag.String("model", "", "model name override")
+		maxTurns   = flag.Int("max-turns", 0, "max model round-trips (default 16)")
+		timeout    = flag.Duration("timeout", 5*time.Minute, "overall timeout for the run")
+		yes        = flag.Bool("y", false, "auto-approve mutating tools (Write/Edit/Bash); without it headless mode refuses them")
 	)
 	flag.Parse()
 
-	if *prompt == "-" {
+	if *promptText == "-" {
 		// Read the prompt from stdin (niuniu's one-shot observation path pipes
 		// it in rather than passing it as an argv value).
 		data, err := io.ReadAll(os.Stdin)
 		if err != nil {
 			fail(fmt.Errorf("read stdin prompt: %w", err))
 		}
-		*prompt = strings.TrimSpace(string(data))
+		*promptText = strings.TrimSpace(string(data))
 	}
 
-	if *prompt == "" {
+	if *promptText == "" {
 		fmt.Fprintf(os.Stderr, `niuniu-agent — niuniu's self-built coding agent (P1)
 
 Usage:
@@ -87,12 +76,21 @@ Configuration (env):
 
 	ctx, cancel := context.WithTimeout(context.Background(), *timeout)
 	defer cancel()
-	answer, err := loop.Run(ctx, m, reg, systemPrompt, *prompt,
+	cwd, err := os.Getwd()
+	if err != nil {
+		fail(err)
+	}
+	res, err := loop.Run(ctx, m, reg, prompt.Build(cwd), *promptText,
 		loop.Options{MaxTurns: *maxTurns, Perms: perm.NewPolicy(*yes)})
 	if err != nil {
 		fail(err)
 	}
-	fmt.Println(answer)
+	fmt.Println(res.Text)
+	// Usage summary goes to stderr: stdout is the answer itself (often piped
+	// into other tools); telemetry must not corrupt it.
+	u := res.Usage
+	fmt.Fprintf(os.Stderr, "[usage] rounds=%d input=%d output=%d cache-read=%d cache-write=%d\n",
+		res.Rounds, u.InputTokens, u.OutputTokens, u.CacheReadTokens, u.CacheCreationTokens)
 }
 
 // runACP serves the ACP protocol over stdin/stdout.
@@ -103,7 +101,7 @@ func runACP() {
 	if err := fs.Parse(os.Args[2:]); err != nil {
 		fail(err)
 	}
-	srv := acp.New(os.Stdin, os.Stdout, newRegistry(), systemPrompt, func() (model.Model, error) {
+	srv := acp.New(os.Stdin, os.Stdout, newRegistry(), prompt.Build, func() (model.Model, error) {
 		return buildModel(*provider, *modelName)
 	})
 	if err := srv.Serve(context.Background()); err != nil {

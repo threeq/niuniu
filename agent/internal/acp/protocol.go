@@ -91,7 +91,17 @@ type promptBlock struct {
 }
 
 type sessionPromptResult struct {
-	StopReason string `json:"stopReason"`
+	StopReason string     `json:"stopReason"`
+	Usage      *usageBody `json:"usage,omitempty"`
+}
+
+// usageBody is the token accounting for the finished turn (aggregated over
+// every model round). CacheReadTokens is 0 when the provider does not report
+// a prompt-cache breakdown.
+type usageBody struct {
+	InputTokens     int `json:"inputTokens"`
+	OutputTokens    int `json:"outputTokens"`
+	CacheReadTokens int `json:"cacheReadTokens,omitempty"`
 }
 
 // --- agent → client notifications (session/update) ---

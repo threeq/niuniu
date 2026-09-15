@@ -32,6 +32,28 @@ func NewAnthropic(cfg Config) Model {
 // but Anthropic-compatible gateways (BigModel/GLM and friends) reliably
 // handle the array form (what Claude Code itself emits), while the plain
 // string form has been observed to silently arrive empty at the model.
+// Prompt-cache breakpoints: the Anthropic family caches the longest prefix
+// ending at a block/tool/system entry explicitly marked with cache_control
+// (type "ephemeral").
+//
+// GLM 网关实测（open.bigmodel.cn/api/anthropic，GLM-5.3-Flash，2026-09）：
+//   - 接受 cache_control，命中时 usage 回报 cache_read_input_tokens，语义与
+//     Anthropic 官方一致（命中后 input_tokens 只含未命中尾部，上下文 =
+//     input + cache_read + cache_creation）；
+//   - 但从不回报 cache_creation_input_tokens（写侧无回执，恒缺省）——所以
+//     本地 usage 的 CacheCreationTokens 在 GLM 上通常是 0，不是 bug；
+//   - 网关同时存在隐式前缀缓存：完全不带标记的重复请求也能命中（实测第 3、
+//     4 连发请求 cache_read=704）。显式断点的价值在「命中位置可预期」，
+//     而非开启能力；
+//   - 最小门槛低：约 700 token 的前缀即可命中（Anthropic 官方要求 1024+）。
+//
+// 对完全不认识该字段的兼容网关，多余字段会被忽略，不影响正确性。
+type antCacheControl struct {
+	Type string `json:"type"` // "ephemeral"
+}
+
+const ephemeralCache = "ephemeral"
+
 type antBlock struct {
 	Type      string          `json:"type"`
 	Text      string          `json:"text,omitempty"`
@@ -41,6 +63,8 @@ type antBlock struct {
 	ToolUseID string          `json:"tool_use_id,omitempty"`
 	IsError   bool            `json:"is_error,omitempty"`
 	Content   []antBlock      `json:"content,omitempty"` // tool_result only
+
+	CacheControl *antCacheControl `json:"cache_control,omitempty"`
 }
 
 type antMessage struct {
@@ -52,12 +76,14 @@ type antTool struct {
 	Name        string          `json:"name"`
 	Description string          `json:"description,omitempty"`
 	InputSchema json.RawMessage `json:"input_schema"`
+
+	CacheControl *antCacheControl `json:"cache_control,omitempty"`
 }
 
 type antRequest struct {
 	Model     string       `json:"model"`
 	MaxTokens int          `json:"max_tokens"`
-	System    string       `json:"system,omitempty"`
+	System    any          `json:"system,omitempty"` // string or []antBlock (array form carries cache_control)
 	Messages  []antMessage `json:"messages"`
 	Tools     []antTool    `json:"tools,omitempty"`
 }
@@ -65,6 +91,9 @@ type antRequest struct {
 type antUsage struct {
 	InputTokens  int `json:"input_tokens"`
 	OutputTokens int `json:"output_tokens"`
+	// Prompt-cache breakdown; both 0 when the gateway does not report it.
+	CacheReadTokens     int `json:"cache_read_input_tokens"`
+	CacheCreationTokens int `json:"cache_creation_input_tokens"`
 }
 
 type antResponse struct {
@@ -81,11 +110,17 @@ func (a *anthropicModel) Complete(ctx context.Context, req Request) (*Response, 
 	bodyReq := antRequest{
 		Model:     a.cfg.Model,
 		MaxTokens: maxTok,
-		System:    req.System,
+		System:    cacheableSystem(req.System),
 		Messages:  toAntMessages(req.Messages),
 	}
-	for _, t := range req.Tools {
-		bodyReq.Tools = append(bodyReq.Tools, antTool{Name: t.Name, Description: t.Description, InputSchema: t.InputSchema})
+	for i, t := range req.Tools {
+		tool := antTool{Name: t.Name, Description: t.Description, InputSchema: t.InputSchema}
+		if i == len(req.Tools)-1 {
+			// Breakpoint 2 of 3: the tool list is the most stable prefix
+			// segment — it changes only when the tool set changes.
+			tool.CacheControl = &antCacheControl{Type: ephemeralCache}
+		}
+		bodyReq.Tools = append(bodyReq.Tools, tool)
 	}
 	payload, err := json.Marshal(bodyReq)
 	if err != nil {
@@ -128,7 +163,12 @@ func (a *anthropicModel) Complete(ctx context.Context, req Request) (*Response, 
 	return &Response{
 		Message:    msg,
 		StopReason: normalizeStop(parsed.StopReason),
-		Usage:      Usage{InputTokens: parsed.Usage.InputTokens, OutputTokens: parsed.Usage.OutputTokens},
+		Usage: Usage{
+			InputTokens:         parsed.Usage.InputTokens,
+			OutputTokens:        parsed.Usage.OutputTokens,
+			CacheReadTokens:     parsed.Usage.CacheReadTokens,
+			CacheCreationTokens: parsed.Usage.CacheCreationTokens,
+		},
 	}, nil
 }
 
@@ -163,7 +203,30 @@ func toAntMessages(msgs []Message) []antMessage {
 		}
 		out = append(out, antMessage{Role: m.Role, Content: blocks})
 	}
+	// Breakpoint 3 of 3: mark the last block of the last message — the
+	// incremental checkpoint. Everything before it that was cached on an
+	// earlier round is read from cache; only the trailing delta is written.
+	if len(out) > 0 {
+		content := out[len(out)-1].Content
+		if len(content) > 0 {
+			content[len(content)-1].CacheControl = &antCacheControl{Type: ephemeralCache}
+		}
+	}
 	return out
+}
+
+// cacheableSystem renders the system prompt as a one-block array carrying
+// breakpoint 1 of 3 (the string form cannot hold cache_control). Breakpoint
+// budget: system + final tool + final message block = 3 ≤ 4.
+func cacheableSystem(system string) any {
+	if system == "" {
+		return nil
+	}
+	return []antBlock{{
+		Type:         BlockText,
+		Text:         system,
+		CacheControl: &antCacheControl{Type: ephemeralCache},
+	}}
 }
 
 // normalizeStop maps provider stop reasons onto the neutral constants,

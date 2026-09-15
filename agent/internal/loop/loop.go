@@ -41,6 +41,15 @@ type Event struct {
 	IsError    bool
 }
 
+// TurnResult is the outcome of one Prompt: the assistant's final text plus
+// the accounting hosts need for cost telemetry (summed over every model
+// round inside the turn).
+type TurnResult struct {
+	Text   string
+	Rounds int
+	Usage  model.Usage
+}
+
 // Options bounds one Prompt.
 type Options struct {
 	MaxTurns int
@@ -49,6 +58,13 @@ type Options struct {
 	Perms perm.Checker
 	// OnEvent receives progress events; nil disables.
 	OnEvent func(Event)
+	// CompactThresholdTokens triggers auto-compact when the last round's
+	// context size (Usage.ContextTokens) exceeds it. 0 → DefaultCompact-
+	// Threshold; negative → compaction disabled.
+	CompactThresholdTokens int
+	// KeepRecentMessages is how many trailing messages auto-compact keeps
+	// verbatim. 0 → DefaultKeepRecent.
+	KeepRecentMessages int
 }
 
 // Session is a continuing conversation: successive Prompts accumulate
@@ -68,11 +84,11 @@ func NewSession(m model.Model, reg *tools.Registry, system string) *Session {
 }
 
 // Prompt sends one user turn through the loop and returns the assistant's
-// final text answer. Tool execution errors are reported back to the model as
-// error tool_results, so a failing tool does not abort the run — the model
-// can correct course. Denied tools (permission layer) likewise come back as
-// error results.
-func (s *Session) Prompt(ctx context.Context, userText string, opts Options) (string, error) {
+// final text plus usage accounting. Tool execution errors are reported back
+// to the model as error tool_results, so a failing tool does not abort the
+// run — the model can correct course. Denied tools (permission layer)
+// likewise come back as error results.
+func (s *Session) Prompt(ctx context.Context, userText string, opts Options) (TurnResult, error) {
 	if opts.MaxTurns <= 0 {
 		opts.MaxTurns = DefaultMaxTurns
 	}
@@ -88,22 +104,38 @@ func (s *Session) Prompt(ctx context.Context, userText string, opts Options) (st
 		Role:   model.RoleUser,
 		Blocks: []model.Block{{Type: model.BlockText, Text: userText}},
 	})
+	var result TurnResult
+	lastCtx := 0 // context size reported by the previous round
 	for turn := 1; turn <= opts.MaxTurns; turn++ {
+		if turn > 1 && opts.CompactThresholdTokens >= 0 && lastCtx > opts.CompactThresholdTokens {
+			keep := opts.KeepRecentMessages
+			if keep <= 0 {
+				keep = DefaultKeepRecent
+			}
+			s.compact(ctx, keep)
+			lastCtx = 0 // compacted; don't re-trigger on the same overshoot
+		}
 		resp, err := s.m.Complete(ctx, model.Request{
 			System:   s.system,
 			Messages: s.messages,
 			Tools:    s.reg.Defs(),
 		})
 		if err != nil {
-			return "", fmt.Errorf("model round %d: %w", turn, err)
+			return TurnResult{}, fmt.Errorf("model round %d: %w", turn, err)
 		}
 		s.messages = append(s.messages, resp.Message)
+		result.Rounds++
+		result.Usage.InputTokens += resp.Usage.InputTokens
+		result.Usage.OutputTokens += resp.Usage.OutputTokens
+		result.Usage.CacheReadTokens += resp.Usage.CacheReadTokens
+		result.Usage.CacheCreationTokens += resp.Usage.CacheCreationTokens
+		lastCtx = resp.Usage.ContextTokens()
 
 		uses := resp.Message.ToolUses()
 		if len(uses) == 0 {
-			text := resp.Message.Text()
-			emit(Event{Kind: EventText, Text: text})
-			return text, nil
+			result.Text = resp.Message.Text()
+			emit(Event{Kind: EventText, Text: result.Text})
+			return result, nil
 		}
 
 		results := make([]model.Block, 0, len(uses))
@@ -147,11 +179,11 @@ func (s *Session) Prompt(ctx context.Context, userText string, opts Options) (st
 		}
 		s.messages = append(s.messages, model.Message{Role: model.RoleUser, Blocks: results})
 	}
-	return "", fmt.Errorf("turn budget exhausted after %d rounds without a final answer", opts.MaxTurns)
+	return TurnResult{}, fmt.Errorf("turn budget exhausted after %d rounds without a final answer", opts.MaxTurns)
 }
 
 // Run is the one-shot convenience form: a fresh Session driven by a single
 // prompt.
-func Run(ctx context.Context, m model.Model, reg *tools.Registry, system, userPrompt string, opts Options) (string, error) {
+func Run(ctx context.Context, m model.Model, reg *tools.Registry, system, userPrompt string, opts Options) (TurnResult, error) {
 	return NewSession(m, reg, system).Prompt(ctx, userPrompt, opts)
 }

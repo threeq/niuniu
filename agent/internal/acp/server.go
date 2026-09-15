@@ -23,11 +23,11 @@ import (
 // transport. New(...) wires a transport; Serve reads requests until EOF or
 // context cancellation.
 type Server struct {
-	in       io.Reader
-	out      io.Writer
-	reg      *tools.Registry
-	system   string
-	newModel func() (model.Model, error)
+	in        io.Reader
+	out       io.Writer
+	reg       *tools.Registry
+	systemFor func(cwd string) string
+	newModel  func() (model.Model, error)
 
 	writeMu sync.Mutex
 
@@ -51,16 +51,17 @@ type sessionState struct {
 
 // New builds a Server over the given transport. newModel is called once per
 // session to build the model backend (so config errors surface per session);
-// system is the agent's system prompt.
-func New(in io.Reader, out io.Writer, reg *tools.Registry, system string, newModel func() (model.Model, error)) *Server {
+// systemFor builds the system prompt per session cwd (project context such
+// as AGENTS.md is resolved against it).
+func New(in io.Reader, out io.Writer, reg *tools.Registry, systemFor func(cwd string) string, newModel func() (model.Model, error)) *Server {
 	return &Server{
-		in:       in,
-		out:      out,
-		reg:      reg,
-		system:   system,
-		newModel: newModel,
-		sessions: make(map[string]*sessionState),
-		pending:  make(map[int64]chan requestPermissionResult),
+		in:        in,
+		out:       out,
+		reg:       reg,
+		systemFor: systemFor,
+		newModel:  newModel,
+		sessions:  make(map[string]*sessionState),
+		pending:   make(map[int64]chan requestPermissionResult),
 	}
 }
 
@@ -161,7 +162,7 @@ func (s *Server) handle(ctx context.Context, req rpcRequest) (json.RawMessage, *
 		st := &sessionState{
 			id:   id,
 			cwd:  p.CWD,
-			conv: loop.NewSession(m, s.reg, s.system),
+			conv: loop.NewSession(m, s.reg, s.systemFor(sessionCwd(p.CWD))),
 		}
 		s.sessions[id] = st
 		s.sessMu.Unlock()
@@ -222,8 +223,14 @@ func (s *Server) runPrompt(parent context.Context, st *sessionState, p sessionPr
 		}
 		return nil, &rpcError{Code: errInternal, Message: err.Error()}
 	}
-	_ = res
-	out, _ := json.Marshal(sessionPromptResult{StopReason: "end_turn"})
+	out, _ := json.Marshal(sessionPromptResult{
+		StopReason: "end_turn",
+		Usage: &usageBody{
+			InputTokens:     res.Usage.InputTokens,
+			OutputTokens:    res.Usage.OutputTokens,
+			CacheReadTokens: res.Usage.CacheReadTokens,
+		},
+	})
 	return out, nil
 }
 
@@ -376,4 +383,16 @@ func defaultJSON(s string) string {
 		return "{}"
 	}
 	return s
+}
+
+// sessionCwd resolves the directory a session's system prompt is built
+// against: the announced cwd, or the process cwd when the client sent none.
+func sessionCwd(cwd string) string {
+	if cwd != "" {
+		return cwd
+	}
+	if wd, err := os.Getwd(); err == nil {
+		return wd
+	}
+	return "."
 }

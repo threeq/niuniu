@@ -46,8 +46,14 @@ func TestAnthropicCompleteToolUse(t *testing.T) {
 	if gotVersion != anthropicVersion {
 		t.Errorf("anthropic-version = %q", gotVersion)
 	}
-	if gotBody.Model != "test-model" || gotBody.System != "sys" || gotBody.MaxTokens != DefaultMaxTokens {
+	if gotBody.Model != "test-model" || gotBody.MaxTokens != DefaultMaxTokens {
 		t.Errorf("request body = %+v", gotBody)
+	}
+	// System rides as a one-block array (cache_control needs the array form).
+	sysRaw, _ := json.Marshal(gotBody.System)
+	var sysBlocks []antBlock
+	if json.Unmarshal(sysRaw, &sysBlocks) != nil || len(sysBlocks) != 1 || sysBlocks[0].Text != "sys" {
+		t.Errorf("system = %#v, want [text:sys]", gotBody.System)
 	}
 	if len(gotBody.Messages) != 1 || gotBody.Messages[0].Role != RoleUser || gotBody.Messages[0].Content[0].Text != "hi" {
 		t.Errorf("messages = %+v", gotBody.Messages)
@@ -121,5 +127,94 @@ func TestAnthropicHTTPError(t *testing.T) {
 	})
 	if err == nil {
 		t.Fatal("want error on HTTP 401")
+	}
+}
+
+func TestAnthropicCacheUsageParsing(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("content-type", "application/json")
+		_, _ = w.Write([]byte(`{"content":[{"type":"text","text":"ok"}],"stop_reason":"end_turn",` +
+			`"usage":{"input_tokens":100,"output_tokens":10,` +
+			`"cache_read_input_tokens":1234,"cache_creation_input_tokens":56}}`))
+	}))
+	defer ts.Close()
+
+	m := NewAnthropic(Config{Provider: ProviderAnthropic, BaseURL: ts.URL, AuthToken: "t", Model: "m"})
+	resp, err := m.Complete(context.Background(), Request{
+		Messages: []Message{{Role: RoleUser, Blocks: []Block{{Type: BlockText, Text: "hi"}}}},
+	})
+	if err != nil {
+		t.Fatalf("Complete: %v", err)
+	}
+	if resp.Usage.CacheReadTokens != 1234 || resp.Usage.CacheCreationTokens != 56 {
+		t.Errorf("usage = %+v, want cache read 1234 / creation 56", resp.Usage)
+	}
+}
+
+func TestAnthropicCacheControlBreakpoints(t *testing.T) {
+	var gotBody antRequest
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewDecoder(r.Body).Decode(&gotBody)
+		w.Header().Set("content-type", "application/json")
+		_, _ = w.Write([]byte(`{"content":[{"type":"text","text":"ok"}],"stop_reason":"end_turn","usage":{}}`))
+	}))
+	defer ts.Close()
+
+	m := NewAnthropic(Config{Provider: ProviderAnthropic, BaseURL: ts.URL, AuthToken: "t", Model: "m"})
+	_, err := m.Complete(context.Background(), Request{
+		System: "sys",
+		Messages: []Message{
+			{Role: RoleUser, Blocks: []Block{{Type: BlockText, Text: "q1"}}},
+			{Role: RoleAssistant, Blocks: []Block{{Type: BlockText, Text: "a1"}}},
+			{Role: RoleUser, Blocks: []Block{{Type: BlockText, Text: "q2"}}},
+		},
+		Tools: []ToolDef{
+			{Name: "A", Description: "a", InputSchema: json.RawMessage(`{}`)},
+			{Name: "B", Description: "b", InputSchema: json.RawMessage(`{}`)},
+		},
+	})
+	if err != nil {
+		t.Fatalf("Complete: %v", err)
+	}
+
+	breakpoints := 0
+	// system：数组形式，块上带 cache_control（字符串形式无法挂断点）。
+	sysRaw, _ := json.Marshal(gotBody.System)
+	var sysBlocks []antBlock
+	if json.Unmarshal(sysRaw, &sysBlocks) != nil || len(sysBlocks) != 1 || sysBlocks[0].Text != "sys" {
+		t.Fatalf("system = %#v, want one text block with sys", gotBody.System)
+	}
+	if sysBlocks[0].CacheControl == nil {
+		t.Error("system block missing cache_control")
+	} else {
+		breakpoints++
+	}
+	// tools：仅最后一个工具带 cache_control（工具列表是最稳定的前缀）。
+	if gotBody.Tools[0].CacheControl != nil {
+		t.Error("non-final tool must not carry cache_control")
+	}
+	if gotBody.Tools[1].CacheControl == nil {
+		t.Error("final tool missing cache_control")
+	} else {
+		breakpoints++
+	}
+	// messages：仅最后一条消息的最后一个块带 cache_control（增量断点）。
+	for i, msg := range gotBody.Messages {
+		last := i == len(gotBody.Messages)-1
+		for j, blk := range msg.Content {
+			isLastBlock := last && j == len(msg.Content)-1
+			if blk.CacheControl != nil && !isLastBlock {
+				t.Errorf("messages[%d].content[%d] carries unexpected cache_control", i, j)
+			}
+			if blk.CacheControl != nil {
+				breakpoints++
+			}
+		}
+	}
+	if gotBody.Messages[2].Content[0].CacheControl == nil {
+		t.Error("final message missing incremental cache_control breakpoint")
+	}
+	if breakpoints > 4 {
+		t.Errorf("cache_control breakpoints = %d, want <= 4", breakpoints)
 	}
 }
