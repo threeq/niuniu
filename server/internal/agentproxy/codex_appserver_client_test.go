@@ -95,7 +95,7 @@ func TestCodexAppServerClient_StartThreadSmoke(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 
-	client, err := startCodexAppServerClient(ctx, codexPath, nil, os.Environ())
+	client, err := startCodexAppServerClient(ctx, codexPath, os.Environ())
 	if err != nil {
 		t.Fatalf("startCodexAppServerClient: %v", err)
 	}
