@@ -1,0 +1,279 @@
+package acp
+
+import (
+	"bufio"
+	"context"
+	"encoding/json"
+	"fmt"
+	"io"
+	"os"
+	"path/filepath"
+	"strings"
+	"sync"
+	"testing"
+	"time"
+
+	"github.com/niuniu-dev/niuniu/agent/internal/model"
+	"github.com/niuniu-dev/niuniu/agent/internal/tools"
+)
+
+// fakeModel scripts per-round assistant blocks and captures the last request.
+type fakeModel struct {
+	mu      sync.Mutex
+	turn    int
+	turns   [][]model.Block
+	lastReq model.Request
+}
+
+func (f *fakeModel) Complete(_ context.Context, req model.Request) (*model.Response, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.lastReq = req
+	if f.turn >= len(f.turns) {
+		return nil, fmt.Errorf("script exhausted")
+	}
+	blocks := f.turns[f.turn]
+	f.turn++
+	return &model.Response{Message: model.Message{Role: model.RoleAssistant, Blocks: blocks}}, nil
+}
+
+func (f *fakeModel) rounds() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.turn
+}
+
+// client is the test-side ACP client.
+type client struct {
+	t       *testing.T
+	w       io.Writer
+	permAns func(requestPermissionParams) string
+	updates chan updateBody
+	ids     map[string]chan json.RawMessage
+	mu      sync.Mutex
+	nextID  int
+}
+
+func newClient(t *testing.T, w io.Writer, r io.Reader, permAns func(requestPermissionParams) string) *client {
+	c := &client{
+		t: t, w: w, permAns: permAns,
+		updates: make(chan updateBody, 64),
+		ids:     make(map[string]chan json.RawMessage),
+	}
+	go c.readLoop(r)
+	return c
+}
+
+func (c *client) readLoop(r io.Reader) {
+	sc := bufio.NewScanner(r)
+	sc.Buffer(make([]byte, 0, 64<<10), 16<<20)
+	for sc.Scan() {
+		var frame struct {
+			ID     json.RawMessage `json:"id,omitempty"`
+			Method string          `json:"method,omitempty"`
+			Result json.RawMessage `json:"result,omitempty"`
+			Params json.RawMessage `json:"params,omitempty"`
+		}
+		if json.Unmarshal(sc.Bytes(), &frame) != nil {
+			continue
+		}
+		switch {
+		case frame.Method == "session/update":
+			var p sessionUpdateParams
+			if json.Unmarshal(frame.Params, &p) == nil {
+				c.updates <- p.Update
+			}
+		case frame.Method == "session/request_permission":
+			var p requestPermissionParams
+			if json.Unmarshal(frame.Params, &p) == nil {
+				opt := "reject_once"
+				if c.permAns != nil {
+					opt = c.permAns(p)
+				}
+				c.send(map[string]any{
+					"jsonrpc": "2.0", "id": json.RawMessage(frame.ID),
+					"result": map[string]any{
+						"outcome": map[string]string{"outcome": "selected", "optionId": opt},
+					},
+				})
+			}
+		case len(frame.ID) > 0 && frame.Method == "":
+			// frame.ID is raw JSON (keeps its quotes); normalize before lookup.
+			id := strings.Trim(string(frame.ID), `"`)
+			c.mu.Lock()
+			ch, ok := c.ids[id]
+			delete(c.ids, id)
+			c.mu.Unlock()
+			if ok {
+				ch <- frame.Result
+			}
+		}
+	}
+}
+
+func (c *client) send(v any) {
+	data, _ := json.Marshal(v)
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.w.Write(append(data, '\n'))
+}
+
+func (c *client) call(method string, params any) json.RawMessage {
+	c.mu.Lock()
+	c.nextID++
+	id := fmt.Sprintf("client-%d", c.nextID)
+	ch := make(chan json.RawMessage, 1)
+	c.ids[id] = ch
+	c.mu.Unlock()
+	c.send(map[string]any{"jsonrpc": "2.0", "id": id, "method": method, "params": params})
+	select {
+	case res := <-ch:
+		return res
+	case <-time.After(120 * time.Second): // real-model e2e turns are slow; fakes return instantly
+		c.t.Fatalf("timeout waiting for %s response", method)
+		return nil
+	}
+}
+
+func (c *client) nextUpdate(d time.Duration) updateBody {
+	select {
+	case u := <-c.updates:
+		return u
+	case <-time.After(d):
+		c.t.Fatal("timeout waiting for session/update")
+		return updateBody{}
+	}
+}
+
+// startServer runs an in-process ACP server over pipes.
+func startServer(t *testing.T, turns [][]model.Block, permAns func(requestPermissionParams) string) (*client, *fakeModel) {
+	t.Helper()
+	// session/new chdirs into the session cwd; restore so TempDir cleanup
+	// can remove it on Windows (a process cannot delete its own cwd there).
+	if orig, err := os.Getwd(); err == nil {
+		t.Cleanup(func() { _ = os.Chdir(orig) })
+	}
+	toSrvR, toSrvW := io.Pipe()     // client → server
+	fromSrvR, fromSrvW := io.Pipe() // server → client
+	fm := &fakeModel{turns: turns}
+	srv := New(toSrvR, fromSrvW, tools.NewRegistry(tools.LS{}, tools.Read{}, tools.Write{}), "test-system",
+		func() (model.Model, error) { return fm, nil })
+	go func() { _ = srv.Serve(context.Background()) }()
+	return newClient(t, toSrvW, fromSrvR, permAns), fm
+}
+
+func TestACPHandshakeAndPrompt(t *testing.T) {
+	// Allocate the temp dir BEFORE startServer so the cwd-restore cleanup
+	// (registered later) runs before this dir's removal (LIFO).
+	dir := t.TempDir()
+	turns := [][]model.Block{
+		{{Type: model.BlockToolUse, ID: "tu_1", Name: "LS", Input: json.RawMessage(`{}`)}},
+		{{Type: model.BlockText, Text: "all done"}},
+	}
+	cl, fm := startServer(t, turns, nil)
+
+	var initRes initializeResult
+	if err := json.Unmarshal(cl.call("initialize", map[string]any{"protocolVersion": 1}), &initRes); err != nil {
+		t.Fatalf("initialize: %v", err)
+	}
+	if initRes.ProtocolVersion != protocolVersion {
+		t.Errorf("protocolVersion = %d", initRes.ProtocolVersion)
+	}
+
+	var sessRes sessionNewResult
+	if err := json.Unmarshal(cl.call("session/new", map[string]any{"cwd": dir}), &sessRes); err != nil {
+		t.Fatalf("session/new: %v", err)
+	}
+	if sessRes.SessionID == "" {
+		t.Fatal("empty sessionId")
+	}
+
+	promptRes := cl.call("session/prompt", map[string]any{
+		"sessionId": sessRes.SessionID,
+		"prompt":    []map[string]string{{"type": "text", "text": "list the directory"}},
+	})
+	var pr sessionPromptResult
+	if err := json.Unmarshal(promptRes, &pr); err != nil {
+		t.Fatalf("session/prompt result: %v (raw %s)", err, promptRes)
+	}
+	if pr.StopReason != "end_turn" {
+		t.Errorf("stopReason = %q", pr.StopReason)
+	}
+	if fm.rounds() != 2 {
+		t.Fatalf("model rounds = %d, want 2", fm.rounds())
+	}
+
+	// Expect tool_call → tool_call_update → agent_message_chunk, in order.
+	u1 := cl.nextUpdate(time.Second)
+	if u1.SessionUpdate != "tool_call" || u1.ToolCallID != "tu_1" || u1.Kind != "read" {
+		t.Errorf("update1 = %+v", u1)
+	}
+	u2 := cl.nextUpdate(time.Second)
+	if u2.SessionUpdate != "tool_call_update" || u2.Status != "completed" {
+		t.Errorf("update2 = %+v", u2)
+	}
+	u3 := cl.nextUpdate(time.Second)
+	if u3.SessionUpdate != "agent_message_chunk" || u3.Content == nil || u3.Content.Text != "all done" {
+		t.Errorf("update3 = %+v", u3)
+	}
+}
+
+func TestACPPermissionAllowAndDeny(t *testing.T) {
+	// Same LIFO rule as TestACPHandshakeAndPrompt: temp dirs first.
+	tmpA, tmpB := t.TempDir(), t.TempDir()
+	target := filepath.Join(tmpA, "out.txt")
+	turns := [][]model.Block{
+		{{Type: model.BlockToolUse, ID: "w1", Name: "Write",
+			Input: json.RawMessage(fmt.Sprintf(`{"path":%q,"content":"hi"}`, target))}},
+		{{Type: model.BlockText, Text: "wrote it"}},
+	}
+
+	// Allow: the write executes end-to-end.
+	cl, _ := startServer(t, turns, func(requestPermissionParams) string { return "allow_once" })
+	var sess sessionNewResult
+	_ = json.Unmarshal(cl.call("session/new", map[string]any{"cwd": tmpB}), &sess)
+	res := cl.call("session/prompt", map[string]any{
+		"sessionId": sess.SessionID,
+		"prompt":    []map[string]string{{"type": "text", "text": "write the file"}},
+	})
+	if !strings_has(res, `"stopReason":"end_turn"`) {
+		t.Errorf("allow path prompt result = %s", res)
+	}
+	u := cl.nextUpdate(time.Second) // tool_call
+	if u.SessionUpdate != "tool_call" || u.Kind != "edit" {
+		t.Errorf("allow tool_call = %+v", u)
+	}
+	u = cl.nextUpdate(time.Second) // tool_call_update
+	if u.Status != "completed" {
+		t.Errorf("allow tool_call_update status = %q, want completed", u.Status)
+	}
+
+	// Deny: the write must not run.
+	denied := 0
+	cl2, _ := startServer(t, turns, func(p requestPermissionParams) string {
+		denied++
+		return "reject_once"
+	})
+	var sess2 sessionNewResult
+	_ = json.Unmarshal(cl2.call("session/new", map[string]any{"cwd": tmpB}), &sess2)
+	_ = cl2.call("session/prompt", map[string]any{
+		"sessionId": sess2.SessionID,
+		"prompt":    []map[string]string{{"type": "text", "text": "write the file"}},
+	})
+	u = cl2.nextUpdate(time.Second)
+	if u.SessionUpdate != "tool_call" {
+		t.Fatalf("deny update1 = %+v", u)
+	}
+	u = cl2.nextUpdate(time.Second)
+	if u.Status != "failed" {
+		t.Errorf("deny tool_call_update status = %q, want failed", u.Status)
+	}
+	if denied == 0 {
+		t.Error("permission request was never sent to the client")
+	}
+}
+
+// strings_has is a tiny helper avoiding repeated conversions in assertions.
+func strings_has(b json.RawMessage, sub string) bool {
+	return strings.Contains(string(b), sub)
+}

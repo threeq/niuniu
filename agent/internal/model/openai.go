@@ -48,7 +48,7 @@ type oaFunctionDef struct {
 }
 
 type oaTool struct {
-	Type     string       `json:"type"` // "function"
+	Type     string        `json:"type"` // "function"
 	Function oaFunctionDef `json:"function"`
 }
 

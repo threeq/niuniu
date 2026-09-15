@@ -1,7 +1,7 @@
 // Command niuniu-agent is niuniu's self-built coding agent.
 //
-// P0 ships the headless single-shot mode (`-p`). The ACP server (`acp`,
-// niuniu/IDE integration) and the interactive TUI arrive in P1 — see
+// Two modes: headless one-shot (`-p`) and the ACP server (`acp`, stdio
+// JSON-RPC — niuniu/IDE integration). See
 // docs/specs/2026-09-15-niuniu-agent-feasibility-and-plan.md.
 package main
 
@@ -12,8 +12,10 @@ import (
 	"os"
 	"time"
 
+	"github.com/niuniu-dev/niuniu/agent/internal/acp"
 	"github.com/niuniu-dev/niuniu/agent/internal/loop"
 	"github.com/niuniu-dev/niuniu/agent/internal/model"
+	"github.com/niuniu-dev/niuniu/agent/internal/perm"
 	"github.com/niuniu-dev/niuniu/agent/internal/tools"
 )
 
@@ -24,14 +26,23 @@ const systemPrompt = `You are niuniu-agent, a careful coding agent working on th
 
 Rules:
 - Reply in the language the user writes in.
-- When a question depends on local files, use the provided tools to inspect them; never invent file listings or file contents.
+- When a question depends on local files, use the provided tools to inspect them; never invent file listings, file contents, or command output.
+- For multi-step work, maintain the task list with TodoWrite: mark items in_progress before starting and completed right after finishing.
+- Prefer targeted edits (Edit) over rewriting whole files (Write).
 - Keep answers short and factual.`
+
+// newRegistry advertises the full P1 tool suite.
+func newRegistry() *tools.Registry {
+	return tools.NewRegistry(
+		tools.LS{}, tools.Read{}, tools.Grep{}, tools.Glob{},
+		tools.Write{}, tools.Edit{}, tools.Bash{}, tools.TodoWrite{},
+	)
+}
 
 func main() {
 	if len(os.Args) > 1 && os.Args[1] == "acp" {
-		fmt.Fprintln(os.Stderr, "niuniu-agent acp: not implemented yet — planned for P1 "+
-			"(docs/specs/2026-09-15-niuniu-agent-feasibility-and-plan.md §6)")
-		os.Exit(2)
+		runACP()
+		return
 	}
 
 	var (
@@ -39,16 +50,17 @@ func main() {
 		provider  = flag.String("provider", "", "model provider: anthropic (default) or openai")
 		modelName = flag.String("model", "", "model name override")
 		maxTurns  = flag.Int("max-turns", 0, "max model round-trips (default 16)")
-		timeout   = flag.Duration("timeout", 3*time.Minute, "overall timeout for the run")
+		timeout   = flag.Duration("timeout", 5*time.Minute, "overall timeout for the run")
+		yes       = flag.Bool("y", false, "auto-approve mutating tools (Write/Edit/Bash); without it headless mode refuses them")
 	)
 	flag.Parse()
 
 	if *prompt == "" {
-		fmt.Fprintf(os.Stderr, `niuniu-agent — niuniu's self-built coding agent (P0)
+		fmt.Fprintf(os.Stderr, `niuniu-agent — niuniu's self-built coding agent (P1)
 
 Usage:
-  niuniu-agent -p "prompt" [-provider anthropic|openai] [-model name] [-max-turns n] [-timeout 3m]
-  niuniu-agent acp          (P1: ACP server over stdio)
+  niuniu-agent -p "prompt" [-provider anthropic|openai] [-model name] [-max-turns n] [-timeout 5m] [-y]
+  niuniu-agent acp          ACP server over stdio (niuniu / IDE integration)
 
 Configuration (env):
   NIUNIU_AGENT_PROVIDER  anthropic (default) | openai
@@ -58,27 +70,52 @@ Configuration (env):
 		os.Exit(2)
 	}
 
-	cfg, err := model.LoadConfig(*provider, *modelName)
-	if err != nil {
-		fail(err)
-	}
-	var m model.Model
-	switch cfg.Provider {
-	case model.ProviderOpenAI:
-		m = model.NewOpenAI(cfg)
-	default:
-		m = model.NewAnthropic(cfg)
-	}
-
-	reg := tools.NewRegistry(tools.LS{}, tools.Read{})
+	m := mustModel(*provider, *modelName)
+	reg := newRegistry()
 
 	ctx, cancel := context.WithTimeout(context.Background(), *timeout)
 	defer cancel()
-	answer, err := loop.Run(ctx, m, reg, systemPrompt, *prompt, loop.Options{MaxTurns: *maxTurns})
+	answer, err := loop.Run(ctx, m, reg, systemPrompt, *prompt,
+		loop.Options{MaxTurns: *maxTurns, Perms: perm.NewPolicy(*yes)})
 	if err != nil {
 		fail(err)
 	}
 	fmt.Println(answer)
+}
+
+// runACP serves the ACP protocol over stdin/stdout.
+func runACP() {
+	fs := flag.NewFlagSet("acp", flag.ContinueOnError)
+	provider := fs.String("provider", "", "model provider: anthropic (default) or openai")
+	modelName := fs.String("model", "", "model name override")
+	if err := fs.Parse(os.Args[2:]); err != nil {
+		fail(err)
+	}
+	srv := acp.New(os.Stdin, os.Stdout, newRegistry(), systemPrompt, func() (model.Model, error) {
+		return buildModel(*provider, *modelName)
+	})
+	if err := srv.Serve(context.Background()); err != nil {
+		fail(err)
+	}
+}
+
+func mustModel(provider, modelName string) model.Model {
+	m, err := buildModel(provider, modelName)
+	if err != nil {
+		fail(err)
+	}
+	return m
+}
+
+func buildModel(provider, modelName string) (model.Model, error) {
+	cfg, err := model.LoadConfig(provider, modelName)
+	if err != nil {
+		return nil, err
+	}
+	if cfg.Provider == model.ProviderOpenAI {
+		return model.NewOpenAI(cfg), nil
+	}
+	return model.NewAnthropic(cfg), nil
 }
 
 func fail(err error) {
