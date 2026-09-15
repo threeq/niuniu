@@ -512,12 +512,6 @@ type WorkspaceSession struct {
 	// db is the wrapped pool behind s.q, injected via AgentProxy.SetDB. Nil in
 	// some test setups — batch persistence degrades to the plain s.q path.
 	db *store.DB
-	// batchTx, when non-nil, routes hot-path event writes into an OPEN
-	// transaction so a burst of notifications commits ONCE instead of once per
-	// row (the codex eventLoop's write-throughput fix). Set by
-	// beginPersistBatch, cleared by commitPersistBatch. Guarded by batchMu.
-	batchMu sync.Mutex
-	batchTx *store.Tx
 
 	// topLevelAgentID 是本会话对应的 workspace_agent.id（coordinator）。
 	// 0 表示未绑定。Task 8 在 session init 时填充。用于 agent_message 归属。
@@ -3879,50 +3873,13 @@ func (s *WorkspaceSession) killProcess() {
 // agentID attributes the message to a workspace_agent (0 = unknown, stored as NULL).
 // writeQ returns the Queries hot-path event writes should use: the open
 // batch-transaction Queries while a persist batch is active, else s.q.
+// writeQ returns the session's query handle. Historically this routed into a
+// batch transaction window (beginPersistBatch); that window deadlocked
+// SQLite's single connection (see flushCodexBatch's NOTE) and was removed —
+// kept as a seam so a future INSIDE-persistEvent batching has one place to
+// hook.
 func (s *WorkspaceSession) writeQ() *store.Queries {
-	s.batchMu.Lock()
-	tx := s.batchTx
-	s.batchMu.Unlock()
-	if tx != nil {
-		return tx.Queries()
-	}
 	return s.q
-}
-
-// beginPersistBatch opens a transaction that every writeQ()-routed write in
-// this goroutine joins — a burst of N event writes commits ONCE instead of N
-// times (each commit is a network round-trip on PostgreSQL; that per-row cost
-// was the codex eventLoop's write bottleneck). Single-goroutine scope: only
-// the codex eventLoop opens batches, so no cross-goroutine interleaving.
-func (s *WorkspaceSession) beginPersistBatch(ctx context.Context) {
-	if s.db == nil {
-		return
-	}
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		slog.Warn("persist batch: begin failed; falling back to per-row writes",
-			"workspaceID", s.workspaceID, "error", err)
-		return
-	}
-	s.batchMu.Lock()
-	s.batchTx = tx
-	s.batchMu.Unlock()
-}
-
-// commitPersistBatch commits the open batch window (rolling back on error —
-// event persistence is best-effort: the SSE broadcast already went out).
-func (s *WorkspaceSession) commitPersistBatch(ctx context.Context) {
-	s.batchMu.Lock()
-	tx := s.batchTx
-	s.batchTx = nil
-	s.batchMu.Unlock()
-	if tx == nil {
-		return
-	}
-	if err := tx.Commit(); err != nil {
-		slog.Warn("persist batch: commit failed; batch writes rolled back",
-			"workspaceID", s.workspaceID, "error", err)
-	}
 }
 
 func (s *WorkspaceSession) persistEventWithID(ctx context.Context, id string, ev OutputEvent, agentID int64) {

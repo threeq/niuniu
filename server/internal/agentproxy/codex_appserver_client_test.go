@@ -201,3 +201,57 @@ func TestReadLoopNeverDropsTerminalNotifications(t *testing.T) {
 		}
 	}
 }
+
+// TestCodexEventLoop_SurvivesIdleGap is the regression for the deployed
+// "发消息直接错误: Codex app-server exited unexpectedly" breakage: the batch
+// drain treated a momentarily-EMPTY events channel (select default) the same
+// as a CLOSED one, so the whole event loop exited at the first gap between
+// notifications — which always exists right after thread/started — and the
+// exit path reported the still-alive app-server as crashed. The loop must
+// only end when the channel is truly CLOSED; an idle gap merely ends the
+// current batch.
+func TestCodexEventLoop_SurvivesIdleGap(t *testing.T) {
+	s := newDispatchTestSession(t)
+	s.hub = NewSessionHub()
+	t.Cleanup(s.hub.Stop)
+
+	events := make(chan codexAppServerNotification, 8)
+	app := &codexAppServerClient{
+		pending: map[int64]chan codexAppServerResponse{},
+		events:  events,
+		done:    make(chan struct{}),
+	}
+	ctx := context.Background()
+	go s.codexAppServerEventLoop(ctx, app)
+	// Close the channel at teardown so the loop can exit; do NOT wait for it —
+	// under the regression the goroutine may be wedged mid-cleanup and a wait
+	// here would hang the test binary instead of reporting the failure.
+	t.Cleanup(func() { close(events) })
+
+	// First notification: thread/started (parsed as system/init).
+	events <- codexAppServerNotification{Method: "thread/started",
+		Params: json.RawMessage(`{"thread":{"id":"t-1"}}`)}
+
+	// The idle gap. Under the bug the loop exits HERE (select default set
+	// closed=true), tearing down the still-alive app-server.
+	time.Sleep(200 * time.Millisecond)
+
+	// A later notification must still be consumed by the SAME loop.
+	events <- codexAppServerNotification{Method: "item/agentMessage/delta",
+		Params: json.RawMessage(`{"delta":"hi"}`)}
+
+	deadline := time.After(2 * time.Second)
+	for {
+		s.mu.Lock()
+		seen := s.hasStreamEvents // set by handleStreamEvent — proof the delta was dispatched
+		s.mu.Unlock()
+		if seen {
+			return // loop alive across the gap — contract holds
+		}
+		select {
+		case <-deadline:
+			t.Fatal("event loop died at the idle gap — post-gap notification never dispatched (the deployed 'exited unexpectedly' bug)")
+		case <-time.After(20 * time.Millisecond):
+		}
+	}
+}
