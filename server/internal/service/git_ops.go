@@ -93,6 +93,7 @@ func (s *GitOpsService) Commit(ctx context.Context, workspaceID, repoID int64, m
 	// sidebar-git endpoint recomputes immediately instead of serving the
 	// pre-commit counts until the TTL expires.
 	sidebarGitCache.Invalidate(wsRepo.WorktreePath)
+	workspaceDiffCache.InvalidateWorkspace(workspaceID)
 	if s.notifyHub != nil {
 		s.notifyHub.Broadcast(notify.Notification{Topic: notify.TopicDiff, Action: "changed", ID: workspaceID})
 		s.notifyHub.Broadcast(notify.Notification{Topic: notify.TopicGitStatus, Action: "changed", ID: workspaceID})
@@ -116,6 +117,7 @@ func (s *GitOpsService) Pull(ctx context.Context, workspaceID, repoID int64) err
 	}
 
 	sidebarGitCache.Invalidate(wsRepo.WorktreePath)
+	workspaceDiffCache.InvalidateWorkspace(workspaceID)
 	if s.notifyHub != nil {
 		s.notifyHub.Broadcast(notify.Notification{Topic: notify.TopicDiff, Action: "changed", ID: workspaceID})
 		s.notifyHub.Broadcast(notify.Notification{Topic: notify.TopicGitStatus, Action: "changed", ID: workspaceID})
@@ -139,6 +141,7 @@ func (s *GitOpsService) Push(ctx context.Context, workspaceID, repoID int64) err
 	}
 
 	sidebarGitCache.Invalidate(wsRepo.WorktreePath)
+	workspaceDiffCache.InvalidateWorkspace(workspaceID)
 	if s.notifyHub != nil {
 		s.notifyHub.Broadcast(notify.Notification{Topic: notify.TopicDiff, Action: "changed", ID: workspaceID})
 		s.notifyHub.Broadcast(notify.Notification{Topic: notify.TopicGitStatus, Action: "changed", ID: workspaceID})

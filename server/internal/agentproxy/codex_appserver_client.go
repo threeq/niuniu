@@ -21,6 +21,12 @@ type codexAppServerClient struct {
 	stdin  io.WriteCloser
 	cancel context.CancelFunc
 
+	// stderrBuf captures the app-server's stderr. A startup failure (bad
+	// flag, broken config, auth error) prints HERE — the process then exits
+	// and the only thing the session used to see was "exited unexpectedly"
+	// with zero context. StderrTail surfaces the real reason.
+	stderrBuf *limitedBuffer
+
 	closeOnce sync.Once
 	waitOnce  sync.Once
 	waitErr   error
@@ -115,6 +121,8 @@ func startCodexAppServerClient(ctx context.Context, command string, env []string
 	if len(env) > 0 {
 		cmd.Env = env
 	}
+	stderrBuf := newLimitedBuffer(16 * 1024)
+	cmd.Stderr = stderrBuf
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
 		cancel()
@@ -131,12 +139,13 @@ func startCodexAppServerClient(ctx context.Context, command string, env []string
 	}
 
 	c := &codexAppServerClient{
-		cmd:     cmd,
-		stdin:   stdin,
-		cancel:  cancel,
-		pending: make(map[int64]chan codexAppServerResponse),
-		events:  make(chan codexAppServerNotification, codexEventsBuffer),
-		done:    make(chan struct{}),
+		cmd:       cmd,
+		stdin:     stdin,
+		cancel:    cancel,
+		stderrBuf: stderrBuf,
+		pending:   make(map[int64]chan codexAppServerResponse),
+		events:    make(chan codexAppServerNotification, codexEventsBuffer),
+		done:      make(chan struct{}),
 	}
 	go c.readLoop(stdout)
 	if err := c.initialize(ctx); err != nil {
@@ -186,6 +195,16 @@ func (c *codexAppServerClient) StartTurn(ctx context.Context, params codexAppSer
 
 func (c *codexAppServerClient) Events() <-chan codexAppServerNotification {
 	return c.events
+}
+
+// StderrTail returns the last n bytes of the app-server's stderr — the real
+// reason behind an unexpected exit (bad flag, broken config, auth failure all
+// print here; stdout carries only the JSON protocol).
+func (c *codexAppServerClient) StderrTail(n int) string {
+	if c.stderrBuf == nil {
+		return ""
+	}
+	return c.stderrBuf.String()
 }
 
 func (c *codexAppServerClient) Close() error {

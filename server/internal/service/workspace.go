@@ -484,14 +484,12 @@ func listWorktreeDirs(wsPath string) []WorktreeGroup {
 
 // worktreeGitInfoCached returns the sidebar git badges for a worktree, serving
 // from the process-wide TTL cache when fresh and otherwise recomputing via git.
+// Concurrent callers for the same worktree share ONE compute (single-flight);
+// see worktreeGitCache.getOrCompute.
 func worktreeGitInfoCached(worktreePath, baseBranch string) worktreeGitInfo {
-	now := time.Now()
-	if gi, ok := sidebarGitCache.get(worktreePath, now); ok {
-		return gi
-	}
-	gi := computeWorktreeGitInfo(worktreePath, baseBranch)
-	sidebarGitCache.set(worktreePath, gi, now)
-	return gi
+	return sidebarGitCache.getOrCompute(worktreePath, baseBranch, func() worktreeGitInfo {
+		return computeWorktreeGitInfo(worktreePath, baseBranch)
+	})
 }
 
 // computeWorktreeGitInfo runs the git subprocesses that back the sidebar's

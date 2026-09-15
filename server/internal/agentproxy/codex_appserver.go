@@ -186,29 +186,29 @@ func (s *WorkspaceSession) codexAppServerEventLoop(ctx context.Context, app *cod
 	// added latency).
 	closed := false
 	for !closed {
-		var notif codexAppServerNotification
-		var ok bool
-		select {
-		case notif, ok = <-app.Events():
-			if !ok {
-				closed = true
-				break
-			}
-		}
-		if closed {
+		// Blocking wait for the next notification — the loop's heartbeat. It
+		// ONLY ends when the channel is truly CLOSED (process exited); a
+		// momentarily-empty channel below merely ends the current batch.
+		// (Regression: the old drain's select-default set closed=true on an
+		// idle gap, killing the whole loop — and the exit path then reported
+		// the still-alive app-server as "exited unexpectedly" — right after
+		// thread/started, i.e. on every session start.)
+		notif, ok := <-app.Events()
+		if !ok {
 			break
 		}
 		batch := []codexAppServerNotification{notif}
-		for len(batch) < codexPersistBatchLimit && !closed {
+	drain:
+		for len(batch) < codexPersistBatchLimit {
 			select {
 			case n, ok := <-app.Events():
 				if !ok {
 					closed = true
-					break
+					break drain
 				}
 				batch = append(batch, n)
 			default:
-				closed = true
+				break drain // momentarily empty — end the BATCH, not the loop
 			}
 		}
 		s.flushCodexBatch(ctx, app, cliAdapter, batch)
@@ -229,15 +229,29 @@ func (s *WorkspaceSession) codexAppServerEventLoop(ctx context.Context, app *cod
 		ID:          s.workspaceID,
 	})
 
+	// The REAL reason lives on stderr (bad flag / broken config / auth error
+	// all print there — stdout carries only the JSON protocol). Log it and
+	// attach the tail to the surfaced error so the user sees why, not just
+	// that it died.
+	stderrTail := strings.TrimSpace(app.StderrTail(800))
+	if stderrTail != "" {
+		slog.Error("codex app-server exited — stderr tail",
+			"workspace_id", s.workspaceID, "stderr", truncate(stderrTail, 800))
+	}
+
 	s.mu.Lock()
 	wasRunning := s.running
 	msgId := s.turnMsgId
 	s.mu.Unlock()
 	if wasRunning {
+		result := "Codex app-server exited unexpectedly"
+		if stderrTail != "" {
+			result += "：" + truncate(stderrTail, 400)
+		}
 		s.handleEvent(ctx, ParsedEvent{
 			Type:    "result",
 			IsError: true,
-			Result:  "Codex app-server exited unexpectedly",
+			Result:  result,
 		}, msgId)
 		return
 	}
@@ -256,7 +270,6 @@ func (s *WorkspaceSession) flushCodexBatch(ctx context.Context, app *codexAppSer
 		return
 	}
 	var all []adapter.ParsedEvent
-	terminal := false
 	for _, notif := range batch {
 		if len(notif.ID) > 0 {
 			// Server->client request (approval).
@@ -276,23 +289,18 @@ func (s *WorkspaceSession) flushCodexBatch(ctx context.Context, app *codexAppSer
 				"workspaceID", s.workspaceID, "method", notif.Method, "err", parseErr)
 			continue
 		}
-		if isTerminalCodexNotification(notif.Method) {
-			terminal = true
-		}
 		all = append(all, events...)
 	}
 	if len(all) == 0 {
 		return
 	}
-	// DB nil (tests) or a terminal notification in the batch (its multi-table
-	// result writes must not join a batch that could roll back) → plain path.
-	if s.db == nil || terminal {
-		s.dispatchCodexEvents(ctx, all)
-		return
-	}
-	s.beginPersistBatch(ctx)
+	// NOTE: no transaction window here. Wrapping handleEvent's heterogeneous
+	// writes (agent messages, session columns, tasks, stats — only SOME via
+	// writeQ) in an external tx deadlocks SQLite's single connection (the tx
+	// holds the only conn while non-tx writes inside handleEvent wait for it)
+	// and splits writes across tx/non-tx on PostgreSQL. Batching for write
+	// throughput must live INSIDE persistEvent, never around handleEvent.
 	s.dispatchCodexEvents(ctx, all)
-	s.commitPersistBatch(ctx)
 }
 
 // dispatchCodexEvents routes parsed app-server events to the normal turn handler.
