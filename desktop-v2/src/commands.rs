@@ -310,6 +310,7 @@ pub fn toggle_main_window(app: &tauri::AppHandle) {
 /// 的服务窗口跟着重贴。经 dispatch_main 排在 reveal 任务之后执行，保证补绘
 /// 是最后一笔。
 fn reshow_hub(app: &tauri::AppHandle, hub: &tauri::WebviewWindow) {
+    crate::boot_log("[ai-diag] reshow_hub: show+focus, nudge queued");
     let _ = hub.show();
     let _ = hub.set_focus();
     let hub2 = hub.clone();
@@ -327,7 +328,9 @@ fn reshow_hub(app: &tauri::AppHandle, hub: &tauri::WebviewWindow) {
 pub fn toggle_ai_window(app: &tauri::AppHandle) {
     match app.get_webview_window("ai-hub") {
         Some(win) => {
-            if win.is_visible().unwrap_or(false) {
+            let visible = win.is_visible().unwrap_or(false);
+            crate::boot_log(format!("[ai-diag] toggle_ai_window: visible={visible}"));
+            if visible {
                 let _ = win.hide();
                 update_ai_service_visibility_at(app, false);
             } else {
@@ -348,6 +351,10 @@ pub fn open_ai_window(app: &tauri::AppHandle) {
     match app.get_webview_window("ai-hub") {
         Some(win) => {
             // 抬升语义：目标态恒为可见——显式传 true，不读 show 前的旧状态。
+            crate::boot_log(format!(
+                "[ai-diag] open_ai_window: visible={}",
+                win.is_visible().unwrap_or(false)
+            ));
             if win.is_visible().unwrap_or(false) {
                 let _ = win.set_focus();
             } else {
@@ -599,6 +606,12 @@ pub fn update_ai_service_visibility_at(app: &tauri::AppHandle, hub_visible: bool
     let show_any = hub_visible && !ai.overlay_open;
     let active = ai.active.clone();
     let stage = ai.stage;
+    crate::boot_log(format!(
+        "[ai-diag] svc_visibility: intent_hub_visible={hub_visible} overlay={} active={:?} pooled={} show_any={show_any}",
+        ai.overlay_open,
+        ai.active,
+        ai.service_windows.len()
+    ));
     if ai_embed::AI_EMBED_SUPPORTED {
         let Some(hub) = hub else { return };
         let windows: Vec<(String, tauri::WebviewWindow)> = ai
@@ -609,7 +622,12 @@ pub fn update_ai_service_visibility_at(app: &tauri::AppHandle, hub_visible: bool
         drop(ai);
         crate::webview_gate::dispatch_main(&app, move || {
             for (id, win) in windows {
-                if show_any && Some(id) == active {
+                let reveal_it = show_any && active.as_deref() == Some(id.as_str());
+                crate::boot_log(format!(
+                    "[ai-diag] svc_visibility apply: {id} -> {} stage={stage:?}",
+                    if reveal_it { "reveal" } else { "stash" }
+                ));
+                if reveal_it {
                     ai_embed::reveal_over_stage(&hub, &win, stage);
                 } else {
                     ai_embed::stash_offscreen(&win, stage);
@@ -837,6 +855,9 @@ pub fn reposition_active_ai_service(app: &tauri::AppHandle) {
     let Some(active) = active else { return };
     // hub 隐藏或覆盖层打开时台上没有窗口，无需跟随。
     if !hub_visible_now || overlay {
+        crate::boot_log(format!(
+            "[ai-diag] reposition: skip (hub_visible={hub_visible_now} overlay={overlay})"
+        ));
         return;
     }
     let win = {
@@ -846,7 +867,13 @@ pub fn reposition_active_ai_service(app: &tauri::AppHandle) {
             .get(&format!("ai-service-{active}"))
             .cloned()
     };
-    let Some(win) = win else { return };
+    let Some(win) = win else {
+        crate::boot_log("[ai-diag] reposition: skip (active window not pooled)");
+        return;
+    };
+    crate::boot_log(format!(
+        "[ai-diag] reposition: repositioning {active} stage={stage:?}"
+    ));
     crate::webview_gate::dispatch_main(&app, move || {
         ai_embed::position_window(&hub, &win, stage);
     });
