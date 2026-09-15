@@ -1,14 +1,14 @@
 //! 牛牛桌面版 v2（Tauri）—— 模块聚合 + 启动装配 + 后台 boot 序列。
 //! 壳层职责与 Wails 版 cmd/personal 对应；Go server 作为子进程保留。
 
-#[cfg(windows)]
-mod ai_embed_windows;
 #[cfg(not(windows))]
 mod ai_embed_other;
 #[cfg(windows)]
-use ai_embed_windows as ai_embed;
+mod ai_embed_windows;
 #[cfg(not(windows))]
 use ai_embed_other as ai_embed;
+#[cfg(windows)]
+use ai_embed_windows as ai_embed;
 
 mod ai;
 mod commands;
@@ -17,11 +17,13 @@ mod discovery;
 mod hotkeys;
 mod i18n;
 mod probe;
-mod sse;
 mod server;
+mod sse;
 mod state;
 mod tray;
+mod watchdog;
 mod webview2;
+mod webview_gate;
 mod windows;
 
 use tauri::Manager;
@@ -60,7 +62,11 @@ pub fn run() {
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_clipboard_manager::init())
-        .manage(AppMeta { data_dir, lang, flags })
+        .manage(AppMeta {
+            data_dir,
+            lang,
+            flags,
+        })
         .manage(CfgState::new(cfg))
         .manage(ServerState::new())
         .manage(state::ConnState::new())
@@ -102,6 +108,10 @@ pub fn run() {
             let app2 = handle.clone();
             std::thread::spawn(move || boot(&app2));
             boot_log("setup: boot thread spawned");
+
+            // 主线程泵看门狗（诊断）：挂死时在 boot log 留 watchdog: 痕迹。
+            watchdog::start(handle.clone());
+            boot_log("setup: watchdog started");
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -163,7 +173,11 @@ fn boot(app: &tauri::AppHandle) {
     boot_log(format!(
         "probe.decide: refuse='{}' reuse={}",
         decision.refuse,
-        decision.reuse.as_ref().map(|r| format!("{}@{}", r.source, r.addr)).unwrap_or_else(|| "none".into())
+        decision
+            .reuse
+            .as_ref()
+            .map(|r| format!("{}@{}", r.source, r.addr))
+            .unwrap_or_else(|| "none".into())
     ));
     if !decision.refuse.is_empty() {
         boot_log(format!("refusing to launch: {}", decision.refuse));
@@ -171,7 +185,10 @@ fn boot(app: &tauri::AppHandle) {
         return;
     }
     if let Some(rs) = decision.reuse {
-        boot_log(format!("reusing existing server at {} (source {})", rs.addr, rs.source));
+        boot_log(format!(
+            "reusing existing server at {} (source {})",
+            rs.addr, rs.source
+        ));
         {
             let st = app.state::<ServerState>();
             let mut s = st.lock();
@@ -219,10 +236,17 @@ pub fn boot_log(msg: impl AsRef<str>) {
     }
     let ts = chrono::Local::now().format("%H:%M:%S%.3f");
     let line = format!("[{ts}] {}\n", msg.as_ref());
-    if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(&path) {
+    if let Ok(mut f) = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&path)
+    {
         let _ = f.write_all(line.as_bytes());
         // 首次写入时同步写出本文件绝对路径，便于用户/定位时找到它。
-        if std::fs::metadata(&path).map(|m| m.len() < 200).unwrap_or(true) {
+        if std::fs::metadata(&path)
+            .map(|m| m.len() < 200)
+            .unwrap_or(true)
+        {
             let _ = writeln!(f, "[boot-log path] {}", path.display());
         }
     }
@@ -270,7 +294,10 @@ fn parse_flags() -> state::Flags {
 
 /// 从 URL 提取 "host:port"（dev-url 用）。
 fn dev_url_host_port(u: &str) -> String {
-    let s = u.strip_prefix("http://").or_else(|| u.strip_prefix("https://")).unwrap_or(u);
+    let s = u
+        .strip_prefix("http://")
+        .or_else(|| u.strip_prefix("https://"))
+        .unwrap_or(u);
     let end = s.find(['/', '?', '#']).unwrap_or(s.len());
     s[..end].to_string()
 }

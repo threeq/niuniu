@@ -37,7 +37,10 @@ fn conn_view(c: &config::Connection) -> ConnView {
 }
 
 fn new_id(prefix: &str) -> String {
-    let nanos = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(0);
+    let nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
     format!("{prefix}-{nanos}")
 }
 
@@ -49,7 +52,12 @@ fn save_cfg(app: &tauri::AppHandle) {
 /// 已保存连接列表。
 #[tauri::command]
 pub fn get_connections(app: tauri::AppHandle) -> Vec<ConnView> {
-    app.state::<CfgState>().snapshot().connections.iter().map(conn_view).collect()
+    app.state::<CfgState>()
+        .snapshot()
+        .connections
+        .iter()
+        .map(conn_view)
+        .collect()
 }
 
 /// 活跃连接 key 列表（"host:port"）。
@@ -66,17 +74,30 @@ pub fn get_discovered_instances(app: tauri::AppHandle) -> Vec<crate::discovery::
 
 /// 新增/保存连接。port=0 表示按 URL/scheme 默认。
 #[tauri::command]
-pub fn add_connection(app: tauri::AppHandle, name: String, host: String, port: u16) -> Result<ConnView, String> {
+pub fn add_connection(
+    app: tauri::AppHandle,
+    name: String,
+    host: String,
+    port: u16,
+) -> Result<ConnView, String> {
     let host = host.trim().to_string();
     if host.is_empty() {
         return Err("host is required".into());
     }
     let id = new_id("conn");
-    let display = if name.trim().is_empty() { host.clone() } else { name.trim().to_string() };
+    let display = if name.trim().is_empty() {
+        host.clone()
+    } else {
+        name.trim().to_string()
+    };
     {
         let st = app.state::<CfgState>();
         let mut cfg = st.lock();
-        if cfg.connections.iter().any(|c| c.host == host && c.port == port) {
+        if cfg
+            .connections
+            .iter()
+            .any(|c| c.host == host && c.port == port)
+        {
             return Err(format!("connection {host}:{port} already exists"));
         }
         let is_default = cfg.connections.is_empty();
@@ -92,7 +113,12 @@ pub fn add_connection(app: tauri::AppHandle, name: String, host: String, port: u
     save_cfg(&app);
     crate::tray::rebuild_tray(&app);
     Ok(conn_view(
-        &app.state::<CfgState>().snapshot().connections.iter().find(|c| c.id == id).unwrap(),
+        &app.state::<CfgState>()
+            .snapshot()
+            .connections
+            .iter()
+            .find(|c| c.id == id)
+            .unwrap(),
     ))
 }
 
@@ -163,11 +189,15 @@ pub fn connect_by_id_internal(app: &tauri::AppHandle, id: &str) -> Result<bool, 
     let Some(conn) = cfg.connections.iter().find(|c| c.id == id) else {
         return Err("connection not found".into());
     };
-    connect_internal(app, &config::key_for(&conn.host, conn.port), &ConnInfo {
-        name: conn.name.clone(),
-        host: conn.host.clone(),
-        port: conn.port,
-    })?;
+    connect_internal(
+        app,
+        &config::key_for(&conn.host, conn.port),
+        &ConnInfo {
+            name: conn.name.clone(),
+            host: conn.host.clone(),
+            port: conn.port,
+        },
+    )?;
     Ok(true)
 }
 
@@ -186,7 +216,11 @@ pub fn connect_from_picker(app: tauri::AppHandle, id: String) -> Result<bool, St
 }
 
 /// 直连 host:port；若与某已保存连接匹配则复用其名称（对应 v1 ConnectToAddress）。
-pub fn connect_to_address_internal(app: &tauri::AppHandle, host: &str, port: u16) -> Result<bool, String> {
+pub fn connect_to_address_internal(
+    app: &tauri::AppHandle,
+    host: &str,
+    port: u16,
+) -> Result<bool, String> {
     let name = app
         .state::<CfgState>()
         .snapshot()
@@ -195,11 +229,15 @@ pub fn connect_to_address_internal(app: &tauri::AppHandle, host: &str, port: u16
         .find(|c| c.host == host && c.port == port)
         .map(|c| c.name.clone())
         .unwrap_or_else(|| host.to_string());
-    connect_internal(app, &config::key_for(host, port), &ConnInfo {
-        name,
-        host: host.to_string(),
-        port,
-    })?;
+    connect_internal(
+        app,
+        &config::key_for(host, port),
+        &ConnInfo {
+            name,
+            host: host.to_string(),
+            port,
+        },
+    )?;
     Ok(true)
 }
 
@@ -209,7 +247,11 @@ pub fn connect_to_address(app: tauri::AppHandle, host: String, port: u16) -> Res
 }
 
 #[tauri::command]
-pub fn connect_to_address_from_picker(app: tauri::AppHandle, host: String, port: u16) -> Result<bool, String> {
+pub fn connect_to_address_from_picker(
+    app: tauri::AppHandle,
+    host: String,
+    port: u16,
+) -> Result<bool, String> {
     let ok = connect_to_address_internal(&app, &host, port)?;
     if ok {
         hide_picker(&app);
@@ -219,7 +261,8 @@ pub fn connect_to_address_from_picker(app: tauri::AppHandle, host: String, port:
 
 fn connect_internal(app: &tauri::AppHandle, key: &str, info: &ConnInfo) -> Result<(), String> {
     let lang = app.state::<AppMeta>().lang.clone();
-    app.state::<ConnState>().insert(key.to_string(), info.clone());
+    app.state::<ConnState>()
+        .insert(key.to_string(), info.clone());
     windows::open_connection_window(app, &lang, key, info).map_err(|e| e.to_string())?;
     crate::tray::rebuild_tray(app);
     Ok(())
@@ -351,14 +394,18 @@ pub fn toggle_picker(app: &tauri::AppHandle) {
 /// 每次按键实时快照列表（对应 v1 connhotkey.go connectByPosition）。
 pub fn connect_by_position(app: &tauri::AppHandle, pos: u32) {
     let conns = app.state::<CfgState>().snapshot().connections;
-    let Some(conn) = conns.get(pos as usize - 1) else { return };
+    let Some(conn) = conns.get(pos as usize - 1) else {
+        return;
+    };
     let id = conn.id.clone();
     let _ = connect_by_id_internal(app, &id);
 }
 
 /// 移动接入：主窗口导航到 Settings → 移动接入（对应 Wails tray「移动接入…」）。
 pub fn open_mobile_access(app: &tauri::AppHandle) {
-    let Some(addr) = app.state::<ServerState>().addr() else { return };
+    let Some(addr) = app.state::<ServerState>().addr() else {
+        return;
+    };
     let cfg = app.state::<CfgState>().snapshot();
     let url = windows::with_hotkey_hash(&format!("http://{addr}/settings?tab=mobile-access"), &cfg);
     if let Some(win) = app.get_webview_window("main") {
@@ -421,7 +468,10 @@ pub fn restart_server(app: &tauri::AppHandle) -> Result<(), String> {
     let new_h = match server::spawn(&data_dir) {
         Ok(h) => h,
         Err(e) => {
-            { let st = app.state::<ServerState>(); st.lock().restarting = false; }
+            {
+                let st = app.state::<ServerState>();
+                st.lock().restarting = false;
+            }
             return Err(e);
         }
     };
@@ -475,13 +525,16 @@ fn position_service_window(app: &tauri::AppHandle) {
         let st = app.state::<AiState>();
         let ai = st.lock();
         match (&hub, &ai.active) {
-            (Some(_), Some(active)) if hub_visible(&app) && !ai.overlay_open => {
-                ai.service_windows.get(&format!("ai-service-{active}")).cloned()
-            }
+            (Some(_), Some(active)) if hub_visible(&app) && !ai.overlay_open => ai
+                .service_windows
+                .get(&format!("ai-service-{active}"))
+                .cloned(),
             _ => None,
         }
     };
-    let (Some(hub), Some(win)) = (hub, win) else { return };
+    let (Some(hub), Some(win)) = (hub, win) else {
+        return;
+    };
     let _ = app.run_on_main_thread(move || {
         ai_embed::position_window(&hub, &win, stage);
     });
@@ -495,7 +548,10 @@ fn position_service_window(app: &tauri::AppHandle) {
 /// v1 aiembed_windows.go 实测踩坑点）。非 Windows 回退普通 show/hide。
 pub fn update_ai_service_visibility(app: &tauri::AppHandle) {
     let hub = app.get_webview_window("ai-hub");
-    let hub_visible = hub.as_ref().map(|w| w.is_visible().unwrap_or(false)).unwrap_or(false);
+    let hub_visible = hub
+        .as_ref()
+        .map(|w| w.is_visible().unwrap_or(false))
+        .unwrap_or(false);
     let st = app.state::<AiState>();
     let ai = st.lock();
     let show_any = hub_visible && !ai.overlay_open;
@@ -503,8 +559,11 @@ pub fn update_ai_service_visibility(app: &tauri::AppHandle) {
     let stage = ai.stage;
     if ai_embed::AI_EMBED_SUPPORTED {
         let Some(hub) = hub else { return };
-        let windows: Vec<(String, tauri::WebviewWindow)> =
-            ai.service_windows.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
+        let windows: Vec<(String, tauri::WebviewWindow)> = ai
+            .service_windows
+            .iter()
+            .map(|(k, v)| (k.clone(), v.clone()))
+            .collect();
         drop(ai);
         let _ = app.run_on_main_thread(move || {
             for (id, win) in windows {
@@ -585,7 +644,11 @@ pub fn activate_ai_service(app: tauri::AppHandle, id: String) -> Result<AIActiva
             win.on_window_event(move |event| {
                 if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                     api.prevent_close();
-                    let _ = app2.state::<AiState>().lock().service_windows.remove(&format!("ai-service-{id2}"));
+                    let _ = app2
+                        .state::<AiState>()
+                        .lock()
+                        .service_windows
+                        .remove(&format!("ai-service-{id2}"));
                 }
             });
         }
@@ -630,32 +693,35 @@ pub fn activate_ai_service(app: tauri::AppHandle, id: String) -> Result<AIActiva
         // 2.5s 兜底定时器。on_page_load 只能在 builder 上注册。
         let app4 = app2.clone();
         let id3 = id.clone();
-        let built = tauri::WebviewWindowBuilder::new(&app2, &label, tauri::WebviewUrl::External(
-            match url::Url::parse(&url) {
-                Ok(u) => u,
-                Err(_) => return,
-            },
-        ))
-        .title(format!("{} · {}", i18n::ai_title(&lang), name))
-        .decorations(false)
-        // 无框窗口默认带 DWM「无装饰阴影」：tao 的 WM_NCCALCSIZE 会按
-        // SM_CXSIZEFRAME+SM_CXPADDEDBORDER 把客户区四周内缩（150% DPI 下约
-        // 20px），webview 填的是缩过的客户区而窗口外框是 stage 尺寸 → 网页
-        // 四周等宽黑边、内容等比缩小。停靠窗口必须零 inset。
-        .shadow(false)
-        .visible(false)
-        .data_directory(crate::config::data_dir().join("webview2"))
-        .on_page_load(move |_w, payload| {
-            if let tauri::webview::PageLoadEvent::Finished = payload.event() {
-                let active = app4.state::<AiState>().lock().active.clone();
-                if active.as_deref() == Some(id3.as_str()) {
-                    if let Some(hub) = app4.get_webview_window("ai-hub") {
-                        let _ = hub.eval("window.onServiceLoaded && window.onServiceLoaded()");
+        let Ok(parsed_url) = url::Url::parse(&url) else {
+            return;
+        };
+        // build() 经 webview_gate 串行：并发创建会在 WebView2 重入泵里嵌套，
+        // 挂死主线程（表现为同时开多窗口时整个应用卡死、页面加载不出）。
+        let built = crate::webview_gate::gated_create(|| {
+            tauri::WebviewWindowBuilder::new(&app2, &label, tauri::WebviewUrl::External(parsed_url))
+                .title(format!("{} · {}", i18n::ai_title(&lang), name))
+                .decorations(false)
+                // 无框窗口默认带 DWM「无装饰阴影」：tao 的 WM_NCCALCSIZE 会按
+                // SM_CXSIZEFRAME+SM_CXPADDEDBORDER 把客户区四周内缩（150% DPI 下约
+                // 20px），webview 填的是缩过的客户区而窗口外框是 stage 尺寸 → 网页
+                // 四周等宽黑边、内容等比缩小。停靠窗口必须零 inset。
+                .shadow(false)
+                .visible(false)
+                .data_directory(crate::config::data_dir().join("webview2"))
+                .on_page_load(move |_w, payload| {
+                    if let tauri::webview::PageLoadEvent::Finished = payload.event() {
+                        let active = app4.state::<AiState>().lock().active.clone();
+                        if active.as_deref() == Some(id3.as_str()) {
+                            if let Some(hub) = app4.get_webview_window("ai-hub") {
+                                let _ =
+                                    hub.eval("window.onServiceLoaded && window.onServiceLoaded()");
+                            }
+                        }
                     }
-                }
-            }
-        })
-        .build();
+                })
+                .build()
+        });
         match built {
             Ok(win) => {
                 {
@@ -664,7 +730,11 @@ pub fn activate_ai_service(app: tauri::AppHandle, id: String) -> Result<AIActiva
                     win.on_window_event(move |event| {
                         if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                             api.prevent_close();
-                            let _ = app3.state::<AiState>().lock().service_windows.remove(&format!("ai-service-{id2}"));
+                            let _ = app3
+                                .state::<AiState>()
+                                .lock()
+                                .service_windows
+                                .remove(&format!("ai-service-{id2}"));
                         }
                     });
                 }
@@ -687,7 +757,10 @@ pub fn activate_ai_service(app: tauri::AppHandle, id: String) -> Result<AIActiva
                 update_ai_service_visibility(&app2);
                 {
                     let st = app2.state::<AiState>();
-                    if !ai_embed::AI_EMBED_SUPPORTED && hub_visible(&app2) && !st.lock().overlay_open {
+                    if !ai_embed::AI_EMBED_SUPPORTED
+                        && hub_visible(&app2)
+                        && !st.lock().overlay_open
+                    {
                         let _ = win.set_focus();
                     }
                 }
@@ -727,7 +800,9 @@ pub fn reposition_active_ai_service(app: &tauri::AppHandle) {
     let win = {
         let st = app.state::<AiState>();
         let ai = st.lock();
-        ai.service_windows.get(&format!("ai-service-{active}")).cloned()
+        ai.service_windows
+            .get(&format!("ai-service-{active}"))
+            .cloned()
     };
     let Some(win) = win else { return };
     let _ = app.run_on_main_thread(move || {
@@ -759,7 +834,10 @@ pub fn set_ai_stage_rect(app: tauri::AppHandle, x: i32, y: i32, w: i32, h: i32) 
 
 #[tauri::command]
 pub fn set_ai_overlay_open(app: tauri::AppHandle, open: bool) {
-    { let st = app.state::<AiState>(); st.lock().overlay_open = open; }
+    {
+        let st = app.state::<AiState>();
+        st.lock().overlay_open = open;
+    }
     update_ai_service_visibility(&app);
 }
 
@@ -780,7 +858,11 @@ pub fn add_ai_service(app: tauri::AppHandle, name: String, url: String) -> Resul
     if url.is_empty() {
         return Err("url is required".into());
     }
-    let name = if name.trim().is_empty() { url.clone() } else { name };
+    let name = if name.trim().is_empty() {
+        url.clone()
+    } else {
+        name
+    };
     let id = new_id("ai");
     {
         let st = app.state::<CfgState>();
@@ -842,7 +924,10 @@ pub fn remove_ai_service(app: tauri::AppHandle, id: String) {
 
 #[tauri::command]
 pub fn set_default_ai_service(app: tauri::AppHandle, id: String) {
-    { let st = app.state::<CfgState>(); st.lock().ai.default_service_id = id; }
+    {
+        let st = app.state::<CfgState>();
+        st.lock().ai.default_service_id = id;
+    }
     save_cfg(&app);
 }
 
@@ -852,7 +937,12 @@ pub fn get_ai_prompts(app: tauri::AppHandle) -> Vec<config::AIPrompt> {
 }
 
 #[tauri::command]
-pub fn add_ai_prompt(app: tauri::AppHandle, title: String, content: String, tags: Vec<String>) -> Result<String, String> {
+pub fn add_ai_prompt(
+    app: tauri::AppHandle,
+    title: String,
+    content: String,
+    tags: Vec<String>,
+) -> Result<String, String> {
     if title.trim().is_empty() && content.trim().is_empty() {
         return Err("title or content is required".into());
     }
@@ -861,7 +951,12 @@ pub fn add_ai_prompt(app: tauri::AppHandle, title: String, content: String, tags
     {
         let st = app.state::<CfgState>();
         let mut cfg = st.lock();
-        cfg.ai.prompts.push(config::AIPrompt { id: id.clone(), title, content, tags });
+        cfg.ai.prompts.push(config::AIPrompt {
+            id: id.clone(),
+            title,
+            content,
+            tags,
+        });
     }
     save_cfg(&app);
     Ok(id)

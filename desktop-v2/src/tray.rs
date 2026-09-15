@@ -6,11 +6,15 @@ use tauri::tray::{MouseButton, MouseButtonState, TrayIcon, TrayIconBuilder, Tray
 use tauri::{AppHandle, Manager};
 
 use crate::i18n;
-use crate::state::{AppMeta, ConnState, CfgState, DiscoverState, ServerState};
+use crate::state::{AppMeta, CfgState, ConnState, DiscoverState, ServerState};
 
 /// 位置快捷键标签（Ctrl/Cmd+Shift+<n>），与 v1 connhotkey.go connHotkeyLabel 一致。
 fn conn_hotkey_label(pos: u32) -> String {
-    let prefix = if cfg!(target_os = "macos") { "Cmd+Shift+" } else { "Ctrl+Shift+" };
+    let prefix = if cfg!(target_os = "macos") {
+        "Cmd+Shift+"
+    } else {
+        "Ctrl+Shift+"
+    };
     format!("{prefix}{pos}")
 }
 
@@ -107,29 +111,49 @@ pub fn build_menu(app: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
     // 前 9 个已保存连接的位置→key 映射，用于快捷键后缀标签。
     let mut pos_by_key: std::collections::HashMap<String, u32> = std::collections::HashMap::new();
     for (i, c) in saved.iter().enumerate() {
-        if i >= 9 { break; }
+        if i >= 9 {
+            break;
+        }
         let k = crate::config::key_for(&c.host, c.port);
         pos_by_key.entry(k).or_insert((i + 1) as u32);
     }
     let shortcut_suffix = |key: &str| -> String {
-        pos_by_key.get(key).map(|p| format!("  {}", conn_hotkey_label(*p))).unwrap_or_default()
+        pos_by_key
+            .get(key)
+            .map(|p| format!("  {}", conn_hotkey_label(*p)))
+            .unwrap_or_default()
     };
 
     let show = MenuItem::with_id(app, "show", "Show Niuniu", true, None::<&str>)?;
     let restart = MenuItem::with_id(app, "restart", "Restart Server", owned, None::<&str>)?;
     let sep1 = PredefinedMenuItem::separator(app)?;
 
-    let ai = MenuItem::with_id(app, "ai", format!("{}…", i18n::ai_title(&lang)), true, None::<&str>)?;
-    let runners = MenuItem::with_id(app, "runners", format!("{}…", i18n::t_runners(&lang)), true, None::<&str>)?;
+    let ai = MenuItem::with_id(
+        app,
+        "ai",
+        format!("{}…", i18n::ai_title(&lang)),
+        true,
+        None::<&str>,
+    )?;
+    let runners = MenuItem::with_id(
+        app,
+        "runners",
+        format!("{}…", i18n::t_runners(&lang)),
+        true,
+        None::<&str>,
+    )?;
     let picker = MenuItem::with_id(
-        app, "picker",
+        app,
+        "picker",
         format!("连接其他节点 / 管理连接…  {}", conn_hotkey_label(0)),
-        true, None::<&str>,
+        true,
+        None::<&str>,
     )?;
     let mobile = MenuItem::with_id(app, "mobile", "移动接入…", true, None::<&str>)?;
     let sep2 = PredefinedMenuItem::separator(app)?;
     let quit = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
-    let discovered_header = MenuItem::with_id(app, "discovered-header", "Discovered", false, None::<&str>)?;
+    let discovered_header =
+        MenuItem::with_id(app, "discovered-header", "Discovered", false, None::<&str>)?;
 
     let sep_nodes = PredefinedMenuItem::separator(app)?;
     let sep_tail = PredefinedMenuItem::separator(app)?;
@@ -152,10 +176,16 @@ pub fn build_menu(app: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
     let mut saved_items: Vec<MenuItem<tauri::Wry>> = Vec::new();
     for c in &saved {
         let key = crate::config::key_for(&c.host, c.port);
-        if active.contains_key(&key) { continue; }
+        if active.contains_key(&key) {
+            continue;
+        }
         let label = format!("{} ({}){}", c.name, key, shortcut_suffix(&key));
         saved_items.push(MenuItem::with_id(
-            app, format!("saved-conn:{}", c.id), label, true, None::<&str>,
+            app,
+            format!("saved-conn:{}", c.id),
+            label,
+            true,
+            None::<&str>,
         )?);
     }
     items.extend(saved_items.iter().map(|m| m as &dyn IsMenuItem<tauri::Wry>));
@@ -165,10 +195,18 @@ pub fn build_menu(app: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
     if !discovered.is_empty() {
         items.push(&discovered_header);
         for inst in &discovered {
-            let name = if inst.hostname.is_empty() { inst.host.clone() } else { inst.hostname.clone() };
+            let name = if inst.hostname.is_empty() {
+                inst.host.clone()
+            } else {
+                inst.hostname.clone()
+            };
             let label = format!("  {} ({})", name, inst.host);
             disc_items.push(MenuItem::with_id(
-                app, format!("discovered-conn:{}|{}", inst.host, inst.port), label, true, None::<&str>,
+                app,
+                format!("discovered-conn:{}|{}", inst.host, inst.port),
+                label,
+                true,
+                None::<&str>,
             )?);
         }
         items.extend(disc_items.iter().map(|m| m as &dyn IsMenuItem<tauri::Wry>));
@@ -191,7 +229,13 @@ fn connection_submenu(
 ) -> tauri::Result<Submenu<tauri::Wry>> {
     let focus = MenuItem::with_id(app, format!("conn-focus:{key}"), "聚焦", true, None::<&str>)?;
     let sep = PredefinedMenuItem::separator(app)?;
-    let close = MenuItem::with_id(app, format!("conn-close:{key}"), "关闭连接", true, None::<&str>)?;
+    let close = MenuItem::with_id(
+        app,
+        format!("conn-close:{key}"),
+        "关闭连接",
+        true,
+        None::<&str>,
+    )?;
     let items: Vec<&dyn tauri::menu::IsMenuItem<tauri::Wry>> = vec![&focus, &sep, &close];
     Submenu::with_items(
         app,
@@ -202,7 +246,14 @@ fn connection_submenu(
 }
 
 /// 重建托盘（连接增删/connect 后调用）。托盘已存在则只换菜单。
+/// muda 托盘/菜单窗口建在主线程、操作有线程亲和性：非主线程调用（boot 线程
+/// server ready 后）统一派发主线程，避免跨线程 SendMessage 卡等。
 pub fn rebuild_tray(app: &AppHandle) {
+    if std::thread::current().name() != Some("main") {
+        let app2 = app.clone();
+        let _ = app.run_on_main_thread(move || rebuild_tray(&app2));
+        return;
+    }
     if let Some(tray) = app.tray_by_id("main-tray") {
         if let Ok(menu) = build_menu(app) {
             let _ = tray.set_menu(Some(menu));
