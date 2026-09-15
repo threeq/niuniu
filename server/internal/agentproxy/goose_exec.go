@@ -35,8 +35,13 @@ func (s *WorkspaceSession) runGooseBackendTurn(ctx context.Context, workDir, con
 	if window <= 0 {
 		window = defaultTurnInactivityTimeout
 	}
-	turnCtx, cancel := context.WithTimeout(ctx, window)
+	// INACTIVITY watchdog (not a hard turn timeout): a hard 15-min cap killed
+	// legitimate long turns (a 30-min build never finishes). Same contract as
+	// every other engine: cancel only when the backend has produced no output
+	// for the window AND no tool has been in flight past its grace ceiling.
+	turnCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
+	go watchBackendTurnInactivity(s, cancel, turnCtx.Done(), window)
 
 	ch, err := be.Prompt(turnCtx, agentbackend.PromptRequest{Message: content})
 	if err != nil {
@@ -198,12 +203,18 @@ func (s *WorkspaceSession) handleGooseEvent(ctx context.Context, ev agentbackend
 	case agentbackend.EventThinking:
 		s.persistAndBroadcast(ctx, NewOutputEvent(EventThinking, ev.Thinking, msgId, "assistant", s.workspaceID), 0)
 	case agentbackend.EventToolUse:
+		s.mu.Lock()
+		s.toolInProgressAt = time.Now() // watchdog grace: the tool is now executing
+		s.mu.Unlock()
 		out := NewOutputEvent(EventToolUse, "", msgId, "assistant", s.workspaceID)
 		out.ToolName = ev.ToolName
 		out.ToolInput = ev.ToolInput
 		out.ToolUseId = ev.ToolUseID
 		s.persistAndBroadcast(ctx, out, 0)
 	case agentbackend.EventToolResult:
+		s.mu.Lock()
+		s.toolInProgressAt = time.Time{} // output resumed — plain inactivity clock re-armed
+		s.mu.Unlock()
 		out := NewOutputEvent(EventToolResult, ev.Text, msgId, "user", s.workspaceID)
 		out.ToolUseId = ev.ToolUseID
 		out.IsError = ev.IsError

@@ -126,3 +126,50 @@ func TestKillProcess_UnblocksWaiter(t *testing.T) {
 		t.Fatal("killProcess did not unblock the waiter within 2s — Stop would be a no-op")
 	}
 }
+
+// --- tool-execution grace: long-running tools must not be killed mid-flight --
+
+// TestTurnInactivityExceeded_ToolGrace pins the watchdog's tool-execution
+// grace: a single tool invocation (a 30-minute build, a long test suite) is
+// legitimately SILENT for far longer than the base window — the agent emits
+// tool_use, then nothing until tool_result. The watchdog must extend its
+// judgment while a tool is in flight (up to the grace ceiling), and still
+// kill when the grace itself is exhausted (the tool itself hung).
+func TestTurnInactivityExceeded_ToolGrace(t *testing.T) {
+	s := newWatchdogSession(time.Minute)
+	now := time.Now()
+	const grace = time.Hour
+
+	s.mu.Lock()
+	s.lastActivityAt = now.Add(-20 * time.Minute) // 20min silent — past the base window
+	s.toolInProgressAt = now.Add(-10 * time.Minute) // tool started 10min ago, still running
+	s.mu.Unlock()
+	if turnInactivityExceeded(s, grace, now) {
+		t.Fatal("a tool in flight (10min < grace) must NOT be judged exceeded")
+	}
+
+	// Tool itself hung: in flight for longer than the grace ceiling.
+	s.mu.Lock()
+	s.toolInProgressAt = now.Add(-2 * time.Hour)
+	s.mu.Unlock()
+	if !turnInactivityExceeded(s, grace, now) {
+		t.Fatal("a tool in flight beyond the grace ceiling must be judged exceeded")
+	}
+
+	// No tool in flight: plain idle judgment applies.
+	s.mu.Lock()
+	s.toolInProgressAt = time.Time{}
+	s.mu.Unlock()
+	if !turnInactivityExceeded(s, grace, now) {
+		t.Fatal("silent + no tool in flight must be judged exceeded")
+	}
+
+	// Fresh output: never exceeded regardless of tool state.
+	s.mu.Lock()
+	s.lastActivityAt = now
+	s.toolInProgressAt = now.Add(-2 * time.Hour)
+	s.mu.Unlock()
+	if turnInactivityExceeded(s, grace, now) {
+		t.Fatal("fresh output must never be judged exceeded")
+	}
+}

@@ -369,6 +369,14 @@ type WorkspaceSession struct {
 	// genuinely long turn (steady stream output) apart from a wedged/lost
 	// process (no output at all): only the latter is killed. Guarded by s.mu.
 	lastActivityAt time.Time
+	// toolInProgressAt is the moment the agent's most recent tool_use started
+	// (zero when no tool is executing). A long-running tool (build, test
+	// suite) is legitimately SILENT for far longer than the turn-inactivity
+	// window, so the watchdog extends its judgment while a tool is in flight —
+	// see turnInactivityExceeded. Set by handleEvent (claude/codex/qwen) and
+	// handleGooseEvent (omp/goose/cursor); cleared on tool_result. Guarded by
+	// s.mu.
+	toolInProgressAt time.Time
 	// turnInactivityTimeout overrides defaultTurnInactivityTimeout when > 0
 	// (tests set a tiny value; production leaves it zero). Read once per wait.
 	turnInactivityTimeout time.Duration
@@ -589,6 +597,33 @@ const idleTimeout = 30 * time.Minute
 // lost) is reaped so SendLoop can recover instead of blocking on turnDone
 // forever. Overridable per-session via WorkspaceSession.turnInactivityTimeout.
 const defaultTurnInactivityTimeout = 15 * time.Minute
+
+// toolInactivityGrace is how long a SINGLE in-flight tool invocation may stay
+// silent before the turn watchdog judges it hung. Long builds / test suites
+// legitimately produce zero stream output for far longer than the base
+// window; a tool running past this ceiling is itself considered wedged and
+// the turn fails into the normal error path.
+const toolInactivityGrace = time.Hour
+
+// turnInactivityExceeded is the single watchdog judgment shared by every
+// engine's turn loop: has this turn produced no output for long enough to
+// act? Base rule: no output within `window`. Grace rule: while a tool is in
+// flight the judgment extends to the tool's own start + toolInactivityGrace —
+// a 30-minute build or test run is legitimate work, but a tool silent past
+// the grace ceiling is itself wedged and the turn should fail.
+func turnInactivityExceeded(s *WorkspaceSession, grace time.Duration, now time.Time) bool {
+	s.mu.Lock()
+	idle := now.Sub(s.lastActivityAt)
+	toolAt := s.toolInProgressAt
+	s.mu.Unlock()
+	if idle < defaultTurnInactivityTimeout {
+		return false // fresh output — a streaming turn, never exceeded
+	}
+	if !toolAt.IsZero() && now.Sub(toolAt) < grace {
+		return false // a tool is running; extend to its own grace ceiling
+	}
+	return true
+}
 
 // maxTransientStreamRetries bounds how many times ONE message is automatically
 // re-run after a transient stream failure (stalled mid-stream, connection
@@ -2825,6 +2860,13 @@ func (s *WorkspaceSession) handleEvent(ctx context.Context, ev ParsedEvent, msgI
 		}
 
 	case "user":
+		if len(ev.ToolResults) > 0 {
+			// A tool_result ends the tool's in-flight window: output resumed
+			// (and the plain inactivity clock is re-armed by this very event).
+			s.mu.Lock()
+			s.toolInProgressAt = time.Time{}
+			s.mu.Unlock()
+		}
 		for _, tr := range ev.ToolResults {
 			if s.pendingTaskCreates != nil && s.pendingTaskCreates[tr.ToolUseId] {
 				if matches := taskCreateResultRe.FindStringSubmatch(tr.Content); len(matches) > 1 {
@@ -3121,6 +3163,7 @@ func (s *WorkspaceSession) handleStreamEvent(ctx context.Context, ev ParsedEvent
 			s.toolUseNames[ev.ToolUseId] = ev.ToolUseName
 			s.toolUseIds[ev.BlockIndex] = ev.ToolUseId
 			s.lastBlockWasTool = true
+			s.toolInProgressAt = time.Now() // watchdog grace: the tool is now executing
 			s.mu.Unlock()
 			out := NewOutputEvent(EventToolUse, "", msgId, "assistant", s.workspaceID)
 			out.ToolName = ev.ToolUseName
@@ -3679,12 +3722,12 @@ func (s *WorkspaceSession) waitForTurnComplete(ctx context.Context, label string
 			slog.Warn(label+": context cancelled", "workspaceID", s.workspaceID)
 			return ctx.Err()
 		case <-ticker.C:
+			if !turnInactivityExceeded(s, toolInactivityGrace, time.Now()) {
+				continue // still streaming, or a tool is legitimately running
+			}
 			s.mu.Lock()
 			idle := time.Since(s.lastActivityAt)
 			s.mu.Unlock()
-			if idle < window {
-				continue // still streaming — a long turn, not a wedged one
-			}
 			slog.Error(label+": turn watchdog — no output within inactivity window, killing unresponsive process",
 				"workspaceID", s.workspaceID, "idle", idle.String())
 			// Mark the turn as an error BEFORE killing so SendLoop treats this as
