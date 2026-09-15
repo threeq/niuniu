@@ -112,12 +112,14 @@ type codexAppServerTurnStartResponse struct {
 	} `json:"turn"`
 }
 
-func startCodexAppServerClient(ctx context.Context, command string, env []string) (*codexAppServerClient, error) {
+func startCodexAppServerClient(ctx context.Context, command string, configArgs, env []string) (*codexAppServerClient, error) {
 	if command == "" {
 		command = "codex"
 	}
+	// -c 覆盖是 codex 根命令的全局参数，必须位于 app-server 子命令之前。
+	argv := append(append([]string{}, configArgs...), "app-server", "--listen", "stdio://")
 	cmdCtx, cancel := context.WithCancel(ctx)
-	cmd := exec.CommandContext(cmdCtx, command, "app-server", "--listen", "stdio://")
+	cmd := exec.CommandContext(cmdCtx, command, argv...)
 	if len(env) > 0 {
 		cmd.Env = env
 	}
