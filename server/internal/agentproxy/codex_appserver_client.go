@@ -31,6 +31,14 @@ type codexAppServerClient struct {
 	done      chan struct{}
 }
 
+// codexEventsBuffer is the notification buffer between the app-server reader
+// and the session's event consumer. 512 (was 128): a long turn produces a
+// dense delta/item stream while the consumer persists each tool_result to the
+// database — the wider buffer rides out consumer hiccups; the REAL guarantee
+// is that terminal notifications (turn/completed etc.) block instead of being
+// shed (see readLoop's deliver).
+const codexEventsBuffer = 512
+
 type codexAppServerResponse struct {
 	ID     int64           `json:"id"`
 	Result json.RawMessage `json:"result,omitempty"`
@@ -127,7 +135,7 @@ func startCodexAppServerClient(ctx context.Context, command string, env []string
 		stdin:   stdin,
 		cancel:  cancel,
 		pending: make(map[int64]chan codexAppServerResponse),
-		events:  make(chan codexAppServerNotification, 128),
+		events:  make(chan codexAppServerNotification, codexEventsBuffer),
 		done:    make(chan struct{}),
 	}
 	go c.readLoop(stdout)

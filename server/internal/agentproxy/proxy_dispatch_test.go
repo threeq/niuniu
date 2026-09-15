@@ -552,22 +552,30 @@ func TestStreamEventsPersistIntermediateMessages(t *testing.T) {
 // can't import internal/testing here because it pulls internal/server which
 // would create an import cycle (server → agentproxy).
 func setupDispatchDB(t *testing.T) *store.Queries {
+	_, q := setupDispatchDBRaw(t)
+	return q
+}
+
+// setupDispatchDBRaw also exposes the wrapped *store.DB for tests that open
+// transactional persist batches.
+func setupDispatchDBRaw(t *testing.T) (*store.DB, *store.Queries) {
 	t.Helper()
-	db, err := sql.Open("sqlite", ":memory:?_journal_mode=WAL&_busy_timeout=5000")
+	rawDB, err := sql.Open("sqlite", ":memory:?_journal_mode=WAL&_busy_timeout=5000")
 	if err != nil {
 		t.Fatalf("open sqlite: %v", err)
 	}
-	t.Cleanup(func() { _ = db.Close() })
+	t.Cleanup(func() { _ = rawDB.Close() })
 	// Pin a single connection: `:memory:` SQLite databases are per-connection,
 	// so a pooled second connection would see an EMPTY database (no tables)
 	// and every query after the first would fail.
-	db.SetMaxOpenConns(1)
+	rawDB.SetMaxOpenConns(1)
 	store.Driver = "sqlite"
-	if err := store.ApplySchema(db); err != nil {
+	db := store.Wrap(rawDB)
+	if err := store.ApplySchema(rawDB); err != nil {
 		t.Fatalf("ApplySchema: %v", err)
 	}
-	store.Migrate(db)
-	return store.New(db)
+	store.Migrate(rawDB)
+	return db, store.New(rawDB)
 }
 
 // newDispatchTestSession builds a minimal WorkspaceSession wired enough that
@@ -575,9 +583,17 @@ func setupDispatchDB(t *testing.T) *store.Queries {
 // on persistEvent / hub broadcasts.
 func newDispatchTestSession(t *testing.T) *WorkspaceSession {
 	t.Helper()
-	q := setupDispatchDB(t)
+	s, _ := newDispatchTestSessionWithDB(t)
+	return s
+}
+
+// newDispatchTestSessionWithDB also exposes the underlying *store.DB so tests
+// can exercise transactional (batch) persistence windows.
+func newDispatchTestSessionWithDB(t *testing.T) (*WorkspaceSession, *store.DB) {
+	t.Helper()
+	db, q := setupDispatchDBRaw(t)
 	// Need a real workspaces row because agent_messages.workspace_id has a FK.
-	ws, err := q.CreateWorkspace(context.Background(), store.CreateWorkspaceParams{
+	wsRow, err := q.CreateWorkspace(context.Background(), store.CreateWorkspaceParams{
 		Name:      "dispatch-test-ws",
 		Path:      t.TempDir(),
 		Status:    "created",
@@ -588,10 +604,11 @@ func newDispatchTestSession(t *testing.T) *WorkspaceSession {
 	}
 	hub := NewSessionHub()
 	t.Cleanup(hub.Stop)
-	return &WorkspaceSession{
-		workspaceID:         ws.ID,
+	ws := &WorkspaceSession{
+		workspaceID:         wsRow.ID,
 		topLevelAgentID:     100,
 		q:                   q,
+		db:                  db,
 		hub:                 hub,
 		toolUseNames:        map[string]string{},
 		toolUseIds:          map[int]string{},
@@ -600,6 +617,7 @@ func newDispatchTestSession(t *testing.T) *WorkspaceSession {
 		textBlockMessageIDs: map[int]string{},
 		textBlockPersisted:  map[int]bool{},
 	}
+	return ws, db
 }
 
 // TestEmitActivity_FiltersNonEnvelopeKinds verifies that only tool_use /

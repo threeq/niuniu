@@ -4,6 +4,8 @@ import (
 	"context"
 	"testing"
 	"time"
+
+	"github.com/niuniu-dev/niuniu/internal/store"
 )
 
 // wakeupGCSession is a session whose live state (running) starts false; the
@@ -11,6 +13,7 @@ import (
 type wakeupGCSession struct {
 	*WorkspaceSession
 	hook *fakeStatusHook
+	db   *store.DB
 }
 
 // Regression (team edition, workspace stuck "running"): an agent's
@@ -23,14 +26,14 @@ type wakeupGCSession struct {
 
 func newWakeupGCSession(t *testing.T) *wakeupGCSession {
 	t.Helper()
-	s := newDispatchTestSession(t)
+	s, db := newDispatchTestSessionWithDB(t)
 	s.hub = NewSessionHub()
 	t.Cleanup(s.hub.Stop)
 	s.inflight = NewInflightTracker()
 	s.workDir = t.TempDir()
 	hook := &fakeStatusHook{}
 	s.statusHook = hook
-	return &wakeupGCSession{WorkspaceSession: s, hook: hook}
+	return &wakeupGCSession{WorkspaceSession: s, hook: hook, db: db}
 }
 
 // TestGCCollectsExpiredWakeupAndDrainsQueue: expired wakeup + a queued message

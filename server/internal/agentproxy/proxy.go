@@ -501,6 +501,16 @@ type WorkspaceSession struct {
 	// Guarded by s.mu.
 	turnResultOverride func() (string, bool)
 
+	// db is the wrapped pool behind s.q, injected via AgentProxy.SetDB. Nil in
+	// some test setups — batch persistence degrades to the plain s.q path.
+	db *store.DB
+	// batchTx, when non-nil, routes hot-path event writes into an OPEN
+	// transaction so a burst of notifications commits ONCE instead of once per
+	// row (the codex eventLoop's write-throughput fix). Set by
+	// beginPersistBatch, cleared by commitPersistBatch. Guarded by batchMu.
+	batchMu sync.Mutex
+	batchTx *store.Tx
+
 	// topLevelAgentID 是本会话对应的 workspace_agent.id（coordinator）。
 	// 0 表示未绑定。Task 8 在 session init 时填充。用于 agent_message 归属。
 	topLevelAgentID int64
@@ -2980,7 +2990,7 @@ func (s *WorkspaceSession) handleEvent(ctx context.Context, ev ParsedEvent, msgI
 		} else if tc != "" && thinkMsgID != "" {
 			// Authoritative final flush of streamed thinking — per-delta UPDATEs
 			// are throttled, so the tail may not yet be persisted.
-			if err := s.q.UpdateAgentMessageContent(ctx, store.UpdateAgentMessageContentParams{ID: thinkMsgID, Content: tc}); err != nil {
+			if err := s.writeQ().UpdateAgentMessageContent(ctx, store.UpdateAgentMessageContentParams{ID: thinkMsgID, Content: tc}); err != nil {
 				slog.Warn("agent thinking stream: final flush failed",
 					"workspaceID", s.workspaceID, "messageID", thinkMsgID, "err", err)
 			}
@@ -3173,7 +3183,7 @@ func (s *WorkspaceSession) handleStreamEvent(ctx context.Context, ev ParsedEvent
 				if firstPersist {
 					s.persistEventWithID(ctx, textMsgID, NewOutputEvent(EventText, blockContent, msgId, "assistant", s.workspaceID), agentID)
 				} else if flushUpdate {
-					if err := s.q.UpdateAgentMessageContent(ctx, store.UpdateAgentMessageContentParams{ID: textMsgID, Content: blockContent}); err != nil {
+					if err := s.writeQ().UpdateAgentMessageContent(ctx, store.UpdateAgentMessageContentParams{ID: textMsgID, Content: blockContent}); err != nil {
 						slog.Warn("agent text stream: update persisted markdown failed",
 							"workspaceID", s.workspaceID, "messageID", textMsgID, "err", err)
 					}
@@ -3224,7 +3234,7 @@ func (s *WorkspaceSession) handleStreamEvent(ctx context.Context, ev ParsedEvent
 				if firstPersist {
 					s.persistEventWithID(ctx, thinkMsgID, NewOutputEvent(EventThinking, full, msgId, "assistant", s.workspaceID), agentID)
 				} else if flushUpdate {
-					if err := s.q.UpdateAgentMessageContent(ctx, store.UpdateAgentMessageContentParams{ID: thinkMsgID, Content: full}); err != nil {
+					if err := s.writeQ().UpdateAgentMessageContent(ctx, store.UpdateAgentMessageContentParams{ID: thinkMsgID, Content: full}); err != nil {
 						slog.Warn("agent thinking stream: update persisted thinking failed",
 							"workspaceID", s.workspaceID, "messageID", thinkMsgID, "err", err)
 					}
@@ -3288,7 +3298,7 @@ func (s *WorkspaceSession) handleStreamEvent(ctx context.Context, ev ParsedEvent
 				if alreadyPersisted {
 					// Authoritative final flush of the full block — the per-delta
 					// UPDATEs are throttled, so the last chunk may not yet be persisted.
-					if err := s.q.UpdateAgentMessageContent(ctx, store.UpdateAgentMessageContentParams{ID: textMsgID, Content: text}); err != nil {
+					if err := s.writeQ().UpdateAgentMessageContent(ctx, store.UpdateAgentMessageContentParams{ID: textMsgID, Content: text}); err != nil {
 						slog.Warn("agent text stream: final flush failed",
 							"workspaceID", s.workspaceID, "messageID", textMsgID, "err", err)
 					}
@@ -3824,13 +3834,61 @@ func (s *WorkspaceSession) killProcess() {
 
 // persistEventWithID saves an OutputEvent with a caller-specified ID.
 // agentID attributes the message to a workspace_agent (0 = unknown, stored as NULL).
+// writeQ returns the Queries hot-path event writes should use: the open
+// batch-transaction Queries while a persist batch is active, else s.q.
+func (s *WorkspaceSession) writeQ() *store.Queries {
+	s.batchMu.Lock()
+	tx := s.batchTx
+	s.batchMu.Unlock()
+	if tx != nil {
+		return tx.Queries()
+	}
+	return s.q
+}
+
+// beginPersistBatch opens a transaction that every writeQ()-routed write in
+// this goroutine joins — a burst of N event writes commits ONCE instead of N
+// times (each commit is a network round-trip on PostgreSQL; that per-row cost
+// was the codex eventLoop's write bottleneck). Single-goroutine scope: only
+// the codex eventLoop opens batches, so no cross-goroutine interleaving.
+func (s *WorkspaceSession) beginPersistBatch(ctx context.Context) {
+	if s.db == nil {
+		return
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		slog.Warn("persist batch: begin failed; falling back to per-row writes",
+			"workspaceID", s.workspaceID, "error", err)
+		return
+	}
+	s.batchMu.Lock()
+	s.batchTx = tx
+	s.batchMu.Unlock()
+}
+
+// commitPersistBatch commits the open batch window (rolling back on error —
+// event persistence is best-effort: the SSE broadcast already went out).
+func (s *WorkspaceSession) commitPersistBatch(ctx context.Context) {
+	s.batchMu.Lock()
+	tx := s.batchTx
+	s.batchTx = nil
+	s.batchMu.Unlock()
+	if tx == nil {
+		return
+	}
+	if err := tx.Commit(); err != nil {
+		slog.Warn("persist batch: commit failed; batch writes rolled back",
+			"workspaceID", s.workspaceID, "error", err)
+	}
+}
+
 func (s *WorkspaceSession) persistEventWithID(ctx context.Context, id string, ev OutputEvent, agentID int64) {
 	isErr := int64(0)
 	if ev.IsError {
 		isErr = 1
 	}
 	runID := s.ActiveRunID()
-	s.q.CreateAgentMessage(ctx, store.CreateAgentMessageParams{
+	s.writeQ().CreateAgentMessage(ctx, store.CreateAgentMessageParams{
 		ID:               id,
 		WorkspaceID:      s.workspaceID,
 		WorkspaceAgentID: sql.NullInt64{Int64: agentID, Valid: agentID != 0},
@@ -3861,7 +3919,7 @@ func (s *WorkspaceSession) persistEvent(ctx context.Context, ev OutputEvent, age
 		isErr = 1
 	}
 	runID := s.ActiveRunID()
-	s.q.CreateAgentMessage(ctx, store.CreateAgentMessageParams{
+	s.writeQ().CreateAgentMessage(ctx, store.CreateAgentMessageParams{
 		ID:               uuid.NewString(),
 		WorkspaceID:      s.workspaceID,
 		WorkspaceAgentID: sql.NullInt64{Int64: agentID, Valid: agentID != 0},
