@@ -525,11 +525,17 @@ fn position_service_window(app: &tauri::AppHandle) {
     }
     let stage = app.state::<AiState>().lock().stage;
     let hub = app.get_webview_window("ai-hub");
+    // ⚠️ getter 往返必须在拿 AiState 之前完成：is_visible 是到主线程的同步
+    // 往返，持 AiState 调它会 ABBA 死锁——主线程的 on_page_load 处理也要拿
+    // AiState（2026-09-15 22:24 挂死实证：服务页加载事件与建窗线程在此互等，
+    // watchdog 记录主线程停泵 10s+）。铁律：任何 managed-state 锁的临界区内
+    // 不得调用窗口 getter/setter。
+    let hub_visible = hub_visible(app);
     let win = {
         let st = app.state::<AiState>();
         let ai = st.lock();
         match (&hub, &ai.active) {
-            (Some(_), Some(active)) if hub_visible(&app) && !ai.overlay_open => ai
+            (Some(_), Some(active)) if hub_visible && !ai.overlay_open => ai
                 .service_windows
                 .get(&format!("ai-service-{active}"))
                 .cloned(),
