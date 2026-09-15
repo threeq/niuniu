@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"os/exec"
 	"sync"
 	"sync/atomic"
@@ -246,6 +247,19 @@ func (c *codexAppServerClient) writeJSON(v any) error {
 	return nil
 }
 
+// isTerminalCodexNotification reports whether a notification ENDS a turn (or
+// the process). These are load-bearing for the session lifecycle — losing one
+// strands the turn's waitForTurnComplete forever, which wedges the workspace
+// in "running" and queues every later message. They must be delivered with a
+// blocking send.
+func isTerminalCodexNotification(method string) bool {
+	switch method {
+	case "turn/completed", "turn/failed", "turn/aborted", "process/exited", "error":
+		return true
+	}
+	return false
+}
+
 func (c *codexAppServerClient) readLoop(r io.Reader) {
 	defer close(c.done)
 	defer close(c.events)
@@ -266,10 +280,7 @@ func (c *codexAppServerClient) readLoop(r io.Reader) {
 			continue
 		}
 		if len(envelope.ID) > 0 && envelope.Method != "" {
-			select {
-			case c.events <- codexAppServerNotification{ID: envelope.ID, Method: envelope.Method, Params: envelope.Params}:
-			default:
-			}
+			c.deliver(codexAppServerNotification{ID: envelope.ID, Method: envelope.Method, Params: envelope.Params})
 			continue
 		}
 		if len(envelope.ID) > 0 {
@@ -286,10 +297,37 @@ func (c *codexAppServerClient) readLoop(r io.Reader) {
 			continue
 		}
 		if envelope.Method != "" {
-			select {
-			case c.events <- codexAppServerNotification{Method: envelope.Method, Params: envelope.Params}:
-			default:
-			}
+			c.deliver(codexAppServerNotification{Method: envelope.Method, Params: envelope.Params})
+		}
+	}
+}
+
+// deliver hands one app-server notification to the session's event consumer.
+// Terminal notifications use a BLOCKING send: dropping turn/completed strands
+// the in-flight turn forever (the "Done never fires, everything queues"
+// incident), so the reader backpressures instead. Lossy stream traffic
+// (deltas) may still be shed under saturation — losing a delta only drops a
+// few characters on screen.
+func (c *codexAppServerClient) deliver(n codexAppServerNotification) {
+	if isTerminalCodexNotification(n.Method) {
+		select {
+		case c.events <- n:
+		case <-c.done:
+		}
+		return
+	}
+	select {
+	case c.events <- n:
+	default:
+		// Shed under load. Deltas are cosmetic; anything else getting shed is
+		// worth a warn so protocol drift shows up in the logs instead of
+		// silently eating a turn's events.
+		if n.Method != "item/agentMessage/delta" && n.Method != "agentMessage/delta" &&
+			n.Method != "command/exec/outputDelta" && n.Method != "process/outputDelta" &&
+			n.Method != "exec_command_output_delta" && n.Method != "command_output_delta" &&
+			n.Method != "response.output_text.delta" {
+			slog.Warn("codex app-server: events channel saturated — notification shed",
+				"method", n.Method)
 		}
 	}
 }

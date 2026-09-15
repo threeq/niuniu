@@ -179,7 +179,7 @@ const EMPTY_RESULT: ResultSet = {
 }
 
 /** Map a ResultSet + ChartSpec into an ECharts option object. */
-function buildOption(
+export function buildOption(
   resultArg: ResultSet | undefined,
   chart: ChartSpec,
 ): echarts.EChartsCoreOption {
@@ -187,6 +187,13 @@ function buildOption(
   // design-system theme (palette, text/axis/legend/tooltip colors) is applied
   // at init time, so the option is handed straight to setOption and only
   // overrides what it sets explicitly. Declarative JSON only (no eval).
+  //
+  // HYBRID specs: a data-driven type ('bar'/'line'/…) may ALSO carry a native
+  // `option` — the natural way agents emit a self-contained chart while
+  // keeping the chart-family type. When that option carries its own `series`
+  // it is self-sufficient and wins outright; when it carries no series (a
+  // style-only override) the result-derived spec below still runs and the
+  // option is spread over it, so styling overrides never swallow data.
   if (chart.type === 'echarts') {
     const opt = normalizeNativeOption({ ...(chart.option ?? {}) })
     // Dynamic data-source echarts: the agent declared a `dataset` (+ optional
@@ -196,6 +203,10 @@ function buildOption(
       return injectDatasetSource(opt, resultArg)
     }
     return opt
+  }
+  const hybridOption = chart.option as Record<string, unknown> | undefined
+  if (hybridOption != null && Array.isArray(hybridOption.series) && hybridOption.series.length > 0) {
+    return normalizeNativeOption({ ...hybridOption })
   }
 
   const result = resultArg ?? EMPTY_RESULT
@@ -265,6 +276,10 @@ function buildOption(
     xAxis: { type: 'category', data: categories },
     yAxis: { type: 'value' },
     series,
+    // A style-only hybrid `option` (no series — see the hybrid branch above)
+    // overrides the derived spec here, alongside the legacy allow-listed
+    // `options`.
+    ...(chart.option ?? {}),
     ...(chart.options ?? {}),
   }
 }

@@ -4318,66 +4318,123 @@ func (p *AgentProxy) gcInflightLoop() {
 			if s.inflight == nil {
 				continue
 			}
-			removed := s.inflight.GCStale(now)
+			p.gcSessionInflight(s, now)
+		}
+	}
+}
 
-			// Process-tree probe to keep the displayed Bash[bg] count in sync
-			// with the OS truth.
-			//
-			// Claude CLI never exposes a Bash[bg] shell's OS PID — bash_id is
-			// an opaque internal handle. So we can't identify WHICH specific
-			// shells died; we can only ask the OS "how many shell descendants
-			// does the CLI process have right now?" and reconcile counts:
-			//
-			//   alive == 0 and bashCount > 0  → clear all (confirmed zombies)
-			//   0 < alive < bashCount         → trim down to alive (partial die)
-			//   alive >= bashCount            → leave alone (counts match, or
-			//                                    extras are subagent shells we
-			//                                    don't track)
-			//
-			// Trim victims are picked deterministically (no-BashID first, then
-			// oldest StartedAt) so the count is honest even if identities
-			// aren't precise — sidebar shows what the user actually has running.
-			// Probe returns -1 on OS error — skip on the safe side rather than
-			// risk wrongly clearing live shells.
-			bashCount := s.inflight.CountByKind(BgTaskBash)
-			if bashCount > 0 {
-				cliPid := s.cliProcessPid()
-				if cliPid > 0 {
-					alive := countAliveShellDescendantsFn(cliPid)
-					switch {
-					case alive == 0:
-						cleared := s.inflight.ClearBash()
-						if len(cleared) > 0 {
-							slog.Info("agentproxy: cleared bash entries — no shell descendants",
-								"workspace_id", s.workspaceID, "cleared", len(cleared))
-							removed = append(removed, cleared...)
-						}
-					case alive > 0 && alive < bashCount:
-						trimmed := s.inflight.TrimBashTo(alive)
-						if len(trimmed) > 0 {
-							slog.Info("agentproxy: trimmed bash entries to match shell count",
-								"workspace_id", s.workspaceID,
-								"before", bashCount, "after", alive, "trimmed", len(trimmed))
-							removed = append(removed, trimmed...)
-						}
-					}
-				}
-			}
+// gcSessionInflight runs one GC pass for a single session: sweeps stale
+// in-flight entries (expired wakeups / zombie subagents / dead bg shells) and
+// — the part that makes expired WAKEUPS safe to collect — resumes the
+// workspace when the collected wakeup was its only reason to stay "running".
+//
+// An agent's ScheduleWakeup defers finalize (finalizeSendLoopTurn keeps
+// agent_status 'running' while a future wakeup is pending) and Enqueue queues
+// messages behind it, both promising the wakeup's resume will re-enter
+// SendLoop and drain. Before this resume existed, an expired wakeup was
+// silently deleted: the queue drained NEVER and the workspace sat "running"
+// forever (team edition: every message stuck in 排队).
+func (p *AgentProxy) gcSessionInflight(s *WorkspaceSession, now time.Time) {
+	ctx := context.Background()
+	removed := s.inflight.GCStale(now)
 
-			if len(removed) > 0 {
-				for _, r := range removed {
-					if r.Kind != BgTaskWakeup {
-						slog.Warn("agentproxy: stale bg task GC'd",
-							"workspace_id", s.workspaceID,
-							"kind", r.Kind,
-							"tool_use_id", r.ToolUseID,
-							"started_at", r.StartedAt)
-					}
+	// Process-tree probe to keep the displayed Bash[bg] count in sync
+	// with the OS truth.
+	//
+	// Claude CLI never exposes a Bash[bg] shell's OS PID — bash_id is
+	// an opaque internal handle. So we can't identify WHICH specific
+	// shells died; we can only ask the OS "how many shell descendants
+	// does the CLI process have right now?" and reconcile counts:
+	//
+	//   alive == 0 and bashCount > 0  → clear all (confirmed zombies)
+	//   0 < alive < bashCount         → trim down to alive (partial die)
+	//   alive >= bashCount            → leave alone (counts match, or
+	//                                    extras are subagent shells we
+	//                                    don't track)
+	//
+	// Trim victims are picked deterministically (no-BashID first, then
+	// oldest StartedAt) so the count is honest even if identities
+	// aren't precise — sidebar shows what the user actually has running.
+	// Probe returns -1 on OS error — skip on the safe side rather than
+	// risk wrongly clearing live shells.
+	bashCount := s.inflight.CountByKind(BgTaskBash)
+	if bashCount > 0 {
+		cliPid := s.cliProcessPid()
+		if cliPid > 0 {
+			alive := countAliveShellDescendantsFn(cliPid)
+			switch {
+			case alive == 0:
+				cleared := s.inflight.ClearBash()
+				if len(cleared) > 0 {
+					slog.Info("agentproxy: cleared bash entries — no shell descendants",
+						"workspace_id", s.workspaceID, "cleared", len(cleared))
+					removed = append(removed, cleared...)
 				}
-				s.emitBgTaskNotify()
+			case alive > 0 && alive < bashCount:
+				trimmed := s.inflight.TrimBashTo(alive)
+				if len(trimmed) > 0 {
+					slog.Info("agentproxy: trimmed bash entries to match shell count",
+						"workspace_id", s.workspaceID,
+						"before", bashCount, "after", alive, "trimmed", len(trimmed))
+					removed = append(removed, trimmed...)
+				}
 			}
 		}
 	}
+
+	expiredWakeup := false
+	if len(removed) > 0 {
+		for _, r := range removed {
+			if r.Kind == BgTaskWakeup {
+				expiredWakeup = true
+				continue
+			}
+			slog.Warn("agentproxy: stale bg task GC'd",
+				"workspace_id", s.workspaceID,
+				"kind", r.Kind,
+				"tool_use_id", r.ToolUseID,
+				"started_at", r.StartedAt)
+		}
+		s.emitBgTaskNotify()
+	}
+
+	// An expired wakeup whose deferred finalize held the workspace "running":
+	// honor the resume promise now. Only when no live loop exists — a running
+	// SendLoop owns the lifecycle (its own dequeue drains the queue).
+	if !expiredWakeup {
+		return
+	}
+	s.mu.Lock()
+	live := s.running
+	s.mu.Unlock()
+	if live {
+		return
+	}
+	if s.PendingCount(ctx) > 0 {
+		// Queued messages exist: pop the first and hand it to a fresh SendLoop
+		// (NOT Deliver — Deliver would Enqueue the same content back). The new
+		// loop starts on this message and its own dequeue drains the rest.
+		content, attach := s.dequeue(ctx)
+		if content != "" {
+			slog.Info("agentproxy: expired wakeup — resuming loop to drain queue",
+				"workspace_id", s.workspaceID, "remaining", s.PendingCount(ctx))
+			go s.SendLoop(ctx, s.workDir, content, attach)
+		}
+		return
+	}
+	// Queue empty: nothing will ever re-enter, so run the finalize tail the
+	// deferred finalize skipped — flip agent_status / kanban out of "running".
+	// autohostScheduledWait is re-checked: the autohost paced resume owns that
+	// lifecycle and will re-enter on its own schedule.
+	s.mu.Lock()
+	waiting := s.autohostScheduledWait
+	s.mu.Unlock()
+	if waiting || s.hasPendingFutureWakeup() {
+		return
+	}
+	slog.Info("agentproxy: expired wakeup — finalizing stale 'running' workspace",
+		"workspace_id", s.workspaceID)
+	s.finalizeSendLoopTurn(ctx, false, "", false)
 }
 
 // Stop shuts down the AgentProxy's background goroutine (gcInflightLoop) and
