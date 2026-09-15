@@ -33,10 +33,66 @@ pub fn app_icon() -> tauri::image::Image<'static> {
         .expect("embedded assets/appicon.png must be a valid PNG")
 }
 
-/// 把窗口尺寸/位置夹到所在显示器的可见范围内。builder 里的固定 inner_size
-/// 是逻辑像素：DPI 缩放（125%/150%）下 900/840/800 逻辑高会超过屏幕的可用
-/// 逻辑高度（1080p@150% 仅 720），首次打开即表现为窗口下沿出屏。缩/夹之后
-/// 在显示器几何内重新居中（纵向预留 48 逻辑 px 给任务栏，横向 8）。
+/// Windows：取 hwnd 所在显示器的真实工作区（rcWork，天然排除任务栏，无论其
+/// 高度/位置/多屏布局）。失败返回 None，由调用方回退「显示器矩形 - 48 逻辑高」。
+#[cfg(windows)]
+fn workarea_of(win: &WebviewWindow) -> Option<(tauri::PhysicalPosition<i32>, tauri::PhysicalSize<u32>)> {
+    use windows::Win32::Foundation::HWND;
+    use windows::Win32::Graphics::Gdi::{
+        GetMonitorInfoW, MonitorFromWindow, MONITORINFO, MONITOR_DEFAULTTONEAREST,
+    };
+    // tauri 的 hwnd() 返回其依赖版本 windows crate 的 HWND，.0 跨版本搬运裸句柄
+    // （同 ai_embed_windows.rs 的做法）。
+    let hwnd_raw = win.hwnd().ok()?.0;
+    unsafe {
+        let mon = MonitorFromWindow(HWND(hwnd_raw), MONITOR_DEFAULTTONEAREST);
+        let mut info = MONITORINFO {
+            cbSize: std::mem::size_of::<MONITORINFO>() as u32,
+            ..Default::default()
+        };
+        if GetMonitorInfoW(mon, &mut info).as_bool() {
+            let wa = info.rcWork;
+            return Some((
+                tauri::PhysicalPosition::new(wa.left, wa.top),
+                tauri::PhysicalSize::new((wa.right - wa.left) as u32, (wa.bottom - wa.top) as u32),
+            ));
+        }
+    }
+    None
+}
+
+#[cfg(not(windows))]
+fn workarea_of(
+    _win: &WebviewWindow,
+) -> Option<(tauri::PhysicalPosition<i32>, tauri::PhysicalSize<u32>)> {
+    None
+}
+
+/// 各平台工作区不可用区预留（逻辑 px，仅在没有实测工作区时生效——目前即
+/// 非 Windows 全部路径）。保守取值：宁可用得少，不可压上系统栏。
+#[cfg(target_os = "macos")]
+const RESERVE_TOP_L: f64 = 25.0; // 常驻系统菜单栏
+#[cfg(target_os = "macos")]
+const RESERVE_BOTTOM_L: f64 = 70.0; // Dock（自动隐藏时略保守）
+#[cfg(target_os = "linux")]
+const RESERVE_TOP_L: f64 = 0.0; // 面板位置不定，仅底部保守预留
+#[cfg(target_os = "linux")]
+const RESERVE_BOTTOM_L: f64 = 48.0;
+#[cfg(target_os = "windows")]
+const RESERVE_TOP_L: f64 = 0.0; // 走 rcWork 实测，预留不参与
+#[cfg(target_os = "windows")]
+const RESERVE_BOTTOM_L: f64 = 0.0;
+
+/// 把窗口尺寸/位置夹到所在显示器的真实工作区内。builder 的固定 inner_size 是
+/// 逻辑像素：DPI 缩放（125%/150%）下 900/840/800 逻辑高会超过屏幕的可用逻辑
+/// 高度（1080p@150% 仅 720），首次打开即表现为窗口下沿压进任务栏。
+///
+/// 三个关键点（2026-09-15 二次修正——v1 版窗口底仍压任务栏一个标题栏高度）：
+/// 1. 工作区用 GetMonitorInfoW 的 rcWork 实测值，不猜任务栏高度；
+/// 2. inner_size/set_size 都是客户区尺寸，标题栏+边框（约 40 逻辑高/8 宽）
+///    不在内，可用区必须先扣掉外框，否则底沿恰好压进任务栏；
+/// 3. 收尾用 outer_position/outer_size 实测外框，越界部分一次性平移校正——
+///    chrome 估算的残差在这里收敛。
 fn clamp_to_monitor(win: &WebviewWindow) {
     let Ok(cur) = win.inner_size() else {
         return;
@@ -51,21 +107,83 @@ fn clamp_to_monitor(win: &WebviewWindow) {
         return;
     };
     let scale = mon.scale_factor();
-    let size = mon.size();
-    let avail_lw = ((size.width as f64) / scale - 16.0).max(320.0);
-    let avail_lh = ((size.height as f64) / scale - 48.0).max(240.0);
+    // 工作区（物理）：Windows 实测 rcWork；其它平台按平台预留常数收缩显示器
+    // 矩形（macOS 顶部菜单栏+底部 Dock，Linux 底部面板）。
+    let (wa_pos, wa_size) = workarea_of(win).unwrap_or_else(|| {
+        let p = mon.position();
+        let s = mon.size();
+        let top_px = (RESERVE_TOP_L * scale).round() as u32;
+        let bottom_px = (RESERVE_BOTTOM_L * scale).round() as u32;
+        (
+            tauri::PhysicalPosition::new(p.x, p.y + top_px as i32),
+            tauri::PhysicalSize::new(
+                s.width,
+                s.height.saturating_sub(top_px + bottom_px),
+            ),
+        )
+    });
+    // 客户区可用逻辑尺寸 = 工作区物理 / 缩放 - 外框补偿。
+    let avail_lw = ((wa_size.width as f64) / scale - 8.0).max(320.0);
+    let avail_lh = ((wa_size.height as f64) / scale - 40.0).max(240.0);
     let lw = (cur.width as f64) / scale;
     let lh = (cur.height as f64) / scale;
-    if lw <= avail_lw && lh <= avail_lh {
-        return;
-    }
     let new_lw = lw.min(avail_lw);
     let new_lh = lh.min(avail_lh);
-    let _ = win.set_size(tauri::LogicalSize::new(new_lw, new_lh));
-    let pos = mon.position();
-    let x = pos.x + ((size.width as f64 - new_lw * scale) / 2.0).round() as i32;
-    let y = pos.y + ((size.height as f64 - 48.0 * scale - new_lh * scale) / 2.0).round() as i32;
+    if new_lw != lw || new_lh != lh {
+        let _ = win.set_size(tauri::LogicalSize::new(new_lw, new_lh));
+    }
+    // 在工作区内重居中（含外框的估算高度）。
+    let x = wa_pos.x + ((wa_size.width as f64 - new_lw * scale) / 2.0).round() as i32;
+    let y = wa_pos.y + ((wa_size.height as f64 - new_lh * scale) / 2.0).round() as i32;
     let _ = win.set_position(tauri::PhysicalPosition::new(x, y));
+    // 实测收敛：外框越出工作区（上/下）就平移回来，chrome 估算残差在此归零。
+    // Wayland 下客户端不允许定位（set_position 被 WM 忽略）、outer 坐标无全局
+    // 意义，收敛无意义且可能算出垃圾平移——跳过，交给 WM 自行摆放。
+    let on_wayland = cfg!(target_os = "linux")
+        && std::env::var("WAYLAND_DISPLAY").map(|v| !v.is_empty()).unwrap_or(false);
+    if !on_wayland {
+        converge_into_workarea(win, wa_pos, wa_size);
+    }
+    crate::boot_log(format!(
+        "clamp_to_monitor {}: inner {}x{} scale {:.2} workarea {}x{}@{},{} -> size {}x{} pos ({},{})",
+        win.label(),
+        cur.width,
+        cur.height,
+        scale,
+        wa_size.width,
+        wa_size.height,
+        wa_pos.x,
+        wa_pos.y,
+        new_lw,
+        new_lh,
+        x,
+        y
+    ));
+}
+
+/// 实测收敛：读窗口真实外框位置/尺寸，越出工作区（上/下）的部分一次性平移
+/// 校正——chrome 估算的残差在这里归零。
+fn converge_into_workarea(
+    win: &WebviewWindow,
+    wa_pos: tauri::PhysicalPosition<i32>,
+    wa_size: tauri::PhysicalSize<u32>,
+) {
+    let (Ok(op), Ok(os)) = (win.outer_position(), win.outer_size()) else {
+        return;
+    };
+    let wa_top = wa_pos.y;
+    let wa_bottom = wa_pos.y + wa_size.height as i32;
+    let top = op.y;
+    let bottom = op.y + os.height as i32;
+    let mut dy = 0;
+    if bottom > wa_bottom {
+        dy = wa_bottom - bottom;
+    } else if top < wa_top {
+        dy = wa_top - top;
+    }
+    if dy != 0 {
+        let _ = win.set_position(tauri::PhysicalPosition::new(op.x, op.y + dy));
+    }
 }
 
 /// 主窗口初始加载页：data URL 旋转加载页（服务就绪后 navigate 到本地 SPA）。
