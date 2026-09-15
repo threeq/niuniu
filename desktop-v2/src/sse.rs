@@ -65,8 +65,11 @@ fn handle_event(app: &tauri::AppHandle, event: &str, data: &str) {
     match event {
         // SPA 顶部「AI 直达」按钮 → 抬升（而非 toggle）原生 AI hub 窗口。
         // v1 OpenAIWindow 永远 show，不会把已开的 hub 关掉。
+        // 本函数跑在 SSE 后台线程：窗口可见性查询/操作有线程亲和性（is_visible
+        // 等是到主线程的同步往返），统一派发主线程执行。
         "open_ai_window" => {
-            crate::commands::open_ai_window(app);
+            let app2 = app.clone();
+            let _ = app.run_on_main_thread(move || crate::commands::open_ai_window(&app2));
         }
         "agent_done" => {
             let focused = app

@@ -34,31 +34,41 @@ pub fn app_icon() -> tauri::image::Image<'static> {
 }
 
 /// 主窗口初始加载页：data URL 旋转加载页（服务就绪后 navigate 到本地 SPA）。
-pub fn create_main_window(app: &tauri::AppHandle, lang: &str, hidden: bool) -> tauri::Result<WebviewWindow> {
+pub fn create_main_window(
+    app: &tauri::AppHandle,
+    lang: &str,
+    hidden: bool,
+) -> tauri::Result<WebviewWindow> {
     let title = i18n::local_title(lang);
-    let win = WebviewWindowBuilder::new(app, "main", WebviewUrl::External(splash_data_url(lang)))
-        .title(title)
-        .inner_size(1440.0, 900.0)
-        .min_inner_size(800.0, 600.0)
-        .center()
-        .visible(!hidden)
-        .icon(app_icon())?
-        .background_color(SPLASH_BG)
-        .data_directory(webview_data_dir())
-        .build()?;
+    // 所有 build() 经 webview_gate 串行（并发创建会在 WebView2 重入泵里嵌套，
+    // 挂死主线程——见 webview_gate.rs 模块注释）。
+    let win = crate::webview_gate::gated_create(|| {
+        WebviewWindowBuilder::new(app, "main", WebviewUrl::External(splash_data_url(lang)))
+            .title(title)
+            .inner_size(1440.0, 900.0)
+            .min_inner_size(800.0, 600.0)
+            .center()
+            .visible(!hidden)
+            .icon(app_icon())?
+            .background_color(SPLASH_BG)
+            .data_directory(webview_data_dir())
+            .build()
+    })?;
     Ok(win)
 }
 
 /// picker（连接管理）窗口：内嵌 /index.html。
 pub fn create_picker_window(app: &tauri::AppHandle, lang: &str) -> tauri::Result<WebviewWindow> {
-    WebviewWindowBuilder::new(app, "picker", WebviewUrl::App("index.html".into()))
-        .title(i18n::manage_title(lang))
-        .inner_size(1280.0, 800.0)
-        .visible(false)
-        .icon(app_icon())?
-        .background_color(PICKER_BG)
-        .data_directory(webview_data_dir())
-        .build()
+    crate::webview_gate::gated_create(|| {
+        WebviewWindowBuilder::new(app, "picker", WebviewUrl::App("index.html".into()))
+            .title(i18n::manage_title(lang))
+            .inner_size(1280.0, 800.0)
+            .visible(false)
+            .icon(app_icon())?
+            .background_color(PICKER_BG)
+            .data_directory(webview_data_dir())
+            .build()
+    })
 }
 
 /// AI 直达窗口：内嵌 /ai.html。hub 自带关闭钩子（spawn_aux_window 对 ai-hub
@@ -71,14 +81,16 @@ pub fn create_picker_window(app: &tauri::AppHandle, lang: &str) -> tauri::Result
 /// repositionActiveAIService；Tauri 的 Moved/Resized 事件逐次触发无 debounce，
 /// 拖动过程中即跟随）。
 pub fn create_ai_hub_window(app: &tauri::AppHandle, lang: &str) -> tauri::Result<WebviewWindow> {
-    let win = WebviewWindowBuilder::new(app, "ai-hub", WebviewUrl::App("ai.html".into()))
-        .title(i18n::ai_title(lang))
-        .inner_size(980.0, 720.0)
-        .visible(false)
-        .icon(app_icon())?
-        .background_color(HUB_BG)
-        .data_directory(webview_data_dir())
-        .build()?;
+    let win = crate::webview_gate::gated_create(|| {
+        WebviewWindowBuilder::new(app, "ai-hub", WebviewUrl::App("ai.html".into()))
+            .title(i18n::ai_title(lang))
+            .inner_size(980.0, 720.0)
+            .visible(false)
+            .icon(app_icon())?
+            .background_color(HUB_BG)
+            .data_directory(webview_data_dir())
+            .build()
+    })?;
     let app2 = app.clone();
     let w2 = win.clone();
     win.on_window_event(move |event| match event {
@@ -97,14 +109,16 @@ pub fn create_ai_hub_window(app: &tauri::AppHandle, lang: &str) -> tauri::Result
 
 /// 执行器管理窗口（占位页；执行器子系统 v2 尚未移植）。
 pub fn create_runners_window(app: &tauri::AppHandle, lang: &str) -> tauri::Result<WebviewWindow> {
-    WebviewWindowBuilder::new(app, "runners", WebviewUrl::App("runners.html".into()))
-        .title(i18n::runners_title(lang))
-        .inner_size(900.0, 640.0)
-        .visible(false)
-        .icon(app_icon())?
-        .background_color(HUB_BG)
-        .data_directory(webview_data_dir())
-        .build()
+    crate::webview_gate::gated_create(|| {
+        WebviewWindowBuilder::new(app, "runners", WebviewUrl::App("runners.html".into()))
+            .title(i18n::runners_title(lang))
+            .inner_size(900.0, 640.0)
+            .visible(false)
+            .icon(app_icon())?
+            .background_color(HUB_BG)
+            .data_directory(webview_data_dir())
+            .build()
+    })
 }
 
 /// 远端连接窗口：加载 connecting 过渡页（页面自身轮询健康后跳转到目标）。
@@ -138,13 +152,15 @@ pub fn open_connection_window(
         let base = crate::config::normalize_base_url(&info.host, info.port);
         let target = format!("{base}/");
         let url = connecting_splash_url(&lang, &info.name, &target);
-        let built = WebviewWindowBuilder::new(&app, &label, WebviewUrl::External(url))
-            .title(i18n::remote_title(&lang, &info.name, &base))
-            .inner_size(1280.0, 840.0)
-            .visible(false)
-            .background_color(SPLASH_BG)
-            .data_directory(webview_data_dir())
-            .build();
+        let built = crate::webview_gate::gated_create(|| {
+            WebviewWindowBuilder::new(&app, &label, WebviewUrl::External(url))
+                .title(i18n::remote_title(&lang, &info.name, &base))
+                .inner_size(1280.0, 840.0)
+                .visible(false)
+                .background_color(SPLASH_BG)
+                .data_directory(webview_data_dir())
+                .build()
+        });
         match built {
             Ok(win) => {
                 // 远程窗口 X 关闭 = 真关闭（与本地主窗口的 close->hide 不同）：
@@ -251,7 +267,11 @@ pub fn with_hotkey_hash(url: &str, cfg: &DesktopConfig) -> String {
 /// 旋转加载页 data URL（主窗口）。body 做百分号编码，避免 url 解析致命。
 fn splash_data_url(lang: &str) -> Url {
     let heading = i18n::local_boot_heading(lang);
-    let sub = if lang == "zh" { "正在初始化本地服务" } else { "Initializing local service" };
+    let sub = if lang == "zh" {
+        "正在初始化本地服务"
+    } else {
+        "Initializing local service"
+    };
     let body = format!(
         "<!doctype html><html><head><meta charset='utf-8'><title>Niuniu</title>\
          <style>body{{font-family:system-ui;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;background:#111;color:#ccc}}\
@@ -265,7 +285,11 @@ fn splash_data_url(lang: &str) -> Url {
 
 /// 远端连接过渡页 data URL：轮询 /api/health 成功后跳转目标；到达上限强跳。
 fn connecting_splash_url(lang: &str, name: &str, target: &str) -> Url {
-    let connecting = if lang == "zh" { "正在连接" } else { "Connecting" };
+    let connecting = if lang == "zh" {
+        "正在连接"
+    } else {
+        "Connecting"
+    };
     let brand = if lang == "zh" { "牛牛" } else { "Niuniu" };
     let t = target.replace('\\', "\\\\").replace('\'', "\\'");
     let n = name.replace('\\', "\\\\").replace('\'', "\\'");
@@ -289,7 +313,22 @@ fn data_url(body: &str) -> Url {
     let mut s = String::from("data:text/html;charset=utf-8,");
     for b in body.bytes() {
         match b {
-            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' | b'/' | b':' | b'&' | b'=' | b',' | b'(' | b')' | b'+' | b' ' => {
+            b'A'..=b'Z'
+            | b'a'..=b'z'
+            | b'0'..=b'9'
+            | b'-'
+            | b'_'
+            | b'.'
+            | b'~'
+            | b'/'
+            | b':'
+            | b'&'
+            | b'='
+            | b','
+            | b'('
+            | b')'
+            | b'+'
+            | b' ' => {
                 if b == b' ' {
                     s.push_str("%20");
                 } else {
