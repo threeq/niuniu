@@ -329,10 +329,11 @@ pub fn toggle_ai_window(app: &tauri::AppHandle) {
         Some(win) => {
             if win.is_visible().unwrap_or(false) {
                 let _ = win.hide();
+                update_ai_service_visibility_at(app, false);
             } else {
                 reshow_hub(app, &win);
+                update_ai_service_visibility_at(app, true);
             }
-            update_ai_service_visibility(app);
         }
         None => {
             let lang = app.state::<AppMeta>().lang.clone();
@@ -346,12 +347,13 @@ pub fn toggle_ai_window(app: &tauri::AppHandle) {
 pub fn open_ai_window(app: &tauri::AppHandle) {
     match app.get_webview_window("ai-hub") {
         Some(win) => {
+            // 抬升语义：目标态恒为可见——显式传 true，不读 show 前的旧状态。
             if win.is_visible().unwrap_or(false) {
                 let _ = win.set_focus();
             } else {
                 reshow_hub(app, &win);
             }
-            update_ai_service_visibility(app);
+            update_ai_service_visibility_at(app, true);
         }
         None => {
             let lang = app.state::<AppMeta>().lang.clone();
@@ -572,18 +574,26 @@ fn position_service_window(app: &tauri::AppHandle) {
     });
 }
 
-/// 服务窗口可见性 = hub 窗口实际可见 && 无覆盖层 && 是当前激活服务。
-/// hub 可见性实时查窗口，避免「hub 未打开但服务窗口乱跳」的启动态竞态。
+/// 服务窗口可见性 = hub 可见性意图 && 无覆盖层 && 是当前激活服务。
+/// hub 可见性必须由调用方显式传入意图：show()/hide() 都是异步派发，紧跟其后的
+/// is_visible() 读到的是旧状态——重开 hub 时读到 false 导致所有服务窗被再次
+/// stash（表现为「关闭再打开不显示网页，挪一下窗口才出现」，2026-09-15 实测）。
 ///
 /// Windows 嵌入路径：激活服务 reveal（上 stage + 置顶 + 焦点），其余 stash
 /// （挪屏幕外但保持显示——SW_HIDE 会让 WebView2 挂起合成，再显示回来是空白，
 /// v1 aiembed_windows.go 实测踩坑点）。非 Windows 回退普通 show/hide。
 pub fn update_ai_service_visibility(app: &tauri::AppHandle) {
-    let hub = app.get_webview_window("ai-hub");
-    let hub_visible = hub
-        .as_ref()
+    // hub 未发生显隐变化的场景（覆盖层开关等）：实时读当前状态是新鲜的。
+    let hub_visible = app
+        .get_webview_window("ai-hub")
         .map(|w| w.is_visible().unwrap_or(false))
         .unwrap_or(false);
+    update_ai_service_visibility_at(app, hub_visible);
+}
+
+/// 显式意图版本：紧邻 show()/hide() 的调用必须用这个，传目标态而非读旧态。
+pub fn update_ai_service_visibility_at(app: &tauri::AppHandle, hub_visible: bool) {
+    let hub = app.get_webview_window("ai-hub");
     let st = app.state::<AiState>();
     let ai = st.lock();
     let show_any = hub_visible && !ai.overlay_open;
