@@ -5,7 +5,7 @@ niuniu 的自研编码 agent（issue #708 / #709）。可行性分析与总体�
 
 独立 Go 模块（挂入根 `go.work`），**零第三方依赖**，目标是单二进制分发（desktop sidecar 友好）。
 
-## 当前状态：P2
+## 当前状态：P3
 
 - ✅ `-p` headless 单轮（`-p -` 读 stdin；`-y` 放行变更类工具）
 - ✅ `acp` server：stdio JSON-RPC（initialize / session/new / session/prompt / session/update / session/request_permission / session/cancel），session cwd 经 chdir 生效
@@ -18,7 +18,10 @@ niuniu 的自研编码 agent（issue #708 / #709）。可行性分析与总体�
 - ✅ P2 system prompt：稳定前缀工程（身份→环境→工具指引→规则→项目上下文），session 内逐字节稳定以保缓存命中
 - ✅ P2 项目上下文：session 启动读 cwd 的 `AGENTS.md`（退回 `CLAUDE.md`），上限 40KB，注入 system
 - ✅ P2 auto-compact：上下文超阈值时摘要压缩早期消息（默认 120k tokens / 保留最近 12 条，`loop.Options` 可调），切点保证 tool_use/tool_result 配对完整
-- ⏳ P3：token 级流式、MCP client、skills、subagent、hooks、session resume/checkpoint、sandbox
+- ✅ P3 MCP client：零依赖 stdio client（initialize / tools-list / tools-call）；session 启动读 cwd `.mcp.json` 逐 server 拉起，工具以 `mcp__<server>__<tool>` 注册；单 server 失败告警跳过不阻断；server 生命周期随会话（进程）退出
+- ✅ P3 skills：扫描 `<cwd>/.niuniu-agent/skills` 与 `~/.niuniu-agent/skills` 的 `*/SKILL.md`（frontmatter name/description，项目级遮蔽用户级）；system 注入仅 name+description 的索引；`Skill` 工具按名加载正文进上下文
+- ✅ P3 subagent：`Agent` 工具起进程内子 Session（独立对话、复用模型与权限策略、子注册表无 Agent 工具→递归深度限 1）；sync 回填子最终文本 + `[subagent usage]` 行；单子 agent 超时上限（默认 10 分钟）
+- ⏳ P4：token 级流式、hooks、session resume/checkpoint、sandbox、eval 集
 
 ## 用法
 
@@ -47,9 +50,11 @@ agent/
 ├── cmd/niuniu-agent/     CLI 入口（-p headless；acp server）
 └── internal/
     ├── model/            中性消息 IR + anthropic/openai 双 adapter + env 配置
-    ├── loop/             核心 agent loop + auto-compact
+    ├── loop/             核心 agent loop + auto-compact + Agent 工具（subagent）
     ├── prompt/           system prompt 稳定前缀工程 + AGENTS.md/CLAUDE.md 加载
     ├── acp/              ACP server（stdio JSON-RPC）
+    ├── mcp/              MCP stdio client（.mcp.json → mcp__<server>__<tool>）
+    ├── skills/           SKILL.md 扫描/加载 + Skill 工具
     ├── perm/             权限层
     └── tools/            LS/Read/Grep/Glob/Write/Edit/Bash/TodoWrite
 ```
