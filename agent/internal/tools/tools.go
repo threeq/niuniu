@@ -1,0 +1,51 @@
+// Package tools implements the agent's tool suite. P0 ships two Go-native
+// tools (LS, Read) that work identically across Windows/macOS/Linux without
+// a shell; the fuller suite (Write/Edit/Bash/Grep/Glob/…) arrives in P1.
+package tools
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+
+	"github.com/niuniu-dev/niuniu/agent/internal/model"
+)
+
+// Tool is one capability the model can invoke. Execute receives the parsed
+// schema-validated input and returns the result text fed back to the model
+// (errors are reported to the model as error results, not fatal to the run).
+type Tool interface {
+	Def() model.ToolDef
+	Execute(ctx context.Context, input json.RawMessage) (string, error)
+}
+
+// Registry maps tool names to implementations and holds the ToolDef list
+// sent to the model.
+type Registry struct {
+	byName map[string]Tool
+	defs   []model.ToolDef
+}
+
+// NewRegistry builds a registry from the given tools, in definition order.
+func NewRegistry(tools ...Tool) *Registry {
+	r := &Registry{byName: make(map[string]Tool, len(tools))}
+	for _, t := range tools {
+		def := t.Def()
+		r.byName[def.Name] = t
+		r.defs = append(r.defs, def)
+	}
+	return r
+}
+
+// Defs returns the tool definitions to advertise to the model.
+func (r *Registry) Defs() []model.ToolDef { return r.defs }
+
+// Execute runs the named tool; unknown names are an error (which the loop
+// turns into an error tool_result so the model can recover).
+func (r *Registry) Execute(ctx context.Context, name string, input json.RawMessage) (string, error) {
+	t, ok := r.byName[name]
+	if !ok {
+		return "", fmt.Errorf("unknown tool %q", name)
+	}
+	return t.Execute(ctx, input)
+}
