@@ -20,15 +20,28 @@ import (
 	"github.com/niuniu-dev/niuniu/agent/internal/model"
 	"github.com/niuniu-dev/niuniu/agent/internal/perm"
 	"github.com/niuniu-dev/niuniu/agent/internal/prompt"
+	"github.com/niuniu-dev/niuniu/agent/internal/skills"
 	"github.com/niuniu-dev/niuniu/agent/internal/tools"
 )
 
-// newRegistry advertises the full P1 tool suite.
+// newRegistry advertises the built-in tool suite.
 func newRegistry() *tools.Registry {
 	return tools.NewRegistry(
 		tools.LS{}, tools.Read{}, tools.Grep{}, tools.Glob{},
 		tools.Write{}, tools.Edit{}, tools.Bash{}, tools.TodoWrite{},
 	)
+}
+
+// sessionRegistry assembles one session's toolset: built-in tools plus the
+// MCP servers projected into cwd (.mcp.json) plus the Skill tool over the
+// discovered skills. The closer releases the MCP servers. MCP failures
+// degrade to built-in tools only — never fatal.
+func sessionRegistry(cwd string) (*tools.Registry, io.Closer) {
+	reg := newRegistry()
+	mgr := mcp.Start(cwd)
+	mgr.RegisterInto(reg)
+	reg.Register(skills.NewTool(skills.Scan(cwd)))
+	return reg, mgr
 }
 
 func main() {
@@ -73,7 +86,6 @@ Configuration (env):
 	}
 
 	m := mustModel(*provider, *modelName)
-	reg := newRegistry()
 
 	ctx, cancel := context.WithTimeout(context.Background(), *timeout)
 	defer cancel()
@@ -81,11 +93,10 @@ Configuration (env):
 	if err != nil {
 		fail(err)
 	}
-	// MCP servers from the workspace's .mcp.json join the toolset; a broken
-	// server is logged and skipped. Their lifetime is the process's.
-	mgr := mcp.Start(cwd)
-	defer mgr.Close()
-	mgr.RegisterInto(reg)
+	// Session toolset: built-ins + MCP servers + Skill tool; server lifetime
+	// is the process's.
+	reg, closer := sessionRegistry(cwd)
+	defer closer.Close()
 
 	res, err := loop.Run(ctx, m, reg, prompt.Build(cwd), *promptText,
 		loop.Options{MaxTurns: *maxTurns, Perms: perm.NewPolicy(*yes)})
@@ -112,15 +123,13 @@ func runACP() {
 		func() (model.Model, error) {
 			return buildModel(*provider, *modelName)
 		},
-		// Per-session tool projection: MCP servers from the session cwd's
-		// .mcp.json. The returned closer ties server lifetime to the
+		// Per-session tool projection: MCP servers + Skill tool for the
+		// session cwd. The returned closer ties server lifetime to the
 		// session's (== the process's in niuniu's one-agent-per-workspace
 		// deployment).
 		func(cwd string, m model.Model) (*tools.Registry, io.Closer, error) {
-			reg := newRegistry()
-			mgr := mcp.Start(cwd)
-			mgr.RegisterInto(reg)
-			return reg, mgr, nil
+			reg, closer := sessionRegistry(cwd)
+			return reg, closer, nil
 		})
 	if err := srv.Serve(context.Background()); err != nil {
 		fail(err)

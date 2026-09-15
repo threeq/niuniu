@@ -15,6 +15,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/niuniu-dev/niuniu/agent/internal/skills"
 )
 
 // MaxContextBytes caps the injected project-context file (AGENTS.md /
@@ -37,7 +39,18 @@ func Build(cwd string) string {
 - Prefer targeted edits (Edit) over rewriting whole files (Write).
 - For multi-step work, maintain the task list with TodoWrite: mark items in_progress before starting and completed right after finishing; the list persists in .niuniu-agent/todos.json.
 - Bash runs one-off shell commands; remember the OS shell differs per platform.
+`)
+	// Skills index (name + description only) — the Skill tool loads the full
+	// body on demand. Stable within the session (scanned once at Build), so
+	// the cache-friendly prefix property holds.
+	if idx := skills.Index(skills.Scan(cwd)); idx != "" {
+		b.WriteString(`
+# Skills
 
+Full instructions for these load via the Skill tool (pass the name) when a task matches:
+` + idx)
+	}
+	b.WriteString(`
 # Rules
 - Reply in the language the user writes in.
 - When a question depends on local files, use the tools to inspect them; never invent file listings, file contents, or command output.

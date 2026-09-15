@@ -99,3 +99,26 @@ func TestLoadProjectContextTruncatedAtCap(t *testing.T) {
 		t.Errorf("truncation not noted:\n%.200s", got)
 	}
 }
+
+func TestBuildInjectsSkillsIndex(t *testing.T) {
+	dir := t.TempDir()
+	skillDir := filepath.Join(dir, ".niuniu-agent", "skills", "deploy")
+	os.MkdirAll(skillDir, 0o755)
+	os.WriteFile(filepath.Join(skillDir, "SKILL.md"),
+		[]byte("---\nname: deploy\ndescription: Verify release readiness before shipping.\n---\n\nRun the gates.\n"),
+		0o644)
+
+	got := Build(dir)
+	if !strings.Contains(got, "# Skills") ||
+		!strings.Contains(got, "- deploy: Verify release readiness before shipping.") {
+		t.Errorf("Build output missing skills index:\n%s", got)
+	}
+	// 正文不应内联进 system（按需经 Skill 工具加载）。
+	if strings.Contains(got, "Run the gates.") {
+		t.Errorf("skill body must not be inlined into system prompt:\n%s", got)
+	}
+	// 稳定前缀：无 skills 时不得出现空 Skills 段。
+	if strings.Contains(Build(t.TempDir()), "# Skills") {
+		t.Errorf("empty skills list should omit the section")
+	}
+}
