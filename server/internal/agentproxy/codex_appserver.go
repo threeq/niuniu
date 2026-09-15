@@ -289,6 +289,7 @@ func (s *WorkspaceSession) flushCodexBatch(ctx context.Context, app *codexAppSer
 				"workspaceID", s.workspaceID, "method", notif.Method, "err", parseErr)
 			continue
 		}
+		events = s.enrichCodexErrors(events, app)
 		all = append(all, events...)
 	}
 	if len(all) == 0 {
@@ -312,6 +313,26 @@ func (s *WorkspaceSession) dispatchCodexEvents(ctx context.Context, events []ada
 	for _, ev := range events {
 		s.handleEvent(ctx, ev, msgId)
 	}
+}
+
+// enrichCodexErrors fills in empty codex error messages with actionable context.
+// codex emits `error` notifications with an absent message on network failures
+// (e.g. it cannot reach chatgpt.com), which used to surface as bare "Error:"
+// bubbles. The app-server's stderr carries the real reason (model refresh
+// timeout / HTTP request failure) — attach its tail; when stderr has nothing
+// yet, fall back to a connectivity hint.
+func (s *WorkspaceSession) enrichCodexErrors(events []adapter.ParsedEvent, app *codexAppServerClient) []adapter.ParsedEvent {
+	for i, ev := range events {
+		if !ev.IsError || strings.TrimSpace(ev.Result) != "" {
+			continue
+		}
+		if tail := strings.TrimSpace(app.StderrTail(400)); tail != "" {
+			events[i].Result = "Codex error, cause visible in stderr: " + truncate(tail, 400)
+			continue
+		}
+		events[i].Result = "Codex returned an empty error, usually because it cannot connect to the model service (e.g. chatgpt.com). Please check network connectivity or proxy settings"
+	}
+	return events
 }
 
 func (s *WorkspaceSession) handleCodexAppServerRequest(ctx context.Context, app *codexAppServerClient, req codexAppServerNotification) {

@@ -116,7 +116,7 @@ func TestCheckpointService_TimelineDiffRevert(t *testing.T) {
 	writeF(t, codePath, "v3-broken\n")
 
 	// Timeline lists both steps, ascending.
-	tl, err := e.svc.Timeline(e.ctx, e.issueID)
+	tl, err := e.svc.Timeline(e.ctx, e.wsID)
 	require.NoError(t, err)
 	require.Len(t, tl, 2)
 	require.Equal(t, 1, tl[0].Step)
@@ -153,14 +153,14 @@ func TestCheckpointService_TimelineDiffRevert(t *testing.T) {
 	require.Equal(t, "added-at-2\n", readContent(t, filepath.Join(e.repoDir, "added.txt")))
 
 	// Revert to step 1: code.txt back to v1, added.txt removed (it did not exist yet).
-	_, err = e.svc.Revert(e.ctx, e.issueID, 1)
+	_, err = e.svc.Revert(e.ctx, e.wsID, 1)
 	require.NoError(t, err)
 	require.Equal(t, "v1\n", readContent(t, codePath))
 	_, statErr := os.Stat(filepath.Join(e.repoDir, "added.txt"))
 	require.True(t, os.IsNotExist(statErr), "added.txt should be gone after revert to step1")
 
 	// Later checkpoints survive: reverting forward to step 2 still works.
-	_, err = e.svc.Revert(e.ctx, e.issueID, 2)
+	_, err = e.svc.Revert(e.ctx, e.wsID, 2)
 	require.NoError(t, err)
 	require.Equal(t, "v2\n", readContent(t, codePath))
 }
@@ -181,4 +181,46 @@ func readContent(t *testing.T, path string) string {
 	b, err := os.ReadFile(path)
 	require.NoError(t, err)
 	return string(b)
+}
+
+// TestCheckpointService_IssuelessWorkspace：工作空间可以不关联 issue——快照、
+// 时间线、回滚全程按 workspace 键控工作，快照行 issue_id 落 NULL（v2 迁移放宽），
+// 不再报 "workspace has no linked issue"。
+func TestCheckpointService_IssuelessWorkspace(t *testing.T) {
+	e := setupCheckpointTest(t)
+	codePath := filepath.Join(e.repoDir, "code.txt")
+
+	// 第二个工作空间：不关联任何 issue，复用同一 repo 目录。
+	ws2, err := e.q.CreateWorkspace(e.ctx, store.CreateWorkspaceParams{
+		IssueID:   sql.NullInt64{},
+		Name:      "ws-issueless",
+		Path:      e.repoDir,
+		Status:    "running",
+		OwnerType: "user",
+		OwnerID:   1,
+	})
+	require.NoError(t, err)
+
+	// 无 issue 快照：不报错，行落在 workspace 键上。
+	writeF(t, codePath, "issueless-v1\n")
+	r1, err := e.svc.Snapshot(e.ctx, 0, ws2.ID, service.CheckpointKindManual, "no issue", "")
+	require.NoError(t, err)
+	require.Equal(t, 1, r1.Step)
+	require.Len(t, r1.Repos, 1)
+
+	// 时间线按 workspace 读到该步。
+	tl, err := e.svc.Timeline(e.ctx, ws2.ID)
+	require.NoError(t, err)
+	require.Len(t, tl, 1)
+
+	// 回滚也按 workspace 工作。
+	writeF(t, codePath, "issueless-v2-broken\n")
+	_, err = e.svc.Revert(e.ctx, ws2.ID, 1)
+	require.NoError(t, err)
+	require.Equal(t, "issueless-v1\n", readContent(t, codePath))
+
+	// 快照行的 issue_id 为 NULL（溯源语义），workspace_id 始终有值。
+	wsID, ok := e.svc.CheckpointWorkspaceID(e.ctx, r1.Repos[0].ID)
+	require.True(t, ok)
+	require.Equal(t, ws2.ID, wsID)
 }

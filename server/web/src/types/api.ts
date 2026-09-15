@@ -187,9 +187,9 @@ export interface CheckpointStep {
   repos: CheckpointRepo[]
 }
 
-/** Returned by GET /issues/:id/checkpoints. */
+/** Returned by GET /workspaces/:id/checkpoints. */
 export interface CheckpointListResponse {
-  issue_id: number
+  workspace_id: number
   checkpoints: CheckpointStep[]
 }
 
@@ -203,9 +203,9 @@ export interface CheckpointRevertRepo {
   error?: string
 }
 
-/** Returned by POST /issues/:id/checkpoints/revert. */
+/** Returned by POST /workspaces/:id/checkpoints/revert. */
 export interface CheckpointRevertResponse {
-  issue_id: number
+  workspace_id: number
   step: number
   repos: CheckpointRevertRepo[]
 }

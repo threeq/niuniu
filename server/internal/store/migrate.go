@@ -665,6 +665,7 @@ func Migrate(db *sql.DB) {
 	// The git object/refs live in each worktree; this table is the queryable index
 	// (timeline + per-step diff base + gate status) for the checkpoint service.
 	migrateIssueCheckpoints(db)
+	migrateIssueCheckpointsWorkspaceKey(db)
 
 	// Orchestration cost guardrails, stage 6 (spec 2026-06-06 section 16). The
 	// workspace_start_queue table itself is created by schema.sql in Open(); its
@@ -1718,6 +1719,74 @@ func migrateIssueCheckpoints(db *sql.DB) {
 		}
 	}
 	markMigration(w, "issue_checkpoints_v1")
+}
+
+// migrateIssueCheckpointsWorkspaceKey relaxes issue_checkpoints to support
+// issue-less workspaces: the product now allows a workspace to exist without a
+// linked issue, but v1 declared issue_id NOT NULL, so the workspace-scoped
+// checkpoint API had to reject them ("workspace has no linked issue"). v2 makes
+// issue_id nullable (kept as provenance when the workspace has an issue) and
+// adds the (workspace_id, step) index the workspace-keyed queries use.
+func migrateIssueCheckpointsWorkspaceKey(db *sql.DB) {
+	w := Wrap(db)
+	if migrationApplied(w, "issue_checkpoints_v2_workspace_key") {
+		return
+	}
+	ctx := context.Background()
+	if Driver == "postgres" {
+		stmts := []string{
+			`ALTER TABLE issue_checkpoints ALTER COLUMN issue_id DROP NOT NULL`,
+			`CREATE INDEX IF NOT EXISTS idx_issue_checkpoints_ws ON issue_checkpoints(workspace_id, step)`,
+		}
+		for _, s := range stmts {
+			if _, err := w.ExecContext(ctx, s); err != nil {
+				slog.Error("issue_checkpoints v2 (pg) failed",
+					"first_line", strings.SplitN(s, "\n", 2)[0], "error", err)
+				return
+			}
+		}
+		markMigration(w, "issue_checkpoints_v2_workspace_key")
+		return
+	}
+	// SQLite 无法就地放宽 NOT NULL，按标准流程整表重建（列序与 v1 完全一致，
+	// 显式按列拷贝以保留 id 与 created_at；显式 rowid 写入会同步推进
+	// sqlite_sequence，重命名后自增连续）。
+	stmts := []string{
+		`CREATE TABLE issue_checkpoints_v2 (
+			id            INTEGER PRIMARY KEY AUTOINCREMENT,
+			issue_id      BIGINT REFERENCES issues(id) ON DELETE CASCADE,
+			workspace_id  BIGINT NOT NULL,
+			repository_id BIGINT,
+			repo_name TEXT NOT NULL DEFAULT '',
+			worktree_path TEXT NOT NULL DEFAULT '',
+			step INTEGER NOT NULL,
+			kind TEXT NOT NULL CHECK (kind IN ('advance','gate_pass','autohost_final','manual')),
+			gate_status TEXT NOT NULL DEFAULT '',
+			label TEXT NOT NULL DEFAULT '',
+			git_ref TEXT NOT NULL,
+			commit_hash TEXT NOT NULL,
+			parent_hash TEXT NOT NULL DEFAULT '',
+			created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+		)`,
+		`INSERT INTO issue_checkpoints_v2
+			(id, issue_id, workspace_id, repository_id, repo_name, worktree_path, step, kind,
+			 gate_status, label, git_ref, commit_hash, parent_hash, created_at)
+		 SELECT id, issue_id, workspace_id, repository_id, repo_name, worktree_path, step, kind,
+		        gate_status, label, git_ref, commit_hash, parent_hash, created_at
+		 FROM issue_checkpoints`,
+		`DROP TABLE issue_checkpoints`,
+		`ALTER TABLE issue_checkpoints_v2 RENAME TO issue_checkpoints`,
+		`CREATE INDEX IF NOT EXISTS idx_issue_checkpoints_issue ON issue_checkpoints(issue_id, step)`,
+		`CREATE INDEX IF NOT EXISTS idx_issue_checkpoints_ws ON issue_checkpoints(workspace_id, step)`,
+	}
+	for _, s := range stmts {
+		if _, err := w.ExecContext(ctx, s); err != nil {
+			slog.Error("issue_checkpoints v2 (sqlite) failed",
+				"first_line", strings.SplitN(s, "\n", 2)[0], "error", err)
+			return // leave marker unset; next start will retry
+		}
+	}
+	markMigration(w, "issue_checkpoints_v2_workspace_key")
 }
 
 // migrateAINativeBoardStage8 implements the data-model delta for stage 8 (spec
