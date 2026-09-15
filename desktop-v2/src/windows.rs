@@ -257,7 +257,9 @@ pub fn create_ai_hub_window(app: &tauri::AppHandle, lang: &str) -> tauri::Result
         WindowEvent::CloseRequested { api, .. } => {
             api.prevent_close();
             let _ = w2.hide();
-            crate::commands::update_ai_service_visibility(&app2);
+            // hide() 是异步派发：读 is_visible 会拿到旧态 true 导致服务窗被
+            // reveal 而非 stash——显式传隐藏意图。
+            crate::commands::update_ai_service_visibility_at(&app2, false);
         }
         _ => {}
     });
