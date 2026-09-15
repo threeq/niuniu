@@ -38,8 +38,12 @@ func (s *WorkspaceSession) buildCodexOneShotExec(ctx context.Context, workDir st
 		return "", nil, nil, fmt.Errorf("fetch workspace env vars: %w", envErr)
 	}
 	workspaceEnv := make([]adapter.EnvVar, 0, len(wsEnvVars))
+	openaiBase := ""
 	for _, e := range wsEnvVars {
 		workspaceEnv = append(workspaceEnv, adapter.EnvVar{Key: e.Key, Value: e.Value})
+		if e.Key == "OPENAI_BASE_URL" {
+			openaiBase = e.Value
+		}
 		switch e.Key {
 		case "NIUNIU_AGENT_COMMAND":
 			if e.Value != "" {
@@ -111,6 +115,10 @@ func (s *WorkspaceSession) buildCodexOneShotExec(ctx context.Context, workDir st
 		mcpOpts = &opts
 	}
 
+	// provider 中转协议适配（同 buildCodexAppServerRuntime）：内置 provider 的
+	// Responses API 在订阅平台中转上是 404，必须切到 Chat Completions。
+	extraArgs = append(extraArgs, codexProviderConfigArgs(openaiBase)...)
+
 	// Per-account CODEX_HOME switching removed; codex uses the host's global
 	// ~/.codex/.
 	var accountConfigDir string
@@ -138,4 +146,37 @@ func (s *WorkspaceSession) buildCodexOneShotExec(ctx context.Context, workDir st
 		ApprovalPolicy: approvalPolicy,
 	})
 	return command, args, env, nil
+}
+
+// codexProviderConfigArgs 生成 provider 中转的 codex -c 覆盖参数。codex 内置
+// provider 默认走 Responses API（{base}/responses），订阅平台中转（智谱、
+// DeepSeek 等 OpenAI 兼容网关）只提供 Chat Completions；OPENAI_BASE_URL 环境变
+// 量只换 URL 不换协议，请求会 404 并以空 error 通知告终。显式声明自定义
+// model_provider（wire_api="chat"、凭证走 OPENAI_API_KEY 环境变量）并切换到它。
+// openaiBase 为空表示工作空间未解析出 provider，返回 nil 走 codex 默认后端。
+func codexProviderConfigArgs(openaiBase string) []string {
+	if openaiBase == "" {
+		return nil
+	}
+	return []string{
+		"--config", `model_provider="niuniu-provider"`,
+		"--config", `model_providers.niuniu-provider.name="niuniu-provider"`,
+		"--config", `model_providers.niuniu-provider.base_url=` + tomlQuoteStr(openaiBase),
+		"--config", `model_providers.niuniu-provider.env_key="OPENAI_API_KEY"`,
+		"--config", `model_providers.niuniu-provider.wire_api="chat"`,
+	}
+}
+
+// tomlQuoteStr 把字符串编码为 TOML 基础字符串字面量（转义反斜杠与双引号）。
+func tomlQuoteStr(s string) string {
+	var b strings.Builder
+	b.WriteByte('"')
+	for _, r := range s {
+		if r == '"' || r == '\\' {
+			b.WriteByte('\\')
+		}
+		b.WriteRune(r)
+	}
+	b.WriteByte('"')
+	return b.String()
 }

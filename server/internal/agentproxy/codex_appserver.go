@@ -23,6 +23,9 @@ type codexAppServerRuntime struct {
 	sandboxMode    string
 	approvalPolicy string
 	runtimeRoots   []string
+	// configArgs 携带 -c 覆盖（如 provider 中转的 model_provider/wire_api），
+	// 需要置于子命令之前传给 codex 根命令。
+	configArgs []string
 }
 
 func (s *WorkspaceSession) runCodexAppServerTurn(ctx context.Context, workDir, content, msgId string) error {
@@ -87,7 +90,7 @@ func (s *WorkspaceSession) ensureCodexAppServer(ctx context.Context, workDir str
 		return fmt.Errorf("workspace path is not a directory: %s", workDir)
 	}
 
-	app, err := startCodexAppServerClient(ctx, runtime.command, runtime.env)
+	app, err := startCodexAppServerClient(ctx, runtime.command, runtime.configArgs, runtime.env)
 	if err != nil {
 		return err
 	}
@@ -446,14 +449,24 @@ func (s *WorkspaceSession) buildCodexAppServerRuntime(ctx context.Context, workD
 	if envErr != nil {
 		return codexAppServerRuntime{}, fmt.Errorf("fetch workspace env vars: %w", envErr)
 	}
+	openaiBase := ""
 	for _, e := range wsEnvVars {
-		if e.Key == "NIUNIU_MODEL" && e.Value != "" {
+		switch {
+		case e.Key == "NIUNIU_MODEL" && e.Value != "":
 			out.model = e.Value
 			s.mu.Lock()
 			s.modelName = e.Value
 			s.mu.Unlock()
+		case e.Key == "OPENAI_BASE_URL":
+			openaiBase = e.Value
 		}
 	}
+	// provider 中转协议适配：codex 内置 provider 默认走 Responses API
+	// （{base}/responses），而订阅平台中转（智谱/DeepSeek 等）只提供 Chat
+	// Completions——OPENAI_BASE_URL 环境变量只换 URL 不换协议，必须以
+	// model_providers 覆盖声明 wire_api="chat" 并切换 model_provider，
+	// 否则中转返回 404、codex 发出空 error 通知。
+	out.configArgs = codexProviderConfigArgs(openaiBase)
 
 	worktrees, wtErr := s.q.ListWorktrees(ctx, s.workspaceID)
 	if wtErr != nil {
