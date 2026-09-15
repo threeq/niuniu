@@ -156,7 +156,7 @@ export function SettingsPage({ children, orgsActive = false }: SettingsPageProps
       </div>
 
       <div className="flex min-h-0 flex-1 flex-col lg:flex-row">
-        <aside className="shrink-0 border-b border-warm-border bg-warm-surface px-4 py-4 lg:w-72 lg:border-b-0 lg:border-r lg:px-5 lg:py-6">
+        <aside className="shrink-0 border-b border-warm-border bg-warm-surface px-4 py-4 lg:w-72 lg:min-h-0 lg:border-b-0 lg:border-r lg:overflow-y-auto lg:px-5 lg:py-6">
           <nav className="flex gap-3 overflow-x-auto lg:flex-col lg:overflow-visible" aria-label={t('page.navLabel')}>
             {navGroups.map((group) => {
               const groupTabs = group.tabIds
