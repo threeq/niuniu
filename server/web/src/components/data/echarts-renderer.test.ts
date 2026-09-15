@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { normalizeNativeOption } from './echarts-renderer'
+import { buildOption, normalizeNativeOption } from './echarts-renderer'
 
 describe('normalizeNativeOption', () => {
   it('pushes a colliding legend below a title with subtext and opens grid.top', () => {
@@ -43,5 +43,49 @@ describe('normalizeNativeOption', () => {
 
     const noLegend = { title: { text: 'T' } }
     expect(normalizeNativeOption(noLegend)).toBe(noLegend)
+  })
+})
+
+describe('buildOption — hybrid chart specs (data-driven type + native option)', () => {
+  // Agents naturally emit {type:'bar', option:{...complete...}} — a
+  // chart-family type with a full native option and NO result. The option is
+  // self-sufficient (series carry inline data) and must be honored as-is;
+  // before the fix buildOption ignored `option` for non-echarts types and
+  // rendered an empty chart off the (missing) result.
+  it('honors a self-sufficient native option on a bar-typed spec', () => {
+    const chart = {
+      type: 'bar' as const,
+      x: 'day',
+      y: ['新建'],
+      option: {
+        xAxis: { type: 'category', data: ['9/8', '9/9'] },
+        yAxis: { type: 'value' },
+        series: [{ name: '新建', type: 'bar', data: [13, 21] }],
+      },
+    }
+    const opt = buildOption(undefined, chart)
+    expect(opt.series).toEqual(chart.option.series)
+    expect(opt.xAxis).toEqual(chart.option.xAxis)
+  })
+
+  // A style-only option (no series) on a data-driven type must NOT swallow
+  // the result-derived series — the option acts as an override layer.
+  it('keeps result-derived series when the option carries no series', () => {
+    const chart = {
+      type: 'bar' as const,
+      x: 'day',
+      y: ['count'],
+      option: { legend: { bottom: 0 } },
+    }
+    const result = {
+      columns: [{ name: 'day', type: 'string' }, { name: 'count', type: 'number' }],
+      rows: [['9/8', 13]],
+      truncated: false,
+      duration_ms: 1,
+      engine: 'mysql',
+    }
+    const opt = buildOption(result, chart)
+    expect(opt.series).toEqual([{ name: 'count', type: 'bar', data: [13] }])
+    expect(opt.legend).toEqual({ bottom: 0 })
   })
 })

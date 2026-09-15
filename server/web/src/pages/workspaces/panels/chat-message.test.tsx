@@ -93,6 +93,37 @@ describe('ChatMessage niuniu-data rendering', () => {
     expect(screen.getByText(/chart below/)).toBeInTheDocument();
   });
 
+  // Regression (workspace chat): agents emit a HYBRID shape — a data-driven
+  // type ('bar') carrying a full native `option` and NO result, exactly the
+  // natural reading of the run_data_query chart docs. The shape guard only
+  // accepted result-carrying blocks or type==='echarts', so these blocks fell
+  // back to a raw JSON code block and no chart rendered at all.
+  it('renders a hybrid block (data-driven type + native option, no result)', () => {
+    const block = {
+      title: '上周每日缺陷 新建 vs 解决（9/8–9/14）',
+      chart: {
+        type: 'bar',
+        x: 'day',
+        y: ['新建', '解决'],
+        option: {
+          legend: { bottom: 0 },
+          xAxis: { type: 'category', data: ['9/8一', '9/9二'] },
+          yAxis: { type: 'value' },
+          series: [
+            { name: '新建', type: 'bar', data: [13, 21] },
+            { name: '解决', type: 'bar', data: [14, 16] },
+          ],
+        },
+      },
+    };
+    const content = '```niuniu-data\n' + JSON.stringify(block) + '\n```';
+    renderMessage(content);
+    // Parsed into a chart block: the title renders as the block heading and
+    // the raw JSON body is gone.
+    expect(screen.getByText(/上周每日缺陷/)).toBeInTheDocument();
+    expect(screen.queryByText(/"xAxis"/)).not.toBeInTheDocument();
+  });
+
   it('falls back to a plain code block when the fence body is invalid JSON', () => {
     const content = 'broken:\n\n```niuniu-data\n{ not valid json }\n```';
     renderMessage(content);

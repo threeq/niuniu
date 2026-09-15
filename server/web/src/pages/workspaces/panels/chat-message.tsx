@@ -109,9 +109,13 @@ function splitNiuniuDataSegments(content: string): ContentSegment[] {
       ) {
         obj = { chart: { type: 'echarts', option: obj as unknown as Record<string, unknown> } } as DataBlock;
       }
-      // Minimal shape guard. Two valid shapes:
+      // Minimal shape guard. Three valid shapes:
       //  - a query-derived block: a `result` with a `columns` array;
-      //  - a self-contained chart: `chart.type === 'echarts'` with an `option`.
+      //  - a self-contained chart: `chart.type === 'echarts'` with an `option`;
+      //  - a HYBRID: a data-driven type ('bar'/'line'/…) carrying a full
+      //    native `option` and no result — the natural way agents emit a
+      //    self-contained chart while keeping the chart-family type. The
+      //    renderer honors `option` as the base config in that case.
       // Anything else falls back to a plain code block.
       const hasResult =
         !!obj?.result && Array.isArray(obj.result.columns);
@@ -119,7 +123,9 @@ function splitNiuniuDataSegments(content: string): ContentSegment[] {
         obj?.chart?.type === 'echarts' &&
         !!obj.chart.option &&
         typeof obj.chart.option === 'object';
-      if (obj && typeof obj === 'object' && (hasResult || hasEcharts)) {
+      const hasNativeOption =
+        !!obj?.chart?.option && typeof obj.chart.option === 'object';
+      if (obj && typeof obj === 'object' && (hasResult || hasEcharts || hasNativeOption)) {
         parsed = obj;
       }
     } catch {
