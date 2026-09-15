@@ -3,6 +3,7 @@ package agentproxy
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"os"
 	"os/exec"
 	"strings"
@@ -140,6 +141,63 @@ func TestCodexAppServerClient_StartThreadSmoke(t *testing.T) {
 			}
 		case <-ctx.Done():
 			t.Fatalf("timeout waiting for thread/started")
+		}
+	}
+}
+
+// TestReadLoopNeverDropsTerminalNotifications is the regression for the
+// team-edition "turn Done never fires, every message queues forever" bug:
+// readLoop delivered notifications with a NON-BLOCKING send + default-discard.
+// During a long turn the events channel (cap 128) filled up with delta/item
+// traffic, and the turn's FINAL `turn/completed` — the one notification that
+// unblocks waitForTurnComplete — was silently thrown away. The SendLoop then
+// stayed "running" forever and every later message queued behind it.
+//
+// The contract now: terminal notifications (turn/completed, turn/failed,
+// process/exited, error) are delivered with a blocking send — they must never
+// be dropped; only lossy stream traffic (deltas) may be shed under load.
+func TestReadLoopNeverDropsTerminalNotifications(t *testing.T) {
+	c := &codexAppServerClient{
+		pending: map[int64]chan codexAppServerResponse{},
+		events:  make(chan codexAppServerNotification, 8),
+		done:    make(chan struct{}),
+	}
+
+	// Saturate the channel with lossy stream traffic.
+	for i := 0; i < cap(c.events); i++ {
+		c.events <- codexAppServerNotification{Method: "item/agentMessage/delta", Params: json.RawMessage(`{"delta":"x"}`)}
+	}
+
+	// Feed a terminal notification through readLoop. With the old
+	// non-blocking delivery this line was a silent no-op.
+	r, w := io.Pipe()
+	go func() {
+		_, _ = w.Write([]byte(`{"method":"turn/completed","params":{"turn":{"status":"completed","durationMs":42}}}` + "\n"))
+		w.Close()
+	}()
+	go c.readLoop(r)
+
+	// Give readLoop time to process the input line BEFORE draining: under the
+	// old non-blocking delivery the saturated channel makes it drop the
+	// terminal notification right here (and exit at EOF). Delaying the drain
+	// removes the race where an early consumer would accidentally rescue the
+	// send.
+	time.Sleep(200 * time.Millisecond)
+
+	// Drain: the filler deltas may be shed (allowed), but the terminal
+	// notification MUST arrive.
+	deadline := time.After(3 * time.Second)
+	for {
+		select {
+		case ev, ok := <-c.events:
+			if !ok {
+				t.Fatal("events closed before turn/completed was delivered")
+			}
+			if ev.Method == "turn/completed" {
+				return // delivered — the contract holds
+			}
+		case <-deadline:
+			t.Fatal("turn/completed was dropped under channel saturation — terminal notifications must be delivered with a blocking send")
 		}
 	}
 }
