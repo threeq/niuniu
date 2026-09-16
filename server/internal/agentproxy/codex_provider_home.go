@@ -82,8 +82,8 @@ func RemoveCodexProviderHome(workspaceID int64) error {
 	return nil
 }
 
-// codexModelsJSON 生成 codex 0.144+ 的模型目录文件（字段集对照智谱/DeepSeek
-// 官方 models.json 样例裁剪：缺省字段由 codex 取默认值）。
+// codexModelsJSON 生成 codex 0.144+ 的模型目录文件。解析是严格模式（缺字段
+// 即报 "missing field"，已实测 priority），字段集完整对照智谱官方样例。
 func codexModelsJSON(model string, contextWindow int64) string {
 	if contextWindow <= 0 {
 		contextWindow = 131072
@@ -93,6 +93,7 @@ func codexModelsJSON(model string, contextWindow int64) string {
     {
       "slug": ` + strconv.Quote(model) + `,
       "display_name": ` + strconv.Quote(model) + `,
+      "description": "niuniu provider model",
       "default_reasoning_level": "high",
       "supported_reasoning_levels": [
         { "effort": "low", "description": "Low" },
@@ -102,13 +103,19 @@ func codexModelsJSON(model string, contextWindow int64) string {
       "shell_type": "shell_command",
       "visibility": "list",
       "supported_in_api": true,
-      "input_modalities": ["text"],
+      "priority": 0,
+      "base_instructions": "",
+      "supports_reasoning_summaries": true,
+      "default_reasoning_summary": "none",
+      "support_verbosity": false,
+      "apply_patch_tool_type": "freeform",
+      "truncation_policy": { "mode": "tokens", "limit": 10000 },
       "context_window": ` + strconv.FormatInt(contextWindow, 10) + `,
       "max_context_window": ` + strconv.FormatInt(contextWindow, 10) + `,
       "effective_context_window_percent": 95,
       "supports_parallel_tool_calls": true,
-      "apply_patch_tool_type": "freeform",
-      "truncation_policy": { "mode": "tokens", "limit": 10000 }
+      "experimental_supported_tools": [],
+      "input_modalities": ["text"]
     }
   ]
 }

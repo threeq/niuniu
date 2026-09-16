@@ -38,6 +38,7 @@ func TestPrepareCodexProviderHome(t *testing.T) {
 	var parsed struct {
 		Models []struct {
 			Slug          string `json:"slug"`
+			Priority      int    `json:"priority"`
 			ContextWindow int64  `json:"context_window"`
 		} `json:"models"`
 	}
@@ -45,6 +46,11 @@ func TestPrepareCodexProviderHome(t *testing.T) {
 	require.Len(t, parsed.Models, 1)
 	require.Equal(t, "GLM-5.3-Flash[1m]", parsed.Models[0].Slug)
 	require.Equal(t, int64(1000000), parsed.Models[0].ContextWindow)
+	// codex 严格解析：priority 等字段缺失会报 missing field（实测）。
+	require.Equal(t, 0, parsed.Models[0].Priority)
+	for _, field := range []string{"display_name", "default_reasoning_level", "shell_type", "supported_in_api", "input_modalities", "truncation_policy", "experimental_supported_tools"} {
+		require.Contains(t, string(catalog), field)
+	}
 
 	// 再次生成覆盖写（跟随 provider 配置变化）。权限位 0600 仅在支持 Unix
 	// 权限的平台上可断言（Windows 落盘为 0666）。
