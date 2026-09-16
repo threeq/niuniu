@@ -237,13 +237,20 @@ func toAntMessages(msgs []Message) []antMessage {
 		}
 		out = append(out, antMessage{Role: m.Role, Content: blocks})
 	}
-	// Breakpoint 3 of 3: mark the last block of the last message — the
-	// incremental checkpoint. Everything before it that was cached on an
-	// earlier round is read from cache; only the trailing delta is written.
-	if len(out) > 0 {
-		content := out[len(out)-1].Content
-		if len(content) > 0 {
-			content[len(content)-1].CacheControl = &antCacheControl{Type: ephemeralCache}
+	// Breakpoint 3 of 3 — the INCREMENTAL checkpoint rides the SECOND-TO-
+	// LAST message (when there is one): its content is frozen by the time
+	// the next round is built, so the breakpoint lands on identical bytes
+	// every round and the read hits; only the trailing delta is written.
+	// (Marking the last message instead would move the checkpoint onto
+	// fresh bytes each round.) A single-message request degrades to
+	// marking that message.
+	if n := len(out); n > 0 {
+		idx := n - 2
+		if n < 2 {
+			idx = n - 1
+		}
+		if last := out[idx].Content; len(last) > 0 {
+			last[len(last)-1].CacheControl = &antCacheControl{Type: ephemeralCache}
 		}
 	}
 	return out

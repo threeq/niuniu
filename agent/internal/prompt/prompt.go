@@ -6,6 +6,19 @@
 // cache (Anthropic cache_control breakpoints, OpenAI implicit prefix
 // caching) actually hit. Anything that varies per turn — tool results,
 // user messages — lives in the message history, never here.
+//
+// Prompt-cache anti-debounce rules (cache killers are FORBIDDEN in the
+// stable prefix):
+//   - no wall-clock timestamps finer than a date, and no monotonic counters
+//     (the date is session-constant, which keeps the prefix stable within a
+//     session; cross-session churn only costs one write);
+//   - no random ids, no request-scoped state, no per-turn file listings;
+//   - section ORDER is fixed; new sections append after stable ones;
+//   - anything dynamic belongs to the message history, where every turn is
+//     expected to change anyway.
+//
+// These hold for every Build/BuildSession* variant and any future section —
+// a review that adds per-turn content to the prefix should be rejected.
 package prompt
 
 import (

@@ -198,12 +198,13 @@ func TestAnthropicCacheControlBreakpoints(t *testing.T) {
 	} else {
 		breakpoints++
 	}
-	// messages：仅最后一条消息的最后一个块带 cache_control（增量断点）。
+	// messages：增量断点只落在倒数第二条消息的最后一个块——它的内容在
+	// 下一轮构造请求时已冻结，断点字节跨轮稳定才可命中；末消息留作增量。
 	for i, msg := range gotBody.Messages {
-		last := i == len(gotBody.Messages)-1
+		penultimate := i == len(gotBody.Messages)-2
 		for j, blk := range msg.Content {
-			isLastBlock := last && j == len(msg.Content)-1
-			if blk.CacheControl != nil && !isLastBlock {
+			isMarked := penultimate && j == len(msg.Content)-1
+			if blk.CacheControl != nil && !isMarked {
 				t.Errorf("messages[%d].content[%d] carries unexpected cache_control", i, j)
 			}
 			if blk.CacheControl != nil {
@@ -211,8 +212,11 @@ func TestAnthropicCacheControlBreakpoints(t *testing.T) {
 			}
 		}
 	}
-	if gotBody.Messages[2].Content[0].CacheControl == nil {
-		t.Error("final message missing incremental cache_control breakpoint")
+	if gotBody.Messages[1].Content[0].CacheControl == nil {
+		t.Error("penultimate message missing incremental cache_control breakpoint")
+	}
+	if gotBody.Messages[2].Content[0].CacheControl != nil {
+		t.Error("final message must stay unmarked (it is the next round's delta)")
 	}
 	if breakpoints > 4 {
 		t.Errorf("cache_control breakpoints = %d, want <= 4", breakpoints)
@@ -271,5 +275,47 @@ func TestAnthropicThinkingRoundTrip(t *testing.T) {
 	}
 	if asst.Content[1].Type != BlockToolUse {
 		t.Errorf("order broken: %+v", asst.Content)
+	}
+}
+
+func TestAnthropicIncrementalCacheBreakpoint(t *testing.T) {
+	var gotBody antRequest
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewDecoder(r.Body).Decode(&gotBody)
+		w.Header().Set("content-type", "application/json")
+		_, _ = w.Write([]byte(`{"content":[{"type":"text","text":"ok"}],"stop_reason":"end_turn","usage":{}}`))
+	}))
+	defer ts.Close()
+
+	m := NewAnthropic(Config{Provider: ProviderAnthropic, BaseURL: ts.URL, AuthToken: "t", Model: "m"})
+	_, err := m.Complete(context.Background(), Request{
+		Messages: []Message{
+			{Role: RoleUser, Blocks: []Block{{Type: BlockText, Text: "q1"}}},
+			{Role: RoleAssistant, Blocks: []Block{{Type: BlockText, Text: "a1"}}},
+			{Role: RoleUser, Blocks: []Block{{Type: BlockText, Text: "q2"}}},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// 增量断点：标倒数第二条消息（跨轮内容稳定→命中），末消息留作增量。
+	for i, msg := range gotBody.Messages {
+		marked := len(msg.Content) > 0 && msg.Content[len(msg.Content)-1].CacheControl != nil
+		want := i == len(gotBody.Messages)-2
+		if marked != want {
+			t.Errorf("messages[%d] marked=%v, want %v (breakpoint must ride the second-to-last message)", i, marked, want)
+		}
+	}
+
+	// 单消息请求：退化为标唯一一条。
+	if _, err := m.Complete(context.Background(), Request{
+		Messages: []Message{{Role: RoleUser, Blocks: []Block{{Type: BlockText, Text: "only"}}}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if l := len(gotBody.Messages); l != 1 || len(gotBody.Messages[0].Content) == 0 ||
+		gotBody.Messages[0].Content[len(gotBody.Messages[0].Content)-1].CacheControl == nil {
+		t.Errorf("single-message request must still mark the last message")
 	}
 }

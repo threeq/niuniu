@@ -5,7 +5,7 @@ niuniu 的自研编码 agent（issue #708 / #709）。可行性分析与总体�
 
 独立 Go 模块（挂入根 `go.work`），**零第三方依赖**，目标是单二进制分发（desktop sidecar 友好）。
 
-## 当前状态：P4
+## 当前状态：P5
 
 - ✅ `-p` headless 单轮（`-p -` 读 stdin；`-y` 放行变更类工具）
 - ✅ `acp` server：stdio JSON-RPC（initialize / session/new / session/prompt / session/update / session/request_permission / session/cancel），session cwd 经 chdir 生效
@@ -23,7 +23,11 @@ niuniu 的自研编码 agent（issue #708 / #709）。可行性分析与总体�
 - ✅ P3 subagent：`Agent` 工具起进程内子 Session（独立对话、复用模型与权限策略、子注册表无 Agent 工具→递归深度限 1）；sync 回填子最终文本 + `[subagent usage]` 行；单子 agent 超时上限（默认 10 分钟）
 - ✅ P4 原生记忆：`~/.niuniu-agent/memory` + `<cwd>/.niuniu-agent/memory` 双层 markdown 存储（title 去重、单条 8KB / 每层 200 条防污染）；`MemorySave`/`MemorySearch` 工具；启动评分召回 top-N 注入 system 的 Memory 段（ADVISORY 定位，字节上限）；`-reflect` 回合后可选反射提炼（同 title 去重，默认关）；纯 env+本地文件独立运行，不依赖 niuniu
 - ✅ P4 能力自动注入：agent 侧 session 启动加载 `<cwd>/.niuniu-agent/inject.md`（40KB 上限）进 system 的 Host capabilities 段；server 侧为 `cli_type=niuniu` 工作空间投影 inject.md（niuniu-mcp 四族工具说明 + AUTOHOST_DONE 收尾约定 + 看板纪律 + 记忆互通指引）并重生成含 niuniu-mcp 的 `.mcp.json`（与 claude 引擎同一生成器）；投影失败不阻断
-- ⏳ P5：token 级流式、hooks、session resume/checkpoint、sandbox、eval 集、记忆 consolidate
+- ✅ P5 thinking 全链路：双 adapter 解析思考块（anthropic thinking+signature 原样回传 / openai reasoning_content）→ ACP `agent_thought_chunk` → 服务端 EventThinking 落库；`NIUNIU_AGENT_THINKING`（off|low|medium|high|<tokens>）预算/effort 透传；headless stderr `[thinking]` 行
+- ✅ P5 subagent 共享/隔离：cwd/system 继承钉住、ContextPreamble+context 叠加、background=true + AgentResult 轮询、同回合多 Agent 并行；窗口隔离（仅报告回填）、compact 继承、报告 16KB 截断、TodoWrite 等排除清单、召回减半
+- ✅ P5 长任务：后台 Bash（run_in_background + BashOutput 轮询）、session 持久化 `.niuniu-agent/sessions/` + `-resume <id|latest>`、compact 摘要三节结构化（Background/Key decisions/Open items）
+- ✅ P5 缓存精细化：usage 行 cache-hit 命中率、增量消息断点（cache_control 落倒数第二条消息，跨轮字节稳定才命中）、prompt 防抖规则成文（见 internal/prompt 包注释）
+- ⏳ P6+：token 级流式、hooks、checkpoint/rewind、sandbox、交互式 TUI、记忆 consolidate、子 agent 类型化
 
 ## 用法
 
@@ -57,6 +61,7 @@ agent/
     ├── acp/              ACP server（stdio JSON-RPC）
     ├── mcp/              MCP stdio client（.mcp.json → mcp__<server>__<tool>）
     ├── skills/           SKILL.md 扫描/加载 + Skill 工具
+    ├── memory/           原生记忆（双层存储/召回/反射 + MemorySave/Search）
     ├── perm/             权限层
     └── tools/            LS/Read/Grep/Glob/Write/Edit/Bash/TodoWrite
 ```
