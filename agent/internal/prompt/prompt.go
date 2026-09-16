@@ -9,6 +9,7 @@
 package prompt
 
 import (
+	"log/slog"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -16,6 +17,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/niuniu-dev/niuniu/agent/internal/memory"
 	"github.com/niuniu-dev/niuniu/agent/internal/skills"
 )
 
@@ -59,7 +61,45 @@ Full instructions for these load via the Skill tool (pass the name) when a task 
 	if ctx, ok := LoadProjectContext(cwd); ok {
 		b.WriteString("\n# Project context\n\n" + ctx + "\n")
 	}
+	// Host capabilities injection: the generic contract any host (niuniu or
+	// otherwise) uses to project abilities into the session. Same cap and
+	// session-stable placement as the project context.
+	if inject, ok := LoadInject(cwd); ok {
+		b.WriteString("\n# Host capabilities\n\n" + inject + "\n")
+	}
 	return b.String()
+}
+
+// BuildSession is the full session system prompt: Build plus the
+// recalled-memory section. Both headless main and the ACP server use this
+// as their systemFor, so every entry path gets identical context assembly.
+// Session-constant across rounds (stable prefix for the prompt cache).
+func BuildSession(cwd string) string {
+	store := memory.NewStore(cwd)
+	recall, err := store.Recall(5, 2048)
+	if err != nil {
+		slog.Warn("memory recall failed", "err", err)
+	}
+	return Build(cwd) + memory.Section(recall)
+}
+
+// LoadInject reads the host capability injection file for cwd:
+// <cwd>/.niuniu-agent/inject.md. Returns ("", false) when absent. Content is
+// capped at MaxContextBytes with a truncation note appended.
+func LoadInject(cwd string) (string, bool) {
+	data, err := os.ReadFile(filepath.Join(cwd, ".niuniu-agent", "inject.md"))
+	if err != nil {
+		return "", false
+	}
+	s := strings.TrimSpace(string(data))
+	if s == "" {
+		return "", false
+	}
+	if len(s) > MaxContextBytes {
+		s = s[:MaxContextBytes] + "\n\n[host capabilities truncated at " +
+			strconv.Itoa(MaxContextBytes/1024) + "KB; read .niuniu-agent/inject.md for the rest]"
+	}
+	return s, true
 }
 
 // LoadProjectContext reads the project instruction file for cwd: AGENTS.md

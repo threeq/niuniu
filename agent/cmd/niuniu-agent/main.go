@@ -23,7 +23,6 @@ import (
 	"github.com/niuniu-dev/niuniu/agent/internal/prompt"
 	"github.com/niuniu-dev/niuniu/agent/internal/skills"
 	"github.com/niuniu-dev/niuniu/agent/internal/tools"
-	"log/slog"
 )
 
 // newRegistry advertises the built-in tool suite.
@@ -36,19 +35,6 @@ func newRegistry() *tools.Registry {
 
 // subagentPreamble turns the base system prompt into a child's.
 const subagentPreamble = "\n\nYou are running as a subagent dispatched by a parent agent. You cannot ask the parent questions: complete the given task autonomously with the tools available and end with a final report the parent can act on."
-
-// buildSystem assembles the system prompt for a session rooted at cwd:
-// base prompt (identity/environment/tools/rules/project context) plus the
-// recalled-memory section. Both parts are session-constant, preserving the
-// stable-prefix property the prompt cache relies on.
-func buildSystem(cwd string) string {
-	store := memory.NewStore(cwd)
-	recall, err := store.Recall(5, 2048)
-	if err != nil {
-		slog.Warn("memory recall failed", "err", err)
-	}
-	return prompt.Build(cwd) + memory.Section(recall)
-}
 
 // sessionRegistry assembles one session's toolset: built-in tools plus the
 // MCP servers projected into cwd (.mcp.json), the Skill tool over the
@@ -67,7 +53,7 @@ func sessionRegistry(cwd string, m model.Model, perms perm.Checker) (*tools.Regi
 	reg.Register(memory.NewSaveTool(memStore))
 	reg.Register(memory.NewSearchTool(memStore))
 
-	system := buildSystem(cwd) + subagentPreamble
+	system := prompt.BuildSession(cwd) + subagentPreamble
 	newChild := func() *tools.Registry {
 		child := newRegistry()
 		mgr.RegisterInto(child)
@@ -143,7 +129,7 @@ Configuration (env):
 	reg, closer := sessionRegistry(cwd, m, perm.NewPolicy(*yes))
 	defer closer.Close()
 
-	system := buildSystem(cwd)
+	system := prompt.BuildSession(cwd)
 	if *printSystem {
 		// Observability for tests/debugging: what the model actually sees.
 		fmt.Fprintln(os.Stderr, "--- system ---\n"+system+"\n--- end system ---")
@@ -187,7 +173,7 @@ func runACP() {
 	if err := fs.Parse(os.Args[2:]); err != nil {
 		fail(err)
 	}
-	srv := acp.New(os.Stdin, os.Stdout, newRegistry(), buildSystem,
+	srv := acp.New(os.Stdin, os.Stdout, newRegistry(), prompt.BuildSession,
 		func() (model.Model, error) {
 			return buildModel(*provider, *modelName)
 		},

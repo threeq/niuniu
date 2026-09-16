@@ -23,9 +23,9 @@ func TestQwenProcessModeIsOneShot(t *testing.T) {
 
 func TestQwenDisplayName(t *testing.T) {
 	cases := map[string]string{
-		"":               "qwen",
-		"qwen":           "qwen",
-		"/usr/bin/qwen":  "qwen",
+		"":                  "qwen",
+		"qwen":              "qwen",
+		"/usr/bin/qwen":     "qwen",
 		"C:\\bin\\qwen.exe": "qwen",
 	}
 	for cmd, want := range cases {

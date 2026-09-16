@@ -5,7 +5,7 @@ niuniu 的自研编码 agent（issue #708 / #709）。可行性分析与总体�
 
 独立 Go 模块（挂入根 `go.work`），**零第三方依赖**，目标是单二进制分发（desktop sidecar 友好）。
 
-## 当前状态：P3
+## 当前状态：P4
 
 - ✅ `-p` headless 单轮（`-p -` 读 stdin；`-y` 放行变更类工具）
 - ✅ `acp` server：stdio JSON-RPC（initialize / session/new / session/prompt / session/update / session/request_permission / session/cancel），session cwd 经 chdir 生效
@@ -21,7 +21,9 @@ niuniu 的自研编码 agent（issue #708 / #709）。可行性分析与总体�
 - ✅ P3 MCP client：零依赖 stdio client（initialize / tools-list / tools-call）；session 启动读 cwd `.mcp.json` 逐 server 拉起，工具以 `mcp__<server>__<tool>` 注册；单 server 失败告警跳过不阻断；server 生命周期随会话（进程）退出
 - ✅ P3 skills：扫描 `<cwd>/.niuniu-agent/skills` 与 `~/.niuniu-agent/skills` 的 `*/SKILL.md`（frontmatter name/description，项目级遮蔽用户级）；system 注入仅 name+description 的索引；`Skill` 工具按名加载正文进上下文
 - ✅ P3 subagent：`Agent` 工具起进程内子 Session（独立对话、复用模型与权限策略、子注册表无 Agent 工具→递归深度限 1）；sync 回填子最终文本 + `[subagent usage]` 行；单子 agent 超时上限（默认 10 分钟）
-- ⏳ P4：token 级流式、hooks、session resume/checkpoint、sandbox、eval 集
+- ✅ P4 原生记忆：`~/.niuniu-agent/memory` + `<cwd>/.niuniu-agent/memory` 双层 markdown 存储（title 去重、单条 8KB / 每层 200 条防污染）；`MemorySave`/`MemorySearch` 工具；启动评分召回 top-N 注入 system 的 Memory 段（ADVISORY 定位，字节上限）；`-reflect` 回合后可选反射提炼（同 title 去重，默认关）；纯 env+本地文件独立运行，不依赖 niuniu
+- ✅ P4 能力自动注入：agent 侧 session 启动加载 `<cwd>/.niuniu-agent/inject.md`（40KB 上限）进 system 的 Host capabilities 段；server 侧为 `cli_type=niuniu` 工作空间投影 inject.md（niuniu-mcp 四族工具说明 + AUTOHOST_DONE 收尾约定 + 看板纪律 + 记忆互通指引）并重生成含 niuniu-mcp 的 `.mcp.json`（与 claude 引擎同一生成器）；投影失败不阻断
+- ⏳ P5：token 级流式、hooks、session resume/checkpoint、sandbox、eval 集、记忆 consolidate
 
 ## 用法
 

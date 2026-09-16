@@ -122,3 +122,29 @@ func TestBuildInjectsSkillsIndex(t *testing.T) {
 		t.Errorf("empty skills list should omit the section")
 	}
 }
+
+func TestBuildInjectsHostCapabilities(t *testing.T) {
+	dir := t.TempDir()
+	os.MkdirAll(filepath.Join(dir, ".niuniu-agent"), 0o755)
+	os.WriteFile(filepath.Join(dir, ".niuniu-agent", "inject.md"),
+		[]byte("## niuniu-mcp 工具族\n看板/黑板/收件箱工具可用；收尾时输出 [AUTOHOST_DONE]。"), 0o644)
+
+	got := Build(dir)
+	if !strings.Contains(got, "# Host capabilities") ||
+		!strings.Contains(got, "[AUTOHOST_DONE]") {
+		t.Errorf("Build output missing host capabilities section:\n%s", got)
+	}
+
+	// 超大 inject 截断到 MaxContextBytes 并附说明。
+	big := strings.Repeat("x", 50<<10)
+	os.WriteFile(filepath.Join(dir, ".niuniu-agent", "inject.md"), []byte(big), 0o644)
+	got2 := Build(dir)
+	if !strings.Contains(got2, "host capabilities truncated") {
+		t.Errorf("oversized inject.md not capped:\n...%s", got2[len(got2)-300:])
+	}
+
+	// 无 inject.md 时不出现空段。
+	if strings.Contains(Build(t.TempDir()), "# Host capabilities") {
+		t.Error("missing inject.md must omit the section")
+	}
+}

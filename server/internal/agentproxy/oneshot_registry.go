@@ -41,8 +41,8 @@ type oneShotExecBuilder func(s *WorkspaceSession, ctx context.Context, workDir s
 // it for a nil adapter, preserving the legacy "no cli_type means codex here"
 // behavior that codex_appserver.go also depends on.
 var oneShotExecBuilders = map[adapter.Type]oneShotExecBuilder{
-	adapter.TypeQwen:   (*WorkspaceSession).buildQwenOneShotExec,
-	adapter.TypeCodex:  (*WorkspaceSession).buildCodexOneShotExec,
+	adapter.TypeQwen:  (*WorkspaceSession).buildQwenOneShotExec,
+	adapter.TypeCodex: (*WorkspaceSession).buildCodexOneShotExec,
 }
 
 // buildOneShotExec resolves the (command, argv, env) triple for one one-shot

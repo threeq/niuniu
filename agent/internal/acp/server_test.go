@@ -405,3 +405,49 @@ func TestACPExtendSessionRegistryAndLifecycle(t *testing.T) {
 		t.Fatal("session closer not closed after Serve returns")
 	}
 }
+
+// P4 验收 e2e：niuniu 工作空间形态目录（.niuniu-agent/inject.md + 记忆）
+// 下，session 的 system 必须包含注入内容与召回的记忆。
+func TestACPWorkspaceInjectionAndMemoryRecall(t *testing.T) {
+	// TempDir 先建（Windows cwd 清理顺序，见 TestACPExtendSessionRegistryAndLifecycle）。
+	dir := t.TempDir()
+	if orig, err := os.Getwd(); err == nil {
+		t.Cleanup(func() { _ = os.Chdir(orig) })
+	}
+	os.MkdirAll(filepath.Join(dir, ".niuniu-agent"), 0o755)
+	os.WriteFile(filepath.Join(dir, ".niuniu-agent", "inject.md"),
+		[]byte("niuniu-mcp 工具族可用；收尾时输出 [AUTOHOST_DONE]。"), 0o644)
+	// 预置一条记忆（直接落项目层）。
+	memDir := filepath.Join(dir, ".niuniu-agent", "memory")
+	os.MkdirAll(memDir, 0o755)
+	os.WriteFile(filepath.Join(memDir, "deploy-gate.md"),
+		[]byte("---\ntitle: deploy-gate\ntype: decision\ntags: \ncreated: 2026-09-15T00:00:00Z\nupdated: 2026-09-15T00:00:00Z\n---\n\n发布前必须过 harness gate。\n"), 0o644)
+
+	toSrvR, toSrvW := io.Pipe()
+	fromSrvR, fromSrvW := io.Pipe()
+	fm := &fakeModel{turns: [][]model.Block{
+		{{Type: model.BlockText, Text: "ok"}},
+	}}
+	srv := New(toSrvR, fromSrvW, tools.NewRegistry(tools.LS{}),
+		prompt.BuildSession, // 与 main/ACP 一致的完整组装（Build + 记忆召回）
+		func() (model.Model, error) { return fm, nil }, nil)
+	go func() { _ = srv.Serve(context.Background()) }()
+	cl := newClient(t, toSrvW, fromSrvR, nil)
+
+	var sessRes sessionNewResult
+	if err := json.Unmarshal(cl.call("session/new", map[string]any{"cwd": dir}), &sessRes); err != nil {
+		t.Fatalf("session/new: %v", err)
+	}
+	cl.call("session/prompt", map[string]any{
+		"sessionId": sessRes.SessionID,
+		"prompt":    []map[string]string{{"type": "text", "text": "hi"}},
+	})
+
+	sys := fm.lastReq.System
+	if !strings.Contains(sys, "# Host capabilities") || !strings.Contains(sys, "[AUTOHOST_DONE]") {
+		t.Errorf("system missing inject.md content:\n%s", sys)
+	}
+	if !strings.Contains(sys, "deploy-gate") || !strings.Contains(sys, "harness gate") {
+		t.Errorf("system missing memory recall:\n%s", sys)
+	}
+}

@@ -135,7 +135,7 @@ func TestEnqueueQueuesWhileLoopRunning(t *testing.T) {
 // "曾在运行中" window that drag-into-instruct dispatch (and manual send) hit.
 func TestEnqueueQueuesDuringAutohostScheduledWait(t *testing.T) {
 	s := newDispatchTestSession(t)
-	s.running = false             // no live loop
+	s.running = false              // no live loop
 	s.autohostScheduledWait = true // but a paced resume is scheduled to re-drive
 
 	queued, _, err := s.Enqueue(context.Background(), "hello", "")

@@ -3,6 +3,7 @@ package agentproxy
 import (
 	"context"
 	"log/slog"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -61,6 +62,20 @@ func (s *WorkspaceSession) runNiuniuAgentBackendTurn(ctx context.Context, workDi
 // families natively), so the workspace env passes through with only the
 // NIUNIU_* control keys stripped.
 func (s *WorkspaceSession) getOrStartNiuniuAgentBackend(ctx context.Context, workDir string) (agentbackend.Backend, error) {
+	// Capability injection (P4): project inject.md (niuniu-mcp tool family,
+	// AUTOHOST_DONE convention, kanban discipline) and regenerate .mcp.json
+	// (niuniu-mcp) so the agent's own MCP client mounts the niuniu tools —
+	// the same generated config the claude engine consumes. Best-effort: a
+	// failed projection logs and the session proceeds standalone.
+	projectID, perr := s.q.GetProjectIDForWorkspace(ctx, s.workspaceID)
+	if perr != nil {
+		slog.Warn("niuniu-agent: resolve project for projection failed", "workspaceID", s.workspaceID, "err", perr)
+	}
+	if err := projectNiuniuAgentFiles(workDir, s.sessionToken, s.mcpWriter, projectID, s.workspaceID,
+		filepath.Join(workDir, ".team", "inboxes")); err != nil {
+		slog.Warn("niuniu-agent: capability projection failed (continuing standalone)", "workspaceID", s.workspaceID, "err", err)
+	}
+
 	s.mu.Lock()
 	if s.niuniuAgentBackend != nil {
 		be := s.niuniuAgentBackend

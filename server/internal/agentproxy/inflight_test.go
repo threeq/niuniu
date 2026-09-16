@@ -65,11 +65,11 @@ func TestInflightTracker_RemoveReturnsTrueOnHit(t *testing.T) {
 func TestInflightTracker_GCStale(t *testing.T) {
 	tr := NewInflightTracker()
 	now := time.Date(2026, 4, 27, 10, 0, 0, 0, time.UTC)
-	tr.Add(BgTaskBash, "old_bash", "long-running", now.Add(-2*time.Hour))     // 2h old → GC
-	tr.Add(BgTaskBash, "new_bash", "fresh", now.Add(-5*time.Minute))           // recent → keep
-	tr.Add(BgTaskSubagent, "old_sub", "long-sub", now.Add(-45*time.Minute))    // 45m old → GC
+	tr.Add(BgTaskBash, "old_bash", "long-running", now.Add(-2*time.Hour))              // 2h old → GC
+	tr.Add(BgTaskBash, "new_bash", "fresh", now.Add(-5*time.Minute))                   // recent → keep
+	tr.Add(BgTaskSubagent, "old_sub", "long-sub", now.Add(-45*time.Minute))            // 45m old → GC
 	tr.AddWakeup("expired_wake", "wake reason", now.Add(-1*time.Hour), 30*time.Minute) // ScheduledFor = now-30m → GC
-	tr.AddWakeup("future_wake", "wake reason", now, 10*time.Minute)            // ScheduledFor = now+10m → keep
+	tr.AddWakeup("future_wake", "wake reason", now, 10*time.Minute)                    // ScheduledFor = now+10m → keep
 
 	removed := tr.GCStale(now)
 	if len(removed) != 3 {
