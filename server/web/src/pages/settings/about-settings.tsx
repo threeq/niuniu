@@ -14,20 +14,6 @@ function feedbackURL(lang: string): string {
   return `https://github.com/threeq/niuniu-public/issues/new?template=${template}`
 }
 
-// A "release version" is a clean tag like "v1.2.3". Anything else — empty,
-// the literal "dev" fallback baked into health.go, or a git-describe
-// descriptor such as "v1.0.4-3-gabc1234[-dirty]" — renders as the localized
-// "开发版" label so users never see raw build identifiers.
-function isReleaseVersion(v: string): boolean {
-  if (!v || v === 'dev') return false
-  // git describe with commits ahead of tag: "...-N-gHHHHHHH"
-  if (/-\d+-g[0-9a-f]{7,}/.test(v)) return false
-  // dirty working tree marker
-  if (/-dirty$/.test(v)) return false
-  // Must start with semver-shaped digits (pre-release/build suffix is fine).
-  return /^v?\d+\.\d+\.\d+/.test(v)
-}
-
 // AboutSettings — surfaces build version + (in personal mode) a manual
 // check-for-updates control. Background polling lives in main.tsx so it
 // also fires when the user never opens this tab.
@@ -106,8 +92,12 @@ export function AboutSettings() {
       <div className="rounded-lg border bg-card p-5 space-y-3">
         <div className="flex items-center justify-between gap-3">
           <span className="text-sm text-muted-foreground">{t('about.serverVersion')}</span>
+          {/* Show the /api/health version string verbatim (git describe injected
+              via ldflags, e.g. "v0.8.8-17-g0f3b215-dirty"): bug reports and
+              package matching need the exact build identity, not a collapsed
+              "dev" label. Falls back only when health hasn't loaded. */}
           <span className="font-mono text-sm">
-            {isReleaseVersion(serverVersion) ? serverVersion : t('about.versionDev')}
+            {serverVersion || t('about.versionDev')}
           </span>
         </div>
         <div className="flex items-center justify-between gap-3">
