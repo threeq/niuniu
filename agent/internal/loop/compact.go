@@ -24,7 +24,20 @@ const (
 
 // compactSystem drives the summarizer model call. It is distinct from the
 // agent system prompt: this call only compresses history.
-const compactSystem = `You compress a coding agent's conversation history into a compact summary for the model to continue the work with. Preserve: the user's goals and constraints, key decisions, file paths touched (with what changed), current task status, and concrete next steps. Plain prose plus short lists. Do not answer, do not comment — output the summary only.`
+// Structured summary: fixed sections so the continuation model can locate
+// context at a glance (and tests can pin the shape).
+const compactSystem = `You compress a coding agent's conversation history into a compact summary for the model to continue the work with. Output EXACTLY these three sections, each a short header followed by tight bullet points:
+
+## Background
+The user's goals, constraints, and task origin.
+
+## Key decisions
+Settled choices and file paths touched (with what changed) — the reasoning the continuation must not re-derive.
+
+## Open items
+Current task status and the concrete next steps, in order.
+
+Do not answer, do not comment — output the summary only.`
 
 const compactInstruction = `Summarize the conversation above for continuation.`
 

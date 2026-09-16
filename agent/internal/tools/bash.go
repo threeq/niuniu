@@ -29,8 +29,9 @@ const (
 
 // bashInput.
 type bashInput struct {
-	Command   string `json:"command"`
-	TimeoutMS int    `json:"timeout_ms"`
+	Command         string `json:"command"`
+	TimeoutMS       int    `json:"timeout_ms"`
+	RunInBackground bool   `json:"run_in_background"`
 }
 
 func (Bash) Def() model.ToolDef {
@@ -41,7 +42,8 @@ func (Bash) Def() model.ToolDef {
 			"Set timeout_ms (default 120000, max 600000) for long-running commands.",
 		InputSchema: json.RawMessage(`{"type":"object","properties":{` +
 			`"command":{"type":"string","description":"The shell command to execute"},` +
-			`"timeout_ms":{"type":"integer","description":"Timeout in milliseconds (default 120000, max 600000)"}},` +
+			`"timeout_ms":{"type":"integer","description":"Timeout in milliseconds (default 120000, max 600000)"},` +
+			`"run_in_background":{"type":"boolean","description":"Start without waiting; poll BashOutput with the returned id"}},` +
 			`"required":["command"]}`),
 	}
 }
@@ -53,6 +55,12 @@ func (Bash) Execute(ctx context.Context, input json.RawMessage) (string, error) 
 	}
 	if strings.TrimSpace(in.Command) == "" {
 		return "", fmt.Errorf("command is required")
+	}
+	if in.RunInBackground {
+		// Long-running commands (dev servers, big builds): start and return
+		// immediately; poll BashOutput for output and exit status.
+		id, _ := startBackgroundBash(in.Command)
+		return fmt.Sprintf("started background bash (id: %s) — poll the BashOutput tool with this id", id), nil
 	}
 	timeout := bashDefaultTimeout
 	if in.TimeoutMS > 0 {

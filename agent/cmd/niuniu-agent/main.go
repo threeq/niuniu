@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -105,6 +106,7 @@ func main() {
 		yes         = flag.Bool("y", false, "auto-approve mutating tools (Write/Edit/Bash); without it headless mode refuses them")
 		reflectOn   = flag.Bool("reflect", false, "after the run, distill a durable lesson into memory (one extra model call)")
 		printSystem = flag.Bool("print-system", false, "print the assembled system prompt to stderr (debug)")
+		resume      = flag.String("resume", "", "resume a saved session (id under <cwd>/.niuniu-agent/sessions, or \"latest\")")
 	)
 	flag.Parse()
 
@@ -156,6 +158,28 @@ Configuration (env):
 	defer closer.Close()
 
 	system := prompt.BuildSession(cwd)
+
+	sess = loop.NewSession(m, reg, system)
+	// Session resume: rebuild the prior conversation so follow-up runs keep
+	// full context.
+	sessionsDir := filepath.Join(cwd, ".niuniu-agent", "sessions")
+	if *resume != "" {
+		id := *resume
+		if id == "latest" {
+			latest, err := loop.LatestSessionID(sessionsDir)
+			if err != nil {
+				fail(fmt.Errorf("resume latest: %w", err))
+			}
+			id = latest
+		}
+		st, err := loop.LoadSession(sessionsDir, id)
+		if err != nil {
+			fail(fmt.Errorf("resume %s: %w", id, err))
+		}
+		sess = loop.RestoreSession(m, reg, st)
+		fmt.Fprintf(os.Stderr, "[session] resumed %s (%d prior messages)\n", st.ID, len(st.Messages))
+	}
+
 	if *printSystem {
 		// Observability for tests/debugging: what the model actually sees.
 		fmt.Fprintln(os.Stderr, "--- system ---\n"+system+"\n--- end system ---")
@@ -163,7 +187,6 @@ Configuration (env):
 
 	// Session form (not Run) so the transcript is available for the
 	// optional reflection pass.
-	sess = loop.NewSession(m, reg, system)
 	res, err := sess.Prompt(ctx, *promptText,
 		loop.Options{
 			MaxTurns: *maxTurns,
@@ -187,8 +210,20 @@ Configuration (env):
 	// Usage summary goes to stderr: stdout is the answer itself (often piped
 	// into other tools); telemetry must not corrupt it.
 	u := res.Usage
-	fmt.Fprintf(os.Stderr, "[usage] rounds=%d input=%d output=%d cache-read=%d cache-write=%d\n",
-		res.Rounds, u.InputTokens, u.OutputTokens, u.CacheReadTokens, u.CacheCreationTokens)
+	cacheRatio := 0.0
+	if in := u.InputTokens + u.CacheReadTokens; in > 0 {
+		cacheRatio = float64(u.CacheReadTokens) / float64(in)
+	}
+	fmt.Fprintf(os.Stderr, "[usage] rounds=%d input=%d output=%d cache-read=%d cache-write=%d cache-hit=%.0f%%\n",
+		res.Rounds, u.InputTokens, u.OutputTokens, u.CacheReadTokens, u.CacheCreationTokens, cacheRatio*100)
+
+	// Persist the session (with this turn's exchanges) for -resume.
+	sessID := fmt.Sprintf("s-%s", time.Now().UTC().Format("20060102-150405"))
+	if err := loop.SaveSession(sessionsDir, sess.ExportState(sessID)); err != nil {
+		fmt.Fprintf(os.Stderr, "[session] save failed: %v\n", err)
+	} else {
+		fmt.Fprintf(os.Stderr, "[session] saved %s — continue with -resume %s\n", sessID, sessID)
+	}
 
 	// Optional reflection pass: one extra model call distills a durable
 	// lesson from the transcript into memory (same title updates in place).
