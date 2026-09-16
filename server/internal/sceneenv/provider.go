@@ -60,6 +60,14 @@ func ProtocolForCLI(cliType string) string {
 func ExpandProvider(p store.EnvProvider, cliType string, accounts []store.EnvAccount, preserveRef bool) map[string]string {
 	protocol := ProtocolForCLI(cliType)
 	baseURL := decodeBaseURLs(p.BaseUrls)[protocol]
+	// codex（Responses API）：部分平台的 Responses 端点与 Chat Completions
+	// 端点 URL 不同（如智谱 chat=…/api/coding/paas/v4，codex 官方=
+	// https://open.bigmodel.cn/api/v1）——base_urls 的 "codex" 键优先。
+	if cliType == CLICodex {
+		if u := decodeBaseURLs(p.BaseUrls)["codex"]; u != "" {
+			baseURL = u
+		}
+	}
 	if baseURL == "" {
 		return map[string]string{}
 	}

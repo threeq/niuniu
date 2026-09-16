@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -23,8 +24,8 @@ type codexAppServerRuntime struct {
 	sandboxMode    string
 	approvalPolicy string
 	runtimeRoots   []string
-	// configArgs 携带 -c 覆盖（如 provider 中转的 model_provider/wire_api），
-	// 需要置于子命令之前传给 codex 根命令。
+	// configArgs 是 -c 覆盖（provider 网关的 model_provider 声明），必须位于
+	// app-server 子命令之前传给 codex 根命令。
 	configArgs []string
 }
 
@@ -449,7 +450,8 @@ func (s *WorkspaceSession) buildCodexAppServerRuntime(ctx context.Context, workD
 	if envErr != nil {
 		return codexAppServerRuntime{}, fmt.Errorf("fetch workspace env vars: %w", envErr)
 	}
-	openaiBase := ""
+	openaiBase, openaiKey, openaiModel := "", "", ""
+	compactBudget := int64(0)
 	for _, e := range wsEnvVars {
 		switch {
 		case e.Key == "NIUNIU_MODEL" && e.Value != "":
@@ -457,16 +459,33 @@ func (s *WorkspaceSession) buildCodexAppServerRuntime(ctx context.Context, workD
 			s.mu.Lock()
 			s.modelName = e.Value
 			s.mu.Unlock()
+		case e.Key == "OPENAI_MODEL":
+			openaiModel = e.Value
 		case e.Key == "OPENAI_BASE_URL":
 			openaiBase = e.Value
+		case e.Key == "OPENAI_API_KEY":
+			openaiKey = e.Value
+		case e.Key == "NIUNIU_AUTO_COMPACT_BUDGET":
+			if v, perr := strconv.ParseInt(e.Value, 10, 64); perr == nil {
+				compactBudget = v
+			}
 		}
 	}
-	// provider 中转协议适配：codex 内置 provider 默认走 Responses API
-	// （{base}/responses），而订阅平台中转（智谱/DeepSeek 等）只提供 Chat
-	// Completions——OPENAI_BASE_URL 环境变量只换 URL 不换协议，必须以
-	// model_providers 覆盖声明 wire_api="chat" 并切换 model_provider，
-	// 否则中转返回 404、codex 发出空 error 通知。
-	out.configArgs = codexProviderConfigArgs(openaiBase)
+	// provider 中转接入：生成官方式 CODEX_HOME（config.toml + models.json，
+	// wire_api=responses），codex 以 CODEX_HOME 指向它。环境变量切换不了
+	// wire_api——codex-cli ≥0.13x 已移除 wire_api="chat"（discussion #7782，
+	// 强行 -c 注入实测会让 app-server 启动即退出）。
+	providerModel := out.model
+	if providerModel == "" {
+		providerModel = openaiModel
+	}
+	if homeDir, herr := prepareCodexProviderHome(s.workspaceID, codexProviderEnv{
+		BaseURL: openaiBase, APIKey: openaiKey, Model: providerModel, ContextWindow: compactBudget,
+	}); herr != nil {
+		slog.Warn("codex app-server: prepare provider home failed", "workspaceID", s.workspaceID, "err", herr)
+	} else if homeDir != "" {
+		out.env = append(out.env, "CODEX_HOME="+homeDir)
+	}
 
 	worktrees, wtErr := s.q.ListWorktrees(ctx, s.workspaceID)
 	if wtErr != nil {
