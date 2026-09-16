@@ -218,3 +218,58 @@ func TestAnthropicCacheControlBreakpoints(t *testing.T) {
 		t.Errorf("cache_control breakpoints = %d, want <= 4", breakpoints)
 	}
 }
+
+func TestAnthropicThinkingRoundTrip(t *testing.T) {
+	var gotBody antRequest
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewDecoder(r.Body).Decode(&gotBody)
+		w.Header().Set("content-type", "application/json")
+		// 思考块在前（带 signature），后跟 tool_use —— 协议要求按序回传。
+		_, _ = w.Write([]byte(`{"content":[` +
+			`{"type":"thinking","thinking":"先看目录再决定。","signature":"sig-abc"},` +
+			`{"type":"tool_use","id":"tu_1","name":"LS","input":{}}],` +
+			`"stop_reason":"tool_use","usage":{"input_tokens":10,"output_tokens":5}}`))
+	}))
+	defer ts.Close()
+
+	m := NewAnthropic(Config{Provider: ProviderAnthropic, BaseURL: ts.URL, AuthToken: "t", Model: "m"})
+	resp, err := m.Complete(context.Background(), Request{
+		Messages: []Message{{Role: RoleUser, Blocks: []Block{{Type: BlockText, Text: "hi"}}}},
+		Thinking: ThinkingConfig{BudgetTokens: 2048},
+	})
+	if err != nil {
+		t.Fatalf("Complete: %v", err)
+	}
+
+	// 请求侧：thinking 预算透传。
+	if gotBody.Thinking == nil || gotBody.Thinking.BudgetTokens != 2048 {
+		t.Errorf("thinking config = %+v, want budget 2048", gotBody.Thinking)
+	}
+
+	// 响应侧：思考块进 IR，signature 保留。
+	blocks := resp.Message.Blocks
+	if len(blocks) != 2 || blocks[0].Type != BlockThinking || blocks[0].Text != "先看目录再决定。" ||
+		blocks[0].Signature != "sig-abc" {
+		t.Fatalf("blocks = %+v", blocks)
+	}
+
+	// 回传侧：含思考块的 assistant 历史按原序回传（thinking 带 signature 在 tool_use 前）。
+	_, err = m.Complete(context.Background(), Request{
+		Messages: []Message{
+			{Role: RoleUser, Blocks: []Block{{Type: BlockText, Text: "hi"}}},
+			{Role: RoleAssistant, Blocks: blocks},
+			{Role: RoleUser, Blocks: []Block{{Type: BlockToolResult, ToolUseID: "tu_1", Text: "a/"}}},
+		},
+	})
+	if err != nil {
+		t.Fatalf("Complete 2: %v", err)
+	}
+	asst := gotBody.Messages[1]
+	if len(asst.Content) != 2 || asst.Content[0].Type != BlockThinking ||
+		asst.Content[0].Thinking != "先看目录再决定。" || asst.Content[0].Signature != "sig-abc" {
+		t.Fatalf("assistant thinking wire = %+v", asst.Content)
+	}
+	if asst.Content[1].Type != BlockToolUse {
+		t.Errorf("order broken: %+v", asst.Content)
+	}
+}

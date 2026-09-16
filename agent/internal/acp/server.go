@@ -300,6 +300,11 @@ type promptRun struct {
 
 func (r *promptRun) onEvent(e loop.Event) {
 	switch e.Kind {
+	case loop.EventThinking:
+		r.srv.notify(r.sess.id, updateBody{
+			SessionUpdate: "agent_thought_chunk",
+			Content:       &contentBody{Type: "text", Text: e.Text},
+		})
 	case loop.EventText:
 		r.srv.notify(r.sess.id, updateBody{
 			SessionUpdate: "agent_message_chunk",

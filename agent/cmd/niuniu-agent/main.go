@@ -139,7 +139,21 @@ Configuration (env):
 	// optional reflection pass.
 	sess := loop.NewSession(m, reg, system)
 	res, err := sess.Prompt(ctx, *promptText,
-		loop.Options{MaxTurns: *maxTurns, Perms: perm.NewPolicy(*yes)})
+		loop.Options{
+			MaxTurns: *maxTurns,
+			Perms:    perm.NewPolicy(*yes),
+			OnEvent: func(e loop.Event) {
+				if e.Kind == loop.EventThinking {
+					// Reasoning observability: one truncated line per thinking
+					// block (stdout stays the answer; telemetry → stderr).
+					line := e.Text
+					if len(line) > 300 {
+						line = line[:300] + "…"
+					}
+					fmt.Fprintf(os.Stderr, "[thinking] %s\n", strings.ReplaceAll(line, "\n", " "))
+				}
+			},
+		})
 	if err != nil {
 		fail(err)
 	}

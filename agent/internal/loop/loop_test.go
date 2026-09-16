@@ -173,3 +173,54 @@ func TestSessionTranscript(t *testing.T) {
 		t.Error("fresh session transcript must be empty of other sessions")
 	}
 }
+
+func TestThinkingEventsAndConfigPassthrough(t *testing.T) {
+	thinkResp := &model.Response{
+		Message: model.Message{Role: model.RoleAssistant, Blocks: []model.Block{
+			{Type: model.BlockThinking, Text: "let me check the dir", Signature: "sig"},
+			{Type: model.BlockToolUse, ID: "tu_1", Name: "Echo", Input: json.RawMessage(`{}`)}},
+		},
+		StopReason: model.StopToolUse,
+	}
+	fm := &fakeModel{script: []*model.Response{
+		thinkResp,
+		{Message: model.Message{Role: model.RoleAssistant, Blocks: []model.Block{
+			{Type: model.BlockText, Text: "done"}}}, StopReason: model.StopEndTurn},
+	}}
+	reg := tools.NewRegistry(&stubTool{})
+	sess := NewSession(fm, reg, "sys")
+
+	var kinds []EventKind
+	res, err := sess.Prompt(context.Background(), "go", Options{
+		Thinking: model.ThinkingConfig{BudgetTokens: 4096},
+		OnEvent:  func(e Event) { kinds = append(kinds, e.Kind) },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// 事件序：thinking → tool start/end → text。
+	want := []EventKind{EventThinking, EventToolStart, EventToolEnd, EventText}
+	if len(kinds) != len(want) {
+		t.Fatalf("events = %v, want %v", kinds, want)
+	}
+	for i := range want {
+		if kinds[i] != want[i] {
+			t.Errorf("event[%d] = %v, want %v", i, kinds[i], want[i])
+		}
+	}
+	// Thinking 配置透传给每一轮请求。
+	for i, req := range fm.reqs {
+		if req.Thinking.BudgetTokens != 4096 {
+			t.Errorf("round %d thinking = %+v, want budget 4096", i+1, req.Thinking)
+		}
+	}
+	// 思考块按序保留在 assistant 历史中（回传给模型）。
+	hist := fm.reqs[1].Messages[1].Blocks
+	if len(hist) != 2 || hist[0].Type != model.BlockThinking || hist[0].Signature != "sig" {
+		t.Errorf("history thinking block = %+v", hist)
+	}
+	// thinking 不进最终文本。
+	if res.Text != "done" {
+		t.Errorf("final = %q", res.Text)
+	}
+}

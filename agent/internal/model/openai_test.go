@@ -142,3 +142,50 @@ func TestOpenAICacheUsageParsing(t *testing.T) {
 		t.Errorf("usage = %+v, want cache read 1234", resp.Usage)
 	}
 }
+
+func TestOpenAIReasoningContent(t *testing.T) {
+	var gotBody oaRequest
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewDecoder(r.Body).Decode(&gotBody)
+		w.Header().Set("content-type", "application/json")
+		_, _ = w.Write([]byte(`{"choices":[{"message":{"role":"assistant","content":"答案",` +
+			`"reasoning_content":"先想一下再答。"},"finish_reason":"stop"}],` +
+			`"usage":{"prompt_tokens":5,"completion_tokens":3}}`))
+	}))
+	defer ts.Close()
+
+	m := NewOpenAI(Config{Provider: ProviderOpenAI, BaseURL: ts.URL, APIKey: "k", Model: "m"})
+	resp, err := m.Complete(context.Background(), Request{
+		Messages: []Message{{Role: RoleUser, Blocks: []Block{{Type: BlockText, Text: "hi"}}}},
+		Thinking: ThinkingConfig{Effort: "high"},
+	})
+	if err != nil {
+		t.Fatalf("Complete: %v", err)
+	}
+	// 请求侧：effort 透传为 reasoning_effort。
+	if gotBody.ReasoningEffort != "high" {
+		t.Errorf("reasoning_effort = %q, want high", gotBody.ReasoningEffort)
+	}
+	// 响应侧：reasoning_content 进 IR thinking 块。
+	blocks := resp.Message.Blocks
+	if len(blocks) != 2 || blocks[0].Type != BlockThinking || blocks[0].Text != "先想一下再答。" {
+		t.Fatalf("blocks = %+v", blocks)
+	}
+	if blocks[1].Type != BlockText || blocks[1].Text != "答案" {
+		t.Errorf("blocks[1] = %+v", blocks[1])
+	}
+
+	// 回传侧：openai 族历史不回传 reasoning（兼容端点多拒绝）。
+	_, err = m.Complete(context.Background(), Request{
+		Messages: []Message{
+			{Role: RoleAssistant, Blocks: blocks},
+			{Role: RoleUser, Blocks: []Block{{Type: BlockText, Text: "继续"}}},
+		},
+	})
+	if err != nil {
+		t.Fatalf("Complete 2: %v", err)
+	}
+	if gotBody.Messages[0].Reasoning != "" {
+		t.Errorf("history must not carry reasoning_content: %q", gotBody.Messages[0].Reasoning)
+	}
+}

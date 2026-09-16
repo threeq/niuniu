@@ -27,6 +27,9 @@ const (
 	EventToolStart
 	// EventToolEnd fires after a tool executes (IsError marks failure).
 	EventToolEnd
+	// EventThinking carries one reasoning (chain-of-thought) block from the
+	// assistant; hosts surface it as ACP agent_thought_chunk.
+	EventThinking
 )
 
 // Event is one progress event; the ACP server maps these onto
@@ -66,6 +69,9 @@ type Options struct {
 	// KeepRecentMessages is how many trailing messages auto-compact keeps
 	// verbatim. 0 → DefaultKeepRecent.
 	KeepRecentMessages int
+	// Thinking carries the reasoning budget/effort applied to every model
+	// round of this prompt (session-stable → cache-friendly).
+	Thinking model.ThinkingConfig
 }
 
 // Session is a continuing conversation: successive Prompts accumulate
@@ -120,11 +126,17 @@ func (s *Session) Prompt(ctx context.Context, userText string, opts Options) (Tu
 			System:   s.system,
 			Messages: s.messages,
 			Tools:    s.reg.Defs(),
+			Thinking: opts.Thinking,
 		})
 		if err != nil {
 			return TurnResult{}, fmt.Errorf("model round %d: %w", turn, err)
 		}
 		s.messages = append(s.messages, resp.Message)
+		for _, blk := range resp.Message.Blocks {
+			if blk.Type == model.BlockThinking && blk.Text != "" {
+				emit(Event{Kind: EventThinking, Text: blk.Text})
+			}
+		}
 		result.Rounds++
 		result.Usage.InputTokens += resp.Usage.InputTokens
 		result.Usage.OutputTokens += resp.Usage.OutputTokens

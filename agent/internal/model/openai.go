@@ -47,6 +47,11 @@ type oaMessage struct {
 	Content    any          `json:"content,omitempty"` // string, or absent for pure tool_calls turns
 	ToolCalls  []oaToolCall `json:"tool_calls,omitempty"`
 	ToolCallID string       `json:"tool_call_id,omitempty"`
+	// ReasoningContent is DECODE-only (assistant responses): reasoning
+	// models expose their chain-of-thought here. It is deliberately NOT
+	// echoed back in history — most OpenAI-compatible endpoints reject a
+	// client-supplied reasoning field.
+	Reasoning string `json:"reasoning_content,omitempty"`
 }
 
 type oaFunctionDef struct {
@@ -65,6 +70,8 @@ type oaRequest struct {
 	Messages  []oaMessage `json:"messages"`
 	Tools     []oaTool    `json:"tools,omitempty"`
 	MaxTokens int         `json:"max_tokens,omitempty"`
+	// ReasoningEffort: low | medium | high; empty = provider default.
+	ReasoningEffort string `json:"reasoning_effort,omitempty"`
 }
 
 type oaResponse struct {
@@ -87,6 +94,13 @@ func (o *openaiModel) Complete(ctx context.Context, req Request) (*Response, err
 		maxTok = DefaultMaxTokens
 	}
 	bodyReq := oaRequest{Model: o.cfg.Model, Messages: toOAMessages(req), MaxTokens: maxTok}
+	effort := req.Thinking.Effort
+	if effort == "" {
+		effort = o.cfg.Thinking.Effort // session-wide default
+	}
+	if effort != "" {
+		bodyReq.ReasoningEffort = effort
+	}
 	for _, t := range req.Tools {
 		bodyReq.Tools = append(bodyReq.Tools, oaTool{Type: "function", Function: oaFunctionDef{
 			Name: t.Name, Description: t.Description, Parameters: t.InputSchema,
@@ -123,6 +137,10 @@ func (o *openaiModel) Complete(ctx context.Context, req Request) (*Response, err
 	}
 	choice := parsed.Choices[0]
 	msg := Message{Role: RoleAssistant}
+	// Reasoning models: chain-of-thought arrives before the answer.
+	if choice.Message.Reasoning != "" {
+		msg.Blocks = append(msg.Blocks, Block{Type: BlockThinking, Text: choice.Message.Reasoning})
+	}
 	if s, ok := choice.Message.Content.(string); ok && s != "" {
 		msg.Blocks = append(msg.Blocks, Block{Type: BlockText, Text: s})
 	}

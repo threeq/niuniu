@@ -33,6 +33,9 @@ type Config struct {
 	AuthToken string
 	// Model is the model name sent to the API.
 	Model string
+	// Thinking is the reasoning budget/effort parsed from
+	// NIUNIU_AGENT_THINKING (off | low | medium | high | <tokens>).
+	Thinking ThinkingConfig
 }
 
 // LoadConfig builds a Config from environment variables, applying flag
@@ -60,6 +63,7 @@ func LoadConfig(providerFlag, modelFlag string) (Config, error) {
 		return Config{}, fmt.Errorf("unknown provider %q (want %q or %q)", provider, ProviderAnthropic, ProviderOpenAI)
 	}
 	cfg.BaseURL = strings.TrimRight(cfg.BaseURL, "/")
+	cfg.Thinking = parseThinking(os.Getenv("NIUNIU_AGENT_THINKING"))
 	// "[1m]"-style context-tier suffixes are an upstream harness decoration
 	// (the workspace model picker reuses Claude-style tiered names); the wire
 	// API rejects them, so normalize here at the protocol boundary.
@@ -75,6 +79,28 @@ func LoadConfig(providerFlag, modelFlag string) (Config, error) {
 		return Config{}, errors.New("no openai credentials: set OPENAI_API_KEY")
 	}
 	return cfg, nil
+}
+
+// parseThinking maps NIUNIU_AGENT_THINKING onto a ThinkingConfig:
+// "off"/"" → zero (provider default), low|medium|high → effort with a
+// matching token budget (both protocol families get something usable),
+// numeric → an explicit Anthropic-style budget.
+func parseThinking(v string) ThinkingConfig {
+	switch strings.ToLower(strings.TrimSpace(v)) {
+	case "", "off", "none", "0":
+		return ThinkingConfig{}
+	case "low":
+		return ThinkingConfig{BudgetTokens: 2048, Effort: "low"}
+	case "medium":
+		return ThinkingConfig{BudgetTokens: 8192, Effort: "medium"}
+	case "high":
+		return ThinkingConfig{BudgetTokens: 16384, Effort: "high"}
+	}
+	var n int
+	if _, err := fmt.Sscanf(v, "%d", &n); err == nil && n > 0 {
+		return ThinkingConfig{BudgetTokens: n}
+	}
+	return ThinkingConfig{}
 }
 
 func firstNonEmpty(vals ...string) string {

@@ -55,8 +55,11 @@ type antCacheControl struct {
 const ephemeralCache = "ephemeral"
 
 type antBlock struct {
-	Type      string          `json:"type"`
-	Text      string          `json:"text,omitempty"`
+	Type      string `json:"type"`
+	Text      string `json:"text,omitempty"`      // text / thinking (thinking for the "thinking" field on the wire)
+	Signature string `json:"signature,omitempty"` // thinking only
+	Thinking  string `json:"thinking,omitempty"`  // thinking only: the wire field name
+
 	ID        string          `json:"id,omitempty"`
 	Name      string          `json:"name,omitempty"`
 	Input     json.RawMessage `json:"input,omitempty"`
@@ -86,6 +89,15 @@ type antRequest struct {
 	System    any          `json:"system,omitempty"` // string or []antBlock (array form carries cache_control)
 	Messages  []antMessage `json:"messages"`
 	Tools     []antTool    `json:"tools,omitempty"`
+	// Thinking requests extended reasoning; nil = off. budget_tokens must
+	// be strictly less than max_tokens, so the caller budget is bumped
+	// above it when needed.
+	Thinking *antThinking `json:"thinking,omitempty"`
+}
+
+type antThinking struct {
+	Type         string `json:"type"` // always "enabled"
+	BudgetTokens int    `json:"budget_tokens"`
 }
 
 type antUsage struct {
@@ -112,6 +124,17 @@ func (a *anthropicModel) Complete(ctx context.Context, req Request) (*Response, 
 		MaxTokens: maxTok,
 		System:    cacheableSystem(req.System),
 		Messages:  toAntMessages(req.Messages),
+	}
+	tc := req.Thinking
+	if tc.BudgetTokens == 0 {
+		tc = a.cfg.Thinking // session-wide default from NIUNIU_AGENT_THINKING
+	}
+	if tc.BudgetTokens > 0 {
+		if bodyReq.MaxTokens <= tc.BudgetTokens {
+			// The API requires max_tokens > budget_tokens.
+			bodyReq.MaxTokens = req.Thinking.BudgetTokens + 1024
+		}
+		bodyReq.Thinking = &antThinking{Type: "enabled", BudgetTokens: tc.BudgetTokens}
 	}
 	for i, t := range req.Tools {
 		tool := antTool{Name: t.Name, Description: t.Description, InputSchema: t.InputSchema}
@@ -155,9 +178,14 @@ func (a *anthropicModel) Complete(ctx context.Context, req Request) (*Response, 
 	}
 	msg := Message{Role: RoleAssistant}
 	for _, b := range parsed.Content {
+		text := b.Text
+		if b.Type == BlockThinking && text == "" {
+			text = b.Thinking
+		}
 		msg.Blocks = append(msg.Blocks, Block{
-			Type: b.Type, Text: b.Text, ID: b.ID, Name: b.Name,
+			Type: b.Type, Text: text, ID: b.ID, Name: b.Name,
 			Input: b.Input, ToolUseID: b.ToolUseID, IsError: b.IsError,
+			Signature: b.Signature,
 		})
 	}
 	return &Response{
@@ -189,6 +217,12 @@ func toAntMessages(msgs []Message) []antMessage {
 					ToolUseID: b.ToolUseID,
 					IsError:   b.IsError,
 					Content:   []antBlock{{Type: BlockText, Text: text}},
+				})
+			case BlockThinking:
+				// Echo thinking blocks back verbatim, signature included —
+				// gateways verify it and reject altered thinking.
+				blocks = append(blocks, antBlock{
+					Type: BlockThinking, Thinking: b.Text, Signature: b.Signature,
 				})
 			default:
 				input := b.Input

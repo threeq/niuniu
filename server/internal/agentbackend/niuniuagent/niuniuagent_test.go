@@ -52,6 +52,7 @@ func TestHandleSessionUpdateMapping(t *testing.T) {
 	b, _ := newStartedBackend(t, nil)
 
 	frames := []string{
+		`{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"s-1","update":{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":"reasoning..."}}}}`,
 		`{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"s-1","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"hello"}}}}`,
 		`{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"s-1","update":{"sessionUpdate":"tool_call","toolCallId":"t1","title":"Read","kind":"read","status":"in_progress"}}}`,
 		`{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"s-1","update":{"sessionUpdate":"tool_call_update","toolCallId":"t1","status":"completed","output":{"type":"text","text":"file body"}}}}`,
@@ -62,6 +63,7 @@ func TestHandleSessionUpdateMapping(t *testing.T) {
 	}
 
 	expect := []agentbackend.Event{
+		{Type: agentbackend.EventThinking, Thinking: "reasoning..."},
 		{Type: agentbackend.EventText, Text: "hello"},
 		{Type: agentbackend.EventToolUse, ToolName: "Read", ToolUseID: "t1"},
 		{Type: agentbackend.EventToolResult, ToolUseID: "t1", Text: "file body"},

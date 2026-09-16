@@ -18,6 +18,7 @@ import (
 // Block types.
 const (
 	BlockText       = "text"
+	BlockThinking   = "thinking"
 	BlockToolUse    = "tool_use"
 	BlockToolResult = "tool_result"
 )
@@ -54,6 +55,20 @@ type Block struct {
 	// BlockToolResult.
 	ToolUseID string `json:"tool_use_id,omitempty"`
 	IsError   bool   `json:"is_error,omitempty"`
+
+	// BlockThinking: provider signature proving the thinking content is
+	// unmodified. Anthropic REQUIRES it echoed back verbatim in tool-loop
+	// history; keep it intact or the gateway rejects the request.
+	Signature string `json:"signature,omitempty"`
+}
+
+// ThinkingConfig carries the reasoning budget/effort for one request.
+// Anthropic family uses BudgetTokens (thinking: {type: enabled, budget_tokens});
+// OpenAI family uses Effort (reasoning_effort: low|medium|high). Zero value
+// = provider default (thinking off for Anthropic unless configured).
+type ThinkingConfig struct {
+	BudgetTokens int
+	Effort       string
 }
 
 // Message is one conversation turn. Tool results are carried as
@@ -100,6 +115,7 @@ type Request struct {
 	Messages  []Message
 	Tools     []ToolDef
 	MaxTokens int
+	Thinking  ThinkingConfig
 }
 
 // Usage is token accounting for one request.

@@ -451,3 +451,32 @@ func TestACPWorkspaceInjectionAndMemoryRecall(t *testing.T) {
 		t.Errorf("system missing memory recall:\n%s", sys)
 	}
 }
+
+func TestACPThoughtChunk(t *testing.T) {
+	// TempDir first: its cleanup must run AFTER startServer's cwd-restore
+	// (LIFO), or Windows cannot delete a directory still in use as cwd.
+	dir := t.TempDir()
+	turns := [][]model.Block{
+		{
+			{Type: model.BlockThinking, Text: "reasoning about it"},
+			{Type: model.BlockText, Text: "the answer"},
+		},
+	}
+	cl, _ := startServer(t, turns, nil)
+	var sessRes sessionNewResult
+	if err := json.Unmarshal(cl.call("session/new", map[string]any{"cwd": dir}), &sessRes); err != nil {
+		t.Fatal(err)
+	}
+	cl.call("session/prompt", map[string]any{
+		"sessionId": sessRes.SessionID,
+		"prompt":    []map[string]string{{"type": "text", "text": "q"}},
+	})
+	u1 := cl.nextUpdate(time.Second)
+	if u1.SessionUpdate != "agent_thought_chunk" || u1.Content == nil || u1.Content.Text != "reasoning about it" {
+		t.Fatalf("update1 = %+v, want agent_thought_chunk", u1)
+	}
+	u2 := cl.nextUpdate(time.Second)
+	if u2.SessionUpdate != "agent_message_chunk" || u2.Content == nil || u2.Content.Text != "the answer" {
+		t.Fatalf("update2 = %+v, want agent_message_chunk", u2)
+	}
+}

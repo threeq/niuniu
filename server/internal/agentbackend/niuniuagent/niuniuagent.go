@@ -246,6 +246,12 @@ func (b *Backend) handleSessionUpdate(raw []byte) {
 		if upd.Content != nil {
 			b.emit(agentbackend.Event{Type: agentbackend.EventText, Text: upd.Content.Text})
 		}
+	case "agent_thought_chunk":
+		// Reasoning (chain-of-thought) surfaced by the agent — same shaped
+		// event the goose/claude engines emit for thinking content.
+		if upd.Content != nil {
+			b.emit(agentbackend.Event{Type: agentbackend.EventThinking, Thinking: upd.Content.Text})
+		}
 	case "tool_call":
 		b.emit(agentbackend.Event{
 			Type:      agentbackend.EventToolUse,
