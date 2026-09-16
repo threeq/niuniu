@@ -35,13 +35,9 @@ func prepareCodexProviderHome(workspaceID int64, e codexProviderEnv) (string, er
 	if e.BaseURL == "" || e.APIKey == "" || e.Model == "" {
 		return "", nil
 	}
-	home, err := os.UserHomeDir()
+	dir, err := CodexProviderHomeDir(workspaceID)
 	if err != nil {
-		return "", fmt.Errorf("codex provider home: %w", err)
-	}
-	dir := filepath.Join(home, ".niuniu", "codex-homes", fmt.Sprintf("ws-%d", workspaceID))
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return "", fmt.Errorf("codex provider home: %w", err)
+		return "", err
 	}
 	catalog := filepath.ToSlash(filepath.Join(dir, "models.json"))
 	if err := os.WriteFile(catalog, []byte(codexModelsJSON(e.Model, e.ContextWindow)), 0o600); err != nil {
@@ -61,6 +57,29 @@ func prepareCodexProviderHome(workspaceID int64, e codexProviderEnv) (string, er
 		return "", fmt.Errorf("codex provider home: write config.toml: %w", err)
 	}
 	return dir, nil
+}
+
+// CodexProviderHomeDir 返回工作空间的 provider CODEX_HOME 目录路径（不创建）。
+func CodexProviderHomeDir(workspaceID int64) (string, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", fmt.Errorf("codex provider home dir: %w", err)
+	}
+	return filepath.Join(home, ".niuniu", "codex-homes", fmt.Sprintf("ws-%d", workspaceID)), nil
+}
+
+// RemoveCodexProviderHome 删除工作空间的 provider CODEX_HOME（含其中的中转
+// 密钥文件）。工作空间删除时调用；目录不存在视为成功（RemoveAll 语义），
+// 无法定位目录时返回错误。
+func RemoveCodexProviderHome(workspaceID int64) error {
+	dir, err := CodexProviderHomeDir(workspaceID)
+	if err != nil {
+		return err
+	}
+	if err := os.RemoveAll(dir); err != nil {
+		return fmt.Errorf("codex provider home: remove %s: %w", dir, err)
+	}
+	return nil
 }
 
 // codexModelsJSON 生成 codex 0.144+ 的模型目录文件（字段集对照智谱/DeepSeek

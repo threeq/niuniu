@@ -1434,6 +1434,13 @@ func (s *WorkspaceService) Delete(ctx context.Context, workspaceID int64) error 
 func (s *WorkspaceService) performDelete(ctx context.Context, workspace store.Workspace) error {
 	workspaceID := workspace.ID
 
+	// provider 的 codex CODEX_HOME（内含中转密钥）随工作空间删除一并清理。
+	// Best-effort：清理失败不阻断删除，日志留痕。
+	if err := agentproxy.RemoveCodexProviderHome(workspaceID); err != nil {
+		slog.Warn("workspace delete: remove codex provider home failed",
+			"workspace_id", workspaceID, "error", err)
+	}
+
 	if workspace.IsArchived == 1 {
 		repos, err := s.q.ListWorktrees(ctx, workspaceID)
 		if err == nil {
