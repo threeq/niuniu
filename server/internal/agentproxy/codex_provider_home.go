@@ -96,9 +96,9 @@ func codexModelsJSON(model string, contextWindow int64) string {
       "description": "niuniu provider model",
       "default_reasoning_level": "high",
       "supported_reasoning_levels": [
-        { "effort": "low", "description": "Low" },
-        { "effort": "medium", "description": "Medium" },
-        { "effort": "high", "description": "High" }
+        { "effort": "low", "description": "Fast responses with lighter reasoning" },
+        { "effort": "high", "description": "Extra high reasoning depth" },
+        { "effort": "max", "description": "Maximum reasoning depth" }
       ],
       "shell_type": "shell_command",
       "visibility": "list",
