@@ -735,6 +735,7 @@ CREATE TABLE IF NOT EXISTS env_providers (
     sonnet_model  TEXT NOT NULL DEFAULT '',
     opus_model    TEXT NOT NULL DEFAULT '',
     subagent_model TEXT NOT NULL DEFAULT '',
+    codex_model   TEXT NOT NULL DEFAULT '', -- codex-specific model; empty = use model
     extra_env     TEXT NOT NULL DEFAULT '{}',  -- JSON: Record<string, string> passthrough
     context_window BIGINT NOT NULL DEFAULT 0,  -- model context window in tokens (0 = unknown)
     group_name    TEXT NOT NULL DEFAULT '',   -- fallback group; empty = standalone

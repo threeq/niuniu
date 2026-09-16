@@ -408,6 +408,7 @@ export function EnvSettings({ mode = 'all' }: { mode?: 'all' | 'presets' | 'prov
   const [provSonnet, setProvSonnet] = useState('')
   const [provOpus, setProvOpus] = useState('')
   const [provSubagent, setProvSubagent] = useState('')
+  const [provCodexModel, setProvCodexModel] = useState('')
   const [provExtra, setProvExtra] = useState<{ key: string; value: string }[]>([])
   const [provGroup, setProvGroup] = useState('')
   const [provOwner, setProvOwner] = useState<OwnerRef>({ type: 'user', id: currentUser?.id ?? 0 })
@@ -482,7 +483,7 @@ export function EnvSettings({ mode = 'all' }: { mode?: 'all' | 'presets' | 'prov
     setProvBaseUrls(Object.entries(p.base_urls ?? {}).map(([protocol, url]) => ({ protocol, url })))
     setProvApiKey(p.api_key)
     setProvModel(p.model); setProvHaiku(p.haiku_model); setProvSonnet(p.sonnet_model)
-    setProvOpus(p.opus_model); setProvSubagent(p.subagent_model)
+    setProvOpus(p.opus_model); setProvSubagent(p.subagent_model); setProvCodexModel(p.codex_model ?? '')
     setProvExtra(Object.entries(p.extra_env ?? {}).map(([key, value]) => ({ key, value })))
     setProvGroup(p.group_name ?? '')
     setProviderDialogOpen(true)
@@ -491,7 +492,7 @@ export function EnvSettings({ mode = 'all' }: { mode?: 'all' | 'presets' | 'prov
   const openEditProviderDialog = (p: EnvProvider) => {
     setEditingProvider(p)
     setProvName(p.name); setProvPlatform(p.platform); setProvDesc(p.description); setProvBaseUrls(Object.entries(p.base_urls ?? {}).map(([protocol, url]) => ({ protocol, url }))); setProvApiKey(p.api_key)
-    setProvModel(p.model); setProvHaiku(p.haiku_model); setProvSonnet(p.sonnet_model); setProvOpus(p.opus_model); setProvSubagent(p.subagent_model)
+    setProvModel(p.model); setProvHaiku(p.haiku_model); setProvSonnet(p.sonnet_model); setProvOpus(p.opus_model); setProvSubagent(p.subagent_model); setProvCodexModel(p.codex_model ?? '')
     setProvExtra(Object.entries(p.extra_env ?? {}).map(([key, value]) => ({ key, value })))
     setProvGroup(p.group_name ?? '')
     setProviderDialogOpen(true)
@@ -505,7 +506,7 @@ export function EnvSettings({ mode = 'all' }: { mode?: 'all' | 'presets' | 'prov
       name: provName, platform: provPlatform, description: provDesc,
       base_urls: Object.fromEntries(provBaseUrls.filter((b) => b.protocol && b.url.trim()).map((b) => [b.protocol, b.url.trim()])),
       api_key: provApiKey,
-      model: provModel, haiku_model: provHaiku, sonnet_model: provSonnet, opus_model: provOpus, subagent_model: provSubagent,
+      model: provModel, haiku_model: provHaiku, sonnet_model: provSonnet, opus_model: provOpus, subagent_model: provSubagent, codex_model: provCodexModel,
       extra_env: extra,
       group_name: provGroup.trim(),
       // Order and enabled state are managed outside the dialog (group reorder
@@ -981,6 +982,10 @@ export function EnvSettings({ mode = 'all' }: { mode?: 'all' | 'presets' | 'prov
               <div className="col-span-2">
                 <label className="block text-sm font-medium text-foreground mb-1">{t('env.provider.subagentModelLabel')}</label>
                 <Input value={provSubagent} onChange={(e) => setProvSubagent(e.target.value)} />
+              </div>
+              <div className="col-span-2">
+                <label className="block text-sm font-medium text-foreground mb-1">{t('env.provider.codexModelLabel')}</label>
+                <Input value={provCodexModel} onChange={(e) => setProvCodexModel(e.target.value)} placeholder={provModel || undefined} />
               </div>
             </div>
             <div>

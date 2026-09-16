@@ -33,3 +33,21 @@ func TestExpandProvider_CodexPrefersCodexBaseURL(t *testing.T) {
 	require.Equal(t, "https://x.example/anthropic", env3["ANTHROPIC_BASE_URL"])
 	require.NotContains(t, env3, "OPENAI_BASE_URL")
 }
+
+// TestExpandProvider_CodexModelFallback：codex_model 设置时优先，缺省回退
+// provider 默认模型（即 claude 侧配置的 model）。
+func TestExpandProvider_CodexModelFallback(t *testing.T) {
+	p := store.EnvProvider{
+		BaseUrls: `{"openai":"https://x.example/api/v1"}`,
+		ApiKey:   "k",
+		Model:    "default-m",
+	}
+	env := ExpandProvider(p, "codex", nil, true)
+	require.Equal(t, "default-m", env["NIUNIU_MODEL"])
+	require.Equal(t, "default-m", env["OPENAI_MODEL"])
+
+	p.CodexModel = "codex-m"
+	env = ExpandProvider(p, "codex", nil, true)
+	require.Equal(t, "codex-m", env["NIUNIU_MODEL"])
+	require.Equal(t, "codex-m", env["OPENAI_MODEL"])
+}

@@ -1204,6 +1204,7 @@ export interface EnvProvider {
   sonnet_model: string
   opus_model: string
   subagent_model: string
+  codex_model?: string
   extra_env: Record<string, string>
   context_window?: number
   group_name: string
@@ -1226,6 +1227,7 @@ export interface CreateEnvProviderData {
   sonnet_model?: string
   opus_model?: string
   subagent_model?: string
+  codex_model?: string
   extra_env?: Record<string, string>
   context_window?: number
   group_name?: string

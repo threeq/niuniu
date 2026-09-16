@@ -147,7 +147,8 @@ func expandAnthropic(p store.EnvProvider, baseURL string, accounts []store.EnvAc
 
 // expandOpenAI produces the OpenAI-compatible env read by Codex/Qwen and other
 // OpenAI-protocol CLIs. niuniu's Codex path additionally reads the model from
-// the NIUNIU_MODEL control key.
+// the NIUNIU_MODEL control key. Codex may use a provider-specific model
+// (codex_model) when set; otherwise it falls back to the provider default.
 func expandOpenAI(p store.EnvProvider, baseURL, cliType string, accounts []store.EnvAccount, preserveRef bool) map[string]string {
 	out := map[string]string{}
 	if baseURL != "" {
@@ -156,11 +157,15 @@ func expandOpenAI(p store.EnvProvider, baseURL, cliType string, accounts []store
 	if key := providerKey(p.ApiKey, accounts, preserveRef); key != "" {
 		out["OPENAI_API_KEY"] = key
 	}
-	if p.Model != "" {
-		out["OPENAI_MODEL"] = p.Model
+	model := p.Model
+	if cliType == CLICodex && p.CodexModel != "" {
+		model = p.CodexModel
 	}
-	if cliType == CLICodex && p.Model != "" {
-		out["NIUNIU_MODEL"] = p.Model
+	if model != "" {
+		out["OPENAI_MODEL"] = model
+	}
+	if cliType == CLICodex && model != "" {
+		out["NIUNIU_MODEL"] = model
 	}
 	mergeExtraEnv(out, p.ExtraEnv)
 	return out

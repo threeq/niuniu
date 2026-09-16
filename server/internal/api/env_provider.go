@@ -37,6 +37,7 @@ type CreateEnvProviderRequest struct {
 	SonnetModel   string            `json:"sonnet_model"`
 	OpusModel     string            `json:"opus_model"`
 	SubagentModel string            `json:"subagent_model"`
+	CodexModel    string            `json:"codex_model"`
 	ExtraEnv      map[string]string `json:"extra_env"`
 	ContextWindow int64             `json:"context_window"`
 	// GroupName groups interchangeable providers: when one member is
@@ -64,6 +65,7 @@ type UpdateEnvProviderRequest struct {
 	SonnetModel   string            `json:"sonnet_model"`
 	OpusModel     string            `json:"opus_model"`
 	SubagentModel string            `json:"subagent_model"`
+	CodexModel    string            `json:"codex_model"`
 	ExtraEnv      map[string]string `json:"extra_env"`
 	ContextWindow int64             `json:"context_window"`
 	GroupName     string            `json:"group_name"`
@@ -76,8 +78,8 @@ type UpdateEnvProviderRequest struct {
 // never inline. base_urls keys are validated to be known protocols.
 func validateProvider(baseUrls map[string]string, apiKey string) string {
 	for proto := range baseUrls {
-		if proto != "anthropic" && proto != "openai" {
-			return "base_urls keys must be 'anthropic' or 'openai'"
+		if proto != "anthropic" && proto != "openai" && proto != "codex" {
+			return "base_urls keys must be 'anthropic', 'openai' or 'codex'"
 		}
 	}
 	if apiKey != "" && !isAccountKeyRef(apiKey) {
@@ -180,7 +182,7 @@ func (h *EnvProviderHandler) Create(c *gin.Context) {
 		Name: req.Name, Platform: req.Platform, Description: req.Description,
 		BaseUrls: string(baseURLs), ApiKey: req.ApiKey, Model: req.Model,
 		HaikuModel: req.HaikuModel, SonnetModel: req.SonnetModel, OpusModel: req.OpusModel,
-		SubagentModel: req.SubagentModel, ExtraEnv: string(extra),
+		SubagentModel: req.SubagentModel, CodexModel: req.CodexModel, ExtraEnv: string(extra),
 		ContextWindow: req.ContextWindow,
 		GroupName:     req.GroupName,
 		GroupPosition: req.GroupPosition,
@@ -236,7 +238,7 @@ func (h *EnvProviderHandler) Update(c *gin.Context) {
 		Name: req.Name, Platform: req.Platform, Description: req.Description,
 		BaseUrls: string(baseURLs), ApiKey: req.ApiKey, Model: req.Model,
 		HaikuModel: req.HaikuModel, SonnetModel: req.SonnetModel, OpusModel: req.OpusModel,
-		SubagentModel: req.SubagentModel, ExtraEnv: string(extra),
+		SubagentModel: req.SubagentModel, CodexModel: req.CodexModel, ExtraEnv: string(extra),
 		ContextWindow: req.ContextWindow,
 		GroupName:     req.GroupName,
 		GroupPosition: req.GroupPosition,
@@ -402,6 +404,7 @@ type EnvProviderResponse struct {
 	SonnetModel   string            `json:"sonnet_model"`
 	OpusModel     string            `json:"opus_model"`
 	SubagentModel string            `json:"subagent_model"`
+	CodexModel    string            `json:"codex_model"`
 	ExtraEnv      map[string]string `json:"extra_env"`
 	ContextWindow int64             `json:"context_window"`
 	// GroupName groups interchangeable providers (fallback on rate limit).

@@ -23,9 +23,9 @@ func (q *Queries) ClearProviderCooldown(ctx context.Context, id int64) error {
 }
 
 const createEnvProvider = `-- name: CreateEnvProvider :one
-INSERT INTO env_providers (name, platform, description, base_urls, api_key, model, haiku_model, sonnet_model, opus_model, subagent_model, extra_env, context_window, group_name, group_position, enabled, owner_type, owner_id, slug)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-RETURNING id, name, platform, description, base_urls, api_key, model, haiku_model, sonnet_model, opus_model, subagent_model, extra_env, context_window, group_name, group_position, enabled, cooldown_until, owner_type, owner_id, slug, created_at, updated_at
+INSERT INTO env_providers (name, platform, description, base_urls, api_key, model, codex_model, haiku_model, sonnet_model, opus_model, subagent_model, extra_env, context_window, group_name, group_position, enabled, owner_type, owner_id, slug)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+RETURNING id, name, platform, description, base_urls, api_key, model, haiku_model, sonnet_model, opus_model, subagent_model, codex_model, extra_env, context_window, group_name, group_position, enabled, cooldown_until, owner_type, owner_id, slug, created_at, updated_at
 `
 
 type CreateEnvProviderParams struct {
@@ -35,6 +35,7 @@ type CreateEnvProviderParams struct {
 	BaseUrls      string `json:"base_urls"`
 	ApiKey        string `json:"api_key"`
 	Model         string `json:"model"`
+	CodexModel    string `json:"codex_model"`
 	HaikuModel    string `json:"haiku_model"`
 	SonnetModel   string `json:"sonnet_model"`
 	OpusModel     string `json:"opus_model"`
@@ -57,6 +58,7 @@ func (q *Queries) CreateEnvProvider(ctx context.Context, arg CreateEnvProviderPa
 		arg.BaseUrls,
 		arg.ApiKey,
 		arg.Model,
+		arg.CodexModel,
 		arg.HaikuModel,
 		arg.SonnetModel,
 		arg.OpusModel,
@@ -83,6 +85,7 @@ func (q *Queries) CreateEnvProvider(ctx context.Context, arg CreateEnvProviderPa
 		&i.SonnetModel,
 		&i.OpusModel,
 		&i.SubagentModel,
+		&i.CodexModel,
 		&i.ExtraEnv,
 		&i.ContextWindow,
 		&i.GroupName,
@@ -108,7 +111,7 @@ func (q *Queries) DeleteEnvProvider(ctx context.Context, id int64) error {
 }
 
 const getEnvProvider = `-- name: GetEnvProvider :one
-SELECT id, name, platform, description, base_urls, api_key, model, haiku_model, sonnet_model, opus_model, subagent_model, extra_env, context_window, group_name, group_position, enabled, cooldown_until, owner_type, owner_id, slug, created_at, updated_at FROM env_providers WHERE id = ?
+SELECT id, name, platform, description, base_urls, api_key, model, haiku_model, sonnet_model, opus_model, subagent_model, codex_model, extra_env, context_window, group_name, group_position, enabled, cooldown_until, owner_type, owner_id, slug, created_at, updated_at FROM env_providers WHERE id = ?
 `
 
 func (q *Queries) GetEnvProvider(ctx context.Context, id int64) (EnvProvider, error) {
@@ -126,6 +129,7 @@ func (q *Queries) GetEnvProvider(ctx context.Context, id int64) (EnvProvider, er
 		&i.SonnetModel,
 		&i.OpusModel,
 		&i.SubagentModel,
+		&i.CodexModel,
 		&i.ExtraEnv,
 		&i.ContextWindow,
 		&i.GroupName,
@@ -142,7 +146,7 @@ func (q *Queries) GetEnvProvider(ctx context.Context, id int64) (EnvProvider, er
 }
 
 const listEnvProviders = `-- name: ListEnvProviders :many
-SELECT id, name, platform, description, base_urls, api_key, model, haiku_model, sonnet_model, opus_model, subagent_model, extra_env, context_window, group_name, group_position, enabled, cooldown_until, owner_type, owner_id, slug, created_at, updated_at FROM env_providers ORDER BY name ASC
+SELECT id, name, platform, description, base_urls, api_key, model, haiku_model, sonnet_model, opus_model, subagent_model, codex_model, extra_env, context_window, group_name, group_position, enabled, cooldown_until, owner_type, owner_id, slug, created_at, updated_at FROM env_providers ORDER BY name ASC
 `
 
 func (q *Queries) ListEnvProviders(ctx context.Context) ([]EnvProvider, error) {
@@ -166,6 +170,7 @@ func (q *Queries) ListEnvProviders(ctx context.Context) ([]EnvProvider, error) {
 			&i.SonnetModel,
 			&i.OpusModel,
 			&i.SubagentModel,
+			&i.CodexModel,
 			&i.ExtraEnv,
 			&i.ContextWindow,
 			&i.GroupName,
@@ -192,7 +197,7 @@ func (q *Queries) ListEnvProviders(ctx context.Context) ([]EnvProvider, error) {
 }
 
 const listEnvProvidersForOwners = `-- name: ListEnvProvidersForOwners :many
-SELECT id, name, platform, description, base_urls, api_key, model, haiku_model, sonnet_model, opus_model, subagent_model, extra_env, context_window, group_name, group_position, enabled, cooldown_until, owner_type, owner_id, slug, created_at, updated_at FROM env_providers
+SELECT id, name, platform, description, base_urls, api_key, model, haiku_model, sonnet_model, opus_model, subagent_model, codex_model, extra_env, context_window, group_name, group_position, enabled, cooldown_until, owner_type, owner_id, slug, created_at, updated_at FROM env_providers
 WHERE (owner_type = 'user' AND owner_id = ?)
    OR (owner_type = 'org'  AND owner_id IN (/*SLICE:org_ids*/?))
    OR (owner_type = 'user' AND owner_id = 0)
@@ -238,6 +243,7 @@ func (q *Queries) ListEnvProvidersForOwners(ctx context.Context, arg ListEnvProv
 			&i.SonnetModel,
 			&i.OpusModel,
 			&i.SubagentModel,
+			&i.CodexModel,
 			&i.ExtraEnv,
 			&i.ContextWindow,
 			&i.GroupName,
@@ -337,7 +343,7 @@ func (q *Queries) SetProviderGroupPosition(ctx context.Context, arg SetProviderG
 
 const updateEnvProvider = `-- name: UpdateEnvProvider :exec
 UPDATE env_providers
-SET name = ?, platform = ?, description = ?, base_urls = ?, api_key = ?, model = ?,
+SET name = ?, platform = ?, description = ?, base_urls = ?, api_key = ?, model = ?, codex_model = ?,
     haiku_model = ?, sonnet_model = ?, opus_model = ?, subagent_model = ?, extra_env = ?, context_window = ?, group_name = ?, group_position = ?, enabled = ?, slug = ?, updated_at = CURRENT_TIMESTAMP
 WHERE id = ?
 `
@@ -349,6 +355,7 @@ type UpdateEnvProviderParams struct {
 	BaseUrls      string `json:"base_urls"`
 	ApiKey        string `json:"api_key"`
 	Model         string `json:"model"`
+	CodexModel    string `json:"codex_model"`
 	HaikuModel    string `json:"haiku_model"`
 	SonnetModel   string `json:"sonnet_model"`
 	OpusModel     string `json:"opus_model"`
@@ -370,6 +377,7 @@ func (q *Queries) UpdateEnvProvider(ctx context.Context, arg UpdateEnvProviderPa
 		arg.BaseUrls,
 		arg.ApiKey,
 		arg.Model,
+		arg.CodexModel,
 		arg.HaikuModel,
 		arg.SonnetModel,
 		arg.OpusModel,

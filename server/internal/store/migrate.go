@@ -279,6 +279,9 @@ func Migrate(db *sql.DB) {
 	// Add it without the CHECK (SQLite ALTER TABLE ADD COLUMN forbids CHECK);
 	// values are still validated by the API layer and by schema.sql on fresh DBs.
 	addColumnIfNotExists(db, "env_providers", "protocol", "TEXT NOT NULL DEFAULT 'anthropic'")
+	// codex-specific model (empty = fall back to model): a provider may serve
+	// codex a different model than its claude default.
+	addColumnIfNotExists(db, "env_providers", "codex_model", "TEXT NOT NULL DEFAULT ''")
 
 	// env_providers now stores a base_url PER protocol (base_urls JSON) instead
 	// of a single base_url+protocol, so one provider serves multiple agent types.

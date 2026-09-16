@@ -759,6 +759,7 @@
       "sonnetModelLabel": "標準模型（sonnet）",
       "opusModelLabel": "旗艦模型（opus）",
       "subagentModelLabel": "子 Agent 模型（subagent）",
+      "codexModelLabel": "Codex 模型（可選，缺省用上方默認模型）",
       "extraEnvLabel": "附加環境變數",
       "extraEnvHint": "合併到最後，可覆蓋生成的變數或補充平臺特有變數。",
       "groupLabel": "分組",
