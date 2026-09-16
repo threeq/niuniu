@@ -12,7 +12,7 @@ import (
 
 const createProject = `-- name: CreateProject :one
 INSERT INTO projects (name, description, status, owner_type, owner_id, color, default_cli_type)
-VALUES (?, ?, 'active', ?, ?, ?, COALESCE(NULLIF(CAST(?6 AS TEXT), ''), 'claude')) RETURNING id, name, description, status, owner_type, owner_id, color, memory_sweep_cron, default_cli_type, env_provider_id, env_provider_group, cleanup_enabled, cleanup_inactive_days, cleanup_statuses, created_at, updated_at
+VALUES (?, ?, 'active', ?, ?, ?, COALESCE(NULLIF(CAST(?6 AS TEXT), ''), 'claude')) RETURNING id, name, description, status, owner_type, owner_id, color, memory_sweep_cron, default_cli_type, env_provider_id, env_provider_group, cleanup_enabled, cleanup_inactive_days, cleanup_statuses, floor_command, floor_timeout_sec, created_at, updated_at
 `
 
 type CreateProjectParams struct {
@@ -52,6 +52,8 @@ func (q *Queries) CreateProject(ctx context.Context, arg CreateProjectParams) (P
 		&i.CleanupEnabled,
 		&i.CleanupInactiveDays,
 		&i.CleanupStatuses,
+		&i.FloorCommand,
+		&i.FloorTimeoutSec,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
@@ -105,7 +107,7 @@ func (q *Queries) GetIssueStatsByProject(ctx context.Context) ([]GetIssueStatsBy
 }
 
 const getProject = `-- name: GetProject :one
-SELECT id, name, description, status, owner_type, owner_id, color, memory_sweep_cron, default_cli_type, env_provider_id, env_provider_group, cleanup_enabled, cleanup_inactive_days, cleanup_statuses, created_at, updated_at FROM projects WHERE id = ?
+SELECT id, name, description, status, owner_type, owner_id, color, memory_sweep_cron, default_cli_type, env_provider_id, env_provider_group, cleanup_enabled, cleanup_inactive_days, cleanup_statuses, floor_command, floor_timeout_sec, created_at, updated_at FROM projects WHERE id = ?
 `
 
 func (q *Queries) GetProject(ctx context.Context, id int64) (Project, error) {
@@ -126,6 +128,8 @@ func (q *Queries) GetProject(ctx context.Context, id int64) (Project, error) {
 		&i.CleanupEnabled,
 		&i.CleanupInactiveDays,
 		&i.CleanupStatuses,
+		&i.FloorCommand,
+		&i.FloorTimeoutSec,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
@@ -133,7 +137,7 @@ func (q *Queries) GetProject(ctx context.Context, id int64) (Project, error) {
 }
 
 const getProjectByOwnerAndName = `-- name: GetProjectByOwnerAndName :one
-SELECT id, name, description, status, owner_type, owner_id, color, memory_sweep_cron, default_cli_type, env_provider_id, env_provider_group, cleanup_enabled, cleanup_inactive_days, cleanup_statuses, created_at, updated_at FROM projects WHERE owner_type = ? AND owner_id = ? AND name = ?
+SELECT id, name, description, status, owner_type, owner_id, color, memory_sweep_cron, default_cli_type, env_provider_id, env_provider_group, cleanup_enabled, cleanup_inactive_days, cleanup_statuses, floor_command, floor_timeout_sec, created_at, updated_at FROM projects WHERE owner_type = ? AND owner_id = ? AND name = ?
 `
 
 type GetProjectByOwnerAndNameParams struct {
@@ -163,6 +167,8 @@ func (q *Queries) GetProjectByOwnerAndName(ctx context.Context, arg GetProjectBy
 		&i.CleanupEnabled,
 		&i.CleanupInactiveDays,
 		&i.CleanupStatuses,
+		&i.FloorCommand,
+		&i.FloorTimeoutSec,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
@@ -208,7 +214,7 @@ func (q *Queries) GetWorkspaceStatsByProject(ctx context.Context) ([]GetWorkspac
 }
 
 const listProjects = `-- name: ListProjects :many
-SELECT id, name, description, status, owner_type, owner_id, color, memory_sweep_cron, default_cli_type, env_provider_id, env_provider_group, cleanup_enabled, cleanup_inactive_days, cleanup_statuses, created_at, updated_at FROM projects WHERE status = ? ORDER BY created_at DESC
+SELECT id, name, description, status, owner_type, owner_id, color, memory_sweep_cron, default_cli_type, env_provider_id, env_provider_group, cleanup_enabled, cleanup_inactive_days, cleanup_statuses, floor_command, floor_timeout_sec, created_at, updated_at FROM projects WHERE status = ? ORDER BY created_at DESC
 `
 
 func (q *Queries) ListProjects(ctx context.Context, status string) ([]Project, error) {
@@ -235,6 +241,8 @@ func (q *Queries) ListProjects(ctx context.Context, status string) ([]Project, e
 			&i.CleanupEnabled,
 			&i.CleanupInactiveDays,
 			&i.CleanupStatuses,
+			&i.FloorCommand,
+			&i.FloorTimeoutSec,
 			&i.CreatedAt,
 			&i.UpdatedAt,
 		); err != nil {
@@ -284,7 +292,7 @@ func (q *Queries) SetProjectEnvProviderGroup(ctx context.Context, arg SetProject
 }
 
 const updateProject = `-- name: UpdateProject :one
-UPDATE projects SET name = ?, description = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? RETURNING id, name, description, status, owner_type, owner_id, color, memory_sweep_cron, default_cli_type, env_provider_id, env_provider_group, cleanup_enabled, cleanup_inactive_days, cleanup_statuses, created_at, updated_at
+UPDATE projects SET name = ?, description = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? RETURNING id, name, description, status, owner_type, owner_id, color, memory_sweep_cron, default_cli_type, env_provider_id, env_provider_group, cleanup_enabled, cleanup_inactive_days, cleanup_statuses, floor_command, floor_timeout_sec, created_at, updated_at
 `
 
 type UpdateProjectParams struct {
@@ -311,6 +319,8 @@ func (q *Queries) UpdateProject(ctx context.Context, arg UpdateProjectParams) (P
 		&i.CleanupEnabled,
 		&i.CleanupInactiveDays,
 		&i.CleanupStatuses,
+		&i.FloorCommand,
+		&i.FloorTimeoutSec,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
@@ -343,7 +353,7 @@ func (q *Queries) UpdateProjectCleanupPolicy(ctx context.Context, arg UpdateProj
 }
 
 const updateProjectColor = `-- name: UpdateProjectColor :one
-UPDATE projects SET color = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? RETURNING id, name, description, status, owner_type, owner_id, color, memory_sweep_cron, default_cli_type, env_provider_id, env_provider_group, cleanup_enabled, cleanup_inactive_days, cleanup_statuses, created_at, updated_at
+UPDATE projects SET color = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? RETURNING id, name, description, status, owner_type, owner_id, color, memory_sweep_cron, default_cli_type, env_provider_id, env_provider_group, cleanup_enabled, cleanup_inactive_days, cleanup_statuses, floor_command, floor_timeout_sec, created_at, updated_at
 `
 
 type UpdateProjectColorParams struct {
@@ -371,6 +381,8 @@ func (q *Queries) UpdateProjectColor(ctx context.Context, arg UpdateProjectColor
 		&i.CleanupEnabled,
 		&i.CleanupInactiveDays,
 		&i.CleanupStatuses,
+		&i.FloorCommand,
+		&i.FloorTimeoutSec,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
@@ -378,7 +390,7 @@ func (q *Queries) UpdateProjectColor(ctx context.Context, arg UpdateProjectColor
 }
 
 const updateProjectDefaultCliType = `-- name: UpdateProjectDefaultCliType :one
-UPDATE projects SET default_cli_type = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? RETURNING id, name, description, status, owner_type, owner_id, color, memory_sweep_cron, default_cli_type, env_provider_id, env_provider_group, cleanup_enabled, cleanup_inactive_days, cleanup_statuses, created_at, updated_at
+UPDATE projects SET default_cli_type = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? RETURNING id, name, description, status, owner_type, owner_id, color, memory_sweep_cron, default_cli_type, env_provider_id, env_provider_group, cleanup_enabled, cleanup_inactive_days, cleanup_statuses, floor_command, floor_timeout_sec, created_at, updated_at
 `
 
 type UpdateProjectDefaultCliTypeParams struct {
@@ -406,6 +418,8 @@ func (q *Queries) UpdateProjectDefaultCliType(ctx context.Context, arg UpdatePro
 		&i.CleanupEnabled,
 		&i.CleanupInactiveDays,
 		&i.CleanupStatuses,
+		&i.FloorCommand,
+		&i.FloorTimeoutSec,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
@@ -427,7 +441,7 @@ func (q *Queries) UpdateProjectMemorySweepCron(ctx context.Context, arg UpdatePr
 }
 
 const updateProjectStatus = `-- name: UpdateProjectStatus :one
-UPDATE projects SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? RETURNING id, name, description, status, owner_type, owner_id, color, memory_sweep_cron, default_cli_type, env_provider_id, env_provider_group, cleanup_enabled, cleanup_inactive_days, cleanup_statuses, created_at, updated_at
+UPDATE projects SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? RETURNING id, name, description, status, owner_type, owner_id, color, memory_sweep_cron, default_cli_type, env_provider_id, env_provider_group, cleanup_enabled, cleanup_inactive_days, cleanup_statuses, floor_command, floor_timeout_sec, created_at, updated_at
 `
 
 type UpdateProjectStatusParams struct {
@@ -453,6 +467,8 @@ func (q *Queries) UpdateProjectStatus(ctx context.Context, arg UpdateProjectStat
 		&i.CleanupEnabled,
 		&i.CleanupInactiveDays,
 		&i.CleanupStatuses,
+		&i.FloorCommand,
+		&i.FloorTimeoutSec,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)

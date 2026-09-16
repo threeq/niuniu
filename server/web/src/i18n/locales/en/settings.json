@@ -759,6 +759,7 @@
       "sonnetModelLabel": "Standard model (sonnet)",
       "opusModelLabel": "Flagship model (opus)",
       "subagentModelLabel": "Subagent model (subagent)",
+      "codexModelLabel": "Codex model (optional; defaults to the model above)",
       "extraEnvLabel": "Extra environment variables",
       "extraEnvHint": "Merged last — overrides generated variables or adds platform-specific ones.",
       "groupLabel": "Group",
