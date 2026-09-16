@@ -189,3 +189,22 @@ func TestRegistryRegisterAppendsAndReplaces(t *testing.T) {
 		t.Errorf("execute replaced = %q, %v", out, err)
 	}
 }
+
+func TestRegistryRemove(t *testing.T) {
+	reg := NewRegistry(probeTool{"a"}, probeTool{"b"}, probeTool{"c"})
+	reg.Remove("b")
+	names := []string{}
+	for _, d := range reg.Defs() {
+		names = append(names, d.Name)
+	}
+	if strings.Join(names, ",") != "a,c" {
+		t.Errorf("after remove = %v, want a,c", names)
+	}
+	if _, err := reg.Execute(context.Background(), "b", json.RawMessage(`{}`)); err == nil {
+		t.Error("removed tool must not execute")
+	}
+	reg.Remove("not-there") // no-op
+	if len(reg.Defs()) != 2 {
+		t.Errorf("removing unknown must be a no-op, defs = %d", len(reg.Defs()))
+	}
+}

@@ -38,12 +38,18 @@ const subagentPreamble = "\n\nYou are running as a subagent dispatched by a pare
 
 // sessionRegistry assembles one session's toolset: built-in tools plus the
 // MCP servers projected into cwd (.mcp.json), the Skill tool over the
-// discovered skills, the native memory tools, and the Agent tool (subagent).
-// The closer releases the MCP servers. MCP failures degrade to built-in
-// tools only — never fatal. Child sessions (via Agent) get the same
-// capabilities minus the Agent tool, which is what enforces the recursion
-// depth limit of 1.
-func sessionRegistry(cwd string, m model.Model, perms perm.Checker) (*tools.Registry, io.Closer) {
+// discovered skills, the native memory tools, and the Agent/AgentResult
+// tools (subagents). The closer releases the MCP servers. MCP failures
+// degrade to built-in tools only — never fatal.
+//
+// Subagent contract (sharing AND isolation): children share the process
+// (same cwd, same model, same permission policy) and inherit the full
+// system prompt plus an auto preamble from parentContextOf (recent
+// findings); they get HALF the memory recall, never mutate the parent's
+// todo list (TodoWrite excluded — the wiring-level exclusion list), cannot
+// delegate further (MaxDepth 1), and only their final report ever reaches
+// the parent context.
+func sessionRegistry(cwd string, m model.Model, perms perm.Checker, parentContextOf func() string) (*tools.Registry, io.Closer) {
 	reg := newRegistry()
 	mgr := mcp.Start(cwd)
 	mgr.RegisterInto(reg)
@@ -53,22 +59,34 @@ func sessionRegistry(cwd string, m model.Model, perms perm.Checker) (*tools.Regi
 	reg.Register(memory.NewSaveTool(memStore))
 	reg.Register(memory.NewSearchTool(memStore))
 
-	system := prompt.BuildSession(cwd) + subagentPreamble
+	factory := &loop.AgentFactory{
+		Model: m,
+		// System inheritance: children get the same full session prompt
+		// (project context / host capabilities / skills) with HALF the
+		// memory recall, plus the subagent role note.
+		System:        prompt.BuildSessionCapped(cwd, 2, 1024) + subagentPreamble,
+		Perms:         perms,
+		MaxDepth:      1,
+		ExcludedTools: []string{"TodoWrite"}, // state isolation
+	}
+	if parentContextOf != nil {
+		factory.ContextPreamble = parentContextOf()
+	}
 	newChild := func() *tools.Registry {
 		child := newRegistry()
 		mgr.RegisterInto(child)
 		child.Register(skills.NewTool(skillList))
 		child.Register(memory.NewSaveTool(memStore))
 		child.Register(memory.NewSearchTool(memStore))
+		for _, name := range factory.ExcludedTools {
+			child.Remove(name)
+		}
 		return child
 	}
-	reg.Register(loop.NewAgentTool(&loop.AgentFactory{
-		Model:            m,
-		System:           system,
-		NewChildRegistry: newChild,
-		Perms:            perms,
-		MaxDepth:         1,
-	}, 0))
+	factory.NewChildRegistry = newChild
+	agentTool := loop.NewAgentTool(factory, 0)
+	reg.Register(agentTool)
+	reg.Register(loop.NewAgentResultTool(factory))
 	return reg, mgr
 }
 
@@ -126,7 +144,15 @@ Configuration (env):
 	// Session toolset: built-ins + MCP servers + Skill + Agent tools; server
 	// lifetime is the process's. Subagents inherit the parent's policy so
 	// they cannot bypass the -y write choice.
-	reg, closer := sessionRegistry(cwd, m, perm.NewPolicy(*yes))
+	var sess *loop.Session
+	reg, closer := sessionRegistry(cwd, m, perm.NewPolicy(*yes), func() string {
+		if sess == nil {
+			return ""
+		}
+		// Auto context inheritance: recent parent findings ride into every
+		// subagent (the factory caps the preamble).
+		return sess.Transcript()
+	})
 	defer closer.Close()
 
 	system := prompt.BuildSession(cwd)
@@ -137,7 +163,7 @@ Configuration (env):
 
 	// Session form (not Run) so the transcript is available for the
 	// optional reflection pass.
-	sess := loop.NewSession(m, reg, system)
+	sess = loop.NewSession(m, reg, system)
 	res, err := sess.Prompt(ctx, *promptText,
 		loop.Options{
 			MaxTurns: *maxTurns,
@@ -199,7 +225,7 @@ func runACP() {
 		// are refused rather than silently allowed — P4 wires the approval
 		// flow through to child sessions.
 		func(cwd string, m model.Model) (*tools.Registry, io.Closer, error) {
-			reg, closer := sessionRegistry(cwd, m, perm.NewPolicy(false))
+			reg, closer := sessionRegistry(cwd, m, perm.NewPolicy(false), nil)
 			return reg, closer, nil
 		})
 	if err := srv.Serve(context.Background()); err != nil {

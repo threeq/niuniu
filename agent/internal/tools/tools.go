@@ -60,6 +60,18 @@ func (r *Registry) Register(t Tool) {
 	r.byName[def.Name] = t
 }
 
+// Remove deletes a tool from the registry (used to enforce subagent
+// tool-exclusion lists). Removing an unknown name is a no-op.
+func (r *Registry) Remove(name string) {
+	delete(r.byName, name)
+	for i, d := range r.defs {
+		if d.Name == name {
+			r.defs = append(r.defs[:i], r.defs[i+1:]...)
+			break
+		}
+	}
+}
+
 // Execute runs the named tool; unknown names are an error (which the loop
 // turns into an error tool_result so the model can recover).
 func (r *Registry) Execute(ctx context.Context, name string, input json.RawMessage) (string, error) {

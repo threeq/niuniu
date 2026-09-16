@@ -7,6 +7,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"sync"
 
 	"github.com/niuniu-dev/niuniu/agent/internal/model"
 	"github.com/niuniu-dev/niuniu/agent/internal/perm"
@@ -151,48 +152,64 @@ func (s *Session) Prompt(ctx context.Context, userText string, opts Options) (Tu
 			return result, nil
 		}
 
-		results := make([]model.Block, 0, len(uses))
-		for _, use := range uses {
-			emit(Event{Kind: EventToolStart, ToolName: use.Name, ToolID: use.ID, ToolInput: string(use.Input)})
-
-			decision := opts.Perms.Check(use.Name)
-			if decision == perm.Ask {
-				// No interactive escalation is wired in this context; treat
-				// like a denial (the ACP server never uses a plain Ask).
-				decision = perm.Deny
+		results := make([]model.Block, len(uses))
+		if allAgentUses(uses) && len(uses) > 1 {
+			// Parallel fan-out: synchronous Agent calls in one round run
+			// concurrently — child sessions are fully independent, so this
+			// is safe, and a delegation round should not serialize. Results
+			// are backfilled in the original order.
+			var wg sync.WaitGroup
+			for i, use := range uses {
+				emit(Event{Kind: EventToolStart, ToolName: use.Name, ToolID: use.ID, ToolInput: string(use.Input)})
+				wg.Add(1)
+				go func(i int, use model.Block) {
+					defer wg.Done()
+					results[i] = s.execToolUse(ctx, use, opts, emit)
+				}(i, use)
 			}
-			if decision == perm.Deny {
-				results = append(results, model.Block{
-					Type:      model.BlockToolResult,
-					ToolUseID: use.ID,
-					Text:      perm.DenyMessage,
-					IsError:   true,
-				})
-				emit(Event{Kind: EventToolEnd, ToolName: use.Name, ToolID: use.ID, ToolOutput: perm.DenyMessage, IsError: true})
-				continue
+			wg.Wait()
+		} else {
+			for i, use := range uses {
+				emit(Event{Kind: EventToolStart, ToolName: use.Name, ToolID: use.ID, ToolInput: string(use.Input)})
+				results[i] = s.execToolUse(ctx, use, opts, emit)
 			}
-
-			out, err := s.reg.Execute(ctx, use.Name, use.Input)
-			if err != nil {
-				results = append(results, model.Block{
-					Type:      model.BlockToolResult,
-					ToolUseID: use.ID,
-					Text:      "ERROR: " + err.Error(),
-					IsError:   true,
-				})
-				emit(Event{Kind: EventToolEnd, ToolName: use.Name, ToolID: use.ID, ToolOutput: err.Error(), IsError: true})
-				continue
-			}
-			results = append(results, model.Block{
-				Type:      model.BlockToolResult,
-				ToolUseID: use.ID,
-				Text:      out,
-			})
-			emit(Event{Kind: EventToolEnd, ToolName: use.Name, ToolID: use.ID, ToolOutput: out})
 		}
 		s.messages = append(s.messages, model.Message{Role: model.RoleUser, Blocks: results})
 	}
 	return TurnResult{}, fmt.Errorf("turn budget exhausted after %d rounds without a final answer", opts.MaxTurns)
+}
+
+// execToolUse executes one tool_use with permission gating and error
+// backfill, emitting the matching events.
+func (s *Session) execToolUse(ctx context.Context, use model.Block, opts Options, emit func(Event)) model.Block {
+	decision := opts.Perms.Check(use.Name)
+	if decision == perm.Ask {
+		// No interactive escalation is wired in this context; treat like a
+		// denial (the ACP server never uses a plain Ask).
+		decision = perm.Deny
+	}
+	if decision == perm.Deny {
+		emit(Event{Kind: EventToolEnd, ToolName: use.Name, ToolID: use.ID, ToolOutput: perm.DenyMessage, IsError: true})
+		return model.Block{Type: model.BlockToolResult, ToolUseID: use.ID, Text: perm.DenyMessage, IsError: true}
+	}
+	out, err := s.reg.Execute(ctx, use.Name, use.Input)
+	if err != nil {
+		emit(Event{Kind: EventToolEnd, ToolName: use.Name, ToolID: use.ID, ToolOutput: err.Error(), IsError: true})
+		return model.Block{Type: model.BlockToolResult, ToolUseID: use.ID, Text: "ERROR: " + err.Error(), IsError: true}
+	}
+	emit(Event{Kind: EventToolEnd, ToolName: use.Name, ToolID: use.ID, ToolOutput: out})
+	return model.Block{Type: model.BlockToolResult, ToolUseID: use.ID, Text: out}
+}
+
+// allAgentUses reports whether every tool_use in the round targets the
+// Agent tool (the parallel fan-out condition).
+func allAgentUses(uses []model.Block) bool {
+	for _, u := range uses {
+		if u.Name != "Agent" {
+			return false
+		}
+	}
+	return true
 }
 
 // Run is the one-shot convenience form: a fresh Session driven by a single

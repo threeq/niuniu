@@ -75,8 +75,15 @@ Full instructions for these load via the Skill tool (pass the name) when a task 
 // as their systemFor, so every entry path gets identical context assembly.
 // Session-constant across rounds (stable prefix for the prompt cache).
 func BuildSession(cwd string) string {
+	return BuildSessionCapped(cwd, 5, 2048)
+}
+
+// BuildSessionCapped is BuildSession with explicit recall caps. Subagent
+// wiring calls it with halved numbers: a narrow child task needs less
+// recalled memory, and halving keeps the child's window lean.
+func BuildSessionCapped(cwd string, recallTopN, recallBytes int) string {
 	store := memory.NewStore(cwd)
-	recall, err := store.Recall(5, 2048)
+	recall, err := store.Recall(recallTopN, recallBytes)
 	if err != nil {
 		slog.Warn("memory recall failed", "err", err)
 	}
