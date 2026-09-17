@@ -72,6 +72,14 @@ type oaRequest struct {
 	MaxTokens int         `json:"max_tokens,omitempty"`
 	// ReasoningEffort: low | medium | high; empty = provider default.
 	ReasoningEffort string `json:"reasoning_effort,omitempty"`
+	// Stream requests SSE chunks (stream:true).
+	Stream *bool `json:"stream,omitempty"`
+	// StreamOptions asks the server to append a final usage chunk.
+	StreamOptions *oaStreamOptions `json:"stream_options,omitempty"`
+}
+
+type oaStreamOptions struct {
+	IncludeUsage bool `json:"include_usage"`
 }
 
 type oaResponse struct {
@@ -89,6 +97,9 @@ type oaResponse struct {
 }
 
 func (o *openaiModel) Complete(ctx context.Context, req Request) (*Response, error) {
+	if req.Stream != nil {
+		return streamOpenAI(ctx, o, req, req.Stream)
+	}
 	maxTok := req.MaxTokens
 	if maxTok <= 0 {
 		maxTok = DefaultMaxTokens

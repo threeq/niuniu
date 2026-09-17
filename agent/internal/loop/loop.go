@@ -37,8 +37,11 @@ const (
 // session/update notifications. Text is only set for EventText; ToolName/
 // ToolID/ToolInput for start; ToolOutput for end.
 type Event struct {
-	Kind       EventKind
-	Text       string
+	Kind EventKind
+	Text string
+	// Delta marks incremental (streaming) text/thinking events; hosts
+	// append, non-delta events replace.
+	Delta      bool
 	ToolName   string
 	ToolID     string
 	ToolInput  string
@@ -73,6 +76,10 @@ type Options struct {
 	// Thinking carries the reasoning budget/effort applied to every model
 	// round of this prompt (session-stable → cache-friendly).
 	Thinking model.ThinkingConfig
+	// Stream enables SSE streaming: text/thinking deltas are emitted as
+	// incremental EventText/EventThinking events (ACP chunk level), and the
+	// whole-block events are suppressed to avoid duplicates.
+	Stream bool
 }
 
 // Session is a continuing conversation: successive Prompts accumulate
@@ -123,19 +130,35 @@ func (s *Session) Prompt(ctx context.Context, userText string, opts Options) (Tu
 			s.compact(ctx, keep)
 			lastCtx = 0 // compacted; don't re-trigger on the same overshoot
 		}
-		resp, err := s.m.Complete(ctx, model.Request{
+		req := model.Request{
 			System:   s.system,
 			Messages: s.messages,
 			Tools:    s.reg.Defs(),
 			Thinking: opts.Thinking,
-		})
+		}
+		var textDeltas int
+		if opts.Stream {
+			req.Stream = func(d model.StreamDelta) {
+				kind := EventText
+				if d.Kind == model.StreamThinking {
+					kind = EventThinking
+				}
+				if kind == EventText {
+					textDeltas++
+				}
+				emit(Event{Kind: kind, Text: d.Text, Delta: true})
+			}
+		}
+		resp, err := s.m.Complete(ctx, req)
 		if err != nil {
 			return TurnResult{}, fmt.Errorf("model round %d: %w", turn, err)
 		}
 		s.messages = append(s.messages, resp.Message)
-		for _, blk := range resp.Message.Blocks {
-			if blk.Type == model.BlockThinking && blk.Text != "" {
-				emit(Event{Kind: EventThinking, Text: blk.Text})
+		if textDeltas == 0 {
+			for _, blk := range resp.Message.Blocks {
+				if blk.Type == model.BlockThinking && blk.Text != "" {
+					emit(Event{Kind: EventThinking, Text: blk.Text})
+				}
 			}
 		}
 		result.Rounds++
@@ -148,7 +171,9 @@ func (s *Session) Prompt(ctx context.Context, userText string, opts Options) (Tu
 		uses := resp.Message.ToolUses()
 		if len(uses) == 0 {
 			result.Text = resp.Message.Text()
-			emit(Event{Kind: EventText, Text: result.Text})
+			if textDeltas == 0 {
+				emit(Event{Kind: EventText, Text: result.Text})
+			}
 			return result, nil
 		}
 

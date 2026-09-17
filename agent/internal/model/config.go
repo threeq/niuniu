@@ -36,6 +36,8 @@ type Config struct {
 	// Thinking is the reasoning budget/effort parsed from
 	// NIUNIU_AGENT_THINKING (off | low | medium | high | <tokens>).
 	Thinking ThinkingConfig
+	// Stream enables SSE streaming (NIUNIU_AGENT_STREAM, default on).
+	Stream bool
 }
 
 // LoadConfig builds a Config from environment variables, applying flag
@@ -64,6 +66,7 @@ func LoadConfig(providerFlag, modelFlag string) (Config, error) {
 	}
 	cfg.BaseURL = strings.TrimRight(cfg.BaseURL, "/")
 	cfg.Thinking = parseThinking(os.Getenv("NIUNIU_AGENT_THINKING"))
+	cfg.Stream = ParseStreamFlag(os.Getenv("NIUNIU_AGENT_STREAM"))
 	// "[1m]"-style context-tier suffixes are an upstream harness decoration
 	// (the workspace model picker reuses Claude-style tiered names); the wire
 	// API rejects them, so normalize here at the protocol boundary.
@@ -85,6 +88,16 @@ func LoadConfig(providerFlag, modelFlag string) (Config, error) {
 // "off"/"" → zero (provider default), low|medium|high → effort with a
 // matching token budget (both protocol families get something usable),
 // numeric → an explicit Anthropic-style budget.
+// parseStreamFlag: streaming is ON unless explicitly disabled
+// (NIUNIU_AGENT_STREAM=0|off|false).
+func ParseStreamFlag(v string) bool {
+	switch strings.ToLower(strings.TrimSpace(v)) {
+	case "0", "off", "false", "no":
+		return false
+	}
+	return true
+}
+
 func parseThinking(v string) ThinkingConfig {
 	switch strings.ToLower(strings.TrimSpace(v)) {
 	case "", "off", "none", "0":

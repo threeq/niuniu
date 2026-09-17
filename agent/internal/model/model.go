@@ -116,6 +116,11 @@ type Request struct {
 	Tools     []ToolDef
 	MaxTokens int
 	Thinking  ThinkingConfig
+	// Stream, when set, switches the adapter to SSE: every text/thinking
+	// delta is pushed to the callback while the returned Response stays
+	// identical to the non-stream path. Only takes effect when the adapter
+	// config enables streaming (Config.Stream).
+	Stream func(StreamDelta)
 }
 
 // Usage is token accounting for one request.

@@ -137,6 +137,7 @@ Configuration (env):
 
 	m := mustModel(*provider, *modelName)
 
+	start := time.Now()
 	ctx, cancel := context.WithTimeout(context.Background(), *timeout)
 	defer cancel()
 	cwd, err := os.Getwd()
@@ -185,13 +186,22 @@ Configuration (env):
 		fmt.Fprintln(os.Stderr, "--- system ---\n"+system+"\n--- end system ---")
 	}
 
+	// Streaming: SSE by default (NIUNIU_AGENT_STREAM=0 to disable); the
+	// first-token latency is printed for observability.
+	streamOn := model.ParseStreamFlag(os.Getenv("NIUNIU_AGENT_STREAM"))
+	var firstToken time.Time
 	// Session form (not Run) so the transcript is available for the
 	// optional reflection pass.
 	res, err := sess.Prompt(ctx, *promptText,
 		loop.Options{
 			MaxTurns: *maxTurns,
 			Perms:    perm.NewPolicy(*yes),
+			Stream:   streamOn,
 			OnEvent: func(e loop.Event) {
+				if streamOn && e.Delta && firstToken.IsZero() && (e.Kind == loop.EventText || e.Kind == loop.EventThinking) {
+					firstToken = time.Now()
+					fmt.Fprintf(os.Stderr, "[stream] first token in %s\n", time.Since(start).Round(time.Millisecond))
+				}
 				if e.Kind == loop.EventThinking {
 					// Reasoning observability: one truncated line per thinking
 					// block (stdout stays the answer; telemetry → stderr).

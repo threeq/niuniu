@@ -93,6 +93,8 @@ type antRequest struct {
 	// be strictly less than max_tokens, so the caller budget is bumped
 	// above it when needed.
 	Thinking *antThinking `json:"thinking,omitempty"`
+	// Stream requests SSE (stream:true).
+	Stream *bool `json:"stream,omitempty"`
 }
 
 type antThinking struct {
@@ -115,6 +117,9 @@ type antResponse struct {
 }
 
 func (a *anthropicModel) Complete(ctx context.Context, req Request) (*Response, error) {
+	if req.Stream != nil {
+		return streamAnthropic(ctx, a, req, req.Stream)
+	}
 	maxTok := req.MaxTokens
 	if maxTok <= 0 {
 		maxTok = DefaultMaxTokens
