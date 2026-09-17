@@ -388,6 +388,16 @@ type WorkspaceSession struct {
 	// making Stop look like a no-op. Reset to false on SendLoop entry. s.mu.
 	stopRequested bool
 
+	// intentionalStop marks kills that niuniu itself decided on — user Stop()
+	// and the 30min idle reaper — as opposed to a real crash. The process
+	// monitor checks it before surfacing "Agent process exited (code N):
+	// <stderr>" to the chat: a deliberate kill is not an error, and broadcasting
+	// the stderr remnants (e.g. the CLI's shutdown diagnostics) as an error
+	// event made every intentional stop look like a system bug. The exit is
+	// still slog.Warn-logged server-side, so nothing is lost for diagnosis.
+	// Reset to false on spawn. s.mu.
+	intentionalStop bool
+
 	// schedulerDriven marks a SendLoop whose initial message came from the cron
 	// scheduler (DeliverFromScheduler). A scheduled turn is one-shot by
 	// semantics: when the loop ends cleanly, the long-lived process is reaped
@@ -2453,6 +2463,20 @@ func (s *WorkspaceSession) ensureProcess(ctx context.Context, workDir string) er
 	})
 	cmd.Env = cmdEnv
 
+	// Claude Code prints a "[claude-code:unrecognized_model]" stderr diagnostic
+	// for every non-catalog model ID (third-party provider names like
+	// "deepseek-v4-flash[1m]"). The request still works, but our stderr ring is
+	// only surfaced on process exit, so an idle-reaper kill or manual Stop made
+	// a healthy session end with a scary X Error in the chat. Map this spawn's
+	// model names into modelOverrides — the CLI's own silencing path — so the
+	// diagnostic is never produced in the first place. Best-effort.
+	if driverAdapter.Type() == adapter.TypeClaude {
+		if err := EnsureClaudeModelOverrides(workDir, model, cmdEnv); err != nil {
+			slog.Warn("agent: merge claude modelOverrides failed",
+				"workspaceID", s.workspaceID, "error", err)
+		}
+	}
+
 	stdinPipe, err := cmd.StdinPipe()
 	if err != nil {
 		cancel()
@@ -2500,6 +2524,9 @@ func (s *WorkspaceSession) ensureProcess(ctx context.Context, workDir string) er
 	s.reader = bufio.NewReaderSize(stdoutPipe, 256*1024)
 	s.stderrBuf = stderrBuf
 	s.alive = true
+	// A fresh process gets a clean slate: a previous Stop/idle-reaper kill must
+	// not suppress the exit broadcast of THIS process if it genuinely crashes.
+	s.intentionalStop = false
 	s.workDir = workDir
 
 	// Start background read loop. Capture the provider THIS process was spawned
@@ -2551,15 +2578,19 @@ func (s *WorkspaceSession) ensureProcess(ctx context.Context, workDir string) er
 			"stderr", stderr,
 			"err", waitErr)
 
-		// Broadcast error to frontend if process died unexpectedly
-		if exitCode != 0 && stderr != "" {
+		// Broadcast error to frontend if process died unexpectedly. A kill
+		// niuniu itself decided on (user Stop / idle reaper) is not an error:
+		// the exit above is already Warn-logged, so only genuine crashes reach
+		// the chat as an error event.
+		s.mu.Lock()
+		intentional := s.intentionalStop
+		msgId := s.turnMsgId
+		s.mu.Unlock()
+		if exitCode != 0 && stderr != "" && !intentional {
 			errMsg := fmt.Sprintf("Agent process exited (code %d): %s", exitCode, stderr)
 			if len(errMsg) > 500 {
 				errMsg = errMsg[:500] + "..."
 			}
-			s.mu.Lock()
-			msgId := s.turnMsgId
-			s.mu.Unlock()
 			errEv := NewOutputEvent(EventError, errMsg, msgId, "assistant", s.workspaceID)
 			s.hub.Broadcast(s.workspaceID, errEv)
 		}
@@ -3771,6 +3802,9 @@ func (s *WorkspaceSession) resetIdleTimer() {
 			return
 		}
 		slog.Info("agent: idle timeout, killing process", "workspaceID", s.workspaceID)
+		s.mu.Lock()
+		s.intentionalStop = true
+		s.mu.Unlock()
 		s.killProcess()
 	})
 }
@@ -4001,6 +4035,7 @@ func (s *WorkspaceSession) Stop(ctx context.Context) error {
 	// then sees stopRequested and exits instead of autohost-continuing.
 	s.mu.Lock()
 	s.stopRequested = true
+	s.intentionalStop = true
 	s.mu.Unlock()
 	s.killProcess()
 	s.mu.Lock()
