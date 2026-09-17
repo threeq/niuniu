@@ -108,6 +108,10 @@ func main() {
 		runMemoryConsolidate()
 		return
 	}
+	if len(os.Args) > 1 && os.Args[1] == "eval" {
+		runEval()
+		return
+	}
 
 	var (
 		promptText  = flag.String("p", "", "one-shot prompt: run headless and print the final answer")
