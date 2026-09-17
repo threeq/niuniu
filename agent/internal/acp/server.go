@@ -224,20 +224,32 @@ func (s *Server) runPrompt(parent context.Context, st *sessionState, p sessionPr
 	defer cancel()
 	st.cancel = cancel
 
-	var userParts []string
+	var userBlocks []model.Block
 	for _, b := range p.Prompt {
-		if b.Type == "text" && b.Text != "" {
-			userParts = append(userParts, b.Text)
+		switch b.Type {
+		case "text":
+			if b.Text != "" {
+				userBlocks = append(userBlocks, model.Block{Type: model.BlockText, Text: b.Text})
+			}
+		case "image":
+			if b.Data != "" {
+				userBlocks = append(userBlocks, model.Block{
+					Type: model.BlockImage, Media: b.Data, MIME: b.MimeType,
+				})
+			}
 		}
 	}
-	if len(userParts) == 0 {
-		return nil, &rpcError{Code: errInvalidParams, Message: "prompt has no text blocks"}
+	if len(userBlocks) == 0 {
+		return nil, &rpcError{Code: errInvalidParams, Message: "prompt has no usable blocks"}
 	}
 
 	run := &promptRun{srv: s, sess: st}
-	res, err := st.conv.Prompt(ctx, strings.Join(userParts, "\n"), loop.Options{
+	res, err := st.conv.PromptBlocks(ctx, userBlocks, loop.Options{
 		OnEvent: run.onEvent,
 		Perms:   run,
+		// SSE streaming: session/update chunks become incremental
+		// (agent_message_chunk / agent_thought_chunk per delta).
+		Stream: model.ParseStreamFlag(os.Getenv("NIUNIU_AGENT_STREAM")),
 	})
 	if err != nil {
 		if errors.Is(ctx.Err(), context.Canceled) {

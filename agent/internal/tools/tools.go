@@ -19,6 +19,13 @@ type Tool interface {
 	Execute(ctx context.Context, input json.RawMessage) (string, error)
 }
 
+// ImageResult is an optional interface for tools that can return images
+// (Read on an image path): the loop prefers it and attaches the image
+// blocks to the tool_result for vision-capable models.
+type ImageResult interface {
+	ExecuteWithImages(ctx context.Context, input json.RawMessage) (string, []model.Block, error)
+}
+
 // Registry maps tool names to implementations and holds the ToolDef list
 // sent to the model.
 type Registry struct {
@@ -58,6 +65,12 @@ func (r *Registry) Register(t Tool) {
 		}
 	}
 	r.byName[def.Name] = t
+}
+
+// Lookup returns the named tool implementation (nil when absent).
+func (r *Registry) Lookup(name string) (Tool, bool) {
+	t, ok := r.byName[name]
+	return t, ok
 }
 
 // Remove deletes a tool from the registry (used to enforce subagent

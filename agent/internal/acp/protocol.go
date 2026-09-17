@@ -84,10 +84,13 @@ type sessionPromptParams struct {
 	Prompt    []promptBlock `json:"prompt"`
 }
 
-// promptBlock is one user-content block; ACP text blocks carry the prompt.
+// promptBlock is one user-content block; ACP text blocks carry the prompt,
+// image blocks (base64 data + mimeType) become IR image blocks.
 type promptBlock struct {
-	Type string `json:"type"` // "text" | "image" | "resource_link"
-	Text string `json:"text,omitempty"`
+	Type     string `json:"type"` // "text" | "image" | "resource_link"
+	Text     string `json:"text,omitempty"`
+	Data     string `json:"data,omitempty"`
+	MimeType string `json:"mimeType,omitempty"`
 }
 
 type sessionPromptResult struct {

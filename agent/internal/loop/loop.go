@@ -104,6 +104,12 @@ func NewSession(m model.Model, reg *tools.Registry, system string) *Session {
 // run — the model can correct course. Denied tools (permission layer)
 // likewise come back as error results.
 func (s *Session) Prompt(ctx context.Context, userText string, opts Options) (TurnResult, error) {
+	return s.PromptBlocks(ctx, []model.Block{{Type: model.BlockText, Text: userText}}, opts)
+}
+
+// PromptBlocks is Prompt with arbitrary user content blocks (text + images
+// for multimodal turns).
+func (s *Session) PromptBlocks(ctx context.Context, userBlocks []model.Block, opts Options) (TurnResult, error) {
 	if opts.MaxTurns <= 0 {
 		opts.MaxTurns = DefaultMaxTurns
 	}
@@ -115,10 +121,7 @@ func (s *Session) Prompt(ctx context.Context, userText string, opts Options) (Tu
 			opts.OnEvent(e)
 		}
 	}
-	s.messages = append(s.messages, model.Message{
-		Role:   model.RoleUser,
-		Blocks: []model.Block{{Type: model.BlockText, Text: userText}},
-	})
+	s.messages = append(s.messages, model.Message{Role: model.RoleUser, Blocks: userBlocks})
 	var result TurnResult
 	lastCtx := 0 // context size reported by the previous round
 	for turn := 1; turn <= opts.MaxTurns; turn++ {
@@ -217,13 +220,33 @@ func (s *Session) execToolUse(ctx context.Context, use model.Block, opts Options
 		emit(Event{Kind: EventToolEnd, ToolName: use.Name, ToolID: use.ID, ToolOutput: perm.DenyMessage, IsError: true})
 		return model.Block{Type: model.BlockToolResult, ToolUseID: use.ID, Text: perm.DenyMessage, IsError: true}
 	}
-	out, err := s.reg.Execute(ctx, use.Name, use.Input)
-	if err != nil {
-		emit(Event{Kind: EventToolEnd, ToolName: use.Name, ToolID: use.ID, ToolOutput: err.Error(), IsError: true})
-		return model.Block{Type: model.BlockToolResult, ToolUseID: use.ID, Text: "ERROR: " + err.Error(), IsError: true}
+	var text string
+	var images []model.Block
+	if ir, ok := s.reg.Lookup(use.Name); ok {
+		if im, implements := ir.(tools.ImageResult); implements {
+			var err error
+			text, images, err = im.ExecuteWithImages(ctx, use.Input)
+			if err != nil {
+				emit(Event{Kind: EventToolEnd, ToolName: use.Name, ToolID: use.ID, ToolOutput: err.Error(), IsError: true})
+				return model.Block{Type: model.BlockToolResult, ToolUseID: use.ID, Text: "ERROR: " + err.Error(), IsError: true}
+			}
+		}
 	}
-	emit(Event{Kind: EventToolEnd, ToolName: use.Name, ToolID: use.ID, ToolOutput: out})
-	return model.Block{Type: model.BlockToolResult, ToolUseID: use.ID, Text: out}
+	if images == nil {
+		out, err := s.reg.Execute(ctx, use.Name, use.Input)
+		if err != nil {
+			emit(Event{Kind: EventToolEnd, ToolName: use.Name, ToolID: use.ID, ToolOutput: err.Error(), IsError: true})
+			return model.Block{Type: model.BlockToolResult, ToolUseID: use.ID, Text: "ERROR: " + err.Error(), IsError: true}
+		}
+		text = out
+	}
+	emit(Event{Kind: EventToolEnd, ToolName: use.Name, ToolID: use.ID, ToolOutput: text})
+	tr := model.Block{Type: model.BlockToolResult, ToolUseID: use.ID, Text: text}
+	for _, im := range images {
+		tr.Media, tr.MIME = im.Media, im.MIME
+		break // one image per result for now
+	}
+	return tr
 }
 
 // allAgentUses reports whether every tool_use in the round targets the

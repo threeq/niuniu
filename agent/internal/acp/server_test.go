@@ -480,3 +480,28 @@ func TestACPThoughtChunk(t *testing.T) {
 		t.Fatalf("update2 = %+v, want agent_message_chunk", u2)
 	}
 }
+
+func TestACPImageBlockInPrompt(t *testing.T) {
+	dir := t.TempDir()
+	turns := [][]model.Block{
+		{{Type: model.BlockText, Text: "seen"}},
+	}
+	cl, fm := startServer(t, turns, nil)
+	var sessRes sessionNewResult
+	if err := json.Unmarshal(cl.call("session/new", map[string]any{"cwd": dir}), &sessRes); err != nil {
+		t.Fatal(err)
+	}
+	cl.call("session/prompt", map[string]any{
+		"sessionId": sessRes.SessionID,
+		"prompt": []map[string]any{
+			{"type": "text", "text": "看这张图"},
+			{"type": "image", "data": "aGk=", "mimeType": "image/png"},
+		},
+	})
+	// user 消息 = text 块 + image 块（base64 透传）。
+	blocks := fm.lastReq.Messages[0].Blocks
+	if len(blocks) != 2 || blocks[0].Type != model.BlockText ||
+		blocks[1].Type != model.BlockImage || blocks[1].Media != "aGk=" || blocks[1].MIME != "image/png" {
+		t.Fatalf("user blocks = %+v", blocks)
+	}
+}

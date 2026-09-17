@@ -186,12 +186,15 @@ func toOAMessages(req Request) []oaMessage {
 	}
 	for _, m := range req.Messages {
 		var texts []string
+		var images []Block
 		var toolCalls []oaToolCall
 		var toolResults []Block
 		for _, b := range m.Blocks {
 			switch b.Type {
 			case BlockText:
 				texts = append(texts, b.Text)
+			case BlockImage:
+				images = append(images, b)
 			case BlockToolUse:
 				args := string(b.Input)
 				if len(b.Input) == 0 {
@@ -216,8 +219,36 @@ func toOAMessages(req Request) []oaMessage {
 		if s := strings.Join(texts, "\n"); s != "" {
 			out = append(out, oaMessage{Role: "user", Content: s})
 		}
+		// User images ride a multipart content array on the last user text
+		// (or their own message when the turn is image-only).
+		if len(images) > 0 {
+			var parts []map[string]any
+			if s := strings.Join(texts, "\n"); s != "" {
+				parts = append(parts, map[string]any{"type": "text", "text": s})
+			}
+			for _, im := range images {
+				parts = append(parts, map[string]any{
+					"type":      "image_url",
+					"image_url": map[string]any{"url": "data:" + im.MIME + ";base64," + im.Media},
+				})
+			}
+			if len(out) > 0 && out[len(out)-1].Role == "user" {
+				out[len(out)-1].Content = parts
+			} else {
+				out = append(out, oaMessage{Role: "user", Content: parts})
+			}
+		}
 		for _, tr := range toolResults {
-			out = append(out, oaMessage{Role: "tool", ToolCallID: tr.ToolUseID, Content: tr.Text})
+			var content any = tr.Text
+			if tr.Media != "" {
+				arr := []map[string]any{{"type": "text", "text": tr.Text}}
+				arr = append(arr, map[string]any{
+					"type":      "image_url",
+					"image_url": map[string]any{"url": "data:" + tr.MIME + ";base64," + tr.Media},
+				})
+				content = arr
+			}
+			out = append(out, oaMessage{Role: "tool", ToolCallID: tr.ToolUseID, Content: content})
 		}
 	}
 	return out

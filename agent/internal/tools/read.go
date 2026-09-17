@@ -4,11 +4,13 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/niuniu-dev/niuniu/agent/internal/model"
@@ -98,4 +100,39 @@ func (Read) Execute(_ context.Context, input json.RawMessage) (string, error) {
 		return "(empty file, or offset beyond end of file)", nil
 	}
 	return b.String(), nil
+}
+
+// imageMIMEs 是 Read 以图片块返回的扩展名集合。
+var imageMIMEs = map[string]string{
+	".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
+	".gif": "image/gif", ".webp": "image/webp",
+}
+
+// MaxImageBytes 单张图片上限（base64 前约 5MB）。
+const MaxImageBytes = 5 << 20
+
+// ExecuteWithImages 实现 tools.ImageResult：图片路径时返回 base64 图块，
+// 由 loop 填进 tool_result（视觉模型可见）；文本路径退化为普通 Execute。
+func (Read) ExecuteWithImages(_ context.Context, input json.RawMessage) (string, []model.Block, error) {
+	var in struct {
+		Path string `json:"path"`
+	}
+	if err := json.Unmarshal(input, &in); err != nil {
+		return "", nil, fmt.Errorf("invalid input: %w", err)
+	}
+	ext := strings.ToLower(filepath.Ext(in.Path))
+	mime, ok := imageMIMEs[ext]
+	if !ok {
+		out, err := Read{}.Execute(context.Background(), input)
+		return out, nil, err
+	}
+	data, err := os.ReadFile(in.Path)
+	if err != nil {
+		return "", nil, fmt.Errorf("Read: %w", err)
+	}
+	if len(data) > MaxImageBytes {
+		return "", nil, fmt.Errorf("Read: %s is %d bytes, over the %d-byte image cap", in.Path, len(data), MaxImageBytes)
+	}
+	return fmt.Sprintf("[image: %s (%s, %d bytes) — attached to this result]", in.Path, mime, len(data)),
+		[]model.Block{{Type: model.BlockImage, MIME: mime, Media: base64.StdEncoding.EncodeToString(data)}}, nil
 }

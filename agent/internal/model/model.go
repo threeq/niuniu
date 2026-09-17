@@ -21,6 +21,7 @@ const (
 	BlockThinking   = "thinking"
 	BlockToolUse    = "tool_use"
 	BlockToolResult = "tool_result"
+	BlockImage      = "image"
 )
 
 // Message roles.
@@ -60,6 +61,12 @@ type Block struct {
 	// unmodified. Anthropic REQUIRES it echoed back verbatim in tool-loop
 	// history; keep it intact or the gateway rejects the request.
 	Signature string `json:"signature,omitempty"`
+
+	// BlockImage (and image-bearing tool_results): base64-encoded bytes and
+	// MIME type. Adapters map to the wire format (anthropic image source /
+	// openai image_url data URL).
+	Media string `json:"media,omitempty"`
+	MIME  string `json:"mime,omitempty"`
 }
 
 // ThinkingConfig carries the reasoning budget/effort for one request.

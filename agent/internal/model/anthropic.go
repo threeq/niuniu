@@ -67,7 +67,20 @@ type antBlock struct {
 	IsError   bool            `json:"is_error,omitempty"`
 	Content   []antBlock      `json:"content,omitempty"` // tool_result only
 
+	// image only
+	Source *antImageSource `json:"source,omitempty"`
+
 	CacheControl *antCacheControl `json:"cache_control,omitempty"`
+}
+
+type antImageSource struct {
+	Type      string `json:"type"` // "base64"
+	MediaType string `json:"media_type"`
+	Data      string `json:"data"`
+}
+
+func antImage(media, mime string) antBlock {
+	return antBlock{Type: "image", Source: &antImageSource{Type: "base64", MediaType: mime, Data: media}}
 }
 
 type antMessage struct {
@@ -212,16 +225,24 @@ func toAntMessages(msgs []Message) []antMessage {
 		for _, b := range m.Blocks {
 			switch b.Type {
 			case BlockToolResult:
-				// Array-of-text content form; never send an empty string.
+				// Array content form: text first, then any images the tool
+				// returned. Never send an empty string.
 				text := b.Text
-				if text == "" {
+				if text == "" && b.Media == "" {
 					text = "(no output)"
+				}
+				content := []antBlock{}
+				if text != "" {
+					content = append(content, antBlock{Type: BlockText, Text: text})
+				}
+				if b.Media != "" {
+					content = append(content, antImage(b.Media, b.MIME))
 				}
 				blocks = append(blocks, antBlock{
 					Type:      b.Type,
 					ToolUseID: b.ToolUseID,
 					IsError:   b.IsError,
-					Content:   []antBlock{{Type: BlockText, Text: text}},
+					Content:   content,
 				})
 			case BlockThinking:
 				// Echo thinking blocks back verbatim, signature included —
@@ -229,6 +250,8 @@ func toAntMessages(msgs []Message) []antMessage {
 				blocks = append(blocks, antBlock{
 					Type: BlockThinking, Thinking: b.Text, Signature: b.Signature,
 				})
+			case BlockImage:
+				blocks = append(blocks, antImage(b.Media, b.MIME))
 			default:
 				input := b.Input
 				if b.Type == BlockToolUse && len(input) == 0 {
