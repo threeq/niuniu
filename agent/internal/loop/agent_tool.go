@@ -70,6 +70,12 @@ type AgentFactory struct {
 	ExcludedTools []string
 	// ReportMaxBytes caps the report fed back to the parent. 0 → 16KB.
 	ReportMaxBytes int
+	// Types is the subagent-type registry (nil → BuiltinAgentTypes).
+	// Wiring appends LoadAgentTypes(<cwd>/.niuniu-agent/agents) for
+	// declarative user types.
+	Types []AgentType
+	// ModelFor resolves a typed subagent's model tier (nil → shared Model).
+	ModelFor func(tier string) model.Model
 
 	// childOptsHook observes the child's Prompt options (diagnostics/tests).
 	childOptsHook func(Options)
@@ -119,7 +125,8 @@ func (a *AgentTool) Def() model.ToolDef {
 		InputSchema: json.RawMessage(`{"type":"object","properties":{` +
 			`"prompt":{"type":"string","description":"Complete, self-contained task for the sub-agent"},` +
 			`"context":{"type":"string","description":"Optional task background the sub-agent needs (kept short)"},` +
-			`"background":{"type":"boolean","description":"Run in the background; poll AgentResult with the returned task id"}},` +
+			`"background":{"type":"boolean","description":"Run in the background; poll AgentResult with the returned task id"},` +
+			`"subagent_type":{"type":"string","description":"Subagent preset: explore / plan / worker / reviewer (or a custom type from .niuniu-agent/agents)"}},` +
 			`"required":["prompt"]}`),
 	}
 }
@@ -170,9 +177,10 @@ func (a *AgentTool) Execute(ctx context.Context, input json.RawMessage) (string,
 		return "", fmt.Errorf("subagent depth limit (%d) reached; do the work directly instead", a.f.MaxDepth)
 	}
 	var in struct {
-		Prompt     string `json:"prompt"`
-		Context    string `json:"context"`
-		Background bool   `json:"background"`
+		Prompt       string `json:"prompt"`
+		Context      string `json:"context"`
+		Background   bool   `json:"background"`
+		SubagentType string `json:"subagent_type"`
 	}
 	if err := json.Unmarshal(input, &in); err != nil {
 		return "", fmt.Errorf("invalid input: %w", err)
@@ -183,9 +191,9 @@ func (a *AgentTool) Execute(ctx context.Context, input json.RawMessage) (string,
 	prompt := composeChildPrompt(a.f.ContextPreamble, in.Context, in.Prompt)
 
 	if in.Background {
-		return a.startBackground(prompt), nil
+		return a.startBackground(prompt, in.SubagentType), nil
 	}
-	task := a.f.spawn(ctx, prompt)
+	task := a.f.spawn(ctx, prompt, in.SubagentType)
 	select {
 	case <-task.done:
 	case <-ctx.Done():
@@ -198,7 +206,7 @@ func (a *AgentTool) Execute(ctx context.Context, input json.RawMessage) (string,
 }
 
 // spawn runs one child session to completion, filling the task fields.
-func (a *AgentFactory) spawn(ctx context.Context, prompt string) *subagentTask {
+func (a *AgentFactory) spawn(ctx context.Context, prompt, typeName string) *subagentTask {
 	timeout := a.Timeout
 	if timeout <= 0 {
 		timeout = DefaultSubagentTimeout
@@ -216,7 +224,17 @@ func (a *AgentFactory) spawn(ctx context.Context, prompt string) *subagentTask {
 		for _, name := range a.ExcludedTools {
 			reg.Remove(name)
 		}
-		child := NewSession(a.Model, reg, a.System)
+		system := a.System
+		m := a.Model
+		if typeName != "" {
+			sys, typed, err := a.applyType(reg, a.System, typeName)
+			if err != nil {
+				task.err = err
+				return
+			}
+			system, m = sys, typed
+		}
+		child := NewSession(m, reg, system)
 		opts := Options{
 			Perms:                  a.Perms,
 			CompactThresholdTokens: a.CompactThresholdTokens,
@@ -239,14 +257,14 @@ func (a *AgentFactory) spawn(ctx context.Context, prompt string) *subagentTask {
 }
 
 // startBackground launches a child run and returns the polling hint.
-func (a *AgentTool) startBackground(prompt string) string {
+func (a *AgentTool) startBackground(prompt, typeName string) string {
 	a.f.mu.Lock()
 	if a.f.tasks == nil {
 		a.f.tasks = map[string]*subagentTask{}
 	}
 	a.f.seq++
 	id := fmt.Sprintf("sub-%d", a.f.seq)
-	a.f.tasks[id] = a.f.spawn(context.Background(), prompt)
+	a.f.tasks[id] = a.f.spawn(context.Background(), prompt, typeName)
 	a.f.mu.Unlock()
 	return fmt.Sprintf("background subagent started (task_id: %s) — fetch with the AgentResult tool", id)
 }

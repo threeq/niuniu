@@ -64,6 +64,10 @@ func sessionRegistry(cwd string, m model.Model, perms perm.Checker, parentContex
 
 	factory := &loop.AgentFactory{
 		Model: m,
+		Types: loop.BuiltinAgentTypes(),
+		// Declarative custom types from the workspace.
+		// factory.Types = append(factory.Types, loop.LoadAgentTypes(...) — below.
+
 		// System inheritance: children get the same full session prompt
 		// (project context / host capabilities / skills) with HALF the
 		// memory recall, plus the subagent role note.
@@ -72,6 +76,7 @@ func sessionRegistry(cwd string, m model.Model, perms perm.Checker, parentContex
 		MaxDepth:      1,
 		ExcludedTools: []string{"TodoWrite"}, // state isolation
 	}
+	factory.Types = append(factory.Types, loop.LoadAgentTypes(filepath.Join(cwd, ".niuniu-agent", "agents"))...)
 	if parentContextOf != nil {
 		factory.ContextPreamble = parentContextOf()
 	}
