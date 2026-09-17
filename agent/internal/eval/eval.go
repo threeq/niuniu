@@ -202,7 +202,10 @@ func parseTask(text string) (*Task, error) {
 			switch chk.Kind {
 			case "contains", "not-contains":
 				f, v, _ := strings.Cut(rest2, ",")
-				chk.File, chk.Value = unescapeNL(strings.TrimSpace(f)), unescapeNL(strings.TrimSpace(v))
+				// Strip ONE leading space, never TrimSpace: the expected
+				// value may legitimately start with whitespace (a tab).
+				chk.File = unescapeNL(strings.TrimSpace(f))
+				chk.Value = unescapeNL(strings.TrimPrefix(v, " "))
 			case "file-exists", "command-exit-0", "output-contains":
 				chk.Value = rest2
 			default:
@@ -224,7 +227,8 @@ func parseTask(text string) (*Task, error) {
 // real newlines, so multi-line fixtures and checks stay one logical line
 // in the markdown source.
 func unescapeNL(s string) string {
-	return strings.ReplaceAll(s, `\n`, "\n")
+	s = strings.ReplaceAll(s, `\n`, "\n")
+	return strings.ReplaceAll(s, `\t`, "\t")
 }
 
 // PrepareSandbox creates a fresh temp dir and lays down the fixtures.
