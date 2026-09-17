@@ -61,6 +61,7 @@ func sessionRegistry(cwd string, m model.Model, perms perm.Checker, parentContex
 	memStore := memory.NewStore(cwd)
 	reg.Register(memory.NewSaveTool(memStore))
 	reg.Register(memory.NewSearchTool(memStore))
+	reg.Register(memory.NewConsolidateTool(memStore))
 
 	factory := &loop.AgentFactory{
 		Model: m,
@@ -101,6 +102,10 @@ func sessionRegistry(cwd string, m model.Model, perms perm.Checker, parentContex
 func main() {
 	if len(os.Args) > 1 && os.Args[1] == "acp" {
 		runACP()
+		return
+	}
+	if len(os.Args) > 1 && os.Args[1] == "memory-consolidate" {
+		runMemoryConsolidate()
 		return
 	}
 
@@ -255,6 +260,31 @@ Configuration (env):
 			fmt.Fprintf(os.Stderr, "[reflect] saved memory %s\n", id)
 		}
 	}
+}
+
+// runMemoryConsolidate is the CLI housekeeping command: merge same-topic
+// memories, expire stale ones, and enforce the capacity cap.
+func runMemoryConsolidate() {
+	fs := flag.NewFlagSet("memory-consolidate", flag.ContinueOnError)
+	maxAge := fs.Int("max-age-days", 0, "expire entries untouched for N days")
+	noMerge := fs.Bool("no-merge", false, "skip the same-topic merge pass")
+	if err := fs.Parse(os.Args[2:]); err != nil {
+		fail(err)
+	}
+	cwd, err := os.Getwd()
+	if err != nil {
+		fail(err)
+	}
+	res, err := memory.NewStore(cwd).Consolidate(memory.ConsolidateOptions{
+		MaxAgeDays:   *maxAge,
+		MaxEntries:   memory.DefaultMaxEntriesPerLayer,
+		MergeSimilar: !*noMerge,
+	})
+	if err != nil {
+		fail(err)
+	}
+	fmt.Printf("memory consolidated: before=%d after=%d merged=%d expired=%d evicted=%d\n",
+		res.Before, res.After, res.Merged, res.Expired, res.Evicted)
 }
 
 // runACP serves the ACP protocol over stdin/stdout.

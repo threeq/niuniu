@@ -248,7 +248,7 @@ func readEntry(path, layer string) (Entry, error) {
 func render(e Entry) string {
 	return fmt.Sprintf("---\ntitle: %s\ntype: %s\ntags: %s\ncreated: %s\nupdated: %s\n---\n\n%s\n",
 		e.Title, e.Type, strings.Join(e.Tags, ","),
-		e.Created.UTC().Format(time.RFC3339), e.Updated.UTC().Format(time.RFC3339),
+		e.Created.UTC().Format(time.RFC3339Nano), e.Updated.UTC().Format(time.RFC3339Nano),
 		strings.TrimSpace(e.Content))
 }
 
@@ -355,7 +355,7 @@ func slug(title string) string {
 }
 
 func parseTime(s string) time.Time {
-	t, err := time.Parse(time.RFC3339, s)
+	t, err := time.Parse(time.RFC3339Nano, s)
 	if err != nil {
 		return time.Time{}
 	}
