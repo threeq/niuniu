@@ -124,7 +124,7 @@
     "unboundBadge": "Not associated",
     "ownerLabel": "Owner",
     "ownerPersonal": "Personal",
-    "ownerOrg": "Organization: {name}",
+    "ownerOrg": "Organization: {{name}}",
     "ownerHint": "An organization-owned source is available to every member's agents",
     "orgBadge": "Org"
   },
