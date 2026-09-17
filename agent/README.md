@@ -5,7 +5,7 @@ niuniu 的自研编码 agent（issue #708 / #709）。可行性分析与总体�
 
 独立 Go 模块（挂入根 `go.work`），**零第三方依赖**，目标是单二进制分发（desktop sidecar 友好）。
 
-## 当前状态：P5
+## 当前状态：P6
 
 - ✅ `-p` headless 单轮（`-p -` 读 stdin；`-y` 放行变更类工具）
 - ✅ `acp` server：stdio JSON-RPC（initialize / session/new / session/prompt / session/update / session/request_permission / session/cancel），session cwd 经 chdir 生效
@@ -27,7 +27,13 @@ niuniu 的自研编码 agent（issue #708 / #709）。可行性分析与总体�
 - ✅ P5 subagent 共享/隔离：cwd/system 继承钉住、ContextPreamble+context 叠加、background=true + AgentResult 轮询、同回合多 Agent 并行；窗口隔离（仅报告回填）、compact 继承、报告 16KB 截断、TodoWrite 等排除清单、召回减半
 - ✅ P5 长任务：后台 Bash（run_in_background + BashOutput 轮询）、session 持久化 `.niuniu-agent/sessions/` + `-resume <id|latest>`、compact 摘要三节结构化（Background/Key decisions/Open items）
 - ✅ P5 缓存精细化：usage 行 cache-hit 命中率、增量消息断点（cache_control 落倒数第二条消息，跨轮字节稳定才命中）、prompt 防抖规则成文（见 internal/prompt 包注释）
-- ⏳ P6+：token 级流式、hooks、checkpoint/rewind、sandbox、交互式 TUI、记忆 consolidate、子 agent 类型化
+- ✅ P6 token 级流式：双族 SSE 解析（Request.Stream 增量回调，tool_use 分片聚合），loop/ACP chunk 增量化；`NIUNIU_AGENT_STREAM` 默认开，headless 打 `[stream] first-token` 时延
+- ✅ P6 多模态：IR image 块（user/tool_result 均可携带），Read 图片（ImageResult 接口），anthropic source / openai image_url 双族线格式，ACP image block 接入
+- ✅ P6 WebFetch/WebSearch：零依赖抓取 + HTML→文本（20KB 截断）；SSRF 硬防护（重定向逐跳公网校验，私网/环回全拒）；WebSearch 可配 provider（duckduckgo 无 key），未配置报指引
+- ✅ P6 子 agent 类型化：内置 explore/plan/worker/reviewer（工具白名单+角色前缀+模型档位），`.niuniu-agent/agents/*.md` 声明式自定义，Agent 工具 `subagent_type` 入参
+- ✅ P6 记忆 consolidate：同主题合并/老化清理/容量 LRU 三趟清理；MemoryConsolidate 工具 + `memory-consolidate` CLI 子命令
+- ✅ P6 eval 评估体系：`eval/tasks/*.md` 任务集（20 个脱敏任务）、`niuniu-agent eval` runner（一次性沙箱 + 规则判定 contains/file-exists/command-exit-0 等）、JSON+markdown 报告与 baseline.json 对比
+- ⏳ P7+：hooks、sandbox、checkpoint/rewind、交互式 TUI、desktop sidecar 打包
 
 ## 用法
 
@@ -53,17 +59,20 @@ go run ./cmd/niuniu-agent -p "列出当前目录下有哪些文件"
 
 ```
 agent/
-├── cmd/niuniu-agent/     CLI 入口（-p headless；acp server）
+├── cmd/niuniu-agent/     CLI 入口（-p headless；acp server；eval；memory-consolidate）
+├── eval/tasks/           评测任务集（脱敏、自带 fixture 与规则判定）
 └── internal/
     ├── model/            中性消息 IR + anthropic/openai 双 adapter + env 配置
     ├── loop/             核心 agent loop + auto-compact + Agent 工具（subagent）
     ├── prompt/           system prompt 稳定前缀工程 + AGENTS.md/CLAUDE.md 加载
     ├── acp/              ACP server（stdio JSON-RPC）
     ├── mcp/              MCP stdio client（.mcp.json → mcp__<server>__<tool>）
+    ├── eval/             评测 runner（沙箱执行 + 规则判定 + 报告/基线）
     ├── skills/           SKILL.md 扫描/加载 + Skill 工具
     ├── memory/           原生记忆（双层存储/召回/反射 + MemorySave/Search）
     ├── perm/             权限层
-    └── tools/            LS/Read/Grep/Glob/Write/Edit/Bash/TodoWrite
+    ├── webtools→tools/   WebFetch/WebSearch（SSRF 防护）与全套工具
+    └── perm/             权限层
 ```
 
 ## Clean-room 纪律（硬约束）
