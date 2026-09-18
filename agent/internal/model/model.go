@@ -67,6 +67,11 @@ type Block struct {
 	// openai image_url data URL).
 	Media string `json:"media,omitempty"`
 	MIME  string `json:"mime,omitempty"`
+
+	// Evicted marks a tool_result whose text was truncated by the
+	// task-lifecycle eviction pass (one-shot — never re-truncated, so the
+	// prompt prefix stays stable after the first pass).
+	Evicted bool `json:"evicted,omitempty"`
 }
 
 // ThinkingConfig carries the reasoning budget/effort for one request.

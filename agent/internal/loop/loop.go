@@ -80,6 +80,14 @@ type Options struct {
 	// incremental EventText/EventThinking events (ACP chunk level), and the
 	// whole-block events are suppressed to avoid duplicates.
 	Stream bool
+	// EvictToolResults keeps only the N most recent tool_results verbatim;
+	// older ones are truncated to EvictKeepBytes with a one-shot marker.
+	// This is the cheap, cache-friendly tier of context management: it runs
+	// once per result (never rewrites marked text) and defers to full
+	// compaction. 0 = disabled.
+	EvictToolResults int
+	// EvictKeepBytes caps one evicted tool_result. 0 → 1KB.
+	EvictKeepBytes int
 }
 
 // Session is a continuing conversation: successive Prompts accumulate
@@ -125,6 +133,9 @@ func (s *Session) PromptBlocks(ctx context.Context, userBlocks []model.Block, op
 	var result TurnResult
 	lastCtx := 0 // context size reported by the previous round
 	for turn := 1; turn <= opts.MaxTurns; turn++ {
+		if opts.EvictToolResults > 0 {
+			s.evictOldToolResults(opts.EvictToolResults, opts.EvictKeepBytes)
+		}
 		if turn > 1 && opts.CompactThresholdTokens >= 0 && lastCtx > opts.CompactThresholdTokens {
 			keep := opts.KeepRecentMessages
 			if keep <= 0 {
