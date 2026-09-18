@@ -3474,6 +3474,12 @@ func (s *WorkspaceSession) Send(ctx context.Context, workDir, content, attachmen
 	// per-turn state below. No busy guard here: Send is called solely by SendLoop,
 	// which already holds running for the whole loop.
 	//
+	// Oversized user input (>largeInputRuneLimit chars) is spilled to a
+	// workspace file and replaced by a short pointer prompt BEFORE anything
+	// downstream runs — the rewrite must also land in the persisted message,
+	// because chat history is replayed into the context on every --resume.
+	content = rewriteLargeInput(s.workspaceID, workDir, content, time.Now())
+	//
 	// autohostInjected: this turn's content is an auto-injected autohost
 	// continue/recover prompt, not a real user message. It is still delivered to
 	// the agent as a user turn (stdin role "user"), but persisted + echoed to the
