@@ -10,7 +10,9 @@ import (
 	"time"
 
 	"github.com/niuniu-dev/niuniu/agent/internal/memory"
+	"github.com/niuniu-dev/niuniu/agent/internal/model"
 	"github.com/niuniu-dev/niuniu/agent/internal/rsi"
+	"github.com/niuniu-dev/niuniu/agent/internal/tools"
 )
 
 // runExplore implements `niuniu-agent explore`: RSI warm-up — the model
@@ -22,6 +24,7 @@ func runExplore() {
 	broad := fs.Int("broad", 5, "number of diverse practice tasks generated first")
 	deep := fs.Int("deep", 3, "number of focus tasks targeting failed areas")
 	noFreeze := fs.Bool("memory-unfrozen", false, "allow the Actor to write memory directly (NOT recommended)")
+	gated := fs.Bool("gated", false, "run the production flywheel: measure → evolve → three safety gates (regression/drift/hidden) → land → control")
 	perTask := fs.Duration("per-task-timeout", 2*time.Minute, "timeout per practice task")
 	timeout := fs.Duration("timeout", 15*time.Minute, "overall timeout for the run")
 	provider := fs.String("provider", "", "model provider: anthropic (default) or openai")
@@ -37,6 +40,11 @@ func runExplore() {
 	}
 	reg := newRegistry()
 	store := memory.NewStore(cwd)
+
+	if *gated {
+		runGatedFlywheel(m, reg, store, cwd, *broad, *deep, *perTask)
+		return
+	}
 
 	freeze := !*noFreeze
 	runner := &rsi.Runner{
@@ -90,4 +98,44 @@ func runExplore() {
 	fmt.Printf("explore done: pass rate %.0f%%, lessons distilled %d\n  report: %s\n",
 		report.PassRate(), len(report.Lessons), reportPath)
 	fmt.Println("Effect loop: re-run `niuniu-agent eval -baseline <summary.json>` to compare pass rate with/without the distilled lessons.")
+}
+
+// runGatedFlywheel wires the full four-teeth flywheel: measure → evolve →
+// three safety gates → land → control. Hidden held-out tasks live in
+// <cwd>/eval/hidden (skipped with a warning when absent).
+func runGatedFlywheel(m model.Model, reg *tools.Registry, store *memory.Store, cwd string, broad, deep int, perTask time.Duration) {
+	cwdAbs, err := filepath.Abs(cwd)
+	if err != nil {
+		fail(err)
+	}
+	visible := filepath.Join(cwdAbs, "eval", "tasks")
+	hidden := filepath.Join(cwdAbs, "eval", "hidden")
+	out := filepath.Join(cwdAbs, "eval", "flywheel")
+	if _, err := os.Stat(visible); err != nil {
+		fail(fmt.Errorf("visible tasks dir not found: %w (run from the workspace with eval/tasks)", err))
+	}
+	fw := &rsi.Flywheel{
+		Model:       m,
+		Reg:         reg,
+		Store:       store,
+		Cwd:         cwdAbs,
+		VisibleDir:  visible,
+		HiddenDir:   hidden,
+		OutDir:      out,
+		StagingDir:  filepath.Join(cwdAbs, ".niuniu-agent", "rsi-staging"),
+		Broad:       broad,
+		Deep:        deep,
+		DriftMaxNew: 5,
+		Timeout:     perTask,
+	}
+	report, err := fw.Spin(context.Background())
+	if err != nil {
+		fail(err)
+	}
+	fmt.Printf("flywheel done: attempts=%d candidates=%d landed=%d rejected=%d\n",
+		report.Attempts, report.Candidates, len(report.Landed), report.Rejected)
+	for _, g := range report.Gates {
+		fmt.Printf("  gate %-10s %s  %s\n", g.Name, map[bool]string{true: "PASS", false: "REJECT"}[g.Pass], g.Detail)
+	}
+	fmt.Printf("  delta: %s\n", report.Delta)
 }

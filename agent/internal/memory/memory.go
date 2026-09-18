@@ -62,6 +62,9 @@ type Store struct {
 
 // NewStore builds a store rooted at cwd: project layer <cwd>/.niuniu-agent/
 // memory, user layer from the OS home dir.
+// ProjectDir returns the project-layer directory (for staging rollbacks).
+func (s *Store) ProjectDir() string { return s.projectDir }
+
 // NewStoreDir builds a store over an explicit project-layer directory
 // (user layer still resolved from home).
 func NewStoreDir(projectDir string) *Store {

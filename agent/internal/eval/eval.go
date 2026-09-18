@@ -318,6 +318,45 @@ func RunTask(ctx context.Context, m model.Model, reg *tools.Registry, t Task, ti
 	return res
 }
 
+// RunTaskWithSystem is RunTask with an explicit system prompt (the RSI
+// flywheel injects recalled memory here).
+func RunTaskWithSystem(ctx context.Context, m model.Model, reg *tools.Registry, t Task, timeout time.Duration, system string) Result {
+	sess := loop.NewSession(m, reg, system)
+	res := Result{Name: t.Name}
+	dir, err := t.PrepareSandbox()
+	if err != nil {
+		res.Error = "sandbox: " + err.Error()
+		return res
+	}
+	defer os.RemoveAll(dir)
+	prevWd, _ := os.Getwd()
+	if err := os.Chdir(dir); err != nil {
+		res.Error = "chdir: " + err.Error()
+		return res
+	}
+	defer os.Chdir(prevWd)
+	start := time.Now()
+	out, perr := sess.Prompt(ctx, t.Prompt, loop.Options{Perms: perm.NewPolicy(true)})
+	res.Duration = time.Since(start)
+	if perr != nil {
+		res.Error = perr.Error()
+		return res
+	}
+	res.Rounds = out.Rounds
+	res.Usage = out.Usage
+	res.Output = out.Text
+	res.Checks = RunChecks(t, dir, out.Text)
+	res.Pass = true
+	for _, c := range res.Checks {
+		if !c.Pass {
+			res.Pass = false
+			res.Error = "check failed: " + c.Detail
+			break
+		}
+	}
+	return res
+}
+
 // RunChecks judges every rule against the sandbox (and the agent output).
 func RunChecks(t Task, dir, output string) []CheckResult {
 	var out []CheckResult
