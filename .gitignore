@@ -34,3 +34,4 @@ server/**/integration_secret
 # Team distribution build output (contains binaries + signing private key copy)
 team-pkg/
 node_modules/
+agent/.niuniu-agent/
