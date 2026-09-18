@@ -112,6 +112,10 @@ func main() {
 		runEval()
 		return
 	}
+	if len(os.Args) > 1 && os.Args[1] == "explore" {
+		runExplore()
+		return
+	}
 
 	var (
 		promptText  = flag.String("p", "", "one-shot prompt: run headless and print the final answer")

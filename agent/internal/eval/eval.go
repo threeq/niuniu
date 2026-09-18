@@ -76,6 +76,10 @@ type Summary struct {
 	Results []Result `json:"results"`
 }
 
+// ParseTask parses one task markdown document (exposed for the RSI
+// curriculum, which generates task documents in the same format).
+func ParseTask(text string) (*Task, error) { return parseTask(text) }
+
 // LoadTasks parses every *.md under dir (sorted by filename).
 func LoadTasks(dir string) ([]Task, error) {
 	entries, err := os.ReadDir(dir)

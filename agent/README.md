@@ -5,7 +5,7 @@ niuniu 的自研编码 agent（issue #708 / #709）。可行性分析与总体�
 
 独立 Go 模块（挂入根 `go.work`），**零第三方依赖**，目标是单二进制分发（desktop sidecar 友好）。
 
-## 当前状态：P6
+## 当前状态：P7
 
 - ✅ `-p` headless 单轮（`-p -` 读 stdin；`-y` 放行变更类工具）
 - ✅ `acp` server：stdio JSON-RPC（initialize / session/new / session/prompt / session/update / session/request_permission / session/cancel），session cwd 经 chdir 生效
@@ -33,7 +33,8 @@ niuniu 的自研编码 agent（issue #708 / #709）。可行性分析与总体�
 - ✅ P6 子 agent 类型化：内置 explore/plan/worker/reviewer（工具白名单+角色前缀+模型档位），`.niuniu-agent/agents/*.md` 声明式自定义，Agent 工具 `subagent_type` 入参
 - ✅ P6 记忆 consolidate：同主题合并/老化清理/容量 LRU 三趟清理；MemoryConsolidate 工具 + `memory-consolidate` CLI 子命令
 - ✅ P6 eval 评估体系：`eval/tasks/*.md` 任务集（20 个脱敏任务）、`niuniu-agent eval` runner（一次性沙箱 + 规则判定 contains/file-exists/command-exit-0 等）、JSON+markdown 报告与 baseline.json 对比
-- ⏳ P7+：hooks、sandbox、checkpoint/rewind、交互式 TUI、desktop sidecar 打包
+- ✅ P7 RSI 探索式预热：explore 三角色（Curriculum 自生成练习任务 → Actor 沙箱执行（记忆冻结）→ Verifier 规则判定零模型调用），广-深两阶段可配，仅 verified pass 沉淀接地经验；方法借鉴 RSIAgent（Apache-2.0），见 ATTRIBUTION.md
+- ⏳ P8+：hooks、sandbox、checkpoint/rewind、交互式 TUI、desktop sidecar 打包
 
 ## 用法
 
@@ -68,12 +69,18 @@ agent/
     ├── acp/              ACP server（stdio JSON-RPC）
     ├── mcp/              MCP stdio client（.mcp.json → mcp__<server>__<tool>）
     ├── eval/             评测 runner（沙箱执行 + 规则判定 + 报告/基线）
+    ├── rsi/              RSI 探索式预热（Curriculum/Actor/Verifier 三角色）
     ├── skills/           SKILL.md 扫描/加载 + Skill 工具
     ├── memory/           原生记忆（双层存储/召回/反射 + MemorySave/Search）
     ├── perm/             权限层
-    ├── webtools→tools/   WebFetch/WebSearch（SSRF 防护）与全套工具
+    ├── tools/            全套工具（含 WebFetch/WebSearch，SSRF 防护）
     └── perm/             权限层
 ```
+
+## 归属
+
+RSI 探索式预热的方法思路借鉴 RSIAgent（Apache-2.0），为 idea 级借鉴 +
+独立实现。详见 [ATTRIBUTION.md](ATTRIBUTION.md)。
 
 ## Clean-room 纪律（硬约束）
 
