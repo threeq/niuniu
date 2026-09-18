@@ -179,6 +179,43 @@ func (s *Store) Recall(topN, maxBytes int) (string, error) {
 	return strings.TrimRight(b.String(), "\n"), nil
 }
 
+// RecallFor is the task-aware tiered recall: entries are ranked by
+// relevance to the task hint first (keyword score over title/tags/content);
+// entries with zero relevance keep recency order but rank BELOW relevant
+// ones. Use this when the current task is known (eval tasks, subagent
+// hints, explore's deep phase) so only task-relevant experience is
+// injected — recall stays small instead of dumping every stored lesson.
+// With a no-hit hint it degrades to plain recency.
+func (s *Store) RecallFor(taskHint string, topN, maxBytes int) (string, error) {
+	all := s.loadAll()
+	if len(all) == 0 {
+		return "", nil
+	}
+	terms := splitTerms(taskHint)
+	sort.SliceStable(all, func(i, j int) bool {
+		if terms == nil {
+			return false
+		}
+		sa, sb := score(all[i], terms) > 0, score(all[j], terms) > 0
+		if sa != sb {
+			return sa // relevant before irrelevant
+		}
+		return all[i].Updated.After(all[j].Updated)
+	})
+	if topN > 0 && len(all) > topN {
+		all = all[:topN]
+	}
+	var b strings.Builder
+	for _, e := range all {
+		line := "- [" + e.Type + "] " + e.Title + ": " + e.Content + "\n"
+		if b.Len()+len(line) > maxBytes {
+			break
+		}
+		b.WriteString(line)
+	}
+	return strings.TrimRight(b.String(), "\n"), nil
+}
+
 // loadAll reads project layer first, then user layer; a project entry
 // shadows a user entry with the same slug.
 func (s *Store) loadAll() []Entry {

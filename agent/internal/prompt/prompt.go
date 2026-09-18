@@ -91,6 +91,19 @@ func BuildSession(cwd string) string {
 	return BuildSessionCapped(cwd, 5, 2048)
 }
 
+// BuildSessionFor is the task-aware tiered variant: with a task hint, the
+// recall ranks task-relevant experience first (hint keywords score the
+// entries). Use for known-task runs — eval tasks, typed subagents — where
+// relevant lessons matter more than blanket recency.
+func BuildSessionFor(cwd, taskHint string) string {
+	store := memory.NewStore(cwd)
+	recall, err := store.RecallFor(taskHint, 3, 1024)
+	if err != nil {
+		slog.Warn("memory recall failed", "err", err)
+	}
+	return Build(cwd) + memory.Section(recall)
+}
+
 // BuildSessionCapped is BuildSession with explicit recall caps. Subagent
 // wiring calls it with halved numbers: a narrow child task needs less
 // recalled memory, and halving keeps the child's window lean.

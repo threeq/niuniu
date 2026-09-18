@@ -201,6 +201,11 @@ func (r *Runner) Run(ctx context.Context) (*Report, error) {
 			}
 		}
 		weakSpots = strings.Join(failures, "\n")
+		// Task-aware tiered recall: the deep-phase curriculum gets the
+		// lessons most relevant to the failures (not a blanket dump).
+		if recall, rerr := r.Store.RecallFor(weakSpots, 3, 1024); rerr == nil && recall != "" {
+			weakSpots += "\nRelevant prior lessons:\n" + recall
+		}
 		if weakSpots == "" {
 			weakSpots = "(none — all broad attempts passed; deepen the same task family with harder variants)"
 		}

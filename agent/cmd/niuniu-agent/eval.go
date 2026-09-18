@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"os"
@@ -10,6 +11,8 @@ import (
 	"time"
 
 	"github.com/niuniu-dev/niuniu/agent/internal/eval"
+	"github.com/niuniu-dev/niuniu/agent/internal/memory"
+	"github.com/niuniu-dev/niuniu/agent/internal/rsi"
 	"github.com/niuniu-dev/niuniu/agent/internal/tools"
 )
 
@@ -22,6 +25,8 @@ func runEval() {
 	outDir := fs.String("out", "eval/reports", "report output directory")
 	baseline := fs.String("baseline", "", "baseline summary.json to compare against")
 	filter := fs.String("filter", "", "only run tasks whose name contains this substring")
+	autoExplore := fs.Bool("auto-explore", false, "after the run: on a repeated failure pattern (overlapping the previous run, outside cooldown), trigger an RSI explore to distill fixes")
+	exploreCooldown := fs.Duration("explore-cooldown", 24*time.Hour, "minimum interval between auto-explore runs")
 	timeout := fs.Duration("timeout", 3*time.Minute, "per-task timeout")
 	provider := fs.String("provider", "", "model provider: anthropic (default) or openai")
 	modelName := fs.String("model", "", "model name override")
@@ -99,6 +104,66 @@ func runEval() {
 			fmt.Fprintf(os.Stderr, "[eval] baseline compare failed: %v\n", err)
 		}
 	}
+
+	// RSI auto-trigger (opt-in): repeated failure pattern + cooldown gate.
+	if *autoExplore {
+		triggerAutoExplore(summary, *outDir, *exploreCooldown, *provider, *modelName)
+	}
+}
+
+// triggerAutoExplore reads/persists the trigger state next to the reports
+// and launches an explore run when the policy fires.
+func triggerAutoExplore(summary eval.Summary, outDir string, cooldown time.Duration, provider, modelName string) {
+	statePath := filepath.Join(outDir, "rsi-trigger-state.json")
+	var lastExplore time.Time
+	var lastFailures []string
+	if data, err := os.ReadFile(statePath); err == nil {
+		var st rsi.TriggerState
+		if json.Unmarshal(data, &st) == nil {
+			lastExplore = st.LastExplore
+			lastFailures = st.LastFailures
+		}
+	}
+	if !rsi.ShouldTrigger(failedNamesOf(summary), lastFailures, lastExplore, cooldown) {
+		fmt.Fprintln(os.Stderr, "[eval] auto-explore: trigger conditions not met (all green / one-off / cooldown)")
+		return
+	}
+	fmt.Fprintln(os.Stderr, "[eval] auto-explore: repeated failure pattern — running RSI explore")
+	m := mustModel(provider, modelName)
+	cwd, _ := os.Getwd()
+	reg := newRegistry()
+	store := memory.NewStore(cwd)
+	runner := &rsi.Runner{
+		Model: m,
+		Reg:   reg,
+		Store: store,
+		Cwd:   cwd,
+		Opts: rsi.Options{
+			Broad:        3,
+			Deep:         2,
+			MemoryFreeze: true,
+		},
+	}
+	report, err := runner.Run(context.Background())
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "[eval] auto-explore failed: %v\n", err)
+		return
+	}
+	st := rsi.TriggerState{LastExplore: time.Now(), LastFailures: failedNamesOf(summary)}
+	data, _ := json.MarshalIndent(st, "", "  ")
+	_ = os.WriteFile(statePath, data, 0o644)
+	fmt.Fprintf(os.Stderr, "[eval] auto-explore done: pass rate %.0f%%, lessons %d\n",
+		report.PassRate(), len(report.Lessons))
+}
+
+func failedNamesOf(s eval.Summary) []string {
+	var out []string
+	for _, r := range s.Results {
+		if !r.Pass {
+			out = append(out, r.Name)
+		}
+	}
+	return out
 }
 
 func passFail(pass bool) string {
