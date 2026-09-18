@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"github.com/niuniu-dev/niuniu/agent/internal/loop"
+	"github.com/niuniu-dev/niuniu/agent/internal/memory"
 	"github.com/niuniu-dev/niuniu/agent/internal/model"
 	"github.com/niuniu-dev/niuniu/agent/internal/perm"
 	"github.com/niuniu-dev/niuniu/agent/internal/tools"
@@ -56,9 +57,12 @@ type Result struct {
 	Error    string        `json:"error,omitempty"`
 	Checks   []CheckResult `json:"checks,omitempty"`
 	Rounds   int           `json:"rounds"`
-	Duration time.Duration `json:"duration_ms"`
-	Usage    model.Usage   `json:"usage"`
-	Output   string        `json:"output,omitempty"`
+	Duration time.Duration `json:"-"`
+	// DurationMS is the wall time in milliseconds (time.Duration serializes
+	// as nanoseconds — misleading under the "duration_ms" key).
+	DurationMS int64       `json:"duration_ms"`
+	Usage      model.Usage `json:"usage"`
+	Output     string      `json:"output,omitempty"`
 }
 
 // Summary aggregates a batch run.
@@ -255,8 +259,11 @@ func (t *Task) PrepareSandbox() (string, error) {
 }
 
 // RunTask executes one task in a fresh sandbox: run the agent loop, then
-// judge with the rule checks. The sandbox is removed before returning.
-func RunTask(ctx context.Context, m model.Model, reg *tools.Registry, t Task, timeout time.Duration) Result {
+// judge with the rule checks. memoryDir (optional) injects recalled
+// long-term memory from that layer into the task system prompt — the RSI
+// effect channel (explore-distilled lessons reach the evaluated runs).
+// The sandbox is removed before returning.
+func RunTask(ctx context.Context, m model.Model, reg *tools.Registry, t Task, timeout time.Duration, memoryDir string) Result {
 	res := Result{Name: t.Name}
 	if timeout <= 0 {
 		timeout = 3 * time.Minute
@@ -278,8 +285,17 @@ func RunTask(ctx context.Context, m model.Model, reg *tools.Registry, t Task, ti
 	}
 	defer os.Chdir(prevWd)
 
+	system := "You are niuniu-agent in an evaluation sandbox. Complete the task using the tools."
+	if memoryDir != "" {
+		store := memory.NewStoreDir(memoryDir)
+		recall, rerr := store.Recall(5, 2048)
+		if rerr != nil {
+			recall = ""
+		}
+		system += memory.Section(recall)
+	}
 	start := time.Now()
-	sess := loop.NewSession(m, reg, "You are niuniu-agent in an evaluation sandbox. Complete the task using the tools.")
+	sess := loop.NewSession(m, reg, system)
 	out, err := sess.Prompt(ctx, t.Prompt, loop.Options{Perms: perm.NewPolicy(true)})
 	res.Duration = time.Since(start)
 	if err != nil {
@@ -288,6 +304,7 @@ func RunTask(ctx context.Context, m model.Model, reg *tools.Registry, t Task, ti
 	}
 	res.Rounds = out.Rounds
 	res.Usage = out.Usage
+	res.DurationMS = res.Duration.Milliseconds()
 	res.Output = out.Text
 
 	res.Checks = RunChecks(t, dir, out.Text)

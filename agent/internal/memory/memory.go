@@ -62,6 +62,20 @@ type Store struct {
 
 // NewStore builds a store rooted at cwd: project layer <cwd>/.niuniu-agent/
 // memory, user layer from the OS home dir.
+// NewStoreDir builds a store over an explicit project-layer directory
+// (user layer still resolved from home).
+func NewStoreDir(projectDir string) *Store {
+	s := &Store{
+		projectDir:         projectDir,
+		MaxEntryBytes:      DefaultMaxEntryBytes,
+		MaxEntriesPerLayer: DefaultMaxEntriesPerLayer,
+	}
+	if home, err := os.UserHomeDir(); err == nil {
+		s.userDir = filepath.Join(home, ".niuniu-agent", "memory")
+	}
+	return s
+}
+
 func NewStore(cwd string) *Store {
 	s := &Store{
 		projectDir:         filepath.Join(cwd, ".niuniu-agent", "memory"),

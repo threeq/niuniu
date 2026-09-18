@@ -47,21 +47,20 @@ func runEval() {
 	}
 
 	m := mustModel(*provider, *modelName)
+	memoryDir := filepath.Join(func() string { d, _ := os.Getwd(); return d }(), ".niuniu-agent", "memory")
 	reg := tools.NewRegistry(
 		tools.LS{}, tools.Read{}, tools.Grep{}, tools.Glob{},
 		tools.Write{}, tools.Edit{}, tools.Bash{}, tools.TodoWrite{},
 	)
 
 	summary := eval.Summary{GeneratedAt: time.Now()}
-	cwd, _ := os.Getwd()
-	_ = cwd
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
 	for i, t := range tasks {
 		fmt.Fprintf(os.Stderr, "[eval %d/%d] %s\n", i+1, len(tasks), t.Name)
 		start := time.Now()
-		res := eval.RunTask(ctx, m, reg, t, *timeout)
+		res := eval.RunTask(ctx, m, reg, t, *timeout, memoryDir)
 		summary.Results = append(summary.Results, res)
 		summary.Total++
 		if res.Pass {

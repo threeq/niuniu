@@ -92,7 +92,7 @@ reply with the word MAGICMARKER
 	reg := tools.NewRegistry(tools.LS{}, tools.Read{}, tools.Write{})
 	var results []Result
 	for _, tk := range tasks {
-		results = append(results, RunTask(context.Background(), m, reg, tk, time.Minute))
+		results = append(results, RunTask(context.Background(), m, reg, tk, time.Minute, ""))
 	}
 	if !results[0].Pass || !results[1].Pass {
 		t.Fatalf("results = %+v / %+v", results[0], results[1])
@@ -103,7 +103,7 @@ reply with the word MAGICMARKER
 
 	// 错误行为：file-exists 失败。
 	mm := &scriptedModel{behavior: "wrong"}
-	bad := RunTask(context.Background(), mm, reg, tasks[0], time.Minute)
+	bad := RunTask(context.Background(), mm, reg, tasks[0], time.Minute, "")
 	if bad.Pass {
 		t.Fatal("wrong behavior must fail")
 	}
