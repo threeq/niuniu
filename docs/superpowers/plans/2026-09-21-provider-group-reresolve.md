@@ -255,6 +255,7 @@ package agentproxy
 import (
 	"database/sql"
 	"testing"
+	"time"
 
 	"github.com/niuniu-dev/niuniu/internal/store"
 	"github.com/niuniu-dev/niuniu/internal/sceneenv"
@@ -605,7 +606,7 @@ Expected: `OK: no table-level drift detected`；lint 通过。
 1. `make dev`（后端 :3000 + 前端 :5173）。
 2. 设置 → 环境变量：建两个同 `group_name` 的 provider（组内排序 0/1），工作空间绑定该组。
 3. 在该工作空间「环境变量」里手填一条 `ANTHROPIC_BASE_URL=https://stale.example`。
-4. 打开工作空间 chat，发一条消息触发 spawn → 状态栏出现 pill，显示组内第一成员名；` respect验证覆盖`：agent 实际请求走的是 provider 的 base_url（不是 stale.example）——看 provider 的 token 用量/日志确认。
+4. 打开工作空间 chat，发一条消息触发 spawn → 状态栏出现 pill，显示组内第一成员名；覆盖验证：agent 实际请求走的是 provider 的 base_url（不是 stale.example）——看 provider 的 token 用量/日志确认。
 5. 手动把第一成员 enabled 关掉，重发消息 → pill 变为第二成员名（重新解析生效）。
 6. 恢复第一成员，触发 429 场景（或手动设 cooldown_until）→ spawn 后 pill 跟随 fallback。
 7. 打开一个未绑定 provider 的工作空间 → 无 pill，行为与改动前一致。
