@@ -33,6 +33,9 @@ type Server struct {
 	// when the session's lifetime ends. A nil registry + nil error keeps the
 	// base registry.
 	extend func(cwd string, m model.Model) (*tools.Registry, io.Closer, error)
+	// modelFor resolves a session/set_model model name to a Model (profile
+	// switch). Nil → set_model stays a no-op rejection.
+	modelFor func(modelName string) (model.Model, error)
 
 	writeMu sync.Mutex
 
@@ -60,7 +63,7 @@ type sessionState struct {
 // systemFor builds the system prompt per session cwd (project context such
 // as AGENTS.md is resolved against it); extend (optional) builds the
 // session's tool registry — used for MCP tool projection.
-func New(in io.Reader, out io.Writer, reg *tools.Registry, systemFor func(cwd string) string, newModel func() (model.Model, error), extend func(cwd string, m model.Model) (*tools.Registry, io.Closer, error)) *Server {
+func New(in io.Reader, out io.Writer, reg *tools.Registry, systemFor func(cwd string) string, newModel func() (model.Model, error), extend func(cwd string, m model.Model) (*tools.Registry, io.Closer, error), modelFor func(string) (model.Model, error)) *Server {
 	return &Server{
 		in:        in,
 		out:       out,
@@ -68,6 +71,7 @@ func New(in io.Reader, out io.Writer, reg *tools.Registry, systemFor func(cwd st
 		systemFor: systemFor,
 		newModel:  newModel,
 		extend:    extend,
+		modelFor:  modelFor,
 		sessions:  make(map[string]*sessionState),
 		pending:   make(map[int64]chan requestPermissionResult),
 	}
@@ -205,8 +209,34 @@ func (s *Server) handle(ctx context.Context, req rpcRequest) (json.RawMessage, *
 		}
 		return s.runPrompt(ctx, st, p)
 
-	case "session/set_mode", "session/set_model":
-		// Accepted as no-ops; model selection is fixed at process env for now.
+	case "session/set_mode":
+		return json.RawMessage(`{}`), nil
+	case "session/set_model":
+		// Session-level profile switch: the client sends a model name; the
+		// modelFor resolver maps it (config profiles → Model). Unknown names
+		// error back so the client can surface them.
+		var p struct {
+			SessionID string `json:"sessionId"`
+			Model     string `json:"model"`
+		}
+		if err := json.Unmarshal(req.Params, &p); err != nil {
+			return nil, &rpcError{Code: errInvalidParams, Message: err.Error()}
+		}
+		s.sessMu.Lock()
+		st := s.sessions[p.SessionID]
+		s.sessMu.Unlock()
+		if st == nil {
+			return nil, &rpcError{Code: errInvalidParams, Message: "unknown session " + p.SessionID}
+		}
+		if s.modelFor == nil {
+			return nil, &rpcError{Code: errMethodNotFound, Message: "set_model not supported (no model resolver configured)"}
+		}
+		m, err := s.modelFor(p.Model)
+		if err != nil {
+			slog.Warn("acp: set_model rejected", "model", p.Model, "err", err)
+			return nil, &rpcError{Code: errInvalidParams, Message: err.Error()}
+		}
+		st.conv.SetModel(m)
 		return json.RawMessage(`{}`), nil
 
 	default:

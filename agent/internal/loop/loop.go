@@ -115,6 +115,10 @@ func (s *Session) Prompt(ctx context.Context, userText string, opts Options) (Tu
 	return s.PromptBlocks(ctx, []model.Block{{Type: model.BlockText, Text: userText}}, opts)
 }
 
+// SetModel swaps the session's model (session/set_model profile switch).
+// Takes effect on the next Prompt round; history is preserved.
+func (s *Session) SetModel(m model.Model) { s.m = m }
+
 // PromptBlocks is Prompt with arbitrary user content blocks (text + images
 // for multimodal turns).
 func (s *Session) PromptBlocks(ctx context.Context, userBlocks []model.Block, opts Options) (TurnResult, error) {

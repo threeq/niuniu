@@ -54,7 +54,49 @@ go run ./cmd/niuniu-agent -p "列出当前目录下有哪些文件"
 | `ANTHROPIC_MODEL` | 模型名（或 `-model` 传入） |
 | `OPENAI_BASE_URL` / `OPENAI_API_KEY` / `OPENAI_MODEL` | OpenAI 兼容协议同理 |
 
-其他 flag：`-max-turns`（模型往返上限，默认 16）、`-timeout`（整体超时，默认 3m）。
+其他 flag：`-max-turns`（模型往返上限，默认 16）、`-timeout`（整体超时）、`-profile`（选择 config.json 里的档案）、`-config`（profile 配置路径覆盖）、`-print-system`（stderr 打印合成后的 system）、`-reflect`（回合后反射沉淀经验）、`-resume`（续跑会话）。
+
+### 多 Profile 配置（config.json）
+
+查找顺序：`--config <path>` > `<cwd>/.niuniu-agent/config.json` > `~/.niuniu-agent/config.json`。
+
+```json
+{
+  "defaultProfile": "glm",
+  "profiles": {
+    "glm": {
+      "provider": "anthropic",
+      "baseURL": "https://open.bigmodel.cn/api/anthropic",
+      "authTokenEnv": "GLM_TOKEN",
+      "model": "GLM-5.3-Flash",
+      "thinking": "off"
+    },
+    "local-openai": {
+      "provider": "openai",
+      "baseURL": "http://localhost:11434/v1",
+      "apiKeyEnv": "LOCAL_OPENAI_KEY",
+      "model": "qwen2.5-coder:7b"
+    }
+  }
+}
+```
+
+⚠️ **密钥安全**：配置文件会被提交进仓库——**永不写入明文密钥**。凭据只存
+环境变量，配置里用 `apiKeyEnv`/`authTokenEnv` 引用 env 名；加载器遇到
+`apiKey`/`authToken` 等明文字段直接拒绝。
+
+优先级（高→低）：CLI flag（`-profile`/显式 `-provider`/`-model`/`-base-url`）>
+env（workspace 注入的 `ANTHROPIC_*/OPENAI_*` 与 `NIUNIU_AGENT_PROFILE`）>
+项目级 config > 用户 env > 全局 config > 内置默认。
+
+子命令：
+- `niuniu-agent profiles` —— 列出 profiles 与当前生效者（凭据只显示 env 名与 set/unset）
+- `niuniu-agent eval -auto-explore` —— 重复失败模式自动触发 RSI explore
+- `niuniu-agent memory-consolidate` —— 记忆整理
+- `niuniu-agent explore -gated` —— 全飞轮（Measure→Evolve→三道安全闸门→Land→Control）
+
+新供应商家族：实现 `model.Model` 接口并 `model.RegisterProvider(name, factory)`
+注册，profile 的 `provider` 字段直接引用注册名。
 
 ## 布局
 

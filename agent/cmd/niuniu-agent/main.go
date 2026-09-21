@@ -116,6 +116,25 @@ func main() {
 		runExplore()
 		return
 	}
+	if len(os.Args) > 1 && os.Args[1] == "profiles" {
+		fs := flag.NewFlagSet("profiles", flag.ContinueOnError)
+		configPath := fs.String("config", "", "profile config path override")
+		provider := fs.String("provider", "", "model provider override")
+		modelName := fs.String("model", "", "model name override")
+		if err := fs.Parse(os.Args[2:]); err != nil {
+			fail(err)
+		}
+		cwd, _ := os.Getwd()
+		cfg, err := model.ResolveFromCwd(cwd, *configPath, model.Flags{
+			Profile: os.Getenv("NIUNIU_AGENT_PROFILE"), Provider: *provider, Model: *modelName,
+		})
+		if err != nil {
+			// 列表仍可渲染——active 未知时省略 active 行。
+			cfg = model.Config{}
+		}
+		fmt.Print(model.RenderProfiles(cwd, *configPath, cfg))
+		return
+	}
 
 	var (
 		promptText  = flag.String("p", "", "one-shot prompt: run headless and print the final answer")
@@ -127,6 +146,8 @@ func main() {
 		reflectOn   = flag.Bool("reflect", false, "after the run, distill a durable lesson into memory (one extra model call)")
 		printSystem = flag.Bool("print-system", false, "print the assembled system prompt to stderr (debug)")
 		resume      = flag.String("resume", "", "resume a saved session (id under <cwd>/.niuniu-agent/sessions, or \"latest\")")
+		configPath  = flag.String("config", "", "profile config path (default: <cwd>/.niuniu-agent/config.json then ~/.niuniu-agent/config.json)")
+		profile     = flag.String("profile", "", "model profile from config.json")
 	)
 	flag.Parse()
 
@@ -155,12 +176,21 @@ Configuration (env):
 		os.Exit(2)
 	}
 
-	m := mustModel(*provider, *modelName)
-
 	start := time.Now()
 	ctx, cancel := context.WithTimeout(context.Background(), *timeout)
 	defer cancel()
 	cwd, err := os.Getwd()
+	if err != nil {
+		fail(err)
+	}
+	// Model config: profile chain (flag > env > project > global) resolved
+	// before anything that needs the model.
+	flags := model.Flags{Profile: *profile, Provider: *provider, Model: *modelName}
+	cfg, err := model.ResolveFromCwd(cwd, *configPath, flags)
+	if err != nil {
+		fail(err)
+	}
+	m, err := model.NewForProviderOrLegacy(cfg)
 	if err != nil {
 		fail(err)
 	}
@@ -208,7 +238,7 @@ Configuration (env):
 
 	// Streaming: SSE by default (NIUNIU_AGENT_STREAM=0 to disable); the
 	// first-token latency is printed for observability.
-	streamOn := model.ParseStreamFlag(os.Getenv("NIUNIU_AGENT_STREAM"))
+	streamOn := cfg.Stream
 	var firstToken time.Time
 	// Session form (not Run) so the transcript is available for the
 	// optional reflection pass.
@@ -300,9 +330,12 @@ func runACP() {
 	fs := flag.NewFlagSet("acp", flag.ContinueOnError)
 	provider := fs.String("provider", "", "model provider: anthropic (default) or openai")
 	modelName := fs.String("model", "", "model name override")
+	configPath := fs.String("config", "", "profile config path override")
 	if err := fs.Parse(os.Args[2:]); err != nil {
 		fail(err)
 	}
+	cwd, _ := os.Getwd()
+
 	srv := acp.New(os.Stdin, os.Stdout, newRegistry(), prompt.BuildSession,
 		func() (model.Model, error) {
 			return buildModel(*provider, *modelName)
@@ -317,6 +350,15 @@ func runACP() {
 		func(cwd string, m model.Model) (*tools.Registry, io.Closer, error) {
 			reg, closer := sessionRegistry(cwd, m, perm.NewPolicy(false), nil)
 			return reg, closer, nil
+		},
+		// set_model profile resolver: model names map through config.json
+		// profiles; bare provider names also work (anthropic/openai).
+		func(modelName string) (model.Model, error) {
+			cfg, err := model.ResolveFromCwd(cwd, *configPath, model.Flags{Profile: modelName})
+			if err != nil {
+				return nil, err
+			}
+			return model.NewForProviderOrLegacy(cfg)
 		})
 	if err := srv.Serve(context.Background()); err != nil {
 		fail(err)

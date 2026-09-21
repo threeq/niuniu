@@ -85,6 +85,7 @@ func (c *client) readLoop(r io.Reader) {
 			ID     json.RawMessage `json:"id,omitempty"`
 			Method string          `json:"method,omitempty"`
 			Result json.RawMessage `json:"result,omitempty"`
+			Error  json.RawMessage `json:"error,omitempty"`
 			Params json.RawMessage `json:"params,omitempty"`
 		}
 		if json.Unmarshal(sc.Bytes(), &frame) != nil {
@@ -113,12 +114,17 @@ func (c *client) readLoop(r io.Reader) {
 		case len(frame.ID) > 0 && frame.Method == "":
 			// frame.ID is raw JSON (keeps its quotes); normalize before lookup.
 			id := strings.Trim(string(frame.ID), `"`)
+			// Error 帧（result 为空）也要投递，让调用方看到 RPC 错误。
+			payload := frame.Result
+			if len(payload) == 0 && len(frame.Error) > 0 {
+				payload = frame.Error
+			}
 			c.mu.Lock()
 			ch, ok := c.ids[id]
 			delete(c.ids, id)
 			c.mu.Unlock()
-			if ok {
-				ch <- frame.Result
+			if ok && len(payload) > 0 {
+				ch <- payload
 			}
 		}
 	}
@@ -179,7 +185,7 @@ func startServerWithSystem(t *testing.T, turns [][]model.Block, permAns func(req
 	fm := &fakeModel{turns: turns}
 	srv := New(toSrvR, fromSrvW, tools.NewRegistry(tools.LS{}, tools.Read{}, tools.Write{}),
 		systemFor,
-		func() (model.Model, error) { return fm, nil }, nil)
+		func() (model.Model, error) { return fm, nil }, nil, nil)
 	go func() { _ = srv.Serve(context.Background()) }()
 	return newClient(t, toSrvW, fromSrvR, permAns), fm
 }
@@ -369,7 +375,7 @@ func TestACPExtendSessionRegistryAndLifecycle(t *testing.T) {
 	}
 	srv := New(toSrvR, fromSrvW, tools.NewRegistry(tools.LS{}),
 		func(string) string { return "sys" },
-		func() (model.Model, error) { return fm, nil }, extend)
+		func() (model.Model, error) { return fm, nil }, extend, nil)
 	go func() { _ = srv.Serve(context.Background()) }()
 	cl := newClient(t, toSrvW, fromSrvR, nil)
 
@@ -430,7 +436,7 @@ func TestACPWorkspaceInjectionAndMemoryRecall(t *testing.T) {
 	}}
 	srv := New(toSrvR, fromSrvW, tools.NewRegistry(tools.LS{}),
 		prompt.BuildSession, // 与 main/ACP 一致的完整组装（Build + 记忆召回）
-		func() (model.Model, error) { return fm, nil }, nil)
+		func() (model.Model, error) { return fm, nil }, nil, nil)
 	go func() { _ = srv.Serve(context.Background()) }()
 	cl := newClient(t, toSrvW, fromSrvR, nil)
 
