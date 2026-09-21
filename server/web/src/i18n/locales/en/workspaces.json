@@ -528,6 +528,7 @@
       "sending": "Sending...",
       "stopAgent": "Stop agent",
       "noChanges": "No changes",
+      "activeProvider": "Current provider",
       "fileChanges": "{{count}} file",
       "fileChangesPlural": "{{count}} files",
       "rateOk": "OK",
