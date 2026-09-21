@@ -257,21 +257,78 @@ func TestResolve_BoundProviderExpandedNoScene(t *testing.T) {
 	}
 }
 
-func TestResolve_BoundProviderOverriddenByExplicitEnv(t *testing.T) {
-	// Explicit workspace_env wins over the bound provider's generated env.
+func TestResolve_BoundProviderOverridesWorkspaceEnv(t *testing.T) {
+	// spec 2026-09-21: the freshest provider resolution must win over
+	// workspace_env for the keys the provider emits (a stale
+	// ANTHROPIC_BASE_URL in workspace_env must not shadow the group's
+	// current best member). Keys the provider does not emit keep their
+	// workspace_env values.
 	prov := store.EnvProvider{ID: 5, Name: "DeepSeek",
-		BaseUrls: `{"anthropic":"https://api.deepseek.com/anthropic"}`, Model: "deepseek-v4", Enabled: 1}
+		BaseUrls: `{"anthropic":"https://api.deepseek.com/anthropic"}`, ApiKey: "${ACCOUNT:DeepSeek}", Model: "deepseek-v4", Enabled: 1}
 	q := fakeQuerier{
-		env:           []store.WorkspaceEnv{{WorkspaceID: 7, Key: "ANTHROPIC_BASE_URL", Value: "https://explicit.override"}},
+		env: []store.WorkspaceEnv{
+			{WorkspaceID: 7, Key: "ANTHROPIC_BASE_URL", Value: "https://explicit.override"},
+			{WorkspaceID: 7, Key: "GIT_AUTHOR_NAME", Value: "keep-me"},
+		},
 		boundProvider: &prov,
+		accounts:      []store.EnvAccount{{Name: "DeepSeek", ApiKey: "sk-real"}},
 		cliType:       "claude",
 	}
 	rows, err := Resolve(context.Background(), q, 7)
 	if err != nil {
 		t.Fatalf("Resolve returned error: %v", err)
 	}
-	if envMap(rows)["ANTHROPIC_BASE_URL"] != "https://explicit.override" {
-		t.Errorf("explicit env should win over bound provider: %v", envMap(rows)["ANTHROPIC_BASE_URL"])
+	got := envMap(rows)
+	if got["ANTHROPIC_BASE_URL"] != "https://api.deepseek.com/anthropic" {
+		t.Errorf("provider resolution must override workspace_env: %v", got["ANTHROPIC_BASE_URL"])
+	}
+	if got["ANTHROPIC_AUTH_TOKEN"] != "sk-real" {
+		t.Errorf("provider account key must survive the final overlay: %q", got["ANTHROPIC_AUTH_TOKEN"])
+	}
+	if got["GIT_AUTHOR_NAME"] != "keep-me" {
+		t.Errorf("workspace_env keys the provider does not emit must be kept: %q", got["GIT_AUTHOR_NAME"])
+	}
+}
+
+func TestResolve_NoBoundProviderUnchanged(t *testing.T) {
+	// Zero-regression guard: with no provider bound the output must equal the
+	// workspace_env rows exactly (byte-for-byte semantics of the old merge).
+	q := fakeQuerier{
+		env: []store.WorkspaceEnv{
+			{WorkspaceID: 7, Key: "ANTHROPIC_BASE_URL", Value: "https://user-set"},
+			{WorkspaceID: 7, Key: "NIUNIU_PERMISSION_MODE", Value: "autohost"},
+		},
+		cliType: "claude",
+	}
+	rows, err := Resolve(context.Background(), q, 7)
+	if err != nil {
+		t.Fatalf("Resolve returned error: %v", err)
+	}
+	got := envMap(rows)
+	if len(got) != 2 || got["ANTHROPIC_BASE_URL"] != "https://user-set" || got["NIUNIU_PERMISSION_MODE"] != "autohost" {
+		t.Errorf("unbound workspace output changed: %v", got)
+	}
+}
+
+func TestResolve_GroupBindingOverridesWorkspaceEnv(t *testing.T) {
+	// A GROUP binding resolves through GroupProvider; the resolved member's
+	// keys likewise override workspace_env.
+	first := store.EnvProvider{ID: 1, Name: "智谱-1", GroupName: "智谱",
+		BaseUrls: `{"anthropic":"https://open.bigmodel.cn/api/anthropic"}`, Model: "glm-5.1", Enabled: 1, GroupPosition: 0}
+	second := store.EnvProvider{ID: 2, Name: "智谱-2", GroupName: "智谱",
+		BaseUrls: `{"anthropic":"https://open.bigmodel.cn/api/anthropic"}`, Model: "glm-5.1", Enabled: 1, GroupPosition: 1}
+	q := fakeQuerier{
+		env:          []store.WorkspaceEnv{{WorkspaceID: 7, Key: "ANTHROPIC_BASE_URL", Value: "https://stale.example"}},
+		groupBinding: "智谱",
+		providers:    []store.EnvProvider{first, second},
+		cliType:      "claude",
+	}
+	rows, err := Resolve(context.Background(), q, 7)
+	if err != nil {
+		t.Fatalf("Resolve returned error: %v", err)
+	}
+	if envMap(rows)["ANTHROPIC_BASE_URL"] != "https://open.bigmodel.cn/api/anthropic" {
+		t.Errorf("group's first usable member must override workspace_env: %v", envMap(rows)["ANTHROPIC_BASE_URL"])
 	}
 }
 
