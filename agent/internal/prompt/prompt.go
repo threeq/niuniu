@@ -80,6 +80,11 @@ Full instructions for these load via the Skill tool (pass the name) when a task 
 	if inject, ok := LoadInject(cwd); ok {
 		b.WriteString("\n# Host capabilities\n\n" + inject + "\n")
 	}
+	// Task guidance (PROMPT.md): advisory, session-stable, placed after the
+	// project context so earlier sections keep their byte offsets.
+	if dyn, ok := LoadDynamicPrompt(cwd); ok {
+		b.WriteString("\n# Task guidance\n\n" + dyn + "\n")
+	}
 	return b.String()
 }
 
@@ -156,4 +161,26 @@ func LoadProjectContext(cwd string) (string, bool) {
 		return s, true
 	}
 	return "", false
+}
+
+// LoadDynamicPrompt reads the task guidance file for cwd:
+// <cwd>/.niuniu-agent/PROMPT.md. Returns ("", false) when absent. Content
+// is capped at MaxContextBytes with a truncation note appended.
+// SAFETY BOUNDARY: PROMPT.md is advisory task guidance only — the
+// permission/approval layers are code-enforced hard constraints and are
+// never overridable by prompt content.
+func LoadDynamicPrompt(cwd string) (string, bool) {
+	data, err := os.ReadFile(filepath.Join(cwd, ".niuniu-agent", "PROMPT.md"))
+	if err != nil {
+		return "", false
+	}
+	s := strings.TrimSpace(string(data))
+	if s == "" {
+		return "", false
+	}
+	if len(s) > MaxContextBytes {
+		s = s[:MaxContextBytes] + "\n\n[task guidance truncated at " +
+			strconv.Itoa(MaxContextBytes/1024) + "KB; read .niuniu-agent/PROMPT.md for the rest]"
+	}
+	return s, true
 }
