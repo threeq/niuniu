@@ -38,6 +38,11 @@ func (s *WorkspaceSession) buildCodexOneShotExec(ctx context.Context, workDir st
 	if envErr != nil {
 		return "", nil, nil, fmt.Errorf("fetch workspace env vars: %w", envErr)
 	}
+	// Mirror the claude path in ensureProcess: record the provider this spawn
+	// resolved, so non-claude workspaces get the same pill/state tracking. The
+	// codex app-server path reaches here via buildOneShotExec, so one record
+	// covers both codex spawn modes.
+	s.recordActiveProvider(ctx)
 	workspaceEnv := make([]adapter.EnvVar, 0, len(wsEnvVars))
 	openaiBase, openaiKey, openaiModel := "", "", ""
 	compactBudget := int64(0)

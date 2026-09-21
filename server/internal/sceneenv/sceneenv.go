@@ -194,7 +194,7 @@ func Resolve(ctx context.Context, q Querier, wsID int64) ([]store.WorkspaceEnv, 
 		merged[k] = v
 	}
 
-	// Highest: explicit workspace_env.
+	// Explicit workspace_env (above scene layers; a bound provider's keys are re-applied after this, see boundEnv).
 	for _, e := range base {
 		merged[e.Key] = e.Value
 	}

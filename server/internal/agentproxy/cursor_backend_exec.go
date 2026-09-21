@@ -94,6 +94,11 @@ func (s *WorkspaceSession) getOrStartCursorBackend(ctx context.Context, workDir 
 	envVars, envErr := sceneenv.Resolve(ctx, s.q, s.workspaceID)
 	if envErr != nil {
 		slog.Warn("cursor: resolve workspace env failed", "workspaceID", s.workspaceID, "err", envErr)
+	} else {
+		// Mirror the claude path in ensureProcess: record the provider this
+		// spawn resolved, so non-claude workspaces get the same pill/state
+		// tracking.
+		s.recordActiveProvider(ctx)
 	}
 	for _, e := range envVars {
 		// NIUNIU_* are internal control keys — never leak them to the child
