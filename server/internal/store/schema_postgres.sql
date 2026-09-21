@@ -262,7 +262,12 @@ CREATE TABLE IF NOT EXISTS workspaces (
     -- inherited by epic-derived child workspaces. '' = unknown (generic directive).
     language TEXT NOT NULL DEFAULT '',
     env_provider_id BIGINT DEFAULT NULL REFERENCES env_providers(id) ON DELETE SET NULL,
-    env_provider_group TEXT NOT NULL DEFAULT '' -- bind to a provider GROUP instead of one provider
+    env_provider_group TEXT NOT NULL DEFAULT '', -- bind to a provider GROUP instead of one provider
+    -- provider NAME the workspace's agent process actually spawned with,
+    -- recorded at each spawn from sceneenv.ActiveProvider ('' = none). NOT
+    -- cleared on unbind: it describes the running process until the next
+    -- spawn. See docs/superpowers/specs/2026-09-21-provider-group-reresolve-design.md.
+    active_env_provider_name TEXT NOT NULL DEFAULT ''
 );
 
 -- ============================================================

@@ -22,6 +22,11 @@ UPDATE workspaces SET env_provider_id = ?, env_provider_group = '' WHERE id = ?;
 -- provider binding (mutually exclusive).
 UPDATE workspaces SET env_provider_group = ?, env_provider_id = NULL WHERE id = ?;
 
+-- name: SetWorkspaceActiveEnvProvider :exec
+-- Record the provider NAME this workspace's agent process actually spawned
+-- with (sceneenv.ActiveProvider result at spawn time). '' = no provider.
+UPDATE workspaces SET active_env_provider_name = ? WHERE id = ?;
+
 -- name: GetWorkspacesByIssue :many
 SELECT * FROM workspaces WHERE issue_id = ? ORDER BY is_archived ASC, created_at DESC;
 
