@@ -357,6 +357,23 @@ func RunTaskWithSystem(ctx context.Context, m model.Model, reg *tools.Registry, 
 	return res
 }
 
+// RunSetWithSystem runs a whole task set under one fixed system prompt and
+// aggregates the results (used by the self-evolution harness to measure a
+// candidate system prompt against the public/private task sets).
+func RunSetWithSystem(ctx context.Context, m model.Model, reg *tools.Registry, tasks []Task, timeout time.Duration, system string) Summary {
+	sum := Summary{Total: len(tasks)}
+	for _, t := range tasks {
+		r := RunTaskWithSystem(ctx, m, reg, t, timeout, system)
+		sum.Results = append(sum.Results, r)
+		if r.Pass {
+			sum.Passed++
+		} else {
+			sum.Failed++
+		}
+	}
+	return sum
+}
+
 // RunChecks judges every rule against the sandbox (and the agent output).
 func RunChecks(t Task, dir, output string) []CheckResult {
 	var out []CheckResult

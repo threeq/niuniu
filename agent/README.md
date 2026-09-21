@@ -34,6 +34,7 @@ niuniu 的自研编码 agent（issue #708 / #709）。可行性分析与总体�
 - ✅ P6 记忆 consolidate：同主题合并/老化清理/容量 LRU 三趟清理；MemoryConsolidate 工具 + `memory-consolidate` CLI 子命令
 - ✅ P6 eval 评估体系：`eval/tasks/*.md` 任务集（20 个脱敏任务）、`niuniu-agent eval` runner（一次性沙箱 + 规则判定 contains/file-exists/command-exit-0 等）、JSON+markdown 报告与 baseline.json 对比
 - ✅ P7 RSI 探索式预热：explore 三角色（Curriculum 自生成练习任务 → Actor 沙箱执行（记忆冻结）→ Verifier 规则判定零模型调用），广-深两阶段可配，仅 verified pass 沉淀接地经验；方法借鉴 RSIAgent（Apache-2.0），见 ATTRIBUTION.md
+- ✅ P8a 适应度门控自进化：eval 公开/私有拆分（迭代用公开集、采纳看私有集零容差）、think-first 提案协议（缺段拒绝）、对抗复验（均值仍胜才加冕）、PROMPT.md 动态任务指引（32KB 上限、缺失跳过、安全边界成文）；方法融合 OpenRSI 思路，见 ATTRIBUTION.md
 - ⏳ P8+：hooks、sandbox、checkpoint/rewind、交互式 TUI、desktop sidecar 打包
 
 ## 用法
@@ -121,8 +122,11 @@ agent/
 
 ## 归属
 
-RSI 探索式预热的方法思路借鉴 RSIAgent（Apache-2.0），为 idea 级借鉴 +
-独立实现。详见 [ATTRIBUTION.md](ATTRIBUTION.md)。
+- RSI 探索式预热：方法思路借鉴 RSIAgent（AetherLabsAI，Apache-2.0）。
+- 适应度门控自进化 / think-first 提案：方法思路借鉴 OpenRSI
+  （AlexWortega/OpenRsi，仓库未附 LICENSE，仅注明方法来源，不复制代码）。
+
+均为 idea 级借鉴 + 独立 clean-room 实现，详见 [ATTRIBUTION.md](ATTRIBUTION.md)。
 
 ## Clean-room 纪律（硬约束）
 

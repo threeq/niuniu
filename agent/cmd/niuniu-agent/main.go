@@ -116,6 +116,10 @@ func main() {
 		runExplore()
 		return
 	}
+	if len(os.Args) > 1 && os.Args[1] == "evolve" {
+		runEvolve()
+		return
+	}
 	if len(os.Args) > 1 && os.Args[1] == "profiles" {
 		fs := flag.NewFlagSet("profiles", flag.ContinueOnError)
 		configPath := fs.String("config", "", "profile config path override")

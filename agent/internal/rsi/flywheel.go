@@ -59,6 +59,7 @@ type FlywheelReport struct {
 	Gates      []GateResult  `json:"gates"`
 	Landed     []string      `json:"landed"`
 	Rejected   int           `json:"rejected"`
+	PromptLand int           `json:"promptLandings,omitempty"`
 	Delta      string        `json:"delta,omitempty"`
 	Duration   time.Duration `json:"-"`
 }
@@ -159,6 +160,25 @@ func (f *Flywheel) Spin(ctx context.Context) (*FlywheelReport, error) {
 		}
 	}
 	report.Landed = landed
+
+	// —— P8a: 策略级落地。—— 只有同时扛过可见回归复跑与隐藏 held-out 集
+	// 的候选才有两路独立接地信号（Verified=2 ≥ GroundingThreshold），才
+	// 允许进入 PROMPT.md（影响此后每个会话的 system）；未配置隐藏集时
+	// 只有一路信号，低于门槛，不落地。
+	verified := 1
+	if hidden != nil {
+		verified = 2
+	}
+	strat := make([]StrategyLesson, 0, len(candidates))
+	for _, c := range candidates {
+		strat = append(strat, StrategyLesson{Title: c.Title, Guidance: c.Content, Verified: verified})
+	}
+	if n, lerr := LandStrategyLessons(f.Cwd, strat); lerr != nil {
+		fmt.Fprintf(os.Stderr, "[flywheel] prompt landing failed: %v\n", lerr)
+	} else if n > 0 {
+		report.PromptLand = n
+		fmt.Fprintf(os.Stderr, "[flywheel] landed %d grounded strategy lesson(s) into PROMPT.md\n", n)
+	}
 
 	// —— 齿4 Control: landed 后可见复跑 + delta。——
 	control := f.runEvalSet(ctx, tasks, f.Store)
