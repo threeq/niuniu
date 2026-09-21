@@ -125,7 +125,7 @@
     "ownerLabel": "歸屬",
     "ownerPersonal": "個人",
     "ownerOrg": "組織：{{name}}",
-    "ownerHint": "選擇組織後，該資料源對組織內所有成員的智慧型代理可用",
+    "ownerHint": "選擇組織後，該資料來源對組織內所有成員的智慧體可用",
     "orgBadge": "組織"
   },
   "dashboard": {
