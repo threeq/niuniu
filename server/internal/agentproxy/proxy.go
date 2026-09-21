@@ -2238,25 +2238,11 @@ func (s *WorkspaceSession) ensureProcess(ctx context.Context, workDir string) er
 				}
 			}
 		}
-		// Remember which provider this process actually spawned with (bound, or a
-		// same-group fallback) so a later 429 in its output marks that provider —
-		// not the fallback it would resolve to after the mark.
-		if p, ok := sceneenv.ActiveProvider(ctx, s.q, s.workspaceID); ok {
-			s.mu.Lock()
-			s.activeProviderID = p.ID
-			s.mu.Unlock()
-			// This provider is being USED right now, so any rate-limit episode
-			// still open against it has ended. Being selected is the only honest
-			// "back in service" signal: reset_at merely makes it eligible, and a
-			// user may not run a turn until much later. Closing here records that
-			// real gap. sceneenv.ActiveProvider only returns a cooled-down
-			// provider when no healthy alternative exists, so a still-limited
-			// provider being forced back into service also (correctly) ends the
-			// episode — it is in use again either way.
-			if !sceneenv.ProviderInCooldown(p, time.Now()) {
-				closeProviderRateLimitEvents(ctx, s.q, p.ID, time.Now(), false)
-			}
-		}
+		// Resolve the active provider, persist its name on the workspace row
+		// (per-workspace state, spec 2026-09-21), and broadcast the change.
+		// Runs on every spawn — including the 429 fallback restart — so the
+		// record and the UI follow the member actually in use.
+		s.recordActiveProvider(ctx)
 	}
 
 	adapterExtraArgs := []string{}
@@ -2718,6 +2704,57 @@ func (s *WorkspaceSession) resetProviderFallbackRetries() {
 	s.mu.Lock()
 	s.providerFallbackRetries = 0
 	s.mu.Unlock()
+}
+
+// recordActiveProvider resolves the workspace's active provider at spawn time,
+// keeps the in-memory 429-attribution id in sync, persists the provider NAME
+// on the workspace row (per-workspace record of what is actually running),
+// and notifies listeners. Safe to call when no provider resolves (records '').
+func (s *WorkspaceSession) recordActiveProvider(ctx context.Context) {
+	activeName := ""
+	if p, ok := sceneenv.ActiveProvider(ctx, s.q, s.workspaceID); ok {
+		activeName = p.Name
+		s.mu.Lock()
+		s.activeProviderID = p.ID
+		s.mu.Unlock()
+		// Being selected is the honest "back in service" signal — see the
+		// historical comment this block was extracted from.
+		if !sceneenv.ProviderInCooldown(p, time.Now()) {
+			closeProviderRateLimitEvents(ctx, s.q, p.ID, time.Now(), false)
+		}
+	}
+	if err := s.q.SetWorkspaceActiveEnvProvider(ctx, store.SetWorkspaceActiveEnvProviderParams{
+		ActiveEnvProviderName: activeName,
+		ID:                    s.workspaceID,
+	}); err != nil {
+		slog.Warn("agent: persist active provider failed", "workspaceID", s.workspaceID, "error", err)
+	}
+	s.broadcastActiveProvider(ctx, activeName)
+}
+
+// broadcastActiveProvider pushes the provider_changed workspace notification
+// so an open chat view refreshes its provider pill without a reload. Best
+// effort: hub-less sessions (tests, temporary) and owner lookup failures
+// degrade to a zero-owner broadcast or a log line.
+func (s *WorkspaceSession) broadcastActiveProvider(ctx context.Context, name string) {
+	if s.notifyHub == nil || s.isTemporary {
+		return
+	}
+	ownerType, ownerID := "", int64(0)
+	if ws, err := s.q.GetWorkspace(ctx, s.workspaceID); err == nil {
+		ownerType, ownerID = ws.OwnerType, ws.OwnerID
+	} else {
+		slog.Warn("provider_changed: GetWorkspace failed; broadcasting with zero owner",
+			"workspace_id", s.workspaceID, "error", err)
+	}
+	s.notifyHub.Broadcast(notify.Notification{
+		Topic:     notify.TopicWorkspace,
+		Action:    "provider_changed",
+		ID:        s.workspaceID,
+		Extra:     map[string]string{"providerName": name},
+		OwnerType: ownerType,
+		OwnerID:   ownerID,
+	})
 }
 
 // maybeMarkRateLimitedProvider scans each raw output line for a third-party

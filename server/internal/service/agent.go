@@ -206,6 +206,30 @@ func (m *AgentManager) Start(ctx context.Context, workspaceID int64, workDir, in
 	}
 	envSlice := convertEnvVarsToSliceFromStore(envVars)
 
+	// Per-workspace record of the provider this PTY process actually spawned
+	// with (spec 2026-09-21). Same semantics as the agentproxy chat path:
+	// refreshed at every spawn, not cleared on unbind.
+	activeName := ""
+	if p, ok := sceneenv.ActiveProvider(ctx, m.q, workspaceID); ok {
+		activeName = p.Name
+	}
+	if err := m.q.SetWorkspaceActiveEnvProvider(ctx, store.SetWorkspaceActiveEnvProviderParams{
+		ActiveEnvProviderName: activeName,
+		ID:                    workspaceID,
+	}); err != nil {
+		slog.Warn("agent: persist active provider failed", "workspaceID", workspaceID, "error", err)
+	}
+	if m.notifyHub != nil {
+		m.notifyHub.Broadcast(notify.Notification{
+			Topic:     notify.TopicWorkspace,
+			Action:    "provider_changed",
+			ID:        workspaceID,
+			Extra:     map[string]string{"providerName": activeName},
+			OwnerType: ws.OwnerType,
+			OwnerID:   ws.OwnerID,
+		})
+	}
+
 	// Codex path: pre-create the MCP session token and write .codex/config.toml
 	// BEFORE spawning codex, because codex reads its TOML at startup and does
 	// not auto-reload on file change in PTY mode. Failure to generate the file
