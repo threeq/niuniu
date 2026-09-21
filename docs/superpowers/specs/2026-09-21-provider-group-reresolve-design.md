@@ -36,18 +36,18 @@
 - `${ACCOUNT:<name>}` 引用机制不变：展开保持引用，返回前统一 `SubstituteAccounts` 替换。
 - 绑定 provider 展开因此也高于 scene 层——工作空间级显式绑定是最具体的用户意图，语义为「绑定 provider 的解析结果对该空间最权威」。
 
-### 2. 每空间状态跟进 — `workspaces.active_env_provider_id`
+### 2. 每空间状态跟进 — `workspaces.active_env_provider_name`
 
-- `workspaces` 新列 `active_env_provider_id INTEGER`（NULL=无）。按仓库红线：双 schema（`schema.sql` + `schema_postgres.sql`）同步、走 `addColumnIfNotExists` 迁移、**不在 schema 文件里建索引**、`make sqlc` 重新生成。
-- 写入点：
-  - PTY：`service/agent.go` `Start`（agent.go:203 Resolve 之后）——`ActiveProvider` ok 则写 provider id，否则清 NULL。
-  - chat：`agentproxy.ensureProcess`（proxy.go:2212 Resolve 之后）同样写入；429 触发的 `restartForProviderFallback` 重启走 ensureProcess，**天然刷新**。内存 `s.activeProviderID` 保留用于 429 归因（stale-line guard 依赖）。
+- `workspaces` 新列 `active_env_provider_name TEXT NOT NULL DEFAULT ''`（''=无）。**直接存名称而非 id**：`toWorkspaceResponse` 是纯内存映射无 DB 访问，按 id 补查会使列表接口 N+1；名称正是 UI 所需，且 provider 被删除后仍忠实记录「进程当时实际使用者」。按仓库红线：双 schema（`schema.sql` + `schema_postgres.sql`）同步、走 `addColumnIfNotExists` 迁移、**不在 schema 文件里建索引**、`make sqlc` 重新生成（`GetWorkspace` 是 `SELECT *`，结构体自动携带新字段）。
+- 写入点（两处均在 `sceneenv.Resolve` 之后，调 `ActiveProvider` 取当前解析结果——proxy 路径已有先例 proxy.go:2244）：
+  - PTY：`service/agent.go` `Start`（agent.go:203 附近）——ok 则写 `p.Name`，否则写 ''。
+  - chat：`agentproxy.ensureProcess`（proxy.go:2212 附近）——同样写入；429 触发的 `restartForProviderFallback` 重启走 ensureProcess，**天然刷新**。现有内存 `s.activeProviderID` 保留用于 429 归因（stale-line guard 依赖），逻辑收进 `recordActiveProvider` 方法保持单一来源。
 - **解绑/改绑不清除该列**：语义是「当前进程实际在用的 provider」，进程还活着就该显示；下次 spawn 自然刷新。
 - 每个工作空间一行独立更新，互不影响；cooldown 保持全局不变。
 
 ### 3. UI — chat 状态栏 provider pill
 
-- 后端：workspace DTO 增加 `active_env_provider_name`（service 层按 active id 补查 `env_providers.name`，id 为 NULL 或查不到时为空）。
+- 后端：workspace DTO（`api/response.go` `WorkspaceResponse`）增加 `active_env_provider_name`，直接映射新列，零额外查询。
 - WS 推送：notify hub（TopicWorkspace）新 action `provider_changed`，payload 含 workspace id 与 provider 名称；发送点 = ensureProcess 与 agent.Start 持久化之后。前端收到后 invalidate workspace query；页面加载/刷新时 GET 兜底。
 - 前端：`chat-input.tsx:354` 状态栏右侧组、usage pill 之前插入 provider pill（muted 风格，如 `⌁ 智谱-主`）；未绑定时不渲染；tooltip 走 `t('panels.chatInput.activeProvider')`；三语言 locale 同步；遵守 `docs/design-system.md`（bg-muted 圆角、lucide 图标、无 hex、无任意色值/间距）。
 
