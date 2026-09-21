@@ -71,7 +71,7 @@ func (q *Queries) ListWorkspaceCreatorsForOwners(ctx context.Context, arg ListWo
 }
 
 const listWorkspacesForOwners = `-- name: ListWorkspacesForOwners :many
-SELECT id, issue_id, name, path, status, agent_pid, agent_status, session_id, session_status, owner_type, owner_id, current_session_user_id, created_by, created_at, updated_at, is_temporary, is_archived, archived_at, mcp_servers, cli_type, codex_sandbox_mode, codex_approval_policy, is_studio, strict_mcp_config, language, env_provider_id, env_provider_group FROM workspaces
+SELECT id, issue_id, name, path, status, agent_pid, agent_status, session_id, session_status, owner_type, owner_id, current_session_user_id, created_by, created_at, updated_at, is_temporary, is_archived, archived_at, mcp_servers, cli_type, codex_sandbox_mode, codex_approval_policy, is_studio, strict_mcp_config, language, env_provider_id, env_provider_group, active_env_provider_name FROM workspaces
 WHERE is_archived = 0
   AND ((owner_type = 'user' AND owner_id = ?)
     OR (owner_type = 'org'  AND owner_id IN (/*SLICE:org_ids*/?)))
@@ -152,6 +152,7 @@ func (q *Queries) ListWorkspacesForOwners(ctx context.Context, arg ListWorkspace
 			&i.Language,
 			&i.EnvProviderID,
 			&i.EnvProviderGroup,
+			&i.ActiveEnvProviderName,
 		); err != nil {
 			return nil, err
 		}

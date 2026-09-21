@@ -370,6 +370,10 @@ func Migrate(db *sql.DB) {
 	addColumnIfNotExists(db, "env_providers", "enabled", "INTEGER NOT NULL DEFAULT 1")
 	addColumnIfNotExists(db, "env_providers", "cooldown_until", "TIMESTAMP")
 
+	// Per-workspace record of the provider NAME its agent process actually
+	// spawned with (spec 2026-09-21 provider group re-resolve). '' = none.
+	addColumnIfNotExists(db, "workspaces", "active_env_provider_name", "TEXT NOT NULL DEFAULT ''")
+
 	if !migrationApplied(w, "workspaces_created_by_backfill_v1") {
 		if _, err := w.ExecContext(context.Background(),
 			`UPDATE workspaces SET created_by = owner_id

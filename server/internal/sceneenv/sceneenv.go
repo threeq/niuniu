@@ -121,11 +121,13 @@ func SceneVars(ctx context.Context, q Querier, wsID int64) map[string]string {
 
 // Resolve returns the workspace's effective env, merged in this precedence
 // (lowest → highest): the workspace's directly-bound provider
-// (workspaces.env_provider_id, expanded per cli_type — the common "this
-// workspace uses DeepSeek" path that needs no scene), then scene-declared
-// providers, then scene env_presets, then explicit workspace_env. This is the
-// env source every agent spawn path should use instead of a bare
-// ListWorkspaceEnv so mounted providers/scenes actually reach the agent.
+// (workspaces.env_provider_id / env_provider_group, expanded per cli_type),
+// then scene-declared providers, then scene env_presets, then explicit
+// workspace_env, then the bound provider's own keys re-applied last — the
+// freshest provider resolution wins over workspace_env for the keys the
+// provider emits (see below). This is the env source every agent spawn path
+// should use instead of a bare ListWorkspaceEnv so mounted providers/scenes
+// actually reach the agent.
 //
 // Any env value that is a "${ACCOUNT:<name>}" reference is then replaced with
 // the referenced account's api_key (see SubstituteAccounts). Lookup failures
@@ -148,12 +150,17 @@ func Resolve(ctx context.Context, q Querier, wsID int64) ([]store.WorkspaceEnv, 
 	scene := SceneVars(ctx, q, wsID)
 	merged := map[string]string{}
 
-	// Lowest: directly-bound provider (no scene required). When that provider is
-	// in a rate-limit cooldown, ActiveProvider substitutes a healthy member of
-	// the same group so the workspace keeps working with an interchangeable
-	// provider until the original recovers.
+	// Bound provider (group-resolved when applicable). Its expanded keys are
+	// re-applied AFTER workspace_env below, so the freshest resolution wins
+	// over workspace-configured env for the keys the provider emits — a stale
+	// ANTHROPIC_BASE_URL in workspace_env must not shadow the group's current
+	// best member. Keys the provider does not emit keep their workspace_env
+	// values. With no provider bound (boundEnv nil) the merge below is
+	// byte-for-byte the historical behavior.
+	var boundEnv map[string]string
 	if p, ok := ActiveProvider(ctx, q, wsID); ok {
-		for k, v := range ExpandProvider(p, cliType, accounts, true) {
+		boundEnv = ExpandProvider(p, cliType, accounts, true)
+		for k, v := range boundEnv {
 			merged[k] = v
 		}
 	}
@@ -187,9 +194,16 @@ func Resolve(ctx context.Context, q Querier, wsID int64) ([]store.WorkspaceEnv, 
 		merged[k] = v
 	}
 
-	// Highest: explicit workspace_env.
+	// Explicit workspace_env (above scene layers; a bound provider's keys are re-applied after this, see boundEnv).
 	for _, e := range base {
 		merged[e.Key] = e.Value
+	}
+
+	// Highest: the bound provider's own keys, re-applied over workspace_env
+	// (see boundEnv above). ${ACCOUNT:<name>} references are still preserved
+	// here and substituted by SubstituteAccounts at return.
+	for k, v := range boundEnv {
+		merged[k] = v
 	}
 
 	keys := make([]string, 0, len(merged))

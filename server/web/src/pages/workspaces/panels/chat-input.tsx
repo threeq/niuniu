@@ -1,7 +1,7 @@
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState, type RefObject } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Bot, Send, X, Loader2, Paperclip, ListPlus, Activity } from 'lucide-react';
+import { Bot, Send, X, Loader2, Paperclip, ListPlus, Activity, Zap } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { Workspace, ChatAttachment } from '@/types/api';
 import { api } from '@/lib/api';
@@ -22,6 +22,7 @@ import { AttachmentTag } from '../components/attachment-tag';
 import { FilePickerPopup } from '../components/file-picker-popup';
 import { useAttachmentStore } from '@/stores/attachment-store';
 import { useAgentSSEStore } from '@/stores/agent-sse-store';
+import { useNotificationWSStore } from '@/stores/notification-ws-store';
 import { useFileUpload } from '@/hooks/use-file-upload';
 import { useFilePicker } from '@/hooks/use-file-picker';
 import { saveDraft, loadDraft, clearDraft } from '@/lib/chat-draft';
@@ -120,6 +121,17 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
       }
     });
   }, [workspace.id, isClaudeWorkspace, queryClient]);
+  // Live provider pill: a provider_changed workspace notification (spawn or
+  // 429 fallback restart) invalidates workspace queries so the name below
+  // always reflects the provider actually in use.
+  const lastNotify = useNotificationWSStore((s) => s.lastMessage);
+  useEffect(() => {
+    if (!lastNotify) return;
+    if (lastNotify.topic !== 'workspace' || lastNotify.action !== 'provider_changed') return;
+    if (lastNotify.id == null) return;
+    if (String(lastNotify.id) !== String(workspace.id)) return;
+    queryClient.invalidateQueries({ queryKey: ['workspace'] });
+  }, [lastNotify, queryClient, workspace.id]);
   const [commandMode, setCommandMode] = useState(false);
   const [commandFilter, setCommandFilter] = useState('');
   const commandPopupRef = useRef<SlashCommandPopupHandle>(null);
@@ -352,6 +364,18 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
 
         {/* Right: usage pill, bot icon, agent status, queue count */}
         <div className="flex items-center gap-2">
+          {/* Active provider pill (spec 2026-09-21): which provider this
+              workspace's agent process is actually using. Hidden when the
+              workspace has no provider env in play. */}
+          {workspace.active_env_provider_name ? (
+            <span
+              className="flex items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground"
+              title={t('panels.chatInput.activeProvider')}
+            >
+              <Zap className="h-3 w-3" />
+              <span className="max-w-32 truncate">{workspace.active_env_provider_name}</span>
+            </span>
+          ) : null}
           {/* Usage pill button with popover.
               Visible only when context is high OR rate limit is non-OK; the
               everyday low-usage case shows no pill. */}

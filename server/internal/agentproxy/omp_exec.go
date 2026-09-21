@@ -91,6 +91,11 @@ func (s *WorkspaceSession) getOrStartOMPBackend(ctx context.Context, workDir str
 	envVars, envErr := sceneenv.Resolve(ctx, s.q, s.workspaceID)
 	if envErr != nil {
 		slog.Warn("omp: resolve workspace env failed", "workspaceID", s.workspaceID, "err", envErr)
+	} else {
+		// Mirror the claude path in ensureProcess: record the provider this
+		// spawn resolved, so non-claude workspaces get the same pill/state
+		// tracking.
+		s.recordActiveProvider(ctx)
 	}
 	for _, e := range envVars {
 		// NIUNIU_* are niuniu-internal control keys — never leak them to the

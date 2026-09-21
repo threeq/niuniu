@@ -114,6 +114,37 @@ func (m *AgentManager) LiveWorkspaceIDs() []int64 {
 	return out
 }
 
+// recordActiveProvider resolves the workspace's active provider at PTY spawn
+// time, persists its NAME on the workspace row (per-workspace record of what is
+// actually running), and notifies listeners. Same semantics as the agentproxy
+// chat path's WorkspaceSession.recordActiveProvider: refreshed at every spawn,
+// not cleared on unbind. Safe when no provider resolves (records an empty
+// name).
+// ownerType/ownerID come from the caller's already-fetched workspace row; the
+// broadcast is skipped when no hub is wired (tests).
+func (m *AgentManager) recordActiveProvider(ctx context.Context, workspaceID int64, ownerType string, ownerID int64) {
+	activeName := ""
+	if p, ok := sceneenv.ActiveProvider(ctx, m.q, workspaceID); ok {
+		activeName = p.Name
+	}
+	if err := m.q.SetWorkspaceActiveEnvProvider(ctx, store.SetWorkspaceActiveEnvProviderParams{
+		ActiveEnvProviderName: activeName,
+		ID:                    workspaceID,
+	}); err != nil {
+		slog.Warn("agent: persist active provider failed", "workspaceID", workspaceID, "error", err)
+	}
+	if m.notifyHub != nil {
+		m.notifyHub.Broadcast(notify.Notification{
+			Topic:     notify.TopicWorkspace,
+			Action:    "provider_changed",
+			ID:        workspaceID,
+			Extra:     map[string]string{"providerName": activeName},
+			OwnerType: ownerType,
+			OwnerID:   ownerID,
+		})
+	}
+}
+
 func (m *AgentManager) Start(ctx context.Context, workspaceID int64, workDir, initialPrompt string, userID int64) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -205,6 +236,11 @@ func (m *AgentManager) Start(ctx context.Context, workspaceID int64, workDir, in
 		return fmt.Errorf("fetch workspace env vars: %w", err)
 	}
 	envSlice := convertEnvVarsToSliceFromStore(envVars)
+
+	// Per-workspace record of the provider this PTY process actually spawned
+	// with (spec 2026-09-21). Same semantics as the agentproxy chat path:
+	// refreshed at every spawn, not cleared on unbind.
+	m.recordActiveProvider(ctx, workspaceID, ws.OwnerType, ws.OwnerID)
 
 	// Codex path: pre-create the MCP session token and write .codex/config.toml
 	// BEFORE spawning codex, because codex reads its TOML at startup and does

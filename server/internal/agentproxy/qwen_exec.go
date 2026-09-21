@@ -34,6 +34,9 @@ func (s *WorkspaceSession) buildQwenOneShotExec(ctx context.Context, workDir str
 	if envErr != nil {
 		return "", nil, nil, fmt.Errorf("fetch workspace env vars: %w", envErr)
 	}
+	// Mirror the claude path in ensureProcess: record the provider this spawn
+	// resolved, so non-claude workspaces get the same pill/state tracking.
+	s.recordActiveProvider(ctx)
 	workspaceEnv := make([]adapter.EnvVar, 0, len(wsEnvVars))
 	for _, e := range wsEnvVars {
 		workspaceEnv = append(workspaceEnv, adapter.EnvVar{Key: e.Key, Value: e.Value})

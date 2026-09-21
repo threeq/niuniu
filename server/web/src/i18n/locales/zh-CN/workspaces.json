@@ -528,6 +528,7 @@
       "sending": "发送中...",
       "stopAgent": "停止 Agent",
       "noChanges": "暂无变更",
+      "activeProvider": "当前使用的 Provider",
       "fileChanges": "{{count}} 个文件",
       "fileChangesPlural": "{{count}} 个文件",
       "rateOk": "正常",

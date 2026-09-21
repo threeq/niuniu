@@ -269,7 +269,12 @@ CREATE TABLE IF NOT EXISTS workspaces (
     -- expands it per the workspace's cli_type without requiring a scene. NULL
     -- means no direct binding (fall back to scene-declared providers/presets).
     env_provider_id INTEGER DEFAULT NULL REFERENCES env_providers(id) ON DELETE SET NULL,
-    env_provider_group TEXT NOT NULL DEFAULT '' -- bind to a provider GROUP instead of one provider
+    env_provider_group TEXT NOT NULL DEFAULT '', -- bind to a provider GROUP instead of one provider
+    -- provider NAME the workspace's agent process actually spawned with,
+    -- recorded at each spawn from sceneenv.ActiveProvider ('' = none). NOT
+    -- cleared on unbind: it describes the running process until the next
+    -- spawn. See docs/superpowers/specs/2026-09-21-provider-group-reresolve-design.md.
+    active_env_provider_name TEXT NOT NULL DEFAULT ''
 );
 
 -- ============================================================

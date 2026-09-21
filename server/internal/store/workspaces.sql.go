@@ -58,7 +58,7 @@ func (q *Queries) CountSchedulesByWorkspace(ctx context.Context) ([]CountSchedul
 const createWorkspace = `-- name: CreateWorkspace :one
 INSERT INTO workspaces (issue_id, name, path, status, owner_type, owner_id, created_by, cli_type, codex_sandbox_mode, codex_approval_policy, language)
 VALUES (?, ?, ?, ?, ?, ?, ?, COALESCE(NULLIF(CAST(?8 AS TEXT), ''), 'claude'), 'danger-full-access', 'never', CAST(?9 AS TEXT))
-RETURNING id, issue_id, name, path, status, agent_pid, agent_status, session_id, session_status, owner_type, owner_id, current_session_user_id, created_by, created_at, updated_at, is_temporary, is_archived, archived_at, mcp_servers, cli_type, codex_sandbox_mode, codex_approval_policy, is_studio, strict_mcp_config, language, env_provider_id, env_provider_group
+RETURNING id, issue_id, name, path, status, agent_pid, agent_status, session_id, session_status, owner_type, owner_id, current_session_user_id, created_by, created_at, updated_at, is_temporary, is_archived, archived_at, mcp_servers, cli_type, codex_sandbox_mode, codex_approval_policy, is_studio, strict_mcp_config, language, env_provider_id, env_provider_group, active_env_provider_name
 `
 
 type CreateWorkspaceParams struct {
@@ -137,6 +137,7 @@ func (q *Queries) CreateWorkspace(ctx context.Context, arg CreateWorkspaceParams
 		&i.Language,
 		&i.EnvProviderID,
 		&i.EnvProviderGroup,
+		&i.ActiveEnvProviderName,
 	)
 	return i, err
 }
@@ -165,7 +166,7 @@ func (q *Queries) GetProjectIDForWorkspace(ctx context.Context, id int64) (int64
 }
 
 const getWorkspace = `-- name: GetWorkspace :one
-SELECT id, issue_id, name, path, status, agent_pid, agent_status, session_id, session_status, owner_type, owner_id, current_session_user_id, created_by, created_at, updated_at, is_temporary, is_archived, archived_at, mcp_servers, cli_type, codex_sandbox_mode, codex_approval_policy, is_studio, strict_mcp_config, language, env_provider_id, env_provider_group FROM workspaces WHERE id = ?
+SELECT id, issue_id, name, path, status, agent_pid, agent_status, session_id, session_status, owner_type, owner_id, current_session_user_id, created_by, created_at, updated_at, is_temporary, is_archived, archived_at, mcp_servers, cli_type, codex_sandbox_mode, codex_approval_policy, is_studio, strict_mcp_config, language, env_provider_id, env_provider_group, active_env_provider_name FROM workspaces WHERE id = ?
 `
 
 func (q *Queries) GetWorkspace(ctx context.Context, id int64) (Workspace, error) {
@@ -199,6 +200,7 @@ func (q *Queries) GetWorkspace(ctx context.Context, id int64) (Workspace, error)
 		&i.Language,
 		&i.EnvProviderID,
 		&i.EnvProviderGroup,
+		&i.ActiveEnvProviderName,
 	)
 	return i, err
 }
@@ -287,7 +289,7 @@ func (q *Queries) GetWorkspaceEnvProviderID(ctx context.Context, id int64) (int6
 }
 
 const getWorkspacesByIssue = `-- name: GetWorkspacesByIssue :many
-SELECT id, issue_id, name, path, status, agent_pid, agent_status, session_id, session_status, owner_type, owner_id, current_session_user_id, created_by, created_at, updated_at, is_temporary, is_archived, archived_at, mcp_servers, cli_type, codex_sandbox_mode, codex_approval_policy, is_studio, strict_mcp_config, language, env_provider_id, env_provider_group FROM workspaces WHERE issue_id = ? ORDER BY is_archived ASC, created_at DESC
+SELECT id, issue_id, name, path, status, agent_pid, agent_status, session_id, session_status, owner_type, owner_id, current_session_user_id, created_by, created_at, updated_at, is_temporary, is_archived, archived_at, mcp_servers, cli_type, codex_sandbox_mode, codex_approval_policy, is_studio, strict_mcp_config, language, env_provider_id, env_provider_group, active_env_provider_name FROM workspaces WHERE issue_id = ? ORDER BY is_archived ASC, created_at DESC
 `
 
 func (q *Queries) GetWorkspacesByIssue(ctx context.Context, issueID sql.NullInt64) ([]Workspace, error) {
@@ -327,6 +329,7 @@ func (q *Queries) GetWorkspacesByIssue(ctx context.Context, issueID sql.NullInt6
 			&i.Language,
 			&i.EnvProviderID,
 			&i.EnvProviderGroup,
+			&i.ActiveEnvProviderName,
 		); err != nil {
 			return nil, err
 		}
@@ -342,7 +345,7 @@ func (q *Queries) GetWorkspacesByIssue(ctx context.Context, issueID sql.NullInt6
 }
 
 const listArchivedWorkspaces = `-- name: ListArchivedWorkspaces :many
-SELECT id, issue_id, name, path, status, agent_pid, agent_status, session_id, session_status, owner_type, owner_id, current_session_user_id, created_by, created_at, updated_at, is_temporary, is_archived, archived_at, mcp_servers, cli_type, codex_sandbox_mode, codex_approval_policy, is_studio, strict_mcp_config, language, env_provider_id, env_provider_group FROM workspaces WHERE is_archived = 1 ORDER BY archived_at DESC
+SELECT id, issue_id, name, path, status, agent_pid, agent_status, session_id, session_status, owner_type, owner_id, current_session_user_id, created_by, created_at, updated_at, is_temporary, is_archived, archived_at, mcp_servers, cli_type, codex_sandbox_mode, codex_approval_policy, is_studio, strict_mcp_config, language, env_provider_id, env_provider_group, active_env_provider_name FROM workspaces WHERE is_archived = 1 ORDER BY archived_at DESC
 `
 
 func (q *Queries) ListArchivedWorkspaces(ctx context.Context) ([]Workspace, error) {
@@ -382,6 +385,7 @@ func (q *Queries) ListArchivedWorkspaces(ctx context.Context) ([]Workspace, erro
 			&i.Language,
 			&i.EnvProviderID,
 			&i.EnvProviderGroup,
+			&i.ActiveEnvProviderName,
 		); err != nil {
 			return nil, err
 		}
@@ -397,7 +401,7 @@ func (q *Queries) ListArchivedWorkspaces(ctx context.Context) ([]Workspace, erro
 }
 
 const listArchivedWorkspacesWithMeta = `-- name: ListArchivedWorkspacesWithMeta :many
-SELECT w.id, w.issue_id, w.name, w.path, w.status, w.agent_pid, w.agent_status, w.session_id, w.session_status, w.owner_type, w.owner_id, w.current_session_user_id, w.created_by, w.created_at, w.updated_at, w.is_temporary, w.is_archived, w.archived_at, w.mcp_servers, w.cli_type, w.codex_sandbox_mode, w.codex_approval_policy, w.is_studio, w.strict_mcp_config, w.language, w.env_provider_id, w.env_provider_group,
+SELECT w.id, w.issue_id, w.name, w.path, w.status, w.agent_pid, w.agent_status, w.session_id, w.session_status, w.owner_type, w.owner_id, w.current_session_user_id, w.created_by, w.created_at, w.updated_at, w.is_temporary, w.is_archived, w.archived_at, w.mcp_servers, w.cli_type, w.codex_sandbox_mode, w.codex_approval_policy, w.is_studio, w.strict_mcp_config, w.language, w.env_provider_id, w.env_provider_group, w.active_env_provider_name,
   COALESCE(i.title, '') AS issue_title,
   COALESCE(p.name, '') AS project_name
 FROM workspaces w
@@ -409,35 +413,36 @@ ORDER BY w.archived_at DESC
 `
 
 type ListArchivedWorkspacesWithMetaRow struct {
-	ID                   int64          `json:"id"`
-	IssueID              sql.NullInt64  `json:"issue_id"`
-	Name                 string         `json:"name"`
-	Path                 string         `json:"path"`
-	Status               string         `json:"status"`
-	AgentPid             sql.NullInt64  `json:"agent_pid"`
-	AgentStatus          sql.NullString `json:"agent_status"`
-	SessionID            sql.NullString `json:"session_id"`
-	SessionStatus        sql.NullString `json:"session_status"`
-	OwnerType            string         `json:"owner_type"`
-	OwnerID              int64          `json:"owner_id"`
-	CurrentSessionUserID sql.NullInt64  `json:"current_session_user_id"`
-	CreatedBy            sql.NullInt64  `json:"created_by"`
-	CreatedAt            time.Time      `json:"created_at"`
-	UpdatedAt            time.Time      `json:"updated_at"`
-	IsTemporary          int64          `json:"is_temporary"`
-	IsArchived           int64          `json:"is_archived"`
-	ArchivedAt           sql.NullTime   `json:"archived_at"`
-	McpServers           string         `json:"mcp_servers"`
-	CliType              string         `json:"cli_type"`
-	CodexSandboxMode     string         `json:"codex_sandbox_mode"`
-	CodexApprovalPolicy  string         `json:"codex_approval_policy"`
-	IsStudio             int64          `json:"is_studio"`
-	StrictMcpConfig      int64          `json:"strict_mcp_config"`
-	Language             string         `json:"language"`
-	EnvProviderID        sql.NullInt64  `json:"env_provider_id"`
-	EnvProviderGroup     string         `json:"env_provider_group"`
-	IssueTitle           string         `json:"issue_title"`
-	ProjectName          string         `json:"project_name"`
+	ID                    int64          `json:"id"`
+	IssueID               sql.NullInt64  `json:"issue_id"`
+	Name                  string         `json:"name"`
+	Path                  string         `json:"path"`
+	Status                string         `json:"status"`
+	AgentPid              sql.NullInt64  `json:"agent_pid"`
+	AgentStatus           sql.NullString `json:"agent_status"`
+	SessionID             sql.NullString `json:"session_id"`
+	SessionStatus         sql.NullString `json:"session_status"`
+	OwnerType             string         `json:"owner_type"`
+	OwnerID               int64          `json:"owner_id"`
+	CurrentSessionUserID  sql.NullInt64  `json:"current_session_user_id"`
+	CreatedBy             sql.NullInt64  `json:"created_by"`
+	CreatedAt             time.Time      `json:"created_at"`
+	UpdatedAt             time.Time      `json:"updated_at"`
+	IsTemporary           int64          `json:"is_temporary"`
+	IsArchived            int64          `json:"is_archived"`
+	ArchivedAt            sql.NullTime   `json:"archived_at"`
+	McpServers            string         `json:"mcp_servers"`
+	CliType               string         `json:"cli_type"`
+	CodexSandboxMode      string         `json:"codex_sandbox_mode"`
+	CodexApprovalPolicy   string         `json:"codex_approval_policy"`
+	IsStudio              int64          `json:"is_studio"`
+	StrictMcpConfig       int64          `json:"strict_mcp_config"`
+	Language              string         `json:"language"`
+	EnvProviderID         sql.NullInt64  `json:"env_provider_id"`
+	EnvProviderGroup      string         `json:"env_provider_group"`
+	ActiveEnvProviderName string         `json:"active_env_provider_name"`
+	IssueTitle            string         `json:"issue_title"`
+	ProjectName           string         `json:"project_name"`
 }
 
 func (q *Queries) ListArchivedWorkspacesWithMeta(ctx context.Context) ([]ListArchivedWorkspacesWithMetaRow, error) {
@@ -477,6 +482,7 @@ func (q *Queries) ListArchivedWorkspacesWithMeta(ctx context.Context) ([]ListArc
 			&i.Language,
 			&i.EnvProviderID,
 			&i.EnvProviderGroup,
+			&i.ActiveEnvProviderName,
 			&i.IssueTitle,
 			&i.ProjectName,
 		); err != nil {
@@ -612,7 +618,7 @@ func (q *Queries) ListProjectWorkspacesForCleanup(ctx context.Context, projectID
 }
 
 const listWorkspaces = `-- name: ListWorkspaces :many
-SELECT id, issue_id, name, path, status, agent_pid, agent_status, session_id, session_status, owner_type, owner_id, current_session_user_id, created_by, created_at, updated_at, is_temporary, is_archived, archived_at, mcp_servers, cli_type, codex_sandbox_mode, codex_approval_policy, is_studio, strict_mcp_config, language, env_provider_id, env_provider_group FROM workspaces WHERE is_temporary = 0 AND is_archived = 0 ORDER BY created_at DESC
+SELECT id, issue_id, name, path, status, agent_pid, agent_status, session_id, session_status, owner_type, owner_id, current_session_user_id, created_by, created_at, updated_at, is_temporary, is_archived, archived_at, mcp_servers, cli_type, codex_sandbox_mode, codex_approval_policy, is_studio, strict_mcp_config, language, env_provider_id, env_provider_group, active_env_provider_name FROM workspaces WHERE is_temporary = 0 AND is_archived = 0 ORDER BY created_at DESC
 `
 
 func (q *Queries) ListWorkspaces(ctx context.Context) ([]Workspace, error) {
@@ -652,6 +658,7 @@ func (q *Queries) ListWorkspaces(ctx context.Context) ([]Workspace, error) {
 			&i.Language,
 			&i.EnvProviderID,
 			&i.EnvProviderGroup,
+			&i.ActiveEnvProviderName,
 		); err != nil {
 			return nil, err
 		}
@@ -683,6 +690,22 @@ func (q *Queries) MarkWorkspaceDeleting(ctx context.Context, id int64) (int64, e
 		return 0, err
 	}
 	return result.RowsAffected()
+}
+
+const setWorkspaceActiveEnvProvider = `-- name: SetWorkspaceActiveEnvProvider :exec
+UPDATE workspaces SET active_env_provider_name = ? WHERE id = ?
+`
+
+type SetWorkspaceActiveEnvProviderParams struct {
+	ActiveEnvProviderName string `json:"active_env_provider_name"`
+	ID                    int64  `json:"id"`
+}
+
+// Record the provider NAME this workspace's agent process actually spawned
+// with (sceneenv.ActiveProvider result at spawn time). ” = no provider.
+func (q *Queries) SetWorkspaceActiveEnvProvider(ctx context.Context, arg SetWorkspaceActiveEnvProviderParams) error {
+	_, err := q.db.ExecContext(ctx, setWorkspaceActiveEnvProvider, arg.ActiveEnvProviderName, arg.ID)
+	return err
 }
 
 const setWorkspaceCodexSandbox = `-- name: SetWorkspaceCodexSandbox :exec
@@ -812,7 +835,7 @@ func (q *Queries) UpdateWorkspaceName(ctx context.Context, arg UpdateWorkspaceNa
 }
 
 const updateWorkspacePath = `-- name: UpdateWorkspacePath :one
-UPDATE workspaces SET path = ? WHERE id = ? RETURNING id, issue_id, name, path, status, agent_pid, agent_status, session_id, session_status, owner_type, owner_id, current_session_user_id, created_by, created_at, updated_at, is_temporary, is_archived, archived_at, mcp_servers, cli_type, codex_sandbox_mode, codex_approval_policy, is_studio, strict_mcp_config, language, env_provider_id, env_provider_group
+UPDATE workspaces SET path = ? WHERE id = ? RETURNING id, issue_id, name, path, status, agent_pid, agent_status, session_id, session_status, owner_type, owner_id, current_session_user_id, created_by, created_at, updated_at, is_temporary, is_archived, archived_at, mcp_servers, cli_type, codex_sandbox_mode, codex_approval_policy, is_studio, strict_mcp_config, language, env_provider_id, env_provider_group, active_env_provider_name
 `
 
 type UpdateWorkspacePathParams struct {
@@ -851,6 +874,7 @@ func (q *Queries) UpdateWorkspacePath(ctx context.Context, arg UpdateWorkspacePa
 		&i.Language,
 		&i.EnvProviderID,
 		&i.EnvProviderGroup,
+		&i.ActiveEnvProviderName,
 	)
 	return i, err
 }

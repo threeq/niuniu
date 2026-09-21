@@ -626,6 +626,10 @@ type WorkspaceResponse struct {
 	// exclusive with EnvProviderID; the workspace resolves the group's best
 	// usable member in manual order.
 	EnvProviderGroup    string    `json:"env_provider_group"`
+	// ActiveEnvProviderName is the provider NAME this workspace's agent
+	// process actually spawned with ('' = none recorded yet). Read-only:
+	// maintained server-side at each spawn.
+	ActiveEnvProviderName string `json:"active_env_provider_name"`
 	CreatedAt           time.Time `json:"created_at" example:"2026-03-17T12:00:00Z"`
 	UpdatedAt           time.Time `json:"updated_at" example:"2026-03-17T12:00:00Z"`
 }
@@ -677,6 +681,7 @@ func toWorkspaceResponse(w store.Workspace) WorkspaceResponse {
 		CodexApprovalPolicy: normalizeCodexApproval(w.CodexApprovalPolicy),
 		EnvProviderID:       envProviderID,
 		EnvProviderGroup:    w.EnvProviderGroup,
+		ActiveEnvProviderName: w.ActiveEnvProviderName,
 		CreatedAt:           w.CreatedAt,
 		UpdatedAt:           w.UpdatedAt,
 	}
