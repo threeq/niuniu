@@ -377,6 +377,7 @@ export interface Workspace {
   env_provider_id?: number | null;
   /** Provider-group binding ('' = none). Mutually exclusive with env_provider_id. */
   env_provider_group?: string;
+  active_env_provider_name?: string; // 当前 agent 进程实际使用的 provider 名（spawn 时服务端记录）
   /** Codex managed account binding (M2.5). null = use global ~/.codex/. */
   codex_account_id?: number | null;
   /** Codex sandbox mode (M2.5). Defaults to 'danger-full-access'. */
