@@ -27,14 +27,24 @@ func TestLoadDynamicPrompt(t *testing.T) {
 		t.Errorf("content = %q", got)
 	}
 
-	// 超限截断。
-	big := strings.Repeat("x", 50<<10)
+	// 超限截断：专用上限 32KB——恰好 32KB 不截断，再多 1 字节即截断。
+	exact := strings.Repeat("x", MaxDynamicPromptBytes)
+	if err := os.WriteFile(p, []byte(exact), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := LoadDynamicPrompt(dir); strings.Contains(got, "truncated") {
+		t.Errorf("exactly %d bytes must not truncate (len %d)", MaxDynamicPromptBytes, len(got))
+	}
+	big := strings.Repeat("x", MaxDynamicPromptBytes+1)
 	if err := os.WriteFile(p, []byte(big), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	got2, _ := LoadDynamicPrompt(dir)
-	if !strings.Contains(got2, "truncated") {
-		t.Errorf("cap note missing (len %d)", len(got2))
+	if !strings.Contains(got2, "truncated at 32KB") {
+		t.Errorf("cap note missing / wrong cap (len %d)", len(got2))
+	}
+	if !strings.Contains(got2, "truncated") || len(got2) > MaxDynamicPromptBytes+200 {
+		t.Errorf("truncation did not bound content (len %d)", len(got2))
 	}
 
 	// 缺失跳过。

@@ -38,6 +38,12 @@ import (
 // CLAUDE.md). Large KB projections must not crowd out the working window.
 const MaxContextBytes = 40 << 10
 
+// MaxDynamicPromptBytes caps the task-guidance file (PROMPT.md). Self-evolved
+// guidance gets a tighter budget than project docs: it is advisory text the
+// agent itself wrote, and an unbounded feedback channel would let one bad
+// evolution round crowd out the working window.
+const MaxDynamicPromptBytes = 32 << 10
+
 // Build renders the system prompt for a session rooted at cwd.
 func Build(cwd string) string {
 	var b strings.Builder
@@ -165,7 +171,7 @@ func LoadProjectContext(cwd string) (string, bool) {
 
 // LoadDynamicPrompt reads the task guidance file for cwd:
 // <cwd>/.niuniu-agent/PROMPT.md. Returns ("", false) when absent. Content
-// is capped at MaxContextBytes with a truncation note appended.
+// is capped at MaxDynamicPromptBytes with a truncation note appended.
 // SAFETY BOUNDARY: PROMPT.md is advisory task guidance only — the
 // permission/approval layers are code-enforced hard constraints and are
 // never overridable by prompt content.
@@ -178,9 +184,9 @@ func LoadDynamicPrompt(cwd string) (string, bool) {
 	if s == "" {
 		return "", false
 	}
-	if len(s) > MaxContextBytes {
-		s = s[:MaxContextBytes] + "\n\n[task guidance truncated at " +
-			strconv.Itoa(MaxContextBytes/1024) + "KB; read .niuniu-agent/PROMPT.md for the rest]"
+	if len(s) > MaxDynamicPromptBytes {
+		s = s[:MaxDynamicPromptBytes] + "\n\n[task guidance truncated at " +
+			strconv.Itoa(MaxDynamicPromptBytes/1024) + "KB; read .niuniu-agent/PROMPT.md for the rest]"
 	}
 	return s, true
 }
