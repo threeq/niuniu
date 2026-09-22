@@ -30,7 +30,7 @@ import (
 func newRegistry() *tools.Registry {
 	return tools.NewRegistry(
 		tools.LS{}, tools.Read{}, tools.Grep{}, tools.Glob{},
-		tools.Write{}, tools.Edit{}, tools.Bash{}, tools.BashOutput{}, tools.TodoWrite{},
+		tools.Write{}, tools.Edit{}, tools.Bash{}, tools.BashOutput{}, tools.Monitor{}, tools.TodoWrite{},
 		tools.NewWebFetch(false), // SSRF protection ON in production wiring
 		tools.NewWebSearch(os.Getenv("NIUNIU_AGENT_SEARCH")),
 	)
