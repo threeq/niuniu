@@ -279,6 +279,8 @@ func (s *Server) runPrompt(parent context.Context, st *sessionState, p sessionPr
 		OnEvent:          run.onEvent,
 		Perms:            run,
 		CompactStatePath: filepath.Join(st.cwd, ".niuniu-agent", "session-state.json"),
+		ContextEditing:   os.Getenv("NIUNIU_AGENT_CONTEXT_EDITING") == "1",
+		HistoryDir:       filepath.Join(st.cwd, ".niuniu-agent", "history"),
 		// SSE streaming: session/update chunks become incremental
 		// (agent_message_chunk / agent_thought_chunk per delta).
 		Stream: model.ParseStreamFlag(os.Getenv("NIUNIU_AGENT_STREAM")),

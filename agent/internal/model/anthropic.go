@@ -108,6 +108,45 @@ type antRequest struct {
 	Thinking *antThinking `json:"thinking,omitempty"`
 	// Stream requests SSE (stream:true).
 	Stream *bool `json:"stream,omitempty"`
+	// ContextManagement enables the provider's server-side context editing:
+	// stale tool_use/tool_result pairs are cleared automatically once the
+	// trigger fires, with cache-friendly invalidation (edits apply at the
+	// cached boundary, so re-cleaning an already-cleaned prefix is free).
+	ContextManagement *antContextManagement `json:"context_management,omitempty"`
+}
+
+// antContextManagement / antContextEdit / antTokenLimit mirror the
+// clear_tool_uses_20250919 strategy schema.
+type antContextManagement struct {
+	Edits []antContextEdit `json:"edits"`
+}
+
+type antContextEdit struct {
+	Type            string        `json:"type"` // "clear_tool_uses_20250919"
+	Trigger         *antTokenKind `json:"trigger,omitempty"`
+	Keep            *antTokenKind `json:"keep,omitempty"`
+	ClearAtLeast    *antTokenKind `json:"clear_at_least,omitempty"`
+	ExcludeTools    []string      `json:"exclude_tools,omitempty"`
+	ClearToolInputs bool          `json:"clear_tool_inputs,omitempty"`
+}
+
+type antTokenKind struct {
+	Type  string `json:"type"` // "input_tokens" or "tool_uses"
+	Value int    `json:"value"`
+}
+
+// defaultContextEditing returns the conservative editing profile: kick in at
+// 50k input tokens, always keep the 3 most recent tool uses, and clear at
+// least 10k tokens per edit so the server never thrashes on tiny clears.
+// TodoWrite stays excluded — the task list must survive compaction.
+func defaultContextEditing() *antContextManagement {
+	return &antContextManagement{Edits: []antContextEdit{{
+		Type:         "clear_tool_uses_20250919",
+		Trigger:      &antTokenKind{Type: "input_tokens", Value: 50_000},
+		Keep:         &antTokenKind{Type: "tool_uses", Value: 3},
+		ClearAtLeast: &antTokenKind{Type: "input_tokens", Value: 10_000},
+		ExcludeTools: []string{"TodoWrite"},
+	}}}
 }
 
 type antThinking struct {
@@ -142,6 +181,9 @@ func (a *anthropicModel) Complete(ctx context.Context, req Request) (*Response, 
 		MaxTokens: maxTok,
 		System:    cacheableSystem(req.System),
 		Messages:  toAntMessages(req.Messages),
+	}
+	if req.ContextEditing {
+		bodyReq.ContextManagement = defaultContextEditing()
 	}
 	tc := req.Thinking
 	if tc.BudgetTokens == 0 {

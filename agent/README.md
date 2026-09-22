@@ -10,14 +10,14 @@ niuniu 的自研编码 agent（issue #708 / #709）。可行性分析与总体�
 - ✅ `-p` headless 单轮（`-p -` 读 stdin；`-y` 放行变更类工具）
 - ✅ `acp` server：stdio JSON-RPC（initialize / session/new / session/prompt / session/update / session/request_permission / session/cancel），session cwd 经 chdir 生效
 - ✅ 双协议模型层：Anthropic `/v1/messages` 兼容（含 Bearer 网关）、OpenAI `/chat/completions` 兼容
-- ✅ 工具全集：`LS`、`Read`、`Grep`、`Glob`、`Write`、`Edit`、`Bash`、`TodoWrite`（零依赖、跨平台）
+- ✅ 工具全集：`LS`、`Read`、`Grep`、`Glob`、`Write`、`Edit`、`Bash`、`TodoWrite` / `HistorySearch`（检索被压缩归档的历史）（零依赖、跨平台）
 - ✅ 权限层：读/写分类；headless 默认拒绝变更类，`-y` 放行；ACP 路径走 request_permission 审批
 - ✅ niuniu 引擎接入：`cli_type=niuniu`（agentbackend/niuniuagent 后端 + proxy 调度），真实二进制端到端验收通过
 - ✅ P2 usage 链路：loop 逐轮聚合（含 cache 读/写分解）→ ACP `session/prompt` result 携带 → 服务端 `EventDone` tokens 落库；headless 结束时 stderr 打印 `[usage]` 汇总
 - ✅ P2 prompt cache：Anthropic 族显式 `cache_control` 断点（system + 末位工具 + 末位消息，≤4）；GLM 网关缓存语义实测结论见 `internal/model/anthropic.go` 注释
 - ✅ P2 system prompt：稳定前缀工程（身份→环境→工具指引→规则→项目上下文），session 内逐字节稳定以保缓存命中
 - ✅ P2 项目上下文：session 启动读 cwd 的 `AGENTS.md`（退回 `CLAUDE.md`），上限 40KB，注入 system
-- ✅ P2 auto-compact：上下文超阈值时摘要压缩早期消息（默认 120k tokens / 保留最近 12 条，`loop.Options` 可调），切点保证 tool_use/tool_result 配对完整；压缩摘要已升级为**结构化状态**（fixed-schema JSON）：key_decisions/files_touched 跨次压缩累积去重、open_items 每次刷新，杜绝「摘要的摘要」连锁失真；状态同步落盘 `.niuniu-agent/session-state.json`（compact 后消息带指针，agent 可 Read 回取精确细节），模型输出非 JSON 时回退纯文本摘要
+- ✅ P2 auto-compact：上下文超阈值时摘要压缩早期消息（默认 120k tokens / 保留最近 12 条，`loop.Options` 可调），切点保证 tool_use/tool_result 配对完整；压缩摘要已升级为**结构化状态**（fixed-schema JSON）：key_decisions/files_touched 跨次压缩累积去重、open_items 每次刷新，杜绝「摘要的摘要」连锁失真；状态同步落盘 `.niuniu-agent/session-state.json`（compact 后消息带指针，agent 可 Read 回取精确细节），模型输出非 JSON 时回退纯文本摘要；被压缩消息**逐条归档** `.niuniu-agent/history/`，`HistorySearch` 工具按关键词检索回注精确细节（上下文只背压缩态，归档背全量）
 - ✅ P3 MCP client：零依赖 stdio client（initialize / tools-list / tools-call）；session 启动读 cwd `.mcp.json` 逐 server 拉起，工具以 `mcp__<server>__<tool>` 注册；单 server 失败告警跳过不阻断；server 生命周期随会话（进程）退出
 - ✅ P3 skills：扫描 `<cwd>/.niuniu-agent/skills` 与 `~/.niuniu-agent/skills` 的 `*/SKILL.md`（frontmatter name/description，项目级遮蔽用户级）；system 注入仅 name+description 的索引；`Skill` 工具按名加载正文进上下文
 - ✅ P3 subagent：`Agent` 工具起进程内子 Session（独立对话、复用模型与权限策略、子注册表无 Agent 工具→递归深度限 1）；sync 回填子最终文本 + `[subagent usage]` 行；单子 agent 超时上限（默认 10 分钟）
@@ -27,7 +27,7 @@ niuniu 的自研编码 agent（issue #708 / #709）。可行性分析与总体�
 - ✅ P5 subagent 共享/隔离：cwd/system 继承钉住、ContextPreamble+context 叠加、background=true + AgentResult 轮询、同回合多 Agent 并行；窗口隔离（仅报告回填）、compact 继承、报告 16KB 截断、TodoWrite 等排除清单、召回减半
 - ✅ P5 长任务：后台 Bash（run_in_background + BashOutput 轮询）、session 持久化 `.niuniu-agent/sessions/` + `-resume <id|latest>`、compact 摘要三节结构化（Background/Key decisions/Open items）
 - ✅ P5 缓存精细化：usage 行 cache-hit 命中率、增量消息断点（cache_control 落倒数第二条消息，跨轮字节稳定才命中）、prompt 防抖规则成文（见 internal/prompt 包注释）
-- ✅ P6 token 级流式：双族 SSE 解析（Request.Stream 增量回调，tool_use 分片聚合），loop/ACP chunk 增量化；`NIUNIU_AGENT_STREAM` 默认开，headless 打 `[stream] first-token` 时延
+- ✅ P6 token 级流式：双族 SSE 解析（Request.Stream 增量回调，tool_use 分片聚合），loop/ACP chunk 增量化；`NIUNIU_AGENT_STREAM` 默认开，headless 打 `[stream] first-token` 时延；`NIUNIU_AGENT_CONTEXT_EDITING=1` 启用 Anthropic 服务端 context editing（clear_tool_uses，服务端自动清旧工具结果；openai 族忽略该开关，走本地逐出）
 - ✅ P6 多模态：IR image 块（user/tool_result 均可携带），Read 图片（ImageResult 接口），anthropic source / openai image_url 双族线格式，ACP image block 接入
 - ✅ P6 WebFetch/WebSearch：零依赖抓取 + HTML→文本（20KB 截断）；SSRF 硬防护（重定向逐跳公网校验，私网/环回全拒）；WebSearch 可配 provider（duckduckgo 无 key），未配置报指引
 - ✅ P6 子 agent 类型化：内置 explore/plan/worker/reviewer（工具白名单+角色前缀+模型档位），`.niuniu-agent/agents/*.md` 声明式自定义，Agent 工具 `subagent_type` 入参

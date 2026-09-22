@@ -70,6 +70,15 @@ type Options struct {
 	// context size (Usage.ContextTokens) exceeds it. 0 → DefaultCompact-
 	// Threshold; negative → compaction disabled.
 	CompactThresholdTokens int
+	// ContextEditing opts into provider-side server context management
+	// (anthropic clear_tool_uses); ignored by the openai family, where the
+	// local eviction pass remains the fallback. Opt-in via
+	// NIUNIU_AGENT_CONTEXT_EDITING=1.
+	ContextEditing bool
+	// HistoryDir archives the messages each compaction removes (one JSON
+	// chunk per message) for the HistorySearch tool to retrieve on demand.
+	// Usually <cwd>/.niuniu-agent/history. Empty → no archive.
+	HistoryDir string
 	// CompactStatePath optionally persists the merged structured compaction
 	// state as JSON (usually <cwd>/.niuniu-agent/session-state.json) so exact
 	// details survive on disk and the agent can Read them back after a
@@ -153,14 +162,15 @@ func (s *Session) PromptBlocks(ctx context.Context, userBlocks []model.Block, op
 			if keep <= 0 {
 				keep = DefaultKeepRecent
 			}
-			s.compact(ctx, keep, opts.CompactStatePath)
+			s.compact(ctx, keep, opts.CompactStatePath, opts.HistoryDir)
 			lastCtx = 0 // compacted; don't re-trigger on the same overshoot
 		}
 		req := model.Request{
-			System:   s.system,
-			Messages: s.messages,
-			Tools:    s.reg.Defs(),
-			Thinking: opts.Thinking,
+			System:         s.system,
+			Messages:       s.messages,
+			Tools:          s.reg.Defs(),
+			Thinking:       opts.Thinking,
+			ContextEditing: opts.ContextEditing,
 		}
 		var textDeltas int
 		if opts.Stream {

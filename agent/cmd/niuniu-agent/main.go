@@ -54,6 +54,8 @@ const subagentPreamble = "\n\nYou are running as a subagent dispatched by a pare
 // the parent context.
 func sessionRegistry(cwd string, m model.Model, perms perm.Checker, parentContextOf func() string) (*tools.Registry, io.Closer) {
 	reg := newRegistry()
+	// Archived-history retrieval: compact 归档的精确历史可被检索回注。
+	reg.Register(tools.HistorySearch{Dir: filepath.Join(cwd, ".niuniu-agent", "history")})
 	mgr := mcp.Start(cwd)
 	mgr.RegisterInto(reg)
 	skillList := skills.Scan(cwd)
@@ -252,6 +254,8 @@ Configuration (env):
 			Perms:            perm.NewPolicy(*yes),
 			Stream:           streamOn,
 			CompactStatePath: filepath.Join(cwd, ".niuniu-agent", "session-state.json"),
+			ContextEditing:   os.Getenv("NIUNIU_AGENT_CONTEXT_EDITING") == "1",
+			HistoryDir:       filepath.Join(cwd, ".niuniu-agent", "history"),
 			OnEvent: func(e loop.Event) {
 				if streamOn && e.Delta && firstToken.IsZero() && (e.Kind == loop.EventText || e.Kind == loop.EventThinking) {
 					firstToken = time.Now()

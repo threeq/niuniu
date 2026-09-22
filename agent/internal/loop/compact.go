@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/niuniu-dev/niuniu/agent/internal/model"
+	"github.com/niuniu-dev/niuniu/agent/internal/tools"
 )
 
 // Compaction defaults. The threshold compares against the context size the
@@ -83,7 +84,7 @@ func compactCut(msgs []model.Message, keep int) int {
 // Options.CompactStatePath (the message carries a pointer so the agent can
 // Read exact details back). On parse failure the raw text is used as a plain
 // summary (legacy behavior).
-func (s *Session) compact(ctx context.Context, keep int, statePath string) {
+func (s *Session) compact(ctx context.Context, keep int, statePath, historyDir string) {
 	cut := compactCut(s.messages, keep)
 	if cut <= 0 {
 		return
@@ -101,6 +102,13 @@ func (s *Session) compact(ctx context.Context, keep int, statePath string) {
 		if perr := persistState(statePath, merged); perr == nil && statePath != "" {
 			body += "\n\nFull structured state persisted to " + statePath +
 				" — Read it for exact details (decisions, files, next steps)."
+		}
+	}
+	// Archive the evicted messages verbatim so the HistorySearch tool can
+	// pull exact details back on demand. Best-effort: never blocks the turn.
+	if historyDir != "" {
+		if aerr := tools.SaveHistoryArchive(historyDir, early); aerr == nil {
+			body += "\n\n(The full messages removed above are archived and searchable — call the HistorySearch tool with keywords to retrieve exact earlier details.)"
 		}
 	}
 	kept := make([]model.Message, 0, len(s.messages)-cut+1)

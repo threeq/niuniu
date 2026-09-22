@@ -133,6 +133,12 @@ type Request struct {
 	// identical to the non-stream path. Only takes effect when the adapter
 	// config enables streaming (Config.Stream).
 	Stream func(StreamDelta)
+	// ContextEditing opts into the provider's server-side context management
+	// (Anthropic clear_tool_uses): the provider automatically clears stale
+	// tool results, with cache-friendly invalidation. Only honored by
+	// adapters that support it (anthropic); the openai family ignores it and
+	// relies on the local eviction pass instead.
+	ContextEditing bool
 }
 
 // Usage is token accounting for one request.
