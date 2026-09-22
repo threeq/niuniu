@@ -17,6 +17,7 @@ import (
 
 	"github.com/niuniu-dev/niuniu/agent/internal/acp"
 	"github.com/niuniu-dev/niuniu/agent/internal/loop"
+	"github.com/niuniu-dev/niuniu/agent/internal/lsp"
 	"github.com/niuniu-dev/niuniu/agent/internal/mcp"
 	"github.com/niuniu-dev/niuniu/agent/internal/memory"
 	"github.com/niuniu-dev/niuniu/agent/internal/model"
@@ -56,6 +57,13 @@ func sessionRegistry(cwd string, m model.Model, perms perm.Checker, parentContex
 	reg := newRegistry()
 	// Archived-history retrieval: compact 归档的精确历史可被检索回注。
 	reg.Register(tools.HistorySearch{Dir: filepath.Join(cwd, ".niuniu-agent", "history")})
+	// LSP navigation: .niuniu-agent/lsp.json 声明的语言服务器按需拉起。
+	closers := []io.Closer{}
+	if cfgs := lsp.LoadConfig(cwd); len(cfgs) > 0 {
+		lspMgr := lsp.NewManager(cfgs, cwd)
+		reg.Register(tools.LSP{Mgr: lspMgr})
+		closers = append(closers, closerFunc(lspMgr.Shutdown))
+	}
 	mgr := mcp.Start(cwd)
 	mgr.RegisterInto(reg)
 	skillList := skills.Scan(cwd)
@@ -98,7 +106,25 @@ func sessionRegistry(cwd string, m model.Model, perms perm.Checker, parentContex
 	agentTool := loop.NewAgentTool(factory, 0)
 	reg.Register(agentTool)
 	reg.Register(loop.NewAgentResultTool(factory))
-	return reg, mgr
+	closers = append(closers, mgr)
+	if len(closers) == 1 {
+		return reg, closers[0]
+	}
+	return reg, multiCloser(closers)
+}
+
+// closerFunc adapts a func to io.Closer.
+type closerFunc func()
+
+func (f closerFunc) Close() error { f(); return nil }
+
+type multiCloser []io.Closer
+
+func (m multiCloser) Close() error {
+	for _, c := range m {
+		_ = c.Close()
+	}
+	return nil
 }
 
 func main() {

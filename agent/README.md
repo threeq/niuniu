@@ -10,7 +10,7 @@ niuniu 的自研编码 agent（issue #708 / #709）。可行性分析与总体�
 - ✅ `-p` headless 单轮（`-p -` 读 stdin；`-y` 放行变更类工具）
 - ✅ `acp` server：stdio JSON-RPC（initialize / session/new / session/prompt / session/update / session/request_permission / session/cancel），session cwd 经 chdir 生效
 - ✅ 双协议模型层：Anthropic `/v1/messages` 兼容（含 Bearer 网关）、OpenAI `/chat/completions` 兼容
-- ✅ 工具全集：`LS`、`Read`、`Grep`、`Glob`、`Write`、`Edit`、`Bash`、`TodoWrite` / `HistorySearch`（检索被压缩归档的历史）（零依赖、跨平台）
+- ✅ 工具全集：`LS`、`Read`、`Grep`、`Glob`、`Write`、`Edit`、`Bash`、`TodoWrite` / `HistorySearch`（检索被压缩归档的历史） / `Monitor`（后台任务事件同步）/ `LSP`（definition/references/hover/symbols 导航）（零依赖、跨平台）
 - ✅ 权限层：读/写分类；headless 默认拒绝变更类，`-y` 放行；ACP 路径走 request_permission 审批
 - ✅ niuniu 引擎接入：`cli_type=niuniu`（agentbackend/niuniuagent 后端 + proxy 调度），真实二进制端到端验收通过
 - ✅ P2 usage 链路：loop 逐轮聚合（含 cache 读/写分解）→ ACP `session/prompt` result 携带 → 服务端 `EventDone` tokens 落库；headless 结束时 stderr 打印 `[usage]` 汇总
@@ -124,6 +124,22 @@ defaultProfile** 时标准 env 反压档案字段（env 作为临时覆盖手段
 - `niuniu-agent eval -auto-explore` —— 重复失败模式自动触发 RSI explore
 - `niuniu-agent memory-consolidate` —— 记忆整理
 - `niuniu-agent explore -gated` —— 全飞轮（Measure→Evolve→三道安全闸门→Land→Control）
+
+### LSP 语言服务器（可选）
+
+`.niuniu-agent/lsp.json` 声明语言服务器后，`LSP` 工具提供 definition/
+references/hover/symbols 精准导航（按文件扩展名路由，server 进程懒启动、
+会话内复用）：
+
+```json
+[
+  { "name": "go",  "command": "gopls", "args": ["serve"], "extensions": [".go"] },
+  { "name": "ts",  "command": "typescript-language-server", "args": ["--stdio"],
+    "extensions": [".ts", ".tsx", ".js"] },
+  { "name": "py",  "command": "pyright-langserver", "args": ["--stdio"],
+    "extensions": [".py"] }
+]
+```
 
 新供应商家族：实现 `model.Model` 接口并 `model.RegisterProvider(name, factory)`
 注册，profile 的 `provider` 字段直接引用注册名。
