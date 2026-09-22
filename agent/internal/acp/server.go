@@ -8,6 +8,7 @@ import (
 	"io"
 	"log/slog"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -275,8 +276,9 @@ func (s *Server) runPrompt(parent context.Context, st *sessionState, p sessionPr
 
 	run := &promptRun{srv: s, sess: st}
 	res, err := st.conv.PromptBlocks(ctx, userBlocks, loop.Options{
-		OnEvent: run.onEvent,
-		Perms:   run,
+		OnEvent:          run.onEvent,
+		Perms:            run,
+		CompactStatePath: filepath.Join(st.cwd, ".niuniu-agent", "session-state.json"),
 		// SSE streaming: session/update chunks become incremental
 		// (agent_message_chunk / agent_thought_chunk per delta).
 		Stream: model.ParseStreamFlag(os.Getenv("NIUNIU_AGENT_STREAM")),

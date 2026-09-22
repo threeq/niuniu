@@ -70,6 +70,11 @@ type Options struct {
 	// context size (Usage.ContextTokens) exceeds it. 0 → DefaultCompact-
 	// Threshold; negative → compaction disabled.
 	CompactThresholdTokens int
+	// CompactStatePath optionally persists the merged structured compaction
+	// state as JSON (usually <cwd>/.niuniu-agent/session-state.json) so exact
+	// details survive on disk and the agent can Read them back after a
+	// compaction. Empty → state lives only in the context message.
+	CompactStatePath string
 	// KeepRecentMessages is how many trailing messages auto-compact keeps
 	// verbatim. 0 → DefaultKeepRecent.
 	KeepRecentMessages int
@@ -98,6 +103,9 @@ type Session struct {
 	reg      *tools.Registry
 	system   string
 	messages []model.Message
+	// state accumulates the structured compaction state across chained
+	// auto-compacts (decisions/files merge, open items refresh).
+	state *CompactState
 }
 
 // NewSession starts a conversation with the given model, tools, and system
@@ -145,7 +153,7 @@ func (s *Session) PromptBlocks(ctx context.Context, userBlocks []model.Block, op
 			if keep <= 0 {
 				keep = DefaultKeepRecent
 			}
-			s.compact(ctx, keep)
+			s.compact(ctx, keep, opts.CompactStatePath)
 			lastCtx = 0 // compacted; don't re-trigger on the same overshoot
 		}
 		req := model.Request{

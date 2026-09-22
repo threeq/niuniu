@@ -248,9 +248,10 @@ Configuration (env):
 	// optional reflection pass.
 	res, err := sess.Prompt(ctx, *promptText,
 		loop.Options{
-			MaxTurns: *maxTurns,
-			Perms:    perm.NewPolicy(*yes),
-			Stream:   streamOn,
+			MaxTurns:         *maxTurns,
+			Perms:            perm.NewPolicy(*yes),
+			Stream:           streamOn,
+			CompactStatePath: filepath.Join(cwd, ".niuniu-agent", "session-state.json"),
 			OnEvent: func(e loop.Event) {
 				if streamOn && e.Delta && firstToken.IsZero() && (e.Kind == loop.EventText || e.Kind == loop.EventThinking) {
 					firstToken = time.Now()
