@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"strings"
 	"time"
@@ -28,6 +27,9 @@ type openaiModel struct {
 
 // NewOpenAI returns a Model speaking the OpenAI /chat/completions protocol.
 func NewOpenAI(cfg Config) Model {
+	if cfg.Retry.Max == 0 && cfg.Retry.Base == 0 {
+		cfg.Retry = DefaultRetryPolicy()
+	}
 	return &openaiModel{cfg: cfg, hc: &http.Client{Timeout: 5 * time.Minute}}
 }
 
@@ -121,20 +123,17 @@ func (o *openaiModel) Complete(ctx context.Context, req Request) (*Response, err
 	if err != nil {
 		return nil, fmt.Errorf("openai: encode request: %w", err)
 	}
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, o.cfg.BaseURL+"/chat/completions", bytes.NewReader(payload))
-	if err != nil {
-		return nil, fmt.Errorf("openai: build request: %w", err)
-	}
-	httpReq.Header.Set("content-type", "application/json")
-	httpReq.Header.Set("authorization", "Bearer "+o.cfg.APIKey)
-	httpResp, err := o.hc.Do(httpReq)
+	httpResp, body, err := doWithRetry(ctx, o.hc, o.cfg.Retry, o.cfg.BaseURL+"/chat/completions", func() (*http.Request, error) {
+		req, err := http.NewRequestWithContext(ctx, http.MethodPost, o.cfg.BaseURL+"/chat/completions", bytes.NewReader(payload))
+		if err != nil {
+			return nil, err
+		}
+		req.Header.Set("content-type", "application/json")
+		req.Header.Set("authorization", "Bearer "+o.cfg.APIKey)
+		return req, nil
+	})
 	if err != nil {
 		return nil, fmt.Errorf("openai: request: %w", err)
-	}
-	defer httpResp.Body.Close()
-	body, err := io.ReadAll(io.LimitReader(httpResp.Body, 10<<20))
-	if err != nil {
-		return nil, fmt.Errorf("openai: read response: %w", err)
 	}
 	if httpResp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("openai: HTTP %d: %s", httpResp.StatusCode, truncate(string(body), 500))

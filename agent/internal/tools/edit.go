@@ -14,6 +14,12 @@ import (
 // Edit does exact-string replacement in a file. Occurrences must be unique
 // unless replace_all is set — ambiguity is an error that tells the model how
 // to fix its call (include more surrounding context), not a silent guess.
+//
+// Reliability fallback: when exact matching fails, a normalized match
+// (per-line trailing-whitespace strip + CRLF→LF) is attempted — the two most
+// common model mistakes. Normalization never rewrites the file's own bytes:
+// only the matched span is replaced, everything else stays byte-identical.
+// A total miss returns the closest file line as a self-correction hint.
 type Edit struct{}
 
 // editInput.
@@ -57,22 +63,91 @@ func (Edit) Execute(_ context.Context, input json.RawMessage) (string, error) {
 		return "", err
 	}
 	content := string(raw)
+
 	count := strings.Count(content, in.OldString)
-	switch {
-	case count == 0:
-		return "", fmt.Errorf("old_string not found in %s — quote the exact text including whitespace and indentation", in.Path)
-	case count > 1 && !in.ReplaceAll:
+	if count == 0 {
+		span, ok := locateNormalized(content, in.OldString)
+		if !ok {
+			return "", fmt.Errorf("old_string not found in %s. Closest line in file:\n  %s\n— quote the exact text including whitespace and indentation", in.Path, closestLine(content, in.OldString))
+		}
+		updated := content[:span[0]] + in.NewString + content[span[1]:]
+		if err := os.WriteFile(in.Path, []byte(updated), 0o644); err != nil {
+			return "", err
+		}
+		return fmt.Sprintf("edited %s: 1 replacement (normalized whitespace match)", in.Path), nil
+	}
+	if count > 1 && !in.ReplaceAll {
 		return "", fmt.Errorf("old_string appears %d times in %s — add surrounding context to make it unique, or set replace_all", count, in.Path)
 	}
 	updated := strings.ReplaceAll(content, in.OldString, in.NewString)
 	if err := os.WriteFile(in.Path, []byte(updated), 0o644); err != nil {
 		return "", err
 	}
-	replaced := count
-	if in.ReplaceAll {
-		replaced = count
-	} else {
-		replaced = 1
+	return fmt.Sprintf("edited %s: %d replacement(s)", in.Path, count), nil
+}
+
+// locateNormalized finds old in content under per-line trailing-whitespace
+// normalization (and CRLF→LF), returning the byte span IN THE ORIGINAL
+// content corresponding to the match. Ambiguity under normalization is
+// refused (same policy as exact matching).
+func locateNormalized(content, old string) ([2]int, bool) {
+	idx := make([]int, 0, len(content)+1) // normalized index → original index
+	var norm strings.Builder
+	for i := 0; i < len(content); i++ {
+		if content[i] == '\r' {
+			continue
+		}
+		norm.WriteByte(content[i])
+		idx = append(idx, i)
 	}
-	return fmt.Sprintf("edited %s: %d replacement(s)", in.Path, replaced), nil
+	idx = append(idx, len(content))
+
+	nOld := normalizeLines(old)
+	if nOld == "" {
+		return [2]int{}, false
+	}
+	nContent := norm.String()
+	first := strings.Index(nContent, nOld)
+	if first < 0 || strings.Count(nContent, nOld) > 1 {
+		return [2]int{}, false
+	}
+	return [2]int{idx[first], idx[first+len(nOld)]}, true
+}
+
+// normalizeLines strips trailing whitespace per line and unifies CRLF so
+// "text\r\n" and "text  \n" both compare equal to "text\n".
+func normalizeLines(s string) string {
+	s = strings.ReplaceAll(s, "\r\n", "\n")
+	lines := strings.Split(s, "\n")
+	for i, ln := range lines {
+		lines[i] = strings.TrimRight(ln, " \t")
+	}
+	return strings.Join(lines, "\n")
+}
+
+// closestLine returns the file line most similar to the first line of the
+// needle, by token overlap — a self-correction hint, not a fuzzy match.
+func closestLine(content, needle string) string {
+	first := needle
+	if i := strings.IndexByte(needle, '\n'); i >= 0 {
+		first = needle[:i]
+	}
+	want := strings.Fields(strings.ToLower(first))
+	best, bestScore := "(no similar line found)", 0
+	for _, ln := range strings.Split(content, "\n") {
+		have := strings.Fields(strings.ToLower(ln))
+		score := 0
+		for _, w := range want {
+			for _, h := range have {
+				if w == h {
+					score++
+					break
+				}
+			}
+		}
+		if score > bestScore {
+			best, bestScore = strings.TrimSpace(ln), score
+		}
+	}
+	return best
 }

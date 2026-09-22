@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"time"
 )
@@ -23,6 +22,9 @@ type anthropicModel struct {
 
 // NewAnthropic returns a Model speaking the Anthropic /v1/messages protocol.
 func NewAnthropic(cfg Config) Model {
+	if cfg.Retry.Max == 0 && cfg.Retry.Base == 0 {
+		cfg.Retry = DefaultRetryPolicy() // production default; tests set their own
+	}
 	return &anthropicModel{cfg: cfg, hc: &http.Client{Timeout: 5 * time.Minute}}
 }
 
@@ -209,25 +211,27 @@ func (a *anthropicModel) Complete(ctx context.Context, req Request) (*Response, 
 	if err != nil {
 		return nil, fmt.Errorf("anthropic: encode request: %w", err)
 	}
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, a.cfg.BaseURL+"/v1/messages", bytes.NewReader(payload))
-	if err != nil {
-		return nil, fmt.Errorf("anthropic: build request: %w", err)
+	buildReq := func() (*http.Request, error) {
+		// Fresh body reader per attempt: the retry layer may replay the
+		// request after a 429/5xx.
+		return http.NewRequestWithContext(ctx, http.MethodPost, a.cfg.BaseURL+"/v1/messages", bytes.NewReader(payload))
 	}
-	httpReq.Header.Set("content-type", "application/json")
-	httpReq.Header.Set("anthropic-version", anthropicVersion)
-	if a.cfg.AuthToken != "" {
-		httpReq.Header.Set("authorization", "Bearer "+a.cfg.AuthToken)
-	} else {
-		httpReq.Header.Set("x-api-key", a.cfg.APIKey)
-	}
-	httpResp, err := a.hc.Do(httpReq)
+	httpResp, body, err := doWithRetry(ctx, a.hc, a.cfg.Retry, a.cfg.BaseURL+"/v1/messages", func() (*http.Request, error) {
+		req, err := buildReq()
+		if err != nil {
+			return nil, err
+		}
+		req.Header.Set("content-type", "application/json")
+		req.Header.Set("anthropic-version", anthropicVersion)
+		if a.cfg.AuthToken != "" {
+			req.Header.Set("authorization", "Bearer "+a.cfg.AuthToken)
+		} else {
+			req.Header.Set("x-api-key", a.cfg.APIKey)
+		}
+		return req, nil
+	})
 	if err != nil {
 		return nil, fmt.Errorf("anthropic: request: %w", err)
-	}
-	defer httpResp.Body.Close()
-	body, err := io.ReadAll(io.LimitReader(httpResp.Body, 10<<20))
-	if err != nil {
-		return nil, fmt.Errorf("anthropic: read response: %w", err)
 	}
 	if httpResp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("anthropic: HTTP %d: %s", httpResp.StatusCode, truncate(string(body), 500))

@@ -38,6 +38,9 @@ type Config struct {
 	Thinking ThinkingConfig
 	// Stream enables SSE streaming (NIUNIU_AGENT_STREAM, default on).
 	Stream bool
+	// Retry bounds 429/5xx/network retries (zero value → DefaultRetryPolicy;
+	// set Max explicitly to disable).
+	Retry RetryPolicy
 }
 
 // LoadConfig builds a Config from environment variables, applying flag
