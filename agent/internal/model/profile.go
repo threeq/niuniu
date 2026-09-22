@@ -128,6 +128,12 @@ type Flags struct {
 func Resolve(profileData []byte, globalData []byte, flags Flags, cwd string) (Config, error) {
 	// —— profile 选择：flag > env > project.default > global.default ——
 	profileName := firstNonEmpty(flags.Profile, os.Getenv("NIUNIU_AGENT_PROFILE"))
+	// Explicit selection (-profile / NIUNIU_AGENT_PROFILE) is a strong
+	// intent: the profile's own fields must take effect wholesale, or a
+	// same-name standard env (e.g. a workspace-injected ANTHROPIC_* pointing
+	// at another gateway) silently hijacks the chosen profile. Implicit
+	// defaultProfile keeps the softer "env overrides config" semantics.
+	explicitProfile := profileName != ""
 	var project, global *ProfileFile
 	if len(profileData) > 0 {
 		pf, err := ParseProfileFile(profileData)
@@ -207,12 +213,24 @@ func Resolve(profileData []byte, globalData []byte, flags Flags, cwd string) (Co
 	authToken := firstNonEmpty(flags.AuthToken, derefEnv(prof.AuthTokenEnv), os.Getenv(credPrimary))
 	apiKey := firstNonEmpty(flags.APIKey, derefEnv(prof.APIKeyEnv), os.Getenv(credSecondary))
 
+	// 字段覆盖序：flag 最高。显式 profile 时 profile 字段压过标准 env
+	// （env 退为兜底）；隐式 defaultProfile 时标准 env 反压 profile
+	// 字段（env 作为临时覆盖手段，P7a 语义）。
+	baseURL, modelField := os.Getenv(baseEnv), os.Getenv(modelEnv)
+	if explicitProfile {
+		baseURL = firstNonEmpty(prof.BaseURL, baseURL)
+		modelField = firstNonEmpty(prof.Model, modelField)
+	} else {
+		baseURL = firstNonEmpty(baseURL, prof.BaseURL)
+		modelField = firstNonEmpty(modelField, prof.Model)
+	}
+
 	cfg := Config{
 		Provider:  provider,
-		BaseURL:   firstNonEmpty(flags.BaseURL, os.Getenv(baseEnv), prof.BaseURL, defaultBaseFor(provider)),
+		BaseURL:   firstNonEmpty(flags.BaseURL, baseURL, defaultBaseFor(provider)),
 		APIKey:    apiKey,
 		AuthToken: authToken,
-		Model:     firstNonEmpty(flags.Model, os.Getenv(modelEnv), prof.Model),
+		Model:     firstNonEmpty(flags.Model, modelField),
 		Thinking:  parseThinking(firstNonEmpty(os.Getenv("NIUNIU_AGENT_THINKING"), prof.Thinking)),
 		Stream:    ParseStreamFlag(os.Getenv("NIUNIU_AGENT_STREAM")),
 	}

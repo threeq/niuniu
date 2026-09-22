@@ -77,10 +77,36 @@ go run ./cmd/niuniu-agent -p "列出当前目录下有哪些文件"
       "baseURL": "http://localhost:11434/v1",
       "apiKeyEnv": "LOCAL_OPENAI_KEY",
       "model": "qwen2.5-coder:7b"
+    },
+    "claude": {
+      "provider": "anthropic",
+      "baseURL": "https://api.anthropic.com",
+      "apiKeyEnv": "ANTHROPIC_API_KEY_CLAUDE",
+      "model": "claude-sonnet-4-5",
+      "thinking": "medium"
     }
   }
 }
 ```
+
+**对接 Claude 官方 API**：上面的 `claude` 档案即为完整示例——`provider:
+"anthropic"` 走 `/v1/messages` 协议（默认 base 即 `https://api.anthropic.com`，
+可省略 baseURL），请求带 `x-api-key` + `anthropic-version` 头；用
+`authTokenEnv` 代替 `apiKeyEnv` 则走 `Authorization: Bearer`（代理网关用）。
+使用：
+
+```bash
+export ANTHROPIC_API_KEY_CLAUDE=sk-ant-...
+niuniu-agent -profile claude -p "..."          # 显式选择（profile 字段整体生效）
+niuniu-agent -p "..."                          # 或设 defaultProfile: "claude" 隐式启用
+```
+
+注意：**显式 `-profile` 时该档案的 baseURL/model/凭据整体生效**，不会被
+环境里同名的 `ANTHROPIC_*`（如 workspace 注入指向其他网关的变量）抢走；
+隐式 `defaultProfile` 时标准 `ANTHROPIC_*` env 仍可临时覆盖档案字段。
+Claude 模型的 extended thinking 由 `thinking` 档位透传（budget_tokens），
+原生 context editing（`NIUNIU_AGENT_CONTEXT_EDITING=1`）在官方 API 上
+直接可用。
 
 ⚠️ **密钥安全**：配置文件会被提交进仓库——**永不写入明文密钥**。凭据只存
 环境变量，配置里用 `apiKeyEnv`/`authTokenEnv` 引用 env 名；加载器遇到
@@ -88,7 +114,10 @@ go run ./cmd/niuniu-agent -p "列出当前目录下有哪些文件"
 
 优先级（高→低）：CLI flag（`-profile`/显式 `-provider`/`-model`/`-base-url`）>
 env（workspace 注入的 `ANTHROPIC_*/OPENAI_*` 与 `NIUNIU_AGENT_PROFILE`）>
-项目级 config > 用户 env > 全局 config > 内置默认。
+项目级 config > 用户 env > 全局 config > 内置默认。细化语义：**显式选择
+profile**（`-profile` / `NIUNIU_AGENT_PROFILE`）时该档案的 baseURL/model/
+凭据 env 整体生效（标准 `ANTHROPIC_*` 仅作未声明字段的兜底）；**隐式
+defaultProfile** 时标准 env 反压档案字段（env 作为临时覆盖手段）。
 
 子命令：
 - `niuniu-agent profiles` —— 列出 profiles 与当前生效者（凭据只显示 env 名与 set/unset）

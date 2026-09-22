@@ -217,3 +217,48 @@ func TestProfileDefaultsToAnthropicBaseWhenUnset(t *testing.T) {
 		t.Fatalf("base = %q, want anthropic default", cfg.BaseURL)
 	}
 }
+
+// 显式选择 profile（-profile / NIUNIU_AGENT_PROFILE）时，profile 的
+// baseURL/model/凭据整体生效——否则同名标准 env（如 workspace 注入的
+// ANTHROPIC_*）会把显式选中的 profile 抢回别的网关，profile 形同虚设。
+// flag 仍最高；隐式 defaultProfile 时 env 依旧优先（临时覆盖语义）。
+func TestResolveExplicitProfileBeatsStandardEnv(t *testing.T) {
+	clearProfileEnv(t)
+	t.Setenv("GLM_TOKEN", "tok")
+	// 标准 env 全部指向「别的」端点与模型。
+	t.Setenv("ANTHROPIC_MODEL", "env-model")
+	t.Setenv("ANTHROPIC_BASE_URL", "https://env.example/api")
+	t.Setenv("ANTHROPIC_AUTH_TOKEN", "env-tok")
+	t.Setenv("ANTHROPIC_API_KEY", "env-key")
+
+	cfg, err := Resolve([]byte(glmProfileJSON), nil, Flags{Profile: "glm"}, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.BaseURL != "https://open.bigmodel.cn/api/anthropic" || cfg.Model != "GLM-5.3-Flash" {
+		t.Fatalf("explicit profile must beat standard env: baseURL=%q model=%q", cfg.BaseURL, cfg.Model)
+	}
+	if cfg.AuthToken != "tok" {
+		t.Fatalf("credential chain broken: token=%q", cfg.AuthToken)
+	}
+	// 未声明的 APIKeyEnv 允许标准 env 兜底混入——运行时 Bearer 优先
+	//（anthropic_test 已钉住 header 二选一），无实际危害。
+
+	// flag 仍最高。
+	cfg2, err := Resolve([]byte(glmProfileJSON), nil, Flags{Profile: "glm", Model: "flag-model"}, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg2.Model != "flag-model" {
+		t.Fatalf("flag must stay highest: %q", cfg2.Model)
+	}
+
+	// 隐式 defaultProfile：env 依旧优先（既有语义不回归）。
+	cfg3, err := Resolve([]byte(glmProfileJSON), nil, Flags{}, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg3.Model != "env-model" || cfg3.BaseURL != "https://env.example/api" {
+		t.Fatalf("implicit defaultProfile keeps env override: %+v", cfg3)
+	}
+}

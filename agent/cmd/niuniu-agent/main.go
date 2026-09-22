@@ -127,12 +127,14 @@ func main() {
 		configPath := fs.String("config", "", "profile config path override")
 		provider := fs.String("provider", "", "model provider override")
 		modelName := fs.String("model", "", "model name override")
+		profile := fs.String("profile", "", "profile to resolve as active")
 		if err := fs.Parse(os.Args[2:]); err != nil {
 			fail(err)
 		}
 		cwd, _ := os.Getwd()
 		cfg, err := model.ResolveFromCwd(cwd, *configPath, model.Flags{
-			Profile: os.Getenv("NIUNIU_AGENT_PROFILE"), Provider: *provider, Model: *modelName,
+			Profile:  firstNonEmptyStr(*profile, os.Getenv("NIUNIU_AGENT_PROFILE")),
+			Provider: *provider, Model: *modelName,
 		})
 		if err != nil {
 			// 列表仍可渲染——active 未知时省略 active 行。
@@ -396,4 +398,13 @@ func buildModel(provider, modelName string) (model.Model, error) {
 func fail(err error) {
 	fmt.Fprintf(os.Stderr, "niuniu-agent: %v\n", err)
 	os.Exit(1)
+}
+
+func firstNonEmptyStr(vals ...string) string {
+	for _, v := range vals {
+		if v != "" {
+			return v
+		}
+	}
+	return ""
 }
