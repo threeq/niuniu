@@ -157,7 +157,14 @@ func (s *Session) PromptBlocks(ctx context.Context, userBlocks []model.Block, op
 		if opts.EvictToolResults > 0 {
 			s.evictOldToolResults(opts.EvictToolResults, opts.EvictKeepBytes)
 		}
-		if turn > 1 && opts.CompactThresholdTokens >= 0 && lastCtx > opts.CompactThresholdTokens {
+		// Provider-reported context size drives the trigger; when the
+		// gateway doesn't report (lastCtx stays 0), fall back to the local
+		// estimator so compaction still fires before hard failure.
+		ctxEstimate := lastCtx
+		if ctxEstimate == 0 {
+			ctxEstimate = EstimateMessagesTokens(s.system, s.messages)
+		}
+		if turn > 1 && opts.CompactThresholdTokens >= 0 && ctxEstimate > opts.CompactThresholdTokens {
 			keep := opts.KeepRecentMessages
 			if keep <= 0 {
 				keep = DefaultKeepRecent
@@ -251,7 +258,7 @@ func (s *Session) execToolUse(ctx context.Context, use model.Block, opts Options
 	}
 	if decision == perm.Deny {
 		emit(Event{Kind: EventToolEnd, ToolName: use.Name, ToolID: use.ID, ToolOutput: perm.DenyMessage, IsError: true})
-		return model.Block{Type: model.BlockToolResult, ToolUseID: use.ID, Text: perm.DenyMessage, IsError: true}
+		return model.Block{Type: model.BlockToolResult, ToolUseID: use.ID, Text: wrapToolResult(perm.DenyMessage, reminderDenied), IsError: true}
 	}
 	var text string
 	var images []model.Block
@@ -261,7 +268,7 @@ func (s *Session) execToolUse(ctx context.Context, use model.Block, opts Options
 			text, images, err = im.ExecuteWithImages(ctx, use.Input)
 			if err != nil {
 				emit(Event{Kind: EventToolEnd, ToolName: use.Name, ToolID: use.ID, ToolOutput: err.Error(), IsError: true})
-				return model.Block{Type: model.BlockToolResult, ToolUseID: use.ID, Text: "ERROR: " + err.Error(), IsError: true}
+				return model.Block{Type: model.BlockToolResult, ToolUseID: use.ID, Text: wrapToolResult("ERROR: "+err.Error(), reminderError), IsError: true}
 			}
 		}
 	}
@@ -269,7 +276,7 @@ func (s *Session) execToolUse(ctx context.Context, use model.Block, opts Options
 		out, err := s.reg.Execute(ctx, use.Name, use.Input)
 		if err != nil {
 			emit(Event{Kind: EventToolEnd, ToolName: use.Name, ToolID: use.ID, ToolOutput: err.Error(), IsError: true})
-			return model.Block{Type: model.BlockToolResult, ToolUseID: use.ID, Text: "ERROR: " + err.Error(), IsError: true}
+			return model.Block{Type: model.BlockToolResult, ToolUseID: use.ID, Text: wrapToolResult("ERROR: "+err.Error(), reminderError), IsError: true}
 		}
 		text = out
 	}
