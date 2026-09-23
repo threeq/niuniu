@@ -33,7 +33,7 @@ func (q *Queries) DeleteWorkspaceSessionStates(ctx context.Context, workspaceID 
 }
 
 const getSessionState = `-- name: GetSessionState :one
-SELECT id, workspace_id, session_id, repo_states, last_user_msg, snapshot_at FROM session_state
+SELECT id, workspace_id, session_id, repo_states, last_user_msg, last_context_tokens, snapshot_at FROM session_state
 WHERE workspace_id = ? AND session_id = ?
 `
 
@@ -51,9 +51,32 @@ func (q *Queries) GetSessionState(ctx context.Context, arg GetSessionStateParams
 		&i.SessionID,
 		&i.RepoStates,
 		&i.LastUserMsg,
+		&i.LastContextTokens,
 		&i.SnapshotAt,
 	)
 	return i, err
+}
+
+const upsertSessionLastContextTokens = `-- name: UpsertSessionLastContextTokens :exec
+INSERT INTO session_state (workspace_id, session_id, last_context_tokens, snapshot_at)
+VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+ON CONFLICT(workspace_id, session_id) DO UPDATE SET
+    last_context_tokens = excluded.last_context_tokens,
+    snapshot_at   = CURRENT_TIMESTAMP
+`
+
+type UpsertSessionLastContextTokensParams struct {
+	WorkspaceID       int64  `json:"workspace_id"`
+	SessionID         string `json:"session_id"`
+	LastContextTokens int64  `json:"last_context_tokens"`
+}
+
+// Persist the session's last observed context-window occupancy (tokens) so
+// the auto-compact heuristic survives agent/server restarts on long
+// --resume conversations. Called once per completed turn.
+func (q *Queries) UpsertSessionLastContextTokens(ctx context.Context, arg UpsertSessionLastContextTokensParams) error {
+	_, err := q.db.ExecContext(ctx, upsertSessionLastContextTokens, arg.WorkspaceID, arg.SessionID, arg.LastContextTokens)
+	return err
 }
 
 const upsertSessionState = `-- name: UpsertSessionState :exec
