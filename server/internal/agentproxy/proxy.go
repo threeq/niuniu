@@ -2201,6 +2201,11 @@ func (s *WorkspaceSession) ensureProcess(ctx context.Context, workDir string) er
 	sessionId := s.sessionId
 	s.mu.Unlock()
 
+	// Auto-compact: restore the persisted context occupancy for this resumed
+	// session, so the first boundary check after a restart sees the real
+	// usage of a long --resume conversation instead of 0.
+	s.seedLastContextTokens(ctx)
+
 	// Read workspace env vars for CLI flag overrides
 	agentCommand := s.cfg.Agent.ClaudeCode.Command
 	agentExtraArgs := s.cfg.Agent.ClaudeCode.Args
@@ -3133,6 +3138,7 @@ func (s *WorkspaceSession) handleEvent(ctx context.Context, ev ParsedEvent, msgI
 		s.lastTurnResult = ev.Result
 		ch := s.turnDone
 		s.mu.Unlock()
+		s.onTurnResult(ctx, ev.IsError)
 		s.emitBgTaskNotify()
 		if ch != nil {
 			select {
