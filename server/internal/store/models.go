@@ -906,12 +906,13 @@ type ServerSetting struct {
 }
 
 type SessionState struct {
-	ID          int64     `json:"id"`
-	WorkspaceID int64     `json:"workspace_id"`
-	SessionID   string    `json:"session_id"`
-	RepoStates  string    `json:"repo_states"`
-	LastUserMsg string    `json:"last_user_msg"`
-	SnapshotAt  time.Time `json:"snapshot_at"`
+	ID                int64     `json:"id"`
+	WorkspaceID       int64     `json:"workspace_id"`
+	SessionID         string    `json:"session_id"`
+	RepoStates        string    `json:"repo_states"`
+	LastUserMsg       string    `json:"last_user_msg"`
+	LastContextTokens int64     `json:"last_context_tokens"`
+	SnapshotAt        time.Time `json:"snapshot_at"`
 }
 
 type User struct {

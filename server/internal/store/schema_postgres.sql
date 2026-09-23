@@ -528,6 +528,8 @@ CREATE TABLE IF NOT EXISTS session_state (
     session_id    TEXT NOT NULL,
     repo_states   TEXT NOT NULL DEFAULT '{}',  -- JSON: {worktree_path: {commit_sha, dirty_hash, dirty_files}}
     last_user_msg TEXT NOT NULL DEFAULT '',    -- summary for resume banner
+    -- See schema.sql session_state.last_context_tokens for meaning.
+    last_context_tokens INTEGER NOT NULL DEFAULT 0,
     snapshot_at   TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     UNIQUE(workspace_id, session_id)
 );

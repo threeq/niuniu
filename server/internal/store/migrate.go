@@ -374,6 +374,11 @@ func Migrate(db *sql.DB) {
 	// spawned with (spec 2026-09-21 provider group re-resolve). '' = none.
 	addColumnIfNotExists(db, "workspaces", "active_env_provider_name", "TEXT NOT NULL DEFAULT ''")
 
+	// Per-session record of the last context-window occupancy (tokens), so the
+	// auto-compact heuristic still sees the real usage on the first turn after
+	// an agent/server restart of a long --resume conversation. 0 = unknown.
+	addColumnIfNotExists(db, "session_state", "last_context_tokens", "INTEGER NOT NULL DEFAULT 0")
+
 	if !migrationApplied(w, "workspaces_created_by_backfill_v1") {
 		if _, err := w.ExecContext(context.Background(),
 			`UPDATE workspaces SET created_by = owner_id

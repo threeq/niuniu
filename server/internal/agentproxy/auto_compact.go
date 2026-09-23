@@ -5,6 +5,8 @@ import (
 	"log/slog"
 	"strconv"
 	"strings"
+
+	"github.com/niuniu-dev/niuniu/internal/store"
 )
 
 // Auto context compaction: users rarely run /compact themselves, so a long
@@ -150,4 +152,64 @@ func (s *WorkspaceSession) maybeAutoCompact(ctx context.Context) (bool, string) 
 	slog.Info("auto-compact: context occupancy over threshold, injecting /compact",
 		"workspace_id", s.workspaceID, "occupancy", occ, "budget", budget, "percent", percent)
 	return true, autoCompactCommand
+}
+
+// seedLastContextTokens restores the persisted context occupancy for the
+// resumed CLI session (session_state.last_context_tokens). lastContextTokens
+// is in-memory only, so without this a long --resume conversation that grew
+// across an agent/server restart starts every session at occupancy 0 — the
+// boundary check is blind exactly until a turn overflows the model window and
+// 400s (the rejected request emits no usage events, so the blind spot never
+// heals on its own). Called from ensureProcess once the session id is known;
+// a stale seed still errs toward firing late, never spuriously.
+func (s *WorkspaceSession) seedLastContextTokens(ctx context.Context) {
+	row, err := s.q.GetSessionState(ctx, store.GetSessionStateParams{
+		WorkspaceID: s.workspaceID,
+		SessionID:   s.sessionId,
+	})
+	if err != nil || row.LastContextTokens <= 0 {
+		return
+	}
+	s.mu.Lock()
+	fresh := s.lastContextTokens == 0
+	if fresh {
+		s.lastContextTokens = int(row.LastContextTokens)
+	}
+	s.mu.Unlock()
+	if fresh {
+		slog.Info("auto-compact: seeded context occupancy from previous run",
+			"workspace_id", s.workspaceID, "session", s.sessionId, "tokens", row.LastContextTokens)
+	}
+}
+
+// onTurnResult runs once per completed turn (result event): it persists the
+// live occupancy for the next seed, and re-arms auto-compact when the injected
+// /compact turn itself FAILED. Without the re-arm, a failed summary request
+// (e.g. the API rejecting the compaction call) leaves occupancy above
+// threshold forever — suppressed only re-arms below the threshold — and
+// auto-compact goes permanently silent while the context keeps growing.
+// A successful turn keeps the flag (the occupancy drop below threshold is the
+// real re-arm), preserving the no-loop guarantee.
+func (s *WorkspaceSession) onTurnResult(ctx context.Context, isError bool) {
+	s.mu.Lock()
+	occ := s.lastContextTokens
+	compactFailed := s.compactTurnActive && isError
+	s.compactTurnActive = false
+	if compactFailed {
+		s.autoCompactSuppressed = false
+	}
+	s.mu.Unlock()
+	if compactFailed {
+		slog.Warn("auto-compact: injected /compact turn failed; re-arming for the next boundary",
+			"workspace_id", s.workspaceID)
+	}
+	if occ > 0 {
+		if err := s.q.UpsertSessionLastContextTokens(ctx, store.UpsertSessionLastContextTokensParams{
+			WorkspaceID:       s.workspaceID,
+			SessionID:         s.sessionId,
+			LastContextTokens: int64(occ),
+		}); err != nil {
+			slog.Warn("auto-compact: persist occupancy failed", "workspace_id", s.workspaceID, "error", err)
+		}
+	}
 }
