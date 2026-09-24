@@ -15,6 +15,7 @@ import (
 	"github.com/niuniu-dev/niuniu/internal/discovery"
 	"github.com/niuniu-dev/niuniu/internal/logging"
 	"github.com/niuniu-dev/niuniu/internal/migration"
+	"github.com/niuniu-dev/niuniu/internal/pathaug"
 	"github.com/niuniu-dev/niuniu/internal/server"
 	"github.com/niuniu-dev/niuniu/internal/service"
 	"github.com/niuniu-dev/niuniu/internal/store"
@@ -63,6 +64,14 @@ func main() {
 	}); err != nil {
 		fmt.Fprintf(os.Stderr, "failed to setup logging: %v\n", err)
 		os.Exit(1)
+	}
+
+	// macOS GUI launches inherit launchd's minimal PATH, so nvm/Homebrew tools
+	// are invisible to every LookPath in the server (system-deps probe reports
+	// node/claude as not installed; agent spawn fails the same way). Augment
+	// once, before anything probes or spawns. No-op off darwin.
+	if p := pathaug.Augment(); p != "" {
+		slog.Info("process PATH augmented for GUI launch", "path", p)
 	}
 
 	db, err := store.Open(cfg)
