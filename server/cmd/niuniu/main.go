@@ -66,10 +66,11 @@ func main() {
 		os.Exit(1)
 	}
 
-	// macOS GUI launches inherit launchd's minimal PATH, so nvm/Homebrew tools
-	// are invisible to every LookPath in the server (system-deps probe reports
-	// node/claude as not installed; agent spawn fails the same way). Augment
-	// once, before anything probes or spawns. No-op off darwin.
+	// macOS/Linux GUI launches can inherit a minimal or profile-less PATH, so
+	// nvm/Homebrew tools are invisible to every LookPath in the server
+	// (system-deps probe reports node/claude as not installed; agent spawn
+	// fails the same way). Augment once, before anything probes or spawns.
+	// No-op off darwin/linux.
 	if p := pathaug.Augment(); p != "" {
 		slog.Info("process PATH augmented for GUI launch", "path", p)
 	}

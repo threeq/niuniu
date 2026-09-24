@@ -160,9 +160,9 @@ func TestArgsForShell_PerFamily(t *testing.T) {
 	}
 }
 
-func TestBuildAdditions_ExistingDirsOnly(t *testing.T) {
+func TestBuildAdditions_DarwinDirs(t *testing.T) {
 	exists := func(p string) bool { return p != "/usr/local/sbin" && p != "/Users/u/.local/bin" }
-	got := buildAdditions("/Users/u", exists, "/Users/u/.nvm/versions/node/v20.11.1/bin")
+	got := buildAdditions("darwin", "/Users/u", exists, "/Users/u/.nvm/versions/node/v20.11.1/bin")
 	want := []string{
 		"/opt/homebrew/bin", "/opt/homebrew/sbin", "/usr/local/bin",
 		"/Users/u/.nvm/versions/node/v20.11.1/bin", "/Users/u/.volta/bin",
@@ -174,5 +174,30 @@ func TestBuildAdditions_ExistingDirsOnly(t *testing.T) {
 		if got[i] != want[i] {
 			t.Errorf("buildAdditions[%d] = %q, want %q", i, got[i], want[i])
 		}
+	}
+}
+
+func TestBuildAdditions_LinuxBrewDirs(t *testing.T) {
+	got := buildAdditions("linux", "/home/u", func(string) bool { return true }, "")
+	want := []string{
+		"/home/linuxbrew/.linuxbrew/bin", "/home/linuxbrew/.linuxbrew/sbin",
+		"/usr/local/bin", "/usr/local/sbin",
+		"/home/u/.local/bin", "/home/u/.volta/bin",
+	}
+	if len(got) != len(want) {
+		t.Fatalf("buildAdditions = %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("buildAdditions[%d] = %q, want %q", i, got[i], want[i])
+		}
+	}
+}
+
+func TestBuildAdditions_WindowsEmpty(t *testing.T) {
+	// Windows PATH comes from the Registry and is visible to GUI apps; the
+	// package must contribute nothing there.
+	if got := buildAdditions("windows", `C:\Users\u`, func(string) bool { return true }, ""); got != nil {
+		t.Errorf("buildAdditions(windows) = %v, want nil", got)
 	}
 }

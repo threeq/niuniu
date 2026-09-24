@@ -1,14 +1,21 @@
-// Package pathaug augments the server process PATH on macOS GUI launches.
+// Package pathaug augments the server process PATH on macOS and Linux
+// desktop launches.
 //
 // A macOS app started from Finder/Dock inherits launchd's minimal PATH
 // (/usr/bin:/bin:/usr/sbin:/sbin). Version managers and user package
 // installs live OUTSIDE that set: nvm keeps node/npm in
 // ~/.nvm/versions/node/<ver>/bin (wired into PATH only by interactive-shell
 // rc files), Homebrew on Apple Silicon uses /opt/homebrew/bin, and npm -g
-// agent CLIs land in the same nvm bin dir. Every exec.LookPath in the
-// server — the system-deps probe, agent spawn, git, ripgrep — therefore
-// fails for tools the user CAN run in their terminal, and the Settings
-// page reports node/claude as not installed.
+// agent CLIs land in the same nvm bin dir.
+//
+// Linux has the same trap in a weaker form: apt-managed tools (/usr/bin)
+// are always visible, but user-level installs are wired up in rc files —
+// users who put them in ~/.bashrc/~/.zshrc instead of ~/.profile get GUI
+// sessions without them.
+//
+// In both cases every exec.LookPath in the server — the system-deps probe,
+// agent spawn, git, ripgrep — fails for tools the user CAN run in their
+// terminal, and the Settings page reports node/claude as not installed.
 //
 // Augment runs once at server startup, darwin-only:
 //  1. best-effort capture of the user's real PATH from their login shell
@@ -30,14 +37,30 @@ import (
 	"time"
 )
 
-// staticDirs are the well-known off-launchd-PATH tool directories, in
-// preference order. The user's home-relative ones (~/.local/bin, volta) are
-// added by buildAdditions.
-var staticDirs = []string{
-	"/opt/homebrew/bin",
-	"/opt/homebrew/sbin",
-	"/usr/local/bin",
-	"/usr/local/sbin",
+// staticDirsFor returns the well-known off-default-PATH tool directories for
+// a platform, in preference order. Home-relative ones (~/.local/bin, volta,
+// nvm) are platform-neutral and added by buildAdditions.
+func staticDirsFor(goos string) []string {
+	switch goos {
+	case "darwin":
+		return []string{
+			"/opt/homebrew/bin", // Apple Silicon Homebrew
+			"/opt/homebrew/sbin",
+			"/usr/local/bin", // Intel Homebrew + user symlinks
+			"/usr/local/sbin",
+		}
+	case "linux":
+		return []string{
+			"/home/linuxbrew/.linuxbrew/bin",     // Homebrew on Linux
+			"/home/linuxbrew/.linuxbrew/sbin",
+			"/usr/local/bin", // manual installs (node, claude via npm prefix)
+			"/usr/local/sbin",
+		}
+	default:
+		// Windows: the Registry PATH is visible to GUI processes, and shell
+		// profiles don't carry tool dirs — nothing to contribute.
+		return nil
+	}
 }
 
 // shellCaptureTimeout bounds the interactive-shell PATH capture: rc files
@@ -45,12 +68,18 @@ var staticDirs = []string{
 // materially, and the static-dir fallback covers the failure.
 const shellCaptureTimeout = 3 * time.Second
 
-// Augment repairs the process PATH on darwin and returns the effective PATH
-// ("" = unchanged / not applicable). Called once from server startup, before
-// any LookPath happens, so every consumer (system-deps probe, agent spawn,
-// install jobs) inherits the repaired PATH.
+// Augment repairs the process PATH on darwin/linux desktop launches and
+// returns the effective PATH ("" = unchanged / not applicable). Called once
+// from server startup, before any LookPath happens, so every consumer
+// (system-deps probe, agent spawn, install jobs) inherits the repaired PATH.
+//
+// Linux rationale: apt-managed tools sit in /usr/bin (always visible), but
+// user-level installs — nvm, ~/.local/bin, Homebrew on Linux — are wired up
+// in shell rc files, and users who put them in ~/.bashrc/~/.zshrc (instead
+// of ~/.profile) hit the same invisible-to-GUI wall as macOS.
 func Augment() string {
-	if runtime.GOOS != "darwin" {
+	goos := runtime.GOOS
+	if goos != "darwin" && goos != "linux" {
 		return ""
 	}
 	home, err := os.UserHomeDir()
@@ -61,9 +90,9 @@ func Augment() string {
 
 	if captured := captureShellPath(); captured != "" {
 		// The user's shell PATH is authoritative. Union it with the static
-		// dirs so headless edge cases (no zsh rc) still gain Homebrew etc.,
+		// dirs so headless edge cases (no shell rc) still gain Homebrew etc.,
 		// and with the launchd base (already a subset in practice).
-		merged := mergeMissing(captured, buildAdditions(home, dirExists, latestNvmBin(globNvmBins(home))))
+		merged := mergeMissing(captured, buildAdditions(goos, home, dirExists, latestNvmBin(globNvmBins(home))))
 		merged = mergeMissing(merged, splitPath(base))
 		if merged != base {
 			os.Setenv("PATH", merged)
@@ -74,7 +103,7 @@ func Augment() string {
 		return ""
 	}
 
-	additions := buildAdditions(home, dirExists, latestNvmBin(globNvmBins(home)))
+	additions := buildAdditions(goos, home, dirExists, latestNvmBin(globNvmBins(home)))
 	merged := mergeMissing(base, additions)
 	if merged == base {
 		return ""
@@ -86,9 +115,10 @@ func Augment() string {
 }
 
 // buildAdditions returns the candidate directories that actually exist on
-// disk: Homebrew/系统 static dirs, the user's nvm node bin (latest version),
-// and the common user-local dirs. exists and nvmBin are injectable for tests.
-func buildAdditions(home string, exists func(string) bool, nvmBin string) []string {
+// disk: platform static dirs, the user's nvm node bin (latest version), and
+// the common user-local dirs. goos, exists and nvmBin are injectable for
+// tests.
+func buildAdditions(goos, home string, exists func(string) bool, nvmBin string) []string {
 	var out []string
 	seen := map[string]bool{}
 	add := func(dir string) {
@@ -98,13 +128,13 @@ func buildAdditions(home string, exists func(string) bool, nvmBin string) []stri
 		seen[dir] = true
 		out = append(out, dir)
 	}
-	for _, d := range staticDirs {
+	for _, d := range staticDirsFor(goos) {
 		add(d)
 	}
 	add(nvmBin)
-	if home != "" {
-		// POSIX separators deliberately: this package only runs on darwin, and
-		// explicit "/" keeps the dirs identical across test platforms.
+	if goos == "darwin" || goos == "linux" {
+		// POSIX separators deliberately: these are POSIX-platform dirs, and
+		// explicit "/" keeps them identical across test platforms.
 		add(home + "/.local/bin")
 		add(home + "/.volta/bin")
 	}
