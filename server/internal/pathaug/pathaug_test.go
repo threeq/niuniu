@@ -75,7 +75,7 @@ func TestShellCandidates_SHELLFirstThenDefaults(t *testing.T) {
 			return "/usr/bin/fish"
 		}
 		return ""
-	}, func(string) bool { return true })
+	}, func() string { return "" }, func(string) bool { return true })
 	if len(cands) != 3 {
 		t.Fatalf("candidates = %d, want 3", len(cands))
 	}
@@ -90,22 +90,49 @@ func TestShellCandidates_SHELLFirstThenDefaults(t *testing.T) {
 	}
 }
 
+func TestShellCandidates_DSDefaultShellBeforeStaticFallbacks(t *testing.T) {
+	// GUI processes have no $SHELL; the Directory Services default must rank
+	// ahead of the static zsh/bash fallbacks (a bash user would otherwise be
+	// probed via zsh first).
+	cands := shellCandidates(func(string) string { return "" },
+		func() string { return "/bin/bash" }, func(string) bool { return true })
+	if len(cands) != 2 {
+		t.Fatalf("candidates = %d, want 2", len(cands))
+	}
+	if cands[0].bin != "/bin/bash" {
+		t.Errorf("first candidate = %q, want dscl default (/bin/bash)", cands[0].bin)
+	}
+	if cands[1].bin != "/bin/zsh" {
+		t.Errorf("second candidate = %q, want /bin/zsh", cands[1].bin)
+	}
+}
+
 func TestShellCandidates_DedupesAndSkipsMissing(t *testing.T) {
 	cands := shellCandidates(func(k string) string {
 		if k == "SHELL" {
 			return "/bin/zsh"
 		}
 		return ""
-	}, func(p string) bool { return p == "/bin/zsh" }) // only zsh "exists"
+	}, func() string { return "" }, func(p string) bool { return p == "/bin/zsh" }) // only zsh "exists"
 	if len(cands) != 1 || cands[0].bin != "/bin/zsh" {
 		t.Errorf("candidates = %+v, want exactly [/bin/zsh]", cands)
 	}
 }
 
 func TestShellCandidates_NoShellEnvStillDefaults(t *testing.T) {
-	cands := shellCandidates(func(string) string { return "" }, func(string) bool { return true })
+	cands := shellCandidates(func(string) string { return "" },
+		func() string { return "" }, func(string) bool { return true })
 	if len(cands) != 2 || cands[0].bin != "/bin/zsh" || cands[1].bin != "/bin/bash" {
 		t.Errorf("candidates = %+v, want [/bin/zsh /bin/bash]", cands)
+	}
+}
+
+func TestParseUserShellOutput(t *testing.T) {
+	if got := parseUserShellOutput("UserShell: /bin/zsh\n"); got != "/bin/zsh" {
+		t.Errorf("parseUserShellOutput = %q, want /bin/zsh", got)
+	}
+	if got := parseUserShellOutput("no such user\n"); got != "" {
+		t.Errorf("parseUserShellOutput = %q, want empty", got)
 	}
 }
 

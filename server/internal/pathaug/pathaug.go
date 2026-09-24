@@ -22,6 +22,7 @@ import (
 	"log/slog"
 	"os"
 	"os/exec"
+	"os/user"
 	"path/filepath"
 	"runtime"
 	"strconv"
@@ -220,12 +221,13 @@ type shellCmd struct {
 	args []string
 }
 
-// shellCandidates lists the shells to try, in preference order: the user's
-// configured login shell ($SHELL) first — it is what their terminal actually
-// runs, so its rc files define the PATH they expect — then the macOS
-// defaults. Shells whose binary does not exist are skipped, and duplicates
-// (SHELL=/bin/zsh) collapse.
-func shellCandidates(getenv func(string) string, exists func(string) bool) []shellCmd {
+// shellCandidates lists the shells to try, in preference order: $SHELL (set
+// when launched from a terminal), then the user's Directory Services default
+// shell — the one macOS actually starts for them; GUI processes have no
+// $SHELL, so dscl is what makes this authoritative — then the static macOS
+// defaults. Shells whose binary does not exist are skipped, duplicates
+// collapse.
+func shellCandidates(getenv func(string) string, defaultShell func() string, exists func(string) bool) []shellCmd {
 	var out []shellCmd
 	seen := map[string]bool{}
 	add := func(bin string) {
@@ -236,6 +238,7 @@ func shellCandidates(getenv func(string) string, exists func(string) bool) []she
 		out = append(out, shellCmd{bin: bin, args: argsForShell(bin)})
 	}
 	add(getenv("SHELL"))
+	add(defaultShell())
 	add("/bin/zsh")
 	add("/bin/bash")
 	return out
@@ -262,7 +265,7 @@ func argsForShell(shell string) []string {
 // output) returns "" and the caller falls back to static dirs.
 func captureShellPath() string {
 	getenv := func(k string) string { return os.Getenv(k) }
-	for _, c := range shellCandidates(getenv, fileExists) {
+	for _, c := range shellCandidates(getenv, queryDefaultShell, fileExists) {
 		cctx, cancel := context.WithTimeout(context.Background(), shellCaptureTimeout)
 		out, err := exec.CommandContext(cctx, c.bin, c.args...).CombinedOutput()
 		cancel()
@@ -279,6 +282,47 @@ func captureShellPath() string {
 func fileExists(p string) bool {
 	st, err := os.Stat(p)
 	return err == nil && !st.IsDir()
+}
+
+// queryDefaultShell asks macOS Directory Services for the user's configured
+// login shell (`dscl . -read /Users/<user> UserShell`). This is the shell
+// macOS actually starts for the user — GUI processes have no $SHELL, so this
+// query is what makes the capture honor e.g. a bash or fish user instead of
+// blindly probing zsh. Best-effort: empty string on any failure. Non-darwin
+// platforms never reach it (Augment gates on GOOS).
+func queryDefaultShell() string {
+	if runtime.GOOS != "darwin" {
+		return ""
+	}
+	username := ""
+	if u, err := user.Current(); err == nil {
+		username = u.Username
+	}
+	if username == "" {
+		username = os.Getenv("USER")
+	}
+	if username == "" {
+		return ""
+	}
+	cctx, cancel := context.WithTimeout(context.Background(), shellCaptureTimeout)
+	defer cancel()
+	out, err := exec.CommandContext(cctx, "/usr/bin/dscl", ".", "-read", "/Users/"+username, "UserShell").Output()
+	if err != nil {
+		return ""
+	}
+	return parseUserShellOutput(string(out))
+}
+
+// parseUserShellOutput extracts the shell path from dscl's output line
+// ("UserShell: /bin/zsh"). "" when the line is absent (unknown user).
+func parseUserShellOutput(out string) string {
+	for _, line := range strings.Split(out, "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "UserShell:") {
+			return strings.TrimSpace(strings.TrimPrefix(line, "UserShell:"))
+		}
+	}
+	return ""
 }
 
 // parseShellPathOutput extracts the PATH line from shell output. Interactive
