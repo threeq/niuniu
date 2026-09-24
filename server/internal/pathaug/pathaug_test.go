@@ -143,8 +143,13 @@ func TestArgsForShell_PerFamily(t *testing.T) {
 	}{
 		{"/bin/zsh", false},
 		{"/bin/bash", false},
-		{"/opt/homebrew/bin/fish", true},
+		{"/bin/sh", false},
+		{"/bin/ksh", false},
 		{"/bin/tcsh", false},
+		{"/bin/csh", false},
+		{"/usr/local/bin/oh-my-zsh-custom", false},
+		{"/opt/homebrew/bin/fish", true},
+		{"/usr/bin/fish", true},
 	}
 	for _, c := range cases {
 		args := argsForShell(c.shell)

@@ -245,15 +245,23 @@ func shellCandidates(getenv func(string) string, defaultShell func() string, exi
 }
 
 // argsForShell picks the args that make `shell` print a colon-joined PATH.
-// POSIX-family shells take the same interactive-login form; fish needs its
-// own expression because $PATH is a LIST there (`echo $PATH` prints it
-// space-separated, which parseShellPathOutput would reject).
+//
+// POSIX-family shells (zsh/bash/sh/ksh/tcsh and relatives) share one form:
+// interactive + login so the rc files that wire up version managers actually
+// run (`echo $PATH` is colon-joined in all of them). fish is special-cased:
+// its $PATH is a LIST, `echo` would print it space-separated and the parse
+// would reject it, so it gets `string join :`.
+//
+// Contract for anything else (elvish/nushell/xonsh...): they get the POSIX
+// form; if their output does not parse as a colon path list, capture falls
+// through to the next candidate shell and finally to the static dirs —
+// an exotic shell can never poison the PATH, only fail to contribute.
 func argsForShell(shell string) []string {
 	base := strings.ToLower(filepath.Base(shell))
 	switch {
 	case strings.Contains(base, "fish"):
 		return []string{"-l", "-c", "string join : $PATH"}
-	default: // zsh, bash, sh, ksh, dash, tcsh/csh... — `echo $PATH` is colon-joined
+	default:
 		return []string{"-li", "-c", "echo $PATH"}
 	}
 }
