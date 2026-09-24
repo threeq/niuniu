@@ -1,6 +1,9 @@
 package pathaug
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestMergeMissing_AppendsNewKeepsOrder(t *testing.T) {
 	base := "/usr/bin:/bin"
@@ -63,6 +66,65 @@ func TestParseShellPathOutput_PicksPathLineFromRcNoise(t *testing.T) {
 func TestParseShellPathOutput_NoPlausibleLine(t *testing.T) {
 	if _, ok := parseShellPathOutput("total junk\nno paths here\n"); ok {
 		t.Error("expected no detection for output without a PATH-looking line")
+	}
+}
+
+func TestShellCandidates_SHELLFirstThenDefaults(t *testing.T) {
+	cands := shellCandidates(func(k string) string {
+		if k == "SHELL" {
+			return "/usr/bin/fish"
+		}
+		return ""
+	}, func(string) bool { return true })
+	if len(cands) != 3 {
+		t.Fatalf("candidates = %d, want 3", len(cands))
+	}
+	if cands[0].bin != "/usr/bin/fish" {
+		t.Errorf("first candidate = %q, want SHELL (/usr/bin/fish)", cands[0].bin)
+	}
+	if cands[0].args[len(cands[0].args)-1] != "string join : $PATH" {
+		t.Errorf("fish args = %v, want fish-specific PATH expression", cands[0].args)
+	}
+	if cands[1].bin != "/bin/zsh" || cands[2].bin != "/bin/bash" {
+		t.Errorf("fallbacks = %q, %q; want zsh then bash", cands[1].bin, cands[2].bin)
+	}
+}
+
+func TestShellCandidates_DedupesAndSkipsMissing(t *testing.T) {
+	cands := shellCandidates(func(k string) string {
+		if k == "SHELL" {
+			return "/bin/zsh"
+		}
+		return ""
+	}, func(p string) bool { return p == "/bin/zsh" }) // only zsh "exists"
+	if len(cands) != 1 || cands[0].bin != "/bin/zsh" {
+		t.Errorf("candidates = %+v, want exactly [/bin/zsh]", cands)
+	}
+}
+
+func TestShellCandidates_NoShellEnvStillDefaults(t *testing.T) {
+	cands := shellCandidates(func(string) string { return "" }, func(string) bool { return true })
+	if len(cands) != 2 || cands[0].bin != "/bin/zsh" || cands[1].bin != "/bin/bash" {
+		t.Errorf("candidates = %+v, want [/bin/zsh /bin/bash]", cands)
+	}
+}
+
+func TestArgsForShell_PerFamily(t *testing.T) {
+	cases := []struct {
+		shell    string
+		wantFish bool
+	}{
+		{"/bin/zsh", false},
+		{"/bin/bash", false},
+		{"/opt/homebrew/bin/fish", true},
+		{"/bin/tcsh", false},
+	}
+	for _, c := range cases {
+		args := argsForShell(c.shell)
+		joined := strings.Join(args, " ")
+		if c.wantFish != strings.Contains(joined, "string join : $PATH") {
+			t.Errorf("argsForShell(%q) = %v, fish expression presence = %v", c.shell, args, c.wantFish)
+		}
 	}
 }
 

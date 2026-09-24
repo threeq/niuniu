@@ -11,9 +11,9 @@
 // page reports node/claude as not installed.
 //
 // Augment runs once at server startup, darwin-only:
-//  1. best-effort capture of the user's real PATH via an interactive login
-//     zsh (`zsh -li -c 'echo $PATH'`, short timeout) — authoritative, and
-//     covers any version manager (nvm/fnm/asdf/mise/volta);
+//  1. best-effort capture of the user's real PATH from their login shell
+//     ($SHELL, then /bin/zsh, /bin/bash — short timeout per shell) —
+//     authoritative, and covers any version manager (nvm/fnm/asdf/mise/volta);
 //  2. fallback: append the well-known tool directories that exist on disk.
 package pathaug
 
@@ -213,22 +213,72 @@ func versionLess(a, b []int) bool {
 	return false
 }
 
-// captureShellPath asks an interactive login zsh for the user's real PATH —
-// the one their terminal sees, including whatever version-manager rc files
-// wire up. Best-effort: anything that goes wrong (no zsh, slow/hanging rc,
-// noise-only output) returns "" and the caller falls back to static dirs.
+// shellCmd is one capture attempt: a shell binary plus the args that make it
+// print the user's PATH.
+type shellCmd struct {
+	bin  string
+	args []string
+}
+
+// shellCandidates lists the shells to try, in preference order: the user's
+// configured login shell ($SHELL) first — it is what their terminal actually
+// runs, so its rc files define the PATH they expect — then the macOS
+// defaults. Shells whose binary does not exist are skipped, and duplicates
+// (SHELL=/bin/zsh) collapse.
+func shellCandidates(getenv func(string) string, exists func(string) bool) []shellCmd {
+	var out []shellCmd
+	seen := map[string]bool{}
+	add := func(bin string) {
+		if bin == "" || seen[bin] || !exists(bin) {
+			return
+		}
+		seen[bin] = true
+		out = append(out, shellCmd{bin: bin, args: argsForShell(bin)})
+	}
+	add(getenv("SHELL"))
+	add("/bin/zsh")
+	add("/bin/bash")
+	return out
+}
+
+// argsForShell picks the args that make `shell` print a colon-joined PATH.
+// POSIX-family shells take the same interactive-login form; fish needs its
+// own expression because $PATH is a LIST there (`echo $PATH` prints it
+// space-separated, which parseShellPathOutput would reject).
+func argsForShell(shell string) []string {
+	base := strings.ToLower(filepath.Base(shell))
+	switch {
+	case strings.Contains(base, "fish"):
+		return []string{"-l", "-c", "string join : $PATH"}
+	default: // zsh, bash, sh, ksh, dash, tcsh/csh... — `echo $PATH` is colon-joined
+		return []string{"-li", "-c", "echo $PATH"}
+	}
+}
+
+// captureShellPath asks the user's shells for the PATH their terminal sees —
+// including whatever version-manager rc files wire up. Tries each candidate
+// in order; the first shell that yields a parseable PATH wins. Best-effort:
+// anything that goes wrong (no candidates, slow/hanging rc, noise-only
+// output) returns "" and the caller falls back to static dirs.
 func captureShellPath() string {
-	cctx, cancel := context.WithTimeout(context.Background(), shellCaptureTimeout)
-	defer cancel()
-	out, err := exec.CommandContext(cctx, "/bin/zsh", "-li", "-c", "echo $PATH").CombinedOutput()
-	if err != nil {
-		return ""
+	getenv := func(k string) string { return os.Getenv(k) }
+	for _, c := range shellCandidates(getenv, fileExists) {
+		cctx, cancel := context.WithTimeout(context.Background(), shellCaptureTimeout)
+		out, err := exec.CommandContext(cctx, c.bin, c.args...).CombinedOutput()
+		cancel()
+		if err != nil {
+			continue
+		}
+		if p, ok := parseShellPathOutput(string(out)); ok {
+			return p
+		}
 	}
-	p, ok := parseShellPathOutput(string(out))
-	if !ok {
-		return ""
-	}
-	return p
+	return ""
+}
+
+func fileExists(p string) bool {
+	st, err := os.Stat(p)
+	return err == nil && !st.IsDir()
 }
 
 // parseShellPathOutput extracts the PATH line from shell output. Interactive
