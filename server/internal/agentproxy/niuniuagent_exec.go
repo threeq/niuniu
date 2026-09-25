@@ -47,7 +47,7 @@ func (s *WorkspaceSession) runNiuniuAgentBackendTurn(ctx context.Context, workDi
 		s.mu.Lock()
 		s.lastActivityAt = time.Now()
 		s.mu.Unlock()
-		s.handleGooseEvent(ctx, ev, msgId) // engine-neutral event mapping (goose-named for history)
+		s.handleNiuniuEvent(ctx, ev, msgId) // delta-aware mapping: stream broadcast + aggregated persist
 		if ev.Type == agentbackend.EventError {
 			lastErr = ev.Error
 		}

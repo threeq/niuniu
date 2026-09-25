@@ -364,6 +364,10 @@ type WorkspaceSession struct {
 	// niuniu's own agent (ACP over `niuniu-agent acp`). Lazily created on the
 	// first niuniu turn; owned by the session. Guarded by s.mu.
 	niuniuAgentBackend agentbackend.Backend
+	// niuniuAgg accumulates chunk-level text/thinking deltas for aggregated
+	// persistence (broadcasts stay per-delta for live streaming). Touched
+	// only by the turn event loop goroutine — no lock needed.
+	niuniuAgg niuniuStreamAgg
 
 	// Per-turn state (reset each Send)
 	turnDone  chan struct{} // signaled when result event arrives
