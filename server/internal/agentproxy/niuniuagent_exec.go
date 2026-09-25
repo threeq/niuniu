@@ -126,7 +126,7 @@ func (s *WorkspaceSession) getOrStartNiuniuAgentBackend(ctx context.Context, wor
 	}
 
 	opts := niuniuagent.Options{
-		Command:           s.cfg.Agent.NiuniuAgentCli.Command, // default "niuniu-agent"
+		Command:           resolveNiuniuAgentCommand(s.cfg.Agent.NiuniuAgentCli.Command),
 		Args:              s.cfg.Agent.NiuniuAgentCli.Args,
 		WorkDir:           workDir,
 		Env:               envSlice,

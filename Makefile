@@ -162,7 +162,7 @@ build-mcp:
 
 # Clean build artifacts
 clean:
-	rm -rf bin/ server/web/dist/ desktop-v2/binaries/niuniu-server* desktop-v2/binaries/niuniu-mcp* desktop-v2/binaries/staging/
+	rm -rf bin/ server/web/dist/ desktop-v2/binaries/niuniu-server* desktop-v2/binaries/niuniu-mcp* desktop-v2/binaries/niuniu-agent* desktop-v2/binaries/staging/
 
 # Testing targets
 test:
@@ -492,12 +492,14 @@ _personal-prepare-v2:
 	@mkdir -p desktop-v2/binaries; \
 	cp desktop-v2/binaries/staging/$(GOOS)-$(GOARCH)/niuniu-server$(EXT) desktop-v2/binaries/niuniu-server$(EXT); \
 	cp desktop-v2/binaries/staging/$(GOOS)-$(GOARCH)/niuniu-mcp$(EXT) desktop-v2/binaries/niuniu-mcp$(EXT); \
-	echo "staged sidecars: desktop-v2/binaries/niuniu-server$(EXT) (+niuniu-mcp)"; \
+	cp desktop-v2/binaries/staging/$(GOOS)-$(GOARCH)/niuniu-agent$(EXT) desktop-v2/binaries/niuniu-agent$(EXT); \
+	echo "staged sidecars: desktop-v2/binaries/niuniu-server$(EXT) (+niuniu-mcp +niuniu-agent)"; \
 	TRIPLE="$(V2_TRIPLE)"; \
 	if [ -n "$$TRIPLE" ]; then \
 		cp desktop-v2/binaries/staging/$(GOOS)-$(GOARCH)/niuniu-server$(EXT) desktop-v2/binaries/niuniu-server-$$TRIPLE$(EXT); \
 		cp desktop-v2/binaries/staging/$(GOOS)-$(GOARCH)/niuniu-mcp$(EXT) desktop-v2/binaries/niuniu-mcp-$$TRIPLE$(EXT); \
-		echo "  + triple name niuniu-server-$$TRIPLE$(EXT)"; \
+		cp desktop-v2/binaries/staging/$(GOOS)-$(GOARCH)/niuniu-agent$(EXT) desktop-v2/binaries/niuniu-agent-$$TRIPLE$(EXT); \
+		echo "  + triple name niuniu-server-$$TRIPLE$(EXT) (+niuniu-agent)"; \
 	fi
 
 # Internal: build server for target platform, copy to
@@ -532,6 +534,8 @@ _personal-prepare:
 		-o ../desktop-v2/binaries/staging/$(GOOS)-$(GOARCH)/niuniu-server$(EXT) ./cmd/niuniu
 	cd server && $(BUNDLE_CGO) GOOS=$(GOOS) GOARCH=$(GOARCH) go build $(SERVER_LDFLAGS) \
 		-o ../desktop-v2/binaries/staging/$(GOOS)-$(GOARCH)/niuniu-mcp$(EXT) ./cmd/niuniu-mcp
+	cd agent && GOOS=$(GOOS) GOARCH=$(GOARCH) go build \
+		-o ../desktop-v2/binaries/staging/$(GOOS)-$(GOARCH)/niuniu-agent$(EXT) ./cmd/niuniu-agent
 
 _personal-prepare-current:
 	$(MAKE) _personal-prepare GOOS=$(shell go env GOOS) GOARCH=$(shell go env GOARCH) EXT=$(EXE_SUFFIX)

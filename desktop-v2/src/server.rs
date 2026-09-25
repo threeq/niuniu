@@ -38,6 +38,12 @@ const EMBED_MCP: &[u8] = include_bytes!("../binaries/niuniu-mcp.exe");
 const EMBED_SERVER: &[u8] = include_bytes!("../binaries/niuniu-server");
 #[cfg(all(have_embedded_sidecars, not(target_os = "windows")))]
 const EMBED_MCP: &[u8] = include_bytes!("../binaries/niuniu-mcp");
+// niuniu-agent：可选第三 sidecar（牛牛自研引擎）。老 staging 无此文件时
+// have_embedded_agent 不开启，构建仍成功、运行时走服务端 PATH/文件查找。
+#[cfg(all(have_embedded_sidecars, have_embedded_agent, target_os = "windows"))]
+const EMBED_AGENT: &[u8] = include_bytes!("../binaries/niuniu-agent.exe");
+#[cfg(all(have_embedded_sidecars, have_embedded_agent, not(target_os = "windows")))]
+const EMBED_AGENT: &[u8] = include_bytes!("../binaries/niuniu-agent");
 
 /// 内嵌 sidecar 的解压目录：~/.niuniu/desktop-v2/sidecars/（绝对、跨构建稳定、
 /// 与 v1 的 user-cache 解压同构）。server 与 mcp 同目录，server 通过
@@ -52,8 +58,10 @@ fn embedded_sidecar_dir() -> Result<PathBuf, String> {
     let marker = base.join(".fp");
     let server_name = if cfg!(windows) { "niuniu-server.exe" } else { "niuniu-server" };
     let mcp_name = if cfg!(windows) { "niuniu-mcp.exe" } else { "niuniu-mcp" };
+    let agent_name = if cfg!(windows) { "niuniu-agent.exe" } else { "niuniu-agent" };
     let server_path = base.join(server_name);
     let mcp_path = base.join(mcp_name);
+    let agent_path = base.join(agent_name);
 
     let already_current = std::fs::read_to_string(&marker).ok().as_deref() == Some(fp)
         && server_path.exists()
@@ -61,6 +69,9 @@ fn embedded_sidecar_dir() -> Result<PathBuf, String> {
     if !already_current {
         write_atomic(&server_path, EMBED_SERVER)?;
         write_atomic(&mcp_path, EMBED_MCP)?;
+        // niuniu-agent（可选 sidecar）：内嵌则一并释放，服务端 exe 同目录即可找到。
+        #[cfg(have_embedded_agent)]
+        write_atomic(&agent_path, EMBED_AGENT)?;
         let _ = std::fs::write(&marker, fp);
         // unix 可执行位
         #[cfg(unix)]
@@ -68,6 +79,8 @@ fn embedded_sidecar_dir() -> Result<PathBuf, String> {
             use std::os::unix::fs::PermissionsExt;
             let _ = std::fs::set_permissions(&server_path, std::fs::Permissions::from_mode(0o755));
             let _ = std::fs::set_permissions(&mcp_path, std::fs::Permissions::from_mode(0o755));
+            #[cfg(have_embedded_agent)]
+            let _ = std::fs::set_permissions(&agent_path, std::fs::Permissions::from_mode(0o755));
         }
     }
     Ok(server_path)

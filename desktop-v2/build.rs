@@ -7,32 +7,50 @@
 fn main() {
     tauri_build::build();
 
-    let (server, mcp) = if cfg!(target_os = "windows") {
-        ("binaries/niuniu-server.exe", "binaries/niuniu-mcp.exe")
+    let (server, mcp, agent) = if cfg!(target_os = "windows") {
+        (
+            "binaries/niuniu-server.exe",
+            "binaries/niuniu-mcp.exe",
+            "binaries/niuniu-agent.exe",
+        )
     } else {
-        ("binaries/niuniu-server", "binaries/niuniu-mcp")
+        ("binaries/niuniu-server", "binaries/niuniu-mcp", "binaries/niuniu-agent")
     };
     if std::path::Path::new(server).exists() && std::path::Path::new(mcp).exists() {
         for p in [server, mcp] {
             println!("cargo:rerun-if-changed={p}");
+        }
+        // niuniu-agent 是可选第三 sidecar（老 staging 目录可能没有）：存在才内嵌，
+        // 单独 cfg 门控，缺失不阻断构建。
+        let agent_present = std::path::Path::new(agent).exists();
+        if agent_present {
+            println!("cargo:rerun-if-changed={agent}");
         }
         // 仅在 release 打包时内嵌（include_bytes! 244MB 会让 cargo check/debug 很慢）；
         // dev（cargo run）CARGO_MANIFEST_DIR 已设、走文件查找，无需内嵌。
         let is_release = std::env::var("PROFILE").as_deref() == Ok("release");
         if is_release {
             println!("cargo:rustc-cfg=have_embedded_sidecars");
-            let fp = fingerprint(server, mcp);
+            if agent_present {
+                println!("cargo:rustc-cfg=have_embedded_agent");
+            }
+            let fp = fingerprint(server, mcp, if agent_present { Some(agent) } else { None });
             println!("cargo:rustc-env=EMBEDDED_SIDE_FP={fp}");
         }
     }
 }
 
-/// 廉价指纹：两文件长度 + 各自首尾 64KB 的 FNV-1a。无需读完整 244MB，构建期毫秒级。
+/// 廉价指纹：各文件长度 + 各自首尾 64KB 的 FNV-1a。无需读完整文件，构建期毫秒级。
 /// 用于运行时判断解压出的 sidecar 是否已是当前内嵌版本（匹配则跳过解压）。
-fn fingerprint(server: &str, mcp: &str) -> String {
+fn fingerprint(server: &str, mcp: &str, agent: Option<&str>) -> String {
     let (sl, sh) = sample(server);
     let (ml, mh) = sample(mcp);
-    format!("{sl}-{ml}-{sh:016x}-{mh:016x}")
+    let mut fp = format!("{sl}-{ml}-{sh:016x}-{mh:016x}");
+    if let Some(a) = agent {
+        let (al, ah) = sample(a);
+        fp.push_str(&format!("-{al}-{ah:016x}"));
+    }
+    fp
 }
 
 /// 返回 (文件长度, 首尾 64KB 合并的 FNV-1a 哈希)。
