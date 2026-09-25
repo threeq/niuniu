@@ -725,7 +725,7 @@
     "providerCliTypeQwen": "Qwen",
     "providerCliTypeOmp": "omp",
     "providerCliTypeGoose": "goose",
-    "providerCliTypeNiuniu": "niuniu-agent",
+    "providerCliTypeNiuniu": "N-Agent",
     "providerPresetNameLabel": "预设名称",
     "providerOverwriteLabel": "覆盖同名预设",
     "providerPreviewLabel": "生成的环境变量预览",
