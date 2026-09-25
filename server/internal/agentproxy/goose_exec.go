@@ -286,8 +286,11 @@ func (s *WorkspaceSession) recordGooseCost(ctx context.Context, ev agentbackend.
 	s.mu.Lock()
 	usageProviderID := s.activeProviderID
 	s.mu.Unlock()
+	// CacheReadTokens rides through when the engine reports a prompt-cache
+	// breakdown (niuniu-agent does via ACP; goose's telemetry does not, so
+	// for goose this stays 0).
 	recordProviderTokens(ctx, s.q, usageProviderID, s.ownerType, s.ownerID,
-		time.Now(), ev.InputTokens, ev.OutputTokens, 0, 0)
+		time.Now(), ev.InputTokens, ev.OutputTokens, 0, ev.CacheReadTokens)
 }
 
 // signalGooseTurnDone marks the turn complete: updates the session columns to

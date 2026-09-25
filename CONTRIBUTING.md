@@ -41,6 +41,10 @@ Thanks for your interest in contributing! This guide covers the basics.
 - [ ] Tests added/updated and passing
 - [ ] No secrets, credentials, or internal infra references committed
 - [ ] Commit messages follow Conventional Commits
+- [ ] **Clean-room discipline** (`agent/` module): no decompiled, de-obfuscated,
+  or verbatim-copied material from closed-source agents (e.g. Claude Code) —
+  reference public docs, published engineering write-ups, observed behavior,
+  and open-source implementations only. See `agent/README.md`.
 
 ## Code of conduct
 

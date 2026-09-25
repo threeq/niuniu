@@ -134,11 +134,11 @@ func TestStop_BroadcastsAgentDoneNotify(t *testing.T) {
 // fakeMCPSessions is a stub MCPSessionManager that records calls and lets
 // each test choose what token to return.
 type fakeMCPSessions struct {
-	createCalled  int
-	createTokens  []string
+	createCalled       int
+	createTokens       []string
 	createWorkspaceIDs []int64
-	revokeCalled  int
-	tokenToReturn string
+	revokeCalled       int
+	tokenToReturn      string
 }
 
 func (f *fakeMCPSessions) Create(_ context.Context, workspaceID int64, _ time.Duration) (string, error) {

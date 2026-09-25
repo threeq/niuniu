@@ -478,4 +478,3 @@ func TestResolveClaudeBinary_WindowsCmdShimMissingExeFallback(t *testing.T) {
 		t.Errorf("expected fallback to .cmd path %q when .exe absent, got %q", cmdShim, got)
 	}
 }
-

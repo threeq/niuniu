@@ -818,6 +818,11 @@ func Migrate(db *sql.DB) {
 	// so the old→new enum chain stays incremental.
 	migrateAllowCursorCLIType(db)
 
+	// 2026-09-15 niuniu-agent 接入 (issue #709/#710): admit 'niuniu' (niuniu's
+	// own agent, the agent/ Go module) to the same cli_type enums. Runs after
+	// the cursor widening so the old→new enum chain stays incremental.
+	migrateAllowNiuniuCLIType(db)
+
 	// 2026-08-12 KB first-class citizen: admit 'mcp' to knowledge_bases.source_kind
 	// so an external knowledge-base MCP endpoint can be a KB source kind (managed
 	// in the unified KB list) instead of a hand-configured scene MCP server.
@@ -1187,6 +1192,59 @@ func migrateAllowCursorCLITypeSQLite(db *sql.DB, w *DB, oldEnum, newEnum string)
 	}
 	markMigration(w, "allow_cursor_cli_type_v1")
 	slog.Info("migrateAllowCursorCLIType: workspaces.cli_type / projects.default_cli_type CHECK widened for 'cursor'")
+}
+
+// migrateAllowNiuniuCLIType widens the cli_type enums on workspaces.cli_type
+// and projects.default_cli_type to admit 'niuniu' (niuniu's own agent, the
+// agent/ Go module). Same dual-driver strategy as the cursor widening: it
+// advances the enum from the 6-value set to the 7-value set.
+func migrateAllowNiuniuCLIType(db *sql.DB) {
+	oldEnum := "('claude','codex','qwen','omp','goose','cursor')"
+	newEnum := "('claude','codex','qwen','omp','goose','cursor','niuniu')"
+	if Driver == "postgres" {
+		migrateAllowNiuniuCLITypePostgres(db)
+		return
+	}
+	migrateAllowNiuniuCLITypeSQLite(db, Wrap(db), oldEnum, newEnum)
+}
+
+func migrateAllowNiuniuCLITypePostgres(db *sql.DB) {
+	w := Wrap(db)
+	if migrationApplied(w, "allow_niuniu_cli_type_v1") {
+		return
+	}
+	stmts := []string{
+		`ALTER TABLE workspaces DROP CONSTRAINT IF EXISTS workspaces_cli_type_check`,
+		`ALTER TABLE workspaces ADD CONSTRAINT workspaces_cli_type_check
+			CHECK (cli_type IN ('claude','codex','qwen','omp','goose','cursor','niuniu'))`,
+		`ALTER TABLE projects DROP CONSTRAINT IF EXISTS projects_default_cli_type_check`,
+		`ALTER TABLE projects ADD CONSTRAINT projects_default_cli_type_check
+			CHECK (default_cli_type IN ('claude','codex','qwen','omp','goose','cursor','niuniu'))`,
+	}
+	for _, s := range stmts {
+		if _, err := db.Exec(s); err != nil {
+			slog.Warn("migrateAllowNiuniuCLIType (pg): step failed", "error", err)
+			return // leave marker unset; next start retries
+		}
+	}
+	markMigration(w, "allow_niuniu_cli_type_v1")
+	slog.Info("migrateAllowNiuniuCLIType: workspaces.cli_type / projects.default_cli_type CHECK widened for 'niuniu'")
+}
+
+// migrateAllowNiuniuCLITypeSQLite rebuilds the workspaces and projects tables
+// with the widened cli_type CHECK (reusing the stored-DDL rebuild helper).
+func migrateAllowNiuniuCLITypeSQLite(db *sql.DB, w *DB, oldEnum, newEnum string) {
+	if migrationApplied(w, "allow_niuniu_cli_type_v1") {
+		return
+	}
+	for _, table := range []string{"workspaces", "projects"} {
+		if err := rebuildSQLiteWidenCheck(db, table, oldEnum, newEnum); err != nil {
+			slog.Warn("migrateAllowNiuniuCLIType (sqlite): rebuild failed", "table", table, "error", err)
+			return // leave marker unset; next start retries
+		}
+	}
+	markMigration(w, "allow_niuniu_cli_type_v1")
+	slog.Info("migrateAllowNiuniuCLIType: workspaces.cli_type / projects.default_cli_type CHECK widened for 'niuniu'")
 }// (an external knowledge-base MCP endpoint as a first-class KB source kind).
 // Dual-driver, marker-gated. On fresh installs the schema files already carry
 // 'mcp', so the rebuild is a one-time no-op that reproduces the same table.

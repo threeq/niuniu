@@ -367,7 +367,8 @@
         "qwen": "Qwen Code",
         "omp": "Oh My Pi (omp)",
         "goose": "Goose",
-        "cursor": "Cursor Agent"
+        "cursor": "Cursor Agent",
+        "niuniu": "niuniu-agent"
       },
       "claudeAccount": "Claude 賬號",
       "claudeAccountDefault": "（預設賬號）",

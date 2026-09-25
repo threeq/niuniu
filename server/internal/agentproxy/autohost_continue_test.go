@@ -23,12 +23,12 @@ func TestAutohostShouldStop(t *testing.T) {
 		{"none", "still working on the next step", false},
 		{"empty", "", false},
 		// Tightened heuristic: substring false positives must NOT stop.
-		{"subtask-continue", "这个子任务完成了，继续下一步", false}, // continuation marker on the line
-		{"subtask-bare", "子任务完成了", false},                   // 子 prefix → SUBtask, not whole task
-		{"progress-report", "任务完成度 80%", false},             // 完成度 progress fragment, not done
-		{"last-line-continue", "任务完成\n继续观察 CI 结果", false},  // concluding line says continue
+		{"subtask-continue", "这个子任务完成了，继续下一步", false},     // continuation marker on the line
+		{"subtask-bare", "子任务完成了", false},                 // 子 prefix → SUBtask, not whole task
+		{"progress-report", "任务完成度 80%", false},           // 完成度 progress fragment, not done
+		{"last-line-continue", "任务完成\n继续观察 CI 结果", false}, // concluding line says continue
 		{"done-last-line", "## 结果\n任务完成：已合并回 main", true}, // genuine verdict on the last line
-		{"phrase-done-all", "已完成所有需求改动并提交", true},      // 已完成所有 stays a stop
+		{"phrase-done-all", "已完成所有需求改动并提交", true},         // 已完成所有 stays a stop
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

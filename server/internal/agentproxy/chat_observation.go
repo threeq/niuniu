@@ -191,6 +191,18 @@ func oneShotArgv(t adapter.Type, command string) (string, []string) {
 		// agentbackend/cursor) — a different surface from this one-shot call. Do
 		// not "align" them.
 		return command, []string{"-p", "--trust"}
+	case adapter.TypeNiuniuAgent:
+		if command == "" {
+			command = "niuniu-agent"
+		}
+		// `-p -` is niuniu-agent's one-shot mode reading the prompt from stdin;
+		// plain text output (the final answer only). No -y here: a pure
+		// generation call needs no mutating tools.
+		//
+		// NOTE: the interactive niuniu-agent path uses `niuniu-agent acp` (ACP
+		// over stdio via agentbackend/niuniuagent) — a different surface from
+		// this one-shot call.
+		return command, []string{"-p", "-"}
 	}
 	return "", nil
 }

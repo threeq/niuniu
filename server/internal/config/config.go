@@ -238,12 +238,13 @@ type AgentConfig struct {
 	// per-project (projects.default_cli_type), so a global default had no
 	// consumer. Per-CLI command/args below remain (they locate/override each
 	// engine's binary).
-	ClaudeCode ClaudeCodeConfig `mapstructure:"claude_code"`
-	CodexCli   CodexCliConfig   `mapstructure:"codex_cli"`
-	QwenCli    QwenCliConfig    `mapstructure:"qwen_cli"`
-	OmpCli     OmpCliConfig     `mapstructure:"omp_cli"`
-	GooseCli   GooseCliConfig   `mapstructure:"goose_cli"`
-	CursorCli  CursorCliConfig  `mapstructure:"cursor_cli"`
+	ClaudeCode     ClaudeCodeConfig     `mapstructure:"claude_code"`
+	CodexCli       CodexCliConfig       `mapstructure:"codex_cli"`
+	QwenCli        QwenCliConfig        `mapstructure:"qwen_cli"`
+	OmpCli         OmpCliConfig         `mapstructure:"omp_cli"`
+	GooseCli       GooseCliConfig       `mapstructure:"goose_cli"`
+	CursorCli      CursorCliConfig      `mapstructure:"cursor_cli"`
+	NiuniuAgentCli NiuniuAgentCliConfig `mapstructure:"niuniu_agent_cli"`
 }
 
 type LogConfig struct {
@@ -304,6 +305,17 @@ type GooseCliConfig struct {
 // MCP server registration. Credentials come from the host's `agent login` or a
 // CURSOR_API_KEY / CURSOR_AUTH_TOKEN env var.
 type CursorCliConfig struct {
+	Command string   `mapstructure:"command"`
+	Args    []string `mapstructure:"args"`
+}
+
+// NiuniuAgentCliConfig configures niuniu's own agent binary (the agent/ Go
+// module, niuniu's seventh engine). Mirrors CursorCliConfig. Default Command
+// "niuniu-agent" is set in the Viper defaults block. The engine runs over the
+// Agent Client Protocol (`niuniu-agent acp`) on stdio by
+// agentbackend/niuniuagent; model/credentials come from the workspace env
+// (the agent reads ANTHROPIC_*/OPENAI_*/NIUNIU_AGENT_PROVIDER natively).
+type NiuniuAgentCliConfig struct {
 	Command string   `mapstructure:"command"`
 	Args    []string `mapstructure:"args"`
 }
@@ -411,6 +423,8 @@ func Load() (*Config, error) {
 	viper.SetDefault("agent.goose_cli.args", []string{})
 	viper.SetDefault("agent.cursor_cli.command", "agent")
 	viper.SetDefault("agent.cursor_cli.args", []string{})
+	viper.SetDefault("agent.niuniu_agent_cli.command", "niuniu-agent")
+	viper.SetDefault("agent.niuniu_agent_cli.args", []string{})
 	viper.SetDefault("log.level", "debug")
 	viper.SetDefault("log.output", "terminal")
 	viper.SetDefault("log.file_dir", "")
@@ -533,6 +547,8 @@ func Save(cfg *Config) error {
 	viper.Set("agent.goose_cli.args", cfg.Agent.GooseCli.Args)
 	viper.Set("agent.cursor_cli.command", cfg.Agent.CursorCli.Command)
 	viper.Set("agent.cursor_cli.args", cfg.Agent.CursorCli.Args)
+	viper.Set("agent.niuniu_agent_cli.command", cfg.Agent.NiuniuAgentCli.Command)
+	viper.Set("agent.niuniu_agent_cli.args", cfg.Agent.NiuniuAgentCli.Args)
 	viper.Set("editor.vscode_mode", cfg.Editor.VSCodeMode)
 	viper.Set("editor.vscode_remote_url", cfg.Editor.VSCodeRemoteURL)
 	viper.Set("telemetry.enabled", cfg.Telemetry.Enabled)

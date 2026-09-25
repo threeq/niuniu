@@ -56,7 +56,10 @@ func TestSendLoopAutoRetriesTransientStreamError(t *testing.T) {
 	}
 
 	done := make(chan struct{})
-	go func() { s.SendLoop(context.Background(), s.workDirForTest(), "批量建 5 个子 issue", ""); close(done) }()
+	go func() {
+		s.SendLoop(context.Background(), s.workDirForTest(), "批量建 5 个子 issue", "")
+		close(done)
+	}()
 	select {
 	case <-done:
 	case <-time.After(10 * time.Second):
@@ -88,7 +91,10 @@ func TestSendLoopTransientRetryBudgetExhausted(t *testing.T) {
 	}
 
 	done := make(chan struct{})
-	go func() { s.SendLoop(context.Background(), s.workDirForTest(), "批量建 5 个子 issue", ""); close(done) }()
+	go func() {
+		s.SendLoop(context.Background(), s.workDirForTest(), "批量建 5 个子 issue", "")
+		close(done)
+	}()
 	select {
 	case <-done:
 	case <-time.After(10 * time.Second):
