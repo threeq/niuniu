@@ -32,6 +32,8 @@ interface AgentSSEState {
   globalHandlers: Set<MessageHandler>;
   // Last event timestamp for replay on reconnect
   lastEventTs: number;
+  // Debounce timer for reconnect storms (multi-workspace add/remove flapping)
+  reconnectTimer: ReturnType<typeof setTimeout> | null;
   // Whether the SSE is intentionally disconnected (browser closing)
   intentionalClose: boolean;
   // Callbacks to invoke on reconnect
@@ -49,6 +51,8 @@ interface AgentSSEState {
   addGlobalHandler: (fn: MessageHandler) => () => void;
   /** Register a reconnect callback. Returns unsubscribe function. */
   addOnReconnect: (fn: () => void) => () => void;
+  /** Debounced reconnect with the current subscription set */
+  scheduleReconnect: () => void;
   /** Disconnect SSE entirely */
   disconnect: () => void;
 }
@@ -69,6 +73,7 @@ export const useAgentSSEStore = create<AgentSSEState>((set, get) => ({
   handlers: new Map<string, Set<MessageHandler>>(),
   globalHandlers: new Set<MessageHandler>(),
   lastEventTs: 0,
+  reconnectTimer: null,
   intentionalClose: false,
   onReconnectCallbacks: new Set<() => void>(),
 
@@ -189,9 +194,7 @@ export const useAgentSSEStore = create<AgentSSEState>((set, get) => ({
     const newSet = new Set(subscribedWorkspaces);
     newSet.add(workspaceId);
     set({ subscribedWorkspaces: newSet });
-
-    // Reconnect with expanded workspace list
-    get().connect(Array.from(newSet));
+    get().scheduleReconnect();
   },
 
   removeWorkspace(workspaceId) {
@@ -201,12 +204,27 @@ export const useAgentSSEStore = create<AgentSSEState>((set, get) => ({
     const newSet = new Set(subscribedWorkspaces);
     newSet.delete(workspaceId);
     set({ subscribedWorkspaces: newSet });
-
     if (newSet.size === 0) {
       get().disconnect();
-    } else {
-      get().connect(Array.from(newSet));
+      return;
     }
+    get().scheduleReconnect();
+  },
+
+  // Debounced reconnect: multi-workspace pages mount/unmount in bursts, and
+  // rebuilding the EventSource per change caused subscribe flapping (936→933
+  //→936 within a second) that dropped in-flight stream deltas.
+  scheduleReconnect() {
+    const { reconnectTimer } = get();
+    if (reconnectTimer) clearTimeout(reconnectTimer);
+    const timer = setTimeout(() => {
+      set({ reconnectTimer: null });
+      const ws = Array.from(get().subscribedWorkspaces);
+      if (ws.length > 0 && !get().intentionalClose) {
+        get().connect(ws);
+      }
+    }, 300);
+    set({ reconnectTimer: timer });
   },
 
   addHandler(workspaceId, fn) {
