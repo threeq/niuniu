@@ -65,7 +65,9 @@ func (s *WorkspaceSession) runCursorBackendTurn(ctx context.Context, workDir, co
 		s.mu.Lock()
 		s.lastActivityAt = time.Now() // steady output resets the watchdog clock
 		s.mu.Unlock()
-		s.handleGooseEvent(ctx, ev, msgId)
+		// cursor 也走 ACP chunk 级 delta（与 niuniu 同构）——同样需要聚合落库，
+		// 否则历史消息逐词碎片化。
+		s.handleNiuniuEvent(ctx, ev, msgId)
 		if ev.Type == agentbackend.EventError {
 			lastErr = ev.Error
 		}

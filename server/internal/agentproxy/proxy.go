@@ -365,7 +365,8 @@ type WorkspaceSession struct {
 	// first niuniu turn; owned by the session. Guarded by s.mu.
 	niuniuAgentBackend agentbackend.Backend
 	// niuniuAgg accumulates chunk-level text/thinking deltas for aggregated
-	// persistence (broadcasts stay per-delta for live streaming). Touched
+	// persistence (broadcasts stay per-delta for live streaming). Shared by
+	// the niuniu and cursor engines (both emit ACP chunk deltas). Touched
 	// only by the turn event loop goroutine — no lock needed.
 	niuniuAgg niuniuStreamAgg
 
