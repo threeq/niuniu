@@ -31,6 +31,8 @@ import (
 // recordGooseCost / signalGooseTurnDone): both speak the same neutral
 // agentbackend.Event, so duplicating that mapping would be pure copy-paste.
 func (s *WorkspaceSession) runCursorBackendTurn(ctx context.Context, workDir, content, msgId string) error {
+	s.markAgentRunning(ctx)
+	s.recordActiveProvider(ctx)
 	be, err := s.getOrStartCursorBackend(ctx, workDir)
 	if err != nil {
 		slog.Error("cursor: backend start failed", "workspaceID", s.workspaceID, "workDir", workDir, "err", err)
