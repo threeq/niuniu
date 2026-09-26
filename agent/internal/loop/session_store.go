@@ -42,6 +42,15 @@ func RestoreSession(m model.Model, reg *tools.Registry, st *SessionState) *Sessi
 	return &Session{m: m, reg: reg, system: st.System, messages: msgs}
 }
 
+// RestoreSessionKeepingMessages resumes a snapshot's message history but
+// rebuilds the session with the CURRENT system prompt: the snapshot's system
+// may be stale (date moved, AGENTS.md/inject.md edited since), while the
+// messages are the conversation worth continuing.
+func RestoreSessionKeepingMessages(m model.Model, reg *tools.Registry, st *SessionState, system string) *Session {
+	msgs := append([]model.Message(nil), st.Messages...)
+	return &Session{m: m, reg: reg, system: system, messages: msgs}
+}
+
 // SaveSession writes the snapshot to <dir>/<id>.json (overwrites — resuming
 // and re-saving updates in place).
 func SaveSession(dir string, st *SessionState) error {

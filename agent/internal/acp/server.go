@@ -5,9 +5,11 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"os"
+	"runtime/debug"
 	"strconv"
 	"strings"
 	"sync"
@@ -130,7 +132,20 @@ func (s *Server) write(v any) {
 
 func (s *Server) dispatch(ctx context.Context, req rpcRequest) {
 	go func() {
+		// A panic in a handler goroutine would kill the whole agent process
+		// (stdio EOF → a hung turn on the host, with no trace). Recover into
+		// a JSON-RPC error and log the stack instead.
+		defer func() {
+			if r := recover(); r != nil {
+				slog.Error("acp: handler panic", "method", req.Method, "panic", r, "stack", string(debug.Stack()))
+				s.write(rpcResponse{JSONRPC: "2.0", ID: req.ID,
+					Error: &rpcError{Code: errInternal, Message: fmt.Sprintf("internal panic: %v", r)}})
+			}
+		}()
+		started := time.Now()
 		result, rpcErr := s.handle(ctx, req)
+		slog.Info("acp: request handled", "method", req.Method, "id", string(req.ID),
+			"ms", time.Since(started).Milliseconds(), "err", rpcErrString(rpcErr))
 		resp := rpcResponse{JSONRPC: "2.0", ID: req.ID}
 		if rpcErr != nil {
 			resp.Error = rpcErr
@@ -139,6 +154,13 @@ func (s *Server) dispatch(ctx context.Context, req rpcRequest) {
 		}
 		s.write(resp)
 	}()
+}
+
+func rpcErrString(e *rpcError) string {
+	if e == nil {
+		return ""
+	}
+	return e.Message
 }
 
 func (s *Server) handle(ctx context.Context, req rpcRequest) (json.RawMessage, *rpcError) {
@@ -182,13 +204,30 @@ func (s *Server) handle(ctx context.Context, req rpcRequest) (json.RawMessage, *
 				reg, closer = r, c
 			}
 		}
+		cwd := sessionCwd(p.CWD)
+		sys := s.systemFor(cwd)
+		// Auto-resume: continue the project's most recent conversation across
+		// agent-process restarts (the server may respawn us any time).
+		// Messages come from the snapshot; the system prompt is rebuilt fresh
+		// (env/project context may have moved on). NIUNIU_AGENT_NO_RESUME=1
+		// opts out; any failure falls back to a fresh session.
+		conv := loop.NewSession(m, reg, sys)
+		if os.Getenv("NIUNIU_AGENT_NO_RESUME") != "1" {
+			if snapID, err := loop.LatestSessionID(tools.SessionsDir(cwd)); err == nil {
+				if snap, err := loop.LoadSession(tools.SessionsDir(cwd), snapID); err == nil && len(snap.Messages) > 0 {
+					conv = loop.RestoreSessionKeepingMessages(m, reg, snap, sys)
+					slog.Info("acp: resumed previous session", "snapshot", snapID,
+						"messages", len(snap.Messages))
+				}
+			}
+		}
 		s.sessMu.Lock()
 		s.nextID++
 		id := "s-" + strconv.Itoa(s.nextID)
 		st := &sessionState{
 			id:     id,
 			cwd:    p.CWD,
-			conv:   loop.NewSession(m, reg, s.systemFor(sessionCwd(p.CWD))),
+			conv:   conv,
 			closer: closer,
 		}
 		s.sessions[id] = st
@@ -274,6 +313,9 @@ func (s *Server) runPrompt(parent context.Context, st *sessionState, p sessionPr
 	}
 
 	run := &promptRun{srv: s, sess: st}
+	slog.Info("acp: prompt start", "session", st.id, "cwd", st.cwd,
+		"blocks", len(userBlocks))
+	promptStarted := time.Now()
 	res, err := st.conv.PromptBlocks(ctx, userBlocks, loop.Options{
 		OnEvent:          run.onEvent,
 		Perms:            run,
@@ -297,6 +339,9 @@ func (s *Server) runPrompt(parent context.Context, st *sessionState, p sessionPr
 	if err := saveACPSession(st); err != nil {
 		slog.Warn("acp: save session snapshot failed", "session", st.id, "err", err)
 	}
+	slog.Info("acp: prompt done", "session", st.id,
+		"ms", time.Since(promptStarted).Milliseconds(), "rounds", res.Rounds,
+		"out", res.Usage.OutputTokens, "in", res.Usage.InputTokens)
 	out, _ := json.Marshal(sessionPromptResult{
 		StopReason: "end_turn",
 		Usage: &usageBody{
@@ -356,6 +401,8 @@ type promptRun struct {
 }
 
 func (r *promptRun) onEvent(e loop.Event) {
+	slog.Info("acp: agent event", "kind", e.Kind, "delta", e.Delta,
+		"text", truncateForLog(e.Text), "tool", e.ToolName)
 	switch e.Kind {
 	case loop.EventThinking:
 		r.srv.notify(r.sess.id, updateBody{
@@ -495,4 +542,11 @@ func sessionCwd(cwd string) string {
 		return wd
 	}
 	return "."
+}
+
+func truncateForLog(s string) string {
+	if len(s) <= 120 {
+		return s
+	}
+	return s[:120] + "…"
 }
