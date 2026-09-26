@@ -116,6 +116,11 @@ func (b *Backend) Start(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("niuniu-agent stdout pipe: %w", err)
 	}
+	// Capture the child's stderr into the server log — panics, model-client
+	// errors, and crash stacks were previously inherited by the server's
+	// terminal (invisible when run as a service), leaving a hung turn
+	// undiagnosable.
+	cmd.Stderr = &stderrLogger{backend: "niuniu-agent"}
 	if err := cmd.Start(); err != nil {
 		return fmt.Errorf("niuniu-agent start: %w", err)
 	}
