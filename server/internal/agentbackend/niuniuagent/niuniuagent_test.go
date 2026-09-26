@@ -20,7 +20,7 @@ func newStartedBackend(t *testing.T, resolve func(context.Context, agentbackend.
 	b.stdin = sb
 	b.started = true
 	b.session = "s-1"
-	b.active = make(chan agentbackend.Event, 64)
+	b.active = newTurnStream(64)
 	done := make(chan struct{})
 	b.activeDone = done
 	t.Cleanup(func() { b.finishTurn(agentbackend.Event{Type: agentbackend.EventError, Error: "test end"}) })
@@ -71,7 +71,7 @@ func TestHandleSessionUpdateMapping(t *testing.T) {
 	}
 	for i, want := range expect {
 		select {
-		case got := <-b.active:
+		case got := <-b.active.ch:
 			if got.Type != want.Type || got.Text != want.Text || got.ToolName != want.ToolName ||
 				got.ToolUseID != want.ToolUseID || got.IsError != want.IsError {
 				t.Errorf("event %d = %+v, want %+v", i, got, want)
@@ -83,20 +83,28 @@ func TestHandleSessionUpdateMapping(t *testing.T) {
 }
 
 func TestRequestPermissionAllow(t *testing.T) {
-	var got agentbackend.PermissionRequest
+	gotCh := make(chan agentbackend.PermissionRequest, 1)
 	b, sb := newStartedBackend(t, func(_ context.Context, req agentbackend.PermissionRequest) (agentbackend.PermissionDecision, error) {
-		got = req
+		gotCh <- req
 		return agentbackend.PermissionDecision{Confirmed: true}, nil
 	})
 
 	b.dispatch([]byte(`{"jsonrpc":"2.0","id":7,"method":"session/request_permission","params":{"sessionId":"s-1","toolCallId":"t1","title":"Write","kind":"edit","options":[]}}`))
 
-	deadline := time.Now().Add(2 * time.Second)
-	for time.Now().Before(deadline) && got.Title == "" {
-		time.Sleep(10 * time.Millisecond)
+	var got agentbackend.PermissionRequest
+	select {
+	case got = <-gotCh:
+	case <-time.After(2 * time.Second):
+		t.Fatal("host bridge was never invoked")
 	}
 	if got.Title != "Write" || got.ID != "t1" {
 		t.Errorf("host bridge got %+v", got)
+	}
+	// The reply frame is written after the bridge callback returns, so give
+	// it a bounded window to land.
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) && !strings.Contains(sb.String(), `"optionId":"allow_once"`) {
+		time.Sleep(10 * time.Millisecond)
 	}
 	out := sb.String()
 	if !strings.Contains(out, `"optionId":"allow_once"`) || !strings.Contains(out, `"id":7`) {
@@ -115,6 +123,73 @@ func TestRequestPermissionFailsClosed(t *testing.T) {
 	}
 	if !strings.Contains(sb.String(), `"optionId":"reject_once"`) {
 		t.Errorf("nil bridge must deny, frame = %s", sb.String())
+	}
+}
+
+// Regression: streamed session/update events must be consumable by the caller
+// WHILE the turn is in flight. Prompt used to return the channel only after
+// the session/prompt response, so the 256-slot buffer filled, emit wedged the
+// readLoop, the OS pipe backpressured and the agent froze mid-generation —
+// every event then flushed to the frontend in one burst at teardown.
+func TestPromptStreamsEventsDuringTurn(t *testing.T) {
+	b, sb := newStartedBackend(t, nil)
+	b.mu.Lock()
+	b.active = nil
+	b.activeDone = nil
+	b.mu.Unlock()
+
+	chCh := make(chan (<-chan agentbackend.Event), 1)
+	go func() {
+		ch, err := b.Prompt(context.Background(), agentbackend.PromptRequest{Message: "hi"})
+		if err != nil {
+			t.Errorf("Prompt: %v", err)
+			chCh <- nil
+			return
+		}
+		chCh <- ch
+	}()
+
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) && !strings.Contains(sb.String(), `"method":"session/prompt"`) {
+		time.Sleep(5 * time.Millisecond)
+	}
+
+	// Stream more updates than the buffer holds (256) while the request is
+	// still unanswered.
+	const n = 300
+	go func() {
+		for i := 0; i < n; i++ {
+			b.dispatch([]byte(`{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"s-1","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"x"}}}}`))
+		}
+	}()
+
+	var stream <-chan agentbackend.Event
+	select {
+	case stream = <-chCh:
+	case <-time.After(2 * time.Second):
+		t.Fatal("Prompt returned no event channel while the turn was still in flight")
+	}
+
+	got := 0
+	deadline = time.Now().Add(5 * time.Second)
+	for got < n && time.Now().Before(deadline) {
+		select {
+		case ev := <-stream:
+			if ev.Type != agentbackend.EventText {
+				t.Errorf("event %d type = %v, want text", got, ev.Type)
+			}
+			got++
+		case <-time.After(500 * time.Millisecond):
+			t.Fatalf("stream stalled after %d/%d events during an in-flight turn", got, n)
+		}
+	}
+	if got != n {
+		t.Fatalf("received %d/%d streamed events before the turn ended", got, n)
+	}
+
+	// Settle the turn; the terminal event must close the stream.
+	b.handleResponse([]byte(`{"jsonrpc":"2.0","id":1,"result":{"stopReason":"end_turn"}}`), 1)
+	for range stream {
 	}
 }
 

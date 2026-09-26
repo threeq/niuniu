@@ -71,7 +71,7 @@ type Backend struct {
 
 	pending map[int64]chan rpcResponse
 
-	active     chan agentbackend.Event
+	active     *turnStream
 	activeDone chan struct{}
 
 	seq atomic.Int64
@@ -317,7 +317,47 @@ func (b *Backend) handleRequestPermission(raw []byte) {
 	_ = b.write(resp)
 }
 
-// Prompt sends a user turn and returns its event stream.
+// turnStream is one turn's outbound event channel. The mutex serializes send
+// against finish: a turn can be torn down (timeout / Close) while the
+// readLoop is mid-dispatch, and a bare channel send after close would panic.
+type turnStream struct {
+	mu     sync.Mutex
+	ch     chan agentbackend.Event
+	closed bool
+}
+
+func newTurnStream(buffer int) *turnStream {
+	return &turnStream{ch: make(chan agentbackend.Event, buffer)}
+}
+
+func (ts *turnStream) send(ev agentbackend.Event) {
+	ts.mu.Lock()
+	defer ts.mu.Unlock()
+	if ts.closed {
+		return
+	}
+	ts.ch <- ev
+}
+
+// finish appends the terminal event and closes the stream. Idempotent.
+func (ts *turnStream) finish(ev agentbackend.Event) {
+	ts.mu.Lock()
+	defer ts.mu.Unlock()
+	if ts.closed {
+		return
+	}
+	ts.closed = true
+	ts.ch <- ev
+	close(ts.ch)
+}
+
+// Prompt sends a user turn and returns its event stream. The channel is
+// handed to the caller immediately: niuniu-agent answers session/prompt only
+// when the whole turn settles (minutes for real tasks) while session/update
+// deltas stream throughout, so waiting for the response before returning
+// would leave the buffer unread during the turn — emit wedges the readLoop,
+// the OS pipe backpressures, and the agent freezes mid-generation until
+// teardown dumps every buffered event at once.
 func (b *Backend) Prompt(ctx context.Context, req agentbackend.PromptRequest) (<-chan agentbackend.Event, error) {
 	b.mu.Lock()
 	if !b.started || b.closed {
@@ -328,7 +368,7 @@ func (b *Backend) Prompt(ctx context.Context, req agentbackend.PromptRequest) (<
 		b.mu.Unlock()
 		return nil, errors.New("niuniu-agent backend already has an in-flight turn")
 	}
-	active := make(chan agentbackend.Event, 256)
+	active := newTurnStream(256)
 	turnDone := make(chan struct{})
 	b.active = active
 	b.activeDone = turnDone
@@ -337,20 +377,20 @@ func (b *Backend) Prompt(ctx context.Context, req agentbackend.PromptRequest) (<
 
 	blocks := []promptBlock{{Type: "text", Text: req.Message}}
 	started := time.Now()
-	// niuniu-agent answers session/prompt only when the turn settles, which
-	// for real coding tasks is minutes — the per-turn inactivity watchdog
-	// upstream (turnCtx) is the real bound, so this is a generous backstop.
-	result, err := b.request(ctx, "session/prompt", promptParams{SessionID: sessionID, Prompt: blocks}, 30*time.Minute)
-	if err != nil {
-		b.finishTurn(agentbackend.Event{Type: agentbackend.EventError, Error: err.Error()})
-		return active, nil
-	}
-
-	// The prompt response IS the turn end for niuniu-agent (stopReason and
-	// usage ride the response).
-	var pr promptResult
-	_ = json.Unmarshal(result, &pr) // unparseable usage → zero-token done event
-	b.finishTurn(b.doneEvent("", pr.Usage, time.Since(started)))
+	// The per-turn inactivity watchdog upstream (turnCtx) is the real bound,
+	// so 30min here is a generous backstop; runs off the caller's goroutine.
+	go func() {
+		result, err := b.request(ctx, "session/prompt", promptParams{SessionID: sessionID, Prompt: blocks}, 30*time.Minute)
+		if err != nil {
+			b.finishTurn(agentbackend.Event{Type: agentbackend.EventError, Error: err.Error()})
+			return
+		}
+		// The prompt response IS the turn end for niuniu-agent (stopReason and
+		// usage ride the response).
+		var pr promptResult
+		_ = json.Unmarshal(result, &pr) // unparseable usage → zero-token done event
+		b.finishTurn(b.doneEvent("", pr.Usage, time.Since(started)))
+	}()
 
 	go func() {
 		select {
@@ -359,7 +399,7 @@ func (b *Backend) Prompt(ctx context.Context, req agentbackend.PromptRequest) (<
 		case <-turnDone:
 		}
 	}()
-	return active, nil
+	return active.ch, nil
 }
 
 // doneEvent builds the terminal event. Usage (when the agent reported it in
@@ -495,13 +535,13 @@ func (b *Backend) write(v any) error {
 	return err
 }
 
-// emit pushes an event to the active turn channel, if any.
+// emit pushes an event to the active turn stream, if any.
 func (b *Backend) emit(ev agentbackend.Event) {
 	b.mu.Lock()
 	active := b.active
 	b.mu.Unlock()
 	if active != nil {
-		active <- ev
+		active.send(ev)
 	}
 }
 
@@ -515,8 +555,7 @@ func (b *Backend) finishTurn(ev agentbackend.Event) {
 	b.activeDone = nil
 	b.mu.Unlock()
 	if active != nil {
-		active <- ev
-		close(active)
+		active.finish(ev)
 	}
 	if done != nil {
 		close(done)
