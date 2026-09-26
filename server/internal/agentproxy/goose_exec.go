@@ -15,12 +15,37 @@ import (
 	"github.com/niuniu-dev/niuniu/internal/store"
 )
 
+// markAgentRunning flips the workspace agent_status badge to "running" at
+// backend-turn entry. Backend engines (omp/goose/cursor/niuniu-agent) own
+// processes that live across turns, so the per-turn running→idle contract
+// claude gets from its one-shot process spawn/exit monitor never fires for
+// them — drive it explicitly. The turn-done signals (signalGooseTurnDone /
+// signalOMPTurnDone) and Stop flip it back to idle.
+func (s *WorkspaceSession) markAgentRunning(ctx context.Context) {
+	s.q.UpdateAgentStatus(ctx, store.UpdateAgentStatusParams{
+		AgentPid:    sql.NullInt64{},
+		AgentStatus: sql.NullString{String: "running", Valid: true},
+		ID:          s.workspaceID,
+	})
+}
+
+// markAgentIdle is the turn-end counterpart of markAgentRunning.
+func (s *WorkspaceSession) markAgentIdle(ctx context.Context) {
+	s.q.UpdateAgentStatus(ctx, store.UpdateAgentStatusParams{
+		AgentPid:    sql.NullInt64{},
+		AgentStatus: sql.NullString{String: "idle", Valid: true},
+		ID:          s.workspaceID,
+	})
+}
+
 // runGooseBackendTurn drives one goose workspace turn through the reusable
 // agentbackend.goose.Backend (ACP over `goose acp`), mapping its neutral events
 // onto niuniu's proxy-chat model (messages / cost / SSE) and bridging
 // session/request_permission frames to the permission gate. It is the "frame →
 // proxy chat" adaptation edge for the goose integration.
 func (s *WorkspaceSession) runGooseBackendTurn(ctx context.Context, workDir, content, msgId string) error {
+	s.markAgentRunning(ctx)
+	s.recordActiveProvider(ctx)
 	be, err := s.getOrStartGooseBackend(ctx, workDir)
 	if err != nil {
 		slog.Error("goose: backend start failed", "workspaceID", s.workspaceID, "workDir", workDir, "err", err)
@@ -297,6 +322,7 @@ func (s *WorkspaceSession) recordGooseCost(ctx context.Context, ev agentbackend.
 // idle, sets per-turn error state, and signals SendLoop's turnDone so the
 // workspace can transition to idle / attention.
 func (s *WorkspaceSession) signalGooseTurnDone(ctx context.Context, msgId string, isErr bool, result string) {
+	s.markAgentIdle(ctx)
 	s.q.UpdateSessionColumns(ctx, store.UpdateSessionColumnsParams{
 		SessionID:     sql.NullString{String: s.sessionId, Valid: s.sessionId != ""},
 		SessionStatus: sql.NullString{String: string(StatusIdle), Valid: true},

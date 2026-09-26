@@ -22,6 +22,8 @@ import (
 // extension_ui_request frames to the permission gate. It is the "frame → proxy
 // chat" adaptation edge for the omp integration.
 func (s *WorkspaceSession) runOMPBackendTurn(ctx context.Context, workDir, content, msgId string) error {
+	s.markAgentRunning(ctx)
+	s.recordActiveProvider(ctx)
 	be, err := s.getOrStartOMPBackend(ctx, workDir)
 	if err != nil {
 		slog.Error("omp: backend start failed", "workspaceID", s.workspaceID, "workDir", workDir, "err", err)
@@ -278,6 +280,7 @@ func (s *WorkspaceSession) recordOMPCost(ctx context.Context, ev agentbackend.Ev
 // idle, sets per-turn error state, and signals SendLoop's turnDone so the
 // workspace can transition to idle / attention.
 func (s *WorkspaceSession) signalOMPTurnDone(ctx context.Context, msgId string, isErr bool, result string) {
+	s.markAgentIdle(ctx)
 	s.q.UpdateSessionColumns(ctx, store.UpdateSessionColumnsParams{
 		SessionID:     sql.NullString{String: s.sessionId, Valid: s.sessionId != ""},
 		SessionStatus: sql.NullString{String: string(StatusIdle), Valid: true},

@@ -18,6 +18,8 @@ import (
 // session/request_permission requests to the permission gate. This is
 // niuniu's own engine — the same binary the agent/ module ships.
 func (s *WorkspaceSession) runNiuniuAgentBackendTurn(ctx context.Context, workDir, content, msgId string) error {
+	s.markAgentRunning(ctx)
+	s.recordActiveProvider(ctx)
 	be, err := s.getOrStartNiuniuAgentBackend(ctx, workDir)
 	if err != nil {
 		slog.Error("niuniu-agent: backend start failed", "workspaceID", s.workspaceID, "workDir", workDir, "err", err)
