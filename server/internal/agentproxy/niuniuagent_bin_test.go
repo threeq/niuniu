@@ -42,8 +42,9 @@ func TestResolveNiuniuAgentCommandSidecarLayout(t *testing.T) {
 	}
 }
 
-// exe 旁没有时回退 ~/.niuniu/bin（若本机已装，命中的正是真实安装位）。
-func TestResolveNiuniuAgentCommandHomeBin(t *testing.T) {
+// exe 旁没有时：桌面解压目录（~/.niuniu/desktop-v2/sidecars）优先于
+// ~/.niuniu/bin——桌面指纹机制保证 sidecars 永远是随包最新版。
+func TestResolveNiuniuAgentCommandPrefersDesktopSidecars(t *testing.T) {
 	suffix := ""
 	if runtime.GOOS == "windows" {
 		suffix = ".exe"
@@ -52,13 +53,15 @@ func TestResolveNiuniuAgentCommandHomeBin(t *testing.T) {
 	if err != nil {
 		t.Skip("no home")
 	}
+	desktop := filepath.Join(home, ".niuniu", "desktop-v2", "sidecars", "niuniu-agent"+suffix)
 	homeBin := filepath.Join(home, ".niuniu", "bin", "niuniu-agent"+suffix)
-	if _, err := os.Stat(homeBin); err != nil {
-		t.Skip("no ~/.niuniu/bin install on this machine")
+	if _, err := os.Stat(desktop); err != nil {
+		t.Skip("no desktop sidecar unpack on this machine")
 	}
-	if got := resolveNiuniuAgentCommand(""); got != homeBin {
-		t.Errorf("got %q, want %q", got, homeBin)
+	if got := resolveNiuniuAgentCommand(""); got != desktop {
+		t.Errorf("got %q, want desktop sidecar %q (preferred over bin)", got, desktop)
 	}
+	_ = homeBin
 }
 
 // 两处都没有 → 空串（调用方回退裸名走 PATH）。
