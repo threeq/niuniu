@@ -69,12 +69,21 @@ fn embedded_sidecar_dir() -> Result<PathBuf, String> {
         // Agent 必须在内嵌时随包解压到位——部分解压会导致桌面静默缺失引擎。
         && (!cfg!(have_embedded_agent) || agent_path.exists());
     if !already_current {
-        write_atomic(&server_path, EMBED_SERVER)?;
-        write_atomic(&mcp_path, EMBED_MCP)?;
+        // 逐文件尽力替换：目标被占用（上一实例的残留进程、杀软扫描）时保留
+        // 旧版本继续启动——版本偏差一个启动周期可接受，桌面起不来不可接受。
+        // 未全部替换时不更新指纹，下次启动自动重试。
+        let mut all_replaced = write_atomic_lenient(&server_path, EMBED_SERVER);
+        all_replaced &= write_atomic_lenient(&mcp_path, EMBED_MCP);
         // niuniu-agent（可选 sidecar）：内嵌则一并释放，服务端 exe 同目录即可找到。
         #[cfg(have_embedded_agent)]
-        write_atomic(&agent_path, EMBED_AGENT)?;
-        let _ = std::fs::write(&marker, fp);
+        {
+            all_replaced &= write_atomic_lenient(&agent_path, EMBED_AGENT);
+        }
+        if all_replaced {
+            let _ = std::fs::write(&marker, fp);
+        } else {
+            eprintln!("sidecar re-extract partially skipped (files locked); will retry on next boot");
+        }
         // unix 可执行位
         #[cfg(unix)]
         {
@@ -98,6 +107,25 @@ fn write_atomic(path: &Path, data: &[u8]) -> Result<(), String> {
     std::fs::write(&tmp, data).map_err(|e| format!("write {}: {e}", path.display()))?;
     std::fs::rename(&tmp, path).map_err(|e| format!("rename {}: {e}", path.display()))?;
     Ok(())
+}
+
+/// 尽力替换：目标被占用（运行中的旧进程持有镜像 / 杀软扫描锁）导致 rename
+/// 失败时，保留磁盘上已有的旧版本并返回 true（可用即可启动）；连旧文件都
+/// 不存在才算失败。
+#[cfg(have_embedded_sidecars)]
+fn write_atomic_lenient(path: &Path, data: &[u8]) -> bool {
+    if write_atomic(path, data).is_ok() {
+        return true;
+    }
+    if path.exists() {
+        eprintln!(
+            "sidecar {} is locked; keeping the existing binary (will retry on next boot)",
+            path.display()
+        );
+        return true;
+    }
+    eprintln!("sidecar {} could not be extracted", path.display());
+    false
 }
 
 /// 解析 niuniu-server 侧车路径。优先内嵌（单文件分发，解压到 ~/.niuniu/desktop-v2/sidecars/）；

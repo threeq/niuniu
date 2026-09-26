@@ -35,6 +35,11 @@ const DefaultCommand = "niuniu-agent"
 // session/new round-trips.
 const DefaultHandshakeTimeout = 15 * time.Second
 
+// spawnRetryDelay waits out a transient binary lock (extractor handle /
+// antivirus scan) between spawn retries; spawnRetryAttempts bounds them.
+const spawnRetryDelay = 2 * time.Second
+const spawnRetryAttempts = 3
+
 // Options configures the Backend.
 type Options struct {
 	// Command is the niuniu-agent executable (default "niuniu-agent"). For
@@ -62,12 +67,13 @@ type Options struct {
 type Backend struct {
 	opts Options
 
-	mu      sync.Mutex
-	cmd     *exec.Cmd
-	stdin   io.WriteCloser
-	started bool
-	closed  bool
-	session string
+	mu       sync.Mutex
+	cmd      *exec.Cmd
+	stdin    io.WriteCloser
+	started  bool
+	closed   bool
+	session  string
+	jobClose func()
 
 	pending map[int64]chan rpcResponse
 
@@ -103,27 +109,54 @@ func (b *Backend) Start(ctx context.Context) error {
 	b.mu.Unlock()
 
 	args := append([]string{"acp"}, b.opts.Args...)
-	cmd := exec.CommandContext(ctx, b.opts.Command, args...)
-	cmd.Dir = b.opts.WorkDir
-	// Non-nil cmd.Env replaces the child's environment entirely — seed from
-	// os.Environ() so PATH/HOME survive.
-	cmd.Env = append(os.Environ(), b.opts.Env...)
+	start := func() (*exec.Cmd, io.WriteCloser, io.ReadCloser, error) {
+		cmd := exec.CommandContext(ctx, b.opts.Command, args...)
+		cmd.Dir = b.opts.WorkDir
+		// Non-nil cmd.Env replaces the child's environment entirely — seed from
+		// os.Environ() so PATH/HOME survive.
+		cmd.Env = append(os.Environ(), b.opts.Env...)
 
-	stdin, err := cmd.StdinPipe()
-	if err != nil {
-		return fmt.Errorf("niuniu-agent stdin pipe: %w", err)
+		stdin, err := cmd.StdinPipe()
+		if err != nil {
+			return nil, nil, nil, fmt.Errorf("niuniu-agent stdin pipe: %w", err)
+		}
+		stdout, err := cmd.StdoutPipe()
+		if err != nil {
+			return nil, nil, nil, fmt.Errorf("niuniu-agent stdout pipe: %w", err)
+		}
+		// Capture the child's stderr into the server log — panics, model-client
+		// errors, and crash stacks were previously inherited by the server's
+		// terminal (invisible when run as a service), leaving a hung turn
+		// undiagnosable.
+		cmd.Stderr = &stderrLogger{backend: "niuniu-agent"}
+		if err := cmd.Start(); err != nil {
+			return nil, nil, nil, err
+		}
+		return cmd, stdin, stdout, nil
 	}
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		return fmt.Errorf("niuniu-agent stdout pipe: %w", err)
+
+	cmd, stdin, stdout, err := start()
+	// Windows: a just-replaced sidecar binary can still be held for a while by
+	// the extractor or an antivirus scan (sharing violation) — bounded retries
+	// clear it instead of failing the turn.
+	for attempt := 1; err != nil && agentbackend.IsTransientSpawnError(err) && attempt < spawnRetryAttempts; attempt++ {
+		slog.Warn("niuniu-agent: spawn hit a locked binary, retrying", "path", b.opts.Command, "attempt", attempt, "err", err)
+		time.Sleep(spawnRetryDelay)
+		cmd, stdin, stdout, err = start()
 	}
-	// Capture the child's stderr into the server log — panics, model-client
-	// errors, and crash stacks were previously inherited by the server's
-	// terminal (invisible when run as a service), leaving a hung turn
-	// undiagnosable.
-	cmd.Stderr = &stderrLogger{backend: "niuniu-agent"}
-	if err := cmd.Start(); err != nil {
+	if err != nil {
 		return fmt.Errorf("niuniu-agent start: %w", err)
+	}
+
+	// Windows: tie the agent (and its MCP children) to the server's lifetime —
+	// a crashed or force-killed server must not leave orphan processes holding
+	// the sidecar binaries. Non-fatal on failure (nested job restrictions).
+	if closeJob, jobErr := agentbackend.AssignKillOnCloseJob(cmd.Process.Pid); jobErr != nil {
+		slog.Warn("niuniu-agent: job-object assignment failed (orphan protection disabled)", "err", jobErr)
+	} else {
+		b.mu.Lock()
+		b.jobClose = closeJob
+		b.mu.Unlock()
 	}
 
 	b.mu.Lock()
@@ -486,6 +519,15 @@ func (b *Backend) Close(ctx context.Context) error {
 			_ = cmd.Process.Kill()
 			<-done
 		}
+	}
+	// Drop the job handle: kills any processes the agent left behind (its MCP
+	// children), so nothing from this backend can hold the sidecar binaries.
+	b.mu.Lock()
+	jobClose := b.jobClose
+	b.jobClose = nil
+	b.mu.Unlock()
+	if jobClose != nil {
+		jobClose()
 	}
 	return nil
 }
