@@ -450,11 +450,12 @@ func (r *promptRun) onEvent(e loop.Event) {
 // Check implements perm.Checker: read-only tools pass; mutating tools are
 // escalated to the client via session/request_permission.
 func (r *promptRun) Check(toolName string) perm.Decision {
-	// Bypass mode (NIUNIU_AGENT_PERMISSION_MODE=bypass): the niuniu server /
-	// desktop app is a local single-user host — mutating tools run without
-	// per-call approval, matching claude's bypassPermissions contract. Set
-	// the env to "normal" to restore the approval flow.
-	if os.Getenv("NIUNIU_AGENT_PERMISSION_MODE") == "bypass" {
+	// Default: allow everything. The niuniu server / desktop app is a local
+	// single-user host — mutating tools run without per-call approval,
+	// matching claude's bypassPermissions contract. The ACP approval flow is
+	// opt-in via NIUNIU_AGENT_PERMISSION_MODE=normal (IDE / multi-tenant
+	// hosts that render the approval card).
+	if os.Getenv("NIUNIU_AGENT_PERMISSION_MODE") != "normal" {
 		return perm.Allow
 	}
 	if !perm.IsWrite(toolName) {

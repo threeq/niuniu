@@ -261,6 +261,8 @@ func TestACPHandshakeAndPrompt(t *testing.T) {
 }
 
 func TestACPPermissionAllowAndDeny(t *testing.T) {
+	// Restore the approval flow for this test (default is bypass).
+	t.Setenv("NIUNIU_AGENT_PERMISSION_MODE", "normal")
 	// Same LIFO rule as TestACPHandshakeAndPrompt: temp dirs first.
 	tmpA, tmpB := t.TempDir(), t.TempDir()
 	target := filepath.Join(tmpA, "out.txt")
