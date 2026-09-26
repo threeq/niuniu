@@ -17,6 +17,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 	"os/exec"
 	"strings"
@@ -388,6 +389,11 @@ func (b *Backend) ResolvePermission(ctx context.Context, req agentbackend.Permis
 }
 
 // Abort cancels the in-flight turn with a `session/cancel` notification.
+// Hard-kill fallback: if the agent has not exited within 5s of the cancel
+// (e.g. wedged on a stalled gateway socket that swallows the ctx
+// cancellation), the process is killed — readLoop EOF surfaces EventError,
+// the turn settles and the session unlocks. A respawned agent replaces it on
+// the next message, so killing is always safe.
 func (b *Backend) Abort(ctx context.Context) error {
 	b.mu.Lock()
 	if !b.started || b.closed {
@@ -395,8 +401,23 @@ func (b *Backend) Abort(ctx context.Context) error {
 		return nil
 	}
 	sessionID := b.session
+	cmd := b.cmd
 	b.mu.Unlock()
-	return b.write(rpcRequest{JSONRPC: "2.0", Method: "session/cancel", Params: cancelParams{SessionID: sessionID}})
+	if err := b.write(rpcRequest{JSONRPC: "2.0", Method: "session/cancel", Params: cancelParams{SessionID: sessionID}}); err != nil {
+		return err
+	}
+	go func() {
+		time.Sleep(5 * time.Second)
+		b.mu.Lock()
+		alive := b.started && !b.closed
+		b.mu.Unlock()
+		if alive && cmd.Process != nil {
+			slog.Warn("niuniu-agent: still alive 5s after session/cancel — killing process",
+				"session", sessionID, "pid", cmd.Process.Pid)
+			_ = cmd.Process.Kill()
+		}
+	}()
+	return nil
 }
 
 // Close EOFs stdin and kills the process if it does not exit promptly.
