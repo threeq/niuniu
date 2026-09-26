@@ -498,6 +498,10 @@ dev-desktop-v2:
 # 若有三方 triple 映射则额外多拷一份 triple 名以备将来 externalBin 打包用）。
 _personal-prepare-v2:
 	@mkdir -p desktop-v2/binaries; \
+	if [ ! -f desktop-v2/binaries/staging/$(GOOS)-$(GOARCH)/niuniu-agent$(EXT) ]; then \
+		echo "ERROR: staging/$(GOOS)-$(GOARCH)/niuniu-agent$(EXT) missing — run _personal-prepare first; desktop packages MUST ship the latest niuniu-agent"; \
+		exit 1; \
+	fi; \
 	cp desktop-v2/binaries/staging/$(GOOS)-$(GOARCH)/niuniu-server$(EXT) desktop-v2/binaries/niuniu-server$(EXT); \
 	cp desktop-v2/binaries/staging/$(GOOS)-$(GOARCH)/niuniu-mcp$(EXT) desktop-v2/binaries/niuniu-mcp$(EXT); \
 	cp desktop-v2/binaries/staging/$(GOOS)-$(GOARCH)/niuniu-agent$(EXT) desktop-v2/binaries/niuniu-agent$(EXT); \
