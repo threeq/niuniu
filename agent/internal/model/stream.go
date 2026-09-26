@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"time"
 )
 
 // Streaming: when Request.Stream is set, the adapter POSTs with
@@ -32,25 +33,51 @@ type StreamDelta struct {
 // postSSE sends the payload and invokes onEvent for every SSE data frame
 // (event name + raw JSON). Returns on stream end or transport error.
 func postSSE(ctx context.Context, hc *http.Client, endpoint string, headers map[string]string, payload []byte, onEvent func(event, data string) error) error {
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(payload))
-	if err != nil {
-		return err
+	// Retry the Do phase (429/5xx/network) exactly like the non-stream path:
+	// the onEvent callback cannot be replayed, so retries only happen before
+	// the first successful response — a stream that already delivered deltas
+	// is never restarted.
+	for attempt := 0; ; attempt++ {
+		httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(payload))
+		if err != nil {
+			return err
+		}
+		httpReq.Header.Set("Content-Type", "application/json")
+		httpReq.Header.Set("Accept", "text/event-stream")
+		for k, v := range headers {
+			httpReq.Header.Set(k, v)
+		}
+		resp, err := hc.Do(httpReq)
+		if err != nil {
+			if attempt < 2 && ctx.Err() == nil {
+				time.Sleep(time.Duration(1<<attempt) * time.Second)
+				continue
+			}
+			return err
+		}
+		if retryableStatus(resp.StatusCode) && attempt < 2 && ctx.Err() == nil {
+			io.Copy(io.Discard, io.LimitReader(resp.Body, 1<<20))
+			resp.Body.Close()
+			time.Sleep(time.Duration(1<<attempt) * time.Second)
+			continue
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+			data, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+			return fmt.Errorf("POST %s: HTTP %d: %s", endpoint, resp.StatusCode, truncate(string(data), 500))
+		}
+		return scanSSE(ctx, resp.Body, onEvent)
 	}
-	httpReq.Header.Set("Content-Type", "application/json")
-	httpReq.Header.Set("Accept", "text/event-stream")
-	for k, v := range headers {
-		httpReq.Header.Set(k, v)
-	}
-	resp, err := hc.Do(httpReq)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		data, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
-		return fmt.Errorf("POST %s: HTTP %d: %s", endpoint, resp.StatusCode, truncate(string(data), 500))
-	}
-	sc := bufio.NewScanner(resp.Body)
+}
+
+func retryableStatus(status int) bool {
+	return status == 429 || status == 500 || status == 502 || status == 503 || status == 504
+}
+
+func scanSSE(ctx context.Context, body io.Reader, onEvent func(event, data string) error) error {
+	// Idle guard: a gateway that stalls mid-SSE (no bytes, no close) must
+	// fail the stream instead of parking the turn forever as "running".
+	sc := bufio.NewScanner(newIdleTimeoutReader(body))
 	sc.Buffer(make([]byte, 0, 64<<10), 8<<20)
 	event := ""
 	for sc.Scan() {

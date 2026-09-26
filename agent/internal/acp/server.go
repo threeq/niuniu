@@ -82,8 +82,17 @@ func New(in io.Reader, out io.Writer, reg *tools.Registry, systemFor func(cwd st
 // Serve reads and dispatches until the input stream ends. On return every
 // session's scoped resources (MCP servers) are shut down — the servers'
 // lifetime is the process's, which in niuniu's deployment is one workspace.
-func (s *Server) Serve(ctx context.Context) error {
-	defer s.closeSessions()
+// Serve reads and dispatches until the input stream ends. A panic in the
+// loop itself (outside the per-request recover) is logged and surfaced as a
+// clean error instead of killing the process without a trace.
+func (s *Server) Serve(ctx context.Context) (err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			slog.Error("acp: serve loop panic", "panic", r, "stack", string(debug.Stack()))
+			err = fmt.Errorf("acp: serve loop panic: %v", r)
+		}
+		s.closeSessions()
+	}()
 	sc := bufio.NewScanner(s.in)
 	sc.Buffer(make([]byte, 0, 64<<10), 16<<20)
 	for sc.Scan() {
