@@ -10,12 +10,14 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/niuniu-dev/niuniu/agent/internal/acp"
+	"github.com/niuniu-dev/niuniu/agent/internal/logging"
 	"github.com/niuniu-dev/niuniu/agent/internal/loop"
 	"github.com/niuniu-dev/niuniu/agent/internal/lsp"
 	"github.com/niuniu-dev/niuniu/agent/internal/mcp"
@@ -128,6 +130,12 @@ func (m multiCloser) Close() error {
 }
 
 func main() {
+	// File logging first: the ACP server (and headless runs) may be detached
+	// from any terminal, so slog diagnostics must land on disk to be
+	// inspectable after a hang or crash.
+	logging.InitFileLog("") // ~/.niuniu-agent/logs/agent.log — global, not per-project
+	slog.Info("niuniu-agent starting", "args", os.Args)
+
 	if len(os.Args) > 1 && os.Args[1] == "acp" {
 		runACP()
 		return

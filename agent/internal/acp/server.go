@@ -5,9 +5,11 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"os"
+	"runtime/debug"
 	"strconv"
 	"strings"
 	"sync"
@@ -130,7 +132,20 @@ func (s *Server) write(v any) {
 
 func (s *Server) dispatch(ctx context.Context, req rpcRequest) {
 	go func() {
+		// A panic in a handler goroutine would kill the whole agent process
+		// (stdio EOF → a hung turn on the host, with no trace). Recover into
+		// a JSON-RPC error and log the stack instead.
+		defer func() {
+			if r := recover(); r != nil {
+				slog.Error("acp: handler panic", "method", req.Method, "panic", r, "stack", string(debug.Stack()))
+				s.write(rpcResponse{JSONRPC: "2.0", ID: req.ID,
+					Error: &rpcError{Code: errInternal, Message: fmt.Sprintf("internal panic: %v", r)}})
+			}
+		}()
+		started := time.Now()
 		result, rpcErr := s.handle(ctx, req)
+		slog.Info("acp: request handled", "method", req.Method, "id", string(req.ID),
+			"ms", time.Since(started).Milliseconds(), "err", rpcErrString(rpcErr))
 		resp := rpcResponse{JSONRPC: "2.0", ID: req.ID}
 		if rpcErr != nil {
 			resp.Error = rpcErr
@@ -139,6 +154,13 @@ func (s *Server) dispatch(ctx context.Context, req rpcRequest) {
 		}
 		s.write(resp)
 	}()
+}
+
+func rpcErrString(e *rpcError) string {
+	if e == nil {
+		return ""
+	}
+	return e.Message
 }
 
 func (s *Server) handle(ctx context.Context, req rpcRequest) (json.RawMessage, *rpcError) {
@@ -274,6 +296,9 @@ func (s *Server) runPrompt(parent context.Context, st *sessionState, p sessionPr
 	}
 
 	run := &promptRun{srv: s, sess: st}
+	slog.Info("acp: prompt start", "session", st.id, "cwd", st.cwd,
+		"blocks", len(userBlocks))
+	promptStarted := time.Now()
 	res, err := st.conv.PromptBlocks(ctx, userBlocks, loop.Options{
 		OnEvent:          run.onEvent,
 		Perms:            run,
@@ -297,6 +322,9 @@ func (s *Server) runPrompt(parent context.Context, st *sessionState, p sessionPr
 	if err := saveACPSession(st); err != nil {
 		slog.Warn("acp: save session snapshot failed", "session", st.id, "err", err)
 	}
+	slog.Info("acp: prompt done", "session", st.id,
+		"ms", time.Since(promptStarted).Milliseconds(), "rounds", res.Rounds,
+		"out", res.Usage.OutputTokens, "in", res.Usage.InputTokens)
 	out, _ := json.Marshal(sessionPromptResult{
 		StopReason: "end_turn",
 		Usage: &usageBody{
@@ -356,6 +384,8 @@ type promptRun struct {
 }
 
 func (r *promptRun) onEvent(e loop.Event) {
+	slog.Info("acp: agent event", "kind", e.Kind, "delta", e.Delta,
+		"text", truncateForLog(e.Text), "tool", e.ToolName)
 	switch e.Kind {
 	case loop.EventThinking:
 		r.srv.notify(r.sess.id, updateBody{
@@ -495,4 +525,11 @@ func sessionCwd(cwd string) string {
 		return wd
 	}
 	return "."
+}
+
+func truncateForLog(s string) string {
+	if len(s) <= 120 {
+		return s
+	}
+	return s[:120] + "…"
 }

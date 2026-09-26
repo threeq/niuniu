@@ -6,8 +6,10 @@ package loop
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/niuniu-dev/niuniu/agent/internal/model"
 	"github.com/niuniu-dev/niuniu/agent/internal/perm"
@@ -176,6 +178,8 @@ func (s *Session) PromptBlocks(ctx context.Context, userBlocks []model.Block, op
 			if keep <= 0 {
 				keep = DefaultKeepRecent
 			}
+			slog.Info("loop: auto-compact triggered", "turn", turn,
+				"ctxEstimate", ctxEstimate, "threshold", opts.CompactThresholdTokens)
 			s.compact(ctx, keep, opts.CompactStatePath, opts.HistoryDir)
 			lastCtx = 0 // compacted; don't re-trigger on the same overshoot
 		}
@@ -199,10 +203,17 @@ func (s *Session) PromptBlocks(ctx context.Context, userBlocks []model.Block, op
 				emit(Event{Kind: kind, Text: d.Text, Delta: true})
 			}
 		}
+		roundStarted := time.Now()
 		resp, err := s.m.Complete(ctx, req)
 		if err != nil {
+			slog.Error("loop: model round failed", "round", turn, "ms", time.Since(roundStarted).Milliseconds(), "err", err)
 			return TurnResult{}, fmt.Errorf("model round %d: %w", turn, err)
 		}
+		slog.Info("loop: model round done", "round", turn,
+			"ms", time.Since(roundStarted).Milliseconds(),
+			"stop", resp.StopReason,
+			"in", resp.Usage.InputTokens+resp.Usage.CacheReadTokens+resp.Usage.CacheCreationTokens,
+			"out", resp.Usage.OutputTokens)
 		s.messages = append(s.messages, resp.Message)
 		if textDeltas == 0 {
 			for _, blk := range resp.Message.Blocks {
