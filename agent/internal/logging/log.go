@@ -2,6 +2,7 @@ package logging
 
 import (
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -49,7 +50,11 @@ func InitFileLog(defaultDir string) {
 		if err != nil {
 			return
 		}
-		slog.SetDefault(slog.New(slog.NewTextHandler(f, &slog.HandlerOptions{Level: slog.LevelInfo})))
+		// Dual-write: the file is the durable record (inspectable after a
+		// hang/crash), stderr stays live for the terminal and for the host's
+		// stderr bridge.
+		w := io.MultiWriter(f, os.Stderr)
+		slog.SetDefault(slog.New(slog.NewTextHandler(w, &slog.HandlerOptions{Level: slog.LevelInfo})))
 		slog.Info("logging initialized", "file", path)
 	})
 }

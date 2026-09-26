@@ -204,13 +204,30 @@ func (s *Server) handle(ctx context.Context, req rpcRequest) (json.RawMessage, *
 				reg, closer = r, c
 			}
 		}
+		cwd := sessionCwd(p.CWD)
+		sys := s.systemFor(cwd)
+		// Auto-resume: continue the project's most recent conversation across
+		// agent-process restarts (the server may respawn us any time).
+		// Messages come from the snapshot; the system prompt is rebuilt fresh
+		// (env/project context may have moved on). NIUNIU_AGENT_NO_RESUME=1
+		// opts out; any failure falls back to a fresh session.
+		conv := loop.NewSession(m, reg, sys)
+		if os.Getenv("NIUNIU_AGENT_NO_RESUME") != "1" {
+			if snapID, err := loop.LatestSessionID(tools.SessionsDir(cwd)); err == nil {
+				if snap, err := loop.LoadSession(tools.SessionsDir(cwd), snapID); err == nil && len(snap.Messages) > 0 {
+					conv = loop.RestoreSessionKeepingMessages(m, reg, snap, sys)
+					slog.Info("acp: resumed previous session", "snapshot", snapID,
+						"messages", len(snap.Messages))
+				}
+			}
+		}
 		s.sessMu.Lock()
 		s.nextID++
 		id := "s-" + strconv.Itoa(s.nextID)
 		st := &sessionState{
 			id:     id,
 			cwd:    p.CWD,
-			conv:   loop.NewSession(m, reg, s.systemFor(sessionCwd(p.CWD))),
+			conv:   conv,
 			closer: closer,
 		}
 		s.sessions[id] = st
