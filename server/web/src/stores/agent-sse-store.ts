@@ -188,12 +188,23 @@ export const useAgentSSEStore = create<AgentSSEState>((set, get) => ({
   },
 
   addWorkspace(workspaceId) {
-    const { subscribedWorkspaces } = get();
-    if (subscribedWorkspaces.has(workspaceId)) return;
+    const { subscribedWorkspaces, es } = get();
+    if (subscribedWorkspaces.has(workspaceId)) {
+      // Already subscribed but the stream is gone (e.g. it died while
+      // intentionalClose was latched): revive it. scheduleReconnect alone
+      // can't — its guard skips the call while the latch is set.
+      if (!es || es.readyState === EventSource.CLOSED) {
+        get().connect(Array.from(subscribedWorkspaces));
+      }
+      return;
+    }
 
     const newSet = new Set(subscribedWorkspaces);
     newSet.add(workspaceId);
-    set({ subscribedWorkspaces: newSet });
+    // A fresh subscription is explicit intent to stream: clear the
+    // intentionalClose latch, otherwise the guard inside scheduleReconnect
+    // swallows every future reconnect until a full page reload.
+    set({ subscribedWorkspaces: newSet, intentionalClose: false });
     get().scheduleReconnect();
   },
 
@@ -205,7 +216,16 @@ export const useAgentSSEStore = create<AgentSSEState>((set, get) => ({
     newSet.delete(workspaceId);
     set({ subscribedWorkspaces: newSet });
     if (newSet.size === 0) {
-      get().disconnect();
+      // Last workspace gone (navigating between workspaces). Close the stream
+      // but do NOT latch intentionalClose — that flag means "teardown, never
+      // reconnect", and latching it here killed every future reconnect until
+      // a page reload. An empty subscription set is harmless: the next
+      // addWorkspace opens a fresh stream.
+      const { es } = get();
+      if (es) {
+        es.close();
+        set({ es: null });
+      }
       return;
     }
     get().scheduleReconnect();
