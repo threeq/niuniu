@@ -102,7 +102,15 @@ endef
 # Development: run backend and frontend concurrently
 dev: dev-backend dev-frontend
 
-dev-backend:
+# niuniu-agent dev binary: rebuilt on every `make dev-backend` so the engine
+# the server spawns always matches the current tree. The deploy path is where
+# agent.niuniu_agent_cli.command (config.yaml) points; override to relocate.
+NIUNIU_AGENT_BIN ?= $(HOME)/.niuniu/bin/niuniu-agent$(EXE_SUFFIX)
+
+build-agent-bin:
+	cd agent && go build -o "$(NIUNIU_AGENT_BIN)" ./cmd/niuniu-agent
+
+dev-backend: build-agent-bin
 	cd server && go run ./cmd/niuniu
 
 dev-frontend:
