@@ -25,7 +25,7 @@ niuniu 的自研编码 agent（issue #708 / #709）。可行性分析与总体�
 - ✅ P4 能力自动注入：agent 侧 session 启动加载 `<cwd>/.niuniu-agent/inject.md`（40KB 上限）进 system 的 Host capabilities 段；server 侧为 `cli_type=niuniu` 工作空间投影 inject.md（niuniu-mcp 四族工具说明 + AUTOHOST_DONE 收尾约定 + 看板纪律 + 记忆互通指引）并重生成含 niuniu-mcp 的 `.mcp.json`（与 claude 引擎同一生成器）；投影失败不阻断
 - ✅ P5 thinking 全链路：双 adapter 解析思考块（anthropic thinking+signature 原样回传 / openai reasoning_content）→ ACP `agent_thought_chunk` → 服务端 EventThinking 落库；`NIUNIU_AGENT_THINKING`（off|low|medium|high|<tokens>）预算/effort 透传；headless stderr `[thinking]` 行
 - ✅ P5 subagent 共享/隔离：cwd/system 继承钉住、ContextPreamble+context 叠加、background=true + AgentResult 轮询、同回合多 Agent 并行；窗口隔离（仅报告回填）、compact 继承、报告 16KB 截断、TodoWrite 等排除清单、召回减半
-- ✅ P5 长任务：后台 Bash（run_in_background + BashOutput 轮询）、session 持久化 `.niuniu-agent/sessions/` + `-resume <id|latest>`、compact 摘要三节结构化（Background/Key decisions/Open items）
+- ✅ P5 长任务：后台 Bash（run_in_background + BashOutput 轮询）、session 持久化 `~/.niuniu-agent/projects/<escaped-cwd>/sessions/`（Claude-Code 式用户目录布局，不污染项目）+ `-resume <id|latest>`、compact 摘要三节结构化（Background/Key decisions/Open items）
 - ✅ P5 缓存精细化：usage 行 cache-hit 命中率、增量消息断点（cache_control 落倒数第二条消息，跨轮字节稳定才命中）、prompt 防抖规则成文（见 internal/prompt 包注释）
 - ✅ P6 token 级流式：双族 SSE 解析（Request.Stream 增量回调，tool_use 分片聚合），loop/ACP chunk 增量化；`NIUNIU_AGENT_STREAM` 默认开，headless 打 `[stream] first-token` 时延；`NIUNIU_AGENT_CONTEXT_EDITING=1` 启用 Anthropic 服务端 context editing（clear_tool_uses，服务端自动清旧工具结果；openai 族忽略该开关，走本地逐出）
 - ✅ P6 多模态：IR image 块（user/tool_result 均可携带），Read 图片（ImageResult 接口），anthropic source / openai image_url 双族线格式，ACP image block 接入
@@ -143,6 +143,22 @@ references/hover/symbols 精准导航（按文件扩展名路由，server 进程
 
 新供应商家族：实现 `model.Model` 接口并 `model.RegisterProvider(name, factory)`
 注册，profile 的 `provider` 字段直接引用注册名。
+
+### 状态存储布局
+
+agent 私有状态（会话快照 / 压缩状态 / 压缩归档 / 任务清单）按 Claude-Code
+式布局存**用户主目录**，按项目路径转义分区，不写入项目目录：
+
+```
+~/.niuniu-agent/projects/<escaped-cwd>/
+├── sessions/<id>.json      # 会话快照（headless 与 ACP 每 turn 保存，-resume 恢复）
+├── session-state.json      # 结构化压缩状态
+├── history/                # 被 compact 移除的消息归档（HistorySearch 检索）
+└── todos.json              # 任务清单
+```
+
+工作空间内的 `.niuniu-agent/` 只保留**可共享的项目工件**：AGENTS.md、
+inject.md、.mcp.json、skills/、PROMPT.md、memory/（项目层）。
 
 ## 布局
 

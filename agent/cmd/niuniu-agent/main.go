@@ -247,7 +247,7 @@ Configuration (env):
 	sess = loop.NewSession(m, reg, system)
 	// Session resume: rebuild the prior conversation so follow-up runs keep
 	// full context.
-	sessionsDir := filepath.Join(cwd, ".niuniu-agent", "sessions")
+	sessionsDir := tools.SessionsDir(cwd) // ~/.niuniu-agent/projects/<escaped-cwd>/sessions
 	if *resume != "" {
 		id := *resume
 		if id == "latest" {
@@ -281,9 +281,9 @@ Configuration (env):
 			MaxTurns:         *maxTurns,
 			Perms:            perm.NewPolicy(*yes),
 			Stream:           streamOn,
-			CompactStatePath: filepath.Join(cwd, ".niuniu-agent", "session-state.json"),
+			CompactStatePath: tools.CompactStatePath(cwd),
 			ContextEditing:   os.Getenv("NIUNIU_AGENT_CONTEXT_EDITING") == "1",
-			HistoryDir:       filepath.Join(cwd, ".niuniu-agent", "history"),
+			HistoryDir:       tools.HistoryDir(cwd),
 			OnEvent: func(e loop.Event) {
 				if streamOn && e.Delta && firstToken.IsZero() && (e.Kind == loop.EventText || e.Kind == loop.EventThinking) {
 					firstToken = time.Now()

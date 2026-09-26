@@ -8,7 +8,6 @@ import (
 	"io"
 	"log/slog"
 	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -278,9 +277,9 @@ func (s *Server) runPrompt(parent context.Context, st *sessionState, p sessionPr
 	res, err := st.conv.PromptBlocks(ctx, userBlocks, loop.Options{
 		OnEvent:          run.onEvent,
 		Perms:            run,
-		CompactStatePath: filepath.Join(st.cwd, ".niuniu-agent", "session-state.json"),
+		CompactStatePath: tools.CompactStatePath(st.cwd),
 		ContextEditing:   os.Getenv("NIUNIU_AGENT_CONTEXT_EDITING") == "1",
-		HistoryDir:       filepath.Join(st.cwd, ".niuniu-agent", "history"),
+		HistoryDir:       tools.HistoryDir(st.cwd),
 		// SSE streaming: session/update chunks become incremental
 		// (agent_message_chunk / agent_thought_chunk per delta).
 		Stream: model.ParseStreamFlag(os.Getenv("NIUNIU_AGENT_STREAM")),
@@ -292,6 +291,12 @@ func (s *Server) runPrompt(parent context.Context, st *sessionState, p sessionPr
 		}
 		return nil, &rpcError{Code: errInternal, Message: err.Error()}
 	}
+	// Persist the session snapshot after every completed turn — headless -p
+	// has always saved, but ACP never did (so there was nothing on disk to
+	// resume). Best-effort: a failed write must not fail the turn.
+	if err := saveACPSession(st); err != nil {
+		slog.Warn("acp: save session snapshot failed", "session", st.id, "err", err)
+	}
 	out, _ := json.Marshal(sessionPromptResult{
 		StopReason: "end_turn",
 		Usage: &usageBody{
@@ -301,6 +306,12 @@ func (s *Server) runPrompt(parent context.Context, st *sessionState, p sessionPr
 		},
 	})
 	return out, nil
+}
+
+// saveACPSession writes the session snapshot to the per-project state dir
+// under the user home (~/.niuniu-agent/projects/<escaped-cwd>/sessions).
+func saveACPSession(st *sessionState) error {
+	return loop.SaveSession(tools.SessionsDir(st.cwd), st.conv.ExportState(st.id))
 }
 
 func (s *Server) dispatchNotification(req rpcRequest) {

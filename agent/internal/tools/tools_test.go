@@ -118,7 +118,7 @@ func TestTodoWritePersists(t *testing.T) {
 	if !strings.Contains(out, "[x] step one") || !strings.Contains(out, "[~] doing step two") || !strings.Contains(out, "[ ] step three") {
 		t.Errorf("render = %q", out)
 	}
-	data, err := os.ReadFile(filepath.Join(tmp, ".niuniu-agent", "todos.json"))
+	data, err := os.ReadFile(TodosPath(tmp))
 	if err != nil || !strings.Contains(string(data), "step two") {
 		t.Errorf("todos.json not persisted (err=%v)", err)
 	}

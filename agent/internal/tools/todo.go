@@ -12,7 +12,9 @@ import (
 )
 
 // TodoWrite maintains the agent's task list, persisted to
-// <cwd>/.niuniu-agent/todos.json so it survives across turns and sessions.
+// ~/.niuniu-agent/projects/<escaped-cwd>/todos.json (per-project state under
+// the user home) so it survives across turns and sessions without polluting
+// the project directory.
 type TodoWrite struct{}
 
 // todoItem is one list entry.
@@ -59,7 +61,9 @@ func (TodoWrite) Execute(_ context.Context, input json.RawMessage) (string, erro
 	if err != nil {
 		return "", err
 	}
-	dir := filepath.Join(wd, ".niuniu-agent")
+	// Task list lives in the per-project state dir under the user home
+	// (never inside the project) — Claude-Code-style layout.
+	dir := StateDir(wd)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return "", err
 	}
