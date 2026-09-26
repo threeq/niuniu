@@ -116,6 +116,17 @@ func (c *Client) CallTool(ctx context.Context, name string, args json.RawMessage
 	if args == nil {
 		args = json.RawMessage(`{}`)
 	}
+	// Per-call bound: a wedged MCP server must fail the tool call (the loop
+	// backfills an error tool_result) instead of parking the whole turn.
+	// NIUNIU_AGENT_MCP_TIMEOUT (Go duration) overrides; default 2 minutes.
+	timeout := 2 * time.Minute
+	if v := os.Getenv("NIUNIU_AGENT_MCP_TIMEOUT"); v != "" {
+		if d, err := time.ParseDuration(v); err == nil && d > 0 {
+			timeout = d
+		}
+	}
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
 	var res struct {
 		Content []struct {
 			Type string `json:"type"`
