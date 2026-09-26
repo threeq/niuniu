@@ -450,6 +450,13 @@ func (r *promptRun) onEvent(e loop.Event) {
 // Check implements perm.Checker: read-only tools pass; mutating tools are
 // escalated to the client via session/request_permission.
 func (r *promptRun) Check(toolName string) perm.Decision {
+	// Bypass mode (NIUNIU_AGENT_PERMISSION_MODE=bypass): the niuniu server /
+	// desktop app is a local single-user host — mutating tools run without
+	// per-call approval, matching claude's bypassPermissions contract. Set
+	// the env to "normal" to restore the approval flow.
+	if os.Getenv("NIUNIU_AGENT_PERMISSION_MODE") == "bypass" {
+		return perm.Allow
+	}
 	if !perm.IsWrite(toolName) {
 		return perm.Allow
 	}
@@ -494,7 +501,11 @@ func (s *Server) requestPermission(sessionID, toolCallID, toolName string) (requ
 	select {
 	case res := <-ch:
 		return res, nil
-	case <-time.After(10 * time.Minute):
+	case <-time.After(120 * time.Second):
+		// Host did not answer the approval card in time (e.g. the frontend
+		// has no approval UI for this engine) — deny so the turn keeps
+		// making progress instead of parking forever.
+		slog.Warn("acp: permission request timed out — denying", "session", sessionID, "toolCallID", toolCallID)
 		return requestPermissionResult{}, errors.New("permission request timed out")
 	}
 }
