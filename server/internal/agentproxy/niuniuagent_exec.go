@@ -111,6 +111,11 @@ func (s *WorkspaceSession) getOrStartNiuniuAgentBackend(ctx context.Context, wor
 	if openaiEndpoint {
 		envSlice = append(envSlice, "NIUNIU_AGENT_PROVIDER=openai")
 	}
+	// Local single-user host: default the agent's ACP approval flow to bypass
+	// (same contract as claude's bypassPermissions) so tool calls do not park
+	// on an approval card the desktop UI may not render. Workspace env can
+	// override with NIUNIU_AGENT_PERMISSION_MODE=normal.
+	envSlice = append(envSlice, "NIUNIU_AGENT_PERMISSION_MODE=bypass")
 	if model != "" {
 		// niuniu's workspace-level model selection lands on whichever protocol
 		// family the endpoint speaks; decorated "[...]" context-tier suffixes
