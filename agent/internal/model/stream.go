@@ -66,7 +66,7 @@ func postSSE(ctx context.Context, hc *http.Client, endpoint string, headers map[
 			data, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 			return fmt.Errorf("POST %s: HTTP %d: %s", endpoint, resp.StatusCode, truncate(string(data), 500))
 		}
-		return scanSSE(ctx, resp.Body, onEvent)
+		return scanSSE(ctx, resp.Body, func() { resp.Body.Close() }, onEvent)
 	}
 }
 
@@ -74,10 +74,36 @@ func retryableStatus(status int) bool {
 	return status == 429 || status == 500 || status == 502 || status == 503 || status == 504
 }
 
-func scanSSE(ctx context.Context, body io.Reader, onEvent func(event, data string) error) error {
-	// Idle guard: a gateway that stalls mid-SSE (no bytes, no close) must
-	// fail the stream instead of parking the turn forever as "running".
-	sc := bufio.NewScanner(newIdleTimeoutReader(body))
+func scanSSE(ctx context.Context, body io.Reader, closeBody func(), onEvent func(event, data string) error) error {
+	// Event-level idle guard: gateways keep SSE alive with heartbeat bytes
+	// (pings / blank lines) even when the MODEL stopped producing — a
+	// byte-level idle timeout would be fed forever. The deadline resets only
+	// on a real data frame; when it fires, closeBody unblocks the scanner's
+	// socket read and the stream fails with an error, letting the turn
+	// settle instead of parking the session as "running" forever.
+	idle := streamIdleTimeout()
+	lastData := time.Now()
+	stop := make(chan struct{})
+	defer close(stop)
+	go func() {
+		tick := time.NewTicker(time.Second)
+		defer tick.Stop()
+		for {
+			select {
+			case <-stop:
+				return
+			case <-tick.C:
+				if time.Since(lastData) > idle {
+					if closeBody != nil {
+						closeBody()
+					}
+					return
+				}
+			}
+		}
+	}()
+
+	sc := bufio.NewScanner(body)
 	sc.Buffer(make([]byte, 0, 64<<10), 8<<20)
 	event := ""
 	for sc.Scan() {
@@ -90,6 +116,7 @@ func scanSSE(ctx context.Context, body io.Reader, onEvent func(event, data strin
 			if data == "" {
 				continue
 			}
+			lastData = time.Now()
 			if err := onEvent(event, data); err != nil {
 				return err
 			}
