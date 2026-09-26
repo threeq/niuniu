@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os/exec"
 	"runtime"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -75,9 +76,18 @@ func (Bash) Execute(ctx context.Context, input json.RawMessage) (string, error) 
 	var cmd *exec.Cmd
 	if runtime.GOOS == "windows" {
 		cmd = exec.CommandContext(ctx, "cmd", "/c", in.Command)
+		// Windows: Process.Kill only terminates cmd.exe, leaving grandchild
+		// processes (curl, etc.) alive holding the stdout pipe — cmd.Run()
+		// then blocks forever waiting for pipe EOF. TaskKill the whole tree.
+		cmd.Cancel = func() error {
+			return exec.Command("taskkill", "/T", "/F", "/PID", strconv.Itoa(cmd.Process.Pid)).Run()
+		}
 	} else {
 		cmd = exec.CommandContext(ctx, "sh", "-c", in.Command)
 	}
+	// Even after Cancel, wait max 5s for pipe EOF before giving up — the
+	// caller must never hang on a wedged process tree.
+	cmd.WaitDelay = 5 * time.Second
 
 	// Combined output; exec copies stdout and stderr from separate pipes in
 	// separate goroutines, so the buffer must be mutex-guarded.
