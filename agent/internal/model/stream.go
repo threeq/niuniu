@@ -50,7 +50,9 @@ func postSSE(ctx context.Context, hc *http.Client, endpoint string, headers map[
 		data, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 		return fmt.Errorf("POST %s: HTTP %d: %s", endpoint, resp.StatusCode, truncate(string(data), 500))
 	}
-	sc := bufio.NewScanner(resp.Body)
+	// Idle guard: a gateway that stalls mid-SSE (no bytes, no close) must
+	// fail the stream instead of parking the turn forever as "running".
+	sc := bufio.NewScanner(newIdleTimeoutReader(resp.Body))
 	sc.Buffer(make([]byte, 0, 64<<10), 8<<20)
 	event := ""
 	for sc.Scan() {
