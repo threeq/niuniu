@@ -145,6 +145,13 @@ func (s *Session) PromptBlocks(ctx context.Context, userBlocks []model.Block, op
 	if opts.Perms == nil {
 		opts.Perms = perm.AllowAllChecker()
 	}
+	// 0 → DefaultCompactThreshold (the field's documented default). Leaving
+	// the zero value as a literal threshold 0 would make "estimate > 0" always
+	// true from the second round on — every turn would run the summarizer and
+	// squash the history, which looked like "no response" to the host.
+	if opts.CompactThresholdTokens == 0 {
+		opts.CompactThresholdTokens = DefaultCompactThreshold
+	}
 	emit := func(e Event) {
 		if opts.OnEvent != nil {
 			opts.OnEvent(e)
