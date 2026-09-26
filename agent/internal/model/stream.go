@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"strings"
 	"time"
@@ -116,13 +117,24 @@ func scanSSE(ctx context.Context, body io.Reader, closeBody func(), onEvent func
 			if data == "" {
 				continue
 			}
+			// Protocol heartbeats (Anthropic ping frames) keep the socket
+			// alive but are NOT model output — they must not feed the idle
+			// deadline, or a gateway that stalls the model while pinging
+			// would never be detected.
+			if strings.Contains(data, `{"type":"ping"}`) {
+				continue
+			}
 			lastData = time.Now()
 			if err := onEvent(event, data); err != nil {
 				return err
 			}
 		}
 	}
-	return sc.Err()
+	if err := sc.Err(); err != nil {
+		slog.Warn("stream: scanner ended with error", "err", err)
+		return err
+	}
+	return nil
 }
 
 // —— anthropic SSE ——

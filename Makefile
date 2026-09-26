@@ -128,16 +128,20 @@ build:
 	cd server/web && pnpm install && pnpm build
 	cd server && go build $(SERVER_LDFLAGS) -o ../bin/niuniu-server-$(VERSION) ./cmd/niuniu
 	cd server && go build $(SERVER_LDFLAGS) -o ../bin/niuniu-mcp-$(VERSION) ./cmd/niuniu-mcp
+	cd agent && go build -o ../bin/niuniu-agent-$(VERSION) ./cmd/niuniu-agent
 	$(call compress,bin/niuniu-server-$(VERSION))
 	$(call compress,bin/niuniu-mcp-$(VERSION))
+	$(call compress,bin/niuniu-agent-$(VERSION))
 	@echo "NOTE: Desktop (desktop-v2, Tauri) is built separately — make build-personal-v2-current (or build-personal-v2-{windows,darwin,linux})"
 
 build-win:
 	cd server/web && pnpm install && pnpm build
 	cd server && go build $(SERVER_LDFLAGS) -o ../bin/niuniu-server-$(VERSION).exe ./cmd/niuniu
 	cd server && go build $(SERVER_LDFLAGS) -o ../bin/niuniu-mcp-$(VERSION).exe ./cmd/niuniu-mcp
+	cd agent && go build -o ../bin/niuniu-agent-$(VERSION).exe ./cmd/niuniu-agent
 	$(call compress,bin/niuniu-server-$(VERSION).exe)
 	$(call compress,bin/niuniu-mcp-$(VERSION).exe)
+	$(call compress,bin/niuniu-agent-$(VERSION).exe)
 	@echo "NOTE: Desktop (desktop-v2, Tauri) is built separately — make build-personal-v2-windows"
 
 build-linux:
@@ -146,6 +150,8 @@ build-linux:
 	cd server && $(LINUX_ARM64_ENV) go build $(SERVER_LDFLAGS) -o ../bin/niuniu-server-$(VERSION)-linux-arm64 ./cmd/niuniu
 	cd server && $(LINUX_AMD64_ENV) go build $(SERVER_LDFLAGS) -o ../bin/niuniu-mcp-$(VERSION)-linux-amd64 ./cmd/niuniu-mcp
 	cd server && $(LINUX_ARM64_ENV) go build $(SERVER_LDFLAGS) -o ../bin/niuniu-mcp-$(VERSION)-linux-arm64 ./cmd/niuniu-mcp
+	cd agent && GOOS=linux GOARCH=amd64 go build -o ../bin/niuniu-agent-$(VERSION)-linux-amd64 ./cmd/niuniu-agent
+	cd agent && GOOS=linux GOARCH=arm64 go build -o ../bin/niuniu-agent-$(VERSION)-linux-arm64 ./cmd/niuniu-agent
 	$(call compress,bin/niuniu-server-$(VERSION)-linux-amd64)
 	$(call compress,bin/niuniu-mcp-$(VERSION)-linux-amd64)
 	$(call compress,bin/niuniu-server-$(VERSION)-linux-arm64)
@@ -498,6 +504,10 @@ dev-desktop-v2:
 # 若有三方 triple 映射则额外多拷一份 triple 名以备将来 externalBin 打包用）。
 _personal-prepare-v2:
 	@mkdir -p desktop-v2/binaries; \
+	if [ ! -f desktop-v2/binaries/staging/$(GOOS)-$(GOARCH)/niuniu-agent$(EXT) ]; then \
+		echo "ERROR: staging/$(GOOS)-$(GOARCH)/niuniu-agent$(EXT) missing — run _personal-prepare first; desktop packages MUST ship the latest niuniu-agent"; \
+		exit 1; \
+	fi; \
 	cp desktop-v2/binaries/staging/$(GOOS)-$(GOARCH)/niuniu-server$(EXT) desktop-v2/binaries/niuniu-server$(EXT); \
 	cp desktop-v2/binaries/staging/$(GOOS)-$(GOARCH)/niuniu-mcp$(EXT) desktop-v2/binaries/niuniu-mcp$(EXT); \
 	cp desktop-v2/binaries/staging/$(GOOS)-$(GOARCH)/niuniu-agent$(EXT) desktop-v2/binaries/niuniu-agent$(EXT); \

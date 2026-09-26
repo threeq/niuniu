@@ -65,7 +65,9 @@ fn embedded_sidecar_dir() -> Result<PathBuf, String> {
 
     let already_current = std::fs::read_to_string(&marker).ok().as_deref() == Some(fp)
         && server_path.exists()
-        && mcp_path.exists();
+        && mcp_path.exists()
+        // Agent 必须在内嵌时随包解压到位——部分解压会导致桌面静默缺失引擎。
+        && (!cfg!(have_embedded_agent) || agent_path.exists());
     if !already_current {
         write_atomic(&server_path, EMBED_SERVER)?;
         write_atomic(&mcp_path, EMBED_MCP)?;
