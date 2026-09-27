@@ -1,6 +1,8 @@
 # 视频创作能力实现计划（波次一）
 
 > 依据：`docs/superpowers/specs/2026-09-15-video-creation-one-stop-design.md`（v3.1 最终方案）。本计划只覆盖 **P1（层一编排）+ P2（层三能力模块）**；P3（交互 UI）出范围。
+>
+> ⚠️ **v3.2 变更（2026-09-27，已实现）**：ffmpeg 分发由「内嵌进可执行文件」改为「**系统依赖页按需下载**」（探测 + 下载按钮 + 进度 + 断点续传）。本文 §1.4 的 ffmpegbin 内嵌接口（`ffmpeg_bundled` tag / go:embed / 指纹解压）与 §3 里的 ffmpeg staging 描述**均已作废**，实际实现见 `server/internal/service/ffmpeg_install.go`、`server/internal/ffmpegbin/` 与设计文档 §7.3。其余部分（编排 skill、能力配置域、能力模块、打包 sidecar）不受影响。
 > 执行方式：多 agent 并行，**文件所有权严格划分**——每个 agent 只写自己名下的文件；需要改别人文件时停下来在报告里说明，不越界。
 
 ## 0. 波次与文件所有权
