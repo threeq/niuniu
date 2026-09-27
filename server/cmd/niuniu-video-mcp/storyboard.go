@@ -14,7 +14,8 @@ package main
 // JSON type + enum membership where the schema freezes one. Every problem is
 // reported in Chinese with a field path, all problems at once, so the agent can
 // fix the storyboard in one pass. Extra keys are tolerated (the schema grows:
-// character_ids / scene_id / candidates / selected / action / camera …).
+// character_ids / scene_id / candidates / selected / action / camera …；其中
+// aigc_label / aigc_label_text 由工具层消费——合成时烧录 AIGC 标识角标）。
 
 import (
 	"bytes"
@@ -77,6 +78,10 @@ type Shot struct {
 	Candidates []string `json:"candidates,omitempty"` // 候选留痕
 }
 
+// defaultAIGCLabelText is the AIGC label's default wording (GB 45438-2025
+// 参考)，aigc_label=true 且 aigc_label_text 为空/空白时使用。
+const defaultAIGCLabelText = "AI 生成"
+
 // Storyboard is the parsed document.
 type Storyboard struct {
 	Title        string   `json:"title"`
@@ -86,7 +91,13 @@ type Storyboard struct {
 	ReviewStatus string   `json:"review_status"`
 	Revision     *float64 `json:"revision,omitempty"`
 	BGM          string   `json:"bgm,omitempty"` // 可选：整片 BGM（可被 media_compose 的 bgm 参数覆盖）
-	Shots        []Shot   `json:"shots"`
+
+	// 可选：AIGC 显式标识（GB 45438-2025 参考）。缺省 false = 不烧录，
+	// 老分镜不带该字段时行为与从前完全一致（向后兼容）。
+	AIGCLabel     bool   `json:"aigc_label"`
+	AIGCLabelText string `json:"aigc_label_text"` // 标识文字，缺省 "AI 生成"（仅 aigc_label=true 时消费）
+
+	Shots []Shot `json:"shots"`
 }
 
 // ExpectedDuration sums the shot durations (seconds).
@@ -163,6 +174,11 @@ func ValidateStoryboard(raw []byte) (*Storyboard, error) {
 	var sb Storyboard
 	if err := json.Unmarshal(raw, &sb); err != nil {
 		return nil, fmt.Errorf("storyboard.json 解析失败：%v", err)
+	}
+	// aigc_label=true 且未给文字（"" 或全空白）时补缺省文字；aigc_label=false
+	// 时不动 aigc_label_text（该字段无意义，保持透传以便排查）。
+	if sb.AIGCLabel && strings.TrimSpace(sb.AIGCLabelText) == "" {
+		sb.AIGCLabelText = defaultAIGCLabelText
 	}
 	return &sb, nil
 }
@@ -291,6 +307,20 @@ func (v *sbValidator) checkStoryboard(doc map[string]any) {
 	}
 	status := v.nonEmptyStr(doc, "storyboard", "review_status")
 	v.enum(status, "storyboard.review_status", validReview_, "只能是 draft / in-review / approved")
+
+	// 可选扩展：AIGC 标识（合规项，缺省 false）。null 视同缺省；类型非法时
+	// 【显式报错】而不是静默按缺省容错——合规标识被静默忽略会产出无标识成片
+	// 而无人察觉，与 G5「缺标识不放行」冲突。
+	if raw, ok := doc["aigc_label"]; ok && raw != nil {
+		if _, isBool := raw.(bool); !isBool {
+			v.addf("storyboard.aigc_label 必须是布尔值（当前为%s）", jsonTypeName(raw))
+		}
+	}
+	if raw, ok := doc["aigc_label_text"]; ok && raw != nil {
+		if _, isStr := raw.(string); !isStr {
+			v.addf("storyboard.aigc_label_text 必须是字符串（当前为%s）", jsonTypeName(raw))
+		}
+	}
 
 	shots := v.arr(doc, "storyboard", "shots")
 	if shots == nil {

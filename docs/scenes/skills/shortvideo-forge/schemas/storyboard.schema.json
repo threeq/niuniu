@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "shortvideo-forge/schemas/storyboard.schema.json",
   "title": "storyboard.json — 短视频分镜（唯一生成事实源）",
-  "description": "必填字段为冻结契约（工具层 media_compose 的硬前置是 review_status=approved）。可选字段（character_ids / scene_id / action / camera / visual.candidates / visual.selected / revision）承载 id 引用制与一致性锚；未知字段允许携带但工具层不消费。路径均为相对 video-project/ 的路径。",
+  "description": "必填字段为冻结契约（工具层 media_compose 的硬前置是 review_status=approved）。可选字段（character_ids / scene_id / action / camera / visual.candidates / visual.selected / revision 承载 id 引用制与一致性锚；aigc_label / aigc_label_text 由工具层消费：合成时烧录 AIGC 标识角标）；未知字段允许携带但工具层不消费。路径均为相对 video-project/ 的路径。",
   "type": "object",
   "required": ["title", "aspect_ratio", "fps", "resolution", "review_status", "shots"],
   "properties": {
@@ -34,6 +34,16 @@
       "type": "integer",
       "minimum": 1,
       "description": "版本号，重做产物时递增"
+    },
+    "aigc_label": {
+      "type": "boolean",
+      "default": false,
+      "description": "是否在成片烧录 AIGC 显式标识角标（GB 45438-2025 参考）。缺省 false（老分镜不受影响）；为 true 时 media_compose 在拼接后于画面左上角烧录半透明标识（整片常驻），并记入 G5 技术 QC（qc/final-qc.json 的 aigc_label / aigc_label_burned）——要求了而没烧上时 QC 判不合格、不得交付"
+    },
+    "aigc_label_text": {
+      "type": "string",
+      "default": "AI 生成",
+      "description": "标识文字，仅 aigc_label=true 时消费；缺省「AI 生成」（可用更完整的表述，如「本片含 AI 生成内容」）"
     },
     "shots": {
       "type": "array",

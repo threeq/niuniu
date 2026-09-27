@@ -74,6 +74,77 @@ func TestValidateStoryboardReportsEveryProblemInChinese(t *testing.T) {
 	}
 }
 
+// withAIGCLabel splices extra top-level JSON fields into a storyboard fixture
+// (testutil's storyboardJSON renders the frozen contract only; the helper is
+// shared by every test file, so the optional AIGC extension is injected here).
+// extraJSON is the raw field fragment, e.g. `"aigc_label":true` — raw so tests
+// can also feed deliberately wrong types (`"aigc_label":"true"`).
+func withAIGCLabel(raw, extraJSON string) string {
+	return strings.Replace(raw, `"shots":[`, extraJSON+`,"shots":[`, 1)
+}
+
+func TestValidateStoryboardAIGCLabel(t *testing.T) {
+	base := storyboardJSON("approved", []testShot{{ID: "1", Dur: 1, Asset: "assets/a.png"}})
+
+	// 缺省（无字段）：false 且不补文字——老分镜零影响。
+	sb, err := ValidateStoryboard([]byte(base))
+	if err != nil {
+		t.Fatalf("无 aigc_label 的分镜应通过: %v", err)
+	}
+	if sb.AIGCLabel || sb.AIGCLabelText != "" {
+		t.Errorf("缺省应为 false/空文字，实得 %+v", sb)
+	}
+
+	// aigc_label=true + 自定义文字。
+	sb2, err := ValidateStoryboard([]byte(withAIGCLabel(base, `"aigc_label":true,"aigc_label_text":"本片含 AI 生成内容"`)))
+	if err != nil {
+		t.Fatalf("带 AIGC 标识的分镜应通过: %v", err)
+	}
+	if !sb2.AIGCLabel || sb2.AIGCLabelText != "本片含 AI 生成内容" {
+		t.Errorf("AIGC 标识字段未读入: %+v", sb2)
+	}
+
+	// aigc_label=true 未给文字（或全空白）→ 补缺省「AI 生成」。
+	for _, frag := range []string{`"aigc_label":true`, `"aigc_label":true,"aigc_label_text":""`, `"aigc_label":true,"aigc_label_text":"  "`} {
+		sb3, err := ValidateStoryboard([]byte(withAIGCLabel(base, frag)))
+		if err != nil {
+			t.Fatalf("frag %s: %v", frag, err)
+		}
+		if !sb3.AIGCLabel || sb3.AIGCLabelText != "AI 生成" {
+			t.Errorf("frag %s: 文字应回落缺省，实得 %q", frag, sb3.AIGCLabelText)
+		}
+	}
+
+	// null 视同缺省（不报错、不补文字）。
+	sb4, err := ValidateStoryboard([]byte(withAIGCLabel(base, `"aigc_label":null,"aigc_label_text":null`)))
+	if err != nil {
+		t.Fatalf("null 应视同缺省: %v", err)
+	}
+	if sb4.AIGCLabel || sb4.AIGCLabelText != "" {
+		t.Errorf("null 应得 false/空文字，实得 %+v", sb4)
+	}
+}
+
+// 类型非法时显式报中文错误（而非静默按缺省容错）——合规标识被静默忽略会
+// 产出无标识成片而无人察觉，与 G5「缺标识不放行」冲突。
+func TestValidateStoryboardAIGCLabelTypeErrors(t *testing.T) {
+	base := storyboardJSON("approved", []testShot{{ID: "1", Dur: 1, Asset: "assets/a.png"}})
+	cases := []struct {
+		frag string
+		want string
+	}{
+		{`"aigc_label":"true"`, "storyboard.aigc_label 必须是布尔值（当前为字符串）"},
+		{`"aigc_label":1`, "storyboard.aigc_label 必须是布尔值（当前为数字）"},
+		{`"aigc_label_text":5`, "storyboard.aigc_label_text 必须是字符串（当前为数字）"},
+	}
+	for _, tc := range cases {
+		_, err := ValidateStoryboard([]byte(withAIGCLabel(base, tc.frag)))
+		if err == nil || !strings.Contains(err.Error(), tc.want) {
+			t.Errorf("%s: err = %v, want 含 %q", tc.frag, err, tc.want)
+		}
+	}
+}
+
 func TestValidateStoryboardStructuralErrors(t *testing.T) {
 	cases := []struct {
 		name string

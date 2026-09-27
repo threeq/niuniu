@@ -69,15 +69,44 @@ open("subs.ass", "w", encoding="utf-8").write("\n".join(L) + "\n")
 - 字体名用系统通用 CJK 回退（如 `Noto Sans CJK SC` / `Microsoft YaHei`），**不要写死单平台字体**；每行 ≤ 16 个汉字，换行用 `\N`。
 - 烧录即下方 `compose.filter` 里的 `ass=subs.ass`（需要 ffmpeg 带 libass，静态构建默认带）。
 
-## 4. 拼接后总装：字幕 + BGM 混音 + 编码（一次过）
+## 3.1 AIGC 标识角标（`storyboard.json` 顶层 `aigc_label: true` 时；GB 45438-2025 参考）
+
+`aigc_label: true` 时除台词字幕外还要烧一个**整片常驻**的显式标识角标。做法与台词字幕完全同构，但**单独一个 ass 文件**（不要和 `subs.ass` 混在一起，否则两套时轴/样式互相污染）：左（或右）上角、半透明、字号约 4% 画面高，位置由 `\pos(...)` 显式给出，整片时轴 0 → 总时长。
+
+```python
+# aigc-label.ass —— 独立角标（整片常驻）；文字取 storyboard.aigc_label_text，缺省「AI 生成」
+text = sb.get("aigc_label_text") or "AI 生成"
+T = sum(float(sh["duration_sec"]) for sh in sb["shots"])
+fs = max(16, round(int(H) * 0.04))          # 字号 ≈ 4% 画面高，下限 16
+x, y = int(W * 0.02), int(H * 0.03)         # 角标边距（左上角）
+L = ["[Script Info]", "ScriptType: v4.00+", "WrapStyle: 2",
+     f"PlayResX: {W}", f"PlayResY: {H}", "[V4+ Styles]",
+     "Format: Name, Fontname, Fontsize, PrimaryColour, OutlineColour, BackColour, "
+     "Bold, Italic, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding",
+     f"Style: AIGCLabel,Noto Sans CJK SC,{fs},&H80FFFFFF,&H80000000,&H80000000,0,0,1,1,0,7,0,0,0,1",
+     "[Events]", "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text",
+     f"Dialogue: 0,{ts(0)},{ts(T)},AIGCLabel,,0,0,0,,{{\\pos({x},{y})\\alpha&H80&}}{text}"]
+open("aigc-label.ass", "w", encoding="utf-8").write("\n".join(L) + "\n")
+```
+
+要点：
+- `\alpha&H80&` ≈ 50% 透明——标识必须**可辨识**（合规要求）但不遮挡画面主体；字号下限 16。
+- 位置用 `\pos(左边距, 上边距)` 写死在角上（默认左上；与底部居中的台词字幕互不打扰）。
+- 该步骤放在**拼接之后、最终编码这一步**做，绝不要逐镜重复烧（每镜各烧一次会重复叠加，坏镜重做还会不一致）。
+
+## 4. 拼接后总装：字幕 +（AIGC 角标）+ BGM 混音 + 编码（一次过）
 
 `compose.filter`（`-filter_complex_script` 文件，避免命令行转义地狱）：
 
 ```
-[0:v]ass=subs.ass[vout];
+[0:v]ass=subs.ass,ass=aigc-label.ass[vout];
 [1:a]volume=0.18[bgm];
 [0:a][bgm]amix=inputs=2:duration=first:dropout_transition=0:normalize=0,loudnorm=I=-16:TP=-1.5:LRA=11[aout]
 ```
+
+（`aigc_label` 非 true / 未要求标识时删掉第二段 `,ass=aigc-label.ass`。）
+
+> FFmpeg ≥ 8 已移除 `-filter_complex_script`，改用 `-/filter_complex <脚本文件>`（应用内下载的 nightly 属此类）；老版本仍用 `-filter_complex_script`。工具层两者自动兼容。
 
 ```bash
 ffmpeg -y -i shots/render/all.mp4 -stream_loop -1 -i assets/bgm.mp3 \
@@ -104,9 +133,10 @@ ffmpeg -y -i shots/render/all.mp4 -stream_loop -1 -i assets/bgm.mp3 \
 ffprobe -v error -show_entries format=duration -of default=nw=1:nk=1 output/final.mp4
 ffprobe -v error -select_streams v:0 -show_entries stream=width,height,r_frame_rate -of default=nw=1 output/final.mp4
 ffmpeg -hide_banner -i output/final.mp4 -af volumedetect -f null -   # 看 mean_volume / max_volume
+ffmpeg -y -i output/final.mp4 -frames:v 1 -f image2 frame0.png      # 抽首帧：确认 AIGC 角标可见（aigc_label=true 时）
 ```
 
-把数字填进 `qc/g5-final.json`，再走 SKILL §3 的 G5 checklist。
+把数字填进 `qc/g5-final.json`，再走 SKILL §3 的 G5 checklist。**标识位**：`aigc_label: true` 时确认首帧左上角角标已烧录（`media_compose` 会写 `qc/final-qc.json` 的 `aigc_label` / `aigc_label_burned` / `aigc_label_text`）；标识缺失即 G5 不合格、不得交付。
 
 ## 7. 常见坑
 
@@ -118,3 +148,5 @@ ffmpeg -hide_banner -i output/final.mp4 -af volumedetect -f null -   # 看 mean_
 | 字幕不显示 / 方框 | 字体名写死或系统无该字体——用通用 CJK 字体名 |
 | 首帧加载慢、拖动卡顿 | 忘了 `-movflags +faststart`（必须在最后输出这一步加） |
 | 音量忽大忽小 | 逐镜响度不一致——总装统一过 `loudnorm`，不要逐镜各调 |
+| 成片没有 AIGC 标识角标 | `storyboard.aigc_label` 未置 true，或总装滤镜漏了第二段 `,ass=aigc-label.ass`——G5 缺标识不放行 |
+| 角标每镜重复/错位 | 把角标并进了逐镜合成——它只能在拼接后烧一次（整片时轴） |

@@ -145,6 +145,13 @@ func TestComposeFilmFullPipeline(t *testing.T) {
 	if qc.Shots != 2 {
 		t.Errorf("QC.Shots = %d", qc.Shots)
 	}
+	// 本分镜未要求 AIGC 标识（缺省 false）：不生成角标、QC 仍显式记录 false。
+	if qc.AIGCLabel || qc.AIGCLabelBurned || qc.AIGCLabelFile != "" {
+		t.Errorf("未要求 AIGC 标识时 QC 标识位应为 false: %+v", qc)
+	}
+	if _, err := os.Stat(projectPath(ws, "output", "aigc-label.ass")); err == nil {
+		t.Error("未要求 AIGC 标识时不得生成角标 ass")
+	}
 	var qcOnDisk composeQC
 	raw, err := os.ReadFile(projectPath(ws, "qc", "final-qc.json"))
 	if err != nil || json.Unmarshal(raw, &qcOnDisk) != nil {
@@ -179,6 +186,211 @@ func TestComposeFilmFullPipeline(t *testing.T) {
 	}
 	if _, err := composeFilm(ctx, ws, composeDeps(bin), composeOptions{BGM: `..\..\evil.wav`}); err == nil || !strings.Contains(err.Error(), "路径越界") {
 		t.Errorf("越界的 BGM 应被拒绝，实得: %v", err)
+	}
+}
+
+// TestComposeFilmBurnsAIGCLabel: storyboard.aigc_label=true → 拼接后烧录
+// 独立角标 ass（缺省文字），QC 记录 aigc_label/aigc_label_burned，且台词字幕
+// 文件不被污染（两者是各自独立的 ass）。
+func TestComposeFilmBurnsAIGCLabel(t *testing.T) {
+	bin := resolveTestFFmpeg(t)
+	if !ffmpegHasFilter(t, bin, "subtitles") {
+		t.Skip("跳过（本机 ffmpeg 未编入 libass/subtitles 滤镜）")
+	}
+	ws := composeFixtureWS(t, bin)
+	writeStoryboard(t, ws, withAIGCLabel(storyboardJSON("approved", []testShot{
+		{ID: "1", Dur: 1.0, Type: "image", Asset: assetPath("shot1.png"),
+			TTSAsset: assetPath("vo1.wav"), Subtitle: "第一镜：开场"},
+		{ID: "2", Dur: 2.0, Type: "video", Asset: assetPath("shot2.mp4")},
+	}), `"aigc_label":true`))
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
+	report, err := composeFilm(ctx, ws, composeDeps(bin), composeOptions{})
+	if err != nil {
+		t.Fatalf("composeFilm: %v（report=%+v）", err, report)
+	}
+	if report.AIGCLabelFile != "video-project/output/aigc-label.ass" {
+		t.Errorf("aigc_label_file = %q", report.AIGCLabelFile)
+	}
+	// 角标 ass 独立生成，含缺省标识文字与定位/透明度控制。
+	labelASS, err := os.ReadFile(projectPath(ws, "output", "aigc-label.ass"))
+	if err != nil {
+		t.Fatalf("角标 ass 未生成: %v", err)
+	}
+	for _, want := range []string{"AI 生成", `\pos(`, `\alpha`} {
+		if !strings.Contains(string(labelASS), want) {
+			t.Errorf("角标 ass 缺少 %q:\n%s", want, labelASS)
+		}
+	}
+	// 台词字幕文件保持干净：AIGC 标识不得混入。
+	subs, err := os.ReadFile(projectPath(ws, "output", "subtitles.ass"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(subs), "AI 生成") {
+		t.Errorf("台词字幕被 AIGC 标识污染:\n%s", subs)
+	}
+	// 总装滤镜：台词 + 角标两段 subtitles 串联，且只出现在整片装配这一步。
+	script, err := os.ReadFile(projectPath(ws, "output", "compose.filter.txt"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n := strings.Count(string(script), "subtitles="); n != 2 {
+		t.Errorf("滤镜脚本应有 2 段 subtitles=（台词+角标），实得 %d:\n%s", n, script)
+	}
+	if !strings.Contains(string(script), "aigc-label.ass") {
+		t.Errorf("滤镜脚本未引用角标 ass:\n%s", script)
+	}
+	// 真烧上了：抽首帧查像素。镜 1 是纯红静帧，标识（半透明白字）落在左上角
+	// \pos 处——红底 G=B=0，出现任何亮像素即标识已渲染（防 ass 语法错被 libass 静默忽略）。
+	frame := filepath.Join(ws, "video-project", "output", "frame0.rgb")
+	ffmpegRun(t, bin, "-y", "-hide_banner", "-loglevel", "error",
+		"-i", projectPath(ws, "output", "final.mp4"), "-frames:v", "1",
+		"-pix_fmt", "rgb24", "-f", "rawvideo", frame)
+	pix, err := os.ReadFile(frame)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lit := 0
+	for y := 0; y < 60; y++ {
+		for x := 0; x < 240; x++ {
+			i := (y*640 + x) * 3
+			if i+2 >= len(pix) {
+				break
+			}
+			if pix[i] > 90 || pix[i+1] > 90 || pix[i+2] > 90 {
+				lit++
+			}
+		}
+	}
+	if lit == 0 {
+		t.Error("成片左上角无标识像素：AIGC 角标未真正烧录")
+	}
+	// G5 技术 QC：标识位。
+	if report.QC == nil {
+		t.Fatalf("缺少 QC 记录（warnings=%v）", report.Warnings)
+	}
+	if !report.QC.AIGCLabel || !report.QC.AIGCLabelBurned {
+		t.Errorf("QC 标识位不符: %+v", report.QC)
+	}
+	if report.QC.AIGCLabelText != "AI 生成" {
+		t.Errorf("QC.AIGCLabelText = %q, want 缺省文字", report.QC.AIGCLabelText)
+	}
+	if !report.QC.ChecksPassed {
+		t.Errorf("QC 未全过: %+v", report.QC)
+	}
+	var onDisk composeQC
+	raw, err := os.ReadFile(projectPath(ws, "qc", "final-qc.json"))
+	if err != nil || json.Unmarshal(raw, &onDisk) != nil {
+		t.Fatalf("读取 qc/final-qc.json: %v", err)
+	}
+	if !onDisk.AIGCLabel || !onDisk.AIGCLabelBurned || onDisk.AIGCLabelFile == "" {
+		t.Errorf("落盘 QC 标识位不符: %+v", onDisk)
+	}
+}
+
+// TestComposeFilmAIGCLabelBurnFailureWarns: 分镜要求标识但烧录失败（这里让
+// output/aigc-label.ass 是个目录，写文件必失败）→ 成片照常产出但必须给出
+// 明确 warning、QC 记 burned=false 且 checks_passed=false，绝不静默。
+func TestComposeFilmAIGCLabelBurnFailureWarns(t *testing.T) {
+	bin := resolveTestFFmpeg(t)
+	if !ffmpegHasFilter(t, bin, "subtitles") {
+		t.Skip("跳过（本机 ffmpeg 未编入 libass/subtitles 滤镜）")
+	}
+	ws := composeFixtureWS(t, bin)
+	writeStoryboard(t, ws, withAIGCLabel(storyboardJSON("approved", []testShot{
+		{ID: "1", Dur: 1.0, Type: "image", Asset: assetPath("shot1.png"),
+			TTSAsset: assetPath("vo1.wav"), Subtitle: "第一镜：开场"},
+		{ID: "2", Dur: 2.0, Type: "video", Asset: assetPath("shot2.mp4")},
+	}), `"aigc_label":true`))
+	// 角标路径被目录占位 → 写角标 ass 失败。
+	if err := os.MkdirAll(projectPath(ws, "output", "aigc-label.ass"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
+	report, err := composeFilm(ctx, ws, composeDeps(bin), composeOptions{})
+	if err != nil {
+		t.Fatalf("标识烧录失败不应阻塞成片: %v", err)
+	}
+	if _, err := os.Stat(projectPath(ws, "output", "final.mp4")); err != nil {
+		t.Errorf("成片应照常产出: %v", err)
+	}
+	warned := false
+	for _, w := range report.Warnings {
+		if strings.Contains(w, "AIGC 标识烧录被跳过") {
+			warned = true
+		}
+	}
+	if !warned {
+		t.Errorf("缺少标识烧录失败的 warning: %v", report.Warnings)
+	}
+	if report.QC == nil {
+		t.Fatal("缺少 QC 记录")
+	}
+	if !report.QC.AIGCLabel || report.QC.AIGCLabelBurned {
+		t.Errorf("QC 应记录「要求了但未烧录」: %+v", report.QC)
+	}
+	if report.QC.ChecksPassed {
+		t.Error("标识未烧录时 QC 不得判合格")
+	}
+	if !strings.Contains(strings.Join(report.QC.Notes, "\n"), "G5 标识位不合格") {
+		t.Errorf("QC notes 应说明标识位不合格: %v", report.QC.Notes)
+	}
+}
+
+// TestWriteAIGCLabelASS: 角标 ass 的纯生成逻辑（无需 ffmpeg）——自定义文字、
+// 分辨率相关字号/边距、\pos 左上角定位、透明度；空文字/非法时长回落缺省。
+func TestWriteAIGCLabelASS(t *testing.T) {
+	ws := testWS(t)
+	if err := ensureDirs(ws); err != nil {
+		t.Fatal(err)
+	}
+	path, err := writeAIGCLabelASS(ws, 1280, 720, 6.5, "本片含 AI 生成内容", "Test Font")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasSuffix(filepath.ToSlash(path), "output/aigc-label.ass") {
+		t.Errorf("path = %q", path)
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(raw)
+	for _, want := range []string{
+		"PlayResX: 1280", "PlayResY: 720",
+		"Style: AIGCLabel,Test Font,28,", // 字号 = 720×0.04 = 28
+		`{\pos(25,21)\alpha&H80&}`,       // 边距 = 1280×0.02 / 720×0.03，左上角
+		"本片含 AI 生成内容",
+		"0:00:00.00,0:00:06.50", // 整片时轴常驻
+	} {
+		if !strings.Contains(s, want) {
+			t.Errorf("角标 ass 缺少 %q\n--- 实际 ---\n%s", want, s)
+		}
+	}
+
+	// 空文字回落缺省文案；非法时长（≤0）回落 1s；空字体回落平台默认 CJK 字体；
+	// 小画面字号不低于 16。
+	path2, err := writeAIGCLabelASS(ws, 320, 180, 0, "  ", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw2, err := os.ReadFile(path2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s2 := string(raw2)
+	if !strings.Contains(s2, defaultAIGCLabelText) {
+		t.Errorf("空文字应回落缺省 %q:\n%s", defaultAIGCLabelText, s2)
+	}
+	if !strings.Contains(s2, "0:00:01.00") {
+		t.Errorf("非法时长应回落 1s:\n%s", s2)
+	}
+	if !strings.Contains(s2, "Style: AIGCLabel,"+defaultSubtitleFont()+",16,") {
+		t.Errorf("空字体/小画面回落不符（默认字体 + 最小字号 16）:\n%s", s2)
 	}
 }
 

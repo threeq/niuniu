@@ -83,7 +83,7 @@ video-project/
 - **id 引用制**：`storyboard.json` 每镜以 `character_ids` / `scene_id` 引用 `characters.json` / `scenes.json` 的资产 id，**不内联文案**——这是跨镜一致性与单点修改的基础。控制 agent 必须校验引用完整性（所有 id 可解析），断链分镜不进 G3。
 - **一致性锚（AI 视频核心难题的对策）**：角色卡含 `appearance_prompt`（稳定模板段，描述外观特征，措辞不随镜头变化）+ `reference_image`（`assets/` 参考图）+ 可选 `seed`；生成时**模板化拼接** prompt（画风包段 + 角色 appearance_prompt 段 + 场景段 + 镜头动作），不靠 LLM 每次即兴复述；画风包模板段强制进所有视觉 prompt，**不允许 agent 即兴风格词**。
 - 每份产物顶层带 `revision`（整数，每次重做递增）与 `review_status`（`draft|in-review|approved`）；审核打回后 revision 递增再评审。
-- 分镜的机器可校验 schema：`schemas/storyboard.schema.json`（必填字段为冻结契约：`title / aspect_ratio / fps / resolution / review_status / shots[{id, duration_sec, narration, subtitle, visual{type,tier,prompt,asset}, tts{voice,asset}, transition}]`）。`media_compose` 的硬前置是 `review_status == "approved"`。
+- 分镜的机器可校验 schema：`schemas/storyboard.schema.json`（必填字段为冻结契约：`title / aspect_ratio / fps / resolution / review_status / shots[{id, duration_sec, narration, subtitle, visual{type,tier,prompt,asset}, tts{voice,asset}, transition}]`；可选合规字段：顶层 `aigc_label: true` + `aigc_label_text`，含 AI 生成内容时置 true，`media_compose` 合成时自动烧录显式标识角标并记入 G5 技术 QC）。`media_compose` 的硬前置是 `review_status == "approved"`。
 - 修改请求（层二 / 看板路由的交换格式，落 `changes/`）：`{id, target:"<产物>#<路径>", kind:"annotation|edit", content, route:"<子issue>", status:"pending|dispatched|regenerated|approved"}`。
 
 ## 3. 质量闸门 G0–G5
@@ -121,7 +121,7 @@ video-project/
 - [ ] 电平：整体响度 -16 LUFS ±2（或峰值 ≤ -1 dBTP），无爆音、无异常静音段
 - [ ] 画幅与分辨率：与 `resolution` / `aspect_ratio` 一致（默认 720p），全片统一，无异常黑边
 - [ ] 一致性：同一角色跨镜形象偏差可接受，无闪烁 / 跳变；转场与分镜 `transition` 一致
-- [ ] AIGC 标识：按 GB 45438-2025 在片头 / 片尾或元数据中带显式 AI 生成标识
+- [ ] AIGC 标识：按 GB 45438-2025 在片头 / 片尾或元数据中带显式 AI 生成标识；`storyboard.json` 顶层 `aigc_label: true` 时 `media_compose` 已把标识角标烧录进成片（QC 记录 `aigc_label` / `aigc_label_burned`）——交付前确认 `qc/final-qc.json` 的 `aigc_label_burned` 为 true 且无相关 warning（要求了却没烧上 = 不合格）；手工合成路径按 `references/compose-recipe.md` §3.1 自行烧录
 - [ ] 版权：所有素材为自有或明确可商用来源，BGM 无版权风险，图库素材已注明来源
 - [ ] 留痕：`quotes/` 与 `qc/` 完整，候选与淘汰原因可回溯，无未记录的付费调用
 
@@ -161,7 +161,7 @@ video-project/
 ## 6. 素材版权与 AIGC 标识
 
 - **版权纪律**：只用用户自有或明确可商用的素材；免费图库仅作补充并注明来源；BGM 必须无版权风险；**不使用未授权的影视 / 他人作品片段**。来源不明时停下询问用户，不擅自使用。
-- **AIGC 标识提醒**：按 GB 45438-2025 参考要求，AI 生成内容需带显式标识——在片头 / 片尾或元数据中标注（如「本片含 AI 生成内容」），标识位纳入 **G5 技术 QC**，缺标识不放行。
+- **AIGC 标识提醒**：按 GB 45438-2025 参考要求，AI 生成内容需带显式标识——在片头 / 片尾或元数据中标注（如「本片含 AI 生成内容」），标识位纳入 **G5 技术 QC**，缺标识不放行。工具层已内建：分镜顶层置 `aigc_label: true`（可用 `aigc_label_text` 改文字，缺省「AI 生成」）→ `media_compose` 在拼接后于画面左上角烧录整片常驻的半透明标识角标，并写入 `qc/final-qc.json`（`aigc_label` / `aigc_label_burned` / `aigc_label_text`）；标识烧录失败时合成仍出片但 QC 判不合格且返回 warning，**不得静默放行**。
 - 密钥与隐私：能力配置的密钥只存在于本机能力配置，**绝不写进产物 / 报价单 / 日志 / git**；产物目录不入库。
 
 ## 7. 内置资源（按需读，不必预先全部加载）

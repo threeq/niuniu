@@ -10,7 +10,9 @@ package main
 //	         长于目标时长裁掉；transition=fade 的镜头加黑场淡入淡出。
 //	         已存在且时长/流合格、且比素材新的 shots 复用（不重做）。
 //	stage 2  整片装配：output/final.mp4
-//	         concat 逐镜 → ass 字幕烧录 → BGM 混音（amix）→ H.264/AAC/faststart。
+//	         concat 逐镜 → ass 字幕烧录 →（可选）AIGC 标识角标 → BGM 混音（amix）
+//	         → H.264/AAC/faststart。AIGC 角标（storyboard.aigc_label=true）在
+//	         拼接后只烧一次，绝不进逐镜合成。
 //
 // 滤镜一律经 -filter_complex_script 以脚本文件传入（Windows 命令行长度上限
 // 32k，整片滤镜图随镜头数增长，内联会被截断）。
@@ -54,6 +56,10 @@ type shotResult struct {
 }
 
 // composeQC is the G5 technical QC record (basic tier) written to qc/.
+// The AIGC label trio is the 标识位 item of the G5 checklist (GB 45438-2025 参考):
+// AIGCLabel = 分镜要求标识（storyboard.aigc_label），AIGCLabelBurned = 标识确已
+// 烧录进成片——两者都为 false 表示本片不需要标识；要求了却没烧上时
+// ChecksPassed 为 false 且 Notes 说明，绝不静默。
 type composeQC struct {
 	CheckedAt           string   `json:"checked_at"`
 	Output              string   `json:"output"`
@@ -67,6 +73,10 @@ type composeQC struct {
 	Width               int      `json:"width,omitempty"`
 	Height              int      `json:"height,omitempty"`
 	Faststart           bool     `json:"faststart"`
+	AIGCLabel           bool     `json:"aigc_label"`
+	AIGCLabelBurned     bool     `json:"aigc_label_burned"`
+	AIGCLabelText       string   `json:"aigc_label_text,omitempty"`
+	AIGCLabelFile       string   `json:"aigc_label_file,omitempty"`
 	Shots               int      `json:"shots"`
 	Reused              int      `json:"reused"`
 	Composed            int      `json:"composed"`
@@ -74,17 +84,27 @@ type composeQC struct {
 	Notes               []string `json:"notes,omitempty"`
 }
 
+// aigcLabelState carries the AIGC label outcome from the burn step into the QC
+// record (Required 来自分镜，Burned 来自本次合成是否真的烧上了)。
+type aigcLabelState struct {
+	Required bool
+	Text     string
+	Burned   bool
+	File     string // workspace 相对路径（已烧录时）
+}
+
 // composeReport is what the tool returns.
 type composeReport struct {
-	Final        string       `json:"final"`
-	Shots        []shotResult `json:"shots"`
-	Reused       int          `json:"reused"`
-	Composed     int          `json:"composed"`
-	DurationSec  float64      `json:"duration_sec"`
-	SubtitleFile string       `json:"subtitle_file,omitempty"`
-	QCFile       string       `json:"qc_file,omitempty"`
-	QC           *composeQC   `json:"qc,omitempty"`
-	Warnings     []string     `json:"warnings,omitempty"`
+	Final         string       `json:"final"`
+	Shots         []shotResult `json:"shots"`
+	Reused        int          `json:"reused"`
+	Composed      int          `json:"composed"`
+	DurationSec   float64      `json:"duration_sec"`
+	SubtitleFile  string       `json:"subtitle_file,omitempty"`
+	AIGCLabelFile string       `json:"aigc_label_file,omitempty"`
+	QCFile        string       `json:"qc_file,omitempty"`
+	QC            *composeQC   `json:"qc,omitempty"`
+	Warnings      []string     `json:"warnings,omitempty"`
 }
 
 // isImagePath decides whether a source asset is a still image (→ -loop 1).
@@ -238,14 +258,39 @@ func composeFilm(ctx context.Context, wsDir string, deps Deps, opts composeOptio
 	}
 
 	total := sb.ExpectedDuration()
-	if err := assembleFilm(ctx, ffmpegBin, wsDir, concatList, subPath, hasSubs, bgmPath, opts.BGMVolume, W, H, total, finalPath); err != nil {
+
+	// AIGC 标识角标（可选，GB 45438-2025 参考）：整片常驻、独立 ass 文件，
+	// 在拼接之后随最终编码一次烧录。生成失败不阻塞成片（便于排障），但绝不
+	// 静默——report.Warnings + QC 明确记 aigc_label_burned=false 且不放行。
+	label := aigcLabelState{Required: sb.AIGCLabel}
+	labelPath := ""
+	if sb.AIGCLabel {
+		label.Text = sb.AIGCLabelText
+		if strings.TrimSpace(label.Text) == "" {
+			label.Text = defaultAIGCLabelText
+		}
+		p, err := writeAIGCLabelASS(wsDir, W, H, total, label.Text, opts.Font)
+		if err != nil {
+			report.Warnings = append(report.Warnings, fmt.Sprintf(
+				"AIGC 标识烧录被跳过：%v（storyboard.aigc_label=true，成片未带显式标识，G5 技术 QC 将判不合格）", err))
+		} else {
+			labelPath = p
+			label.Burned = true
+			label.File = relToWS(wsDir, p)
+			report.AIGCLabelFile = label.File
+		}
+	}
+
+	if err := assembleFilm(ctx, ffmpegBin, wsDir, concatList, subPath, hasSubs, labelPath, bgmPath, opts.BGMVolume, W, H, total, finalPath); err != nil {
 		return report, err
 	}
 
 	// 5. G5 technical QC (basic tier) — write the record the delivery gate reads.
-	qc, err := runTechnicalQC(ctx, ffmpegBin, wsDir, finalPath, total, len(sb.Shots), report.Reused, report.Composed)
+	qc, err := runTechnicalQC(ctx, ffmpegBin, wsDir, finalPath, total, len(sb.Shots), report.Reused, report.Composed, label)
 	if err != nil {
-		warnings = append(warnings, fmt.Sprintf("技术 QC 未能完成：%v", err))
+		// 追加到 report.Warnings（而非构造期的 warnings 切片）——后者只被
+		// 报告按长度拷贝一次，append 到这里之前的元素不会出现在返回值里。
+		report.Warnings = append(report.Warnings, fmt.Sprintf("技术 QC 未能完成：%v", err))
 	} else {
 		report.QC = qc
 		report.QCFile = relToWS(wsDir, projectPath(wsDir, "qc", "final-qc.json"))
@@ -360,17 +405,26 @@ func escapeConcatPath(p string) string {
 	return p
 }
 
-// assembleFilm runs stage 2: concat demuxer input -> subtitles -> BGM mix ->
-// final.mp4.
-func assembleFilm(ctx context.Context, ffmpegBin, wsDir, concatList, subPath string, hasSubs bool, bgmPath string, bgmVolume float64, W, H int, total float64, finalPath string) error {
+// assembleFilm runs stage 2: concat demuxer input -> subtitles -> (optional
+// AIGC label overlay) -> BGM mix -> final.mp4. labelPath is the label's own ass
+// file (empty = 不烧录); it is chained after the dialogue subtitles so the two
+// never share a file and the label stays on top.
+func assembleFilm(ctx context.Context, ffmpegBin, wsDir, concatList, subPath string, hasSubs bool, labelPath string, bgmPath string, bgmVolume float64, W, H int, total float64, finalPath string) error {
 	preArgs := []string{"-y", "-hide_banner", "-loglevel", "error", "-f", "concat", "-safe", "0", "-i", concatList}
 	if bgmPath != "" {
 		preArgs = append(preArgs, "-stream_loop", "-1", "-i", bgmPath)
 	}
 
-	videoChain := "[0:v]null[v]"
+	chain := []string{}
 	if hasSubs {
-		videoChain = fmt.Sprintf("[0:v]subtitles='%s'[v]", escapeFilterPath(subPath))
+		chain = append(chain, fmt.Sprintf("subtitles='%s'", escapeFilterPath(subPath)))
+	}
+	if labelPath != "" {
+		chain = append(chain, fmt.Sprintf("subtitles='%s'", escapeFilterPath(labelPath)))
+	}
+	videoChain := "[0:v]null[v]"
+	if len(chain) > 0 {
+		videoChain = "[0:v]" + strings.Join(chain, ",") + "[v]"
 	}
 	audioChain := "[0:a]anull[a]"
 	if bgmPath != "" {
@@ -466,6 +520,58 @@ func writeSubtitlesASS(wsDir string, sb *Storyboard, W, H int, font string) (str
 	return path, true, nil
 }
 
+// writeAIGCLabelASS renders the AIGC explicit label (GB 45438-2025 参考) as
+// its own overlay .ass file — deliberately separate from the dialogue
+// subtitles so neither can contaminate the other. One Dialogue line spans the
+// whole film: 左上角、半透明、字号约 4% 画面高（与分辨率成正比），位置由
+// \pos(...) 显式给出。text 为空时用缺省文案。
+func writeAIGCLabelASS(wsDir string, W, H int, total float64, text, font string) (string, error) {
+	path := projectPath(wsDir, "output", "aigc-label.ass")
+	text = strings.TrimSpace(text)
+	if text == "" {
+		text = defaultAIGCLabelText
+	}
+	if strings.TrimSpace(font) == "" {
+		font = defaultSubtitleFont()
+	}
+	if total <= 0 {
+		total = 1.0 // 防御：时长为 0 时给最小可见时长（校验已保证各镜时长为正）
+	}
+	fontSize := int(float64(H) * 0.04)
+	if fontSize < 16 {
+		fontSize = 16
+	}
+	marginH := int(float64(W) * 0.02)
+	if marginH < 12 {
+		marginH = 12
+	}
+	marginV := int(float64(H) * 0.03)
+	if marginV < 10 {
+		marginV = 10
+	}
+
+	var b strings.Builder
+	b.WriteString("[Script Info]\n")
+	b.WriteString("; AIGC 显式标识角标（GB 45438-2025 参考）——整片常驻，独立于台词字幕\n")
+	b.WriteString("ScriptType: v4.00+\n")
+	b.WriteString("WrapStyle: 2\n")
+	fmt.Fprintf(&b, "PlayResX: %d\nPlayResY: %d\n\n", W, H)
+	b.WriteString("[V4+ Styles]\n")
+	b.WriteString("Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding\n")
+	// Alignment=7（左上）作为默认锚点；实际位置由 Dialogue 里的 \pos 给出。
+	// 主色/描边都取半透明（&H80 前缀 = 约 50% 透明），不遮挡画面主体。
+	fmt.Fprintf(&b, "Style: AIGCLabel,%s,%d,&H80FFFFFF,&H000000FF,&H80000000,&H80000000,0,0,0,0,100,100,0,0,1,1,0,7,0,0,0,1\n\n",
+		font, fontSize)
+	b.WriteString("[Events]\n")
+	b.WriteString("Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n")
+	fmt.Fprintf(&b, "Dialogue: 0,%s,%s,AIGCLabel,,0,0,0,,{\\pos(%d,%d)\\alpha&H80&}%s\n",
+		assTime(0), assTime(total), marginH, marginV, escapeASSText(text))
+	if err := os.WriteFile(path, []byte(b.String()), 0o644); err != nil {
+		return path, fmt.Errorf("写入 AIGC 标识角标文件失败: %w", err)
+	}
+	return path, nil
+}
+
 // defaultSubtitleFont picks a CJK-capable system font per platform.
 func defaultSubtitleFont() string {
 	switch runtime.GOOS {
@@ -505,7 +611,7 @@ func escapeASSText(s string) string {
 }
 
 // runTechnicalQC probes the finished film and writes qc/final-qc.json.
-func runTechnicalQC(ctx context.Context, ffmpegBin, wsDir, finalPath string, expected float64, shots, reused, composed int) (*composeQC, error) {
+func runTechnicalQC(ctx context.Context, ffmpegBin, wsDir, finalPath string, expected float64, shots, reused, composed int, label aigcLabelState) (*composeQC, error) {
 	info, err := probeMedia(ctx, ffmpegBin, finalPath)
 	if err != nil {
 		return nil, err
@@ -524,9 +630,15 @@ func runTechnicalQC(ctx context.Context, ffmpegBin, wsDir, finalPath string, exp
 		AudioCodec:          info.AudioCodec,
 		Width:               info.Width,
 		Height:              info.Height,
+		AIGCLabel:           label.Required,
+		AIGCLabelBurned:     label.Burned,
+		AIGCLabelFile:       label.File,
 		Shots:               shots,
 		Reused:              reused,
 		Composed:            composed,
+	}
+	if label.Required {
+		qc.AIGCLabelText = label.Text
 	}
 	tolerance := expected * 0.02
 	if tolerance < 1.0 {
@@ -538,12 +650,16 @@ func runTechnicalQC(ctx context.Context, ffmpegBin, wsDir, finalPath string, exp
 	if fsNote != "" {
 		qc.Notes = append(qc.Notes, fsNote)
 	}
-	qc.ChecksPassed = qc.DurationOk && qc.HasVideo && qc.HasAudio && qc.Faststart
+	qc.ChecksPassed = qc.DurationOk && qc.HasVideo && qc.HasAudio && qc.Faststart &&
+		(!label.Required || label.Burned)
 	if !qc.DurationOk {
 		qc.Notes = append(qc.Notes, fmt.Sprintf("成片时长 %.2fs 与分镜合计 %.2fs 偏差超过容差 %.2fs", info.DurationSec, expected, tolerance))
 	}
 	if !qc.HasVideo || !qc.HasAudio {
 		qc.Notes = append(qc.Notes, "成片缺少视频流或音频流")
+	}
+	if label.Required && !label.Burned {
+		qc.Notes = append(qc.Notes, "分镜要求 AIGC 标识（storyboard.aigc_label=true）但标识角标未烧录，G5 标识位不合格，不得放行交付")
 	}
 	data, err := json.MarshalIndent(qc, "", "  ")
 	if err != nil {
@@ -581,6 +697,12 @@ func detectFaststart(path string) (bool, string) {
 // -filter_complex_script (never inline: the final graph grows with the shot
 // count and Windows caps a command line at 32k chars). keepPath non-empty
 // persists the script next to the artifacts for debugging.
+//
+// Newer FFmpeg builds (the app-downloaded nightly, FFmpeg ≥ 8) removed
+// -filter_complex_script; the official replacement is `-/filter_complex <file>`
+// (file-valued option syntax). The legacy form is tried first for old binaries
+// and the new syntax is used only when the binary rejects the legacy option —
+// so the module composes on both.
 func runFFmpegFilter(ctx context.Context, ffmpegBin string, preArgs []string, graph string, postArgs []string, keepPath string) (string, error) {
 	scriptPath := keepPath
 	cleanup := func() {}
@@ -613,7 +735,22 @@ func runFFmpegFilter(ctx context.Context, ffmpegBin string, preArgs []string, gr
 	args := append([]string{}, preArgs...)
 	args = append(args, "-filter_complex_script", scriptPath)
 	args = append(args, postArgs...)
-	return runFFmpeg(ctx, ffmpegBin, args)
+	out, err := runFFmpeg(ctx, ffmpegBin, args)
+	if err != nil && filterComplexScriptUnsupported(out) {
+		args = append([]string{}, preArgs...)
+		args = append(args, "-/filter_complex", scriptPath)
+		args = append(args, postArgs...)
+		return runFFmpeg(ctx, ffmpegBin, args)
+	}
+	return out, err
+}
+
+// filterComplexScriptUnsupported reports whether ffmpeg rejected the
+// -filter_complex_script option itself (removed in newer builds) rather than
+// failing on the graph contents — only then is the `-/filter_complex` retry
+// attempted. A graph error never carries this exact wording.
+func filterComplexScriptUnsupported(stderr string) bool {
+	return strings.Contains(stderr, "Unrecognized option 'filter_complex_script'")
 }
 
 // parseFloatDefault is a small helper for tool parameters.
