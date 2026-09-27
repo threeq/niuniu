@@ -180,6 +180,15 @@ func NewSystemDepsService() *SystemDepsService {
 	return s
 }
 
+// SetDataDir pins the base data directory used by the in-app ffmpeg install
+// (<dataDir>/bin/ffmpeg/<goos>-<goarch>/) and its resumable download cache
+// (<dataDir>/cache/downloads/). The server passes cfg.DataDir, so a custom
+// data dir keeps the downloader, the probe and the video module — which
+// resolves the very same <dataDir>/bin/ffmpeg/<goos>-<goarch>/, via the
+// --data-dir the MCP projection hands it — pointing at one tree. Left unset,
+// baseDir falls back to ~/.niuniu.
+func (s *SystemDepsService) SetDataDir(dir string) { s.dataDir = dir }
+
 // targetPlatform is the platform the probe/installer treat as "this machine":
 // the service's goos/goarch when set, the runtime values otherwise. The probe
 // fixtures override goos only, so both fields fall back independently.

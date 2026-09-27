@@ -2,14 +2,13 @@ package main
 
 // Dependency injection for the module's external binary needs.
 //
-// FFmpeg is injected as a resolver func (plan §1.5) instead of an import, so
-// this module never depends on the packaging infrastructure directly:
+// FFmpeg is injected as a resolver func (plan §1.5) rather than imported at
+// every call site, so the tools share one seam:
 //
-//	wave 1:  exec.LookPath("ffmpeg")             — PATH only
-//	wave 2:  internal/ffmpegbin.Resolve(dataDir) — env override →
-//	         in-app download under <dataDir>/bin/ffmpeg/<goos>-<goarch>/ → PATH
-//	         (here; ffmpeg is a system dependency, downloaded on demand in
-//	         设置 → 系统依赖 — design v3.2 §7.3, no bundled payload)
+//	internal/ffmpegbin.Resolve(dataDir) — $NIUNIU_FFMPEG → the in-app download
+//	under <dataDir>/bin/ffmpeg/<goos>-<goarch>/ → PATH. ffmpeg is a system
+//	dependency the user downloads on demand in 设置 → 系统依赖 (design v3.2
+//	§7.3 — no bundled payload, no build tag).
 //
 // When ffmpeg cannot be resolved, media_compose degrades with an explicit
 // Chinese error (design §9: 工具层降级，只出产物族+素材清单，不合成) while every

@@ -881,3 +881,21 @@ func TestProbe_LoginStatus_NilWhenCLIMissing(t *testing.T) {
 		}
 	}
 }
+
+// TestSetDataDir_PinsBaseDir guards the cfg.DataDir plumbing: the server pins
+// the data dir so the in-app ffmpeg download lands in <dataDir>/bin/ffmpeg —
+// the very tree the video module resolves through its own --data-dir. If
+// SetDataDir stopped winning over the ~/.niuniu fallback, a custom data dir
+// would download to one place and look in another.
+func TestSetDataDir_PinsBaseDir(t *testing.T) {
+	dir := t.TempDir()
+	svc := NewSystemDepsService()
+	svc.SetDataDir(dir)
+	got, err := svc.baseDir()
+	if err != nil {
+		t.Fatalf("baseDir: %v", err)
+	}
+	if got != dir {
+		t.Fatalf("baseDir = %q, want %q (SetDataDir must win over the ~/.niuniu fallback)", got, dir)
+	}
+}

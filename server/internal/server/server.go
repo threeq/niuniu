@@ -422,6 +422,11 @@ func New(cfg *config.Config, db *sql.DB, frontendFS fs.FS) *Server {
 	s.gitOpsSvc = service.NewGitOpsService(s.queries, s.notifyHub)
 	s.directorySvc = service.NewDirectoryService(s.cfg.DataDir)
 	s.systemDepsSvc = service.NewSystemDepsService()
+	// Pin the data dir: the in-app ffmpeg download installs under
+	// <dataDir>/bin/ffmpeg/<goos>-<goarch>/ — exactly where the video module
+	// resolves it (its --data-dir comes from the same cfg.DataDir). Without
+	// this a custom data dir would download to one tree and look in another.
+	s.systemDepsSvc.SetDataDir(s.cfg.DataDir)
 
 	s.quickActionSvc = service.NewQuickActionService(s.queries, db, authz)
 	// Seed the built-in studio quick actions under the user/0 sentinel

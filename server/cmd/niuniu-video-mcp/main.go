@@ -12,8 +12,9 @@ package main
 //	--workspace-dir <abs>   (required) the workspace whose <ws>/video-project/
 //	                        tree holds storyboard.json / assets / shots / quotes
 //	                        / qc / output — every path a tool writes lives there.
-//	--data-dir <abs>        (optional, default ~/.niuniu) reserve for the
-//	                        packaged ffmpeg (wave 2) and future caches.
+//	--data-dir <abs>        (optional, default ~/.niuniu) locates the in-app
+//	                        ffmpeg install (<dataDir>/bin/ffmpeg/…) and any
+//	                        future caches; must match the server's cfg.DataDir.
 //
 // Capability accounts arrive as environment variables (frozen, §1.3):
 //
@@ -91,7 +92,7 @@ func run(wsDirFlag, dataDirFlag string) error {
 	app := &App{
 		wsDir:      wsDir,
 		dataDir:    dataDir,
-		deps:       DefaultDeps(), // wave 2: replace with internal/ffmpegbin.Resolve(dataDir)
+		deps:       DefaultDeps(), // → internal/ffmpegbin.Resolve(moduleDataDir())
 		reg:        reg,
 		httpClient: client,
 	}
