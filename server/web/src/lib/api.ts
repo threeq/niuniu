@@ -73,6 +73,10 @@ import type {
   WorkspaceFileHit,
   ContentSearchResponse,
   ContentSearchOptions,
+  CapabilityModuleListResponse,
+  CapabilityBackend,
+  CapabilityBackendListResponse,
+  SaveCapabilityBackendData,
 } from '../types/api'
 import type { Org, OrgMember, OrgAuditEntry, User, OwnerRef } from '../types/org'
 import type {
@@ -622,6 +626,22 @@ export const api = {
   // provider or a provider GROUP.
   setProjectEnvProvider: (projectId: string, providerId: number | null, groupName?: string): Promise<unknown> =>
     api.put(`/projects/${projectId}/env-provider`, groupName ? { env_provider_group: groupName } : { env_provider_id: providerId }),
+
+  // Capability configuration — third-party generation-service accounts bound per
+  // capability module (Settings → 能力配置). Independent of env_providers: this
+  // domain injects NN_CAP_* env into capability-module tool processes. Frozen
+  // contract §1.1 of docs/superpowers/plans/2026-09-27-video-creation-implementation.md;
+  // the server never echoes a plaintext api_key.
+  listCapabilityModules: (): Promise<CapabilityModuleListResponse> =>
+    api.get<CapabilityModuleListResponse>('/capability-modules'),
+  listCapabilityBackends: (module: string): Promise<CapabilityBackendListResponse> =>
+    api.get<CapabilityBackendListResponse>('/capability-backends', { params: { module } }),
+  createCapabilityBackend: (data: SaveCapabilityBackendData): Promise<CapabilityBackend> =>
+    api.post<CapabilityBackend>('/capability-backends', data),
+  updateCapabilityBackend: (id: number, data: SaveCapabilityBackendData): Promise<CapabilityBackend> =>
+    api.put<CapabilityBackend>(`/capability-backends/${id}`, data),
+  deleteCapabilityBackend: (id: number): Promise<void> =>
+    api.delete(`/capability-backends/${id}`),
 
   // Attachments
   uploadAttachment: async (workspaceId: string, file: File): Promise<{ name: string; path: string; size: number; mimeType: string; originalSize?: number; optimized?: boolean }> => {

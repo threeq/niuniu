@@ -1237,6 +1237,81 @@ export interface CreateEnvProviderData {
   owner?: { type: string; id: number }
 }
 
+// ---------------------------------------------------------------------------
+// Capability configuration (能力配置) — third-party generation-service accounts
+// for capability modules (video-gen), independent of env_providers.
+//
+// The REST shapes below are the FROZEN contract §1.1 of
+// docs/superpowers/plans/2026-09-27-video-creation-implementation.md. The
+// server NEVER returns a plaintext api_key — `has_api_key` is the only signal;
+// on PUT an omitted/empty api_key leaves the stored key unchanged.
+// ---------------------------------------------------------------------------
+
+/** One form field of a backend implementation, rendered schema-driven. */
+export interface CapabilityFieldSchema {
+  key: string
+  label: string
+  /** "string" = plain input; "secret" = password input (blank on edit = keep). */
+  type: 'string' | 'secret'
+}
+
+/** One selectable adapter implementation (e.g. openai-compat / seedance / kling). */
+export interface CapabilityBackendOption {
+  value: string
+  label: string
+  fields: CapabilityFieldSchema[]
+}
+
+/** One capability family (tts / image / video) of a module. */
+export interface CapabilityCapabilitySchema {
+  key: string
+  label: string
+  backends: CapabilityBackendOption[]
+}
+
+/** Module registration payload: identity + the schema the config UI renders. */
+export interface CapabilityModule {
+  name: string
+  display_name: string
+  config_schema: {
+    capabilities: CapabilityCapabilitySchema[]
+  }
+}
+
+export interface CapabilityModuleListResponse {
+  modules: CapabilityModule[]
+}
+
+/** A configured account row. `api_key` is never returned, only `has_api_key`. */
+export interface CapabilityBackend {
+  id: number
+  module: string
+  capability: string
+  backend: string
+  name: string
+  base_url: string
+  has_api_key: boolean
+  extra_config: Record<string, string>
+  enabled: boolean
+  position: number
+}
+
+export interface CapabilityBackendListResponse {
+  backends: CapabilityBackend[]
+}
+
+/** POST/PUT body. On PUT an omitted or empty api_key keeps the stored key. */
+export interface SaveCapabilityBackendData {
+  module: string
+  capability: string
+  backend: string
+  name: string
+  base_url?: string
+  api_key?: string
+  extra_config?: Record<string, string>
+  enabled?: boolean
+}
+
 // Workspace delete change check
 export interface WorktreeChangeStatus {
   worktree_path: string;
