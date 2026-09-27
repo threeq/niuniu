@@ -72,6 +72,7 @@
 - [ ] 画幅与分辨率：与 `resolution` / `aspect_ratio` 一致（默认 720p），全片统一，无异常黑边
 - [ ] 一致性：同一角色跨镜形象偏差可接受，无闪烁 / 跳变；转场与分镜 `transition` 一致
 - [ ] AIGC 标识：按 GB 45438-2025 在片头 / 片尾或元数据中带显式 AI 生成标识
+  - 工具事实：分镜设 `aigc_label: true` 时 `media_compose` 会自动烧制角标（独立 `output/aigc-label.ass`，不污染台词字幕），并在 `qc/` 记录 `aigc_label_burned`；**要求了却没烧上（`aigc_label_burned=false` 或 `checks_passed=false`）= G5 不合格，不得放行交付**
 - [ ] 版权：所有素材为自有或明确可商用来源，BGM 无版权风险，图库素材已注明来源
 - [ ] 留痕：`quotes/` 与 `qc/` 完整，候选与淘汰原因可回溯，无未记录的付费调用
 

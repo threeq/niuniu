@@ -182,7 +182,7 @@ module: video-gen
 | `tts_generate` | 文本+voice/语速 → 音频+时长元数据 | OpenAI 兼容 `/v1/audio/speech` 基线 |
 | `image_generate` | prompt+参考图+画幅 → png（多候选） | wave2 参考图 + wave4 首帧 |
 | `video_generate` | 首帧图+运动 prompt+时长 → **异步任务**（句柄/轮询/取片） | i2v 为主；2–3 候选；失败留痕不自动重试；第一期 recipe：豆包 Seedance / 可灵 |
-| `media_compose` | approved `storyboard.json` + assets → 逐镜合成 → 拼接+ass 字幕+BGM 混音 → `output/final.mp4` | FFmpeg 最终装配器（`-filter_complex_script`、H.264/AAC/faststart、默认 720p）；坏镜单点重合成；执行 G5 技术 QC；**硬前置：只接受 review_status=approved 的 storyboard.json** |
+| `media_compose` | approved `storyboard.json` + assets → 逐镜合成 → 拼接+ass 字幕+BGM 混音（+ 可选 AIGC 角标） → `output/final.mp4` | FFmpeg 最终装配器（滤镜一律走**脚本文件**：`-filter_complex_script`，新版 ffmpeg 已移除该选项时自动回退官方替代语法 `-/filter_complex <file>`——两者都规避 Windows 命令行长度上限；H.264/AAC/faststart、默认 720p）；坏镜单点重合成；执行 G5 技术 QC（含 AIGC 标识位：分镜 `aigc_label: true` 时烧角标并在 QC 记录 `aigc_label_burned`，要求了却没烧上判不合格）；**硬前置：只接受 review_status=approved 的 storyboard.json** |
 
 **FFmpeg 分发（v3.2 修订：系统依赖按需下载，用户定案——不内嵌）**：
 - **不打包进可执行文件**（内嵌会让模块二进制膨胀 ~320MB，桌面包过大）；ffmpeg 作为**可选系统依赖**接入 Settings → 系统依赖页，与 tesseract/cairosvg 同一机制（探测 / 一键安装 / 优雅降级 / SSE 进度）。
