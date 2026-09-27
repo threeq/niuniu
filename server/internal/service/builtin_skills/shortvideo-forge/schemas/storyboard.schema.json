@@ -1,0 +1,136 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "shortvideo-forge/schemas/storyboard.schema.json",
+  "title": "storyboard.json — 短视频分镜（唯一生成事实源）",
+  "description": "必填字段为冻结契约（工具层 media_compose 的硬前置是 review_status=approved）。可选字段（character_ids / scene_id / action / camera / visual.candidates / visual.selected / revision）承载 id 引用制与一致性锚；未知字段允许携带但工具层不消费。路径均为相对 video-project/ 的路径。",
+  "type": "object",
+  "required": ["title", "aspect_ratio", "fps", "resolution", "review_status", "shots"],
+  "properties": {
+    "title": {
+      "type": "string",
+      "minLength": 1,
+      "description": "成片标题"
+    },
+    "aspect_ratio": {
+      "type": "string",
+      "pattern": "^[0-9]{1,2}:[0-9]{1,2}$",
+      "description": "画幅，如 16:9 / 9:16 / 1:1"
+    },
+    "fps": {
+      "type": "number",
+      "exclusiveMinimum": 0,
+      "description": "帧率，默认 30"
+    },
+    "resolution": {
+      "type": "string",
+      "pattern": "^[0-9]{3,4}x[0-9]{3,4}$",
+      "description": "分辨率，默认 720p：1280x720（横屏）/ 720x1280（竖屏）"
+    },
+    "review_status": {
+      "enum": ["draft", "in-review", "approved"],
+      "description": "审核状态；只有 approved 的 storyboard 才能进 media_compose"
+    },
+    "revision": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "版本号，重做产物时递增"
+    },
+    "shots": {
+      "type": "array",
+      "minItems": 1,
+      "description": "逐镜列表",
+      "items": { "$ref": "#/$defs/shot" }
+    }
+  },
+  "$defs": {
+    "shot": {
+      "type": "object",
+      "required": ["id", "duration_sec", "narration", "subtitle", "visual", "tts", "transition"],
+      "properties": {
+        "id": {
+          "type": ["string", "integer"],
+          "description": "镜头 id，全片唯一（建议字符串序号 \"01\"）"
+        },
+        "duration_sec": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "description": "镜头时长（秒）；各镜合计应等于目标时长"
+        },
+        "narration": {
+          "type": "string",
+          "description": "旁白 / 配音文本；无旁白用空串"
+        },
+        "subtitle": {
+          "type": "string",
+          "description": "字幕文本；无字幕用空串。可含换行控制断句"
+        },
+        "character_ids": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "引用 characters.json 的角色 id（id 引用制，不内联文案）"
+        },
+        "scene_id": {
+          "type": "string",
+          "description": "引用 scenes.json 的场景 id"
+        },
+        "action": {
+          "type": "string",
+          "description": "镜头内动作描述"
+        },
+        "camera": {
+          "type": "string",
+          "description": "运镜描述，如「中景缓推」"
+        },
+        "visual": {
+          "type": "object",
+          "required": ["type", "tier", "prompt", "asset"],
+          "properties": {
+            "type": {
+              "enum": ["image", "video"],
+              "description": "image=静图 / 首帧（图生视频或静图运镜）；video=视频素材（AI 生成或自有）"
+            },
+            "tier": {
+              "enum": ["L1", "L2", "L3"],
+              "description": "L1 自有素材 / 图库（零成本）→ L2 AI 文生图（放行 + quotes/ 留痕）→ L3 AI 图生视频（ask_user 报价确认）"
+            },
+            "prompt": {
+              "type": "string",
+              "description": "模板化拼接：画风包段 + 角色 appearance_prompt 段 + 场景段 + 镜头动作；不允许即兴风格词"
+            },
+            "asset": {
+              "type": "string",
+              "description": "选定镜头素材路径（相对 video-project/），如 shots/01.mp4；合成消费本字段"
+            },
+            "candidates": {
+              "type": "array",
+              "items": { "type": "string" },
+              "description": "候选素材路径（按质量档位 1–4 个；评分与淘汰原因留痕 qc/）"
+            },
+            "selected": {
+              "type": "string",
+              "description": "从候选中选中的路径（与 asset 同义，生成侧留痕用）"
+            }
+          }
+        },
+        "tts": {
+          "type": "object",
+          "required": ["voice", "asset"],
+          "properties": {
+            "voice": {
+              "type": "string",
+              "description": "音色（后端 voice id）；无配音用空串"
+            },
+            "asset": {
+              "type": "string",
+              "description": "配音音频路径（相对 video-project/），如 assets/tts-01.mp3；无配音用空串"
+            }
+          }
+        },
+        "transition": {
+          "enum": ["cut", "fade"],
+          "description": "转场方式"
+        }
+      }
+    }
+  }
+}
