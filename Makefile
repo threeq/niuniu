@@ -6,7 +6,7 @@
 	dev-desktop-v2 \
 	_personal-prepare _personal-prepare-current _personal-prepare-v2 \
 	clean test test-coverage test-services test-handlers test-pg test-pg-smoke docs sqlc sqlc-lint \
-	builtin-scenes-sync builtin-skills-sync ffmpeg-stage \
+	builtin-scenes-sync builtin-skills-sync ffmpeg-stage _ffmpeg-stage-best-effort \
 	dev-relay dev-relay-web build-relay test-relay test-all \
 	relay-docker relay-compose-up relay-compose-down relay-compose-logs
 
@@ -116,20 +116,29 @@ dev-mobile: mobile-install
 # when a C compiler is present (cgo defaults on); without one, cgo turns off and
 # WebP degrades to PNG8/JPEG (still functional). For deterministic WebP use
 # `make build-linux` (zig cc) or build on a host with a C toolchain.
+#
+# niuniu-video-mcp is built here WITHOUT the ffmpeg_bundled tag: a dev/PATH
+# deploy resolves ffmpeg from $NIUNIU_FFMPEG or PATH at runtime. The desktop
+# bundle (_personal-prepare) stages the static payload and adds the tag, so
+# the shipped module carries ffmpeg itself.
 build:
 	cd server/web && pnpm install && pnpm build
 	cd server && go build $(SERVER_LDFLAGS) -o ../bin/niuniu-server-$(VERSION) ./cmd/niuniu
 	cd server && go build $(SERVER_LDFLAGS) -o ../bin/niuniu-mcp-$(VERSION) ./cmd/niuniu-mcp
+	cd server && go build $(SERVER_LDFLAGS) -o ../bin/niuniu-video-mcp-$(VERSION) ./cmd/niuniu-video-mcp
 	$(call compress,bin/niuniu-server-$(VERSION))
 	$(call compress,bin/niuniu-mcp-$(VERSION))
+	$(call compress,bin/niuniu-video-mcp-$(VERSION))
 	@echo "NOTE: Desktop (desktop-v2, Tauri) is built separately — make build-personal-v2-current (or build-personal-v2-{windows,darwin,linux})"
 
 build-win:
 	cd server/web && pnpm install && pnpm build
 	cd server && go build $(SERVER_LDFLAGS) -o ../bin/niuniu-server-$(VERSION).exe ./cmd/niuniu
 	cd server && go build $(SERVER_LDFLAGS) -o ../bin/niuniu-mcp-$(VERSION).exe ./cmd/niuniu-mcp
+	cd server && go build $(SERVER_LDFLAGS) -o ../bin/niuniu-video-mcp-$(VERSION).exe ./cmd/niuniu-video-mcp
 	$(call compress,bin/niuniu-server-$(VERSION).exe)
 	$(call compress,bin/niuniu-mcp-$(VERSION).exe)
+	$(call compress,bin/niuniu-video-mcp-$(VERSION).exe)
 	@echo "NOTE: Desktop (desktop-v2, Tauri) is built separately — make build-personal-v2-windows"
 
 build-linux:
@@ -138,10 +147,14 @@ build-linux:
 	cd server && $(LINUX_ARM64_ENV) go build $(SERVER_LDFLAGS) -o ../bin/niuniu-server-$(VERSION)-linux-arm64 ./cmd/niuniu
 	cd server && $(LINUX_AMD64_ENV) go build $(SERVER_LDFLAGS) -o ../bin/niuniu-mcp-$(VERSION)-linux-amd64 ./cmd/niuniu-mcp
 	cd server && $(LINUX_ARM64_ENV) go build $(SERVER_LDFLAGS) -o ../bin/niuniu-mcp-$(VERSION)-linux-arm64 ./cmd/niuniu-mcp
+	cd server && $(LINUX_AMD64_ENV) go build $(SERVER_LDFLAGS) -o ../bin/niuniu-video-mcp-$(VERSION)-linux-amd64 ./cmd/niuniu-video-mcp
+	cd server && $(LINUX_ARM64_ENV) go build $(SERVER_LDFLAGS) -o ../bin/niuniu-video-mcp-$(VERSION)-linux-arm64 ./cmd/niuniu-video-mcp
 	$(call compress,bin/niuniu-server-$(VERSION)-linux-amd64)
 	$(call compress,bin/niuniu-mcp-$(VERSION)-linux-amd64)
 	$(call compress,bin/niuniu-server-$(VERSION)-linux-arm64)
 	$(call compress,bin/niuniu-mcp-$(VERSION)-linux-arm64)
+	$(call compress,bin/niuniu-video-mcp-$(VERSION)-linux-amd64)
+	$(call compress,bin/niuniu-video-mcp-$(VERSION)-linux-arm64)
 	@echo "NOTE: Desktop (desktop-v2, Tauri) needs the Linux GTK/WebKit dev packages — build on Linux with: make build-personal-v2-linux"
 
 build-mac:
@@ -150,10 +163,14 @@ build-mac:
 	cd server && GOOS=darwin GOARCH=amd64 go build $(SERVER_LDFLAGS) -o ../bin/niuniu-server-$(VERSION)-darwin-amd64 ./cmd/niuniu
 	cd server && GOOS=darwin GOARCH=arm64 go build $(SERVER_LDFLAGS) -o ../bin/niuniu-mcp-$(VERSION)-darwin-arm64 ./cmd/niuniu-mcp
 	cd server && GOOS=darwin GOARCH=amd64 go build $(SERVER_LDFLAGS) -o ../bin/niuniu-mcp-$(VERSION)-darwin-amd64 ./cmd/niuniu-mcp
+	cd server && GOOS=darwin GOARCH=arm64 go build $(SERVER_LDFLAGS) -o ../bin/niuniu-video-mcp-$(VERSION)-darwin-arm64 ./cmd/niuniu-video-mcp
+	cd server && GOOS=darwin GOARCH=amd64 go build $(SERVER_LDFLAGS) -o ../bin/niuniu-video-mcp-$(VERSION)-darwin-amd64 ./cmd/niuniu-video-mcp
 	$(call compress,bin/niuniu-server-$(VERSION)-darwin-arm64)
 	$(call compress,bin/niuniu-mcp-$(VERSION)-darwin-arm64)
 	$(call compress,bin/niuniu-server-$(VERSION)-darwin-amd64)
 	$(call compress,bin/niuniu-mcp-$(VERSION)-darwin-amd64)
+	$(call compress,bin/niuniu-video-mcp-$(VERSION)-darwin-arm64)
+	$(call compress,bin/niuniu-video-mcp-$(VERSION)-darwin-amd64)
 	@echo "NOTE: Desktop (desktop-v2, Tauri) requires macOS SDK — build on macOS with: make build-personal-v2-darwin"
 
 build-mcp:
@@ -162,7 +179,7 @@ build-mcp:
 
 # Clean build artifacts
 clean:
-	rm -rf bin/ server/web/dist/ desktop-v2/binaries/niuniu-server* desktop-v2/binaries/niuniu-mcp* desktop-v2/binaries/staging/
+	rm -rf bin/ server/web/dist/ desktop-v2/binaries/niuniu-server* desktop-v2/binaries/niuniu-mcp* desktop-v2/binaries/niuniu-video-mcp* desktop-v2/binaries/staging/
 
 # Testing targets
 test:
@@ -360,6 +377,33 @@ ffmpeg-stage:
 	force=""; [ "$(FORCE)" = "1" ] && force=--force; \
 	bash scripts/fetch-ffmpeg.sh "$$goos" "$$goarch" $$force
 
+# Best-effort wrapper around ffmpeg-stage for the desktop bundle
+# (_personal-prepare): the payload is a 100-200 MB download, and an offline
+# machine must NEVER break a desktop build. This target always exits 0.
+# Whether the payload actually landed is observed by _personal-prepare itself:
+# it stats dist/<goos>-<goarch>/ffmpeg and only then adds -tags ffmpeg_bundled
+# to the module build — a failed staging yields a PATH-fallback module plus an
+# explicit warning instead of a hard error.
+#
+# Release CI that must not ship without ffmpeg runs the hard `make ffmpeg-stage`
+# first (non-zero exit on any failure); this wrapper then finds dist/ already
+# staged and skips the download (fetch-ffmpeg.sh is idempotent). Because the
+# recipe line contains $(MAKE), `make -n` still recurses into it — the inner
+# staging recipe itself is only printed, never run, so a dry run downloads
+# nothing.
+_ffmpeg-stage-best-effort:
+	@echo "ffmpeg payload $(GOOS)/$(GOARCH): best-effort staging (desktop build continues without it)"
+	@if $(MAKE) ffmpeg-stage GOOS=$(GOOS) GOARCH=$(GOARCH); then \
+		echo "  ffmpeg payload staged - niuniu-video-mcp will embed it"; \
+	else \
+		echo ""; \
+		echo "  WARNING: ffmpeg staging failed (offline / download error / unsupported platform)."; \
+		echo "           The desktop build continues WITHOUT an embedded ffmpeg: media_compose"; \
+		echo "           falls back to a PATH ffmpeg at runtime. A release build must run"; \
+		echo "           'make ffmpeg-stage GOOS=$(GOOS) GOARCH=$(GOARCH)' first (that target fails hard)."; \
+		echo ""; \
+	fi
+
 # ─── Personal edition ────────────────────────────────────────────────
 # Opt-in bundle: embeds server into the desktop-v2 (Tauri) shell as sidecars.
 # Does NOT run in `make build`.
@@ -498,18 +542,21 @@ dev-desktop-v2:
 	$(RUSTUP_TARGET_ADD) $$TRIPLE >/dev/null 2>&1 || true; \
 	cd desktop-v2 && $(CARGO) run --target $$TRIPLE
 
-# 把 _personal-prepare 产出的 server/mcp 二进制拷为 Tauri 侧车（以去 triple 名
-# 为主 —— server_binary_path 先按 exe 旁/plain 名解析，toolchain 差异不影响；
-# 若有三方 triple 映射则额外多拷一份 triple 名以备将来 externalBin 打包用）。
+# 把 _personal-prepare 产出的 server/mcp/video-mcp 二进制拷为 Tauri 侧车（以去
+# triple 名为主 —— server_binary_path 先按 exe 旁/plain 名解析，toolchain 差异
+# 不影响；若有三方 triple 映射则额外多拷一份 triple 名以备将来 externalBin 打包用）。
+# video-mcp 与 server 同目录：Go server 找能力模块按 os.Executable()+dirname 解析。
 _personal-prepare-v2:
 	@mkdir -p desktop-v2/binaries; \
 	cp desktop-v2/binaries/staging/$(GOOS)-$(GOARCH)/niuniu-server$(EXT) desktop-v2/binaries/niuniu-server$(EXT); \
 	cp desktop-v2/binaries/staging/$(GOOS)-$(GOARCH)/niuniu-mcp$(EXT) desktop-v2/binaries/niuniu-mcp$(EXT); \
-	echo "staged sidecars: desktop-v2/binaries/niuniu-server$(EXT) (+niuniu-mcp)"; \
+	cp desktop-v2/binaries/staging/$(GOOS)-$(GOARCH)/niuniu-video-mcp$(EXT) desktop-v2/binaries/niuniu-video-mcp$(EXT); \
+	echo "staged sidecars: desktop-v2/binaries/niuniu-server$(EXT) (+niuniu-mcp, +niuniu-video-mcp)"; \
 	TRIPLE="$(V2_TRIPLE)"; \
 	if [ -n "$$TRIPLE" ]; then \
 		cp desktop-v2/binaries/staging/$(GOOS)-$(GOARCH)/niuniu-server$(EXT) desktop-v2/binaries/niuniu-server-$$TRIPLE$(EXT); \
 		cp desktop-v2/binaries/staging/$(GOOS)-$(GOARCH)/niuniu-mcp$(EXT) desktop-v2/binaries/niuniu-mcp-$$TRIPLE$(EXT); \
+		cp desktop-v2/binaries/staging/$(GOOS)-$(GOARCH)/niuniu-video-mcp$(EXT) desktop-v2/binaries/niuniu-video-mcp-$$TRIPLE$(EXT); \
 		echo "  + triple name niuniu-server-$$TRIPLE$(EXT)"; \
 	fi
 
@@ -529,6 +576,11 @@ _personal-prepare-v2:
 # node_modules matches the lockfile and reconciles automatically when
 # package.json drifts. The cost we wanted to skip is `pnpm build`
 # (i18n-check + tsc -b + vite build), not the install.
+#
+# 三件侧车：niuniu-server / niuniu-mcp / niuniu-video-mcp（能力模块）。能力模块
+# 优先内嵌 ffmpeg 静态载荷（dist 由 _ffmpeg-stage-best-effort 尽力而为之）：
+# staging 成功 → `-tags ffmpeg_bundled`，模块自带 ffmpeg；失败（离线等）→ 不带
+# tag 构建，仅打印警告，构建绝不中断，运行期回退 $NIUNIU_FFMPEG/PATH。
 _personal-prepare:
 	cd server/web && pnpm install
 	@if [ ! -f server/web/dist/index.html ] || \
@@ -541,10 +593,28 @@ _personal-prepare:
 	mkdir -p desktop-v2/binaries/staging/$(GOOS)-$(GOARCH)
 	rm -f desktop-v2/binaries/staging/$(GOOS)-$(GOARCH)/niuniu-server$(EXT)
 	rm -f desktop-v2/binaries/staging/$(GOOS)-$(GOARCH)/niuniu-mcp$(EXT)
+	rm -f desktop-v2/binaries/staging/$(GOOS)-$(GOARCH)/niuniu-video-mcp$(EXT)
 	cd server && $(BUNDLE_CGO) GOOS=$(GOOS) GOARCH=$(GOARCH) go build $(SERVER_LDFLAGS) \
 		-o ../desktop-v2/binaries/staging/$(GOOS)-$(GOARCH)/niuniu-server$(EXT) ./cmd/niuniu
 	cd server && $(BUNDLE_CGO) GOOS=$(GOOS) GOARCH=$(GOARCH) go build $(SERVER_LDFLAGS) \
 		-o ../desktop-v2/binaries/staging/$(GOOS)-$(GOARCH)/niuniu-mcp$(EXT) ./cmd/niuniu-mcp
+	$(MAKE) _ffmpeg-stage-best-effort GOOS=$(GOOS) GOARCH=$(GOARCH)
+	@dist_ffmpeg="server/internal/ffmpegbin/dist/$(GOOS)-$(GOARCH)/ffmpeg$(EXT)"; \
+	ffmpeg_tags=""; \
+	if [ -s "$$dist_ffmpeg" ]; then \
+		ffmpeg_tags="-tags ffmpeg_bundled"; \
+		echo "niuniu-video-mcp: embedding the staged ffmpeg payload ($$dist_ffmpeg)"; \
+	else \
+		echo ""; \
+		echo "WARNING: no staged ffmpeg payload for $(GOOS)/$(GOARCH) ($$dist_ffmpeg)."; \
+		echo "         Building niuniu-video-mcp WITHOUT -tags ffmpeg_bundled: this build does not"; \
+		echo "         embed ffmpeg, so media_compose falls back to a PATH ffmpeg at runtime."; \
+		echo "         Release builds: run 'make ffmpeg-stage GOOS=$(GOOS) GOARCH=$(GOARCH)' first,"; \
+		echo "         then re-run this build."; \
+		echo ""; \
+	fi; \
+	cd server && $(BUNDLE_CGO) GOOS=$(GOOS) GOARCH=$(GOARCH) go build $$ffmpeg_tags $(SERVER_LDFLAGS) \
+		-o ../desktop-v2/binaries/staging/$(GOOS)-$(GOARCH)/niuniu-video-mcp$(EXT) ./cmd/niuniu-video-mcp
 
 _personal-prepare-current:
 	$(MAKE) _personal-prepare GOOS=$(shell go env GOOS) GOARCH=$(shell go env GOARCH) EXT=$(EXE_SUFFIX)

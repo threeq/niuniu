@@ -1,7 +1,7 @@
 //! 嵌入式 Go server 子进程管理：探测复用 → 侧车 spawn → ready 握手 → 优雅退出。
 //! 与 Wails 版 internal/bundle + internal/probe 对应，但用 Tauri externalBin
-//! 侧车承载 server 二进制（niuniu-mcp 与 server 放同一目录，server 通过
-//! os.Executable() + dirname 找到它）。
+//! 侧车承载 server 二进制（niuniu-mcp / niuniu-video-mcp 与 server 放同一目录，
+//! server 通过 os.Executable() + dirname 找到它们）。
 
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
@@ -27,9 +27,11 @@ pub struct ServerHandle {
 
 // ─── 二进制定位 ────────────────────────────────────────────────────────────
 
-// 内嵌的 server/mcp sidecar（编译期由 make _personal-prepare-v2 staging 到 binaries/，
-// build.rs 探测后开启 have_embedded_sidecars）。单文件分发，对齐 v1 go:embed。
-// include_bytes! 必须是字符串字面量，故按 target_os 用 cfg 选不同字面量路径。
+// 内嵌的 server/mcp/video-mcp sidecar（编译期由 make _personal-prepare-v2 staging
+// 到 binaries/，build.rs 探测后开启 have_embedded_sidecars / have_embedded_video_mcp）。
+// 单文件分发，对齐 v1 go:embed。include_bytes! 必须是字符串字面量，故按 target_os
+// 用 cfg 选不同字面量路径。video-mcp（视频创作能力模块）独立 cfg：模块缺席
+// （老 staging / 轻量发行）不影响两件套的内嵌行为。
 #[cfg(all(have_embedded_sidecars, target_os = "windows"))]
 const EMBED_SERVER: &[u8] = include_bytes!("../binaries/niuniu-server.exe");
 #[cfg(all(have_embedded_sidecars, target_os = "windows"))]
@@ -38,39 +40,58 @@ const EMBED_MCP: &[u8] = include_bytes!("../binaries/niuniu-mcp.exe");
 const EMBED_SERVER: &[u8] = include_bytes!("../binaries/niuniu-server");
 #[cfg(all(have_embedded_sidecars, not(target_os = "windows")))]
 const EMBED_MCP: &[u8] = include_bytes!("../binaries/niuniu-mcp");
+#[cfg(all(have_embedded_sidecars, have_embedded_video_mcp, target_os = "windows"))]
+const EMBED_VIDEO_MCP: &[u8] = include_bytes!("../binaries/niuniu-video-mcp.exe");
+#[cfg(all(have_embedded_sidecars, have_embedded_video_mcp, not(target_os = "windows")))]
+const EMBED_VIDEO_MCP: &[u8] = include_bytes!("../binaries/niuniu-video-mcp");
 
 /// 内嵌 sidecar 的解压目录：~/.niuniu/desktop-v2/sidecars/（绝对、跨构建稳定、
-/// 与 v1 的 user-cache 解压同构）。server 与 mcp 同目录，server 通过
-/// os.Executable()+dirname 找到 mcp。
+/// 与 v1 的 user-cache 解压同构）。server 与 mcp / video-mcp 同目录，server 通过
+/// os.Executable()+dirname 找到它们。
 #[cfg(have_embedded_sidecars)]
 fn embedded_sidecar_dir() -> Result<PathBuf, String> {
     let base = crate::config::data_dir().join("desktop-v2").join("sidecars");
     let _ = std::fs::create_dir_all(&base);
 
-    // 指纹由 build.rs 在编译期计算（EMBEDDED_SIDE_FP），匹配则跳过解压。
+    // 指纹由 build.rs 在编译期计算（EMBEDDED_SIDE_FP），覆盖本次内嵌的每一件
+    // （三件套构建含 video-mcp），匹配则跳过解压。
     let fp = env!("EMBEDDED_SIDE_FP");
     let marker = base.join(".fp");
     let server_name = if cfg!(windows) { "niuniu-server.exe" } else { "niuniu-server" };
     let mcp_name = if cfg!(windows) { "niuniu-mcp.exe" } else { "niuniu-mcp" };
-    let server_path = base.join(server_name);
-    let mcp_path = base.join(mcp_name);
 
+    // 本次内嵌必须就位的每一件（名称, 内容）；server 打头，返回值是它的路径。
+    // 逐条 push 而非 vec![..]：即便 video-mcp 缺席（cfg 关），可变绑定也始终
+    // 被使用，不触发 unused_mut。
+    let mut files: Vec<(&str, &[u8])> = Vec::with_capacity(3);
+    files.push((server_name, EMBED_SERVER));
+    files.push((mcp_name, EMBED_MCP));
+    #[cfg(have_embedded_video_mcp)]
+    files.push((
+        if cfg!(windows) { "niuniu-video-mcp.exe" } else { "niuniu-video-mcp" },
+        EMBED_VIDEO_MCP,
+    ));
+
+    // already_current：指纹匹配且本次内嵌的每一件都已就位。历史目录（两件套 + 历史
+    // 指纹）不会被判成损坏 —— 指纹不匹配时按当前构建重新原子写一遍（只增不减，
+    // 旧目录里的文件原样被同内容覆盖或保持），不报错也不清空目录。
     let already_current = std::fs::read_to_string(&marker).ok().as_deref() == Some(fp)
-        && server_path.exists()
-        && mcp_path.exists();
+        && files.iter().all(|&(name, _)| base.join(name).exists());
     if !already_current {
-        write_atomic(&server_path, EMBED_SERVER)?;
-        write_atomic(&mcp_path, EMBED_MCP)?;
-        let _ = std::fs::write(&marker, fp);
-        // unix 可执行位
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            let _ = std::fs::set_permissions(&server_path, std::fs::Permissions::from_mode(0o755));
-            let _ = std::fs::set_permissions(&mcp_path, std::fs::Permissions::from_mode(0o755));
+        for &(name, bytes) in &files {
+            let path = base.join(name);
+            write_atomic(&path, bytes)?;
+            // unix 可执行位
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                let _ = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755));
+            }
         }
+        // 指纹标记最后写：它是「目录已完整」的完成信号（崩溃中断则下次重来）。
+        let _ = std::fs::write(&marker, fp);
     }
-    Ok(server_path)
+    Ok(base.join(server_name))
 }
 
 /// 原子写：先写 .tmp 再 rename，避免崩溃留下半截文件。
