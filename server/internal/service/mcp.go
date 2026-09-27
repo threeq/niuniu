@@ -852,10 +852,19 @@ func (g *MCPConfigGenerator) GenerateCodexConfigTomlWithExtras(
 		sb.WriteString("\n")
 	}
 	writeCodexMCPServerTOML(&sb, "niuniu", mcpBin, args, nil)
-	if opts.SessionToken != "" {
+	// Preserve an existing session token when the caller didn't supply one
+	// (scene re-projection carries no token; only a spawn does). Mirrors
+	// Generate's existingMCPToken handling for .mcp.json — without it a
+	// re-projection would strip NIUNIU_MCP_TOKEN and 401 every /mcp call
+	// until the next agent spawn re-injects it.
+	sessionToken := opts.SessionToken
+	if sessionToken == "" {
+		sessionToken = existingCodexMCPToken(filepath.Join(wsPath, ".codex", "config.toml"))
+	}
+	if sessionToken != "" {
 		sb.WriteString("\n[mcp_servers.niuniu.env]\n")
 		sb.WriteString("NIUNIU_MCP_TOKEN = ")
-		sb.WriteString(tomlQuote(opts.SessionToken))
+		sb.WriteString(tomlQuote(sessionToken))
 		sb.WriteString("\n")
 	}
 
@@ -1048,6 +1057,53 @@ func existingCodexMCPSections(path string) []codexTOMLSection {
 		sections[i].raw = strings.TrimRight(sections[i].raw, "\n")
 	}
 	return sections
+}
+
+// existingCodexMCPToken returns the NIUNIU_MCP_TOKEN already written into
+// Codex's config.toml ([mcp_servers.niuniu.env]), or "". It is the TOML twin
+// of existingMCPToken: a regeneration that carries no session token (scene
+// re-projection) must carry the previous one forward instead of stripping the
+// env table. Malformed or absent input returns "" — a missing token is
+// recoverable at the next spawn, a wrong parse is not.
+func existingCodexMCPToken(path string) string {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return ""
+	}
+	inNiuniuEnv := false
+	for _, line := range strings.Split(string(b), "\n") {
+		trimmed := strings.TrimSpace(line)
+		if inner, ok := tomlHeaderInner(trimmed); ok {
+			name, env, inNamespace := codexMCPServerSectionHeader(inner)
+			inNiuniuEnv = inNamespace && name == "niuniu" && env
+			continue
+		}
+		if !inNiuniuEnv {
+			continue
+		}
+		key, val, ok := strings.Cut(trimmed, "=")
+		if !ok || strings.TrimSpace(key) != "NIUNIU_MCP_TOKEN" {
+			continue
+		}
+		if tok, ok := tomlUnquote(strings.TrimSpace(val)); ok {
+			return tok
+		}
+	}
+	return ""
+}
+
+// tomlUnquote reverses tomlQuote for the plain double-quoted strings this
+// package writes. ok=false for any other form (single quotes, multiline), so
+// callers never act on a half-understood value.
+func tomlUnquote(s string) (string, bool) {
+	if len(s) < 2 || s[0] != '"' || s[len(s)-1] != '"' {
+		return "", false
+	}
+	v, err := strconv.Unquote(s)
+	if err != nil {
+		return "", false
+	}
+	return v, true
 }
 
 // tomlHeaderInner returns the bracketed key of a TOML table header line

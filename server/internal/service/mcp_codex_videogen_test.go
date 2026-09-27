@@ -330,3 +330,46 @@ func TestCodexVideoGen_ExtrasNilSpawnKeepsSectionWhenBinaryGone(t *testing.T) {
 	require.NotEmpty(t, block, "a section whose module binary is gone must be kept verbatim:\n%s", toml)
 	assert.Contains(t, block, `command = "/opt/stale/niuniu-video-mcp"`)
 }
+
+// TestCodexSceneReprojectionPreservesToken pins the TOML twin of
+// existingMCPToken: a scene re-projection (extras != nil, no SessionToken)
+// must carry the spawn-installed NIUNIU_MCP_TOKEN forward — stripping it
+// would 401 every /mcp call until the next spawn re-injects it.
+func TestCodexSceneReprojectionPreservesToken(t *testing.T) {
+	db := setupSceneTestDB(t)
+	q := store.New(db)
+	dataDir := t.TempDir()
+	ws := createTestWorkspace(t, db, dataDir)
+
+	parent := t.TempDir()
+	plantStubBinary(t, parent, "niuniu-mcp")
+	_ = plantStubBinary(t, parent, videoMCPBinaryStem)
+	wsDir := t.TempDir()
+
+	gen := newVideoGenTestGenerator(t, parent, dataDir)
+	gen.SetCapabilityEnv(NewCapabilityBackendEnvResolver(q, NewCapabilityBackendService(q, db)))
+
+	// A spawn installs the token.
+	_, err := gen.GenerateCodexConfigTomlWithExtras(wsDir,
+		config.MCPGenerateOptions{WorkspaceID: ws.ID, SessionToken: "tok-spawn"},
+		[]string{videoGenModule.Name}, "")
+	require.NoError(t, err)
+	require.Contains(t, readCodexTOML(t, wsDir), `NIUNIU_MCP_TOKEN = "tok-spawn"`)
+
+	// Scene re-projection carries no token — the previous one must survive.
+	_, err = gen.GenerateCodexConfigTomlWithExtras(wsDir,
+		config.MCPGenerateOptions{WorkspaceID: ws.ID},
+		[]string{videoGenModule.Name}, "")
+	require.NoError(t, err)
+	assert.Contains(t, readCodexTOML(t, wsDir), `NIUNIU_MCP_TOKEN = "tok-spawn"`,
+		"re-projection without a session token must preserve the previous one")
+
+	// A spawn with a fresh token still wins over the preserved value.
+	_, err = gen.GenerateCodexConfigTomlWithExtras(wsDir,
+		config.MCPGenerateOptions{WorkspaceID: ws.ID, SessionToken: "tok-new"},
+		[]string{videoGenModule.Name}, "")
+	require.NoError(t, err)
+	toml := readCodexTOML(t, wsDir)
+	assert.Contains(t, toml, `NIUNIU_MCP_TOKEN = "tok-new"`)
+	assert.NotContains(t, toml, "tok-spawn")
+}
