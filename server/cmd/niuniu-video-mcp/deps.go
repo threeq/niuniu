@@ -7,7 +7,9 @@ package main
 //
 //	wave 1:  exec.LookPath("ffmpeg")             — PATH only
 //	wave 2:  internal/ffmpegbin.Resolve(dataDir) — env override →
-//	         unpacked copy under <dataDir>/bin/ffmpeg/<fp>/ → PATH (here)
+//	         in-app download under <dataDir>/bin/ffmpeg/<goos>-<goarch>/ → PATH
+//	         (here; ffmpeg is a system dependency, downloaded on demand in
+//	         设置 → 系统依赖 — design v3.2 §7.3, no bundled payload)
 //
 // When ffmpeg cannot be resolved, media_compose degrades with an explicit
 // Chinese error (design §9: 工具层降级，只出产物族+素材清单，不合成) while every
@@ -34,16 +36,17 @@ type Deps struct {
 }
 
 // DefaultDeps returns the production resolver: internal/ffmpegbin.Resolve,
-// which sees $NIUNIU_FFMPEG (explicit override), then the copy unpacked from
-// the bundled payload under <dataDir>/bin/ffmpeg/<fingerprint>/ (release
-// builds), then PATH — so an end user never installs ffmpeg by hand.
+// which sees $NIUNIU_FFMPEG (explicit override), then a copy downloaded in-app
+// under <dataDir>/bin/ffmpeg/<goos>-<goarch>/, then PATH — so an end user
+// never installs ffmpeg by hand: 设置 → 系统依赖 → 安装 downloads it.
 func DefaultDeps() Deps {
 	return Deps{
 		ResolveFFmpeg: func() (string, error) {
 			p, err := ffmpegbin.Resolve(moduleDataDir())
 			if err != nil {
 				return "", fmt.Errorf("未找到可用的 ffmpeg（%w）：媒体合成不可用。"+
-					"请设置 $NIUNIU_FFMPEG、安装 ffmpeg 并加入 PATH，或使用带内嵌 ffmpeg 的发行版。", err)
+					"请到 设置 → 系统依赖 点“安装”下载（支持断点续传），"+
+					"或设置 $NIUNIU_FFMPEG / 安装 ffmpeg 并加入 PATH。", err)
 			}
 			return p, nil
 		},
@@ -80,7 +83,7 @@ func (d Deps) ffmpegPath() (string, error) {
 		return "", err
 	}
 	if strings.TrimSpace(p) == "" {
-		return "", fmt.Errorf("未找到 ffmpeg：解析结果为空，媒体合成不可用。请安装 ffmpeg 并加入 PATH。")
+		return "", fmt.Errorf("未找到 ffmpeg：解析结果为空，媒体合成不可用。请到 设置 → 系统依赖 下载，或安装 ffmpeg 并加入 PATH。")
 	}
 	return p, nil
 }

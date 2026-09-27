@@ -1,20 +1,22 @@
-// Package ffmpegbin resolves the ffmpeg/ffprobe binaries that the video-creation
-// capability shells out to.
+// Package ffmpegbin resolves the ffmpeg/ffprobe binaries that the
+// video-creation capability shells out to.
 //
-// Release desktop builds carry static ffmpeg/ffprobe binaries inside the
-// niuniu-video-mcp executable: the ffmpeg_bundled build tag gates a go:embed of
-// the payload staged by `make ffmpeg-stage` into dist/<goos>-<goarch>/, and the
-// first use materialises it under <dataDir>/bin/ffmpeg/<fingerprint>/ — end
-// users never install ffmpeg by hand. Development builds (no tag) carry no
-// payload and only need $NIUNIU_FFMPEG / PATH.
+// ffmpeg is deliberately NOT part of the shipped executables: a static
+// ffmpeg+ffprobe pair is ~320 MB, far too large to embed (design v3.2 §7.3
+// "系统依赖按需下载，不内嵌" — the earlier go:embed payload was retired). It is
+// an optional system dependency instead, surfaced in Settings → 系统依赖 like
+// tesseract/cairosvg: probed on this page, downloaded on demand into
+// <dataDir>/bin/ffmpeg/<goos>-<goarch>/ by internal/service/ffmpeg_install.go,
+// and gracefully degraded when absent.
 //
 // Resolution order, applied independently to ffmpeg and ffprobe:
 //
 //  1. $NIUNIU_FFMPEG / $NIUNIU_FFPROBE explicit override. An override that
 //     points at a missing or non-executable file is a hard error, never a
 //     silent downgrade — the user asked for that exact binary.
-//  2. The extracted bundled copy <dataDir>/bin/ffmpeg/<fingerprint>/<tool>,
-//     when this build embeds a payload containing that tool.
+//  2. An installed copy under <dataDir>/bin/ffmpeg/<subdir>/<tool> — the
+//     in-app download lands in one such subdir; when several hold the tool the
+//     newest modification time wins.
 //  3. exec.LookPath — whatever the PATH provides (dev machines).
 //
 // When no source yields a usable binary the returned error wraps
@@ -23,17 +25,13 @@
 package ffmpegbin
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
-	"sort"
-	"strings"
-	"sync"
+	"time"
 )
 
 // ErrNotAvailable reports that no usable ffmpeg/ffprobe could be resolved from
@@ -46,76 +44,29 @@ const (
 	envFFmpeg  = "NIUNIU_FFMPEG"
 	envFFprobe = "NIUNIU_FFPROBE"
 
-	// markerFile, inside the extraction directory, records the fingerprint of
-	// the payload the directory was materialised from. Extraction is skipped
-	// when the recorded fingerprint matches the running build's.
-	markerFile = ".fp"
-
 	// binDirName is the tool directory under the data dir:
-	// <dataDir>/bin/ffmpeg/<fingerprint>/.
+	// <dataDir>/bin/ffmpeg/<subdir>. The subdir is named <goos>-<goarch> by
+	// the in-app downloader, but resolution scans every subdir (see
+	// InstalledPath): the directory level exists so a new install can land
+	// beside a running one instead of overwriting a binary in use, and the
+	// scan stays name-agnostic so directories written by an older layout keep
+	// resolving.
 	binDirName = "ffmpeg"
-
-	// extractDirPerm is the mode of the extraction directory; binaries inside
-	// are written 0755 (non-Windows only — Windows has no exec bit).
-	extractDirPerm = 0o755
 )
-
-// embeddedPayload returns the static binaries baked into this build for the
-// running platform, keyed by file name (e.g. "ffmpeg.exe" / "ffprobe.exe" on
-// Windows). It is a variable so tests can substitute a fake payload without a
-// real ffmpeg; embed_bundled.go and embed_stub.go provide the real
-// implementations and production code never reassigns it.
-var embeddedPayload = payload
-
-var (
-	// payloadOnce/payloadCache memoise the (possibly large) embedded payload
-	// so repeated Resolve calls do not re-read it from the embedded FS.
-	payloadOnce  sync.Once
-	payloadCache map[string][]byte
-
-	// fpOnce/fpValue memoise Fingerprint.
-	fpOnce  sync.Once
-	fpValue string
-)
-
-// Fingerprint returns a short content hash identifying the embedded payload for
-// the running platform. It names the extraction directory
-// <dataDir>/bin/ffmpeg/<fingerprint>/ so that a rebuilt payload (new ffmpeg
-// version) lands in a fresh directory instead of overwriting a running copy.
-//
-// It returns "" when the build carries no payload for this platform — always
-// the case for !ffmpeg_bundled builds, and for a dist/ tree staged for a
-// different GOOS/GOARCH.
-func Fingerprint() string {
-	fpOnce.Do(func() {
-		files := payloadFiles()
-		if len(files) == 0 {
-			return
-		}
-		h := sha256.New()
-		for _, name := range sortedNames(files) {
-			// Length-prefix names and contents so that e.g. renaming a file
-			// or moving bytes between two files changes the hash.
-			fmt.Fprintf(h, "%s\x00%d\x00", name, len(files[name]))
-			h.Write(files[name])
-		}
-		fpValue = hex.EncodeToString(h.Sum(nil))[:16]
-	})
-	return fpValue
-}
 
 // Resolve returns the path of a usable ffmpeg executable, per the package
 // resolution order. dataDir is the application data directory (usually
-// ~/.niuniu) under which the bundled payload is extracted; an empty dataDir
-// disables the bundled-copy step (and extraction) entirely — used by callers
-// that have no data dir, never by the desktop app.
+// ~/.niuniu) whose bin/ffmpeg/*/ subdirectories hold in-app downloads; an
+// empty dataDir disables that step entirely — used by callers that have no
+// data dir, never by the desktop app.
 func Resolve(dataDir string) (string, error) {
 	return resolve(envFFmpeg, "ffmpeg", dataDir)
 }
 
 // ResolveFFprobe is Resolve for ffprobe: it consults $NIUNIU_FFPROBE, the
-// extracted bundled copy, then PATH. ffprobe is not required to be present in
-// the payload; a missing bundled ffprobe falls back to PATH like any other.
+// installed copies under <dataDir>/bin/ffmpeg/*/, then PATH. ffprobe is
+// resolved independently of ffmpeg so a partial installation (or a PATH that
+// only provides one of the two) still works.
 func ResolveFFprobe(dataDir string) (string, error) {
 	return resolve(envFFprobe, "ffprobe", dataDir)
 }
@@ -127,6 +78,63 @@ func Available(dataDir string) bool {
 	return err == nil
 }
 
+// BinName is the executable file name of tool on goos: "ffmpeg.exe" on
+// Windows, "ffmpeg" elsewhere. Exported so the installer and the system-deps
+// probe write and look for exactly the names resolution expects.
+func BinName(goos, tool string) string {
+	if goos == "windows" {
+		return tool + ".exe"
+	}
+	return tool
+}
+
+// InstallRoot is the directory an in-app download for goos/goarch installs
+// into: <dataDir>/bin/ffmpeg/<goos>-<goarch>. Resolution does not depend on
+// this name (InstalledPath scans every subdir) but the downloader, the
+// system-deps probe and any manual-install guidance share it, so it lives here
+// as the single source of truth.
+func InstallRoot(dataDir, goos, goarch string) string {
+	return filepath.Join(dataDir, "bin", binDirName, goos+"-"+goarch)
+}
+
+// InstalledPath returns the newest usable <tool> under
+// <dataDir>/bin/ffmpeg/<subdir>/ for the named platform, or "" when there is
+// none (including when dataDir is empty, which disables the scan).
+//
+// Exported because the system-deps probe must report exactly what Resolve
+// would pick: an in-app download lands OFF PATH, so a LookPath-only probe
+// would keep showing 未安装 after a successful install.
+func InstalledPath(dataDir, goos, tool string) string {
+	if dataDir == "" {
+		return ""
+	}
+	root := filepath.Join(dataDir, "bin", binDirName)
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		return ""
+	}
+	name := BinName(goos, tool)
+	var best string
+	var bestMod time.Time
+	for _, e := range entries {
+		if !e.IsDir() {
+			continue
+		}
+		candidate := filepath.Join(root, e.Name(), name)
+		if usableFile(candidate) != nil {
+			continue
+		}
+		st, err := os.Stat(candidate)
+		if err != nil {
+			continue
+		}
+		if best == "" || st.ModTime().After(bestMod) {
+			best, bestMod = candidate, st.ModTime()
+		}
+	}
+	return best
+}
+
 func resolve(envKey, tool, dataDir string) (string, error) {
 	if override := os.Getenv(envKey); override != "" {
 		if err := usableFile(override); err != nil {
@@ -135,116 +143,17 @@ func resolve(envKey, tool, dataDir string) (string, error) {
 		return override, nil
 	}
 
-	if dataDir != "" {
-		if fp := Fingerprint(); fp != "" {
-			if _, bundled := payloadFiles()[binName(tool)]; bundled {
-				dir, err := extractPayload(dataDir, fp)
-				if err != nil {
-					// A bundled payload that cannot be materialised is a
-					// packaging/disk problem, not a "no ffmpeg" situation:
-					// report it verbatim (no ErrNotAvailable) so it is
-					// investigated instead of silently degraded.
-					return "", fmt.Errorf("ffmpegbin: extract bundled %s payload: %w", tool, err)
-				}
-				candidate := filepath.Join(dir, binName(tool))
-				if err := usableFile(candidate); err != nil {
-					return "", fmt.Errorf("ffmpegbin: bundled %s unusable: %w", tool, err)
-				}
-				return candidate, nil
-			}
-		}
+	if path := InstalledPath(dataDir, runtime.GOOS, tool); path != "" {
+		return path, nil
 	}
 
 	if path, err := exec.LookPath(tool); err == nil {
 		return path, nil
 	}
-	return "", fmt.Errorf("ffmpegbin: %s not found (%s unset, not bundled, not on PATH): %w", tool, envKey, ErrNotAvailable)
-}
-
-// extractPayload materialises the embedded payload into
-// <dataDir>/bin/ffmpeg/<fp>/ and returns that directory. It is idempotent:
-// when the .fp marker matches and every payload file is present the directory
-// is left untouched. Each file is written to a temp file next to its target
-// and renamed into place, so a concurrently starting process can never observe
-// a half-written binary; extractMu serialises callers inside this process.
-func extractPayload(dataDir, fp string) (string, error) {
-	extractMu.Lock()
-	defer extractMu.Unlock()
-
-	files := payloadFiles()
-	if fp == "" || len(files) == 0 {
-		// Unreachable via resolve (which gates on Fingerprint), but guard the
-		// invariant rather than silently writing a marker with no payload.
-		return "", errors.New("no embedded payload for this platform")
-	}
-
-	dir := extractedDir(dataDir, fp)
-	if markerMatches(dir, fp) && payloadPresent(dir, files) {
-		return dir, nil
-	}
-	if err := os.MkdirAll(dir, extractDirPerm); err != nil {
-		return "", err
-	}
-	for _, name := range sortedNames(files) {
-		if err := writeFileAtomic(filepath.Join(dir, name), files[name], 0o755); err != nil {
-			return "", fmt.Errorf("write %s: %w", name, err)
-		}
-	}
-	// The marker goes last: it is the "directory is complete" signal, so a
-	// crash mid-extraction leaves a marker-less directory that is redone.
-	if err := writeFileAtomic(filepath.Join(dir, markerFile), []byte(fp), 0o644); err != nil {
-		return "", fmt.Errorf("write %s marker: %w", markerFile, err)
-	}
-	return dir, nil
-}
-
-// writeFileAtomic writes data to path via a temp file in the same directory
-// followed by a rename, so readers only ever see the complete file. On write
-// failure the temp file is removed. The temp file is chmod'ed to mode before
-// the rename on platforms with exec bits.
-func writeFileAtomic(path string, data []byte, mode os.FileMode) error {
-	tmp, err := os.CreateTemp(filepath.Dir(path), filepath.Base(path)+".tmp-")
-	if err != nil {
-		return err
-	}
-	tmpName := tmp.Name()
-	if _, err := tmp.Write(data); err != nil {
-		tmp.Close()
-		os.Remove(tmpName)
-		return err
-	}
-	if err := tmp.Close(); err != nil {
-		os.Remove(tmpName)
-		return err
-	}
-	if runtime.GOOS != "windows" {
-		if err := os.Chmod(tmpName, mode); err != nil {
-			os.Remove(tmpName)
-			return err
-		}
-	}
-	if err := os.Rename(tmpName, path); err != nil {
-		os.Remove(tmpName)
-		return err
-	}
-	return nil
-}
-
-// markerMatches reports whether dir carries a .fp marker recording fp.
-func markerMatches(dir, fp string) bool {
-	b, err := os.ReadFile(filepath.Join(dir, markerFile))
-	return err == nil && strings.TrimSpace(string(b)) == fp
-}
-
-// payloadPresent reports whether every payload file already exists in dir.
-func payloadPresent(dir string, files map[string][]byte) bool {
-	for name := range files {
-		st, err := os.Stat(filepath.Join(dir, name))
-		if err != nil || st.IsDir() {
-			return false
-		}
-	}
-	return true
+	return "", fmt.Errorf(
+		"ffmpegbin: %s not found (%s unset, no copy under <dataDir>/bin/ffmpeg/*/%s, not on PATH; "+
+			"download it in 设置 → 系统依赖): %w",
+		tool, envKey, BinName(runtime.GOOS, tool), ErrNotAvailable)
 }
 
 // usableFile reports whether path is an existing, non-directory, executable
@@ -262,48 +171,3 @@ func usableFile(path string) error {
 	}
 	return nil
 }
-
-// payloadFiles returns the memoised embedded payload (see embeddedPayload).
-func payloadFiles() map[string][]byte {
-	payloadOnce.Do(func() { payloadCache = embeddedPayload() })
-	return payloadCache
-}
-
-// extractedDir is the directory the payload for fp is materialised into:
-// <dataDir>/bin/ffmpeg/<fp>.
-func extractedDir(dataDir, fp string) string {
-	return filepath.Join(dataDir, "bin", binDirName, fp)
-}
-
-// platformDir is the dist/ subdirectory holding the payload for a GOOS/GOARCH
-// pair (dist/<goos>-<goarch>/), matching scripts/fetch-ffmpeg.sh.
-func platformDir(goos, goarch string) string {
-	return goos + "-" + goarch
-}
-
-// binName returns the executable file name of tool on the running platform.
-func binName(tool string) string {
-	return binNameFor(runtime.GOOS, tool)
-}
-
-// binNameFor returns the executable file name of tool on goos.
-func binNameFor(goos, tool string) string {
-	if goos == "windows" {
-		return tool + ".exe"
-	}
-	return tool
-}
-
-// sortedNames returns the payload file names in deterministic order.
-func sortedNames(files map[string][]byte) []string {
-	names := make([]string, 0, len(files))
-	for name := range files {
-		names = append(names, name)
-	}
-	sort.Strings(names)
-	return names
-}
-
-// extractMu serialises payload extraction inside this process. Cross-process
-// safety comes from the rename-based atomic writes plus the completion marker.
-var extractMu sync.Mutex

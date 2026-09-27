@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -15,6 +16,7 @@ import (
 	"time"
 
 	"github.com/niuniu-dev/niuniu/internal/claudehome"
+	"github.com/niuniu-dev/niuniu/internal/ffmpegbin"
 	"github.com/niuniu-dev/niuniu/internal/git"
 )
 
@@ -47,7 +49,15 @@ const defaultVersionTimeout = 3 * time.Second
 // nor an OS-PM/npm package — it is probed via `python -m cairosvg --version` and
 // installed via `python -m pip install --user cairosvg`, so its probe/install
 // paths are special-cased below.
-var toolNames = []string{"node", "python3", "git", "claude", "codex", "qwen", "omp", "goose", "cursor-agent", "tesseract", "uv", "cairosvg"}
+// "ffmpeg" (added 2026-09 for the video-creation capability, design v3.2 §7.3)
+// is the media composer's binary. It is NOT embedded in the shipped module (a
+// static ffmpeg+ffprobe pair is ~320 MB) and there is no OS-PM package that
+// works uniformly, so it is the third carve-out: "install" downloads a static
+// build for the running platform inside the app (see ffmpeg_install.go, with
+// progress + resume) into <dataDir>/bin/ffmpeg/<goos>-<goarch>/, which
+// internal/ffmpegbin resolves. Probed off PATH as well as PATH, and it is fully
+// OPTIONAL: without it media_compose degrades to assets-only output.
+var toolNames = []string{"node", "python3", "git", "claude", "codex", "qwen", "omp", "goose", "cursor-agent", "tesseract", "uv", "cairosvg", "ffmpeg"}
 
 // ocrGuideURL is the canonical Tesseract install guide on the marketing site
 // (website/src/content/docs-zh/install/ocr-tesseract.mdx, issue #284). It is
@@ -132,6 +142,25 @@ type SystemDepsService struct {
 	// identityProbe is pluggable for tests; defaults to git.GetGlobalIdentity.
 	identityProbe func(ctx context.Context) (name, email string, err error)
 
+	// goarch is the target architecture for the ffmpeg download; empty means
+	// runtime.GOARCH (see targetPlatform). The package-manager tools only ever
+	// needed a goos, so this arrived with the ffmpeg carve-out.
+	goarch string
+	// dataDir is the base data directory (default ~/.niuniu) that holds the
+	// in-app ffmpeg install (<dataDir>/bin/ffmpeg/<goos>-<goarch>/) and the
+	// resumable download cache (<dataDir>/cache/downloads/). Tests pin it to a
+	// temp dir; empty resolves ~/.niuniu lazily (see baseDir).
+	dataDir string
+	// httpClient is the ffmpeg downloader's client. Nil means a default client
+	// whose transport honours HTTP_PROXY/HTTPS_PROXY via
+	// http.ProxyFromEnvironment (the default for http.DefaultTransport — no
+	// extra code needed for proxies). Tests inject a proxy-less client.
+	httpClient *http.Client
+	// runFFmpegVersion probes `<ffmpeg> -version`. ffmpeg's option parser has
+	// no `--version` long form, so the shared runVersion hook cannot be used.
+	// Pluggable for tests; nil means defaultRunFFmpegVersion.
+	runFFmpegVersion func(ctx context.Context, name string) (string, error)
+
 	// install lifecycle (used in later tasks)
 	mu         sync.Mutex
 	current    *installJob
@@ -141,6 +170,7 @@ type SystemDepsService struct {
 func NewSystemDepsService() *SystemDepsService {
 	s := &SystemDepsService{
 		goos:           runtime.GOOS,
+		goarch:         runtime.GOARCH,
 		versionTimeout: defaultVersionTimeout,
 	}
 	s.lookPath = exec.LookPath
@@ -148,6 +178,33 @@ func NewSystemDepsService() *SystemDepsService {
 	s.runModuleVersion = s.defaultRunModuleVersion
 	s.identityProbe = git.GetGlobalIdentity
 	return s
+}
+
+// targetPlatform is the platform the probe/installer treat as "this machine":
+// the service's goos/goarch when set, the runtime values otherwise. The probe
+// fixtures override goos only, so both fields fall back independently.
+func (s *SystemDepsService) targetPlatform() (goos, goarch string) {
+	goos, goarch = s.goos, s.goarch
+	if goos == "" {
+		goos = runtime.GOOS
+	}
+	if goarch == "" {
+		goarch = runtime.GOARCH
+	}
+	return goos, goarch
+}
+
+// baseDir is the niuniu data directory (default ~/.niuniu, matching
+// config.Load) holding the in-app ffmpeg install and the download cache.
+func (s *SystemDepsService) baseDir() (string, error) {
+	if s.dataDir != "" {
+		return s.dataDir, nil
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(home, ".niuniu"), nil
 }
 
 // Probe runs LookPath + --version for every tool.
@@ -233,6 +290,11 @@ func (s *SystemDepsService) Probe(ctx context.Context) SystemDepsInfo {
 			tools[i].Installable = npmAvailable
 		case "cairosvg":
 			tools[i].Installable = pythonAvailable
+		case "ffmpeg":
+			// The in-app download needs neither PM nor interpreter — only a
+			// source for this platform (ffmpeg_install.go's matrix).
+			_, ok := s.ffmpegSource()
+			tools[i].Installable = ok
 		default:
 			tools[i].Installable = pm != ""
 		}
@@ -302,6 +364,12 @@ func (s *SystemDepsService) probeOne(ctx context.Context, name string) ToolStatu
 	if name == "cairosvg" {
 		return s.probePipModule(ctx, name)
 	}
+	// ffmpeg is an in-app download: it lands OFF PATH under
+	// <dataDir>/bin/ffmpeg/<goos>-<goarch>/, which a LookPath-only probe would
+	// report as 未安装 right after a successful install.
+	if name == "ffmpeg" {
+		return s.probeFFmpeg(ctx, name)
+	}
 	candidates := []string{name}
 	if name == "python3" && s.goos == "windows" {
 		candidates = append(candidates, "python")
@@ -315,6 +383,68 @@ func (s *SystemDepsService) probeOne(ctx context.Context, name string) ToolStatu
 		return ToolStatus{Name: name, Found: true, Version: version, Path: path}
 	}
 	return ToolStatus{Name: name}
+}
+
+// probeFFmpeg is the ffmpeg special case. It checks, in order:
+//
+//  1. the app's own install root (<dataDir>/bin/ffmpeg/*/) — an in-app
+//     download never touches PATH, and ffmpegbin.Resolve uses the very same
+//     InstalledPath rule, so this reports exactly the binary the video module
+//     would execute;
+//  2. PATH, the developer/OS-package case.
+//
+// When neither yields ffmpeg the row stays Found=false (with no version/path),
+// which combined with Installable=true is the SPA's "download it from this
+// page" affordance — no new ToolStatus fields needed.
+func (s *SystemDepsService) probeFFmpeg(ctx context.Context, name string) ToolStatus {
+	if path := s.installedFFmpegPath(name); path != "" {
+		return ToolStatus{Name: name, Found: true, Version: s.versionForFFmpeg(ctx, path), Path: path}
+	}
+	if path, err := s.lookPath(name); err == nil {
+		return ToolStatus{Name: name, Found: true, Version: s.versionForFFmpeg(ctx, path), Path: path}
+	}
+	return ToolStatus{Name: name}
+}
+
+// installedFFmpegPath returns the newest usable tool under
+// <dataDir>/bin/ffmpeg/*/, or "" (see ffmpegbin.InstalledPath).
+func (s *SystemDepsService) installedFFmpegPath(tool string) string {
+	base, err := s.baseDir()
+	if err != nil {
+		return ""
+	}
+	goos, _ := s.targetPlatform()
+	return ffmpegbin.InstalledPath(base, goos, tool)
+}
+
+// versionForFFmpeg is versionFor for ffmpeg: the version flag is `-version`.
+func (s *SystemDepsService) versionForFFmpeg(ctx context.Context, bin string) string {
+	run := s.runFFmpegVersion
+	if run == nil {
+		run = defaultRunFFmpegVersion
+	}
+	timeout := s.versionTimeout
+	if timeout <= 0 {
+		timeout = defaultVersionTimeout
+	}
+	cctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	out, err := run(cctx, bin)
+	if err != nil {
+		return ""
+	}
+	for _, line := range strings.Split(out, "\n") {
+		line = strings.TrimSpace(line)
+		if line != "" {
+			return line
+		}
+	}
+	return ""
+}
+
+func defaultRunFFmpegVersion(ctx context.Context, name string) (string, error) {
+	out, err := exec.CommandContext(ctx, name, "-version").CombinedOutput()
+	return string(out), err
 }
 
 func (s *SystemDepsService) versionFor(ctx context.Context, cand string) string {
@@ -473,18 +603,22 @@ func (j *installJob) publish(evt InstallEvent) {
 
 // fallback URLs for when no package manager is available.
 var fallbackURLs = map[string]string{
-	"node":      "https://nodejs.org/",
-	"python3":   "https://www.python.org/downloads/",
-	"git":       "https://git-scm.com/downloads",
-	"claude":    "https://docs.claude.com/en/docs/claude-code/setup",
-	"codex":     "https://github.com/openai/codex",
-	"qwen":      "https://qwen.code/",
-	"omp":       "https://github.com/can1357/oh-my-pi",
-	"goose":     "https://github.com/block/goose",
+	"node":         "https://nodejs.org/",
+	"python3":      "https://www.python.org/downloads/",
+	"git":          "https://git-scm.com/downloads",
+	"claude":       "https://docs.claude.com/en/docs/claude-code/setup",
+	"codex":        "https://github.com/openai/codex",
+	"qwen":         "https://qwen.code/",
+	"omp":          "https://github.com/can1357/oh-my-pi",
+	"goose":        "https://github.com/block/goose",
 	"cursor-agent": "https://cursor.com/docs/cli/overview",
-	"tesseract": ocrGuideURL,
-	"uv":        "https://docs.astral.sh/uv/getting-started/installation/",
-	"cairosvg":  "https://cairosvg.org/documentation/",
+	"tesseract":    ocrGuideURL,
+	"uv":           "https://docs.astral.sh/uv/getting-started/installation/",
+	"cairosvg":     "https://cairosvg.org/documentation/",
+	// ffmpeg only falls back here for unsupported platforms (no in-app
+	// download source); the normal failure mode points at retrying the
+	// download on the same page.
+	"ffmpeg": "https://ffmpeg.org/download.html",
 }
 
 // runInstallFn is the package-injected runner for a tool install. Returning
@@ -504,10 +638,14 @@ func (s *SystemDepsService) Install(ctx context.Context, tool string) (string, s
 	// claude and codex are special: they need npm only, not the OS package
 	// manager (both ship as @scope/package on npm). cairosvg is special too: it
 	// installs via `python -m pip`, so it needs a python interpreter rather than
-	// the OS PM. Both carve-outs bypass the pm=="" gate below.
+	// the OS PM. ffmpeg is the third carve-out: the server downloads a static
+	// build itself (ffmpeg_install.go) and needs neither a PM nor an
+	// interpreter — only a source for this platform. All three bypass the
+	// pm=="" gate below.
 	isNpmTool := tool == "claude" || tool == "codex" || tool == "qwen" || tool == "omp" || tool == "goose"
 	isPipTool := tool == "cairosvg"
-	if !isNpmTool && !isPipTool && pm == "" {
+	isDownloadTool := tool == "ffmpeg"
+	if !isNpmTool && !isPipTool && !isDownloadTool && pm == "" {
 		return "", fallbackURLs[tool], nil
 	}
 	if isNpmTool {
@@ -523,11 +661,20 @@ func (s *SystemDepsService) Install(ctx context.Context, tool string) (string, s
 		}
 	}
 
-	cmd, args := s.commandFor(tool, pm)
-	if cmd == "" {
-		// No package-manager install for this tool/OS (e.g. uv on linux) —
-		// redirect to the manual install docs.
-		return "", fallbackURLs[tool], nil
+	var cmd string
+	var args []string
+	if isDownloadTool {
+		if _, ok := s.ffmpegSource(); !ok {
+			// No in-app download source for this OS/arch — manual installs.
+			return "", fallbackURLs[tool], nil
+		}
+	} else {
+		cmd, args = s.commandFor(tool, pm)
+		if cmd == "" {
+			// No package-manager install for this tool/OS (e.g. uv on linux) —
+			// redirect to the manual install docs.
+			return "", fallbackURLs[tool], nil
+		}
 	}
 
 	s.mu.Lock()
@@ -551,19 +698,26 @@ func (s *SystemDepsService) Install(ctx context.Context, tool string) (string, s
 	go func() {
 		jobCtx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
 		defer cancel()
-		// Banner line so the user sees what's about to run.
-		job.publish(InstallEvent{Line: fmt.Sprintf("$ %s %s", cmd, strings.Join(args, " "))})
-		// Watch-dog: warn if no output within 5s (typical sudo-without-tty scenario).
-		go s.watchdog(jobCtx, job, cmd, args)
-		exit := runner(jobCtx, cmd, args, func(line string) {
-			job.publish(InstallEvent{Line: line})
-		})
-		if exit != 0 {
-			job.publish(InstallEvent{Line: fmt.Sprintf(
-				"[niuniu] 安装失败 (exit=%d)。请手动运行：%s %s",
-				exit, cmd, strings.Join(args, " "))})
-			if s.goos == "windows" {
-				job.publish(InstallEvent{Line: "[niuniu] 如首次使用 winget 仍卡在协议页，请先在 PowerShell 跑一次：winget source update"})
+		var exit int
+		if isDownloadTool {
+			// The downloader publishes its own banners, progress, failure
+			// diagnostics and retry hints (ffmpeg_install.go).
+			exit = s.runFFmpegDownload(jobCtx, job)
+		} else {
+			// Banner line so the user sees what's about to run.
+			job.publish(InstallEvent{Line: fmt.Sprintf("$ %s %s", cmd, strings.Join(args, " "))})
+			// Watch-dog: warn if no output within 5s (typical sudo-without-tty scenario).
+			go s.watchdog(jobCtx, job, cmd, args)
+			exit = runner(jobCtx, cmd, args, func(line string) {
+				job.publish(InstallEvent{Line: line})
+			})
+			if exit != 0 {
+				job.publish(InstallEvent{Line: fmt.Sprintf(
+					"[niuniu] 安装失败 (exit=%d)。请手动运行：%s %s",
+					exit, cmd, strings.Join(args, " "))})
+				if s.goos == "windows" {
+					job.publish(InstallEvent{Line: "[niuniu] 如首次使用 winget 仍卡在协议页，请先在 PowerShell 跑一次：winget source update"})
+				}
 			}
 		}
 		job.publish(InstallEvent{Done: true, ExitCode: exit})
@@ -639,6 +793,10 @@ func (s *SystemDepsService) Subscribe(jobID string) (<-chan InstallEvent, func()
 
 // --- command builder ---
 
+// commandFor builds the package-manager (or npm/pip) command for tool.
+// ffmpeg has no entry on purpose: its install is an in-app download that never
+// runs a shell command (ffmpeg_install.go), branched off before this is
+// reached.
 func (s *SystemDepsService) commandFor(tool, pm string) (string, []string) {
 	if tool == "claude" {
 		return "npm", []string{"install", "-g", "@anthropic-ai/claude-code"}

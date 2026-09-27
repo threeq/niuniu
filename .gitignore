@@ -34,8 +34,3 @@ server/**/integration_secret
 # Team distribution build output (contains binaries + signing private key copy)
 team-pkg/
 node_modules/
-
-# Static ffmpeg/ffprobe payloads staged by `make ffmpeg-stage` for the
-# ffmpeg_bundled build tag: multi-hundred-MB binaries, downloaded at build
-# time, never committed (server/internal/ffmpegbin/embed_bundled.go embeds them).
-server/internal/ffmpegbin/dist/

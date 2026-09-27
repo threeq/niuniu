@@ -184,11 +184,13 @@ module: video-gen
 | `video_generate` | 首帧图+运动 prompt+时长 → **异步任务**（句柄/轮询/取片） | i2v 为主；2–3 候选；失败留痕不自动重试；第一期 recipe：豆包 Seedance / 可灵 |
 | `media_compose` | approved `storyboard.json` + assets → 逐镜合成 → 拼接+ass 字幕+BGM 混音 → `output/final.mp4` | FFmpeg 最终装配器（`-filter_complex_script`、H.264/AAC/faststart、默认 720p）；坏镜单点重合成；执行 G5 技术 QC；**硬前置：只接受 review_status=approved 的 storyboard.json** |
 
-**FFmpeg 分发（v3.1 修订：打包内嵌 + 首用解压，用户定案——不做系统依赖手动安装）**：
-- **打包**：构建期由 Makefile 目标下载各平台静态构建（ffmpeg + ffprobe），放入 `internal/ffmpegbin/dist/<goos>-<goarch>/`（gitignore，不入库），以 build tag `ffmpeg_bundled` 门控 `go:embed` 进 `niuniu-video-mcp` 二进制；无 tag 时以 stub 编译（不阻断开发构建）。
-- **解压**：首次使用时原子写入 `~/.niuniu/bin/ffmpeg/<指纹>/`（文件 + 权限 0755 + `.fp` 标记，指纹匹配则跳过）——新用户零手动安装。
-- **解析顺序**：`NIUNIU_FFMPEG`/`NIUNIU_FFPROBE` env 覆盖 → `~/.niuniu/bin/ffmpeg/` 已解压副本 → PATH（`exec.LookPath`）兜底。
-- 桌面发行经既有 sidecar 通道（`include_bytes!` + 解压到 `~/.niuniu/desktop-v2/sidecars/`）携带 `niuniu-video-mcp` 二进制；ffmpeg 随模块二进制一起走，无需额外分发面。
+**FFmpeg 分发（v3.2 修订：系统依赖按需下载，用户定案——不内嵌）**：
+- **不打包进可执行文件**（内嵌会让模块二进制膨胀 ~320MB，桌面包过大）；ffmpeg 作为**可选系统依赖**接入 Settings → 系统依赖页，与 tesseract/cairosvg 同一机制（探测 / 一键安装 / 优雅降级 / SSE 进度）。
+- **探测**：PATH 与 `~/.niuniu/bin/ffmpeg/<os>-<arch>/` 双查，报告是否就绪与版本。
+- **安装 = 应用内下载当前平台的静态构建**：Windows/Linux 用 BtbN/FFmpeg-Builds，macOS 用 osxexperts（**evermeet 的 ffprobe 端点已坏**：302 指向 ffmpeg 包，2026-09-27 实测，故弃用）；解包后装到 `~/.niuniu/bin/ffmpeg/<os>-<arch>/`，含 ffmpeg 与 ffprobe 两个组件。
+- **断点续传**：下载落 `~/.niuniu/cache/downloads/*.part`，重试带 HTTP `Range` 续传；进度与中断提示经既有 `InstallEvent`/SSE 流到设置页（下载中显示进度，中断后再次点击接着下）。
+- **解析顺序**（`ffmpegbin.Resolve`）：`NIUNIU_FFMPEG`/`NIUNIU_FFPROBE` env → `~/.niuniu/bin/ffmpeg/*/` 已安装副本 → PATH 兜底。
+- 缺失时工具层优雅降级：`media_compose` 明确提示"未找到 ffmpeg，请到 设置→系统依赖 下载"。
 
 **后端适配器（Backend Adapter，代码级）**：TTS（`Synthesize`，同步单产物）/ Image（`Generate`，同步多候选）/ Video（`Submit+Poll+Fetch`，异步任务型）各一 Go 接口（`TTSBackend` / `ImageBackend` / `VideoBackend`）；适配器注册表 + 能力配置绑定选择实现；协议基线=OpenAI 兼容，不兼容厂商写专门适配器；**价格元数据随适配器注册**（quote 聚合）；护栏逻辑只在工具壳实现一次，新适配器天然继承。**新增后端 ≈ 实现一个适配器接口（100–200 行）+ 注册一行，≤ 半天/厂商**；模式差异（首尾帧/多参考）用 Request 可选字段表达，不支持即明确报错转降档建议。
 

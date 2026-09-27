@@ -6,7 +6,7 @@
 	dev-desktop-v2 \
 	_personal-prepare _personal-prepare-current _personal-prepare-v2 \
 	clean test test-coverage test-services test-handlers test-pg test-pg-smoke docs sqlc sqlc-lint \
-	builtin-scenes-sync builtin-skills-sync ffmpeg-stage _ffmpeg-stage-best-effort \
+	builtin-scenes-sync builtin-skills-sync \
 	dev-relay dev-relay-web build-relay test-relay test-all \
 	relay-docker relay-compose-up relay-compose-down relay-compose-logs
 
@@ -117,10 +117,10 @@ dev-mobile: mobile-install
 # WebP degrades to PNG8/JPEG (still functional). For deterministic WebP use
 # `make build-linux` (zig cc) or build on a host with a C toolchain.
 #
-# niuniu-video-mcp is built here WITHOUT the ffmpeg_bundled tag: a dev/PATH
-# deploy resolves ffmpeg from $NIUNIU_FFMPEG or PATH at runtime. The desktop
-# bundle (_personal-prepare) stages the static payload and adds the tag, so
-# the shipped module carries ffmpeg itself.
+# niuniu-video-mcp no longer carries an ffmpeg payload (design v3.2 §7.3). It
+# resolves ffmpeg at runtime from $NIUNIU_FFMPEG, an in-app download under
+# <dataDir>/bin/ffmpeg/*/ (设置 → 系统依赖) or PATH — every build, desktop
+# included, is a plain untagged build.
 build:
 	cd server/web && pnpm install && pnpm build
 	cd server && go build $(SERVER_LDFLAGS) -o ../bin/niuniu-server-$(VERSION) ./cmd/niuniu
@@ -364,46 +364,6 @@ builtin-skills-sync:
 		-exec cp --parents {} ../../../server/internal/service/builtin_skills/ \;
 	@echo "  OK — $$(find server/internal/service/builtin_skills -mindepth 1 -maxdepth 1 -type d | wc -l) skills / $$(find server/internal/service/builtin_skills -type f | wc -l) files synced"
 
-# Stage the static ffmpeg/ffprobe payloads that a `-tags ffmpeg_bundled` build
-# embeds into niuniu-video-mcp (server/internal/ffmpegbin/dist/, gitignored —
-# never committed). Host platform by default; GOOS=/GOARCH= pick another
-# target, FORCE=1 re-downloads an already-staged platform. Downloads are large
-# (100-200 MB per platform) and the macOS sources are community best-effort —
-# see scripts/fetch-ffmpeg.sh for sources and risks.
-ffmpeg-stage:
-	@goos="$(GOOS)"; goarch="$(GOARCH)"; \
-	[ -n "$$goos" ] || goos=$$(go env GOOS); \
-	[ -n "$$goarch" ] || goarch=$$(go env GOARCH); \
-	force=""; [ "$(FORCE)" = "1" ] && force=--force; \
-	bash scripts/fetch-ffmpeg.sh "$$goos" "$$goarch" $$force
-
-# Best-effort wrapper around ffmpeg-stage for the desktop bundle
-# (_personal-prepare): the payload is a 100-200 MB download, and an offline
-# machine must NEVER break a desktop build. This target always exits 0.
-# Whether the payload actually landed is observed by _personal-prepare itself:
-# it stats dist/<goos>-<goarch>/ffmpeg and only then adds -tags ffmpeg_bundled
-# to the module build — a failed staging yields a PATH-fallback module plus an
-# explicit warning instead of a hard error.
-#
-# Release CI that must not ship without ffmpeg runs the hard `make ffmpeg-stage`
-# first (non-zero exit on any failure); this wrapper then finds dist/ already
-# staged and skips the download (fetch-ffmpeg.sh is idempotent). Because the
-# recipe line contains $(MAKE), `make -n` still recurses into it — the inner
-# staging recipe itself is only printed, never run, so a dry run downloads
-# nothing.
-_ffmpeg-stage-best-effort:
-	@echo "ffmpeg payload $(GOOS)/$(GOARCH): best-effort staging (desktop build continues without it)"
-	@if $(MAKE) ffmpeg-stage GOOS=$(GOOS) GOARCH=$(GOARCH); then \
-		echo "  ffmpeg payload staged - niuniu-video-mcp will embed it"; \
-	else \
-		echo ""; \
-		echo "  WARNING: ffmpeg staging failed (offline / download error / unsupported platform)."; \
-		echo "           The desktop build continues WITHOUT an embedded ffmpeg: media_compose"; \
-		echo "           falls back to a PATH ffmpeg at runtime. A release build must run"; \
-		echo "           'make ffmpeg-stage GOOS=$(GOOS) GOARCH=$(GOARCH)' first (that target fails hard)."; \
-		echo ""; \
-	fi
-
 # ─── Personal edition ────────────────────────────────────────────────
 # Opt-in bundle: embeds server into the desktop-v2 (Tauri) shell as sidecars.
 # Does NOT run in `make build`.
@@ -577,10 +537,11 @@ _personal-prepare-v2:
 # package.json drifts. The cost we wanted to skip is `pnpm build`
 # (i18n-check + tsc -b + vite build), not the install.
 #
-# 三件侧车：niuniu-server / niuniu-mcp / niuniu-video-mcp（能力模块）。能力模块
-# 优先内嵌 ffmpeg 静态载荷（dist 由 _ffmpeg-stage-best-effort 尽力而为之）：
-# staging 成功 → `-tags ffmpeg_bundled`，模块自带 ffmpeg；失败（离线等）→ 不带
-# tag 构建，仅打印警告，构建绝不中断，运行期回退 $NIUNIU_FFMPEG/PATH。
+# 三件侧车：niuniu-server / niuniu-mcp / niuniu-video-mcp（能力模块）。能力
+# 模块不再内嵌 ffmpeg（设计 v3.2 §7.3：静态 ffmpeg+ffprobe ≈320MB，不适合随包
+# 分发）：构建是普通的不带 tag 构建，ffmpeg 改为按需系统依赖 —— 运行期依次回退
+# $NIUNIU_FFMPEG → <dataDir>/bin/ffmpeg/*/（设置 → 系统依赖 应用内下载，带进度
+# 与断点续传）→ PATH；缺失时 media_compose 降级为仅产出素材。
 _personal-prepare:
 	cd server/web && pnpm install
 	@if [ ! -f server/web/dist/index.html ] || \
@@ -598,22 +559,7 @@ _personal-prepare:
 		-o ../desktop-v2/binaries/staging/$(GOOS)-$(GOARCH)/niuniu-server$(EXT) ./cmd/niuniu
 	cd server && $(BUNDLE_CGO) GOOS=$(GOOS) GOARCH=$(GOARCH) go build $(SERVER_LDFLAGS) \
 		-o ../desktop-v2/binaries/staging/$(GOOS)-$(GOARCH)/niuniu-mcp$(EXT) ./cmd/niuniu-mcp
-	$(MAKE) _ffmpeg-stage-best-effort GOOS=$(GOOS) GOARCH=$(GOARCH)
-	@dist_ffmpeg="server/internal/ffmpegbin/dist/$(GOOS)-$(GOARCH)/ffmpeg$(EXT)"; \
-	ffmpeg_tags=""; \
-	if [ -s "$$dist_ffmpeg" ]; then \
-		ffmpeg_tags="-tags ffmpeg_bundled"; \
-		echo "niuniu-video-mcp: embedding the staged ffmpeg payload ($$dist_ffmpeg)"; \
-	else \
-		echo ""; \
-		echo "WARNING: no staged ffmpeg payload for $(GOOS)/$(GOARCH) ($$dist_ffmpeg)."; \
-		echo "         Building niuniu-video-mcp WITHOUT -tags ffmpeg_bundled: this build does not"; \
-		echo "         embed ffmpeg, so media_compose falls back to a PATH ffmpeg at runtime."; \
-		echo "         Release builds: run 'make ffmpeg-stage GOOS=$(GOOS) GOARCH=$(GOARCH)' first,"; \
-		echo "         then re-run this build."; \
-		echo ""; \
-	fi; \
-	cd server && $(BUNDLE_CGO) GOOS=$(GOOS) GOARCH=$(GOARCH) go build $$ffmpeg_tags $(SERVER_LDFLAGS) \
+	cd server && $(BUNDLE_CGO) GOOS=$(GOOS) GOARCH=$(GOARCH) go build $(SERVER_LDFLAGS) \
 		-o ../desktop-v2/binaries/staging/$(GOOS)-$(GOARCH)/niuniu-video-mcp$(EXT) ./cmd/niuniu-video-mcp
 
 _personal-prepare-current:
