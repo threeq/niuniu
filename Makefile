@@ -6,7 +6,7 @@
 	dev-desktop-v2 \
 	_personal-prepare _personal-prepare-current _personal-prepare-v2 \
 	clean test test-coverage test-services test-handlers test-pg test-pg-smoke docs sqlc sqlc-lint \
-	builtin-scenes-sync builtin-skills-sync \
+	builtin-scenes-sync builtin-skills-sync ffmpeg-stage \
 	dev-relay dev-relay-web build-relay test-relay test-all \
 	relay-docker relay-compose-up relay-compose-down relay-compose-logs
 
@@ -346,6 +346,19 @@ builtin-skills-sync:
 		-type f ! -name '*.png' \
 		-exec cp --parents {} ../../../server/internal/service/builtin_skills/ \;
 	@echo "  OK — $$(find server/internal/service/builtin_skills -mindepth 1 -maxdepth 1 -type d | wc -l) skills / $$(find server/internal/service/builtin_skills -type f | wc -l) files synced"
+
+# Stage the static ffmpeg/ffprobe payloads that a `-tags ffmpeg_bundled` build
+# embeds into niuniu-video-mcp (server/internal/ffmpegbin/dist/, gitignored —
+# never committed). Host platform by default; GOOS=/GOARCH= pick another
+# target, FORCE=1 re-downloads an already-staged platform. Downloads are large
+# (100-200 MB per platform) and the macOS sources are community best-effort —
+# see scripts/fetch-ffmpeg.sh for sources and risks.
+ffmpeg-stage:
+	@goos="$(GOOS)"; goarch="$(GOARCH)"; \
+	[ -n "$$goos" ] || goos=$$(go env GOOS); \
+	[ -n "$$goarch" ] || goarch=$$(go env GOARCH); \
+	force=""; [ "$(FORCE)" = "1" ] && force=--force; \
+	bash scripts/fetch-ffmpeg.sh "$$goos" "$$goarch" $$force
 
 # ─── Personal edition ────────────────────────────────────────────────
 # Opt-in bundle: embeds server into the desktop-v2 (Tauri) shell as sidecars.
