@@ -725,7 +725,7 @@
     "providerCliTypeQwen": "Qwen",
     "providerCliTypeOmp": "omp",
     "providerCliTypeGoose": "goose",
-    "providerCliTypeNiuniu": "N-Agent",
+    "providerCliTypeNiuniu": "Niuniu Agent",
     "providerPresetNameLabel": "Preset name",
     "providerOverwriteLabel": "Overwrite preset with same name",
     "providerPreviewLabel": "Generated environment variables",
