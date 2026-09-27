@@ -788,7 +788,12 @@ func (g *MCPConfigGenerator) GenerateCodexConfigArgs(opts config.MCPGenerateOpti
 }
 
 // GenerateCodexConfigTomlWithExtras writes Codex's config.toml and resolves
-// the same per-workspace MCP extras as Generate does for Claude's .mcp.json.
+// the same per-workspace MCP extras as Generate does for Claude's .mcp.json:
+// a name matching a capability module this build ships (video-gen) is
+// projected as that module's stdio entry from buildVideoGenEntry instead of
+// being looked up in the Claude registry (missing binary → Unavailable), and
+// an `extras == nil` call preserves every non-niuniu [mcp_servers.*] section
+// already in the file — refreshing capability-module sections in place.
 func (g *MCPConfigGenerator) GenerateCodexConfigTomlWithExtras(
 	wsPath string,
 	opts config.MCPGenerateOptions,
@@ -854,6 +859,18 @@ func (g *MCPConfigGenerator) GenerateCodexConfigTomlWithExtras(
 		sb.WriteString("\n")
 	}
 
+	// `extras == nil` is the spawn / token-refresh path (the caller does not
+	// know the scene's MCP set): carry forward every non-niuniu
+	// [mcp_servers.*] section already in config.toml — scene-projected
+	// capability modules and hand-added servers alike — instead of wiping it.
+	// Mirrors Generate's existingNonNiuniuServers carry-forward for .mcp.json;
+	// a capability-module section is rebuilt in place from the current binary
+	// and NN_CAP_* env.
+	if extras == nil {
+		preserved := existingCodexMCPSections(filepath.Join(wsPath, ".codex", "config.toml"))
+		g.writePreservedCodexMCPSections(&sb, preserved, wsPath, opts)
+	}
+
 	if len(extras) > 0 {
 		registry := g.registry
 		if registry == nil {
@@ -870,6 +887,21 @@ func (g *MCPConfigGenerator) GenerateCodexConfigTomlWithExtras(
 		for _, name := range extras {
 			// Inline-config names are written verbatim below; skip registry resolution.
 			if len(opts.ExtraMCPServers[name]) > 0 {
+				continue
+			}
+			// Capability modules (video-gen) are niuniu-built binaries, not
+			// Claude-registry entries: project the module's stdio command, or
+			// surface the name as Unavailable when its binary is absent — the
+			// same graceful-degrade channel Generate uses for Claude's .mcp.json
+			// (design §7.1: 场景引用缺失模块 → 优雅降级，绝不报错).
+			if isCapabilityModuleName(name) {
+				if ent, ok := g.buildVideoGenEntry(wsPath, opts); ok {
+					sb.WriteString("\n")
+					writeCodexCapabilityEntryTOML(&sb, name, ent)
+					res.WrittenServers = append(res.WrittenServers, name)
+				} else {
+					res.Unavailable = append(res.Unavailable, name)
+				}
 				continue
 			}
 			entry, ok := byName[name]
@@ -953,6 +985,165 @@ func writeCodexMCPServerTOML(sb *strings.Builder, name, command string, args []s
 		sb.WriteString(k)
 		sb.WriteString(" = ")
 		sb.WriteString(tomlQuote(env[k]))
+		sb.WriteString("\n")
+	}
+}
+
+// writeCodexCapabilityEntryTOML writes a capability-module table from the
+// Claude-side stdio entry buildVideoGenEntry returns, keeping the two paths
+// byte-identical (command, args, and the NN_CAP_* env sub-table). The entry's
+// args/env are native []string / map[string]string — not the JSON-decoded
+// []any / map[string]any anyToStringSlice / anyToStringMap expect — so they
+// are unwrapped directly.
+func writeCodexCapabilityEntryTOML(sb *strings.Builder, name string, ent map[string]any) {
+	command, _ := ent["command"].(string)
+	args, _ := ent["args"].([]string)
+	env, _ := ent["env"].(map[string]string)
+	writeCodexMCPServerTOML(sb, name, command, args, env)
+}
+
+// codexTOMLSection is one [mcp_servers.*] section lifted verbatim from an
+// existing Codex config.toml so an extras==nil regeneration can carry it
+// forward.
+type codexTOMLSection struct {
+	// name is the server name of a plain [mcp_servers.<name>] header. It is ""
+	// for headers this parser does not model (a bare [mcp_servers] table, a
+	// quoted key) — such sections are carried through untouched.
+	name string
+	// env marks the [mcp_servers.<name>.env] sub-table of name.
+	env bool
+	// raw is the verbatim section text, the header line included, with the
+	// blank separators around it trimmed.
+	raw string
+}
+
+// existingCodexMCPSections extracts the non-niuniu [mcp_servers.*] sections of
+// an existing config.toml, in file order. Pure text: the Codex path
+// deliberately carries no TOML dependency, matching the hand-rolled writer
+// above. Conservative by design — only [mcp_servers.<name>] and
+// [mcp_servers.<name>.env] headers with a plain name are attributed; text in
+// the mcp_servers namespace whose shape this parser is unsure about survives
+// verbatim (name "") rather than being dropped. A missing/unreadable file
+// yields nil, making the carry-forward a no-op.
+func existingCodexMCPSections(path string) []codexTOMLSection {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return nil
+	}
+	var sections []codexTOMLSection
+	cur := -1 // section being accumulated; -1 = outside the mcp_servers namespace
+	for _, line := range strings.Split(string(b), "\n") {
+		if inner, ok := tomlHeaderInner(strings.TrimSpace(line)); ok {
+			cur = -1
+			if name, env, inNamespace := codexMCPServerSectionHeader(inner); inNamespace && name != "niuniu" {
+				sections = append(sections, codexTOMLSection{name: name, env: env})
+				cur = len(sections) - 1
+			}
+		}
+		if cur >= 0 {
+			sections[cur].raw += line + "\n"
+		}
+	}
+	for i := range sections {
+		sections[i].raw = strings.TrimRight(sections[i].raw, "\n")
+	}
+	return sections
+}
+
+// tomlHeaderInner returns the bracketed key of a TOML table header line
+// ("[mcp_servers.fetch]" → "mcp_servers.fetch"), tolerating a trailing
+// comment. ok=false for a non-header line or a form this parser does not
+// model (array-of-tables [[...]], unterminated header).
+func tomlHeaderInner(line string) (string, bool) {
+	if !strings.HasPrefix(line, "[") || strings.HasPrefix(line, "[[") {
+		return "", false
+	}
+	end := strings.IndexByte(line, ']')
+	if end < 1 {
+		return "", false
+	}
+	if rest := strings.TrimSpace(line[end+1:]); rest != "" && !strings.HasPrefix(rest, "#") {
+		return "", false
+	}
+	return line[1:end], true
+}
+
+// codexMCPServerSectionHeader splits a table key into the mcp_servers entry it
+// describes: the server name ("" when the key is not a plain name),
+// whether it is the .env sub-table, and whether it is in the mcp_servers
+// namespace at all.
+func codexMCPServerSectionHeader(inner string) (name string, env, inNamespace bool) {
+	const prefix = "mcp_servers."
+	if inner == "mcp_servers" {
+		return "", false, true
+	}
+	if !strings.HasPrefix(inner, prefix) {
+		return "", false, false
+	}
+	rest := inner[len(prefix):]
+	if strings.HasSuffix(rest, ".env") {
+		rest, env = rest[:len(rest)-len(".env")], true
+	}
+	// Attribute plain names only (letters, digits, dash, underscore); a quoted
+	// or nested key stays verbatim under name "".
+	if rest != "" && !strings.ContainsAny(rest, ".\"' \t") {
+		name = rest
+	}
+	return name, env, true
+}
+
+// writePreservedCodexMCPSections re-emits the sections lifted from the
+// previous config.toml. A capability-module section ([mcp_servers.video-gen]
+// plus its .env sub-table) is rebuilt in place from the current module binary
+// and NN_CAP_* env — the Codex twin of Generate's existingNonNiuniuServers
+// in-place refresh. When the module binary can no longer be located the
+// previous text is kept as-is: this path has no scene MCP list to re-resolve
+// from, and dropping the section would silently strip the tool group from a
+// live workspace.
+func (g *MCPConfigGenerator) writePreservedCodexMCPSections(
+	sb *strings.Builder,
+	sections []codexTOMLSection,
+	wsPath string,
+	opts config.MCPGenerateOptions,
+) {
+	type rebuild struct {
+		entry map[string]any
+		ok    bool
+	}
+	resolved := map[string]rebuild{} // module name → buildVideoGenEntry outcome, resolved once per name
+	entryFor := func(name string) rebuild {
+		r, seen := resolved[name]
+		if !seen {
+			ent, ok := g.buildVideoGenEntry(wsPath, opts)
+			r = rebuild{entry: ent, ok: ok}
+			resolved[name] = r
+		}
+		return r
+	}
+	rebuiltEmitted := map[string]bool{}
+	for _, s := range sections {
+		// An inline config of the same name is written verbatim below and wins
+		// (mirroring Generate). Dropping the stale section keeps the file free
+		// of duplicate tables — which TOML rejects outright, taking the whole
+		// config (including the niuniu entry) down with it.
+		if s.name != "" && len(opts.ExtraMCPServers[s.name]) > 0 {
+			continue
+		}
+		if s.name != "" && isCapabilityModuleName(s.name) {
+			if r := entryFor(s.name); r.ok {
+				if s.env || rebuiltEmitted[s.name] {
+					continue // the rebuilt table carries its own env sub-table
+				}
+				rebuiltEmitted[s.name] = true
+				sb.WriteString("\n")
+				writeCodexCapabilityEntryTOML(sb, s.name, r.entry)
+				continue
+			}
+		}
+		// Verbatim: a hand-added server, a header this parser does not model,
+		// or a capability section whose module binary is gone.
+		sb.WriteString("\n")
+		sb.WriteString(s.raw)
 		sb.WriteString("\n")
 	}
 }
