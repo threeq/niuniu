@@ -1480,7 +1480,11 @@ export interface ToolExtras {
 }
 
 export interface ToolStatus {
-  name: 'node' | 'python3' | 'git' | 'claude' | 'codex';
+  /** Tool identifier — an open set, not a closed union: the backend probes dev
+   *  tools, agent CLIs and optional helpers alike (tesseract, uv, cairosvg,
+   *  ffmpeg, ...), so adding a probe must never require a frontend type edit.
+   *  The UI branches on the handful of names it renders specially. */
+  name: string;
   found: boolean;
   version: string;
   path: string;
