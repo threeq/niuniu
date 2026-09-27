@@ -1092,6 +1092,17 @@ func (s *Server) setupRoutes() {
 		envProviders.POST("/reorder", s.envProviderHandler.ReorderGroup)
 	}
 
+	// Capability config (video-creation capability modules + their backends).
+	// Plan: docs/superpowers/plans/2026-09-27-video-creation-implementation.md §1.1.
+	api.GET("/capability-modules", s.capabilityBackendHandler.ListModules)
+	capabilityBackends := api.Group("/capability-backends")
+	{
+		capabilityBackends.GET("", s.capabilityBackendHandler.List)
+		capabilityBackends.POST("", s.capabilityBackendHandler.Create)
+		capabilityBackends.PUT("/:id", s.capabilityBackendHandler.Update)
+		capabilityBackends.DELETE("/:id", s.capabilityBackendHandler.Delete)
+	}
+
 	// Scenes (M1 — scene-based MCP/plugin management).
 	// See docs/superpowers/specs/2026-05-17-scene-based-mcp-plugin-management-design.md §9.
 	scenes := api.Group("/scenes")

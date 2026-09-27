@@ -757,6 +757,30 @@ CREATE TABLE IF NOT EXISTS env_providers (
 );
 CREATE INDEX IF NOT EXISTS idx_env_providers_owner_slug ON env_providers(owner_type, owner_id, slug);
 
+-- ============================================================
+-- Capability backends table (video-creation capability config)
+-- Mirrors capability_backends in schema.sql (dual-driver parity). See the
+-- SQLite definition for the semantic contract.
+-- ============================================================
+CREATE TABLE IF NOT EXISTS capability_backends (
+    id            BIGSERIAL PRIMARY KEY,
+    owner_type    TEXT NOT NULL DEFAULT 'user' CHECK (owner_type IN ('user','workspace')),
+    owner_id      BIGINT NOT NULL DEFAULT 0,
+    module        TEXT NOT NULL DEFAULT '',   -- capability module name (e.g. video-gen)
+    capability    TEXT NOT NULL DEFAULT '',   -- capability family: tts | image | video
+    backend       TEXT NOT NULL DEFAULT '',   -- adapter implementation name (e.g. openai-compat)
+    name          TEXT NOT NULL DEFAULT '',   -- user-facing label for this binding
+    base_url      TEXT NOT NULL DEFAULT '',
+    api_key       TEXT NOT NULL DEFAULT '',
+    extra_config  TEXT NOT NULL DEFAULT '{}', -- JSON: Record<string, string> backend params
+    enabled       INTEGER NOT NULL DEFAULT 1, -- 1 = usable; 0 = manually disabled
+    position      INTEGER NOT NULL DEFAULT 0, -- order within (owner, module, capability); smaller wins
+    created_at    TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at    TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE (owner_type, owner_id, module, capability, name)
+);
+CREATE INDEX IF NOT EXISTS idx_capability_backends_module ON capability_backends(module);
+
 -- Note: agent_messages.harness_run_id is a retained-but-dead legacy column
 -- (workflow subsystem decommissioned). It has no index — the old
 -- idx_agent_messages_harness_run was dropped by the drop_workflow_tables_v1

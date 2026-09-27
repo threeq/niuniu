@@ -81,6 +81,7 @@ type Server struct {
 	envPresetSvc         *service.EnvPresetService
 	envAccountSvc        *service.EnvAccountService
 	envProviderSvc       *service.EnvProviderService
+	capabilityBackendSvc *service.CapabilityBackendService
 	sceneSvc             *service.SceneService
 	sceneSeeder          *service.SceneSeeder
 	sceneLayerSvc        *service.SceneLayerService
@@ -189,6 +190,7 @@ type Server struct {
 	envPresetHandler        *api.EnvPresetHandler
 	envAccountHandler       *api.EnvAccountHandler
 	envProviderHandler      *api.EnvProviderHandler
+	capabilityBackendHandler *api.CapabilityBackendHandler
 	sceneHandler            *api.SceneHandler
 	workspaceSceneHandler   *api.WorkspaceSceneHandler
 	pluginInstallHandler    *api.PluginInstallHandler
@@ -450,6 +452,14 @@ func New(cfg *config.Config, db *sql.DB, frontendFS fs.FS) *Server {
 	s.envProviderHandler = api.NewEnvProviderHandler(s.envProviderSvc, s.envPresetSvc, s.envAccountSvc)
 	s.envProviderHandler.Authz = authz
 	s.envProviderHandler.DB = db
+
+	// Capability backends (video-creation capability config). Separate from
+	// env_providers on purpose: these bind the tool layer's generation
+	// services and are projected as NN_CAP_* env into the capability module
+	// process (plan docs/superpowers/plans/2026-09-27-video-creation-implementation.md §1).
+	s.capabilityBackendSvc = service.NewCapabilityBackendService(s.queries, db)
+	s.capabilityBackendHandler = api.NewCapabilityBackendHandler(s.capabilityBackendSvc)
+	s.capabilityBackendHandler.Authz = authz
 
 	if !store.HasEnvSeedRun(db) {
 		existingProviders, _ := s.queries.ListEnvProviders(context.Background())
