@@ -10,9 +10,10 @@
 // `CliType` from here, so any import in the other direction would cycle.
 
 // Display order for every engine picker. Not alphabetical and not the
-// backend's order: it front-loads the engines most users reach for, with the
-// protocol-backed ones trailing. Append new engines at the end.
-export const CLI_TYPES = ['claude', 'codex', 'qwen', 'cursor', 'goose', 'omp', 'niuniu'] as const
+// backend's order: niuniu (our own engine) leads, then the engines most users
+// reach for, with the protocol-backed ones trailing. Append new engines at the
+// end.
+export const CLI_TYPES = ['niuniu', 'claude', 'codex', 'qwen', 'cursor', 'goose', 'omp'] as const
 
 export type CliType = (typeof CLI_TYPES)[number]
 

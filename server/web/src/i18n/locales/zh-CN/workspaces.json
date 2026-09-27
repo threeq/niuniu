@@ -374,7 +374,7 @@
         "gooseHint": "需要本机安装 goose CLI。MCP-first 通用 agent，作为 MCP client 消费 niuniu-mcp。实验性。",
         "cursor": "Cursor Agent",
         "cursorHint": "需要本机安装 Cursor CLI（agent 命令）。走 ACP 协议，支持逐次工具授权与多轮会话；用 agent login 登录或配置 CURSOR_API_KEY。实验性。",
-        "niuniu": "N-Agent",
+        "niuniu": "Niuniu Agent",
         "niuniuHint": "牛牛自研 agent（niuniu-agent 二进制，随服务端发布）。走 ACP 协议，支持逐次工具授权与多轮会话。"
       }
     },
