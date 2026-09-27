@@ -5,9 +5,9 @@ package main
 // FFmpeg is injected as a resolver func (plan §1.5) instead of an import, so
 // this module never depends on the packaging infrastructure directly:
 //
-//	wave 1 (here):     exec.LookPath("ffmpeg")             — PATH only
-//	wave 2 (wiring):   internal/ffmpegbin.Resolve(dataDir) — env override →
-//	                   unpacked copy under <dataDir>/bin/ffmpeg/<fp>/ → PATH
+//	wave 1:  exec.LookPath("ffmpeg")             — PATH only
+//	wave 2:  internal/ffmpegbin.Resolve(dataDir) — env override →
+//	         unpacked copy under <dataDir>/bin/ffmpeg/<fp>/ → PATH (here)
 //
 // When ffmpeg cannot be resolved, media_compose degrades with an explicit
 // Chinese error (design §9: 工具层降级，只出产物族+素材清单，不合成) while every
@@ -16,12 +16,15 @@ package main
 
 import (
 	"context"
+	"flag"
 	"fmt"
 	"os/exec"
 	"regexp"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/niuniu-dev/niuniu/internal/ffmpegbin"
 )
 
 // Deps carries the module's injectable dependencies.
@@ -30,18 +33,39 @@ type Deps struct {
 	ResolveFFmpeg func() (string, error)
 }
 
-// DefaultDeps returns the wave-1 resolver: PATH lookup only.
+// DefaultDeps returns the production resolver: internal/ffmpegbin.Resolve,
+// which sees $NIUNIU_FFMPEG (explicit override), then the copy unpacked from
+// the bundled payload under <dataDir>/bin/ffmpeg/<fingerprint>/ (release
+// builds), then PATH — so an end user never installs ffmpeg by hand.
 func DefaultDeps() Deps {
 	return Deps{
 		ResolveFFmpeg: func() (string, error) {
-			p, err := exec.LookPath("ffmpeg")
+			p, err := ffmpegbin.Resolve(moduleDataDir())
 			if err != nil {
-				return "", fmt.Errorf("未找到 ffmpeg（PATH 中不存在）：媒体合成不可用。" +
-					"请安装 ffmpeg 并加入 PATH，或使用带内嵌 ffmpeg 的发行版。")
+				return "", fmt.Errorf("未找到可用的 ffmpeg（%w）：媒体合成不可用。"+
+					"请设置 $NIUNIU_FFMPEG、安装 ffmpeg 并加入 PATH，或使用带内嵌 ffmpeg 的发行版。", err)
 			}
 			return p, nil
 		},
 	}
+}
+
+// moduleDataDir resolves the effective --data-dir for the default ffmpeg
+// resolver. The flag is registered and parsed by main.go before any tool call
+// runs, but DefaultDeps takes no parameter (wave-1 callers — main.go and the
+// test helpers — construct it as DefaultDeps()), so the value is read lazily
+// from the flag set here; an empty flag follows the module's own ~/.niuniu
+// default (resolveDataDir), matching what App.dataDir ends up as.
+func moduleDataDir() string {
+	raw := ""
+	if f := flag.Lookup("data-dir"); f != nil {
+		raw = f.Value.String()
+	}
+	dir, err := resolveDataDir(raw)
+	if err != nil {
+		return ""
+	}
+	return dir
 }
 
 // ffmpegPath resolves ffmpeg and normalizes the error into the user-facing

@@ -578,6 +578,9 @@ func New(cfg *config.Config, db *sql.DB, frontendFS fs.FS) *Server {
 	s.agentMgr.SetMCPWriter(mcpGen)
 	s.workspaceSvc.SetMCPGenerator(mcpGen)
 	mcpGen.SetLocalRunner(s.localRunnerSvc) // conditional local-runner tool-group injection (#526 子B)
+	// NN_CAP_* env for scene-declared capability modules (video-gen) projected
+	// into .mcp.json (video-creation plan §3; capability service built above).
+	mcpGen.SetCapabilityEnv(service.NewCapabilityBackendEnvResolver(s.queries, s.capabilityBackendSvc))
 	s.mcpGenerator = mcpGen
 
 	// Scene projector + layer service + matcher + plugin installer. These

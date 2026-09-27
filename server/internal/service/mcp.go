@@ -35,6 +35,15 @@ type MCPConfigGenerator struct {
 	mcpBinMu     sync.Mutex
 	cachedMCPBin string
 
+	// capabilityEnv (optional) resolves the NN_CAP_* environment for
+	// scene-declared capability modules (video-gen) projected into .mcp.json;
+	// see mcp_videogen.go. Nil-safe — without it the module entry is still
+	// written, just without credential env.
+	capabilityEnv CapabilityEnvResolver
+
+	videoBinMu     sync.Mutex
+	cachedVideoBin string
+
 	// localRunner (optional) gates the local-runner MCP tool group: it is hidden
 	// from the generated config whenever the workspace's desktop runner is
 	// offline, so the tools appear only when a runner is live (Epic #526 子B,
@@ -105,6 +114,11 @@ type MCPGenerateResult struct {
 // `configDir` selects which Claude account's registry to filter against
 // ("" = default account, use $HOME).
 //
+// A name in `extras` that matches a capability module this build ships
+// (video-gen) is projected as that module's stdio entry — binary +
+// --workspace-dir/--data-dir + NN_CAP_* env — instead of being looked up in
+// the Claude registry; see mcp_videogen.go.
+//
 // Stage-and-swap: writes to <wsPath>/.mcp.json.tmp-<rand> first, then
 // os.Rename onto the final path. os.Rename within the same directory is
 // atomic on both POSIX and Windows, so a half-written .mcp.json can
@@ -166,6 +180,17 @@ func (g *MCPConfigGenerator) Generate(
 		if name == "" || name == "niuniu" || len(cfg) == 0 {
 			continue
 		}
+		// A preserved capability-module entry is refreshed in place — its
+		// binary path or NN_CAP_* env may have changed since it was written.
+		// When the module binary is gone the previous entry is kept as-is:
+		// this path has no scene MCP list to re-resolve from, and dropping it
+		// would silently strip the tool group from a live workspace.
+		if isCapabilityModuleName(name) {
+			if ent, ok := g.buildVideoGenEntry(wsPath, opts); ok {
+				servers[name] = ent
+				continue
+			}
+		}
 		servers[name] = cfg
 	}
 	res := &MCPGenerateResult{
@@ -191,6 +216,19 @@ func (g *MCPConfigGenerator) Generate(
 		for _, name := range extras {
 			// Inline-config names are written verbatim below; skip registry resolution.
 			if len(opts.ExtraMCPServers[name]) > 0 {
+				continue
+			}
+			// Capability modules (video-gen) are niuniu-built binaries, not
+			// Claude-registry entries: project the module's stdio command, or
+			// surface the name as Unavailable when its binary is not installed
+			// (design §7.1: 场景引用缺失模块 → 优雅降级，绝不报错).
+			if isCapabilityModuleName(name) {
+				if ent, ok := g.buildVideoGenEntry(wsPath, opts); ok {
+					servers[name] = ent
+					res.WrittenServers = append(res.WrittenServers, name)
+				} else {
+					res.Unavailable = append(res.Unavailable, name)
+				}
 				continue
 			}
 			entry, ok := byName[name]
