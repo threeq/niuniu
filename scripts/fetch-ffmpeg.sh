@@ -14,6 +14,15 @@
 #   --dry-run   print the URLs and target paths only; download nothing
 #   --force     re-download even when both binaries are already staged
 #
+# Proxies
+# -------
+# Downloads go through curl, which honours HTTPS_PROXY/HTTP_PROXY (lowercase
+# forms too). On networks where github.com itself is unreachable but a local
+# proxy is running, point curl at it — e.g.:
+#   HTTPS_PROXY=http://127.0.0.1:7890 make ffmpeg-stage
+# (Verified 2026-09-27: direct connection timed out, the same command through
+# a local proxy staged windows/amd64 in ~15s.)
+#
 # Output: server/internal/ffmpegbin/dist/<goos>-<goarch>/{ffmpeg,ffprobe}[.exe]
 # dist/ is gitignored. Everything under the target directory is embedded
 # verbatim, so stage only the platform you are building — remove stale
