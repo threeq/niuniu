@@ -26,6 +26,7 @@
     "verifying": "验证中…",
     "verifySuccess": "连接成功",
     "verifyFailed": "连接失败",
+    "verifyFailedReason": "连接失败：{{reason}}",
     "edit": "编辑",
     "delete": "删除",
     "deleteConfirm": "确定删除数据源「{{name}}」？",

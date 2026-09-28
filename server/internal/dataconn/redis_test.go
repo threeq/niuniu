@@ -474,3 +474,33 @@ func TestRedisExecuteRevalidates(t *testing.T) {
 		t.Fatalf("denied command had a side effect: keep=%q", got)
 	}
 }
+
+func TestWrapRedisConnErr(t *testing.T) {
+	cases := []struct {
+		name     string
+		in       error
+		wantHint bool
+	}{
+		{"refused", errors.New("dial tcp 127.0.0.1:6379: connect: connection refused"), true},
+		{"windows connectex", errors.New("dial tcp 127.0.0.1:6379: connectex: No connection could be made because the target machine actively refused it."), true},
+		{"timeout", errors.New("dial tcp 127.0.0.1:6379: i/o timeout"), true},
+		{"no such host", errors.New("dial tcp: lookup redis-host: no such host"), true},
+		{"auth error untouched", errors.New("WRONGPASS invalid username-password pair"), false},
+		{"protocol error untouched", errors.New("redis: unsupported protocol"), false},
+	}
+	for _, c := range cases {
+		got := wrapRedisConnErr(c.in)
+		if c.wantHint && got.Error() == c.in.Error() {
+			t.Errorf("%s: expected hint appended, got unchanged %q", c.name, got.Error())
+		}
+		if !c.wantHint && got.Error() != c.in.Error() {
+			t.Errorf("%s: expected untouched, got %q", c.name, got.Error())
+		}
+		if c.wantHint && !errors.Is(got, c.in) {
+			t.Errorf("%s: hint must wrap (errors.Is), not replace", c.name)
+		}
+	}
+	if wrapRedisConnErr(nil) != nil {
+		t.Error("nil must stay nil")
+	}
+}

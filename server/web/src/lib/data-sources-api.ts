@@ -108,9 +108,13 @@ export interface CreateDataSourceBody {
 
 export type UpdateDataSourceBody = Partial<CreateDataSourceBody>
 
+// Matches the backend Verify response exactly (api/data_source.go):
+// success = {"verified": true}; failure = HTTP 502 {"error": "<raw reason>",
+// "error_kind": "verify_failed"} which apiFetch turns into a thrown ApiError.
+// The old `ok` field never existed on the wire — success took the failure
+// branch and every verify toasted "连接失败".
 export interface VerifyResult {
-  ok: boolean
-  message?: string
+  verified: boolean
 }
 
 export async function listDataSources(): Promise<DataSource[]> {

@@ -206,7 +206,17 @@ export async function apiFetch<T>(
       const errorData = await response.json().catch(() => ({
         message: `HTTP ${response.status}: ${response.statusText}`,
       }))
-      const errorMessage = errorData?.error?.message || errorData?.message || `HTTP ${response.status}`
+      // `error` comes in two shapes across backends: an envelope object
+      // ({error: {code, message}}) or a plain string ({error: "dial tcp ..."})
+      // — e.g. data-source verify returns the raw ping error as a string.
+      const rawError: unknown = errorData?.error
+      const errorMessage =
+        (typeof rawError === 'object' && rawError !== null
+          ? (rawError as { message?: string }).message
+          : undefined) ||
+        (typeof rawError === 'string' ? rawError : undefined) ||
+        errorData?.message ||
+        `HTTP ${response.status}`
 
       // License gate: when the server reports the deployment license is
       // expired or seat-full, refresh the license store so the banner/UX
