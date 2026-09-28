@@ -255,7 +255,7 @@ func (c *RedisConnector) Ping(ctx context.Context, conn ConnConfig) error {
 	defer client.Close()
 	ctx, cancel := context.WithTimeout(ctx, 8*time.Second)
 	defer cancel()
-	return client.Ping(ctx).Err()
+	return wrapRedisConnErr(client.Ping(ctx).Err())
 }
 
 // Execute runs the (already gate-approved) command and normalizes the reply
@@ -318,10 +318,30 @@ func (c *RedisConnector) Execute(ctx context.Context, conn ConnConfig, op Operat
 		}
 	}
 	if err != nil {
-		return nil, err
+		return nil, wrapRedisConnErr(err)
 	}
 	rs.Engine = string(KindRedis)
 	return rs, nil
+}
+
+// wrapRedisConnErr annotates dial-level failures with an operator-facing
+// hint. A refused/timing-out dial for a self-hosted redis almost always
+// means the service is down (typically a Docker container that is stopped
+// or restarting while its port mapping still refuses connections) — the raw
+// "connectex refused" text alone sends users debugging the wrong layer.
+// Auth/protocol errors pass through untouched.
+func wrapRedisConnErr(err error) error {
+	if err == nil {
+		return nil
+	}
+	msg := err.Error()
+	if strings.Contains(msg, "connection refused") ||
+		strings.Contains(msg, "connectex") ||
+		strings.Contains(msg, "i/o timeout") ||
+		strings.Contains(msg, "no such host") {
+		return fmt.Errorf("%w（提示：Redis 服务可能未运行——Docker 部署请确认容器已启动且端口映射正确）", err)
+	}
+	return err
 }
 
 // execRedisScan drives SCAN cursor loops to exhaustion (PoC note: single
