@@ -279,15 +279,21 @@ function DataSourceRow({ source: s, onEdit }: RowProps) {
   const verify = useMutation({
     mutationFn: () => verifyDataSource(s.id),
     onSuccess: (res) => {
-      if (res.ok) {
+      // Backend returns {"verified": true} on success; a failure is a thrown
+      // ApiError (HTTP 502 with the raw dial error) handled in onError.
+      if (res.verified) {
         toast.success(t('sources.verifySuccess'));
         queryClient.invalidateQueries({ queryKey: ['data-sources'] });
       } else {
-        toast.error(res.message || t('sources.verifyFailed'));
+        toast.error(t('sources.verifyFailed'));
       }
     },
     onError: (e) =>
-      toast.error(e instanceof Error ? e.message : t('sources.verifyFailed')),
+      toast.error(
+        t('sources.verifyFailedReason', {
+          reason: e instanceof Error ? e.message : t('sources.verifyFailed'),
+        }),
+      ),
   });
 
   const del = useMutation({

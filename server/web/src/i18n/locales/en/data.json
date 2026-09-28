@@ -26,6 +26,7 @@
     "verifying": "Verifying…",
     "verifySuccess": "Connection succeeded",
     "verifyFailed": "Connection failed",
+    "verifyFailedReason": "Connection failed: {{reason}}",
     "edit": "Edit",
     "delete": "Delete",
     "deleteConfirm": "Delete data source \"{{name}}\"?",

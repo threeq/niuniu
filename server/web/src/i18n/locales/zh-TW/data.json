@@ -26,6 +26,7 @@
     "verifying": "驗證中…",
     "verifySuccess": "連線成功",
     "verifyFailed": "連線失敗",
+    "verifyFailedReason": "連線失敗：{{reason}}",
     "edit": "編輯",
     "delete": "刪除",
     "deleteConfirm": "確定刪除資料來源「{{name}}」？",
