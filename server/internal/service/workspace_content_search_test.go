@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	"github.com/niuniu-dev/niuniu/internal/pgtest"
@@ -46,9 +47,15 @@ func testWorkspaceServiceSearchByUserContent(t *testing.T, drv string) {
 		(105, 'w5', '/w5', 'user', 1, 1, 1)`)
 
 	// Messages. role/event_type drive what counts as searchable user content.
+	//
+	// Seeded with literals rather than ? placeholders: this raw *sql.DB path
+	// bypasses the driver-aware placeholder rewriter (store.NewQueries wraps
+	// only the sqlc path), so `?` would reach pgx verbatim and die with a
+	// syntax error on Postgres. The sibling workspace_creator_filter_test
+	// seeds the same way for the same reason.
 	insMsg := func(id string, wsID int64, role, eventType, content string) {
-		mustExec(`INSERT INTO agent_messages (id, workspace_id, role, content, message_id, event_type)
-			VALUES (?, ?, ?, ?, ?, ?)`, id, wsID, role, content, id, eventType)
+		mustExec(fmt.Sprintf(`INSERT INTO agent_messages (id, workspace_id, role, content, message_id, event_type)
+			VALUES ('%s', %d, '%s', '%s', '%s', '%s')`, id, wsID, role, content, id, eventType))
 	}
 	insMsg("m1", 101, "user", "text", "fix the login bug")         // match
 	insMsg("m2", 102, "assistant", "text", "login bug is fixed")   // assistant -> no match
