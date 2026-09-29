@@ -2049,3 +2049,89 @@ export interface FileLogEntry {
   message: string
   path_at_commit: string
 }
+
+// ---------------------------------------------------------------------------
+// Video project (video creation · P3 layer-2 interactive product editing).
+//
+// Frozen REST contract §4.2 of
+// docs/superpowers/plans/2026-09-27-video-creation-implementation.md. The
+// products are plain files under `<ws>/video-project/` — no new DB tables; the
+// server is a thin, whitelisted projection over them.
+// ---------------------------------------------------------------------------
+
+/**
+ * One product file of the video-project, from
+ * `GET /workspaces/:id/video-project`.
+ *
+ * `key` is the whitelisted product id (brief / script / storyline /
+ * characters / scenes / storyboard); `file` is workspace-relative. JSON
+ * products carry `revision` + `review_status`; a product whose JSON failed to
+ * parse comes back with `error` (Chinese reason) and no `data` — the aggregate
+ * GET never fails wholesale for one bad file.
+ */
+export interface VideoProduct {
+  key: string
+  file: string
+  kind: 'json' | 'markdown'
+  present: boolean
+  revision: number
+  review_status: string
+  /** Parsed JSON body (json kind) or raw text (markdown kind). Absent on error. */
+  data?: unknown
+  /** Non-empty when the file exists but could not be parsed. */
+  error?: string
+}
+
+/** One change request (`video-project/changes/<id>.json`). */
+export interface VideoChange {
+  id: string
+  /** `<product file>#<jsonpath>`, e.g. `storyboard.json#shots[2].visual.prompt`. */
+  target: string
+  kind: string
+  content: string
+  status: string
+  dispatched_to_issue: number
+  created_at: string
+}
+
+/** One deliverable listed from `video-project/output/*` and `video-project/shots/*`. */
+export interface VideoOutput {
+  /** Workspace-relative path (e.g. `video-project/output/final.mp4`). */
+  path: string
+  size: number
+  modified_at: string
+}
+
+/** Payload of `GET /workspaces/:id/video-project` (`exists=false` → empty sets). */
+export interface VideoProjectResponse {
+  exists: boolean
+  products: VideoProduct[]
+  changes: VideoChange[]
+  outputs: VideoOutput[]
+  /** Counts only — `quotes/` and `qc/` file totals, no inline detail. */
+  shards: { quotes: number; qc: number }
+}
+
+/**
+ * PUT body for one product. `expected_revision` guards against an agent
+ * regenerating the product between load and save; a mismatch returns 409.
+ * Markdown products (brief) have no revision and may omit it.
+ */
+export interface SaveVideoProductBody {
+  content: string
+  expected_revision?: number
+}
+
+/** POST body of a new change request (a note defaults to kind `annotation`). */
+export interface CreateVideoChangeBody {
+  target: string
+  kind: 'annotation' | 'edit'
+  content: string
+}
+
+/** Response of dispatching a change: the updated change + the routed issue. */
+export interface VideoChangeDispatchResponse {
+  change: VideoChange
+  issue_id: number
+  issue_title: string
+}

@@ -255,6 +255,7 @@
       "issue": "問題",
       "pinned": "Pin 訊息",
       "artifact": "產物",
+      "video": "影片",
       "kbs": "知識庫",
       "canvas": "畫布",
       "drawio": "圖表"
@@ -1047,6 +1048,80 @@
     "truncatedLimit": "結果已截斷 —— 匹配過多，請縮小搜尋範圍。",
     "truncatedTimeout": "結果已截斷 —— 搜尋超時。",
     "fileTruncated": "（還有更多匹配）"
+  },
+  "videoProduct": {
+    "title": "影片產物",
+    "refresh": "重新整理",
+    "loadFailed": "載入影片產物失敗",
+    "selectHint": "選擇左側的產物檢視內容",
+    "productsHeading": "產物",
+    "changesHeading": "修改請求",
+    "changesEmpty": "暫無修改請求",
+    "outputsHeading": "成片與素材",
+    "outputsEmpty": "暫無產出",
+    "shards": "報價 {{quotes}} · 質檢 {{qc}}",
+    "revision": "v{{n}}",
+    "save": "儲存",
+    "saved": "已儲存",
+    "saveFailed": "儲存失敗",
+    "saveConflict": "已被重新生成，請重新整理後重試",
+    "invalidJson": "JSON 解析失敗，無法切換到卡片檢視",
+    "notGenerated": "尚未生成",
+    "notGeneratedHint": "該產物還沒生成——在媒體艙場景讓 agent 開始創作後會出現在這裡。",
+    "view": {
+      "preview": "預覽",
+      "raw": "原始 JSON/文字"
+    },
+    "empty": {
+      "title": "尚無影片專案",
+      "description": "該工作空間尚無影片專案——在媒體艙場景讓 agent 開始創作後會出現在這裡。"
+    },
+    "products": {
+      "brief": "導演闡述",
+      "storyline": "故事線",
+      "script": "劇本",
+      "characters": "角色",
+      "scenes": "場景",
+      "storyboard": "分鏡"
+    },
+    "reviewStatus": {
+      "draft": "草稿",
+      "in-review": "評審中",
+      "approved": "已批准"
+    },
+    "changeStatus": {
+      "pending": "待送回",
+      "dispatched": "已送回",
+      "regenerated": "已重生成",
+      "approved": "已批准"
+    },
+    "dispatch": "送回重生成",
+    "dispatched": "已路由到 issue：{{title}}",
+    "dispatchPending": "issue 處於阻塞狀態，修改意見仍為待送回",
+    "dispatchFailed": "送回失敗",
+    "note": {
+      "title": "備註",
+      "targetLabel": "目標",
+      "placeholder": "寫下修改意見…",
+      "submit": "寫備註",
+      "added": "備註已新增",
+      "failed": "備註新增失敗"
+    },
+    "shot": {
+      "duration": "時長",
+      "action": "畫面",
+      "narration": "臺詞",
+      "subtitle": "字幕",
+      "prompt": "畫面 Prompt",
+      "candidates": "候選",
+      "selected": "選定",
+      "noCandidates": "無候選",
+      "count": "共 {{count}} 鏡"
+    },
+    "card": {
+      "noItems": "暫無條目",
+      "noReferenceImage": "無參考圖"
+    }
   },
   "gate": {
     "blocked": "底線閘未透過，已阻止完成",

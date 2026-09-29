@@ -77,6 +77,12 @@ import type {
   CapabilityBackend,
   CapabilityBackendListResponse,
   SaveCapabilityBackendData,
+  VideoProduct,
+  VideoProjectResponse,
+  SaveVideoProductBody,
+  CreateVideoChangeBody,
+  VideoChange,
+  VideoChangeDispatchResponse,
 } from '../types/api'
 import type { Org, OrgMember, OrgAuditEntry, User, OwnerRef } from '../types/org'
 import type {
@@ -1097,6 +1103,49 @@ export const checkpointApi = {
       `/workspaces/${workspaceId}/checkpoints/${checkpointId}/diff`),
   revert: (workspaceId: string, step: number) =>
     api.post<CheckpointRevertResponse>(`/workspaces/${workspaceId}/checkpoints/revert`, { step }),
+};
+
+// Video-project (video creation · P3 layer-2 interactive product editing).
+// Frozen REST contract §4.2 of
+// docs/superpowers/plans/2026-09-27-video-creation-implementation.md. The
+// aggregate GET returns exists=false (not 404) when the workspace has no
+// <ws>/video-project/ yet; product saves are revision-guarded (409 = an agent
+// regenerated the file meanwhile → the panel tells the user to refresh).
+//
+// Mutations carry suppressError because the panel owns the error UX — a 409
+// gets its targeted "regenerated, refresh and retry" banner instead of the
+// generic global toast stacking on top.
+export const videoProjectApi = {
+  get: (workspaceId: string) =>
+    api.get<VideoProjectResponse>(`/workspaces/${workspaceId}/video-project`),
+
+  saveProduct: (workspaceId: string, key: string, body: SaveVideoProductBody) =>
+    apiFetch<VideoProduct>(
+      `/workspaces/${workspaceId}/video-project/products/${encodeURIComponent(key)}`,
+      { method: 'PUT', body: JSON.stringify(body), suppressError: true },
+    ),
+
+  createChange: (workspaceId: string, body: CreateVideoChangeBody) =>
+    apiFetch<VideoChange>(`/workspaces/${workspaceId}/video-project/changes`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+      suppressError: true,
+    }),
+
+  /**
+   * Route a change request back into the creation flow. `issueId` is optional:
+   * without it the server auto-matches a child issue by the change's target
+   * prefix (falling back to the workspace's own issue).
+   */
+  dispatchChange: (workspaceId: string, changeId: string, issueId?: number) =>
+    apiFetch<VideoChangeDispatchResponse>(
+      `/workspaces/${workspaceId}/video-project/changes/${encodeURIComponent(changeId)}/dispatch`,
+      {
+        method: 'POST',
+        body: JSON.stringify(issueId ? { issue_id: issueId } : {}),
+        suppressError: true,
+      },
+    ),
 };
 
 // Per-workspace MCP configuration API. Spec at
