@@ -1,7 +1,9 @@
-import { describe, it, expect, vi } from 'vitest'
-import { render, screen } from '@testing-library/react'
-import { ToolCard } from './system-deps-settings'
+import { describe, it, expect, vi, afterEach } from 'vitest'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { SystemDepsSettings, ToolCard } from './system-deps-settings'
 import { openExternalSmart } from '@/lib/shell'
+import { api } from '@/lib/api'
 import type { SystemDepsInfo, ToolStatus } from '@/types/api'
 
 vi.mock('@/lib/shell', () => ({
@@ -9,6 +11,22 @@ vi.mock('@/lib/shell', () => ({
   openCodexLoginTerminal: vi.fn(),
   openExternalSmart: vi.fn(() => Promise.resolve()),
 }))
+
+// Partial mock: only the three system-deps endpoints are stubbed so the
+// page-level install test can drive the SSE stream deterministically; the rest
+// of the api surface stays real for transitive importers (config store, gate).
+vi.mock('@/lib/api', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/api')>()
+  return {
+    ...actual,
+    api: {
+      ...actual.api,
+      getSystemDeps: vi.fn(),
+      startSystemDepsInstall: vi.fn(),
+      systemDepsInstallStreamUrl: vi.fn((id: string) => `/api/system-deps/install/stream?id=${id}`),
+    },
+  }
+})
 
 function info(over: Partial<SystemDepsInfo> = {}): SystemDepsInfo {
   return {
@@ -22,8 +40,15 @@ function info(over: Partial<SystemDepsInfo> = {}): SystemDepsInfo {
   }
 }
 
-function tool(over: Partial<ToolStatus> = {}): ToolStatus {
-  return { name: 'node', found: true, version: 'v20.11.0', path: '/usr/bin/node', installable: true, ...over }
+// The ToolStatus.name union in types/api.ts predates the optional tools the
+// backend probe already emits (tesseract/cairosvg, and now ffmpeg), so accept
+// any string here and cast at the fixture boundary.
+function tool(over: Omit<Partial<ToolStatus>, 'name'> & { name?: string } = {}): ToolStatus {
+  return { name: 'node', found: true, version: 'v20.11.0', path: '/usr/bin/node', installable: true, ...over } as ToolStatus
+}
+
+function ffmpeg(over: Partial<ToolStatus> = {}): ToolStatus {
+  return tool({ name: 'ffmpeg', found: false, version: '', path: '', installable: true, ...over })
 }
 
 describe('ToolCard', () => {
@@ -445,5 +470,175 @@ describe('ToolCard', () => {
     expect(btn.disabled).toBe(true)
     btn.click()
     expect(onInstall).not.toHaveBeenCalled()
+  })
+
+  // ffmpeg is an optional in-app download (spec §7.3), not a package-manager
+  // package: the row must carry the localized label/descriptor, the download
+  // copy and the resume affordance, and must never show a bare `将运行：`
+  // command preview (commandFor returns '' for it so the OS-PM tables — which
+  // have no ffmpeg entry — can't render an empty package name).
+  it('renders the ffmpeg row with the download copy, resume hint and manual fallback', () => {
+    render(
+      <ToolCard
+        tool={ffmpeg()}
+        info={info()}
+        installing={null}
+        loginPending={false}
+        onInstall={() => {}}
+        onRefresh={() => {}}
+        onClaudeLogin={() => {}}
+        nodeFound={true}
+      />,
+    )
+    expect(screen.getByText('FFmpeg（视频合成）')).toBeTruthy()
+    expect(screen.getByText('应用内下载（约 160 MB，支持断点续传）')).toBeTruthy()
+    expect(screen.getByText('下载中断后无需重新开始，再次点击将从中断处继续。')).toBeTruthy()
+    expect(screen.queryByText(/将运行：/)).toBeNull()
+    const link = screen.getByText('手动下载 →') as HTMLAnchorElement
+    expect(link.getAttribute('href')).toBe('https://ffmpeg.org/download.html')
+  })
+
+  it('offers a download button (not 一键安装) for ffmpeg when missing and installable', () => {
+    const onInstall = vi.fn()
+    render(
+      <ToolCard
+        tool={ffmpeg()}
+        info={info()}
+        installing={null}
+        loginPending={false}
+        onInstall={onInstall}
+        onRefresh={() => {}}
+        onClaudeLogin={() => {}}
+        nodeFound={true}
+      />,
+    )
+    expect(screen.queryByRole('button', { name: '一键安装' })).toBeNull()
+    const btn = screen.getByRole('button', { name: '下载安装' }) as HTMLButtonElement
+    btn.click()
+    expect(onInstall).toHaveBeenCalledTimes(1)
+  })
+
+  it('shows 下载中… and blocks recheck while the ffmpeg download is in flight', () => {
+    render(
+      <ToolCard
+        tool={ffmpeg()}
+        info={info()}
+        installing={'ffmpeg'}
+        loginPending={false}
+        onInstall={() => {}}
+        onRefresh={() => {}}
+        onClaudeLogin={() => {}}
+        nodeFound={true}
+      />,
+    )
+    const btn = screen.getByRole('button', { name: '下载中…' }) as HTMLButtonElement
+    expect(btn.disabled).toBe(true)
+    // The other tools' label must not leak into the ffmpeg row.
+    expect(screen.queryByRole('button', { name: '安装中…' })).toBeNull()
+    const recheck = screen.getByRole('button', { name: '重新检测' }) as HTMLButtonElement
+    expect(recheck.disabled).toBe(true)
+  })
+
+  it('shows version and 重新检测 once ffmpeg is detected', () => {
+    render(
+      <ToolCard
+        tool={ffmpeg({
+          found: true,
+          version: 'ffmpeg version 7.1-static',
+          path: '/home/u/.niuniu/bin/ffmpeg/linux-amd64/ffmpeg',
+        })}
+        info={info()}
+        installing={null}
+        loginPending={false}
+        onInstall={() => {}}
+        onRefresh={() => {}}
+        onClaudeLogin={() => {}}
+        nodeFound={true}
+      />,
+    )
+    expect(screen.getByText('ffmpeg version 7.1-static')).toBeTruthy()
+    expect(screen.getByText('/home/u/.niuniu/bin/ffmpeg/linux-amd64/ffmpeg')).toBeTruthy()
+    expect(screen.getByRole('button', { name: '重新检测' })).toBeTruthy()
+    // Found rows must not advertise an install action.
+    expect(screen.queryByRole('button', { name: '下载安装' })).toBeNull()
+  })
+
+  // A team-edition / no-download row still links the manual fallback, but must
+  // not promise an in-app download path or a resume behaviour that isn't there.
+  it('hides the in-app download copy and resume hint when ffmpeg is not installable', () => {
+    render(
+      <ToolCard
+        tool={ffmpeg({ installable: false })}
+        info={info({ can_install: false, package_manager: '' })}
+        installing={null}
+        loginPending={false}
+        onInstall={() => {}}
+        onRefresh={() => {}}
+        onClaudeLogin={() => {}}
+        nodeFound={true}
+      />,
+    )
+    expect(screen.queryByRole('button', { name: '下载安装' })).toBeNull()
+    expect(screen.queryByText('应用内下载（约 160 MB，支持断点续传）')).toBeNull()
+    expect(screen.queryByText('下载中断后无需重新开始，再次点击将从中断处继续。')).toBeNull()
+    expect(screen.getByText('手动下载 →')).toBeTruthy()
+  })
+})
+
+// The install SSE stream is shared machinery, but ffmpeg is the first tool
+// whose stream carries download progress ("[niuniu] 进度 42% …") instead of
+// package-manager output — the page must render those lines verbatim and
+// re-probe when the job finishes.
+class FakeEventSource {
+  static instances: FakeEventSource[] = []
+  onmessage: ((ev: MessageEvent) => unknown) | null = null
+  onerror: ((ev: Event) => unknown) | null = null
+  closed = false
+  url: string
+  constructor(url: string) {
+    this.url = url
+    FakeEventSource.instances.push(this)
+  }
+  close() { this.closed = true }
+  emit(payload: unknown) {
+    this.onmessage?.({ data: JSON.stringify(payload) } as MessageEvent)
+  }
+}
+
+describe('SystemDepsSettings · ffmpeg in-app download stream', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    FakeEventSource.instances = []
+  })
+
+  it('renders streamed download progress lines and re-detects when the job is done', async () => {
+    vi.mocked(api.getSystemDeps)
+      .mockResolvedValueOnce(info({ tools: [ffmpeg()] }))
+      .mockResolvedValue(info({
+        tools: [ffmpeg({ found: true, version: 'ffmpeg version 7.1-static' })],
+      }))
+    vi.mocked(api.startSystemDepsInstall).mockResolvedValue({ job_id: 'job-ffmpeg-1' })
+    vi.stubGlobal('EventSource', FakeEventSource)
+
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    render(<QueryClientProvider client={qc}><SystemDepsSettings /></QueryClientProvider>)
+
+    const btn = await screen.findByRole('button', { name: '下载安装' })
+    fireEvent.click(btn)
+    await waitFor(() => expect(api.startSystemDepsInstall).toHaveBeenCalledWith('ffmpeg'))
+    const es = FakeEventSource.instances[0]
+    expect(es.url).toContain('job-ffmpeg-1')
+    await waitFor(() => expect(screen.getByRole('button', { name: '下载中…' })).toBeTruthy())
+
+    act(() => { es.emit({ line: '[niuniu] 进度 42% (67.2/160.0 MB, 2.3 MB/s)' }) })
+    expect(await screen.findByText('[niuniu] 进度 42% (67.2/160.0 MB, 2.3 MB/s)')).toBeTruthy()
+    expect(screen.getByRole('log')).toBeTruthy()
+
+    act(() => { es.emit({ done: true, exit_code: 0 }) })
+    expect(await screen.findByText('--- 完成（exit code 0）---')).toBeTruthy()
+    await waitFor(() => expect(api.getSystemDeps).toHaveBeenCalledTimes(2))
+    // The fresh probe flips the row to its installed state.
+    expect(await screen.findByText('ffmpeg version 7.1-static')).toBeTruthy()
+    expect(screen.queryByRole('button', { name: '下载中…' })).toBeNull()
   })
 })

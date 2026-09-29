@@ -680,6 +680,14 @@ func (s *Server) setupRoutes() {
 		workspaces.GET("/:id/checkpoints/:cid/diff", s.checkpointHandler.DiffForWorkspace)
 		workspaces.POST("/:id/checkpoints/revert", s.checkpointHandler.RevertForWorkspace)
 
+		// 视频创作 P3 (plan §4.2): video-project thin API — aggregate read of
+		// <ws>/video-project/, revision-guarded product saves, change requests,
+		// and dispatch back to the owning/child issue.
+		workspaces.GET("/:id/video-project", s.videoProjectHandler.Get)
+		workspaces.PUT("/:id/video-project/products/:key", s.videoProjectHandler.PutProduct)
+		workspaces.POST("/:id/video-project/changes", s.videoProjectHandler.CreateChange)
+		workspaces.POST("/:id/video-project/changes/:changeId/dispatch", s.videoProjectHandler.DispatchChange)
+
 		workspaces.GET("", s.workspaceHandler.List)
 		// Lazy git badges for the sidebar; literal segment before /:id.
 		workspaces.GET("/sidebar-git", s.workspaceHandler.SidebarGitStatus)
@@ -1090,6 +1098,17 @@ func (s *Server) setupRoutes() {
 		envProviders.DELETE("/:id/cooldown", s.envProviderHandler.ClearCooldown)
 		envProviders.POST("/:id/enabled", s.envProviderHandler.SetEnabled)
 		envProviders.POST("/reorder", s.envProviderHandler.ReorderGroup)
+	}
+
+	// Capability config (video-creation capability modules + their backends).
+	// Plan: docs/superpowers/plans/2026-09-27-video-creation-implementation.md §1.1.
+	api.GET("/capability-modules", s.capabilityBackendHandler.ListModules)
+	capabilityBackends := api.Group("/capability-backends")
+	{
+		capabilityBackends.GET("", s.capabilityBackendHandler.List)
+		capabilityBackends.POST("", s.capabilityBackendHandler.Create)
+		capabilityBackends.PUT("/:id", s.capabilityBackendHandler.Update)
+		capabilityBackends.DELETE("/:id", s.capabilityBackendHandler.Delete)
 	}
 
 	// Scenes (M1 — scene-based MCP/plugin management).

@@ -255,6 +255,7 @@
       "issue": "Issue",
       "pinned": "Pinned",
       "artifact": "Artifacts",
+      "video": "Video",
       "kbs": "Knowledge bases",
       "canvas": "Canvas",
       "drawio": "Diagram"
@@ -1049,6 +1050,80 @@
     "truncatedLimit": "Showing partial results — too many matches. Narrow the search.",
     "truncatedTimeout": "Showing partial results — the search timed out.",
     "fileTruncated": "(more matches)"
+  },
+  "videoProduct": {
+    "title": "Video products",
+    "refresh": "Refresh",
+    "loadFailed": "Failed to load video products",
+    "selectHint": "Select a product on the left to view it",
+    "productsHeading": "Products",
+    "changesHeading": "Change requests",
+    "changesEmpty": "No change requests yet",
+    "outputsHeading": "Deliverables",
+    "outputsEmpty": "No deliverables yet",
+    "shards": "Quotes {{quotes}} · QC {{qc}}",
+    "revision": "v{{n}}",
+    "save": "Save",
+    "saved": "Saved",
+    "saveFailed": "Save failed",
+    "saveConflict": "Regenerated since you loaded it — refresh and retry",
+    "invalidJson": "Invalid JSON — fix it before switching to the card view",
+    "notGenerated": "Not generated yet",
+    "notGeneratedHint": "This product does not exist yet — it will appear once the agent starts creating in a media-studio scene.",
+    "view": {
+      "preview": "Preview",
+      "raw": "Raw JSON/text"
+    },
+    "empty": {
+      "title": "No video project yet",
+      "description": "This workspace has no video project yet — it will appear here once the agent starts creating in a media-studio scene."
+    },
+    "products": {
+      "brief": "Director's brief",
+      "storyline": "Storyline",
+      "script": "Script",
+      "characters": "Characters",
+      "scenes": "Scenes",
+      "storyboard": "Storyboard"
+    },
+    "reviewStatus": {
+      "draft": "Draft",
+      "in-review": "In review",
+      "approved": "Approved"
+    },
+    "changeStatus": {
+      "pending": "Pending",
+      "dispatched": "Dispatched",
+      "regenerated": "Regenerated",
+      "approved": "Approved"
+    },
+    "dispatch": "Send for regeneration",
+    "dispatched": "Routed to issue: {{title}}",
+    "dispatchPending": "The issue is blocked, so the request stays pending",
+    "dispatchFailed": "Failed to send back",
+    "note": {
+      "title": "Note",
+      "targetLabel": "Target",
+      "placeholder": "Write a change request…",
+      "submit": "Add note",
+      "added": "Note added",
+      "failed": "Failed to add note"
+    },
+    "shot": {
+      "duration": "Duration",
+      "action": "Action",
+      "narration": "Narration",
+      "subtitle": "Subtitle",
+      "prompt": "Prompt",
+      "candidates": "Candidates",
+      "selected": "Selected",
+      "noCandidates": "None",
+      "count": "{{count}} shots"
+    },
+    "card": {
+      "noItems": "No items",
+      "noReferenceImage": "No reference image"
+    }
   },
   "gate": {
     "blocked": "Floor gate blocked completion",

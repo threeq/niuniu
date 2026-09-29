@@ -117,6 +117,23 @@ type BlackboardEntry struct {
 	CreatedAt     time.Time      `json:"created_at"`
 }
 
+type CapabilityBackend struct {
+	ID          int64     `json:"id"`
+	OwnerType   string    `json:"owner_type"`
+	OwnerID     int64     `json:"owner_id"`
+	Module      string    `json:"module"`
+	Capability  string    `json:"capability"`
+	Backend     string    `json:"backend"`
+	Name        string    `json:"name"`
+	BaseUrl     string    `json:"base_url"`
+	ApiKey      string    `json:"api_key"`
+	ExtraConfig string    `json:"extra_config"`
+	Enabled     int64     `json:"enabled"`
+	Position    int64     `json:"position"`
+	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
+}
+
 type Column struct {
 	ID               int64          `json:"id"`
 	ProjectID        int64          `json:"project_id"`

@@ -255,6 +255,7 @@
       "issue": "问题",
       "pinned": "Pin 消息",
       "artifact": "产物",
+      "video": "视频",
       "kbs": "知识库",
       "canvas": "画布",
       "drawio": "图表"
@@ -1049,6 +1050,80 @@
     "truncatedLimit": "结果已截断 —— 匹配过多，请缩小搜索范围。",
     "truncatedTimeout": "结果已截断 —— 搜索超时。",
     "fileTruncated": "（还有更多匹配）"
+  },
+  "videoProduct": {
+    "title": "视频产物",
+    "refresh": "刷新",
+    "loadFailed": "加载视频产物失败",
+    "selectHint": "选择左侧的产物查看内容",
+    "productsHeading": "产物",
+    "changesHeading": "修改请求",
+    "changesEmpty": "暂无修改请求",
+    "outputsHeading": "成片与素材",
+    "outputsEmpty": "暂无产出",
+    "shards": "报价 {{quotes}} · 质检 {{qc}}",
+    "revision": "v{{n}}",
+    "save": "保存",
+    "saved": "已保存",
+    "saveFailed": "保存失败",
+    "saveConflict": "已被重新生成，请刷新后重试",
+    "invalidJson": "JSON 解析失败，无法切换到卡片视图",
+    "notGenerated": "尚未生成",
+    "notGeneratedHint": "该产物还没生成——在媒体舱场景让 agent 开始创作后会出现在这里。",
+    "view": {
+      "preview": "预览",
+      "raw": "原始 JSON/文本"
+    },
+    "empty": {
+      "title": "尚无视频项目",
+      "description": "该工作空间尚无视频项目——在媒体舱场景让 agent 开始创作后会出现在这里。"
+    },
+    "products": {
+      "brief": "导演阐述",
+      "storyline": "故事线",
+      "script": "剧本",
+      "characters": "角色",
+      "scenes": "场景",
+      "storyboard": "分镜"
+    },
+    "reviewStatus": {
+      "draft": "草稿",
+      "in-review": "评审中",
+      "approved": "已批准"
+    },
+    "changeStatus": {
+      "pending": "待送回",
+      "dispatched": "已送回",
+      "regenerated": "已重生成",
+      "approved": "已批准"
+    },
+    "dispatch": "送回重生成",
+    "dispatched": "已路由到 issue：{{title}}",
+    "dispatchPending": "issue 处于阻塞状态，修改意见仍为待送回",
+    "dispatchFailed": "送回失败",
+    "note": {
+      "title": "备注",
+      "targetLabel": "目标",
+      "placeholder": "写下修改意见…",
+      "submit": "写备注",
+      "added": "备注已添加",
+      "failed": "备注添加失败"
+    },
+    "shot": {
+      "duration": "时长",
+      "action": "画面",
+      "narration": "台词",
+      "subtitle": "字幕",
+      "prompt": "画面 Prompt",
+      "candidates": "候选",
+      "selected": "选定",
+      "noCandidates": "无候选",
+      "count": "共 {{count}} 镜"
+    },
+    "card": {
+      "noItems": "暂无条目",
+      "noReferenceImage": "无参考图"
+    }
   },
   "gate": {
     "blocked": "底线闸未通过，已阻止完成",

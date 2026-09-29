@@ -4,7 +4,7 @@ import { persist } from 'zustand/middleware';
 // Toggleable right-side panels. Canvas/drawio are intentionally NOT here: they
 // are no longer standalone panels — a `.excalidraw`/`.drawio` file opens in the
 // central content viewer instead (see ContentViewerTarget below).
-export type PanelId = 'chat' | 'files' | 'changes' | 'terminal' | 'issue' | 'pinned' | 'artifact' | 'kbs';
+export type PanelId = 'chat' | 'files' | 'changes' | 'terminal' | 'issue' | 'pinned' | 'artifact' | 'kbs' | 'video';
 
 /**
  * The central content viewer sits between the chat and the right-side panels.
@@ -80,6 +80,7 @@ const VALID_PANELS: ReadonlySet<string> = new Set([
   'pinned',
   'artifact',
   'kbs',
+  'video',
 ]);
 
 // Compare two viewer targets for identity (used to toggle-off on re-click).

@@ -81,6 +81,7 @@ type Server struct {
 	envPresetSvc         *service.EnvPresetService
 	envAccountSvc        *service.EnvAccountService
 	envProviderSvc       *service.EnvProviderService
+	capabilityBackendSvc *service.CapabilityBackendService
 	sceneSvc             *service.SceneService
 	sceneSeeder          *service.SceneSeeder
 	sceneLayerSvc        *service.SceneLayerService
@@ -175,6 +176,7 @@ type Server struct {
 	slashCommandHandler     *api.SlashCommandHandler
 	workspaceOpsHandler     *api.WorkspaceOpsHandler
 	checkpointHandler       *api.CheckpointHandler
+	videoProjectHandler     *api.VideoProjectHandler
 	agentFileHandler        *api.AgentFileHandler
 	promptGenHandler        *api.PromptGenHandler
 	workspaceTaskHandler    *api.WorkspaceTaskHandler
@@ -189,6 +191,7 @@ type Server struct {
 	envPresetHandler        *api.EnvPresetHandler
 	envAccountHandler       *api.EnvAccountHandler
 	envProviderHandler      *api.EnvProviderHandler
+	capabilityBackendHandler *api.CapabilityBackendHandler
 	sceneHandler            *api.SceneHandler
 	workspaceSceneHandler   *api.WorkspaceSceneHandler
 	pluginInstallHandler    *api.PluginInstallHandler
@@ -420,6 +423,11 @@ func New(cfg *config.Config, db *sql.DB, frontendFS fs.FS) *Server {
 	s.gitOpsSvc = service.NewGitOpsService(s.queries, s.notifyHub)
 	s.directorySvc = service.NewDirectoryService(s.cfg.DataDir)
 	s.systemDepsSvc = service.NewSystemDepsService()
+	// Pin the data dir: the in-app ffmpeg download installs under
+	// <dataDir>/bin/ffmpeg/<goos>-<goarch>/ — exactly where the video module
+	// resolves it (its --data-dir comes from the same cfg.DataDir). Without
+	// this a custom data dir would download to one tree and look in another.
+	s.systemDepsSvc.SetDataDir(s.cfg.DataDir)
 
 	s.quickActionSvc = service.NewQuickActionService(s.queries, db, authz)
 	// Seed the built-in studio quick actions under the user/0 sentinel
@@ -450,6 +458,14 @@ func New(cfg *config.Config, db *sql.DB, frontendFS fs.FS) *Server {
 	s.envProviderHandler = api.NewEnvProviderHandler(s.envProviderSvc, s.envPresetSvc, s.envAccountSvc)
 	s.envProviderHandler.Authz = authz
 	s.envProviderHandler.DB = db
+
+	// Capability backends (video-creation capability config). Separate from
+	// env_providers on purpose: these bind the tool layer's generation
+	// services and are projected as NN_CAP_* env into the capability module
+	// process (plan docs/superpowers/plans/2026-09-27-video-creation-implementation.md §1).
+	s.capabilityBackendSvc = service.NewCapabilityBackendService(s.queries, db)
+	s.capabilityBackendHandler = api.NewCapabilityBackendHandler(s.capabilityBackendSvc)
+	s.capabilityBackendHandler.Authz = authz
 
 	if !store.HasEnvSeedRun(db) {
 		existingProviders, _ := s.queries.ListEnvProviders(context.Background())
@@ -568,6 +584,9 @@ func New(cfg *config.Config, db *sql.DB, frontendFS fs.FS) *Server {
 	s.agentMgr.SetMCPWriter(mcpGen)
 	s.workspaceSvc.SetMCPGenerator(mcpGen)
 	mcpGen.SetLocalRunner(s.localRunnerSvc) // conditional local-runner tool-group injection (#526 子B)
+	// NN_CAP_* env for scene-declared capability modules (video-gen) projected
+	// into .mcp.json (video-creation plan §3; capability service built above).
+	mcpGen.SetCapabilityEnv(service.NewCapabilityBackendEnvResolver(s.queries, s.capabilityBackendSvc))
 	s.mcpGenerator = mcpGen
 
 	// Scene projector + layer service + matcher + plugin installer. These
@@ -907,6 +926,13 @@ func New(cfg *config.Config, db *sql.DB, frontendFS fs.FS) *Server {
 	// Autohost 安全网: checkpoint timeline / diff / revert handler (REST + MCP).
 	s.checkpointHandler = api.NewCheckpointHandler(s.checkpointSvc, s.kanbanSvc, s.queries)
 	s.checkpointHandler.Authz = authz
+	// 视频创作 P3: video-product thin API over <ws>/video-project/ (plan §4).
+	// Dispatch reuses the epic engine's RequestChanges service path, so the
+	// engine must already be wired (it is, above).
+	videoProjectSvc := service.NewVideoProjectService(s.queries, s.cfg.DataDir)
+	videoProjectSvc.SetChangeDispatcher(s.epicExecSvc)
+	s.videoProjectHandler = api.NewVideoProjectHandler(videoProjectSvc)
+	s.videoProjectHandler.Authz = authz
 	// 建 issue 即起编排 (spec §13 stage 8): the creator path (CreateIssue) auto-starts
 	// orchestration when a card lands directly in an `instruct` column. epicExecSvc is
 	// fully wired by here (Start() called above).

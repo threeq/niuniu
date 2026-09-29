@@ -1237,6 +1237,81 @@ export interface CreateEnvProviderData {
   owner?: { type: string; id: number }
 }
 
+// ---------------------------------------------------------------------------
+// Capability configuration (能力配置) — third-party generation-service accounts
+// for capability modules (video-gen), independent of env_providers.
+//
+// The REST shapes below are the FROZEN contract §1.1 of
+// docs/superpowers/plans/2026-09-27-video-creation-implementation.md. The
+// server NEVER returns a plaintext api_key — `has_api_key` is the only signal;
+// on PUT an omitted/empty api_key leaves the stored key unchanged.
+// ---------------------------------------------------------------------------
+
+/** One form field of a backend implementation, rendered schema-driven. */
+export interface CapabilityFieldSchema {
+  key: string
+  label: string
+  /** "string" = plain input; "secret" = password input (blank on edit = keep). */
+  type: 'string' | 'secret'
+}
+
+/** One selectable adapter implementation (e.g. openai-compat / seedance / kling). */
+export interface CapabilityBackendOption {
+  value: string
+  label: string
+  fields: CapabilityFieldSchema[]
+}
+
+/** One capability family (tts / image / video) of a module. */
+export interface CapabilityCapabilitySchema {
+  key: string
+  label: string
+  backends: CapabilityBackendOption[]
+}
+
+/** Module registration payload: identity + the schema the config UI renders. */
+export interface CapabilityModule {
+  name: string
+  display_name: string
+  config_schema: {
+    capabilities: CapabilityCapabilitySchema[]
+  }
+}
+
+export interface CapabilityModuleListResponse {
+  modules: CapabilityModule[]
+}
+
+/** A configured account row. `api_key` is never returned, only `has_api_key`. */
+export interface CapabilityBackend {
+  id: number
+  module: string
+  capability: string
+  backend: string
+  name: string
+  base_url: string
+  has_api_key: boolean
+  extra_config: Record<string, string>
+  enabled: boolean
+  position: number
+}
+
+export interface CapabilityBackendListResponse {
+  backends: CapabilityBackend[]
+}
+
+/** POST/PUT body. On PUT an omitted or empty api_key keeps the stored key. */
+export interface SaveCapabilityBackendData {
+  module: string
+  capability: string
+  backend: string
+  name: string
+  base_url?: string
+  api_key?: string
+  extra_config?: Record<string, string>
+  enabled?: boolean
+}
+
 // Workspace delete change check
 export interface WorktreeChangeStatus {
   worktree_path: string;
@@ -1405,7 +1480,11 @@ export interface ToolExtras {
 }
 
 export interface ToolStatus {
-  name: 'node' | 'python3' | 'git' | 'claude' | 'codex';
+  /** Tool identifier — an open set, not a closed union: the backend probes dev
+   *  tools, agent CLIs and optional helpers alike (tesseract, uv, cairosvg,
+   *  ffmpeg, ...), so adding a probe must never require a frontend type edit.
+   *  The UI branches on the handful of names it renders specially. */
+  name: string;
   found: boolean;
   version: string;
   path: string;
@@ -1969,4 +2048,90 @@ export interface FileLogEntry {
   date: string
   message: string
   path_at_commit: string
+}
+
+// ---------------------------------------------------------------------------
+// Video project (video creation · P3 layer-2 interactive product editing).
+//
+// Frozen REST contract §4.2 of
+// docs/superpowers/plans/2026-09-27-video-creation-implementation.md. The
+// products are plain files under `<ws>/video-project/` — no new DB tables; the
+// server is a thin, whitelisted projection over them.
+// ---------------------------------------------------------------------------
+
+/**
+ * One product file of the video-project, from
+ * `GET /workspaces/:id/video-project`.
+ *
+ * `key` is the whitelisted product id (brief / script / storyline /
+ * characters / scenes / storyboard); `file` is workspace-relative. JSON
+ * products carry `revision` + `review_status`; a product whose JSON failed to
+ * parse comes back with `error` (Chinese reason) and no `data` — the aggregate
+ * GET never fails wholesale for one bad file.
+ */
+export interface VideoProduct {
+  key: string
+  file: string
+  kind: 'json' | 'markdown'
+  present: boolean
+  revision: number
+  review_status: string
+  /** Parsed JSON body (json kind) or raw text (markdown kind). Absent on error. */
+  data?: unknown
+  /** Non-empty when the file exists but could not be parsed. */
+  error?: string
+}
+
+/** One change request (`video-project/changes/<id>.json`). */
+export interface VideoChange {
+  id: string
+  /** `<product file>#<jsonpath>`, e.g. `storyboard.json#shots[2].visual.prompt`. */
+  target: string
+  kind: string
+  content: string
+  status: string
+  dispatched_to_issue: number
+  created_at: string
+}
+
+/** One deliverable listed from `video-project/output/*` and `video-project/shots/*`. */
+export interface VideoOutput {
+  /** Workspace-relative path (e.g. `video-project/output/final.mp4`). */
+  path: string
+  size: number
+  modified_at: string
+}
+
+/** Payload of `GET /workspaces/:id/video-project` (`exists=false` → empty sets). */
+export interface VideoProjectResponse {
+  exists: boolean
+  products: VideoProduct[]
+  changes: VideoChange[]
+  outputs: VideoOutput[]
+  /** Counts only — `quotes/` and `qc/` file totals, no inline detail. */
+  shards: { quotes: number; qc: number }
+}
+
+/**
+ * PUT body for one product. `expected_revision` guards against an agent
+ * regenerating the product between load and save; a mismatch returns 409.
+ * Markdown products (brief) have no revision and may omit it.
+ */
+export interface SaveVideoProductBody {
+  content: string
+  expected_revision?: number
+}
+
+/** POST body of a new change request (a note defaults to kind `annotation`). */
+export interface CreateVideoChangeBody {
+  target: string
+  kind: 'annotation' | 'edit'
+  content: string
+}
+
+/** Response of dispatching a change: the updated change + the routed issue. */
+export interface VideoChangeDispatchResponse {
+  change: VideoChange
+  issue_id: number
+  issue_title: string
 }

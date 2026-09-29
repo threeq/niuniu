@@ -124,14 +124,21 @@ dev-mobile: mobile-install
 # when a C compiler is present (cgo defaults on); without one, cgo turns off and
 # WebP degrades to PNG8/JPEG (still functional). For deterministic WebP use
 # `make build-linux` (zig cc) or build on a host with a C toolchain.
+#
+# niuniu-video-mcp no longer carries an ffmpeg payload (design v3.2 §7.3). It
+# resolves ffmpeg at runtime from $NIUNIU_FFMPEG, an in-app download under
+# <dataDir>/bin/ffmpeg/*/ (设置 → 系统依赖) or PATH — every build, desktop
+# included, is a plain untagged build.
 build:
 	cd server/web && pnpm install && pnpm build
 	cd server && go build $(SERVER_LDFLAGS) -o ../bin/niuniu-server-$(VERSION) ./cmd/niuniu
 	cd server && go build $(SERVER_LDFLAGS) -o ../bin/niuniu-mcp-$(VERSION) ./cmd/niuniu-mcp
 	cd agent && go build -o ../bin/niuniu-agent-$(VERSION) ./cmd/niuniu-agent
+	cd server && go build $(SERVER_LDFLAGS) -o ../bin/niuniu-video-mcp-$(VERSION) ./cmd/niuniu-video-mcp
 	$(call compress,bin/niuniu-server-$(VERSION))
 	$(call compress,bin/niuniu-mcp-$(VERSION))
 	$(call compress,bin/niuniu-agent-$(VERSION))
+	$(call compress,bin/niuniu-video-mcp-$(VERSION))
 	@echo "NOTE: Desktop (desktop-v2, Tauri) is built separately — make build-personal-v2-current (or build-personal-v2-{windows,darwin,linux})"
 
 build-win:
@@ -139,9 +146,11 @@ build-win:
 	cd server && go build $(SERVER_LDFLAGS) -o ../bin/niuniu-server-$(VERSION).exe ./cmd/niuniu
 	cd server && go build $(SERVER_LDFLAGS) -o ../bin/niuniu-mcp-$(VERSION).exe ./cmd/niuniu-mcp
 	cd agent && go build -o ../bin/niuniu-agent-$(VERSION).exe ./cmd/niuniu-agent
+	cd server && go build $(SERVER_LDFLAGS) -o ../bin/niuniu-video-mcp-$(VERSION).exe ./cmd/niuniu-video-mcp
 	$(call compress,bin/niuniu-server-$(VERSION).exe)
 	$(call compress,bin/niuniu-mcp-$(VERSION).exe)
 	$(call compress,bin/niuniu-agent-$(VERSION).exe)
+	$(call compress,bin/niuniu-video-mcp-$(VERSION).exe)
 	@echo "NOTE: Desktop (desktop-v2, Tauri) is built separately — make build-personal-v2-windows"
 
 build-linux:
@@ -152,10 +161,14 @@ build-linux:
 	cd server && $(LINUX_ARM64_ENV) go build $(SERVER_LDFLAGS) -o ../bin/niuniu-mcp-$(VERSION)-linux-arm64 ./cmd/niuniu-mcp
 	cd agent && GOOS=linux GOARCH=amd64 go build -o ../bin/niuniu-agent-$(VERSION)-linux-amd64 ./cmd/niuniu-agent
 	cd agent && GOOS=linux GOARCH=arm64 go build -o ../bin/niuniu-agent-$(VERSION)-linux-arm64 ./cmd/niuniu-agent
+	cd server && $(LINUX_AMD64_ENV) go build $(SERVER_LDFLAGS) -o ../bin/niuniu-video-mcp-$(VERSION)-linux-amd64 ./cmd/niuniu-video-mcp
+	cd server && $(LINUX_ARM64_ENV) go build $(SERVER_LDFLAGS) -o ../bin/niuniu-video-mcp-$(VERSION)-linux-arm64 ./cmd/niuniu-video-mcp
 	$(call compress,bin/niuniu-server-$(VERSION)-linux-amd64)
 	$(call compress,bin/niuniu-mcp-$(VERSION)-linux-amd64)
 	$(call compress,bin/niuniu-server-$(VERSION)-linux-arm64)
 	$(call compress,bin/niuniu-mcp-$(VERSION)-linux-arm64)
+	$(call compress,bin/niuniu-video-mcp-$(VERSION)-linux-amd64)
+	$(call compress,bin/niuniu-video-mcp-$(VERSION)-linux-arm64)
 	@echo "NOTE: Desktop (desktop-v2, Tauri) needs the Linux GTK/WebKit dev packages — build on Linux with: make build-personal-v2-linux"
 
 build-mac:
@@ -164,10 +177,14 @@ build-mac:
 	cd server && GOOS=darwin GOARCH=amd64 go build $(SERVER_LDFLAGS) -o ../bin/niuniu-server-$(VERSION)-darwin-amd64 ./cmd/niuniu
 	cd server && GOOS=darwin GOARCH=arm64 go build $(SERVER_LDFLAGS) -o ../bin/niuniu-mcp-$(VERSION)-darwin-arm64 ./cmd/niuniu-mcp
 	cd server && GOOS=darwin GOARCH=amd64 go build $(SERVER_LDFLAGS) -o ../bin/niuniu-mcp-$(VERSION)-darwin-amd64 ./cmd/niuniu-mcp
+	cd server && GOOS=darwin GOARCH=arm64 go build $(SERVER_LDFLAGS) -o ../bin/niuniu-video-mcp-$(VERSION)-darwin-arm64 ./cmd/niuniu-video-mcp
+	cd server && GOOS=darwin GOARCH=amd64 go build $(SERVER_LDFLAGS) -o ../bin/niuniu-video-mcp-$(VERSION)-darwin-amd64 ./cmd/niuniu-video-mcp
 	$(call compress,bin/niuniu-server-$(VERSION)-darwin-arm64)
 	$(call compress,bin/niuniu-mcp-$(VERSION)-darwin-arm64)
 	$(call compress,bin/niuniu-server-$(VERSION)-darwin-amd64)
 	$(call compress,bin/niuniu-mcp-$(VERSION)-darwin-amd64)
+	$(call compress,bin/niuniu-video-mcp-$(VERSION)-darwin-arm64)
+	$(call compress,bin/niuniu-video-mcp-$(VERSION)-darwin-amd64)
 	@echo "NOTE: Desktop (desktop-v2, Tauri) requires macOS SDK — build on macOS with: make build-personal-v2-darwin"
 
 build-mcp:
@@ -176,7 +193,7 @@ build-mcp:
 
 # Clean build artifacts
 clean:
-	rm -rf bin/ server/web/dist/ desktop-v2/binaries/niuniu-server* desktop-v2/binaries/niuniu-mcp* desktop-v2/binaries/niuniu-agent* desktop-v2/binaries/staging/
+	rm -rf bin/ server/web/dist/ desktop-v2/binaries/niuniu-server* desktop-v2/binaries/niuniu-mcp* desktop-v2/binaries/niuniu-agent* desktop-v2/binaries/niuniu-video-mcp* desktop-v2/binaries/staging/
 
 # Testing targets
 test:
@@ -499,25 +516,32 @@ dev-desktop-v2:
 	$(RUSTUP_TARGET_ADD) $$TRIPLE >/dev/null 2>&1 || true; \
 	cd desktop-v2 && $(CARGO) run --target $$TRIPLE
 
-# 把 _personal-prepare 产出的 server/mcp 二进制拷为 Tauri 侧车（以去 triple 名
-# 为主 —— server_binary_path 先按 exe 旁/plain 名解析，toolchain 差异不影响；
-# 若有三方 triple 映射则额外多拷一份 triple 名以备将来 externalBin 打包用）。
+# 把 _personal-prepare 产出的 server/mcp/agent/video-mcp 二进制拷为 Tauri 侧车（以去
+# triple 名为主 —— server_binary_path 先按 exe 旁/plain 名解析，toolchain 差异
+# 不影响；若有三方 triple 映射则额外多拷一份 triple 名以备将来 externalBin 打包用）。
+# video-mcp 与 server 同目录：Go server 找能力模块按 os.Executable()+dirname 解析。
 _personal-prepare-v2:
 	@mkdir -p desktop-v2/binaries; \
 	if [ ! -f desktop-v2/binaries/staging/$(GOOS)-$(GOARCH)/niuniu-agent$(EXT) ]; then \
 		echo "ERROR: staging/$(GOOS)-$(GOARCH)/niuniu-agent$(EXT) missing — run _personal-prepare first; desktop packages MUST ship the latest niuniu-agent"; \
 		exit 1; \
 	fi; \
+	if [ ! -f desktop-v2/binaries/staging/$(GOOS)-$(GOARCH)/niuniu-video-mcp$(EXT) ]; then \
+		echo "ERROR: staging/$(GOOS)-$(GOARCH)/niuniu-video-mcp$(EXT) missing — run _personal-prepare first; desktop packages MUST ship the latest niuniu-video-mcp"; \
+		exit 1; \
+	fi; \
 	cp desktop-v2/binaries/staging/$(GOOS)-$(GOARCH)/niuniu-server$(EXT) desktop-v2/binaries/niuniu-server$(EXT); \
 	cp desktop-v2/binaries/staging/$(GOOS)-$(GOARCH)/niuniu-mcp$(EXT) desktop-v2/binaries/niuniu-mcp$(EXT); \
 	cp desktop-v2/binaries/staging/$(GOOS)-$(GOARCH)/niuniu-agent$(EXT) desktop-v2/binaries/niuniu-agent$(EXT); \
-	echo "staged sidecars: desktop-v2/binaries/niuniu-server$(EXT) (+niuniu-mcp +niuniu-agent)"; \
+	cp desktop-v2/binaries/staging/$(GOOS)-$(GOARCH)/niuniu-video-mcp$(EXT) desktop-v2/binaries/niuniu-video-mcp$(EXT); \
+	echo "staged sidecars: desktop-v2/binaries/niuniu-server$(EXT) (+niuniu-mcp, +niuniu-agent, +niuniu-video-mcp)"; \
 	TRIPLE="$(V2_TRIPLE)"; \
 	if [ -n "$$TRIPLE" ]; then \
 		cp desktop-v2/binaries/staging/$(GOOS)-$(GOARCH)/niuniu-server$(EXT) desktop-v2/binaries/niuniu-server-$$TRIPLE$(EXT); \
 		cp desktop-v2/binaries/staging/$(GOOS)-$(GOARCH)/niuniu-mcp$(EXT) desktop-v2/binaries/niuniu-mcp-$$TRIPLE$(EXT); \
 		cp desktop-v2/binaries/staging/$(GOOS)-$(GOARCH)/niuniu-agent$(EXT) desktop-v2/binaries/niuniu-agent-$$TRIPLE$(EXT); \
-		echo "  + triple name niuniu-server-$$TRIPLE$(EXT) (+niuniu-agent)"; \
+		cp desktop-v2/binaries/staging/$(GOOS)-$(GOARCH)/niuniu-video-mcp$(EXT) desktop-v2/binaries/niuniu-video-mcp-$$TRIPLE$(EXT); \
+		echo "  + triple name niuniu-server-$$TRIPLE$(EXT) (+niuniu-agent, +niuniu-video-mcp)"; \
 	fi
 
 # Internal: build server for target platform, copy to
@@ -536,6 +560,12 @@ _personal-prepare-v2:
 # node_modules matches the lockfile and reconciles automatically when
 # package.json drifts. The cost we wanted to skip is `pnpm build`
 # (i18n-check + tsc -b + vite build), not the install.
+#
+# 四件侧车：niuniu-server / niuniu-mcp / niuniu-agent（自研引擎）/ niuniu-video-mcp（能力模块）。能力
+# 模块不再内嵌 ffmpeg（设计 v3.2 §7.3：静态 ffmpeg+ffprobe ≈320MB，不适合随包
+# 分发）：构建是普通的不带 tag 构建，ffmpeg 改为按需系统依赖 —— 运行期依次回退
+# $NIUNIU_FFMPEG → <dataDir>/bin/ffmpeg/*/（设置 → 系统依赖 应用内下载，带进度
+# 与断点续传）→ PATH；缺失时 media_compose 降级为仅产出素材。
 _personal-prepare:
 	cd server/web && pnpm install
 	@if [ ! -f server/web/dist/index.html ] || \
@@ -548,12 +578,16 @@ _personal-prepare:
 	mkdir -p desktop-v2/binaries/staging/$(GOOS)-$(GOARCH)
 	rm -f desktop-v2/binaries/staging/$(GOOS)-$(GOARCH)/niuniu-server$(EXT)
 	rm -f desktop-v2/binaries/staging/$(GOOS)-$(GOARCH)/niuniu-mcp$(EXT)
+	rm -f desktop-v2/binaries/staging/$(GOOS)-$(GOARCH)/niuniu-agent$(EXT)
+	rm -f desktop-v2/binaries/staging/$(GOOS)-$(GOARCH)/niuniu-video-mcp$(EXT)
 	cd server && $(BUNDLE_CGO) GOOS=$(GOOS) GOARCH=$(GOARCH) go build $(SERVER_LDFLAGS) \
 		-o ../desktop-v2/binaries/staging/$(GOOS)-$(GOARCH)/niuniu-server$(EXT) ./cmd/niuniu
 	cd server && $(BUNDLE_CGO) GOOS=$(GOOS) GOARCH=$(GOARCH) go build $(SERVER_LDFLAGS) \
 		-o ../desktop-v2/binaries/staging/$(GOOS)-$(GOARCH)/niuniu-mcp$(EXT) ./cmd/niuniu-mcp
 	cd agent && GOOS=$(GOOS) GOARCH=$(GOARCH) go build \
 		-o ../desktop-v2/binaries/staging/$(GOOS)-$(GOARCH)/niuniu-agent$(EXT) ./cmd/niuniu-agent
+	cd server && $(BUNDLE_CGO) GOOS=$(GOOS) GOARCH=$(GOARCH) go build $(SERVER_LDFLAGS) \
+		-o ../desktop-v2/binaries/staging/$(GOOS)-$(GOARCH)/niuniu-video-mcp$(EXT) ./cmd/niuniu-video-mcp
 
 _personal-prepare-current:
 	$(MAKE) _personal-prepare GOOS=$(shell go env GOOS) GOARCH=$(shell go env GOARCH) EXT=$(EXE_SUFFIX)

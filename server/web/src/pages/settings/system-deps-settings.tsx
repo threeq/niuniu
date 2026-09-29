@@ -14,7 +14,10 @@ import { useAuthStore } from '@/stores/auth-store'
 // downloadUrl for tesseract points at the in-house OCR install guide (#284);
 // keep it in sync with ocrGuideURL in internal/service/system_deps.go and
 // cmd/niuniu-mcp/image_tools.go.
-const toolLabels: Record<string, { label: string; downloadUrl: string }> = {
+// `labelKey` is for tools whose display label carries a localized descriptor
+// on top of the product name (ffmpeg's "（视频合成）"); `label` alone stays the
+// bare product name used where localization is not available (log titles).
+const toolLabels: Record<string, { label: string; downloadUrl: string; labelKey?: string }> = {
   node:      { label: 'Node.js',  downloadUrl: 'https://nodejs.org/' },
   python3:   { label: 'Python 3', downloadUrl: 'https://www.python.org/downloads/' },
   git:       { label: 'Git',      downloadUrl: 'https://git-scm.com/downloads' },
@@ -29,6 +32,16 @@ const toolLabels: Record<string, { label: string; downloadUrl: string }> = {
   // fireworks diagram scene; SVG always works without it. Installs via pip on
   // every platform (NOT the OS PM), so commandFor() short-circuits below.
   cairosvg:  { label: 'CairoSVG', downloadUrl: 'https://cairosvg.org/documentation/' },
+  // ffmpeg (video creation, spec §7.3): optional dependency for media_compose.
+  // Unlike everything else here it is neither a CLI nor a package-manager
+  // package — the backend downloads a platform static build in-app (resumable
+  // progress over the install SSE stream), and the official download page is
+  // only the manual-install fallback.
+  ffmpeg: {
+    label: 'FFmpeg',
+    downloadUrl: 'https://ffmpeg.org/download.html',
+    labelKey: 'systemDeps.tool.ffmpegLabel',
+  },
 }
 
 function commandFor(tool: string, info: SystemDepsInfo): string {
@@ -45,6 +58,12 @@ function commandFor(tool: string, info: SystemDepsInfo): string {
   // cairosvg installs via pip on every platform — independent of the OS PM.
   // Mirrors commandFor() in internal/service/system_deps.go (--user, no admin).
   if (tool === 'cairosvg') return 'python -m pip install --user cairosvg'
+  // ffmpeg has no package-manager form: the backend downloads a static build
+  // in-app and streams resumable progress (§7.3). Returning '' keeps it out of
+  // the OS-PM tables below (which would render "将运行：sudo apt-get install -y"
+  // with an empty package name) — ToolCard renders a localized in-app-download
+  // description instead.
+  if (tool === 'ffmpeg') return ''
   switch (info.package_manager) {
     case 'winget': {
       const ids: Record<string, string> = {
@@ -353,7 +372,20 @@ export function ToolCard(props: {
   const { tool, info, installing, loginPending, isRefreshing, onInstall, onRefresh, onClaudeLogin, onCodexLogin, canBrowserLogin = true, nodeFound } = props
   const meta = toolLabels[tool.name]
   const cmd = commandFor(tool.name, info)
+  // The ToolStatus.name union in types/api.ts predates the optional tools the
+  // backend already probes (tesseract/cairosvg/ffmpeg), so widen once here
+  // instead of comparing the narrowed literal type per branch.
+  const name: string = tool.name
+  const isFfmpeg = name === 'ffmpeg'
   const isInstalling = installing === tool.name
+  // ffmpeg's install is an in-app download (resumable, §7.3), not a package
+  // manager run — label the action accordingly.
+  const installLabel = isInstalling
+    ? (isFfmpeg ? t('systemDeps.tool.downloading') : t('systemDeps.tool.installing'))
+    : (isFfmpeg ? t('systemDeps.tool.downloadInstall') : t('systemDeps.tool.oneClickInstall'))
+  // Localized display label: tools whose label carries a localized descriptor
+  // (ffmpeg → "FFmpeg（视频合成）") set labelKey; product names pass through.
+  const label = meta?.labelKey ? t(meta.labelKey) : (meta?.label ?? name)
   const claudeBlocked = tool.name === 'claude' && !nodeFound
   const codexBlocked = tool.name === 'codex' && !nodeFound
   // Login buttons appear on the matching CLI row once the CLI is detected.
@@ -388,7 +420,7 @@ export function ToolCard(props: {
               tool.found ? 'bg-green-500' : 'bg-red-500'
             }`}
           />
-          <span className="font-medium">{meta?.label ?? tool.name}</span>
+          <span className="font-medium">{label}</span>
           <span className="text-sm text-muted-foreground truncate">
             {tool.found ? tool.version || t('systemDeps.tool.installed') : t('systemDeps.tool.notInstalled')}
           </span>
@@ -445,7 +477,7 @@ export function ToolCard(props: {
                   title={(claudeBlocked || codexBlocked) ? t('systemDeps.tool.needNodeFirst') : undefined}
                   onClick={onInstall}
                 >
-                  {isInstalling ? t('systemDeps.tool.installing') : t('systemDeps.tool.oneClickInstall')}
+                  {installLabel}
                 </Button>
               )}
               {/* Surface the recheck affordance in the not-installed branch too,
@@ -483,8 +515,18 @@ export function ToolCard(props: {
       {tool.found && tool.path && (
         <div className="mt-1 ml-4 text-xs text-muted-foreground font-mono truncate">{tool.path}</div>
       )}
-      {!tool.found && tool.installable && cmd && (
+      {!tool.found && tool.installable && (isFfmpeg ? (
+        <div className="mt-1 ml-4 text-xs text-muted-foreground">{t('systemDeps.tool.ffmpegWillDownload')}</div>
+      ) : cmd ? (
         <div className="mt-1 ml-4 text-xs text-muted-foreground font-mono">{t('systemDeps.tool.willRun', { cmd })}</div>
+      ) : null)}
+      {/* ffmpeg downloads land in ~/.niuniu/cache/downloads/*.part and the
+          backend retries with HTTP Range (§7.3). The streamed log already
+          reports "已保留 X MB" at interruption time, but the panel is only
+          visible then — keep the standing affordance so the user knows before
+          clicking that an interruption does not restart the download. */}
+      {isFfmpeg && !tool.found && tool.installable && (
+        <div className="mt-1 ml-4 text-xs text-muted-foreground">{t('systemDeps.tool.ffmpegResumeHint')}</div>
       )}
       {tool.name === 'git' && tool.found && (
         <GitIdentityPanel

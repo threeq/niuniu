@@ -73,6 +73,16 @@ import type {
   WorkspaceFileHit,
   ContentSearchResponse,
   ContentSearchOptions,
+  CapabilityModuleListResponse,
+  CapabilityBackend,
+  CapabilityBackendListResponse,
+  SaveCapabilityBackendData,
+  VideoProduct,
+  VideoProjectResponse,
+  SaveVideoProductBody,
+  CreateVideoChangeBody,
+  VideoChange,
+  VideoChangeDispatchResponse,
 } from '../types/api'
 import type { Org, OrgMember, OrgAuditEntry, User, OwnerRef } from '../types/org'
 import type {
@@ -633,6 +643,22 @@ export const api = {
   setProjectEnvProvider: (projectId: string, providerId: number | null, groupName?: string): Promise<unknown> =>
     api.put(`/projects/${projectId}/env-provider`, groupName ? { env_provider_group: groupName } : { env_provider_id: providerId }),
 
+  // Capability configuration — third-party generation-service accounts bound per
+  // capability module (Settings → 能力配置). Independent of env_providers: this
+  // domain injects NN_CAP_* env into capability-module tool processes. Frozen
+  // contract §1.1 of docs/superpowers/plans/2026-09-27-video-creation-implementation.md;
+  // the server never echoes a plaintext api_key.
+  listCapabilityModules: (): Promise<CapabilityModuleListResponse> =>
+    api.get<CapabilityModuleListResponse>('/capability-modules'),
+  listCapabilityBackends: (module: string): Promise<CapabilityBackendListResponse> =>
+    api.get<CapabilityBackendListResponse>('/capability-backends', { params: { module } }),
+  createCapabilityBackend: (data: SaveCapabilityBackendData): Promise<CapabilityBackend> =>
+    api.post<CapabilityBackend>('/capability-backends', data),
+  updateCapabilityBackend: (id: number, data: SaveCapabilityBackendData): Promise<CapabilityBackend> =>
+    api.put<CapabilityBackend>(`/capability-backends/${id}`, data),
+  deleteCapabilityBackend: (id: number): Promise<void> =>
+    api.delete(`/capability-backends/${id}`),
+
   // Attachments
   uploadAttachment: async (workspaceId: string, file: File): Promise<{ name: string; path: string; size: number; mimeType: string; originalSize?: number; optimized?: boolean }> => {
     const formData = new FormData();
@@ -1087,6 +1113,49 @@ export const checkpointApi = {
       `/workspaces/${workspaceId}/checkpoints/${checkpointId}/diff`),
   revert: (workspaceId: string, step: number) =>
     api.post<CheckpointRevertResponse>(`/workspaces/${workspaceId}/checkpoints/revert`, { step }),
+};
+
+// Video-project (video creation · P3 layer-2 interactive product editing).
+// Frozen REST contract §4.2 of
+// docs/superpowers/plans/2026-09-27-video-creation-implementation.md. The
+// aggregate GET returns exists=false (not 404) when the workspace has no
+// <ws>/video-project/ yet; product saves are revision-guarded (409 = an agent
+// regenerated the file meanwhile → the panel tells the user to refresh).
+//
+// Mutations carry suppressError because the panel owns the error UX — a 409
+// gets its targeted "regenerated, refresh and retry" banner instead of the
+// generic global toast stacking on top.
+export const videoProjectApi = {
+  get: (workspaceId: string) =>
+    api.get<VideoProjectResponse>(`/workspaces/${workspaceId}/video-project`),
+
+  saveProduct: (workspaceId: string, key: string, body: SaveVideoProductBody) =>
+    apiFetch<VideoProduct>(
+      `/workspaces/${workspaceId}/video-project/products/${encodeURIComponent(key)}`,
+      { method: 'PUT', body: JSON.stringify(body), suppressError: true },
+    ),
+
+  createChange: (workspaceId: string, body: CreateVideoChangeBody) =>
+    apiFetch<VideoChange>(`/workspaces/${workspaceId}/video-project/changes`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+      suppressError: true,
+    }),
+
+  /**
+   * Route a change request back into the creation flow. `issueId` is optional:
+   * without it the server auto-matches a child issue by the change's target
+   * prefix (falling back to the workspace's own issue).
+   */
+  dispatchChange: (workspaceId: string, changeId: string, issueId?: number) =>
+    apiFetch<VideoChangeDispatchResponse>(
+      `/workspaces/${workspaceId}/video-project/changes/${encodeURIComponent(changeId)}/dispatch`,
+      {
+        method: 'POST',
+        body: JSON.stringify(issueId ? { issue_id: issueId } : {}),
+        suppressError: true,
+      },
+    ),
 };
 
 // Per-workspace MCP configuration API. Spec at

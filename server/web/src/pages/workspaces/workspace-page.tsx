@@ -20,6 +20,7 @@ import { IssuePanel } from './panels/issue-panel';
 import { PinnedMessagesPanel } from './panels/pinned-messages-panel';
 import { ArtifactPanelContainer } from './panels/artifact-panel-container';
 import { WorkspaceKBsPanel } from './panels/workspace-kbs-panel';
+import { VideoProductPanel } from './panels/video-product-panel';
 import { ContentViewerPanel } from './panels/content-viewer-panel';
 import { WorkspaceSearchDialog } from './panels/workspace-search-dialog';
 import { useWorkspaceSearchShortcut } from '@/lib/hooks/use-workspace-search-shortcut';
@@ -33,7 +34,7 @@ interface WorkspacePageProps {
   workspaceId: string;
 }
 
-const FILESYSTEM_PANELS = new Set<PanelId>(['files', 'changes', 'terminal', 'artifact']);
+const FILESYSTEM_PANELS = new Set<PanelId>(['files', 'changes', 'terminal', 'artifact', 'video']);
 
 function PanelContent({ panelId, workspaceId, workspace, isArchived }: { panelId: PanelId; workspaceId: string; workspace: Workspace; isArchived: boolean }) {
   if (isArchived && FILESYSTEM_PANELS.has(panelId)) {
@@ -54,6 +55,8 @@ function PanelContent({ panelId, workspaceId, workspace, isArchived }: { panelId
       return <ArtifactPanelContainer workspaceId={workspaceId} />;
     case 'kbs':
       return <WorkspaceKBsPanel workspaceId={workspaceId} />;
+    case 'video':
+      return <VideoProductPanel workspaceId={workspaceId} />;
     default:
       return null;
   }

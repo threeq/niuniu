@@ -1,12 +1,23 @@
 slug: media-studio
 display_name: 媒体舱
-description: 社媒 / 多媒体工作舱 — 草稿→评审→排期 工作流，挂 web 检索与记忆 MCP，适合含视频/图片的内容目录
+description: 社媒 / 多媒体工作舱 — 草稿→评审→排期 工作流，挂 web 检索与记忆 MCP，适合含视频/图片的内容目录。内建短视频一站式创作编排（shortvideo-forge 技能）：画面三级档位 L1 自有素材（零成本）→ L2 AI 文生图/TTS（放行 + quotes/ 报价留痕）→ L3 AI 图生视频（ask_user 报价确认后才调用）；质量档位草稿/标准（默认）/精制，全程 G0–G5 质量闸门；video-gen 能力模块未装配、无账号或无 ffmpeg 时按降级链退到产物族/手工合成，优雅提示不报错。
 tags: [media, social, studio, generic]
 
+# MCP 引子集：fetch 用于检索素材/参考/平台热点；video-gen 为能力模块（独立二进制
+# niuniu-video-mcp，五工具 quote_estimate / tts_generate / image_generate /
+# video_generate / media_compose）——仅在声明它的场景投影，未装配时工具缺席并走
+# shortvideo-forge 的降级链，不报错堆栈。
 mcp:
   - name: fetch
+  - name: video-gen
 
 plugins: []
+
+# Vendored skill：短视频一站式创作编排（R1 单控制工作空间拓扑 + video-project/ 产物族
+# + G0–G5 质量闸门与 L1/L2/L3 分级成本护栏）。随场景物化到
+# <workspace>/.claude/skills/shortvideo-forge/。
+skills:
+  - name: shortvideo-forge
 
 assets:
   env_presets: []
@@ -20,6 +31,18 @@ assets:
     - slug: media-schedule
       label: 规划排期
       prompt: "为已定稿内容规划发布排期：建议发布平台、最佳时段与频率，并列出配套素材清单（封面图/视频/字幕）。这是「排期」阶段，输出一张可执行的发布计划表。"
+    - slug: video-storyboard
+      label: 脚本分镜
+      prompt: "从想法/商品/故事出发产出可评审的分镜产物族（本动作不触发任何付费生成）：1) 读 shortvideo-forge 技能，按 R1 单控制工作空间拓扑用 batch_create_issues 建子 issue（每个 task 带 parent_issue_id=本主 issue 与 exec_wave）：wave0 导演阐述（directorial-brief.md，基调/节奏/各场气氛/角色心象，请用户确认基调）、wave1 编剧（storyline.json+script.json，过 G1）、wave2 角色设计∥场景设定（波内子 agent 并行，characters.json/scenes.json+assets/ 参考图，过 G2）、wave3 分镜（storyboard.json 引用 wave1/2 资产 id，过 G3）；2) 全部产物落 video-project/（结构见技能 §2），每份带 revision+review_status，按 draft→in-review→approved 流转；3) wave3 前用 quote_estimate 汇总 L2/L3 候选与修复预算生成报价单（quotes/），随 G3 分镜+报价联合评审展示——【生成类付费调用在本动作一律不发生】；4) 分镜 approved 后停住，等用户确认再进入「一键出片」。档位与降级前提：质量档位默认「标准」（草稿/标准/精制，可改 project.json）；video-gen 模块未装配时产物族照常产出（文本创作不依赖工具），报价预估标注不可用。"
+    - slug: video-oneclick
+      label: 一键出片
+      prompt: "把已 approved 的 storyboard.json 一路跑到成片：1) 前置校验——storyboard.json 的 review_status=approved、character_ids/scene_id 引用完整、时长合计≈目标；不满足就停下报告缺口，不擅自改分镜；2) 按质量档位执行（草稿=1 候选/0–1 轮修复，标准（默认）=2 候选/2 轮，精制=3–4 候选/3 轮），默认 720p；3) L1 自有素材零成本直用；L2（图/TTS）放行但每次调用前 quote_estimate 落 quotes/ 留痕；L3（视频生成）必须先 quote_estimate → ask_user 报价确认，批准后才 dispatch，失败不自动重试（错误+任务号留痕交用户决定）；4) 每镜过 G4 逐维质检，低分进修复回路（单变量重投、每镜上限 2 轮、超限升级人工三选一），候选与淘汰原因落 qc/；5) 全部镜头合格后调 media_compose（硬前置 approved）合成 output/final.mp4，执行 G5 技术 QC + 结构化 checklist（音画同步/字幕时轴/电平/时长/AIGC 标识位），全过才交付，不静默放行。降级前提：无 video-gen 模块→改用 references/compose-recipe.md 手工合成或只交付产物族+素材清单；无 ffmpeg→不合成只出产物族；无账号→对应档位不可用并明示、回落 L1；L3 报价被拒/超上限→回落 L2 图串片。"
+    - slug: video-ai-enhance
+      label: AI 视频增强
+      prompt: "对工作空间内已有视频/图片素材做 AI 增强与规格统一（用 shortvideo-forge 技能与 references/tts-image-video-recipes.md）：1) 先盘点素材（路径/时长/分辨率/来源），登记进 video-project/project.json 资产索引，来源不明先停下询问（版权纪律）；2) L1 零成本基线——按 references/compose-recipe.md 统一规格（裁剪/缩放/补边/统一帧率，默认 720p）并 FFmpeg 重编码；3) L2 画面增强/风格统一——抽关键帧→image_generate（带参考图+一致性模板段）重绘或扩图，候选过 G4 逐维质检（放行但 quote_estimate 落 quotes/ 留痕）；4) L3 可选高难镜重生成——用首帧+运动 prompt 调 video_generate，必须先 quote_estimate → ask_user 报价确认、批准后才调用，失败不自动重试；5) 增强素材回写 shots/ 后按 compose-recipe 重合成，G5 技术 QC + checklist 全过交付。降级前提：无账号→仅做 L1 规格统一；无 video-gen 模块→引导用 references/compose-recipe.md 手工处理；无 ffmpeg→交付素材清单与处理建议，不合成；L3 报价被拒→保持 L2/L1 结果。"
+    - slug: video-narrate
+      label: 解说二创
+      prompt: "为现有视频做解说二创（解说配音轨+字幕+BGM 混音，复用 shortvideo-forge 的产物族与降级链）：1) 读取原片（时长/画幅/音轨）并登记来源与版权状态——只处理用户自有或明确可商用的素材，来源不明先停下询问；2) 写解说稿（script.json→逐镜 narration），过 G1 评审；3) tts_generate 生成配音（L2 放行 + quotes/ 留痕），字幕从解说稿生成并与旁白对齐（断句可读，时轴从 storyboard 逐镜时长累加）；4) 画面以 L1 复用原片切片为基线，需补充/替换镜头时 L2 出图（可选 L3 图生视频，须先 quote_estimate → ask_user 报价确认）；5) media_compose 合成（原片音轨按需静音或压低作底、BGM 混音），G5 技术 QC + checklist（音画同步/字幕时轴/电平/AIGC 标识位）全过交付。档位与降级前提：默认质量档位「标准」，成片默认 720p；无 TTS 账号→只交付解说稿+字幕文件（.ass/.srt）供用户自行配音；无 video-gen 模块→用 references/compose-recipe.md 手工合成；无 ffmpeg→交付时间轴+字幕不合成；L3 报价被拒→保持 L1/L2 画面。"
   project_templates: []
   harness_specs: []
   agents: []
@@ -55,5 +78,5 @@ match:
       args: { max: 0 }
       weight: 18
     - signal: kanban.label_term_frequency
-      args: { terms: ["media", "媒体", "社媒", "视频", "图片", "运营"] }
+      args: { terms: ["media", "媒体", "社媒", "视频", "短视频", "出片", "带货", "分镜", "图片", "运营"] }
       weight: 18
