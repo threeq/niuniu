@@ -1,4 +1,42 @@
 -- ============================================================
+-- Env providers table (unified subscription-platform configs)
+-- Mirrors env_providers in schema.sql (dual-driver parity). See the SQLite
+-- definition for the semantic contract.
+-- ============================================================
+CREATE TABLE IF NOT EXISTS env_providers (
+    id            BIGSERIAL PRIMARY KEY,
+    name          TEXT NOT NULL,
+    platform      TEXT NOT NULL DEFAULT '',
+    description   TEXT NOT NULL DEFAULT '',
+    base_urls     TEXT NOT NULL DEFAULT '{}',  -- JSON: Record<protocol, base_url>
+    api_key       TEXT NOT NULL DEFAULT '',
+    model         TEXT NOT NULL DEFAULT '',
+    haiku_model   TEXT NOT NULL DEFAULT '',
+    sonnet_model  TEXT NOT NULL DEFAULT '',
+    opus_model    TEXT NOT NULL DEFAULT '',
+    subagent_model TEXT NOT NULL DEFAULT '',
+    codex_model   TEXT NOT NULL DEFAULT '', -- codex-specific model; empty = use model
+    extra_env     TEXT NOT NULL DEFAULT '{}',  -- JSON: Record<string, string> passthrough
+    context_window BIGINT NOT NULL DEFAULT 0,  -- model context window in tokens (0 = unknown)
+    group_name    TEXT NOT NULL DEFAULT '',   -- fallback group; empty = standalone
+    group_position INTEGER NOT NULL DEFAULT 0, -- manual order within group; smaller = used first for fallback
+    enabled       INTEGER NOT NULL DEFAULT 1,  -- 1 = usable; 0 = manually disabled (out of rotation)
+    cooldown_until TIMESTAMP,                 -- rate-limit reset time; provider is skipped while in the future (NULL = healthy)
+    owner_type    TEXT NOT NULL DEFAULT 'user' CHECK (owner_type IN ('user','org')),
+    owner_id      BIGINT NOT NULL DEFAULT 0,
+    slug          TEXT NOT NULL DEFAULT '',
+    created_at    TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at    TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_env_providers_owner_slug ON env_providers(owner_type, owner_id, slug);
+
+-- NOTE (ordering): env_providers is created FIRST on purpose. PostgreSQL
+-- validates REFERENCES at execution time, and projects/workspaces/... below
+-- carry FK columns pointing at it (env_provider_id). SQLite tolerates
+-- forward references, so schema.sql keeps its natural order and does not
+-- need this block moved.
+
+-- ============================================================
 -- Projects table
 -- ============================================================
 CREATE TABLE IF NOT EXISTS projects (
@@ -724,38 +762,6 @@ CREATE TABLE IF NOT EXISTS env_accounts (
     updated_at  TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 CREATE INDEX IF NOT EXISTS idx_env_accounts_owner_slug ON env_accounts(owner_type, owner_id, slug);
-
--- ============================================================
--- Env providers table (unified subscription-platform configs)
--- Mirrors env_providers in schema.sql (dual-driver parity). See the SQLite
--- definition for the semantic contract.
--- ============================================================
-CREATE TABLE IF NOT EXISTS env_providers (
-    id            BIGSERIAL PRIMARY KEY,
-    name          TEXT NOT NULL,
-    platform      TEXT NOT NULL DEFAULT '',
-    description   TEXT NOT NULL DEFAULT '',
-    base_urls     TEXT NOT NULL DEFAULT '{}',  -- JSON: Record<protocol, base_url>
-    api_key       TEXT NOT NULL DEFAULT '',
-    model         TEXT NOT NULL DEFAULT '',
-    haiku_model   TEXT NOT NULL DEFAULT '',
-    sonnet_model  TEXT NOT NULL DEFAULT '',
-    opus_model    TEXT NOT NULL DEFAULT '',
-    subagent_model TEXT NOT NULL DEFAULT '',
-    codex_model   TEXT NOT NULL DEFAULT '', -- codex-specific model; empty = use model
-    extra_env     TEXT NOT NULL DEFAULT '{}',  -- JSON: Record<string, string> passthrough
-    context_window BIGINT NOT NULL DEFAULT 0,  -- model context window in tokens (0 = unknown)
-    group_name    TEXT NOT NULL DEFAULT '',   -- fallback group; empty = standalone
-    group_position INTEGER NOT NULL DEFAULT 0, -- manual order within group; smaller = used first for fallback
-    enabled       INTEGER NOT NULL DEFAULT 1,  -- 1 = usable; 0 = manually disabled (out of rotation)
-    cooldown_until TIMESTAMP,                 -- rate-limit reset time; provider is skipped while in the future (NULL = healthy)
-    owner_type    TEXT NOT NULL DEFAULT 'user' CHECK (owner_type IN ('user','org')),
-    owner_id      BIGINT NOT NULL DEFAULT 0,
-    slug          TEXT NOT NULL DEFAULT '',
-    created_at    TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at    TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
-);
-CREATE INDEX IF NOT EXISTS idx_env_providers_owner_slug ON env_providers(owner_type, owner_id, slug);
 
 -- ============================================================
 -- Capability backends table (video-creation capability config)
