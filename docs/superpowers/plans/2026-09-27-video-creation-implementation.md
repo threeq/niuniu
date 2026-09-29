@@ -138,3 +138,77 @@ cd server/web && pnpm lint && pnpm test:run
 - 接线：`FindVideoMCPBinary` 搜索 + `.mcp.json` 注入（command + `NN_CAP_*` env，复用 `service/mcp.go` 既有模式）；ffmpegbin 接入 D 的 Deps。
 - 桌面打包：`_personal-prepare` 增建 `niuniu-video-mcp` 并 stage（含 `ffmpeg-stage` 前置 + `-tags ffmpeg_bundled`）；`desktop-v2/build.rs`/`server.rs` 内嵌+解压第三个 sidecar。
 - 端到端验证：媒体舱建舱 → `.mcp.json` 含 video-gen 与 env → 工具可见。
+
+---
+
+## 4. P3 交互 UI 实现契约（后端流 M / 前端流 N 共同遵守，2026-09-27）
+
+依据设计 §6（层二·交互式产物编辑）。**无新数据库表**：产物即 `<ws>/video-project/` 下的文件，服务端只做薄 API。
+
+### 4.1 产物 key ↔ 文件映射（白名单，未知 key → 400）
+
+| key | 文件（相对 `<ws>`） | kind | 有 revision/review_status |
+|---|---|---|---|
+| `brief` | `video-project/directorial-brief.md` | markdown | 否 |
+| `script` | `video-project/script.json` | json | 是 |
+| `storyline` | `video-project/storyline.json` | json | 是 |
+| `characters` | `video-project/characters.json` | json | 是 |
+| `scenes` | `video-project/scenes.json` | json | 是 |
+| `storyboard` | `video-project/storyboard.json` | json | 是 |
+
+### 4.2 REST 契约（挂既有 workspaces 路由组，沿用其鉴权）
+
+**1) `GET /api/workspaces/:id/video-project`** —— 聚合读，`exists=false` 时返回空集合而非 404
+
+```json
+{
+  "exists": true,
+  "products": [
+    { "key": "storyboard", "file": "video-project/storyboard.json", "kind": "json",
+      "present": true, "revision": 3, "review_status": "in-review",
+      "data": { }, "error": "" }
+  ],
+  "changes": [
+    { "id": "chg-20260927-001", "target": "storyboard.json#shots[2].visual.prompt",
+      "kind": "annotation", "content": "…", "status": "pending",
+      "dispatched_to_issue": 0, "created_at": "RFC3339" }
+  ],
+  "outputs": [ { "path": "video-project/output/final.mp4", "size": 12345678, "modified_at": "RFC3339" } ],
+  "shards": { "quotes": 3, "qc": 1 }
+}
+```
+
+- JSON 产物解析失败 → 该条 `"error"` 填中文原因、`data` 省略，**不整体失败**
+- `outputs` 列 `video-project/output/*` 与 `video-project/shots/*`（各自上限 200 条，按 modified 倒序）
+- `shards` 只给计数（`quotes/`、`qc/` 文件数），明细不内联
+
+**2) `PUT /api/workspaces/:id/video-project/products/:key`** —— 保存（小改直接生效）
+
+body：`{ "content": "<原始文本>", "expected_revision": 3 }`（markdown 类可省略 expected_revision）
+
+- json 类必须先解析成功（否则 400 中文错误）；写前服务端把顶层 `revision` +1、`updated_at` 刷新（客户端传入的这两个字段被忽略）
+- `expected_revision` 与当前不符 → **409**（并发保护：期间 agent 重生成过）
+- 原子写（tmp+rename），返回与 GET 单条相同的 product 对象
+
+**3) `POST /api/workspaces/:id/video-project/changes`** —— 新建修改请求
+
+body：`{ "target": "…", "kind": "annotation|edit", "content": "…" }`
+→ 生成 id `chg-<yyyymmdd>-<seq3>`，写 `video-project/changes/<id>.json`（status=`pending`），返回该 change 对象
+
+**4) `POST /api/workspaces/:id/video-project/changes/:changeId/dispatch`** —— 送回重生成（路由到 issue）
+
+body：`{ "issue_id": 123 }`（可选）
+
+- 目标解析：优先用传入 `issue_id`；否则按 `target` 前缀自动匹配**子 issue**（`storyline`/`script`→标题含「编剧」、`characters`→「角色」、`scenes`→「场景」、`storyboard`→「分镜」），匹配不到回退到工作空间自身 issue
+- 动作：复用服务端既有的 request-changes 路径（`POST /api/issues/:id/request-changes` 同一 service），把 `content` 作为修改意见写入；change 文件状态改 `dispatched` 并记 `dispatched_to_issue`
+- 返回 `{ "change": {…}, "issue_id": 123, "issue_title": "…" }`；无可用 issue → 400 + 中文说明
+
+### 4.3 前端面板（流 N）
+
+- `stores/workspace-panel-store.ts` 增加 `PanelId` `'video'`；面板文件 `pages/workspaces/panels/video-product-panel.tsx`
+- 布局：左栏产物树（六产物 + changes 列表 + outputs 列表，条目带 review_status 徽章与 revision）；右栏卡片/编辑区；顶部刷新
+- 编辑：卡片字段或原始 JSON/文本编辑 → `PUT`（带 expected_revision，409 提示"已被重新生成，请刷新"）
+- 备注/送回：`POST changes` → 列表出现 pending → 「送回重生成」→ `dispatch` → 状态转 dispatched + toast 显示路由到的 issue
+- outputs 点击 → 走既有文件预览（视频/图片原生支持）
+- 空态（`exists=false`）：EmptyState 说明"该工作空间尚无视频项目——在媒体舱场景中让 agent 开始创作后会出现在这里"
+- 设计系统硬门禁（token/`t()`/shadcn/lucide）+ 三语 i18n + 组件测试（mock api）
