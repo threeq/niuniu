@@ -176,6 +176,7 @@ type Server struct {
 	slashCommandHandler     *api.SlashCommandHandler
 	workspaceOpsHandler     *api.WorkspaceOpsHandler
 	checkpointHandler       *api.CheckpointHandler
+	videoProjectHandler     *api.VideoProjectHandler
 	agentFileHandler        *api.AgentFileHandler
 	promptGenHandler        *api.PromptGenHandler
 	workspaceTaskHandler    *api.WorkspaceTaskHandler
@@ -925,6 +926,13 @@ func New(cfg *config.Config, db *sql.DB, frontendFS fs.FS) *Server {
 	// Autohost 安全网: checkpoint timeline / diff / revert handler (REST + MCP).
 	s.checkpointHandler = api.NewCheckpointHandler(s.checkpointSvc, s.kanbanSvc, s.queries)
 	s.checkpointHandler.Authz = authz
+	// 视频创作 P3: video-product thin API over <ws>/video-project/ (plan §4).
+	// Dispatch reuses the epic engine's RequestChanges service path, so the
+	// engine must already be wired (it is, above).
+	videoProjectSvc := service.NewVideoProjectService(s.queries, s.cfg.DataDir)
+	videoProjectSvc.SetChangeDispatcher(s.epicExecSvc)
+	s.videoProjectHandler = api.NewVideoProjectHandler(videoProjectSvc)
+	s.videoProjectHandler.Authz = authz
 	// 建 issue 即起编排 (spec §13 stage 8): the creator path (CreateIssue) auto-starts
 	// orchestration when a card lands directly in an `instruct` column. epicExecSvc is
 	// fully wired by here (Start() called above).

@@ -680,6 +680,14 @@ func (s *Server) setupRoutes() {
 		workspaces.GET("/:id/checkpoints/:cid/diff", s.checkpointHandler.DiffForWorkspace)
 		workspaces.POST("/:id/checkpoints/revert", s.checkpointHandler.RevertForWorkspace)
 
+		// 视频创作 P3 (plan §4.2): video-project thin API — aggregate read of
+		// <ws>/video-project/, revision-guarded product saves, change requests,
+		// and dispatch back to the owning/child issue.
+		workspaces.GET("/:id/video-project", s.videoProjectHandler.Get)
+		workspaces.PUT("/:id/video-project/products/:key", s.videoProjectHandler.PutProduct)
+		workspaces.POST("/:id/video-project/changes", s.videoProjectHandler.CreateChange)
+		workspaces.POST("/:id/video-project/changes/:changeId/dispatch", s.videoProjectHandler.DispatchChange)
+
 		workspaces.GET("", s.workspaceHandler.List)
 		// Lazy git badges for the sidebar; literal segment before /:id.
 		workspaces.GET("/sidebar-git", s.workspaceHandler.SidebarGitStatus)
