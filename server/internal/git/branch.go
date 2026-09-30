@@ -82,6 +82,19 @@ func DeleteBranch(repoPath, branchName string) error {
 	return nil
 }
 
+// DeleteBranchMerged deletes a branch with git's SAFE delete (-d): the
+// command refuses unless the branch is fully merged into the repo's HEAD, so
+// a mid-flight integration branch survives an archive while a fully-merged
+// one is cleaned up.
+func DeleteBranchMerged(repoPath, branchName string) error {
+	cmd := exec.Command("git", "-C", repoPath, "branch", "-d", "--", branchName)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("git branch safe delete: %s: %w", strings.TrimSpace(string(out)), err)
+	}
+	return nil
+}
+
 // ListRemoteBranches returns remote branch names (e.g. "origin/main").
 func ListRemoteBranches(repoPath string) ([]string, error) {
 	cmd := exec.Command("git", "-C", repoPath, "branch", "-r", "--format=%(refname:short)")

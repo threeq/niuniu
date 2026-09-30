@@ -19,7 +19,7 @@ Epic 执行存在三类分支：`epic/<id>`（集成分支）、父（控制）�
 - `resolveEpicControlRepos`（epic_execution.go:579）返回的 Branch 直接为 `epic/<id>`（不再生成 `ws-<id>/` 前缀）；worktree 创建时**检出已存在的 epic 分支**（`git worktree add <path> epic/<id>`，无 -b）。`ensureEpicBranch` 保持先行。
 - 子任务路径不变：仍 `ws-<子id>/epic/<id>`，从 `epic/<id>` 切出。
 - `syncEpicWorkspaceLocked`（:963）：子任务并入后对父工作空间 ff 同步——统一后即「epic 分支自身前移」，工作树 ff-only 更新（脏文件拒同步留旧头，现有语义）。
-- **存量兼容**：以 workspace 行的 Branch 前缀区分——`ws-` 开头走旧 sync/归档路径；`epic/<id>` 走新路径。归档清理（workspace.go:1614）删除分支时跳过 `epic/` 分支（只删 worktree 行）。仅新建 epic 生效，存量不迁移。
+- **存量兼容**：以 workspace 行的 Branch 前缀区分——`ws-` 开头走旧 sync/归档路径；`epic/<id>` 走新路径。归档清理（workspace.go）：`epic/` 分支走**安全删除**（`git branch -d`，仅当完全并入仓库 HEAD/main 时才删，未并入自动保留——中途归档不断流程，合并后归档自动清理）；`ws-` 旧分支维持强制删除。仅新建 epic 生效，存量不迁移。
 - git 层新增：`WorktreeAddCheckoutExisting(repoPath, path, branch)`（检出已有分支）；`MergeAs` 冲突时解析并返回**冲突文件清单**（merge-tree 输出含 CONFLICT 行，现只返回报错文本）。
 
 ### 2. 场景补全
@@ -72,7 +72,7 @@ Epic 执行存在三类分支：`epic/<id>`（集成分支）、父（控制）�
 ## 验收
 
 1. 新建 epic：父工作空间 git 分支 == epic/<id>；子任务并入后父工作空间无需刷新即可见（ff 同步）。
-2. 删除 epic 分支场景不存在（归档保留 epic 分支）。
+2. 归档控制工作空间：未并入 main 的 epic 分支保留（`branch -d` 拒绝）；已并入 main 的 epic 分支被安全清理。
 3. 无父工作空间时直接对子 issue 建工作空间 → 父控制工作空间与 epic 分支被连带创建。
 4. 有工作空间的普通任务：UI 无「设置父任务/加子任务」入口；API 直调被 4xx 拒绝。
 5. merge-to-main：main 有新提交时流程仍成功（main→epic 预合并）；冲突时 main 与 epic 均未被修改且返回文件清单。

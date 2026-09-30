@@ -217,12 +217,13 @@ func TestEpicUnifiedBranch_ChildCascadeCreatesParentWorkspace(t *testing.T) {
 	require.Equal(t, epicHead, mergeBase, "child must fork from the epic/<id> head")
 }
 
-// TestEpicUnifiedBranch_ArchiveKeepsEpicBranch pins 验收 2: archiving a
-// unified epic control workspace removes the worktree but NEVER deletes the
-// epic/<id> branch the whole epic builds on.
-func TestEpicUnifiedBranch_ArchiveKeepsEpicBranch(t *testing.T) {
+// TestEpicUnifiedBranch_ArchiveCleansMergedEpicBranch pins 验收 2 (revised):
+// archiving a unified epic control workspace whose epic/<id> is fully merged
+// into main cleans the branch up — a freshly created epic branch points at
+// main's head, so it is merged by construction.
+func TestEpicUnifiedBranch_ArchiveCleansMergedEpicBranch(t *testing.T) {
 	e := setupUnifiedBranchEnv(t)
-	epicID := e.makeEpic(t, "归档保留 epic")
+	epicID := e.makeEpic(t, "归档清理已合并 epic")
 	out, err := e.epicSvc.StartWorkspaceForIssue(e.ctx, epicID)
 	require.NoError(t, err)
 
@@ -234,8 +235,34 @@ func TestEpicUnifiedBranch_ArchiveKeepsEpicBranch(t *testing.T) {
 
 	require.NotContains(t, ubGitOut(t, e.repoDir, "worktree", "list"), epicBranch,
 		"the control worktree must be removed from the repo")
+	require.NotContains(t, ubGitOut(t, e.repoDir, "branch", "--list", epicBranch), epicBranch,
+		"a fully-merged epic/<id> branch must be cleaned up on archive")
+}
+
+// TestEpicUnifiedBranch_ArchiveKeepsUnmergedEpicBranch pins the other half of
+// 验收 2: an epic branch carrying commits that main does not have must
+// survive the archive (the safe delete refuses) — mid-epic archives never
+// cut the integration branch the children fork from.
+func TestEpicUnifiedBranch_ArchiveKeepsUnmergedEpicBranch(t *testing.T) {
+	e := setupUnifiedBranchEnv(t)
+	epicID := e.makeEpic(t, "归档保留未合并 epic")
+	out, err := e.epicSvc.StartWorkspaceForIssue(e.ctx, epicID)
+	require.NoError(t, err)
+
+	wts, err := e.q.ListWorktrees(e.ctx, out.WorkspaceID)
+	require.NoError(t, err)
+	require.Len(t, wts, 1)
+
+	// Unique work on the epic branch — safe delete must refuse to cut it.
+	ubRunGit(t, wts[0].WorktreePath, "commit", "--allow-empty", "-m", "epic wip")
+
+	epicBranch := fmt.Sprintf("epic/%d", epicID)
+	require.NoError(t, e.wsSvc.Archive(e.ctx, out.WorkspaceID))
+
+	require.NotContains(t, ubGitOut(t, e.repoDir, "worktree", "list"), epicBranch,
+		"the control worktree must still be removed from the repo")
 	require.Contains(t, ubGitOut(t, e.repoDir, "branch", "--list", epicBranch), epicBranch,
-		"the epic/<id> branch must survive archiving the control workspace")
+		"an unmerged epic branch must survive archiving (git branch -d refuses)")
 }
 
 // TestEpicUnifiedBranch_CreateDelegatesForEpicManagedIssue pins spec §2b's

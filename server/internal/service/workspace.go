@@ -1721,16 +1721,19 @@ func (s *WorkspaceService) Archive(ctx context.Context, workspaceID int64) error
 		}
 		if wsRepo.Branch != "" {
 			// Epic 统一分支 (spec 2026-09-28 §1): a unified control worktree sits ON
-			// the shared epic feature branch — archiving removes the worktree row but
-			// must never delete the branch the whole epic (and its children) build
-			// on. A bare "epic/" prefix check deliberately also spares any user
-			// branch that happens to start with epic/ — deleting an epic/ branch as
-			// an archive side-effect is never wanted. Legacy ws-<id>/... rows keep
-			// the old delete-on-archive behaviour.
-			if !strings.HasPrefix(wsRepo.Branch, "epic/") {
-				if err := git.DeleteBranch(repo.Path, wsRepo.Branch); err != nil {
-					slog.Warn("Archive: error deleting branch", "branch", wsRepo.Branch, "error", err)
+			// the shared epic feature branch. Archive deletes it with the SAFE
+			// delete (-d): git refuses unless the branch is fully merged into the
+			// repo HEAD (main), so a post-merge archive cleans the branch up
+			// while a mid-epic archive keeps it (children still fork from it).
+			// A bare "epic/" prefix check deliberately also covers any user
+			// branch that happens to start with epic/. Legacy ws-<id>/... rows
+			// keep the old force-delete-on-archive behaviour.
+			if strings.HasPrefix(wsRepo.Branch, "epic/") {
+				if err := git.DeleteBranchMerged(repo.Path, wsRepo.Branch); err != nil {
+					slog.Warn("Archive: epic branch kept (not fully merged)", "branch", wsRepo.Branch, "error", err)
 				}
+			} else if err := git.DeleteBranch(repo.Path, wsRepo.Branch); err != nil {
+				slog.Warn("Archive: error deleting branch", "branch", wsRepo.Branch, "error", err)
 			}
 		}
 	}
