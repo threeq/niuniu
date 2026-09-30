@@ -4,6 +4,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import '@/i18n'
 import { IssueQuickCreateDialog } from './issue-quick-create-dialog'
 import { api } from '@/lib/api'
+import type { Issue } from '@/types/api'
 
 vi.mock('@/lib/api', () => ({ api: { post: vi.fn() } }))
 
@@ -21,6 +22,20 @@ function renderDialog(props: Partial<React.ComponentProps<typeof IssueQuickCreat
       />
     </QueryClientProvider>
   )
+}
+
+function makeIssue(over: Partial<Issue>): Issue {
+  return {
+    id: 1,
+    column_id: 1,
+    project_id: 1,
+    title: 'Issue',
+    description: null,
+    position: 0,
+    assignees: [],
+    labels: [],
+    ...over,
+  } as Issue
 }
 
 describe('IssueQuickCreateDialog', () => {
@@ -64,6 +79,23 @@ describe('IssueQuickCreateDialog', () => {
     await waitFor(() => expect(localStorage.getItem('niuniu:issue-draft:1:2')).not.toBeNull())
     fireEvent.click(screen.getByTestId('quick-create-cancel'))
     expect(localStorage.getItem('niuniu:issue-draft:1:2')).toBeNull()
+  })
+
+  it('drops workspace-bound plain tasks from the parent picker (spec 2026-09-28 s3)', () => {
+    renderDialog({
+      issues: [
+        makeIssue({ id: 11, title: 'free plain task' }),
+        makeIssue({ id: 12, title: 'bound plain task', has_workspace: true }),
+        makeIssue({ id: 13, title: 'bound epic', issue_type: 'epic', has_workspace: true }),
+      ],
+    })
+    // Open the general-mode parent picker and inspect its option list.
+    fireEvent.click(screen.getByTestId('quick-create-parent'))
+    expect(screen.getByText('#11')).toBeInTheDocument()
+    expect(screen.getByText('#13')).toBeInTheDocument()
+    // A plain task with a live workspace cannot collect children (server 409s)
+    // — its entry is hidden. Epic parents are exempt and stay listed.
+    expect(screen.queryByText('#12')).not.toBeInTheDocument()
   })
 
   describe('Epic subtask mode (parentIssueId set)', () => {

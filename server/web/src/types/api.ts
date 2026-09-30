@@ -133,6 +133,10 @@ export interface Issue extends BaseEntity {
   /** Human-readable reason behind a terminal exec_status (blocked-needs-human /
    *  abandoned-with-reason, spec section 19). Null/absent when not terminal. */
   exec_status_reason?: string | null
+  /** Spec section 3 (2026-09-28) frontend flag: the issue owns a live
+   *  (non-archived) workspace, so its parent/child relations are frozen —
+   *  the UI hides parent/child entries the server would 409 anyway. */
+  has_workspace?: boolean
 }
 
 export type IssueType = 'task' | 'epic'

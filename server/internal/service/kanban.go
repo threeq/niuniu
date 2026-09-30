@@ -74,6 +74,12 @@ var (
 // handler skip the previously-separate GetColumn + GetChecklistStats round
 // trips. Callers that build IssueDetail from list endpoints (which still go
 // through attachAssigneesAndLabels) leave these zero.
+//
+// HasWorkspace (spec 2026-09-28 §3 frontend flag) reports whether the issue
+// owns a live (is_archived=0) workspace — the same 判定 the parent/child
+// guardrails enforce. Populated by both loadIssueDetail and
+// attachAssigneesAndLabels so list and detail responses carry it; zero on any
+// other construction path (harmless: the guardrail itself is server-side).
 type IssueDetail struct {
 	store.Issue
 	Assignees          []store.ListIssueAssigneesRow `json:"assignees"`
@@ -81,6 +87,7 @@ type IssueDetail struct {
 	ProjectID          int64                         `json:"project_id"`
 	ChecklistTotal     int64                         `json:"checklist_total"`
 	ChecklistCompleted int64                         `json:"checklist_completed"`
+	HasWorkspace       bool                          `json:"has_workspace"`
 }
 
 type KanbanService struct {
@@ -928,9 +935,10 @@ func (s *KanbanService) loadIssueDetail(ctx context.Context, issueID int64) (Iss
 	// correlated subqueries) so the handler can drop its post-fetch
 	// GetColumn + GetChecklistStats calls.
 	var (
-		row       store.GetIssueDetailRow
-		assignees []store.ListIssueAssigneesRow
-		labels    []store.Label
+		row          store.GetIssueDetailRow
+		assignees    []store.ListIssueAssigneesRow
+		labels       []store.Label
+		hasWorkspace bool
 	)
 	g, gctx := errgroup.WithContext(ctx)
 	g.Go(func() error {
@@ -955,6 +963,15 @@ func (s *KanbanService) loadIssueDetail(ctx context.Context, issueID int64) (Iss
 			return err
 		}
 		labels = l
+		return nil
+	})
+	// has_workspace rides along on the same concurrent fan-out (no extra RT).
+	g.Go(func() error {
+		ws, err := s.activeWorkspaceIssueIDs(gctx, []int64{issueID})
+		if err != nil {
+			return err
+		}
+		hasWorkspace = ws[issueID]
 		return nil
 	})
 	if err := g.Wait(); err != nil {
@@ -1015,11 +1032,38 @@ func (s *KanbanService) loadIssueDetail(ctx context.Context, issueID int64) (Iss
 		ProjectID:          row.ProjectID,
 		ChecklistTotal:     row.ChecklistTotal,
 		ChecklistCompleted: row.ChecklistCompleted,
+		HasWorkspace:       hasWorkspace,
 	}, nil
 }
 
+// activeWorkspaceIssueIDs resolves which of the given issue ids own a live
+// (is_archived=0) workspace, in one batched IN-list query. Spec 2026-09-28 §3
+// frontend flag: the response carries has_workspace so the UI can hide the
+// parent/child entries the server guardrail would 409 anyway.
+func (s *KanbanService) activeWorkspaceIssueIDs(ctx context.Context, ids []int64) (map[int64]bool, error) {
+	out := make(map[int64]bool, len(ids))
+	if len(ids) == 0 {
+		return out, nil
+	}
+	nullIDs := make([]sql.NullInt64, len(ids))
+	for i, id := range ids {
+		nullIDs[i] = sql.NullInt64{Int64: id, Valid: true}
+	}
+	rows, err := s.q.ListActiveWorkspaceIssueIDs(ctx, nullIDs)
+	if err != nil {
+		return nil, err
+	}
+	for _, r := range rows {
+		if r.Valid {
+			out[r.Int64] = true
+		}
+	}
+	return out, nil
+}
+
 // attachAssigneesAndLabels enriches a slice of issues with their assignees
-// and labels in two batched IN-list queries (avoids N+1).
+// and labels in two batched IN-list queries (avoids N+1). The has_workspace
+// flag rides along via a third batched query (same N+1 avoidance).
 func (s *KanbanService) attachAssigneesAndLabels(ctx context.Context, issues []store.Issue) ([]IssueDetail, error) {
 	if len(issues) == 0 {
 		return []IssueDetail{}, nil
@@ -1033,6 +1077,10 @@ func (s *KanbanService) attachAssigneesAndLabels(ctx context.Context, issues []s
 		return nil, err
 	}
 	asnRows, err := s.q.ListIssueAssigneesByIssueIDs(ctx, ids)
+	if err != nil {
+		return nil, err
+	}
+	wsBy, err := s.activeWorkspaceIssueIDs(ctx, ids)
 	if err != nil {
 		return nil, err
 	}
@@ -1056,7 +1104,7 @@ func (s *KanbanService) attachAssigneesAndLabels(ctx context.Context, issues []s
 	}
 	out := make([]IssueDetail, len(issues))
 	for i, x := range issues {
-		out[i] = IssueDetail{Issue: x, Assignees: assigneesBy[x.ID], Labels: labelsBy[x.ID]}
+		out[i] = IssueDetail{Issue: x, Assignees: assigneesBy[x.ID], Labels: labelsBy[x.ID], HasWorkspace: wsBy[x.ID]}
 	}
 	return out, nil
 }

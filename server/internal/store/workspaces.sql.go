@@ -8,6 +8,7 @@ package store
 import (
 	"context"
 	"database/sql"
+	"strings"
 	"time"
 )
 
@@ -356,6 +357,47 @@ func (q *Queries) HasActiveWorkspaceForIssue(ctx context.Context, issueID sql.Nu
 	var id int64
 	err := row.Scan(&id)
 	return id, err
+}
+
+const listActiveWorkspaceIssueIDs = `-- name: ListActiveWorkspaceIssueIDs :many
+SELECT DISTINCT issue_id FROM workspaces
+WHERE is_archived = 0 AND issue_id IN (/*SLICE:issue_ids*/?)
+`
+
+// Spec 2026-09-28 section 3 frontend flag: distinct issue ids that own a live
+// (non-archived) workspace. Batch source for has_workspace on the kanban
+// issue list/detail DTOs (avoids a per-issue N+1 lookup).
+func (q *Queries) ListActiveWorkspaceIssueIDs(ctx context.Context, issueIds []sql.NullInt64) ([]sql.NullInt64, error) {
+	query := listActiveWorkspaceIssueIDs
+	var queryParams []interface{}
+	if len(issueIds) > 0 {
+		for _, v := range issueIds {
+			queryParams = append(queryParams, v)
+		}
+		query = strings.Replace(query, "/*SLICE:issue_ids*/?", strings.Repeat(",?", len(issueIds))[1:], 1)
+	} else {
+		query = strings.Replace(query, "/*SLICE:issue_ids*/?", "NULL", 1)
+	}
+	rows, err := q.db.QueryContext(ctx, query, queryParams...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []sql.NullInt64{}
+	for rows.Next() {
+		var issue_id sql.NullInt64
+		if err := rows.Scan(&issue_id); err != nil {
+			return nil, err
+		}
+		items = append(items, issue_id)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const listArchivedWorkspaces = `-- name: ListArchivedWorkspaces :many

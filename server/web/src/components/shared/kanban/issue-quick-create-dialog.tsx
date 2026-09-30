@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useQueryClient } from '@tanstack/react-query'
 import {
@@ -52,6 +52,15 @@ export function IssueQuickCreateDialog({ open, onOpenChange, projectId, columnId
   // localStorage drafts are skipped (they key on project+column and would
   // collide with the general quick-create flow on the Epic's column).
   const isSubtask = parentIssueId != null
+
+  // Spec 2026-09-28 §3: a plain task with a live workspace cannot collect
+  // children (server 409s 收子) — drop it from the general-mode parent picker
+  // so the "attach as child" entry disappears per parent. Epic-typed parents
+  // are exempt (their workspace IS the orchestration control workspace).
+  const eligibleParents = useMemo(
+    () => issues.filter((i) => i.issue_type === 'epic' || i.has_workspace !== true),
+    [issues],
+  )
 
   // On open: restore any involuntarily-kept draft for this project+column.
   useEffect(() => {
@@ -167,7 +176,7 @@ export function IssueQuickCreateDialog({ open, onOpenChange, projectId, columnId
                 <ParentIssueSelect
                   id="qc-parent"
                   data-testid="quick-create-parent"
-                  issues={issues}
+                  issues={eligibleParents}
                   value={draft.parentIssueId ?? null}
                   onChange={(next) => setDraft((d) => ({ ...d, parentIssueId: next }))}
                   disabled={submitting}
