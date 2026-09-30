@@ -344,6 +344,20 @@ func (q *Queries) GetWorkspacesByIssue(ctx context.Context, issueID sql.NullInt6
 	return items, nil
 }
 
+const hasActiveWorkspaceForIssue = `-- name: HasActiveWorkspaceForIssue :one
+SELECT id FROM workspaces WHERE issue_id = ? AND is_archived = 0 LIMIT 1
+`
+
+// Spec 2026-09-28 section 3 parent/child guardrail: an issue with a live
+// (non-archived) workspace must not change parent/child relations. Returns
+// the workspace id; sql.ErrNoRows means no active workspace.
+func (q *Queries) HasActiveWorkspaceForIssue(ctx context.Context, issueID sql.NullInt64) (int64, error) {
+	row := q.db.QueryRowContext(ctx, hasActiveWorkspaceForIssue, issueID)
+	var id int64
+	err := row.Scan(&id)
+	return id, err
+}
+
 const listArchivedWorkspaces = `-- name: ListArchivedWorkspaces :many
 SELECT id, issue_id, name, path, status, agent_pid, agent_status, session_id, session_status, owner_type, owner_id, current_session_user_id, created_by, created_at, updated_at, is_temporary, is_archived, archived_at, mcp_servers, cli_type, codex_sandbox_mode, codex_approval_policy, is_studio, strict_mcp_config, language, env_provider_id, env_provider_group, active_env_provider_name FROM workspaces WHERE is_archived = 1 ORDER BY archived_at DESC
 `
