@@ -24,6 +24,21 @@ func WorktreeAdd(repoPath, targetPath, branch, baseBranch string) error {
 	return nil
 }
 
+// WorktreeAddCheckoutExisting creates a new worktree at targetPath checking out
+// an ALREADY-EXISTING branch (no -b). Git refuses natively when the branch is
+// already checked out in another worktree — that error is passed through so the
+// caller surfaces it verbatim. Used by the Epic unified-branch flow (spec
+// 2026-09-28 §1): the epic control workspace's worktree sits directly on the
+// epic feature branch (epic/<id>) that children merge into.
+func WorktreeAddCheckoutExisting(repoPath, targetPath, branch string) error {
+	cmd := exec.Command("git", "-C", repoPath, "worktree", "add", targetPath, branch)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("git worktree add: %s: %w", strings.TrimSpace(string(out)), err)
+	}
+	return nil
+}
+
 // WorktreeRemove removes a worktree.
 func WorktreeRemove(repoPath, targetPath string) error {
 	cmd := exec.Command("git", "-C", repoPath, "worktree", "remove", "--force", targetPath)

@@ -127,6 +127,58 @@ func TestMergeFastForwardOnly(t *testing.T) {
 	})
 }
 
+// TestWorktreeAddCheckoutExisting pins the Epic unified-branch helper (spec
+// 2026-09-28 §1): the epic control workspace's worktree must check out the
+// ALREADY-EXISTING epic/<id> branch as-is (no -b), so the workspace sits
+// directly on the branch children merge into.
+func TestWorktreeAddCheckoutExisting(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not in PATH")
+	}
+
+	root := t.TempDir()
+	repo := filepath.Join(root, "repo")
+	mainSHA, developSHA := setupTestRepo(t, repo)
+
+	// First worktree checks out develop and stays alive across both subtests
+	// (parent-level cleanup), so the duplicate-checkout guard is exercisable.
+	wtExisting := filepath.Join(root, "wt-existing")
+	if err := WorktreeAddCheckoutExisting(repo, wtExisting, "develop"); err != nil {
+		t.Fatalf("WorktreeAddCheckoutExisting: %v", err)
+	}
+	t.Cleanup(func() { _ = WorktreeRemove(repo, wtExisting) })
+
+	t.Run("checks out the existing branch as-is", func(t *testing.T) {
+		if got := revParse(t, wtExisting, "--abbrev-ref HEAD"); got != "develop" {
+			t.Fatalf("worktree branch = %s, want develop (checked out, not forked)", got)
+		}
+		if got := revParse(t, wtExisting, "HEAD"); got != developSHA {
+			t.Fatalf("worktree HEAD = %s, want develop tip %s", got, developSHA)
+		}
+		// No new branch may be created — the set of branches is unchanged.
+		out, err := exec.Command("git", "-C", repo, "for-each-ref", "--format=%(refname:short)", "refs/heads").Output()
+		if err != nil {
+			t.Fatalf("for-each-ref: %v", err)
+		}
+		for _, b := range strings.Split(string(out), "\n") {
+			if strings.TrimSpace(b) == "wt-existing" {
+				t.Fatal("WorktreeAddCheckoutExisting created a new branch; must check out the existing one")
+			}
+		}
+		_ = mainSHA
+	})
+
+	t.Run("refuses when the branch is already checked out elsewhere", func(t *testing.T) {
+		// develop is still checked out in the first worktree; a second
+		// checkout must fail with git's native guard error.
+		wt2 := filepath.Join(root, "wt-dup")
+		err := WorktreeAddCheckoutExisting(repo, wt2, "develop")
+		if err == nil {
+			t.Fatal("expected an error checking out a branch already checked out in another worktree")
+		}
+	})
+}
+
 // setupTestRepo initializes a repo with main → A and develop → A,B,C, returning the
 // tip SHAs of main and develop respectively.
 func setupTestRepo(t *testing.T, dir string) (mainSHA, developSHA string) {
