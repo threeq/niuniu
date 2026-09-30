@@ -14,6 +14,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/niuniu-dev/niuniu/agent/internal/acp"
@@ -35,8 +36,52 @@ func newRegistry() *tools.Registry {
 		tools.LS{}, tools.Read{}, tools.Grep{}, tools.Glob{},
 		tools.Write{}, tools.Edit{}, tools.Bash{}, tools.BashOutput{}, tools.Monitor{}, tools.TodoWrite{},
 		tools.NewWebFetch(false), // SSRF protection ON in production wiring
-		tools.NewWebSearch(os.Getenv("NIUNIU_AGENT_SEARCH")),
+		// Search defaults ON via the zero-key DuckDuckGo backend so reasoning
+		// always has fresh material; NIUNIU_AGENT_SEARCH=off opts out.
+		tools.NewWebSearch(firstNonEmptyStr(os.Getenv("NIUNIU_AGENT_SEARCH"), "duckduckgo")),
 	)
+}
+
+// tierModels resolves Claude-CLI-style model tiers (high/fast) lazily from
+// the tier env vars over the ambient provider contract (env credentials +
+// NIUNIU_AGENT_PROVIDER). A tier without an override — or one that fails to
+// build — falls back to the base model: tiers are an optimization, never a
+// hard dependency.
+type tierModels struct {
+	base  model.Model
+	mu    sync.Mutex
+	built map[string]model.Model // nil value = "resolved to base"
+}
+
+func (t *tierModels) resolve(tier string) model.Model {
+	if tier == "" {
+		return t.base
+	}
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if m, ok := t.built[tier]; ok {
+		if m == nil {
+			return t.base
+		}
+		return m
+	}
+	var m model.Model
+	if name := model.TierModel(tier); name != "" {
+		if built, err := buildModel("", name); err != nil {
+			slog.Warn("tier model build failed — falling back to base model", "tier", tier, "model", name, "err", err)
+		} else {
+			m = built
+			slog.Info("tier model ready", "tier", tier, "model", name)
+		}
+	}
+	if t.built == nil {
+		t.built = map[string]model.Model{}
+	}
+	t.built[tier] = m
+	if m == nil {
+		return t.base
+	}
+	return m
 }
 
 // subagentPreamble turns the base system prompt into a child's.
@@ -75,9 +120,14 @@ func sessionRegistry(cwd string, m model.Model, perms perm.Checker, parentContex
 	reg.Register(memory.NewSearchTool(memStore))
 	reg.Register(memory.NewConsolidateTool(memStore))
 
+	tiers := &tierModels{base: m}
 	factory := &loop.AgentFactory{
 		Model: m,
 		Types: loop.BuiltinAgentTypes(),
+		// Tier routing: builtin types carry ModelTier hints (explore=fast,
+		// plan=high); custom .niuniu-agent/agents types carry `model:` —
+		// both resolve here against the tier env vars.
+		ModelFor: tiers.resolve,
 		// Declarative custom types from the workspace.
 		// factory.Types = append(factory.Types, loop.LoadAgentTypes(...) — below.
 

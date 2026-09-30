@@ -24,6 +24,7 @@ const (
 	maxKeyDecisions = 20
 	maxFilesTouched = 30
 	maxOpenItems    = 15
+	maxDeadEnds     = 10
 )
 
 // CompactState is the structured, mergeable compaction state.
@@ -31,13 +32,14 @@ type CompactState struct {
 	Goal         string   `json:"goal"`
 	Constraints  []string `json:"constraints,omitempty"`
 	KeyDecisions []string `json:"key_decisions"`
+	DeadEnds     []string `json:"dead_ends,omitempty"`
 	FilesTouched []string `json:"files_touched,omitempty"`
 	OpenItems    []string `json:"open_items"`
 	Compactions  int      `json:"compactions"`
 }
 
 // stateSchema is the JSON contract embedded in the summarizer system prompt.
-const stateSchema = `{"goal": "...", "constraints": ["..."], "key_decisions": ["..."], "files_touched": ["path"], "open_items": ["next step, in order"]}`
+const stateSchema = `{"goal": "...", "constraints": ["..."], "key_decisions": ["..."], "dead_ends": ["approach tried and why it failed"], "files_touched": ["path"], "open_items": ["next step, in order"]}`
 
 // parseStateJSON extracts the CompactState from a summarizer response,
 // tolerating markdown code fences. Requires key_decisions and open_items —
@@ -68,15 +70,16 @@ func parseStateJSON(text string) (*CompactState, error) {
 }
 
 // mergeState folds a fresh summarizer state into the accumulated one.
-// Decisions/files/constraints accumulate (deduped, order-stable, capped —
-// oldest dropped first), open items are replaced wholesale (they describe
-// the present), compactions counts the chain length.
+// Decisions/files/constraints/dead-ends accumulate (deduped, order-stable,
+// capped — oldest dropped first), open items are replaced wholesale (they
+// describe the present), compactions counts the chain length.
 func mergeState(old, nw *CompactState) *CompactState {
 	out := &CompactState{Compactions: 1}
 	if old != nil {
 		out.Compactions = old.Compactions + 1
 		out.Constraints = append([]string{}, old.Constraints...)
 		out.KeyDecisions = append([]string{}, old.KeyDecisions...)
+		out.DeadEnds = append([]string{}, old.DeadEnds...)
 		out.FilesTouched = append([]string{}, old.FilesTouched...)
 	}
 	if nw == nil {
@@ -89,6 +92,7 @@ func mergeState(old, nw *CompactState) *CompactState {
 	}
 	out.Constraints = cappedMerge(out.Constraints, nw.Constraints, maxConstraints)
 	out.KeyDecisions = cappedMerge(out.KeyDecisions, nw.KeyDecisions, maxKeyDecisions)
+	out.DeadEnds = cappedMerge(out.DeadEnds, nw.DeadEnds, maxDeadEnds)
 	out.FilesTouched = cappedMerge(out.FilesTouched, nw.FilesTouched, maxFilesTouched)
 	if len(nw.OpenItems) > 0 {
 		out.OpenItems = nw.OpenItems
@@ -135,6 +139,14 @@ func renderState(st *CompactState) string {
 	if len(st.KeyDecisions) > 0 {
 		b.WriteString("Key decisions:\n")
 		for _, d := range st.KeyDecisions {
+			b.WriteString("- " + d + "\n")
+		}
+	}
+	if len(st.DeadEnds) > 0 {
+		// The single highest-value section for long-horizon reasoning: without
+		// it the continuation model re-derives (and re-fails) the same paths.
+		b.WriteString("Dead ends (tried and failed — do NOT retry):\n")
+		for _, d := range st.DeadEnds {
 			b.WriteString("- " + d + "\n")
 		}
 	}

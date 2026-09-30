@@ -36,6 +36,7 @@ Field rules:
 - goal: the user's objective and task origin, one sentence.
 - constraints: settled constraints the continuation must respect.
 - key_decisions: settled choices and file paths touched (with what changed) — the reasoning the continuation must not re-derive.
+- dead_ends: approaches that were tried and FAILED, each with the failure reason — the continuation must not retry them. Include every dead end visible in the history; this field prevents repeated failures.
 - files_touched: repository paths modified so far.
 - open_items: current task status and the concrete next steps, in order.
 
@@ -127,7 +128,7 @@ func (s *Session) summarize(ctx context.Context, early []model.Message) (string,
 	instr := compactInstruction
 	if s.state != nil {
 		if prev, err := json.Marshal(s.state); err == nil {
-			instr += "\n\nPrevious state (preserve still-relevant key_decisions and files_touched; supersede only what changed):\n" + string(prev)
+			instr += "\n\nPrevious state (preserve still-relevant key_decisions, dead_ends and files_touched; supersede only what changed):\n" + string(prev)
 		}
 	}
 	msgs := make([]model.Message, 0, len(early)+1)
