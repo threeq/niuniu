@@ -16,6 +16,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/niuniu-dev/niuniu/internal/store"
 	"github.com/stretchr/testify/require"
 )
 
@@ -117,6 +118,58 @@ func TestEpicTerminate_DoneSendsIntegrationPrompt(t *testing.T) {
 	require.Contains(t, content, "验证构建/测试")
 	require.Contains(t, content, "推送 origin")
 	require.Contains(t, content, "未经用户确认不得推送")
+	require.NotContains(t, content, "服务端合并", "no server-side merge wording may remain")
+}
+
+// TestEpicTerminate_DeliversWhenStatusPreWrittenDone pins production parity:
+// the floor-gate pass (floor_gate.go onFloorGateDone) and the finalize path
+// (workspace_ops.go MarkWorkspaceDone) write exec_status='done' BEFORE the
+// completion event reaches terminateEpic — so the FIRST legit delivery already
+// observes a done row. The prompt must still go out; exec_status alone can
+// never serve as the dedup signal.
+func TestEpicTerminate_DeliversWhenStatusPreWrittenDone(t *testing.T) {
+	e, proxy := integrationEnv(t)
+	epicID := e.makeEpic(t, "预写 done epic")
+	_, err := e.epicSvc.StartWorkspaceForIssue(e.ctx, epicID)
+	require.NoError(t, err)
+	awaitDeliveries(t, proxy, 1) // orchestration kickoff has landed
+	before := len(proxy.snapshot())
+
+	// Simulate the finalize/floor-gate pre-write that production performs
+	// before publishing the completion event.
+	require.NoError(t, e.q.SetIssueExecStatus(e.ctx, store.SetIssueExecStatusParams{ExecStatus: "done", ID: epicID}))
+
+	e.epicSvc.OnWorkspaceCompleted(e.ctx, epicID, true)
+
+	awaitDeliveries(t, proxy, before+1)
+	deliveries := proxy.snapshot()
+	require.Len(t, deliveries, before+1, "the pre-written done must not suppress the first integration prompt")
+	require.Contains(t, deliveries[before].content, "git merge main")
+}
+
+// TestEpicTerminate_DonePromptDeliveredOnce pins the idempotency guard: the
+// completion event can fire twice for the same epic (double finalize, replayed
+// workspace done) — only the FIRST done delivers the integration prompt; a
+// repeated done keeps the agent's inbox at exactly one wind-down message.
+func TestEpicTerminate_DonePromptDeliveredOnce(t *testing.T) {
+	e, proxy := integrationEnv(t)
+	epicID := e.makeEpic(t, "幂等 epic")
+	_, err := e.epicSvc.StartWorkspaceForIssue(e.ctx, epicID)
+	require.NoError(t, err)
+	awaitDeliveries(t, proxy, 1) // orchestration kickoff has landed
+	before := len(proxy.snapshot())
+
+	e.epicSvc.OnWorkspaceCompleted(e.ctx, epicID, true)
+	awaitDeliveries(t, proxy, before+1)
+	require.Len(t, proxy.snapshot(), before+1, "the first done delivers exactly the integration prompt")
+
+	// Repeat done (duplicated completion event) — no second prompt.
+	e.epicSvc.OnWorkspaceCompleted(e.ctx, epicID, true)
+	require.Len(t, proxy.snapshot(), before+1, "a repeated done must not re-deliver the integration prompt")
+
+	iss, err := e.q.GetIssue(e.ctx, epicID)
+	require.NoError(t, err)
+	require.Equal(t, "done", iss.ExecStatus)
 }
 
 // TestEpicTerminate_FailedSendsNoPrompt pins the gate half: a failed completion

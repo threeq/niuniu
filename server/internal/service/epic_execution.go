@@ -109,6 +109,13 @@ type EpicExecutionService struct {
 	// the same epic while one is already awaiting the user. Guarded by confirmMu.
 	confirmMu       sync.Mutex
 	confirmingEpics map[int64]struct{}
+	// integrationPrompted records the epics that already received the §4
+	// integration wind-down prompt, so a duplicated done (double finalize,
+	// replayed workspace-completed event) delivers at most once per epic.
+	// In-memory on purpose: it only needs to span the duplicate-event window
+	// inside one process. Guarded by promptMu. Same pattern as confirmingEpics.
+	promptMu            sync.Mutex
+	integrationPrompted map[int64]struct{}
 	// goalSuggester is optional (nil in tests / when the claude CLI is absent).
 	// When set, ensureWorkspace infers a one-line goal_condition (haiku) for a
 	// standalone issue that has none, instead of falling back to the issue
@@ -1170,7 +1177,9 @@ func (s *EpicExecutionService) applyChildFailure(ctx context.Context, childID in
 // SAME control workspace (spec 2026-09-28 §4, 2026-09-30 修订): the agent sits on
 // epic/<id>, so it merges main into its own branch, verifies build/tests and asks
 // the user before pushing origin. Delivery is best-effort — the orchestration has
-// already completed by the time this runs, so a failure only Warns.
+// already completed by the time this runs, so a failure only Warns. It is
+// at-most-once per epic: a duplicated done (double finalize, replayed
+// workspace-completed event) claims the epic first and the loser stays silent.
 func (s *EpicExecutionService) terminateEpic(ctx context.Context, epicID int64, status string) {
 	if err := s.q.SetIssueExecStatus(ctx, store.SetIssueExecStatusParams{ExecStatus: status, ID: epicID}); err != nil {
 		slog.Error("epic terminate: set exec_status", "error", err, "epicID", epicID, "status", status)
@@ -1178,6 +1187,25 @@ func (s *EpicExecutionService) terminateEpic(ctx context.Context, epicID int64, 
 	slog.Info("epic execution terminated", "epicID", epicID, "status", status)
 	if status != "done" {
 		return // only a done epic gets the integration wind-down
+	}
+	// At-most-once dedup. exec_status can NOT serve as this guard: the floor-gate
+	// pass (onFloorGateDone) and the finalize path (MarkWorkspaceDone) write
+	// 'done' BEFORE the completion event reaches terminateEpic, so the FIRST
+	// legit delivery already observes a done row. Claim the epic before
+	// delivering; a failed delivery also consumes the claim (at-most-once, no
+	// double-send when Deliver errors after the agent actually got the message).
+	s.promptMu.Lock()
+	if s.integrationPrompted == nil {
+		s.integrationPrompted = make(map[int64]struct{})
+	}
+	_, already := s.integrationPrompted[epicID]
+	if !already {
+		s.integrationPrompted[epicID] = struct{}{}
+	}
+	s.promptMu.Unlock()
+	if already {
+		slog.Info("epic terminate: integration prompt already sent, skipping", "epicID", epicID)
+		return
 	}
 	if s.agentProxy == nil {
 		return
@@ -1189,7 +1217,7 @@ func (s *EpicExecutionService) terminateEpic(ctx context.Context, epicID int64, 
 	}
 	ws, ok := s.activeWorkspaceForIssue(ctx, epicID)
 	if !ok || ws.Path == "" {
-		slog.Info("epic terminate: no active control workspace, skipping integration prompt", "epicID", epicID)
+		slog.Warn("epic terminate: no active control workspace, skipping integration prompt", "epicID", epicID)
 		return
 	}
 	if _, _, err := s.agentProxy.Deliver(ctx, ws.ID, ws.Path, composeEpicIntegrationPrompt(epic), ""); err != nil {

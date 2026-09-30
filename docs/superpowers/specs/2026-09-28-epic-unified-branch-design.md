@@ -1,6 +1,6 @@
-# Epic 统一分支方案：父工作空间检出 epic/<id> + 服务端收口 merge-to-main
+# Epic 统一分支方案：父工作空间检出 epic/<id> + 收尾集成下放工作树
 
-日期：2026-09-28 ｜ 状态：已批准
+日期：2026-09-28 ｜ 状态：已批准（2026-09-30 修订 §4：删除服务端合并流水线，集成收尾改由控制工作空间 Agent 在工作树内完成）
 
 ## 背景与根因
 
@@ -38,24 +38,22 @@ Epic 执行存在三类分支：`epic/<id>`（集成分支）、父（控制）�
   - 错误文案：「该任务已创建工作空间，不能变更父子关系」（变子）/「父任务已创建工作空间，不能再添加子任务」（收子）。
 - **前端隐藏**：issue DTO 增加 `has_workspace`；`EpicHierarchyControl`（设置父任务）与 `issue-quick-create-dialog`（加子任务）在 `has_workspace` 时隐藏入口。
 
-### 4. C：服务端收口 merge-to-main（含 main→epic 预合并）
+### 4. C：epic 完成后的集成提示词（2026-09-30 修订：合并下放工作树，服务端流水线删除）
 
-「合并到主分支」按钮（epic exec_status=done）新流程，服务端执行：
+> 修订背景：Wave1 落地后，epic 控制工作空间**直接检出 `epic/<id>`**——AI 就坐在集成分支上、对 epic 全程有上下文，服务端合并流水线（main→epic 预合并 + epic→main 快进）与「合并到主分支」按钮不再需要。
 
-```
-① main → epic/<id>：MergeAs（每仓）。
-   冲突 → main/epic 均不动；解析冲突文件清单 → exec event
-   （main→epic 冲突待解决）+ 控制工作空间转 attention + 409 返回文件清单；
-   提示词让 AI 在 epic 分支上解决（父工作空间就坐在 epic 分支上，直接可见）。
-② epic/<id> → main：epic 已含 main，必然快进（update-ref），main 零冲突。
-③ 父工作空间 ff 同步。
-④ 提示词改写（composeMergeToMainPrompt）：AI 不再执行任何 git merge——
-   「服务端已完成 main→epic 同步与 epic→main 合并，请验证构建/测试，
-   通过后在用户确认下推送 origin」。
-多仓：逐仓 ①②，部分失败沿用 gate_blocked + attention 升级。
-```
+新流程：epic 变为 `done` 时（编排 Agent 在控制工作空间输出 [AUTOHOST_DONE] → 工作空间完成 → `terminateEpic(..., "done")`），服务端自动向**同一控制工作空间**发送一条集成提示词（`composeEpicIntegrationPrompt`），Agent 在自己的工作树内完成收尾：
 
-全部分支状态由 git 现算（rev-list / merge-tree 干跑），不加表不加列；流程节点写 exec event。
+1. `git merge main` 把 main 合入当前分支 epic/<id>——如遇冲突就在当前分支就地解决（AI 对 epic 全程有上下文）；
+2. 完成后验证构建/测试；
+3. 全部通过后，向用户报告并请求确认推送 origin——**未经用户确认不得推送**。
+
+配套删除与保留：
+
+- **原②（epic→main 快进）删除**：本地 main 不再被系统推进，其前进由用户手动/外部决定。
+- **原③（父工作空间同步）删除**：合并在工作树内进行，天然同步。
+- **「合并到主分支」按钮与 POST /issues/:id/merge-to-main 删除**：无手动触发；epic done 即自动发提示词。发送失败仅 Warn（编排已完成，收尾提示是尽力而为）。
+- 服务端合并流水线（`RequestMergeToMain` / `mergeRepoToMain` / `EpicMergeConflictError` / `escalateEpicMergeSplit` 等）整体删除；**保留**子→epic 服务端合并 `mergeChildIntoEpic`、`syncEpicWorkspaceLocked`、git 层 `MergeConflictError`、父子护栏与统一分支代码。
 
 ## 明确不做
 
@@ -66,7 +64,7 @@ Epic 执行存在三类分支：`epic/<id>`（集成分支）、父（控制）�
 - git 层：WorktreeAddCheckoutExisting 检出既有分支/重复检出报错；merge-tree 冲突文件清单解析。
 - epic_execution：统一分支创建（控制 ws 行 Branch==epic/<id>）；场景 b 级联（父无 ws 时建子连带建父）；存量 ws- 前缀走旧路径；归档跳过 epic 分支。
 - kanban 护栏：有 ws 的 issue 设父被拒、父有 ws 加子被拒、无 ws 正常通过。
-- C 流程：main→epic 冲突→清单+状态不动；同步后 FF 合并；多仓部分失败 gate_blocked。
+- C 流程（2026-09-30 修订）：epic 编排工作空间完成 → done → 控制工作空间收到集成提示词（含 epic/<id>、git merge main、推送需用户确认）；failed 不发送；无活跃工作空间时静默跳过。
 - 前端：has_workspace 隐藏入口；tsc + lint。
 
 ## 验收
@@ -75,4 +73,4 @@ Epic 执行存在三类分支：`epic/<id>`（集成分支）、父（控制）�
 2. 归档控制工作空间：未并入 main 的 epic 分支保留（`branch -d` 拒绝）；已并入 main 的 epic 分支被安全清理。
 3. 无父工作空间时直接对子 issue 建工作空间 → 父控制工作空间与 epic 分支被连带创建。
 4. 有工作空间的普通任务：UI 无「设置父任务/加子任务」入口；API 直调被 4xx 拒绝。
-5. merge-to-main：main 有新提交时流程仍成功（main→epic 预合并）；冲突时 main 与 epic 均未被修改且返回文件清单。
+5. epic 收尾集成：epic 编排工作空间完成（exec_status=done）后，控制工作空间自动收到集成提示词（含 epic/<id>、`git merge main`、推送需用户确认）；failed 不发送；本地 main 的 ref 全程不被系统改动。
