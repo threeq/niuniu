@@ -1,0 +1,63 @@
+slug: jumpserver
+display_name: 堡垒机运维
+description: 通过 JumpServer 堡垒机（跳板机）安全操作远程服务器：盘点授权资产、SSH 直连指定机器、接入官方 MCP Server。说「看看我有哪些机器」「连上 xx 服务器」「jumpserver」即可启动。所有操作经堡垒机审计，凭据走工作空间环境变量，不进对话。
+
+tags: [jumpserver, bastion, 堡垒机, 跳板机, ssh, 运维, ops]
+
+# 不内置 MCP 声明：JumpServer 官方 MCP Server（github.com/jumpserver/mcp，v4.9+）是
+# 用户自行 docker run 的 SSE 服务，Bearer token 需写进其配置——由用户按需在工作空间
+# MCP 设置里添加，场景不预置。常规能力（资产盘点 API、SSH 直连）由 vendored skill
+# jumpserver-bastion 承载，纯本地文件拷贝、零安装。
+mcp: []
+
+plugins: []
+
+skills:
+  - name: jumpserver-bastion
+
+required_credentials: []
+
+assets:
+  env_presets: []
+  quick_actions:
+    - slug: list-jumpserver-assets
+      label: 盘点授权资产
+      prompt: "盘点我堡垒机上的授权资产：1) 检查 JUMPSERVER_URL / JUMPSERVER_API_TOKEN 环境变量是否已配置，缺了就指导我在工作空间环境变量设置里补上（不要让我在对话里粘贴 token）；2) 调 /api/v1/perms/users/self/assets/ 分页拉取我名下已授权资产；3) 用表格汇报：主机名、IP、平台、备注，机器多时先报总数再按需展开；4) 标注哪些机器看起来能按名字对应到我要做的事。接口报错时按 skill 的故障排查速查定位（401 token 过期 / 403 未授权），不要臆造资产。"
+    - slug: connect-jumpserver-asset
+      label: 连一台服务器
+      prompt: "帮连到指定的服务器：1) 先盘点授权资产确认目标机器的 IP 与资产账号（第二段），拿不准就列候选让我挑；2) 给出 Koko 直连命令 ssh -p 2222 <jms用户>@<资产账号>@<资产IP> <堡垒机地址>（两层 @，不支持 ProxyJump）；3) 说明这是经堡垒机审计的交互会话，我要在会话里执行的命令先列给我看，涉及重启/删除/改配置等破坏性操作必须等我逐条确认；4) 若需要批量/自动化执行，指引走 JumpServer 作业中心或官方 MCP Server。"
+    - slug: setup-jumpserver-mcp
+      label: 接入官方 MCP
+      prompt: "帮接入 JumpServer 官方 MCP Server：1) 确认我的 JumpServer 版本 ≥ v4.9；2) 按步骤指导：生成 Bearer token（token 由我自己填，不经对话）、docker run 起 ghcr.io/jumpserver/mcp:latest（8099 端口，.env 写 api_token 与 jumpserver_url）、在 niuniu 工作空间 MCP 设置里添加 SSE 配置 http://127.0.0.1:8099/sse；3) 起好后验证 MCP 工具可用，并说明之后我能用这些工具做什么。"
+  project_templates: []
+  harness_specs: []
+  agents: []
+
+prompts:
+  - id: jumpserver-discipline
+    title: 堡垒机操作纪律
+    body: |
+      你在通过 JumpServer 堡垒机帮用户操作其远程服务器。铁律：
+
+      1. **一切经堡垒机**：所有连接/命令都走 JumpServer（SSH 2222 或其 API），留审计
+         痕迹；不指导、不协助绕开堡垒机直连资产。JumpServer 不支持 SSH ProxyJump/-J
+         （官方 issue #11392），不要给出这类用法；文件传输走其 Web 终端/网盘或中转机。
+      2. **凭据不进对话**：JUMPSERVER_URL / JUMPSERVER_API_TOKEN / SSH 账号等一律从
+         工作空间环境变量读取；未配置就指引用户去「环境变量」设置页添加，不索取明文；
+         输出与日志里不回显 token，命令里用变量引用而不是展开的值。
+      3. **破坏性操作双重确认**：重启、停止服务、删除文件/用户/数据、改网络或安全配置、
+         清理磁盘等，先复述「在哪台资产上做什么、影响是什么」，等用户确认才执行；
+         无人值守（自动托管）模式下只产出执行计划，不执行。
+      4. **只碰授权资产**：API/授权里没有的机器就是不可触碰，不猜 IP、不试默认口令、
+         不越权枚举。
+      5. **版本差异交给实例文档**：JumpServer 各版本端点/行为有差异，拿不准就查实例
+         自带 Swagger（${JUMPSERVER_URL}/api/docs/），不凭记忆断言不存在的端点。
+
+required_data_sources: []
+
+match:
+  base_weight: 0
+  rules:
+    - signal: kanban.label_term_frequency
+      args: { terms: ["jumpserver", "堡垒机", "跳板机", "bastion", "jms", "资产", "运维", "服务器部署", "ops"] }
+      weight: 22

@@ -199,6 +199,29 @@ func TestGeoSeoSceneSeedsWithSiteAudit(t *testing.T) {
 	assert.ElementsMatch(t, []string{"site-audit"}, names)
 }
 
+// TestJumpserverSceneSeedsWithSkill asserts the jumpserver builtin scene seeds
+// and projects the jumpserver-bastion vendored skill (issue #715: JumpServer
+// bastion support ships as a scene skill).
+func TestJumpserverSceneSeedsWithSkill(t *testing.T) {
+	ctx := context.Background()
+	db := setupSceneTestDB(t)
+	q := store.New(db)
+	require.NoError(t, NewSceneSeeder(q).Run(ctx))
+
+	scene, err := q.GetSceneByOwnerSlug(ctx, store.GetSceneByOwnerSlugParams{
+		OwnerType: "user", OwnerID: 0, Slug: "jumpserver",
+	})
+	require.NoError(t, err, "jumpserver must seed")
+
+	def, err := DecodeDefinition(scene.Definition)
+	require.NoError(t, err)
+	names := make([]string, len(def.Skills))
+	for i, s := range def.Skills {
+		names[i] = s.Name
+	}
+	assert.ElementsMatch(t, []string{"jumpserver-bastion"}, names)
+}
+
 // TestVizArchitectureSceneSeedsWithSkills asserts the builtin scene seeds and
 // carries its four vendored drawing skills in its definition. archify is the
 // repo-attached one (code-anchored architecture maps + Architecture Delta); the
