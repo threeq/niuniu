@@ -55,6 +55,14 @@ type WorkspaceService struct {
 	// kicked off with the issue's title + description. Runs in its own goroutine so
 	// it never blocks Create. Nil-safe.
 	onCreated func(context.Context, store.Workspace)
+	// epicCreateDelegate intercepts Create for epic-managed issues (wired via
+	// SetEpicCreateDelegate). The Epic unified-branch design (spec 2026-09-28
+	// §2b) funnels every creation for an epic or a child of one through the
+	// engine's createWorkspaceForIssue, which resolves the epic feature branch
+	// and runs the scenario-b cascade — any client-supplied branch is ignored.
+	// Wired once at boot (server.New). Nil-safe: without it Create behaves as
+	// before (tests / services that don't opt in).
+	epicCreateDelegate func(ctx context.Context, issueID, callerUserID int64) (*WorkspaceResult, error)
 }
 
 func NewWorkspaceService(q *store.Queries, db *sql.DB, cfg *config.WorkspaceConfig, dataDir string, notifyHub *notify.NotificationHub, authz *Authz) *WorkspaceService {
@@ -72,6 +80,18 @@ func (s *WorkspaceService) SetEventBus(b *event.Bus) {
 // to auto-link the workspace based on its issue type. Optional; nil-safe.
 func (s *WorkspaceService) SetWorkspaceCreatedHook(fn func(context.Context, store.Workspace)) {
 	s.onCreated = fn
+}
+
+// SetEpicCreateDelegate wires the Epic-engine creation delegate (spec
+// 2026-09-28 §2b 普通创建路径收口): when Create is called for an epic-managed
+// issue (the epic itself or a child of one), the call is delegated to the
+// engine's createWorkspaceForIssue so the worktree branch is always derived
+// from epic/<id> (client-selected branches ignored) and the scenario-b
+// cascade (child creation brings up the parent control workspace) runs. Both
+// HTTP paths — POST /workspaces and POST /issues/{id}/workspace — converge
+// here. Called from server.New after both services are constructed.
+func (s *WorkspaceService) SetEpicCreateDelegate(fn func(ctx context.Context, issueID, callerUserID int64) (*WorkspaceResult, error)) {
+	s.epicCreateDelegate = fn
 }
 
 // SetHarnessService wires the harness service for CLAUDE.md injection.
@@ -694,6 +714,13 @@ type CreateWorkspaceInput struct {
 	// no auto-continue watchdog). Autonomous flows pass "autohost" to add the
 	// auto-continue watchdog on top (Epic paths set it via enableAutohost).
 	PermissionMode string
+
+	// epicReposResolved marks the input as already resolved by the Epic engine
+	// (createWorkspaceForIssue sets it). WorkspaceService.Create skips the
+	// epic-managed delegation for such calls so the engine's own Create does
+	// not recurse through the delegate. Same-package field: only the engine
+	// sets it.
+	epicReposResolved bool
 }
 
 // ValidCliTypes is the closed set accepted by the cli_type CHECK constraint
@@ -804,6 +831,29 @@ func (s *WorkspaceService) resolveIssueOrEpicCreator(ctx context.Context, issueI
 }
 
 func (s *WorkspaceService) Create(ctx context.Context, input CreateWorkspaceInput) (*WorkspaceResult, error) {
+	// Epic 统一分支收口 (spec 2026-09-28 §2b): an epic-managed issue — the epic
+	// itself or a child of one — always gets its worktree(s) from the epic
+	// engine's creation path, which derives branches from epic/<id> (the
+	// client's hand-picked branch is ignored) and runs the scenario-b cascade
+	// (a child creation brings up the parent control workspace first). The
+	// engine's own Create call carries epicReposResolved and skips this, so
+	// there is no recursion. NoRepo workspaces (plain directories, no
+	// worktrees) keep their semantics — there is no branch to resolve. A load
+	// failure falls through to the legacy path (Create never required the
+	// issue to resolve).
+	if s.epicCreateDelegate != nil && !input.epicReposResolved && !input.NoRepo && input.IssueID != nil {
+		if issue, err := s.q.GetIssue(ctx, *input.IssueID); err == nil {
+			if _, managed := epicIDForIssue(issue); managed {
+				var callerUserID int64
+				if input.CreatedBy != nil {
+					callerUserID = *input.CreatedBy
+				}
+				slog.Info("workspace.Create: epic-managed issue, delegating to the epic engine creation path", "issueID", *input.IssueID)
+				return s.epicCreateDelegate(ctx, *input.IssueID, callerUserID)
+			}
+		}
+	}
+
 	ownerType := input.OwnerType
 	if ownerType == "" {
 		ownerType = "user"

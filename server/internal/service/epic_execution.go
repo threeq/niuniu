@@ -404,9 +404,22 @@ func (s *EpicExecutionService) createWorkspaceForIssue(ctx context.Context, issu
 		// Auto-created workspaces inherit the issue's project's default agent
 		// (NOT NULL DEFAULT 'claude', so always populated). Empty would also
 		// default to claude at the workspace SQL layer.
-		CliType:  ownerRow.ProjectDefaultCliType,
+		CliType: ownerRow.ProjectDefaultCliType,
 		Language: language,
+		// Mark the input as engine-resolved so WorkspaceService.Create's
+		// epic-managed delegation (spec 2026-09-28 §2b) does not recurse.
+		epicReposResolved: true,
 	})
+}
+
+// EpicCreateDelegate exposes createWorkspaceForIssue as the delegate
+// WorkspaceService.Create uses to funnel creations for epic-managed issues
+// (spec 2026-09-28 §2b): both HTTP create paths converge on Create, which
+// hands epic/child issues over to this so branches are always derived from
+// epic/<id> and the scenario-b cascade runs. Wired once at boot (server.New),
+// after both services are constructed.
+func (s *EpicExecutionService) EpicCreateDelegate() func(ctx context.Context, issueID, callerUserID int64) (*WorkspaceResult, error) {
+	return s.createWorkspaceForIssue
 }
 
 // StartOutcome is the result of StartWorkspaceForIssue. Exactly one of

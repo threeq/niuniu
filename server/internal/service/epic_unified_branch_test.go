@@ -230,6 +230,79 @@ func TestEpicUnifiedBranch_ArchiveKeepsEpicBranch(t *testing.T) {
 		"the epic/<id> branch must survive archiving the control workspace")
 }
 
+// TestEpicUnifiedBranch_CreateDelegatesForEpicManagedIssue pins spec §2b's
+// HTTP 收口: WorkspaceService.Create on an epic-managed issue (child of an
+// epic) delegates to the engine's creation path — the client's hand-picked
+// branch ("main" here) is ignored and the worktree is forked from epic/<id>.
+func TestEpicUnifiedBranch_CreateDelegatesForEpicManagedIssue(t *testing.T) {
+	e := setupUnifiedBranchEnv(t)
+	// Wire the production delegation (server.New does the same).
+	e.wsSvc.SetEpicCreateDelegate(e.epicSvc.EpicCreateDelegate())
+
+	epicID := e.makeEpic(t, "收口 epic")
+	childID := e.makeChild(t, epicID, "收口子任务")
+
+	// Give the epic branch real work so "forked from epic/<id>" is distinguishable
+	// from "forked from main": commit directly on the control worktree (which sits
+	// ON epic/<id> since the unification).
+	out, err := e.epicSvc.StartWorkspaceForIssue(e.ctx, epicID)
+	require.NoError(t, err)
+	ctrlWs, err := e.q.GetWorkspace(e.ctx, out.WorkspaceID)
+	require.NoError(t, err)
+	ctrlWts, err := e.q.ListWorktrees(e.ctx, ctrlWs.ID)
+	require.NoError(t, err)
+	require.Len(t, ctrlWts, 1)
+	ubWriteFile(t, filepath.Join(ctrlWts[0].WorktreePath, "epic.txt"), "epic work\n")
+	ubRunGit(t, ctrlWts[0].WorktreePath, "add", "epic.txt")
+	ubRunGit(t, ctrlWts[0].WorktreePath, "commit", "-q", "-m", "epic advance")
+	epicBranch := fmt.Sprintf("epic/%d", epicID)
+	epicHead := ubGitOut(t, e.repoDir, "rev-parse", epicBranch)
+	require.NotEqual(t, epicHead, ubGitOut(t, e.repoDir, "rev-parse", "main"),
+		"precondition: epic/<id> is ahead of main")
+
+	// The plain (HTTP svc) create path with a client-chosen branch.
+	res, err := e.wsSvc.Create(e.ctx, CreateWorkspaceInput{
+		IssueID:   &childID,
+		Name:      "client ws",
+		Repos:     []RepoBranch{{RepoID: e.repoID, Branch: "main"}}, // 客户端手选 main
+		OwnerType: "user",
+		OwnerID:   1,
+	})
+	require.NoError(t, err)
+
+	childWts, err := e.q.ListWorktrees(e.ctx, res.Workspace.ID)
+	require.NoError(t, err)
+	require.Len(t, childWts, 1)
+	require.True(t, strings.HasPrefix(childWts[0].Branch, "ws-"),
+		"child keeps its ws- prefixed fork: %q", childWts[0].Branch)
+	mergeBase := ubGitOut(t, e.repoDir, "merge-base", childWts[0].Branch, epicBranch)
+	require.Equal(t, epicHead, mergeBase,
+		"the worktree must be forked from epic/<id>, NOT from the client-supplied main")
+
+	// The engine's own path stays recursion-free with the delegate wired.
+	out2, err := e.epicSvc.StartWorkspaceForIssue(e.ctx, childID)
+	require.NoError(t, err, "engine path must not recurse through the delegate")
+	require.Equal(t, res.Workspace.ID, out2.WorkspaceID,
+		"engine path reuses the same (just-created) child workspace")
+
+	// Delegation also applies to the epic issue itself: a plain Create on the
+	// epic yields the unified control workspace (checked out on epic/<id>).
+	epic2 := e.makeEpic(t, "收口 epic 本体")
+	res2, err := e.wsSvc.Create(e.ctx, CreateWorkspaceInput{
+		IssueID:   &epic2,
+		Name:      "client epic ws",
+		Repos:     []RepoBranch{{RepoID: e.repoID, Branch: "some-other-branch"}},
+		OwnerType: "user",
+		OwnerID:   1,
+	})
+	require.NoError(t, err)
+	epic2Wts, err := e.q.ListWorktrees(e.ctx, res2.Workspace.ID)
+	require.NoError(t, err)
+	require.Len(t, epic2Wts, 1)
+	require.Equal(t, fmt.Sprintf("epic/%d", epic2), epic2Wts[0].Branch,
+		"a plain Create on an epic yields the unified control workspace")
+}
+
 // TestEpicUnifiedBranch_LegacyWsPrefixRowsStillDeleteBranchOnArchive guards
 // the compat discriminator: a legacy workspace row whose Branch carries the
 // ws-<id>/ prefix keeps the OLD archive behaviour (branch deleted).
