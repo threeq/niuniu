@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 )
 
@@ -131,6 +132,33 @@ func MergeBranch(worktreePath, branchName string) error {
 	return nil
 }
 
+// canFastForwardRefresh reports whether resetting the worktree (checked out on
+// branchName) to the branch tip would lose no user content. Two conditions:
+//
+//  1. No unstaged edits — the working tree must equal the index ("git diff
+//     --quiet" exits 0).
+//  2. The index tree must be the tree of a recent commit on the branch. A
+//     ref-level merge (MergeAs update-ref) moves the branch UNDER a worktree
+//     sitting on it, leaving a phantom staged diff (index = old tip, HEAD =
+//     new tip); that index tree IS a branch commit's tree, so the refresh is a
+//     pure content fast-forward. User-staged work produces a tree no branch
+//     commit has — the refresh must refuse.
+func canFastForwardRefresh(worktreePath, branchName string) bool {
+	if err := exec.Command("git", "-C", worktreePath, "diff", "--quiet").Run(); err != nil {
+		return false // unstaged edits (or diff failed) — refuse
+	}
+	treeOut, err := exec.Command("git", "-C", worktreePath, "write-tree").Output()
+	if err != nil {
+		return false // unmerged index / probe failure — refuse
+	}
+	indexTree := strings.TrimSpace(string(treeOut))
+	trees, err := exec.Command("git", "-C", worktreePath, "log", "--format=%T", "-n", "200", branchName).Output()
+	if err != nil {
+		return false
+	}
+	return slices.Contains(strings.Fields(string(trees)), indexTree)
+}
+
 // MergeFastForwardOnly fast-forwards the worktree's current branch to branchName
 // when possible. Unlike MergeBranch it NEVER creates a merge commit and NEVER
 // leaves the worktree in a conflicted / MERGING state: when a fast-forward is not
@@ -138,7 +166,29 @@ func MergeBranch(worktreePath, branchName string) error {
 // touching the working tree or index, and this returns an error the caller can log
 // and skip. Use it to sync an ancestor-tracking branch (e.g. the epic feature
 // branch into the epic's own workspace) into a live worktree safely.
+//
+// Since the epic unified-branch change (spec 2026-09-28 §1) the typical caller
+// worktree is checked out ON branchName itself, and the ref-level merges
+// (MergeAs update-ref) move that branch underneath the worktree: HEAD is a
+// symref, so plain "git merge --ff-only branchName" reports "Already up to
+// date" while the index and files still sit at the old tip. For that case this
+// refreshes the index + working tree to the new tip with "reset --hard" — but
+// ONLY when the worktree is clean; a dirty worktree is left untouched
+// (脏文件拒同步留旧头 semantics), same refusal rule as the ff path.
 func MergeFastForwardOnly(worktreePath, branchName string) error {
+	if cur, cErr := CurrentBranch(worktreePath); cErr == nil && cur == branchName {
+		if canFastForwardRefresh(worktreePath, branchName) {
+			cmd := exec.Command("git", "-C", worktreePath, "reset", "--hard", branchName, "--")
+			output, err := cmd.CombinedOutput()
+			if err != nil {
+				return fmt.Errorf("ff sync %s: %s: %w", branchName, strings.TrimSpace(string(output)), err)
+			}
+			return nil
+		}
+		// Local (unstaged or user-staged) content: leave the worktree untouched
+		// — fall through to the plain ff merge, which no-ops here and keeps the
+		// old head exactly like the legacy 脏文件拒同步 behaviour.
+	}
 	cmd := exec.Command("git", "-C", worktreePath, "merge", "--ff-only", branchName)
 	output, err := cmd.CombinedOutput()
 	if err != nil {

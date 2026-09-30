@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -252,14 +253,49 @@ func NewEpicExecutionService(db *sql.DB, q *store.Queries, kanban *KanbanService
 	}
 }
 
-// RequestMergeToMain asks the epic's active control workspace agent to merge the
-// epic feature branch (epic/<epicID>) into each repo's default branch. It does
-// NOT run any git in the backend: it locates the epic's non-archived control
-// workspace and sends a merge prompt to its agent session, which performs the
-// merge (resolving conflicts in place) and reports back.
+// EpicMergeConflictError reports that the server-side main→epic pre-merge
+// conflicted in one repo (spec 2026-09-28 §4 step ①). By the time it is
+// returned both refs are untouched (MergeAs's merge-tree dry run writes
+// nothing on conflict), a "main→epic 冲突待解决" exec event is recorded and
+// the control workspace has been flipped to attention. The HTTP handler maps
+// this to 409 with ConflictFiles for the UI.
+type EpicMergeConflictError struct {
+	// RepoPath is the repo whose merge conflicted.
+	RepoPath string
+	// Source/Target mirror the failing merge direction (main → epic/<id>).
+	Source string
+	Target string
+	// ConflictFiles lists the conflicted paths. When git's output yielded no
+	// parseable paths it carries a single fallback entry with the raw error
+	// text, so the UI always has something to show.
+	ConflictFiles []string
+}
+
+func (e *EpicMergeConflictError) Error() string {
+	return fmt.Sprintf("main→%s 合并冲突待解决（%s）：%s", e.Target, e.RepoPath, strings.Join(e.ConflictFiles, ", "))
+}
+
+// RequestMergeToMain runs the server-side merge-to-main flow (spec 2026-09-28
+// §4) and then hands the control-workspace agent a verification prompt. Per
+// repo, in order:
 //
-// Returns an error when the epic has no active control workspace (the review
-// phase should have created one) or no agent backend is wired.
+//  ① MergeAs(main → epic/<id>): folds any main-side commits into the epic
+//     branch first, so step ② can never conflict. Skipped when main is
+//     already contained in the epic branch (merging anyway would land a
+//     redundant no-op merge commit on epic/<id>). On conflict NOTHING is
+//     written: the engine records a "main→epic 冲突待解决" exec event with
+//     the conflicted-file list, flips the control workspace to attention and
+//     returns *EpicMergeConflictError (HTTP 409) WITHOUT sending any prompt.
+//  ② MergeAs(epic/<id> → main): the epic branch contains main by now, so
+//     this is always a fast-forward ref update — main can never conflict.
+//
+// After all repos: sync the control workspace (unified rows sit ON epic/<id>
+// so the ff-only sync fast-forwards the worktree; legacy ws-<id>/ rows keep
+// their existing sync path), then send the prompt. A conflict after earlier
+// repos already merged escalates the epic to blocked-needs-human (same
+// semantics as escalateMultiRepoMergeSplit — cross-repo merges are
+// non-atomic). The prompt asks the agent to VERIFY build/tests and push
+// origin under user confirmation; it performs NO git merge of its own.
 func (s *EpicExecutionService) RequestMergeToMain(ctx context.Context, epicID int64) error {
 	if s.agentProxy == nil {
 		return fmt.Errorf("agent backend not available")
@@ -283,44 +319,159 @@ func (s *EpicExecutionService) RequestMergeToMain(ctx context.Context, epicID in
 		return fmt.Errorf("epic has no active control workspace to perform the merge")
 	}
 
-	// Collect the per-repo default branch names for the prompt.
+	prs, err := s.listProjectReposForIssue(ctx, epicID)
+	if err != nil {
+		return fmt.Errorf("list epic project repos: %w", err)
+	}
+	// Distinct default-branch names, for the prompt.
 	var defaults []string
-	if prs, lErr := s.listProjectReposForIssue(ctx, epicID); lErr == nil {
-		for _, r := range prs {
-			if r.defaultBranch != "" {
-				defaults = append(defaults, r.defaultBranch)
-			}
+	seenBranch := map[string]bool{}
+	for _, r := range prs {
+		if r.defaultBranch != "" && !seenBranch[r.defaultBranch] {
+			seenBranch[r.defaultBranch] = true
+			defaults = append(defaults, r.defaultBranch)
 		}
 	}
-	prompt := composeMergeToMainPrompt(epic, defaults)
 
+	// Server-side git, repo by repo. Repos without an on-disk path (tests /
+	// not-yet-cloned) are skipped, mirroring ensureEpicBranch's best-effort.
+	// The epic branch is (re-)ensured first so a repo attached after the epic
+	// started still has the branch to merge into (idempotent for the rest).
+	if err := s.ensureEpicBranch(ctx, epicID); err != nil {
+		return fmt.Errorf("ensure epic branch: %w", err)
+	}
+	var mergedRepos []string
+	for _, r := range prs {
+		if r.path == "" {
+			continue
+		}
+		main := r.defaultBranch
+		if main == "" {
+			if cur, cErr := git.CurrentBranch(r.path); cErr == nil {
+				main = cur
+			}
+		}
+		if main == "" {
+			slog.Warn("epic merge-to-main: no default branch, skipping repo", "epicID", epicID, "repoID", r.repoID)
+			continue
+		}
+		if mErr := s.mergeRepoToMain(ctx, epic, ws.ID, r.path, main); mErr != nil {
+			var cf *EpicMergeConflictError
+			if errors.As(mErr, &cf) {
+				s.flipWorkspaceAttention(ctx, epicID)
+				if len(mergedRepos) > 0 {
+					// Partial multi-repo failure: earlier repos already folded
+					// into their main. Escalate to blocked-needs-human (spec §4
+					// 多仓), then surface the conflict as 409.
+					s.escalateEpicMergeSplit(ctx, ws.ID, epic, mergedRepos, cf)
+				}
+				return cf
+			}
+			return mErr
+		}
+		mergedRepos = append(mergedRepos, r.path)
+	}
+
+	// Sync the control workspace with the merged state. Serialized by mergeMu
+	// — this touches the same epic branch/worktrees the child merges do.
+	s.mergeMu.Lock()
+	s.syncEpicWorkspaceLocked(ctx, epicID)
+	s.mergeMu.Unlock()
+
+	prompt := composeMergeToMainPrompt(epic, defaults)
 	sess, err := s.agentProxy.GetOrStartSession(ctx, ws.ID, 0)
 	if err != nil || sess == nil {
 		return fmt.Errorf("agent session unavailable: %w", err)
 	}
 	sess.SendKickoff(ctx, ws.Path, prompt, "")
-	slog.Info("epic merge-to-main: prompt sent to control workspace", "epicID", epicID, "workspaceID", ws.ID)
+	slog.Info("epic merge-to-main: server-side merge done, verification prompt sent",
+		"epicID", epicID, "workspaceID", ws.ID, "repos", len(mergedRepos))
 	return nil
 }
 
-// composeMergeToMainPrompt builds the message instructing the epic's control
-// workspace agent to merge the feature branch into the repos' default branches.
+// mergeRepoToMain runs spec 2026-09-28 §4 steps ①② for one repo: main→epic
+// pre-merge (conflict → *EpicMergeConflictError, refs untouched) followed by
+// the guaranteed-fast-forward epic→main. Each completed node writes an exec
+// event.
+func (s *EpicExecutionService) mergeRepoToMain(ctx context.Context, epic store.Issue, workspaceID int64, repoPath, main string) error {
+	epicBranch := epicBranchName(epic.ID)
+	// ① main → epic, skipped when main is already an ancestor of the epic
+	// branch (nothing new to fold in).
+	if !git.BranchIsAncestor(repoPath, main, epicBranch) {
+		if err := git.MergeAs(repoPath, main, epicBranch, git.Identity{}); err != nil {
+			var cf *git.MergeConflictError
+			if !errors.As(err, &cf) {
+				return fmt.Errorf("main→%s 同步失败(%s): %w", epicBranch, repoPath, err)
+			}
+			files := cf.Files
+			if len(files) == 0 {
+				files = []string{err.Error()} // 清单解析为空时回退原始错误文本
+			}
+			s.recordMergeStepEvent(ctx, epic, workspaceID, "gate", "main→epic 冲突待解决", files)
+			return &EpicMergeConflictError{RepoPath: repoPath, Source: cf.Source, Target: cf.Target, ConflictFiles: files}
+		}
+		s.recordMergeStepEvent(ctx, epic, workspaceID, "advance", "main→epic 已同步", nil)
+	}
+	// ② epic → main. The epic branch contains main by construction now, so
+	// this is always a fast-forward ref move — main never conflicts.
+	if err := git.MergeAs(repoPath, epicBranch, main, git.Identity{}); err != nil {
+		return fmt.Errorf("%s→%s 合并失败(%s): %w", epicBranch, main, repoPath, err)
+	}
+	s.recordMergeStepEvent(ctx, epic, workspaceID, "advance", "epic→main 已合并（快进）", nil)
+	return nil
+}
+
+// recordMergeStepEvent writes a best-effort exec event for a merge-to-main
+// flow node (spec 2026-09-28 §4: 流程节点写 exec event). files (when
+// non-empty) rides along as the machine-readable conflict-file payload.
+func (s *EpicExecutionService) recordMergeStepEvent(ctx context.Context, epic store.Issue, workspaceID int64, kind, summary string, files []string) {
+	if s.execEvents == nil {
+		return
+	}
+	e := ExecEvent{IssueID: epic.ID, WorkspaceID: workspaceID, Kind: kind, Summary: summary}
+	if len(files) > 0 {
+		if payload, mErr := json.Marshal(map[string]any{"conflict_files": files}); mErr == nil {
+			e.DetailJSON = string(payload)
+		}
+	}
+	s.execEvents.Record(ctx, e)
+}
+
+// escalateEpicMergeSplit lands the EPIC in the blocked-needs-human state when
+// its merge-to-main partially failed across repos (spec 2026-09-28 §4 多仓,
+// reusing escalateMultiRepoMergeSplit's semantics: cross-repo merges are
+// non-atomic, and earlier repos already reached main). exec_status=gate_blocked
+// (+reason), a terminal exec event; the attention flip is the caller's.
+func (s *EpicExecutionService) escalateEpicMergeSplit(ctx context.Context, workspaceID int64, epic store.Issue, mergedRepos []string, cf *EpicMergeConflictError) {
+	reason := fmt.Sprintf("多仓合并部分失败(非原子): 已并入 main [%s], 仓库 [%s] main→epic 冲突未并(%s); 需人工解决冲突后重试",
+		strings.Join(mergedRepos, ", "), cf.RepoPath, strings.Join(cf.ConflictFiles, ", "))
+	slog.Warn("epic merge-to-main: partial multi-repo merge, escalating to blocked-needs-human",
+		"epicID", epic.ID, "workspaceID", workspaceID, "merged", mergedRepos, "failedRepo", cf.RepoPath)
+	if err := s.q.SetIssueExecStatusWithReason(ctx, store.SetIssueExecStatusWithReasonParams{
+		ExecStatus:       "gate_blocked",
+		ExecStatusReason: sql.NullString{String: reason, Valid: true},
+		ID:               epic.ID,
+	}); err != nil {
+		slog.Error("epic merge-to-main: set epic gate_blocked", "epicID", epic.ID, "error", err)
+	}
+	s.recordMergeStepEvent(ctx, epic, workspaceID, "terminal", "blocked-needs-human："+reason, nil)
+}
+
+// composeMergeToMainPrompt builds the post-merge verification message for the
+// epic's control workspace agent. Since spec 2026-09-28 §4 the SERVER performs
+// every git merge (main→epic pre-merge + epic→main fast-forward) BEFORE this
+// prompt is sent — the agent must not run any git merge of its own; it only
+// verifies build/tests in the workspace and pushes under user confirmation.
 func composeMergeToMainPrompt(epic store.Issue, defaultBranches []string) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "# 合并 Epic「%s」到主分支\n\n", epic.Title)
-	fmt.Fprintf(&b, "请把当前 Epic 的功能分支 `%s` 合并到主分支(各仓库的默认分支)", epicBranchName(epic.ID))
+	fmt.Fprintf(&b, "# Epic「%s」已合并到主分支，请验证\n\n", epic.Title)
+	fmt.Fprintf(&b, "服务端已完成 main→epic 同步与 epic→main 合并（快进），Epic 分支 `%s` 已合入各仓库主分支", epicBranchName(epic.ID))
 	if len(defaultBranches) > 0 {
-		seen := map[string]bool{}
-		uniq := make([]string, 0, len(defaultBranches))
-		for _, d := range defaultBranches {
-			if !seen[d] {
-				seen[d] = true
-				uniq = append(uniq, d)
-			}
-		}
-		fmt.Fprintf(&b, "(%s)", strings.Join(uniq, ", "))
+		fmt.Fprintf(&b, "（%s）", strings.Join(defaultBranches, ", "))
 	}
-	b.WriteString("；如有冲突请就地解决后完成合并并提交；完成后报告结果。\n")
+	b.WriteString("。\n")
+	b.WriteString("请在本工作空间验证构建/测试是否通过；通过后在用户确认下推送 origin。\n")
+	b.WriteString("不要自行执行任何分支合并操作——所有分支合并已由服务端完成。\n")
 	return b.String()
 }
 

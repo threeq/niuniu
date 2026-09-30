@@ -61,6 +61,17 @@ func BranchExists(repoPath, branchName string) bool {
 	return cmd.Run() == nil
 }
 
+// BranchIsAncestor reports whether commit `ancestor` (branch or commit-ish) is
+// already contained in `head` — i.e. "git merge-base --is-ancestor" exits 0.
+// The epic merge-to-main flow uses it to skip the main→epic pre-merge when
+// main has nothing new to contribute (merging anyway would move the epic ref
+// to a redundant no-op merge commit). An unresolvable ref reports false so
+// callers fall through to the merge path and surface its error.
+func BranchIsAncestor(repoPath, ancestor, head string) bool {
+	cmd := exec.Command("git", "-C", repoPath, "merge-base", "--is-ancestor", ancestor, head)
+	return cmd.Run() == nil
+}
+
 // DeleteBranch deletes a branch.
 func DeleteBranch(repoPath, branchName string) error {
 	cmd := exec.Command("git", "-C", repoPath, "branch", "-D", "--", branchName)

@@ -917,8 +917,9 @@ func TestEpicExecution_ModeB_PartialMultiRepoMergeBlocksWithoutWaveEngine(t *tes
 	assert.Equal(t, "running", e.execStatus(t, epicID), "epic untouched: no wave-engine failure policy on the orchestration path")
 }
 
-// merge-to-main requires the epic to be 'done' and sends a merge prompt to the
-// epic's active control workspace agent.
+// merge-to-main requires the epic to be 'done'; since spec 2026-09-28 §4 the
+// server performs the git merges itself and the prompt is verification-only
+// (no git merge instructions for the agent).
 func TestEpicExecution_RequestMergeToMain(t *testing.T) {
 	e := setupEpicTest(t)
 	proxy := &fakeAgentProxy{}
@@ -933,8 +934,11 @@ func TestEpicExecution_RequestMergeToMain(t *testing.T) {
 	require.NoError(t, e.svc.RequestMergeToMain(e.ctx, epicID))
 	require.NotEmpty(t, proxy.kickoffs)
 	last := proxy.kickoffs[len(proxy.kickoffs)-1]
-	assert.Contains(t, last, "合并 Epic")
+	assert.Contains(t, last, "服务端已完成 main→epic 同步与 epic→main 合并（快进）")
 	assert.Contains(t, last, epicBranch(epicID))
+	assert.Contains(t, last, "推送 origin")
+	assert.NotContains(t, last, "就地解决", "the agent must not be told to resolve conflicts in place")
+	assert.NotContains(t, last, "git merge", "the agent must not run any git merge")
 }
 
 func TestEpicExecution_RequestMergeToMainNoWorkspace(t *testing.T) {

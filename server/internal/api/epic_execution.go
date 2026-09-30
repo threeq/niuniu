@@ -1,6 +1,7 @@
 package api
 
 import (
+	"errors"
 	"net/http"
 	"strconv"
 	"strings"
@@ -260,10 +261,12 @@ func (h *EpicExecutionHandler) AbandonIssue(c *gin.Context) {
 	c.JSON(http.StatusOK, res)
 }
 
-// MergeToMain asks the epic's control-workspace agent to merge the epic feature
-// branch into the repos' default branches. It does NOT git-merge in the backend.
-// Requires the issue to be an epic whose exec_status is 'done' (review complete).
-// POST /api/issues/:id/merge-to-main
+// MergeToMain runs the server-side merge-to-main flow (spec 2026-09-28 §4):
+// per repo the backend merges main→epic (conflict → 409 + conflict_files,
+// nothing written) then fast-forwards epic→main, syncs the control workspace,
+// and finally sends the verification prompt to the epic's control-workspace
+// agent. Requires the issue to be an epic whose exec_status is 'done' (review
+// complete). POST /api/issues/:id/merge-to-main
 func (h *EpicExecutionHandler) MergeToMain(c *gin.Context) {
 	userID := c.GetInt64("auth_user_id")
 	issueID, err := strconv.ParseInt(c.Param("id"), 10, 64)
@@ -288,6 +291,11 @@ func (h *EpicExecutionHandler) MergeToMain(c *gin.Context) {
 		return
 	}
 	if err := h.svc.RequestMergeToMain(c.Request.Context(), issueID); err != nil {
+		var cf *service.EpicMergeConflictError
+		if errors.As(err, &cf) {
+			c.JSON(http.StatusConflict, gin.H{"error": cf.Error(), "conflict_files": cf.ConflictFiles})
+			return
+		}
 		BadRequest(c, err.Error())
 		return
 	}
