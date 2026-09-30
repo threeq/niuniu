@@ -830,6 +830,28 @@ func (s *WorkspaceService) resolveIssueOrEpicCreator(ctx context.Context, issueI
 	return 0, false
 }
 
+// epicGovernsIssue re-checks, at the Create interception point, that the
+// governing issue behind epicIDForIssue's "managed" verdict is REALLY an epic.
+// epicIDForIssue deliberately treats any parented issue as managed (the engine
+// dispatch path relies on that), but the HTTP 收口 must only delegate when the
+// parent's IssueType is "epic" — a child of a plain task keeps the normal
+// creation path (user-picked branch intact, no phantom epic/<id> branch, no
+// cascade onto the plain parent). A parent that fails to load also falls
+// through: delegation must never rest on an unresolvable issue graph.
+func (s *WorkspaceService) epicGovernsIssue(ctx context.Context, issue store.Issue) bool {
+	if issue.IssueType == "epic" {
+		return true
+	}
+	if !issue.ParentIssueID.Valid {
+		return false
+	}
+	parent, err := s.q.GetIssue(ctx, issue.ParentIssueID.Int64)
+	if err != nil {
+		return false
+	}
+	return parent.IssueType == "epic"
+}
+
 func (s *WorkspaceService) Create(ctx context.Context, input CreateWorkspaceInput) (*WorkspaceResult, error) {
 	// Epic 统一分支收口 (spec 2026-09-28 §2b): an epic-managed issue — the epic
 	// itself or a child of one — always gets its worktree(s) from the epic
@@ -840,10 +862,12 @@ func (s *WorkspaceService) Create(ctx context.Context, input CreateWorkspaceInpu
 	// there is no recursion. NoRepo workspaces (plain directories, no
 	// worktrees) keep their semantics — there is no branch to resolve. A load
 	// failure falls through to the legacy path (Create never required the
-	// issue to resolve).
+	// issue to resolve). epicGovernsIssue re-checks the parent's type because
+	// epicIDForIssue marks ANY parented issue managed (engine dispatch relies
+	// on that) — a child of a plain task must keep the normal path below.
 	if s.epicCreateDelegate != nil && !input.epicReposResolved && !input.NoRepo && input.IssueID != nil {
 		if issue, err := s.q.GetIssue(ctx, *input.IssueID); err == nil {
-			if _, managed := epicIDForIssue(issue); managed {
+			if _, managed := epicIDForIssue(issue); managed && s.epicGovernsIssue(ctx, issue) {
 				var callerUserID int64
 				if input.CreatedBy != nil {
 					callerUserID = *input.CreatedBy

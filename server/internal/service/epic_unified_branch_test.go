@@ -109,6 +109,14 @@ func (e *unifiedBranchEnv) makeChild(t *testing.T, epicID int64, title string) i
 	return d.ID
 }
 
+// makeTask creates a plain (non-epic, unparented) task issue.
+func (e *unifiedBranchEnv) makeTask(t *testing.T, title string) int64 {
+	t.Helper()
+	d, err := e.kanban.CreateIssue(e.ctx, e.columnID, title, "", 0, 0, "", "", "", 0, nil, "task", 0, nil, nil, 0)
+	require.NoError(t, err)
+	return d.ID
+}
+
 // epicActiveWorkspace returns the epic's non-archived workspace, if any.
 func (e *unifiedBranchEnv) epicActiveWorkspace(t *testing.T, epicID int64) (store.Workspace, bool) {
 	t.Helper()
@@ -301,6 +309,56 @@ func TestEpicUnifiedBranch_CreateDelegatesForEpicManagedIssue(t *testing.T) {
 	require.Len(t, epic2Wts, 1)
 	require.Equal(t, fmt.Sprintf("epic/%d", epic2), epic2Wts[0].Branch,
 		"a plain Create on an epic yields the unified control workspace")
+}
+
+// TestEpicUnifiedBranch_PlainTaskChildNotDelegated guards the §2b 收口 against
+// over-delegation: epicIDForIssue marks ANY parented issue "managed" (the engine
+// dispatch path relies on that), so the interception inside Create must
+// re-check the parent's type. A child of a PLAIN task keeps the normal
+// creation path — the user's hand-picked branch survives, no phantom
+// epic/<parentID> branch is created, and the plain parent gets no cascade
+// control workspace.
+//
+// The kanban layer derives issue_type from child presence (syncIssueType: any
+// issue that gains a child is promoted to "epic"), so a task-typed parent row
+// is normally unreachable through the service API. It IS reachable through raw
+// / legacy writes that skip the sync — exactly the state the guard defends
+// against — so the test forces the parent back to "task" directly in the store.
+func TestEpicUnifiedBranch_PlainTaskChildNotDelegated(t *testing.T) {
+	e := setupUnifiedBranchEnv(t)
+	// Wire the production delegation (server.New does the same) — the guard must
+	// hold WITH the delegate in place, not just in its absence.
+	e.wsSvc.SetEpicCreateDelegate(e.epicSvc.EpicCreateDelegate())
+
+	parentID := e.makeTask(t, "普通父任务")
+	childID := e.makeChild(t, parentID, "普通父的子任务")
+	// Simulate the invariant-violating row: parent has children but is a task.
+	require.NoError(t, e.q.SetIssueType(e.ctx, store.SetIssueTypeParams{IssueType: "task", ID: parentID}))
+
+	res, err := e.wsSvc.Create(e.ctx, CreateWorkspaceInput{
+		IssueID:   &childID,
+		Name:      "plain child ws",
+		Repos:     []RepoBranch{{RepoID: e.repoID, Branch: "main"}}, // 客户端手选 main
+		OwnerType: "user",
+		OwnerID:   1,
+	})
+	require.NoError(t, err)
+
+	childWts, err := e.q.ListWorktrees(e.ctx, res.Workspace.ID)
+	require.NoError(t, err)
+	require.Len(t, childWts, 1)
+	require.Equal(t, fmt.Sprintf("ws-%d/main", res.Workspace.ID), childWts[0].Branch,
+		"the child workspace must fork the user's hand-picked branch (main), NOT epic/<parentID>")
+	require.Equal(t, "main", childWts[0].BaseBranch,
+		"the diff base is the user-picked branch, not a phantom epic branch")
+
+	epicBranch := fmt.Sprintf("epic/%d", parentID)
+	require.NotContains(t, ubGitOut(t, e.repoDir, "branch", "--list", epicBranch), epicBranch,
+		"no phantom epic/<plain-parent-id> branch may be created")
+
+	pws, err := e.q.GetWorkspacesByIssue(e.ctx, sql.NullInt64{Int64: parentID, Valid: true})
+	require.NoError(t, err)
+	require.Empty(t, pws, "a plain task parent must not get a cascade control workspace")
 }
 
 // TestEpicUnifiedBranch_LegacyWsPrefixRowsStillDeleteBranchOnArchive guards
