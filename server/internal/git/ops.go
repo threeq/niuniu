@@ -645,11 +645,100 @@ func Merge(worktreePath, sourceBranch, targetBranch string) error {
 	return MergeAs(worktreePath, sourceBranch, targetBranch, Identity{})
 }
 
+// MergeConflictError reports a merge that git could not complete without
+// conflict resolution. Files carries the conflicted paths parsed from the
+// merge-tree --write-tree output (its ls-files -u style section lists one
+// entry per conflicted path per stage, so paths are de-duplicated here).
+// Callers may errors.As into it to surface a structured conflict (spec
+// 2026-09-28 §4); Error() renders the same "conflicts detected" message the
+// plain error path has always produced, so existing log/error handling and
+// string-matching callers are unaffected.
+type MergeConflictError struct {
+	Source string
+	Target string
+	// Output is the raw merge-tree output (conflicted-file entries plus
+	// informational CONFLICT lines), preserved for logs and debugging.
+	Output string
+	// Files lists the conflicted paths, de-duplicated in first-seen order.
+	Files []string
+}
+
+func (e *MergeConflictError) Error() string {
+	return fmt.Sprintf("merge %s into %s: conflicts detected:\n%s", e.Source, e.Target, e.Output)
+}
+
+// parseMergeTreeConflicts extracts the conflicted paths from merge-tree
+// --write-tree output. Its conflicted-file section lists entries in the
+// `git ls-files -u` shape — "<mode> <object> <stage>\t<path>" — one line per
+// stage of each conflict, followed by a blank line and human-readable
+// "CONFLICT (...)" informational messages. Matching the entry shape (rather
+// than parsing the prose) keeps the parse reliable across conflict kinds;
+// stages collapse into one path, first-seen order preserved.
+func parseMergeTreeConflicts(output string) []string {
+	var files []string
+	seen := map[string]struct{}{}
+	for _, line := range strings.Split(output, "\n") {
+		line = strings.TrimRight(line, "\r")
+		mode, rest, ok := strings.Cut(line, " ")
+		if !ok || len(mode) != 6 {
+			continue
+		}
+		isOctal := true
+		for _, r := range mode {
+			if r < '0' || r > '7' {
+				isOctal = false
+				break
+			}
+		}
+		if !isOctal {
+			continue
+		}
+		// rest = "<object> <stage>\t<path>"
+		obj, rest2, ok := strings.Cut(rest, " ")
+		if !ok || len(obj) != 40 {
+			continue
+		}
+		hexOK := true
+		for _, r := range obj {
+			if !((r >= '0' && r <= '9') || (r >= 'a' && r <= 'f')) {
+				hexOK = false
+				break
+			}
+		}
+		if !hexOK {
+			continue
+		}
+		stage, path, ok := strings.Cut(rest2, "\t")
+		if !ok || stage == "" {
+			continue
+		}
+		stageOK := true
+		for _, r := range stage {
+			if r < '0' || r > '9' {
+				stageOK = false
+				break
+			}
+		}
+		if !stageOK || path == "" {
+			continue
+		}
+		if _, dup := seen[path]; dup {
+			continue
+		}
+		seen[path] = struct{}{}
+		files = append(files, path)
+	}
+	return files
+}
+
 // MergeAs is Merge with explicit author/committer attribution for the merge
 // commit. A zero id falls through to repo-local then OS-global git config.
 //
 // Note the asymmetry with CommitAs: a fast-forward merge creates no commit at
 // all, so id is simply unused on that path — there is nothing to attribute.
+//
+// A conflicted merge returns a *MergeConflictError (errors.As-able) carrying
+// the conflicted file list; Error() keeps the historical message shape.
 func MergeAs(worktreePath, sourceBranch, targetBranch string, id Identity) error {
 	if err := validateIdentity(id); err != nil {
 		return err
@@ -682,7 +771,12 @@ func MergeAs(worktreePath, sourceBranch, targetBranch string, id Identity) error
 	if mtErr != nil {
 		output := strings.TrimSpace(string(mtOut))
 		if strings.Contains(output, "CONFLICT") {
-			return fmt.Errorf("merge %s into %s: conflicts detected:\n%s", sourceBranch, targetBranch, output)
+			return &MergeConflictError{
+				Source: sourceBranch,
+				Target: targetBranch,
+				Output: output,
+				Files:  parseMergeTreeConflicts(output),
+			}
 		}
 		return fmt.Errorf("merge %s into %s: merge-tree failed: %s: %w", sourceBranch, targetBranch, output, mtErr)
 	}

@@ -359,6 +359,10 @@ type IssueResponse struct {
 	// (blocked-needs-human / abandoned-with-reason, spec §19). Nil when empty.
 	ExecStatusReason *string            `json:"exec_status_reason,omitempty"`
 	ChecklistStats   *ChecklistStatsDTO `json:"checklist_stats,omitempty"`
+	// HasWorkspace (spec 2026-09-28 §3 frontend flag): the issue owns a live
+	// (non-archived) workspace, so its parent/child relations are frozen — the
+	// UI hides the parent/child entries the server guardrail would 409 anyway.
+	HasWorkspace bool `json:"has_workspace"`
 	// External tracker linkage. Empty when the issue is not linked to any
 	// external source. ExternalSource is the provider name (e.g. "github");
 	// ExternalID is canonical ("owner/repo#123"); ExternalURL is the
@@ -455,6 +459,7 @@ func toIssueResponse(d service.IssueDetail) IssueResponse {
 		ExecWave:                   d.ExecWave,
 		ExecStatus:                 d.ExecStatus,
 		ExecStatusReason:           execStatusReason,
+		HasWorkspace:               d.HasWorkspace,
 		ExternalSource:             nullStringValResp(d.ExternalSource),
 		ExternalID:                 nullStringValResp(d.ExternalID),
 		ExternalURL:                nullStringValResp(d.ExternalUrl),

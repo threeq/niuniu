@@ -30,6 +30,19 @@ UPDATE workspaces SET active_env_provider_name = ? WHERE id = ?;
 -- name: GetWorkspacesByIssue :many
 SELECT * FROM workspaces WHERE issue_id = ? ORDER BY is_archived ASC, created_at DESC;
 
+-- name: HasActiveWorkspaceForIssue :one
+-- Spec 2026-09-28 section 3 parent/child guardrail: an issue with a live
+-- (non-archived) workspace must not change parent/child relations. Returns
+-- the workspace id; sql.ErrNoRows means no active workspace.
+SELECT id FROM workspaces WHERE issue_id = ? AND is_archived = 0 LIMIT 1;
+
+-- name: ListActiveWorkspaceIssueIDs :many
+-- Spec 2026-09-28 section 3 frontend flag: distinct issue ids that own a live
+-- (non-archived) workspace. Batch source for has_workspace on the kanban
+-- issue list/detail DTOs (avoids a per-issue N+1 lookup).
+SELECT DISTINCT issue_id FROM workspaces
+WHERE is_archived = 0 AND issue_id IN (sqlc.slice('issue_ids'));
+
 -- name: ListProjectWorkspacesForCleanup :many
 -- Live (non-archived, not mid-delete) workspaces bound to an issue in a project,
 -- with the issue status pair and the last-activity signal, for auto-cleanup.

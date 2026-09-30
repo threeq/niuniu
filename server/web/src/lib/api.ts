@@ -1076,12 +1076,6 @@ export const epicApi = {
   epicProgress: (issueId: number) =>
     api.get<EpicProgress>(`/issues/${issueId}/epic-progress`),
 
-  //   - mergeToMain: after review ('done'), ask the epic's control-workspace
-  //     agent to merge the epic feature branch into the repos' default branches.
-  //     The backend does NOT git-merge; it sends a merge prompt to the agent.
-  mergeToMain: (issueId: number) =>
-    api.post<EpicProgress>(`/issues/${issueId}/merge-to-main`, {}),
-
   //   - startWorkspace: dispatch a workspace for an issue (mode-B child dispatch;
   //     also exposed to agents as the start_workspace MCP tool).
   startWorkspace: (issueId: number) =>

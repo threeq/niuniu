@@ -127,6 +127,140 @@ func TestMergeFastForwardOnly(t *testing.T) {
 	})
 }
 
+// TestMergeFastForwardOnly_SameBranchRefreshUnderMovedRef pins the unified-branch
+// sync case (spec 2026-09-28 §1/§4): a ref-level merge (update-ref) moves the
+// branch UNDER a worktree sitting on it, so plain `git merge --ff-only` no-ops
+// ("Already up to date") while index+files lag at the old tip. A clean worktree
+// is refreshed to the new tip; one with real local edits is left untouched.
+func TestMergeFastForwardOnly_SameBranchRefreshUnderMovedRef(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not in PATH")
+	}
+
+	root := t.TempDir()
+	repo := filepath.Join(root, "repo")
+	_, _ = setupTestRepo(t, repo)
+
+	moveBranchForward := func(tt *testing.T, branch, content string) string {
+		// Commit on main (the repo checkout stays there) then move the branch
+		// with update-ref — exactly what a ref-level MergeAs does (plain
+		// `git branch -f` refuses branches checked out in a worktree).
+		writeFile(tt, filepath.Join(repo, "shared.txt"), content)
+		runGit(tt, repo, "add", "shared.txt")
+		runGit(tt, repo, "commit", "-q", "-m", content)
+		tip := revParse(tt, repo, "main")
+		runGit(tt, repo, "update-ref", "refs/heads/"+branch, tip)
+		return tip
+	}
+
+	t.Run("refreshes a clean worktree after the ref moved under it", func(t *testing.T) {
+		runGit(t, repo, "branch", "sync-a", "main")
+		wt := filepath.Join(root, "wt-sync-a")
+		if err := WorktreeAddCheckoutExisting(repo, wt, "sync-a"); err != nil {
+			t.Fatalf("WorktreeAddCheckoutExisting: %v", err)
+		}
+		t.Cleanup(func() { _ = WorktreeRemove(repo, wt) })
+
+		// Move sync-a forward at ref level (as MergeAs does) — the worktree
+		// lags behind with a phantom staged diff.
+		tip := moveBranchForward(t, "sync-a", "moved forward\n")
+
+		if err := MergeFastForwardOnly(wt, "sync-a"); err != nil {
+			t.Fatalf("MergeFastForwardOnly (same-branch refresh): %v", err)
+		}
+		if got := revParse(t, wt, "HEAD"); got != tip {
+			t.Fatalf("HEAD = %s, want moved tip %s", got, tip)
+		}
+		if b, err := os.ReadFile(filepath.Join(wt, "shared.txt")); err != nil || strings.ReplaceAll(string(b), "\r\n", "\n") != "moved forward\n" {
+			t.Fatalf("worktree file not refreshed: %q err=%v", b, err)
+		}
+		// The worktree reports clean afterwards.
+		out, err := exec.Command("git", "-C", wt, "status", "--porcelain").Output()
+		if err != nil || len(strings.TrimSpace(string(out))) != 0 {
+			t.Fatalf("worktree not clean after refresh: %q err=%v", out, err)
+		}
+	})
+
+	t.Run("leaves a worktree with local edits untouched", func(t *testing.T) {
+		runGit(t, repo, "branch", "sync-b", "main")
+		wt := filepath.Join(root, "wt-sync-b")
+		if err := WorktreeAddCheckoutExisting(repo, wt, "sync-b"); err != nil {
+			t.Fatalf("WorktreeAddCheckoutExisting: %v", err)
+		}
+		t.Cleanup(func() { _ = WorktreeRemove(repo, wt) })
+
+		moveBranchForward(t, "sync-b", "moved again\n")
+		// A real local edit to a TRACKED file (unstaged) — content the refresh
+		// would destroy.
+		writeFile(t, filepath.Join(wt, "a"), "my local edit\n")
+
+		if err := MergeFastForwardOnly(wt, "sync-b"); err != nil {
+			t.Fatalf("dirty worktree must be skipped without error: %v", err)
+		}
+		// HEAD is a symref to the moved branch, so it reads the new tip either
+		// way — the refused refresh shows in the FILE CONTENT: shared.txt keeps
+		// its pre-move content and the local edit survives.
+		if b, err := os.ReadFile(filepath.Join(wt, "shared.txt")); err == nil && strings.ReplaceAll(string(b), "\r\n", "\n") == "moved again\n" {
+			t.Fatal("dirty worktree must NOT be refreshed to the new tip")
+		}
+		if b, err := os.ReadFile(filepath.Join(wt, "a")); err != nil || string(b) != "my local edit\n" {
+			t.Fatalf("local edit must survive the refused sync: %q err=%v", b, err)
+		}
+	})
+}
+
+// TestWorktreeAddCheckoutExisting pins the Epic unified-branch helper (spec
+// 2026-09-28 §1): the epic control workspace's worktree must check out the
+// ALREADY-EXISTING epic/<id> branch as-is (no -b), so the workspace sits
+// directly on the branch children merge into.
+func TestWorktreeAddCheckoutExisting(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not in PATH")
+	}
+
+	root := t.TempDir()
+	repo := filepath.Join(root, "repo")
+	mainSHA, developSHA := setupTestRepo(t, repo)
+
+	// First worktree checks out develop and stays alive across both subtests
+	// (parent-level cleanup), so the duplicate-checkout guard is exercisable.
+	wtExisting := filepath.Join(root, "wt-existing")
+	if err := WorktreeAddCheckoutExisting(repo, wtExisting, "develop"); err != nil {
+		t.Fatalf("WorktreeAddCheckoutExisting: %v", err)
+	}
+	t.Cleanup(func() { _ = WorktreeRemove(repo, wtExisting) })
+
+	t.Run("checks out the existing branch as-is", func(t *testing.T) {
+		if got := revParse(t, wtExisting, "--abbrev-ref HEAD"); got != "develop" {
+			t.Fatalf("worktree branch = %s, want develop (checked out, not forked)", got)
+		}
+		if got := revParse(t, wtExisting, "HEAD"); got != developSHA {
+			t.Fatalf("worktree HEAD = %s, want develop tip %s", got, developSHA)
+		}
+		// No new branch may be created — the set of branches is unchanged.
+		out, err := exec.Command("git", "-C", repo, "for-each-ref", "--format=%(refname:short)", "refs/heads").Output()
+		if err != nil {
+			t.Fatalf("for-each-ref: %v", err)
+		}
+		for _, b := range strings.Split(string(out), "\n") {
+			if strings.TrimSpace(b) == "wt-existing" {
+				t.Fatal("WorktreeAddCheckoutExisting created a new branch; must check out the existing one")
+			}
+		}
+		_ = mainSHA
+	})
+
+	t.Run("refuses when the branch is already checked out elsewhere", func(t *testing.T) {
+		// develop is still checked out in the first worktree; a second
+		// checkout must fail with git's native guard error.
+		wt2 := filepath.Join(root, "wt-dup")
+		err := WorktreeAddCheckoutExisting(repo, wt2, "develop")
+		if err == nil {
+			t.Fatal("expected an error checking out a branch already checked out in another worktree")
+		}
+	})
+}
+
 // setupTestRepo initializes a repo with main → A and develop → A,B,C, returning the
 // tip SHAs of main and develop respectively.
 func setupTestRepo(t *testing.T, dir string) (mainSHA, developSHA string) {

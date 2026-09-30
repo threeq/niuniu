@@ -168,8 +168,6 @@
       "execute": "执行",
       "pause": "暂停",
       "resume": "恢复",
-      "mergeToMain": "合并到主分支",
-      "mergeToMainStarted": "已向 Epic 智能体发送合并请求",
       "reviewingHint": "审核智能体正在核对功能分支",
       "executing": "执行中 {{done}}/{{total}}",
       "noChildren": "暂无子任务",
@@ -188,7 +186,6 @@
         "a": "模式 A(波次引擎)",
         "b": "模式 B(编排工作区)"
       },
-      "executeFailed": "启动 Epic 执行失败",
       "execFieldsFailed": "更新 Epic 字段失败",
       "failurePolicy": {
         "label": "失败策略",

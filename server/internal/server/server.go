@@ -874,6 +874,14 @@ func New(cfg *config.Config, db *sql.DB, frontendFS fs.FS) *Server {
 	// workspace; child -> kicked off). Triggered for both manual and automatic
 	// creation since both go through WorkspaceService.Create.
 	s.workspaceSvc.SetWorkspaceCreatedHook(s.epicExecSvc.OnWorkspaceCreated)
+	// Epic 统一分支收口 (spec 2026-09-28 §2b): creations for epic-managed issues
+	// (the epic itself or a child of one) delegate to the engine's
+	// createWorkspaceForIssue so branches are always derived from epic/<id>
+	// (client-selected branches ignored) and the scenario-b cascade (child
+	// creation brings up the parent control workspace) runs. Both HTTP create
+	// paths — POST /workspaces and POST /issues/{id}/workspace — converge on
+	// WorkspaceService.Create, where the interception lives.
+	s.workspaceSvc.SetEpicCreateDelegate(s.epicExecSvc.EpicCreateDelegate())
 	// Wire the goal_condition suggester so ensureWorkspace can infer a goal for a
 	// brand-new standalone workspace (advance_issue into an `instruct` column),
 	// reusing the haiku suggest chain the AI-suggest endpoint uses.

@@ -55,6 +55,15 @@ type WorkspaceService struct {
 	// kicked off with the issue's title + description. Runs in its own goroutine so
 	// it never blocks Create. Nil-safe.
 	onCreated func(context.Context, store.Workspace)
+	// epicCreateDelegate intercepts Create for epic-managed issues (wired via
+	// SetEpicCreateDelegate). The Epic unified-branch design (spec 2026-09-28
+	// §2b) funnels every creation for an epic or a child of one through the
+	// engine's createWorkspaceForIssue, which resolves the epic feature branch
+	// and runs the scenario-b cascade — any client-supplied branch is ignored,
+	// while the dialog's CliType/MCPServers/Name/repo subset ride along in
+	// EpicCreateOpts. Wired once at boot (server.New). Nil-safe: without it
+	// Create behaves as before (tests / services that don't opt in).
+	epicCreateDelegate func(ctx context.Context, issueID, callerUserID int64, opts *EpicCreateOpts) (*WorkspaceResult, error)
 }
 
 func NewWorkspaceService(q *store.Queries, db *sql.DB, cfg *config.WorkspaceConfig, dataDir string, notifyHub *notify.NotificationHub, authz *Authz) *WorkspaceService {
@@ -72,6 +81,18 @@ func (s *WorkspaceService) SetEventBus(b *event.Bus) {
 // to auto-link the workspace based on its issue type. Optional; nil-safe.
 func (s *WorkspaceService) SetWorkspaceCreatedHook(fn func(context.Context, store.Workspace)) {
 	s.onCreated = fn
+}
+
+// SetEpicCreateDelegate wires the Epic-engine creation delegate (spec
+// 2026-09-28 §2b 普通创建路径收口): when Create is called for an epic-managed
+// issue (the epic itself or a child of one), the call is delegated to the
+// engine's createWorkspaceForIssue so the worktree branch is always derived
+// from epic/<id> (client-selected branches ignored) and the scenario-b
+// cascade (child creation brings up the parent control workspace) runs. Both
+// HTTP paths — POST /workspaces and POST /issues/{id}/workspace — converge
+// here. Called from server.New after both services are constructed.
+func (s *WorkspaceService) SetEpicCreateDelegate(fn func(ctx context.Context, issueID, callerUserID int64, opts *EpicCreateOpts) (*WorkspaceResult, error)) {
+	s.epicCreateDelegate = fn
 }
 
 // SetHarnessService wires the harness service for CLAUDE.md injection.
@@ -694,6 +715,13 @@ type CreateWorkspaceInput struct {
 	// no auto-continue watchdog). Autonomous flows pass "autohost" to add the
 	// auto-continue watchdog on top (Epic paths set it via enableAutohost).
 	PermissionMode string
+
+	// epicReposResolved marks the input as already resolved by the Epic engine
+	// (createWorkspaceForIssue sets it). WorkspaceService.Create skips the
+	// epic-managed delegation for such calls so the engine's own Create does
+	// not recurse through the delegate. Same-package field: only the engine
+	// sets it.
+	epicReposResolved bool
 }
 
 // ValidCliTypes is the closed set accepted by the cli_type CHECK constraint
@@ -761,15 +789,24 @@ func (s *WorkspaceService) UpdateCodexSandbox(ctx context.Context, workspaceID i
 type RepoBranch struct {
 	RepoID int64
 	// Branch is the fork point: the worktree's new branch (ws-<id>/<Branch>) is
-	// created from this ref.
+	// created from this ref. When CheckoutExisting is set it is instead the
+	// EXISTING branch the worktree checks out as-is.
 	Branch string
 	// Base, when non-empty, is the branch the worktree's diff/ahead view is computed
 	// against (recorded as base_branch), decoupled from Branch (the fork point).
 	// Empty => base == Branch (the common case). The Epic engine sets it so the
-	// epic's OWN workspace forks from the epic feature branch (holding the accumulated
-	// child work, and review fixes land on a branch that merges back into it) yet
-	// diffs against the real baseline (the project default branch).
+	// epic's OWN workspace holds the accumulated child work (its fixes land on a
+	// branch that merges back into the feature branch) yet diffs against the real
+	// baseline (the project default branch).
 	Base string
+	// CheckoutExisting marks Branch as an already-existing branch the worktree
+	// must check out as-is (`git worktree add <path> <branch>` without -b) —
+	// no ws-<workspaceID>/ fork is generated and the ws_repo row records
+	// Branch verbatim. Set only for Epic control repos (spec 2026-09-28 §1:
+	// the epic's own workspace sits directly on the epic/<id> feature branch).
+	// The branch must exist before Create runs (the Epic engine's
+	// ensureEpicBranch guarantees that).
+	CheckoutExisting bool
 }
 
 // resolveIssueOrEpicCreator implements fallbacks 2 and 3 of the workspace
@@ -794,7 +831,63 @@ func (s *WorkspaceService) resolveIssueOrEpicCreator(ctx context.Context, issueI
 	return 0, false
 }
 
+// epicGovernsIssue re-checks, at the Create interception point, that the
+// governing issue behind epicIDForIssue's "managed" verdict is REALLY an epic.
+// epicIDForIssue deliberately treats any parented issue as managed (the engine
+// dispatch path relies on that), but the HTTP 收口 must only delegate when the
+// parent's IssueType is "epic" — a child of a plain task keeps the normal
+// creation path (user-picked branch intact, no phantom epic/<id> branch, no
+// cascade onto the plain parent). A parent that fails to load also falls
+// through: delegation must never rest on an unresolvable issue graph.
+func (s *WorkspaceService) epicGovernsIssue(ctx context.Context, issue store.Issue) bool {
+	if issue.IssueType == "epic" {
+		return true
+	}
+	if !issue.ParentIssueID.Valid {
+		return false
+	}
+	parent, err := s.q.GetIssue(ctx, issue.ParentIssueID.Int64)
+	if err != nil {
+		return false
+	}
+	return parent.IssueType == "epic"
+}
+
 func (s *WorkspaceService) Create(ctx context.Context, input CreateWorkspaceInput) (*WorkspaceResult, error) {
+	// Epic 统一分支收口 (spec 2026-09-28 §2b): an epic-managed issue — the epic
+	// itself or a child of one — always gets its worktree(s) from the epic
+	// engine's creation path, which derives branches from epic/<id> (the
+	// client's hand-picked branch is ignored) and runs the scenario-b cascade
+	// (a child creation brings up the parent control workspace first). The
+	// engine's own Create call carries epicReposResolved and skips this, so
+	// there is no recursion. NoRepo workspaces (plain directories, no
+	// worktrees) keep their semantics — there is no branch to resolve. A load
+	// failure falls through to the legacy path (Create never required the
+	// issue to resolve). epicGovernsIssue re-checks the parent's type because
+	// epicIDForIssue marks ANY parented issue managed (engine dispatch relies
+	// on that) — a child of a plain task must keep the normal path below.
+	if s.epicCreateDelegate != nil && !input.epicReposResolved && !input.NoRepo && input.IssueID != nil {
+		if issue, err := s.q.GetIssue(ctx, *input.IssueID); err == nil {
+			if _, managed := epicIDForIssue(issue); managed && s.epicGovernsIssue(ctx, issue) {
+				var callerUserID int64
+				if input.CreatedBy != nil {
+					callerUserID = *input.CreatedBy
+				}
+				slog.Info("workspace.Create: epic-managed issue, delegating to the epic engine creation path", "issueID", *input.IssueID)
+				// Pass the dialog's explicit choices through (Fix: the
+				// delegation used to silently drop CliType/MCPServers/Name and
+				// the repo subset). Branch picks stay engine-derived — the
+				// engine ignores Repos' branches entirely.
+				return s.epicCreateDelegate(ctx, *input.IssueID, callerUserID, &EpicCreateOpts{
+					CliType:    input.CliType,
+					MCPServers: input.MCPServers,
+					Name:       input.Name,
+					Repos:      input.Repos,
+				})
+			}
+		}
+	}
+
 	ownerType := input.OwnerType
 	if ownerType == "" {
 		ownerType = "user"
@@ -1022,13 +1115,25 @@ func (s *WorkspaceService) Create(ctx context.Context, input CreateWorkspaceInpu
 
 		// Git branch name with workspace prefix: ws-<id>/<branch>
 		wtBranch := GenerateWorktreeBranch(workspace.ID, branch)
+		// Epic 统一分支 (spec 2026-09-28 §1): CheckoutExisting repos check out an
+		// ALREADY-EXISTING branch (epic/<id>) as-is — no ws-<id>/ fork — and the
+		// ws_repo row records the branch the worktree is ON, which later
+		// discriminates unified rows from legacy ws- prefixed ones at sync/archive.
+		storedBranch := wtBranch
+		addErr := error(nil)
+		if rb.CheckoutExisting {
+			storedBranch = branch
+			addErr = git.WorktreeAddCheckoutExisting(repo.Path, worktreePath, branch)
+		} else {
+			addErr = git.WorktreeAdd(repo.Path, worktreePath, wtBranch, branch)
+		}
 
 		// Create git worktree forked from the user-specified base branch.
-		if err := git.WorktreeAdd(repo.Path, worktreePath, wtBranch, branch); err != nil {
-			slog.Warn("workspace.Create: git worktree add failed", "repo_id", rb.RepoID, "workspace_id", workspace.ID, "base_branch", branch, "error", err)
+		if addErr != nil {
+			slog.Warn("workspace.Create: git worktree add failed", "repo_id", rb.RepoID, "workspace_id", workspace.ID, "base_branch", branch, "error", addErr)
 			result.Errors = append(result.Errors, WorkspaceRepoError{
 				RepositoryID: strconv.FormatInt(rb.RepoID, 10),
-				Error:        err.Error(),
+				Error:        addErr.Error(),
 			})
 			continue
 		}
@@ -1038,7 +1143,7 @@ func (s *WorkspaceService) Create(ctx context.Context, input CreateWorkspaceInpu
 			WorkspaceID:  workspace.ID,
 			RepositoryID: rb.RepoID,
 			WorktreePath: worktreePath,
-			Branch:       wtBranch,
+			Branch:       storedBranch,
 			BaseBranch:   baseBranch,
 		})
 		if err != nil {
@@ -1615,7 +1720,19 @@ func (s *WorkspaceService) Archive(ctx context.Context, workspaceID int64) error
 			slog.Warn("Archive: error removing worktree", "path", wsRepo.WorktreePath, "error", err)
 		}
 		if wsRepo.Branch != "" {
-			if err := git.DeleteBranch(repo.Path, wsRepo.Branch); err != nil {
+			// Epic 统一分支 (spec 2026-09-28 §1): a unified control worktree sits ON
+			// the shared epic feature branch. Archive deletes it with the SAFE
+			// delete (-d): git refuses unless the branch is fully merged into the
+			// repo HEAD (main), so a post-merge archive cleans the branch up
+			// while a mid-epic archive keeps it (children still fork from it).
+			// A bare "epic/" prefix check deliberately also covers any user
+			// branch that happens to start with epic/. Legacy ws-<id>/... rows
+			// keep the old force-delete-on-archive behaviour.
+			if strings.HasPrefix(wsRepo.Branch, "epic/") {
+				if err := git.DeleteBranchMerged(repo.Path, wsRepo.Branch); err != nil {
+					slog.Warn("Archive: epic branch kept (not fully merged)", "branch", wsRepo.Branch, "error", err)
+				}
+			} else if err := git.DeleteBranch(repo.Path, wsRepo.Branch); err != nil {
 				slog.Warn("Archive: error deleting branch", "branch", wsRepo.Branch, "error", err)
 			}
 		}

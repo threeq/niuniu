@@ -122,6 +122,18 @@ func (h *KanbanHandler) ListAttentionIssues(c *gin.Context) {
 		slog.Warn("ListAttentionIssues: column lookup failed", "err", err)
 		colByID = map[int64]store.Column{}
 	}
+	// has_workspace rides the same batched lookup the detail path uses, so
+	// attention-fed issue panels can pre-hide the parent/child entries too
+	// (spec 2026-09-28 §3; the server guardrail 409s regardless).
+	issueIDs := make([]int64, 0, len(issues))
+	for _, i := range issues {
+		issueIDs = append(issueIDs, i.ID)
+	}
+	wsBy, err := h.svc.ActiveWorkspaceIssueIDs(c.Request.Context(), issueIDs)
+	if err != nil {
+		slog.Warn("ListAttentionIssues: workspace lookup failed", "err", err)
+		wsBy = map[int64]bool{}
+	}
 	out := make([]IssueResponse, 0, len(issues))
 	for _, i := range issues {
 		var projectID int64
@@ -130,6 +142,7 @@ func (h *KanbanHandler) ListAttentionIssues(c *gin.Context) {
 		}
 		resp := toIssueResponse(service.IssueDetail{Issue: i, ProjectID: projectID})
 		resp.ProjectID = projectID
+		resp.HasWorkspace = wsBy[i.ID]
 		out = append(out, resp)
 	}
 	c.JSON(http.StatusOK, out)
@@ -411,6 +424,18 @@ func (h *KanbanHandler) UpdateColumnExtension(c *gin.Context) {
 	})
 }
 
+// writeHierarchyGuardError maps the spec 2026-09-28 §3 parent/child workspace
+// guardrails (an issue / plain-task parent that already has a live workspace)
+// to 409 Conflict — the request is well-formed but the issue's current state
+// forbids the relation change. Returns true when the error was handled.
+func writeHierarchyGuardError(c *gin.Context, err error) bool {
+	if errors.Is(err, service.ErrIssueHasWorkspace) || errors.Is(err, service.ErrParentHasWorkspace) {
+		c.JSON(http.StatusConflict, gin.H{"error": err.Error()})
+		return true
+	}
+	return false
+}
+
 // SetIssueExecFields sets the Executable Epic hierarchy + execution fields
 // (parent_issue_id, issue_type, exec_wave, exec_status) on an issue.
 // PUT /api/issues/:id/exec-fields. The same-project parent constraint is
@@ -445,6 +470,9 @@ func (h *KanbanHandler) SetIssueExecFields(c *gin.Context) {
 	}
 	detail, err := h.svc.SetIssueExecFields(c.Request.Context(), issueID, req.ParentIssueID, req.IssueType, req.ExecWave, req.ExecStatus)
 	if err != nil {
+		if writeHierarchyGuardError(c, err) {
+			return
+		}
 		BadRequest(c, err.Error())
 		return
 	}
@@ -800,6 +828,9 @@ func (h *KanbanHandler) CreateIssue(c *gin.Context) {
 			c.JSON(http.StatusBadRequest, gin.H{"code": "too_many", "message": err.Error()})
 			return
 		}
+		if writeHierarchyGuardError(c, err) {
+			return
+		}
 		InternalError(c, err)
 		return
 	}
@@ -866,6 +897,9 @@ func (h *KanbanHandler) BatchCreateIssues(c *gin.Context) {
 
 	result, err := h.svc.BatchCreateIssues(c.Request.Context(), projectID, req.Tasks, userID)
 	if err != nil {
+		if writeHierarchyGuardError(c, err) {
+			return
+		}
 		InternalError(c, err)
 		return
 	}

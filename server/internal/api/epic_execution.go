@@ -260,45 +260,6 @@ func (h *EpicExecutionHandler) AbandonIssue(c *gin.Context) {
 	c.JSON(http.StatusOK, res)
 }
 
-// MergeToMain asks the epic's control-workspace agent to merge the epic feature
-// branch into the repos' default branches. It does NOT git-merge in the backend.
-// Requires the issue to be an epic whose exec_status is 'done' (review complete).
-// POST /api/issues/:id/merge-to-main
-func (h *EpicExecutionHandler) MergeToMain(c *gin.Context) {
-	userID := c.GetInt64("auth_user_id")
-	issueID, err := strconv.ParseInt(c.Param("id"), 10, 64)
-	if err != nil {
-		BadRequest(c, "invalid issue ID")
-		return
-	}
-	if !h.authzIssueProject(c, userID, issueID) {
-		return
-	}
-	issue, err := h.kanban.GetIssue(c.Request.Context(), issueID)
-	if err != nil {
-		NotFound(c, "ISSUE")
-		return
-	}
-	if issue.IssueType != "epic" {
-		BadRequest(c, "issue is not an epic")
-		return
-	}
-	if issue.ExecStatus != "done" {
-		BadRequest(c, "epic must be 'done' (review complete) before merging to main")
-		return
-	}
-	if err := h.svc.RequestMergeToMain(c.Request.Context(), issueID); err != nil {
-		BadRequest(c, err.Error())
-		return
-	}
-	done, total, execStatus, err := h.svc.GetEpicProgress(c.Request.Context(), issueID)
-	if err != nil {
-		BadRequest(c, err.Error())
-		return
-	}
-	c.JSON(http.StatusOK, EpicProgressResponse{Done: done, Total: total, ExecStatus: execStatus})
-}
-
 // GetEpicProgress returns derived execution progress for an Epic.
 // GET /api/issues/:id/epic-progress
 func (h *EpicExecutionHandler) GetEpicProgress(c *gin.Context) {

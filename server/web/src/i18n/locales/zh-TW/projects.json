@@ -168,8 +168,6 @@
       "execute": "執行",
       "pause": "暫停",
       "resume": "恢復",
-      "mergeToMain": "合併到主分支",
-      "mergeToMainStarted": "已向 Epic 智慧體傳送合併請求",
       "reviewingHint": "稽覈智慧體正在核對功能分支",
       "executing": "執行中 {{done}}/{{total}}",
       "noChildren": "暫無子任務",
@@ -188,7 +186,6 @@
         "a": "模式 A(波次引擎)",
         "b": "模式 B(編排工作區)"
       },
-      "executeFailed": "啟動 Epic 執行失敗",
       "execFieldsFailed": "更新 Epic 欄位失敗",
       "failurePolicy": {
         "label": "失敗策略",

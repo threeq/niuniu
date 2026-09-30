@@ -605,8 +605,6 @@ func (s *Server) setupRoutes() {
 		// wave-engine execute/pause/resume routes were retired with that engine; an
 		// epic is now driven by its orchestration agent (workspace on the epic issue).
 		issues.GET("/:id/epic-progress", s.epicExecHandler.GetEpicProgress)
-		// Executable Epic (P2): human merge to main -> control workspace agent.
-		issues.POST("/:id/merge-to-main", s.epicExecHandler.MergeToMain)
 		// Executable Epic mode B: dispatch a workspace for an issue.
 		issues.POST("/:id/start-workspace", s.epicExecHandler.StartWorkspace)
 		// AI-suggest goal_condition: spawns `claude -p`, per-user rate-limited

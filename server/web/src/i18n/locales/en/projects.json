@@ -168,8 +168,6 @@
       "execute": "Execute",
       "pause": "Pause",
       "resume": "Resume",
-      "mergeToMain": "Merge to main",
-      "mergeToMainStarted": "Sent merge request to the Epic agent",
       "reviewingHint": "Review agent is verifying the feature branch",
       "executing": "Running {{done}}/{{total}}",
       "noChildren": "No child issues yet",
@@ -188,7 +186,6 @@
         "a": "Mode A (wave engine)",
         "b": "Mode B (orchestration ws)"
       },
-      "executeFailed": "Failed to start Epic execution",
       "execFieldsFailed": "Failed to update Epic fields",
       "failurePolicy": {
         "label": "Failure policy",

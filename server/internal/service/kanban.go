@@ -53,6 +53,14 @@ var (
 	// ErrInvalidLabel signals a label id that does not belong to the same
 	// project as the target issue (or could not be loaded).
 	ErrInvalidLabel = errors.New("invalid label")
+	// ErrIssueHasWorkspace (spec 2026-09-28 §3, 变子): the issue already has a
+	// live workspace, so its branch baseline can no longer follow an epic
+	// re-parenting — parent/child relations are frozen.
+	ErrIssueHasWorkspace = errors.New("该任务已创建工作空间，不能变更父子关系")
+	// ErrParentHasWorkspace (spec 2026-09-28 §3, 收子): the target parent is a
+	// plain task with a live workspace and cannot be promoted into a child
+	// collector. Epic-typed parents are exempt (see ensureParentChangeAllowed).
+	ErrParentHasWorkspace = errors.New("父任务已创建工作空间，不能再添加子任务")
 )
 
 // IssueDetail couples an Issue with its populated assignees and labels arrays
@@ -66,6 +74,12 @@ var (
 // handler skip the previously-separate GetColumn + GetChecklistStats round
 // trips. Callers that build IssueDetail from list endpoints (which still go
 // through attachAssigneesAndLabels) leave these zero.
+//
+// HasWorkspace (spec 2026-09-28 §3 frontend flag) reports whether the issue
+// owns a live (is_archived=0) workspace — the same 判定 the parent/child
+// guardrails enforce. Populated by both loadIssueDetail and
+// attachAssigneesAndLabels so list and detail responses carry it; zero on any
+// other construction path (harmless: the guardrail itself is server-side).
 type IssueDetail struct {
 	store.Issue
 	Assignees          []store.ListIssueAssigneesRow `json:"assignees"`
@@ -73,6 +87,7 @@ type IssueDetail struct {
 	ProjectID          int64                         `json:"project_id"`
 	ChecklistTotal     int64                         `json:"checklist_total"`
 	ChecklistCompleted int64                         `json:"checklist_completed"`
+	HasWorkspace       bool                          `json:"has_workspace"`
 }
 
 type KanbanService struct {
@@ -286,6 +301,52 @@ func (s *KanbanService) ensureTwoLevelParent(ctx context.Context, issueID, paren
 	return nil
 }
 
+// hasActiveWorkspace reports whether the issue has a live (is_archived=0)
+// workspace — the spec 2026-09-28 §3 判定 for the parent/child guardrails.
+// Fail-closed: only a clean sql.ErrNoRows counts as "no workspace"; any other
+// probe error logs a warning and answers "has workspace" so a flaky DB read
+// can never wave a guardrailed relation change through.
+func (s *KanbanService) hasActiveWorkspace(ctx context.Context, issueID int64) bool {
+	_, err := s.q.HasActiveWorkspaceForIssue(ctx, sql.NullInt64{Int64: issueID, Valid: true})
+	if err == nil {
+		return true
+	}
+	if errors.Is(err, sql.ErrNoRows) {
+		return false
+	}
+	slog.Warn("kanban: probe active workspace failed, treating as HAS workspace (fail-closed guardrail)",
+		"issueID", issueID, "error", err)
+	return true
+}
+
+// parentMayCollectChildren is the parent-side half of the spec 2026-09-28 §3
+// guardrail: a PLAIN task that already has a live workspace cannot be promoted
+// into a child collector (its workspace branches off the project default, not
+// the epic branch a child would build on). An epic-typed parent is exempt: its
+// workspace IS the orchestration control workspace, and creating/attaching
+// children under it is the epic workflow itself.
+func (s *KanbanService) parentMayCollectChildren(ctx context.Context, parentIssueID int64) error {
+	parent, err := s.q.GetIssue(ctx, parentIssueID)
+	if err != nil {
+		return fmt.Errorf("parent issue %d out of scope", parentIssueID)
+	}
+	if parent.IssueType != "epic" && s.hasActiveWorkspace(ctx, parentIssueID) {
+		return ErrParentHasWorkspace
+	}
+	return nil
+}
+
+// ensureParentChangeAllowed enforces the spec 2026-09-28 §3 guardrails for
+// attaching existing issueID under parentIssueID: the issue itself must not
+// have a live workspace (变子被拒), and the parent must be allowed to collect
+// children (收子被拒). Callers guard the actual relation change only.
+func (s *KanbanService) ensureParentChangeAllowed(ctx context.Context, issueID, parentIssueID int64) error {
+	if s.hasActiveWorkspace(ctx, issueID) {
+		return ErrIssueHasWorkspace
+	}
+	return s.parentMayCollectChildren(ctx, parentIssueID)
+}
+
 // syncIssueType derives an issue's type from whether it currently has children:
 // an issue with >=1 child is an Epic, otherwise a plain task. This is the single
 // source of truth for issue_type — the UI never sets it manually; the service
@@ -339,6 +400,18 @@ func (s *KanbanService) SetIssueExecFields(ctx context.Context, issueID int64, p
 		}
 		if err := s.ensureTwoLevelParent(ctx, issueID, *parentIssueID); err != nil {
 			return IssueDetail{}, err
+		}
+		// Workspace guardrail (spec 2026-09-28 §3): only an actual relation
+		// change is guarded — re-stating the current parent is a no-op (the MCP
+		// update_issue caller often echoes the unchanged parent back).
+		oldParentID := int64(0)
+		if issue.ParentIssueID.Valid {
+			oldParentID = issue.ParentIssueID.Int64
+		}
+		if oldParentID != *parentIssueID {
+			if err := s.ensureParentChangeAllowed(ctx, issueID, *parentIssueID); err != nil {
+				return IssueDetail{}, err
+			}
 		}
 	}
 	execStatus = normalizeExecStatus(execStatus)
@@ -873,9 +946,10 @@ func (s *KanbanService) loadIssueDetail(ctx context.Context, issueID int64) (Iss
 	// correlated subqueries) so the handler can drop its post-fetch
 	// GetColumn + GetChecklistStats calls.
 	var (
-		row       store.GetIssueDetailRow
-		assignees []store.ListIssueAssigneesRow
-		labels    []store.Label
+		row          store.GetIssueDetailRow
+		assignees    []store.ListIssueAssigneesRow
+		labels       []store.Label
+		hasWorkspace bool
 	)
 	g, gctx := errgroup.WithContext(ctx)
 	g.Go(func() error {
@@ -900,6 +974,15 @@ func (s *KanbanService) loadIssueDetail(ctx context.Context, issueID int64) (Iss
 			return err
 		}
 		labels = l
+		return nil
+	})
+	// has_workspace rides along on the same concurrent fan-out (no extra RT).
+	g.Go(func() error {
+		ws, err := s.ActiveWorkspaceIssueIDs(gctx, []int64{issueID})
+		if err != nil {
+			return err
+		}
+		hasWorkspace = ws[issueID]
 		return nil
 	})
 	if err := g.Wait(); err != nil {
@@ -960,11 +1043,38 @@ func (s *KanbanService) loadIssueDetail(ctx context.Context, issueID int64) (Iss
 		ProjectID:          row.ProjectID,
 		ChecklistTotal:     row.ChecklistTotal,
 		ChecklistCompleted: row.ChecklistCompleted,
+		HasWorkspace:       hasWorkspace,
 	}, nil
 }
 
+// activeWorkspaceIssueIDs resolves which of the given issue ids own a live
+// (is_archived=0) workspace, in one batched IN-list query. Spec 2026-09-28 §3
+// frontend flag: the response carries has_workspace so the UI can hide the
+// parent/child entries the server guardrail would 409 anyway.
+func (s *KanbanService) ActiveWorkspaceIssueIDs(ctx context.Context, ids []int64) (map[int64]bool, error) {
+	out := make(map[int64]bool, len(ids))
+	if len(ids) == 0 {
+		return out, nil
+	}
+	nullIDs := make([]sql.NullInt64, len(ids))
+	for i, id := range ids {
+		nullIDs[i] = sql.NullInt64{Int64: id, Valid: true}
+	}
+	rows, err := s.q.ListActiveWorkspaceIssueIDs(ctx, nullIDs)
+	if err != nil {
+		return nil, err
+	}
+	for _, r := range rows {
+		if r.Valid {
+			out[r.Int64] = true
+		}
+	}
+	return out, nil
+}
+
 // attachAssigneesAndLabels enriches a slice of issues with their assignees
-// and labels in two batched IN-list queries (avoids N+1).
+// and labels in two batched IN-list queries (avoids N+1). The has_workspace
+// flag rides along via a third batched query (same N+1 avoidance).
 func (s *KanbanService) attachAssigneesAndLabels(ctx context.Context, issues []store.Issue) ([]IssueDetail, error) {
 	if len(issues) == 0 {
 		return []IssueDetail{}, nil
@@ -978,6 +1088,10 @@ func (s *KanbanService) attachAssigneesAndLabels(ctx context.Context, issues []s
 		return nil, err
 	}
 	asnRows, err := s.q.ListIssueAssigneesByIssueIDs(ctx, ids)
+	if err != nil {
+		return nil, err
+	}
+	wsBy, err := s.ActiveWorkspaceIssueIDs(ctx, ids)
 	if err != nil {
 		return nil, err
 	}
@@ -1001,7 +1115,7 @@ func (s *KanbanService) attachAssigneesAndLabels(ctx context.Context, issues []s
 	}
 	out := make([]IssueDetail, len(issues))
 	for i, x := range issues {
-		out[i] = IssueDetail{Issue: x, Assignees: assigneesBy[x.ID], Labels: labelsBy[x.ID]}
+		out[i] = IssueDetail{Issue: x, Assignees: assigneesBy[x.ID], Labels: labelsBy[x.ID], HasWorkspace: wsBy[x.ID]}
 	}
 	return out, nil
 }
@@ -1086,6 +1200,11 @@ func (s *KanbanService) BatchCreateIssues(ctx context.Context, projectID int64, 
 				return result, fmt.Errorf("task %d: %w", i, err)
 			}
 			if err := s.ensureTwoLevelParent(ctx, 0, *tasks[i].ParentIssueID); err != nil {
+				return result, fmt.Errorf("task %d: %w", i, err)
+			}
+			// Workspace guardrail (spec 2026-09-28 §3, 收子): same rule as the
+			// single-create path.
+			if err := s.parentMayCollectChildren(ctx, *tasks[i].ParentIssueID); err != nil {
 				return result, fmt.Errorf("task %d: %w", i, err)
 			}
 		}
@@ -1200,6 +1319,11 @@ func (s *KanbanService) CreateIssue(ctx context.Context, columnID int64, title, 
 			return IssueDetail{}, err
 		}
 		if err := s.ensureTwoLevelParent(ctx, 0, *parentIssueID); err != nil {
+			return IssueDetail{}, err
+		}
+		// Workspace guardrail (spec 2026-09-28 §3, 收子): a brand-new issue has
+		// no workspace of its own yet, so only the parent side can trip.
+		if err := s.parentMayCollectChildren(ctx, *parentIssueID); err != nil {
 			return IssueDetail{}, err
 		}
 	}

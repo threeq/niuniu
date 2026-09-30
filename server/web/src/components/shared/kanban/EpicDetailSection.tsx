@@ -1,8 +1,7 @@
 import { useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
-import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query'
-import { Layers, Plus, ChevronRight, GitMerge } from 'lucide-react'
-import { toast } from 'sonner'
+import { useQuery } from '@tanstack/react-query'
+import { Layers, Plus, ChevronRight } from 'lucide-react'
 import { api, epicApi } from '@/lib/api'
 import type { Issue, EpicProgress } from '@/types/api'
 import { Button } from '@/components/ui/button'
@@ -38,7 +37,6 @@ function childStatusStyle(status: string): string {
 
 export function EpicDetailSection({ epic, onOpenIssue, onAddChild }: EpicDetailSectionProps) {
   const { t } = useTranslation('projects')
-  const queryClient = useQueryClient()
 
   const { data: allIssues } = useQuery({
     queryKey: ['all-issues', epic.project_id],
@@ -54,28 +52,6 @@ export function EpicDetailSection({ epic, onOpenIssue, onAddChild }: EpicDetailS
 
   const execStatus = progress?.exec_status ?? epic.exec_status ?? 'idle'
   const isReviewing = execStatus === 'reviewing'
-  const isDone = execStatus === 'done'
-
-  const invalidateExec = () => {
-    queryClient.invalidateQueries({ queryKey: ['epic-progress', epic.id] })
-    queryClient.invalidateQueries({ queryKey: ['issue', String(epic.id)] })
-    queryClient.invalidateQueries({ queryKey: ['all-issues', epic.project_id] })
-  }
-  const onExecError = (err: unknown) => {
-    toast.error(t('kanban.epic.executeFailed'), {
-      description: err instanceof Error ? err.message : undefined,
-    })
-  }
-
-  const mergeMutation = useMutation({
-    mutationFn: () => epicApi.mergeToMain(epic.id),
-    onSuccess: () => {
-      invalidateExec()
-      toast.success(t('kanban.epic.mergeToMainStarted'))
-    },
-    onError: onExecError,
-  })
-  const anyPending = mergeMutation.isPending
 
   // Group children by exec_wave, ascending.
   const wavesGrouped = useMemo(() => {
@@ -116,22 +92,15 @@ export function EpicDetailSection({ epic, onOpenIssue, onAddChild }: EpicDetailS
 
       {/* Execution control: the epic is driven by its orchestration agent (created by
           making a workspace on the epic issue), which dispatches children itself — the
-          mode-A execute/pause/resume controls were retired in stage 9. The only manual
-          action left is the post-review merge to main; reviewing shows a hint. */}
-      {(isReviewing || isDone) && (
+          mode-A execute/pause/resume controls were retired in stage 9. Reviewing shows
+          a hint; when the epic lands done the server auto-sends the integration
+          wind-down prompt to the control workspace (spec 2026-09-28 §4) — no manual
+          merge action exists. */}
+      {isReviewing && (
         <div className="flex items-center gap-2 mb-4">
-          {isReviewing ? (
-            // Reviewing -> the review agent is verifying the feature branch. The
-            // status badge above conveys progress.
-            <span className="text-xs text-warm-text-muted">{t('kanban.epic.reviewingHint')}</span>
-          ) : (
-            // Done (review complete) -> let the human kick off the merge to main.
-            // The agent performs the merge; this only sends the prompt.
-            <Button size="sm" variant="outline" onClick={() => mergeMutation.mutate()} disabled={anyPending}>
-              <GitMerge className="h-4 w-4 mr-1.5" aria-hidden="true" />
-              {t('kanban.epic.mergeToMain')}
-            </Button>
-          )}
+          {/* Reviewing -> the review agent is verifying the feature branch. The
+              status badge above conveys progress. */}
+          <span className="text-xs text-warm-text-muted">{t('kanban.epic.reviewingHint')}</span>
         </div>
       )}
 
