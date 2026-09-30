@@ -68,7 +68,15 @@ func LoadConfig(providerFlag, modelFlag string) (Config, error) {
 		return Config{}, fmt.Errorf("unknown provider %q (want %q or %q)", provider, ProviderAnthropic, ProviderOpenAI)
 	}
 	cfg.BaseURL = strings.TrimRight(cfg.BaseURL, "/")
-	cfg.Thinking = parseThinking(os.Getenv("NIUNIU_AGENT_THINKING"))
+	// Thinking budget: explicit NIUNIU_AGENT_THINKING wins; otherwise known
+	// MoE/reasoning model families get their recommended tier automatically
+	// (registry.DefaultThinkingTier) so deep reasoning is on by default for
+	// the models that can do it, not something each workspace must remember.
+	if v := os.Getenv("NIUNIU_AGENT_THINKING"); v != "" {
+		cfg.Thinking = parseThinking(v)
+	} else {
+		cfg.Thinking = parseThinking(DefaultThinkingTier(cfg.Model))
+	}
 	cfg.Stream = ParseStreamFlag(os.Getenv("NIUNIU_AGENT_STREAM"))
 	// "[1m]"-style context-tier suffixes are an upstream harness decoration
 	// (the workspace model picker reuses Claude-style tiered names); the wire

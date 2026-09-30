@@ -33,12 +33,17 @@ func BuiltinAgentTypes() []AgentType {
 			Description: "Read-only investigation: find code, trace behavior, report findings. Cannot modify files.",
 			Preamble:    "You are in EXPLORE mode: investigate the codebase and report findings. Read-only — never modify files.",
 			Tools:       []string{"LS", "Read", "Grep", "Glob"},
+			// Bulk mechanical search — the fast tier's home turf.
+			ModelTier: model.TierFast,
 		},
 		{
 			Name:        "plan",
 			Description: "Design an implementation plan: read the code, lay out ordered steps, surface risks. Cannot modify files.",
 			Preamble:    "You are in PLAN mode: produce a concrete, ordered implementation plan (files to touch, steps, risks). Read-only.",
 			Tools:       []string{"LS", "Read", "Grep", "Glob", "TodoWrite", "WebFetch"},
+			// Plan quality compounds into every downstream step — the high
+			// tier's home turf.
+			ModelTier: model.TierHigh,
 		},
 		{
 			Name:        "worker",

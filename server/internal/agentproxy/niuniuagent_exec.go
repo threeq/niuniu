@@ -98,7 +98,17 @@ func (s *WorkspaceSession) getOrStartNiuniuAgentBackend(ctx context.Context, wor
 			if e.Key == "NIUNIU_MODEL" && e.Value != "" {
 				model = e.Value
 			}
-			continue // niuniu-internal control keys never leak to the agent
+			// Agent capability control keys are the exception to the strip
+			// rule: they tune the agent's reasoning/search surface, so a
+			// workspace-level binding must reach the agent process.
+			switch e.Key {
+			case "NIUNIU_AGENT_THINKING", "NIUNIU_AGENT_SEARCH",
+				"NIUNIU_AGENT_MODEL_HIGH", "NIUNIU_AGENT_MODEL_FAST":
+				if e.Value != "" {
+					envSlice = append(envSlice, e.Key+"="+e.Value)
+				}
+			}
+			continue
 		}
 		switch e.Key {
 		case "OPENAI_BASE_URL":
