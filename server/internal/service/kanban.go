@@ -978,7 +978,7 @@ func (s *KanbanService) loadIssueDetail(ctx context.Context, issueID int64) (Iss
 	})
 	// has_workspace rides along on the same concurrent fan-out (no extra RT).
 	g.Go(func() error {
-		ws, err := s.activeWorkspaceIssueIDs(gctx, []int64{issueID})
+		ws, err := s.ActiveWorkspaceIssueIDs(gctx, []int64{issueID})
 		if err != nil {
 			return err
 		}
@@ -1051,7 +1051,7 @@ func (s *KanbanService) loadIssueDetail(ctx context.Context, issueID int64) (Iss
 // (is_archived=0) workspace, in one batched IN-list query. Spec 2026-09-28 §3
 // frontend flag: the response carries has_workspace so the UI can hide the
 // parent/child entries the server guardrail would 409 anyway.
-func (s *KanbanService) activeWorkspaceIssueIDs(ctx context.Context, ids []int64) (map[int64]bool, error) {
+func (s *KanbanService) ActiveWorkspaceIssueIDs(ctx context.Context, ids []int64) (map[int64]bool, error) {
 	out := make(map[int64]bool, len(ids))
 	if len(ids) == 0 {
 		return out, nil
@@ -1091,7 +1091,7 @@ func (s *KanbanService) attachAssigneesAndLabels(ctx context.Context, issues []s
 	if err != nil {
 		return nil, err
 	}
-	wsBy, err := s.activeWorkspaceIssueIDs(ctx, ids)
+	wsBy, err := s.ActiveWorkspaceIssueIDs(ctx, ids)
 	if err != nil {
 		return nil, err
 	}

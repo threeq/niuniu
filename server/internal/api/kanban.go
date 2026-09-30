@@ -122,6 +122,18 @@ func (h *KanbanHandler) ListAttentionIssues(c *gin.Context) {
 		slog.Warn("ListAttentionIssues: column lookup failed", "err", err)
 		colByID = map[int64]store.Column{}
 	}
+	// has_workspace rides the same batched lookup the detail path uses, so
+	// attention-fed issue panels can pre-hide the parent/child entries too
+	// (spec 2026-09-28 §3; the server guardrail 409s regardless).
+	issueIDs := make([]int64, 0, len(issues))
+	for _, i := range issues {
+		issueIDs = append(issueIDs, i.ID)
+	}
+	wsBy, err := h.svc.ActiveWorkspaceIssueIDs(c.Request.Context(), issueIDs)
+	if err != nil {
+		slog.Warn("ListAttentionIssues: workspace lookup failed", "err", err)
+		wsBy = map[int64]bool{}
+	}
 	out := make([]IssueResponse, 0, len(issues))
 	for _, i := range issues {
 		var projectID int64
@@ -130,6 +142,7 @@ func (h *KanbanHandler) ListAttentionIssues(c *gin.Context) {
 		}
 		resp := toIssueResponse(service.IssueDetail{Issue: i, ProjectID: projectID})
 		resp.ProjectID = projectID
+		resp.HasWorkspace = wsBy[i.ID]
 		out = append(out, resp)
 	}
 	c.JSON(http.StatusOK, out)
