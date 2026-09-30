@@ -145,7 +145,10 @@ export function EpicDetailSection({ epic, onOpenIssue, onAddChild }: EpicDetailS
             <span className="text-xs text-warm-text-muted">{t('kanban.epic.reviewingHint')}</span>
           ) : (
             // Done (review complete) -> let the human kick off the merge to main.
-            // The agent performs the merge; this only sends the prompt.
+            // The backend git-merges server-side (main→epic pre-merge + epic→main
+            // fast-forward, spec 2026-09-28 §4) and only then hands the agent a
+            // verification prompt; a 409 here is the server-reported main→epic
+            // conflict surfaced by this section's own toast.
             <Button size="sm" variant="outline" onClick={() => mergeMutation.mutate()} disabled={anyPending}>
               <GitMerge className="h-4 w-4 mr-1.5" aria-hidden="true" />
               {t('kanban.epic.mergeToMain')}

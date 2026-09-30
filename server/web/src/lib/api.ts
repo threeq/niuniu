@@ -1076,11 +1076,18 @@ export const epicApi = {
   epicProgress: (issueId: number) =>
     api.get<EpicProgress>(`/issues/${issueId}/epic-progress`),
 
-  //   - mergeToMain: after review ('done'), ask the epic's control-workspace
-  //     agent to merge the epic feature branch into the repos' default branches.
-  //     The backend does NOT git-merge; it sends a merge prompt to the agent.
-  mergeToMain: (issueId: number) =>
-    api.post<EpicProgress>(`/issues/${issueId}/merge-to-main`, {}),
+  //   - mergeToMain: after review ('done'), trigger the server-side merge-to-main
+  //     flow (spec 2026-09-28 §4): the backend git-merges main→epic then
+  //     fast-forwards epic→main repo by repo, syncs the control workspace, and
+  //     only then sends the agent a verification prompt. suppressError so a 409
+  //     (main→epic conflict) surfaces only via EpicDetailSection's targeted
+  //     toast — apiFetch's generic error toast would stack on top of it.
+  mergeToMain: (issueId: number): Promise<EpicProgress> =>
+    apiFetch<EpicProgress>(`/issues/${issueId}/merge-to-main`, {
+      method: 'POST',
+      body: JSON.stringify({}),
+      suppressError: true,
+    }),
 
   //   - startWorkspace: dispatch a workspace for an issue (mode-B child dispatch;
   //     also exposed to agents as the start_workspace MCP tool).

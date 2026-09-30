@@ -303,9 +303,20 @@ func (s *KanbanService) ensureTwoLevelParent(ctx context.Context, issueID, paren
 
 // hasActiveWorkspace reports whether the issue has a live (is_archived=0)
 // workspace — the spec 2026-09-28 §3 判定 for the parent/child guardrails.
+// Fail-closed: only a clean sql.ErrNoRows counts as "no workspace"; any other
+// probe error logs a warning and answers "has workspace" so a flaky DB read
+// can never wave a guardrailed relation change through.
 func (s *KanbanService) hasActiveWorkspace(ctx context.Context, issueID int64) bool {
 	_, err := s.q.HasActiveWorkspaceForIssue(ctx, sql.NullInt64{Int64: issueID, Valid: true})
-	return err == nil
+	if err == nil {
+		return true
+	}
+	if errors.Is(err, sql.ErrNoRows) {
+		return false
+	}
+	slog.Warn("kanban: probe active workspace failed, treating as HAS workspace (fail-closed guardrail)",
+		"issueID", issueID, "error", err)
+	return true
 }
 
 // parentMayCollectChildren is the parent-side half of the spec 2026-09-28 §3
