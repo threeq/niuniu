@@ -490,7 +490,7 @@ func (s *EpicExecutionService) recordMergeStepEvent(ctx context.Context, epic st
 // non-atomic, and earlier repos already reached main). exec_status=gate_blocked
 // (+reason), a terminal exec event; the attention flip is the caller's.
 func (s *EpicExecutionService) escalateEpicMergeSplit(ctx context.Context, workspaceID int64, epic store.Issue, mergedRepos []string, cf *EpicMergeConflictError) {
-	reason := fmt.Sprintf("多仓合并部分失败(非原子): 已并入 main [%s], 仓库 [%s] main→epic 冲突未并(%s); 需人工解决冲突后重试",
+	reason := fmt.Sprintf("多仓合并部分失败(非原子): 已并入 main [%s], 仓库 [%s] main→epic 冲突未并(%s); 需人工解决冲突后，先将该任务状态恢复为 done，再重试合并到主分支",
 		strings.Join(mergedRepos, ", "), cf.RepoPath, strings.Join(cf.ConflictFiles, ", "))
 	slog.Warn("epic merge-to-main: partial multi-repo merge, escalating to blocked-needs-human",
 		"epicID", epic.ID, "workspaceID", workspaceID, "merged", mergedRepos, "failedRepo", cf.RepoPath)
