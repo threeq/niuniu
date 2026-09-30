@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next'
 import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query'
 import { Layers, Plus, ChevronRight, GitMerge } from 'lucide-react'
 import { toast } from 'sonner'
-import { api, epicApi } from '@/lib/api'
+import { api, epicApi, ApiError } from '@/lib/api'
 import type { Issue, EpicProgress } from '@/types/api'
 import { Button } from '@/components/ui/button'
 import { ExecStatusBadge } from './exec-status-badge'
@@ -67,13 +67,32 @@ export function EpicDetailSection({ epic, onOpenIssue, onAddChild }: EpicDetailS
     })
   }
 
+  // Merge-to-main is server-side now: a 409 means the main→epic pre-merge hit
+  // a conflict — nothing was written, and the payload lists the conflicted
+  // files so the user knows what needs resolving in the control workspace.
+  const onMergeError = (err: unknown) => {
+    invalidateExec()
+    if (err instanceof ApiError && err.status === 409) {
+      const body = (err.body ?? {}) as { error?: string; conflict_files?: string[] }
+      const files = Array.isArray(body.conflict_files) ? body.conflict_files : []
+      toast.error(t('kanban.epic.mergeConflict'), {
+        description:
+          files.length > 0
+            ? t('kanban.epic.mergeConflictFiles', { files: files.join(', ') })
+            : body.error ?? err.message,
+      })
+      return
+    }
+    onExecError(err)
+  }
+
   const mergeMutation = useMutation({
     mutationFn: () => epicApi.mergeToMain(epic.id),
     onSuccess: () => {
       invalidateExec()
       toast.success(t('kanban.epic.mergeToMainStarted'))
     },
-    onError: onExecError,
+    onError: onMergeError,
   })
   const anyPending = mergeMutation.isPending
 
