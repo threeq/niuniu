@@ -1,0 +1,260 @@
+package service
+
+// Epic 统一分支 Wave 1 (spec docs/superpowers/specs/2026-09-28-epic-unified-branch-design.md
+// §1 分支统一 / §2 场景补全 b / 验收 2、3)。
+//
+// Unlike the fake-based epic_execution tests, these run the REAL
+// WorkspaceService.Create against a real git repo on disk, so the worktree
+// layout, the ws_repo.Branch discriminator and branch survival after archive
+// are all pinned end-to-end.
+
+import (
+	"context"
+	"database/sql"
+	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
+	"testing"
+
+	"github.com/niuniu-dev/niuniu/internal/config"
+	"github.com/niuniu-dev/niuniu/internal/store"
+	"github.com/stretchr/testify/require"
+	_ "modernc.org/sqlite"
+)
+
+// unifiedBranchEnv bundles the real services the unified-branch tests need:
+// a real git repo on disk, a real WorkspaceService (Create runs actual
+// `git worktree add`), and the Epic engine wired on top of it.
+type unifiedBranchEnv struct {
+	db       *sql.DB
+	q        *store.Queries
+	kanban   *KanbanService
+	wsSvc    *WorkspaceService
+	epicSvc  *EpicExecutionService
+	repoID   int64
+	repoDir  string
+	columnID int64
+	ctx      context.Context
+}
+
+func setupUnifiedBranchEnv(t *testing.T) *unifiedBranchEnv {
+	t.Helper()
+	ctx := context.Background()
+
+	db, err := sql.Open("sqlite", ":memory:?_foreign_keys=ON")
+	require.NoError(t, err)
+	db.SetMaxOpenConns(1)
+	t.Cleanup(func() { _ = db.Close() })
+	store.Driver = "sqlite"
+	require.NoError(t, store.ApplySchema(db))
+	store.Migrate(db)
+	q := store.New(db)
+
+	// Real git repo with one commit on main.
+	repoDir := filepath.Join(t.TempDir(), "repo")
+	ubRunGit(t, "", "init", "-q", "-b", "main", repoDir)
+	ubRunGit(t, repoDir, "config", "user.email", "epic@example.com")
+	ubRunGit(t, repoDir, "config", "user.name", "epic-test")
+	ubRunGit(t, repoDir, "config", "commit.gpgsign", "false")
+	ubWriteFile(t, filepath.Join(repoDir, "README.md"), "# repo\n")
+	ubRunGit(t, repoDir, "add", "README.md")
+	ubRunGit(t, repoDir, "commit", "-q", "-m", "init")
+
+	// Project + column + repository row. The repository owner must match the
+	// project owner or ListProjectRepositories filters it out.
+	proj, err := q.CreateProject(ctx, store.CreateProjectParams{Name: "epic-unified", OwnerType: "user", OwnerID: 1})
+	require.NoError(t, err)
+	col, err := q.CreateColumn(ctx, store.CreateColumnParams{ProjectID: proj.ID, Name: "todo", Position: 0})
+	require.NoError(t, err)
+	repo, err := q.CreateRepository(ctx, store.CreateRepositoryParams{
+		Name:          "repo",
+		Path:          repoDir,
+		DefaultBranch: sql.NullString{String: "main", Valid: true},
+		OwnerType:     "user",
+		OwnerID:       1,
+	})
+	require.NoError(t, err)
+	require.NoError(t, q.InsertProjectRepository(ctx, store.InsertProjectRepositoryParams{
+		ProjectID: proj.ID, RepositoryID: repo.ID, DefaultBranch: "main",
+	}))
+
+	dataDir := t.TempDir()
+	cfg := &config.WorkspaceConfig{BaseDir: filepath.Join(dataDir, "workspaces")}
+	require.NoError(t, os.MkdirAll(cfg.BaseDir, 0o755))
+	wsSvc := NewWorkspaceService(q, db, cfg, dataDir, nil, nil)
+
+	activitySvc := NewIssueActivityService(q)
+	kanban := NewKanbanService(db, q, activitySvc, nil, nil)
+	epicSvc := NewEpicExecutionService(db, q, kanban, wsSvc, nil)
+
+	return &unifiedBranchEnv{
+		db: db, q: q, kanban: kanban, wsSvc: wsSvc, epicSvc: epicSvc,
+		repoID: repo.ID, repoDir: repoDir, columnID: col.ID, ctx: ctx,
+	}
+}
+
+func (e *unifiedBranchEnv) makeEpic(t *testing.T, title string) int64 {
+	t.Helper()
+	d, err := e.kanban.CreateIssue(e.ctx, e.columnID, title, "", 0, 0, "", "", "", 0, nil, "epic", 0, nil, nil, 0)
+	require.NoError(t, err)
+	return d.ID
+}
+
+func (e *unifiedBranchEnv) makeChild(t *testing.T, epicID int64, title string) int64 {
+	t.Helper()
+	d, err := e.kanban.CreateIssue(e.ctx, e.columnID, title, "", 0, 0, "", "", "", 0, &epicID, "task", 0, nil, nil, 0)
+	require.NoError(t, err)
+	return d.ID
+}
+
+// epicActiveWorkspace returns the epic's non-archived workspace, if any.
+func (e *unifiedBranchEnv) epicActiveWorkspace(t *testing.T, epicID int64) (store.Workspace, bool) {
+	t.Helper()
+	wss, err := e.q.GetWorkspacesByIssue(e.ctx, sql.NullInt64{Int64: epicID, Valid: true})
+	require.NoError(t, err)
+	for _, w := range wss {
+		if w.IsArchived == 0 {
+			return w, true
+		}
+	}
+	return store.Workspace{}, false
+}
+
+func ubRunGit(t *testing.T, dir string, args ...string) {
+	t.Helper()
+	var cmd *exec.Cmd
+	if dir == "" {
+		cmd = exec.Command("git", args...)
+	} else {
+		cmd = exec.Command("git", append([]string{"-C", dir}, args...)...)
+	}
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git %s: %v: %s", strings.Join(args, " "), err, out)
+	}
+}
+
+func ubGitOut(t *testing.T, dir string, args ...string) string {
+	t.Helper()
+	out, err := exec.Command("git", append([]string{"-C", dir}, args...)...).Output()
+	if err != nil {
+		t.Fatalf("git %s: %v: %s", strings.Join(args, " "), err, out)
+	}
+	return strings.TrimSpace(string(out))
+}
+
+func ubWriteFile(t *testing.T, path, content string) {
+	t.Helper()
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatalf("write %s: %v", path, err)
+	}
+}
+
+// TestEpicUnifiedBranch_ControlWorkspaceChecksOutEpicBranch pins spec §1: the
+// epic's own workspace checks out the existing epic/<id> branch (no ws-<id>/
+// fork), the ws_repo row records epic/<id>, and the diff base stays the real
+// baseline (main).
+func TestEpicUnifiedBranch_ControlWorkspaceChecksOutEpicBranch(t *testing.T) {
+	e := setupUnifiedBranchEnv(t)
+	epicID := e.makeEpic(t, "统一分支 epic")
+
+	out, err := e.epicSvc.StartWorkspaceForIssue(e.ctx, epicID)
+	require.NoError(t, err)
+
+	wts, err := e.q.ListWorktrees(e.ctx, out.WorkspaceID)
+	require.NoError(t, err)
+	require.Len(t, wts, 1)
+	wantBranch := fmt.Sprintf("epic/%d", epicID)
+	require.Equal(t, wantBranch, wts[0].Branch, "ws_repo row Branch must be epic/<id>, not a ws-<id>/ fork")
+	require.Equal(t, "main", wts[0].BaseBranch, "diff base stays the real baseline")
+
+	require.Equal(t, wantBranch, ubGitOut(t, wts[0].WorktreePath, "symbolic-ref", "--short", "HEAD"),
+		"the worktree must be checked out ON epic/<id>")
+}
+
+// TestEpicUnifiedBranch_ChildCascadeCreatesParentWorkspace pins spec §2b:
+// creating a child's workspace when the parent epic has NO active workspace
+// first cascades the parent control workspace into existence (checked out on
+// epic/<id>), then creates the child forked from epic/<id>.
+func TestEpicUnifiedBranch_ChildCascadeCreatesParentWorkspace(t *testing.T) {
+	e := setupUnifiedBranchEnv(t)
+	epicID := e.makeEpic(t, "级联父 epic")
+	childID := e.makeChild(t, epicID, "子任务")
+
+	_, ok := e.epicActiveWorkspace(t, epicID)
+	require.False(t, ok, "precondition: epic has no workspace yet")
+
+	out, err := e.epicSvc.StartWorkspaceForIssue(e.ctx, childID)
+	require.NoError(t, err)
+
+	// Parent control workspace was created by the cascade, on epic/<id>.
+	parentWs, ok := e.epicActiveWorkspace(t, epicID)
+	require.True(t, ok, "creating the child's workspace must cascade-create the parent control workspace")
+	parentWts, err := e.q.ListWorktrees(e.ctx, parentWs.ID)
+	require.NoError(t, err)
+	require.Len(t, parentWts, 1)
+	epicBranch := fmt.Sprintf("epic/%d", epicID)
+	require.Equal(t, epicBranch, parentWts[0].Branch)
+	require.Equal(t, epicBranch, ubGitOut(t, parentWts[0].WorktreePath, "symbolic-ref", "--short", "HEAD"))
+
+	// The child exists, keeps its ws- prefixed fork, and forks from epic/<id>.
+	childWts, err := e.q.ListWorktrees(e.ctx, out.WorkspaceID)
+	require.NoError(t, err)
+	require.Len(t, childWts, 1)
+	require.True(t, strings.HasPrefix(childWts[0].Branch, "ws-"),
+		"child branch %q must keep the ws- prefix (children unchanged)", childWts[0].Branch)
+	epicHead := ubGitOut(t, e.repoDir, "rev-parse", epicBranch)
+	mergeBase := ubGitOut(t, e.repoDir, "merge-base", childWts[0].Branch, epicBranch)
+	require.Equal(t, epicHead, mergeBase, "child must fork from the epic/<id> head")
+}
+
+// TestEpicUnifiedBranch_ArchiveKeepsEpicBranch pins 验收 2: archiving a
+// unified epic control workspace removes the worktree but NEVER deletes the
+// epic/<id> branch the whole epic builds on.
+func TestEpicUnifiedBranch_ArchiveKeepsEpicBranch(t *testing.T) {
+	e := setupUnifiedBranchEnv(t)
+	epicID := e.makeEpic(t, "归档保留 epic")
+	out, err := e.epicSvc.StartWorkspaceForIssue(e.ctx, epicID)
+	require.NoError(t, err)
+
+	epicBranch := fmt.Sprintf("epic/%d", epicID)
+	require.Contains(t, ubGitOut(t, e.repoDir, "branch", "--list", epicBranch), epicBranch,
+		"precondition: epic branch exists")
+
+	require.NoError(t, e.wsSvc.Archive(e.ctx, out.WorkspaceID))
+
+	require.NotContains(t, ubGitOut(t, e.repoDir, "worktree", "list"), epicBranch,
+		"the control worktree must be removed from the repo")
+	require.Contains(t, ubGitOut(t, e.repoDir, "branch", "--list", epicBranch), epicBranch,
+		"the epic/<id> branch must survive archiving the control workspace")
+}
+
+// TestEpicUnifiedBranch_LegacyWsPrefixRowsStillDeleteBranchOnArchive guards
+// the compat discriminator: a legacy workspace row whose Branch carries the
+// ws-<id>/ prefix keeps the OLD archive behaviour (branch deleted).
+func TestEpicUnifiedBranch_LegacyWsPrefixRowsStillDeleteBranchOnArchive(t *testing.T) {
+	e := setupUnifiedBranchEnv(t)
+
+	// Seed a workspace row + worktree the legacy way (ws-<id>/<branch>), as an
+	// old epic control workspace would have on disk. `worktree add -b` creates
+	// the branch, exactly like the old WorkspaceService.Create path did.
+	ws, err := e.q.CreateWorkspace(e.ctx, store.CreateWorkspaceParams{
+		Name: "legacy-epic-ws", Path: t.TempDir(), Status: "created", OwnerType: "user", OwnerID: 1,
+	})
+	require.NoError(t, err)
+	legacyBranch := "ws-9/epic/9"
+	wtPath := filepath.Join(ws.Path, ".worktrees", "legacy")
+	require.NoError(t, os.MkdirAll(filepath.Dir(wtPath), 0o755))
+	ubRunGit(t, e.repoDir, "worktree", "add", wtPath, "-b", legacyBranch, "main")
+	_, err = e.q.CreateWorktree(e.ctx, store.CreateWorktreeParams{
+		WorkspaceID: ws.ID, RepositoryID: e.repoID, WorktreePath: wtPath,
+		Branch: legacyBranch, BaseBranch: "main",
+	})
+	require.NoError(t, err)
+
+	require.NoError(t, e.wsSvc.Archive(e.ctx, ws.ID))
+
+	require.NotContains(t, ubGitOut(t, e.repoDir, "branch", "--list", legacyBranch), legacyBranch,
+		"legacy ws- prefixed rows keep the old archive behaviour (branch deleted)")
+}

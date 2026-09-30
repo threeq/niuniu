@@ -350,15 +350,25 @@ func (s *EpicExecutionService) createWorkspaceForIssue(ctx context.Context, issu
 			return nil, fmt.Errorf("ensure epic branch: %w", err)
 		}
 		if issue.IssueType == "epic" {
-			// The epic's OWN orchestration/review workspace FORKS from the epic feature
-			// branch (so it holds the accumulated child work immediately, and any review
-			// fixes land on a branch that merges back into the feature branch) but records
-			// its diff BASE as the project default branch (the real baseline, e.g. main),
-			// so its diff/ahead view shows the whole epic's cumulative changes relative to
-			// the baseline. As later children land on the feature branch, it is synced in
-			// via syncEpicWorkspaceLocked.
+			// The epic's OWN orchestration/review workspace CHECKS OUT the epic feature
+			// branch (epic/<id>, unified since spec 2026-09-28 §1 — see
+			// resolveEpicControlRepos) so it sits on the very branch children merge into,
+			// but records its diff BASE as the project default branch (the real baseline,
+			// e.g. main), so its diff/ahead view shows the whole epic's cumulative
+			// changes relative to the baseline. As later children land on the feature
+			// branch, it is synced in via syncEpicWorkspaceLocked.
 			repos, err = s.resolveEpicControlRepos(ctx, epicID)
 		} else {
+			// 场景 b (spec 2026-09-28 §2b): 直接建子连带建父。When the governing epic
+			// has no active workspace yet, create its control workspace FIRST (which
+			// checks out epic/<id>), so "create a child straight away" never ends with
+			// an epic branch nobody has checked out. Recursion terminates: the epic
+			// branch of createWorkspaceForIssue never cascades again.
+			if _, ok := s.activeWorkspaceForIssue(ctx, epicID); !ok {
+				if _, pErr := s.createWorkspaceForIssue(ctx, epicID, callerUserID); pErr != nil {
+					return nil, fmt.Errorf("cascade-create parent epic workspace %d: %w", epicID, pErr)
+				}
+			}
 			// Child of an epic: base on the epic feature branch (epic/<id>) so
 			// wave-by-wave work accumulates on it.
 			repos, err = s.resolveEpicRepos(ctx, epicID)
@@ -571,11 +581,16 @@ func (s *EpicExecutionService) resolveEpicRepos(ctx context.Context, epicID int6
 }
 
 // resolveEpicControlRepos resolves the epic's project repos for the epic's OWN
-// orchestration/review workspace: the worktree FORKS from the epic feature branch
-// (epic/<epicID>) — so it immediately holds the accumulated child work and any review
-// fixes land on a branch that merges back into the feature branch — yet its diff BASE
-// is the project default branch (the real baseline). When a repo has no resolvable
-// default branch, Base is left empty and falls back to the fork point (legacy behaviour).
+// orchestration/review workspace. Since the unified-branch change (spec
+// 2026-09-28 §1) the worktree CHECKS OUT the epic feature branch (epic/<epicID>)
+// directly — CheckoutExisting tells WorkspaceService.Create to skip the
+// ws-<id>/ fork — so the control workspace sits on the very branch children
+// merge into and sees each integration the moment it lands. The diff BASE stays
+// the project default branch (the real baseline). When a repo has no resolvable
+// default branch, Base is left empty and falls back to the checkout branch
+// (legacy behaviour). Legacy epics created before this change keep their
+// ws-<id>/epic/<id> rows and are discriminated by that prefix at sync/archive
+// time — no migration.
 func (s *EpicExecutionService) resolveEpicControlRepos(ctx context.Context, epicID int64) ([]RepoBranch, error) {
 	prs, err := s.listProjectReposForIssue(ctx, epicID)
 	if err != nil {
@@ -584,7 +599,7 @@ func (s *EpicExecutionService) resolveEpicControlRepos(ctx context.Context, epic
 	branch := epicBranchName(epicID)
 	repos := make([]RepoBranch, 0, len(prs))
 	for _, r := range prs {
-		repos = append(repos, RepoBranch{RepoID: r.repoID, Branch: branch, Base: r.defaultBranch})
+		repos = append(repos, RepoBranch{RepoID: r.repoID, Branch: branch, Base: r.defaultBranch, CheckoutExisting: true})
 	}
 	return repos, nil
 }
@@ -960,6 +975,15 @@ func (s *EpicExecutionService) mergeChildIntoEpic(ctx context.Context, workspace
 // that has diverged — e.g. an orchestration/review agent committed local edits — is
 // left untouched rather than risking a conflict, with the epic feature branch
 // remaining the source of truth.
+//
+// Both workspace generations work unchanged (spec 2026-09-28 §1 存量兼容, no
+// migration): a UNIFIED control worktree is checked out ON epic/<id>, so the
+// ff-only merge is a self fast-forward — "already up to date" when nothing moved,
+// and when a child merge advanced the ref via update-ref it fast-forwards HEAD,
+// index and working tree to the new tip (a dirty worktree that would be
+// overwritten makes git refuse, preserving the 脏文件拒同步 semantics). A LEGACY
+// control worktree (ws_repo.Branch has the ws-<id>/ prefix) keeps the historical
+// behaviour: epic/<id> is ff-merged INTO the ws- prefixed branch.
 func (s *EpicExecutionService) syncEpicWorkspaceLocked(ctx context.Context, epicID int64) {
 	if s.merger == nil {
 		return

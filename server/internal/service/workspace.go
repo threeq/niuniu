@@ -761,15 +761,24 @@ func (s *WorkspaceService) UpdateCodexSandbox(ctx context.Context, workspaceID i
 type RepoBranch struct {
 	RepoID int64
 	// Branch is the fork point: the worktree's new branch (ws-<id>/<Branch>) is
-	// created from this ref.
+	// created from this ref. When CheckoutExisting is set it is instead the
+	// EXISTING branch the worktree checks out as-is.
 	Branch string
 	// Base, when non-empty, is the branch the worktree's diff/ahead view is computed
 	// against (recorded as base_branch), decoupled from Branch (the fork point).
 	// Empty => base == Branch (the common case). The Epic engine sets it so the
-	// epic's OWN workspace forks from the epic feature branch (holding the accumulated
-	// child work, and review fixes land on a branch that merges back into it) yet
-	// diffs against the real baseline (the project default branch).
+	// epic's OWN workspace holds the accumulated child work (its fixes land on a
+	// branch that merges back into the feature branch) yet diffs against the real
+	// baseline (the project default branch).
 	Base string
+	// CheckoutExisting marks Branch as an already-existing branch the worktree
+	// must check out as-is (`git worktree add <path> <branch>` without -b) —
+	// no ws-<workspaceID>/ fork is generated and the ws_repo row records
+	// Branch verbatim. Set only for Epic control repos (spec 2026-09-28 §1:
+	// the epic's own workspace sits directly on the epic/<id> feature branch).
+	// The branch must exist before Create runs (the Epic engine's
+	// ensureEpicBranch guarantees that).
+	CheckoutExisting bool
 }
 
 // resolveIssueOrEpicCreator implements fallbacks 2 and 3 of the workspace
@@ -1022,13 +1031,25 @@ func (s *WorkspaceService) Create(ctx context.Context, input CreateWorkspaceInpu
 
 		// Git branch name with workspace prefix: ws-<id>/<branch>
 		wtBranch := GenerateWorktreeBranch(workspace.ID, branch)
+		// Epic 统一分支 (spec 2026-09-28 §1): CheckoutExisting repos check out an
+		// ALREADY-EXISTING branch (epic/<id>) as-is — no ws-<id>/ fork — and the
+		// ws_repo row records the branch the worktree is ON, which later
+		// discriminates unified rows from legacy ws- prefixed ones at sync/archive.
+		storedBranch := wtBranch
+		addErr := error(nil)
+		if rb.CheckoutExisting {
+			storedBranch = branch
+			addErr = git.WorktreeAddCheckoutExisting(repo.Path, worktreePath, branch)
+		} else {
+			addErr = git.WorktreeAdd(repo.Path, worktreePath, wtBranch, branch)
+		}
 
 		// Create git worktree forked from the user-specified base branch.
-		if err := git.WorktreeAdd(repo.Path, worktreePath, wtBranch, branch); err != nil {
-			slog.Warn("workspace.Create: git worktree add failed", "repo_id", rb.RepoID, "workspace_id", workspace.ID, "base_branch", branch, "error", err)
+		if addErr != nil {
+			slog.Warn("workspace.Create: git worktree add failed", "repo_id", rb.RepoID, "workspace_id", workspace.ID, "base_branch", branch, "error", addErr)
 			result.Errors = append(result.Errors, WorkspaceRepoError{
 				RepositoryID: strconv.FormatInt(rb.RepoID, 10),
-				Error:        err.Error(),
+				Error:        addErr.Error(),
 			})
 			continue
 		}
@@ -1038,7 +1059,7 @@ func (s *WorkspaceService) Create(ctx context.Context, input CreateWorkspaceInpu
 			WorkspaceID:  workspace.ID,
 			RepositoryID: rb.RepoID,
 			WorktreePath: worktreePath,
-			Branch:       wtBranch,
+			Branch:       storedBranch,
 			BaseBranch:   baseBranch,
 		})
 		if err != nil {
@@ -1615,8 +1636,17 @@ func (s *WorkspaceService) Archive(ctx context.Context, workspaceID int64) error
 			slog.Warn("Archive: error removing worktree", "path", wsRepo.WorktreePath, "error", err)
 		}
 		if wsRepo.Branch != "" {
-			if err := git.DeleteBranch(repo.Path, wsRepo.Branch); err != nil {
-				slog.Warn("Archive: error deleting branch", "branch", wsRepo.Branch, "error", err)
+			// Epic 统一分支 (spec 2026-09-28 §1): a unified control worktree sits ON
+			// the shared epic feature branch — archiving removes the worktree row but
+			// must never delete the branch the whole epic (and its children) build
+			// on. A bare "epic/" prefix check deliberately also spares any user
+			// branch that happens to start with epic/ — deleting an epic/ branch as
+			// an archive side-effect is never wanted. Legacy ws-<id>/... rows keep
+			// the old delete-on-archive behaviour.
+			if !strings.HasPrefix(wsRepo.Branch, "epic/") {
+				if err := git.DeleteBranch(repo.Path, wsRepo.Branch); err != nil {
+					slog.Warn("Archive: error deleting branch", "branch", wsRepo.Branch, "error", err)
+				}
 			}
 		}
 	}
