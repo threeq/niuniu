@@ -1,9 +1,8 @@
 import { useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
-import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query'
-import { Layers, Plus, ChevronRight, GitMerge } from 'lucide-react'
-import { toast } from 'sonner'
-import { api, epicApi, ApiError } from '@/lib/api'
+import { useQuery } from '@tanstack/react-query'
+import { Layers, Plus, ChevronRight } from 'lucide-react'
+import { api, epicApi } from '@/lib/api'
 import type { Issue, EpicProgress } from '@/types/api'
 import { Button } from '@/components/ui/button'
 import { ExecStatusBadge } from './exec-status-badge'
@@ -38,7 +37,6 @@ function childStatusStyle(status: string): string {
 
 export function EpicDetailSection({ epic, onOpenIssue, onAddChild }: EpicDetailSectionProps) {
   const { t } = useTranslation('projects')
-  const queryClient = useQueryClient()
 
   const { data: allIssues } = useQuery({
     queryKey: ['all-issues', epic.project_id],
@@ -54,47 +52,6 @@ export function EpicDetailSection({ epic, onOpenIssue, onAddChild }: EpicDetailS
 
   const execStatus = progress?.exec_status ?? epic.exec_status ?? 'idle'
   const isReviewing = execStatus === 'reviewing'
-  const isDone = execStatus === 'done'
-
-  const invalidateExec = () => {
-    queryClient.invalidateQueries({ queryKey: ['epic-progress', epic.id] })
-    queryClient.invalidateQueries({ queryKey: ['issue', String(epic.id)] })
-    queryClient.invalidateQueries({ queryKey: ['all-issues', epic.project_id] })
-  }
-  const onExecError = (err: unknown) => {
-    toast.error(t('kanban.epic.executeFailed'), {
-      description: err instanceof Error ? err.message : undefined,
-    })
-  }
-
-  // Merge-to-main is server-side now: a 409 means the main→epic pre-merge hit
-  // a conflict — nothing was written, and the payload lists the conflicted
-  // files so the user knows what needs resolving in the control workspace.
-  const onMergeError = (err: unknown) => {
-    invalidateExec()
-    if (err instanceof ApiError && err.status === 409) {
-      const body = (err.body ?? {}) as { error?: string; conflict_files?: string[] }
-      const files = Array.isArray(body.conflict_files) ? body.conflict_files : []
-      toast.error(t('kanban.epic.mergeConflict'), {
-        description:
-          files.length > 0
-            ? t('kanban.epic.mergeConflictFiles', { files: files.join(', ') })
-            : body.error ?? err.message,
-      })
-      return
-    }
-    onExecError(err)
-  }
-
-  const mergeMutation = useMutation({
-    mutationFn: () => epicApi.mergeToMain(epic.id),
-    onSuccess: () => {
-      invalidateExec()
-      toast.success(t('kanban.epic.mergeToMainStarted'))
-    },
-    onError: onMergeError,
-  })
-  const anyPending = mergeMutation.isPending
 
   // Group children by exec_wave, ascending.
   const wavesGrouped = useMemo(() => {
@@ -135,25 +92,15 @@ export function EpicDetailSection({ epic, onOpenIssue, onAddChild }: EpicDetailS
 
       {/* Execution control: the epic is driven by its orchestration agent (created by
           making a workspace on the epic issue), which dispatches children itself — the
-          mode-A execute/pause/resume controls were retired in stage 9. The only manual
-          action left is the post-review merge to main; reviewing shows a hint. */}
-      {(isReviewing || isDone) && (
+          mode-A execute/pause/resume controls were retired in stage 9. Reviewing shows
+          a hint; when the epic lands done the server auto-sends the integration
+          wind-down prompt to the control workspace (spec 2026-09-28 §4) — no manual
+          merge action exists. */}
+      {isReviewing && (
         <div className="flex items-center gap-2 mb-4">
-          {isReviewing ? (
-            // Reviewing -> the review agent is verifying the feature branch. The
-            // status badge above conveys progress.
-            <span className="text-xs text-warm-text-muted">{t('kanban.epic.reviewingHint')}</span>
-          ) : (
-            // Done (review complete) -> let the human kick off the merge to main.
-            // The backend git-merges server-side (main→epic pre-merge + epic→main
-            // fast-forward, spec 2026-09-28 §4) and only then hands the agent a
-            // verification prompt; a 409 here is the server-reported main→epic
-            // conflict surfaced by this section's own toast.
-            <Button size="sm" variant="outline" onClick={() => mergeMutation.mutate()} disabled={anyPending}>
-              <GitMerge className="h-4 w-4 mr-1.5" aria-hidden="true" />
-              {t('kanban.epic.mergeToMain')}
-            </Button>
-          )}
+          {/* Reviewing -> the review agent is verifying the feature branch. The
+              status badge above conveys progress. */}
+          <span className="text-xs text-warm-text-muted">{t('kanban.epic.reviewingHint')}</span>
         </div>
       )}
 

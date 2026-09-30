@@ -168,10 +168,6 @@
       "execute": "Execute",
       "pause": "Pause",
       "resume": "Resume",
-      "mergeToMain": "Merge to main",
-      "mergeToMainStarted": "Server-side merge complete; the workspace agent will verify and push",
-      "mergeConflict": "Merge conflict: neither main nor the epic branch was modified",
-      "mergeConflictFiles": "Conflicted files: {{files}}",
       "reviewingHint": "Review agent is verifying the feature branch",
       "executing": "Running {{done}}/{{total}}",
       "noChildren": "No child issues yet",
@@ -190,7 +186,6 @@
         "a": "Mode A (wave engine)",
         "b": "Mode B (orchestration ws)"
       },
-      "executeFailed": "Failed to start Epic execution",
       "execFieldsFailed": "Failed to update Epic fields",
       "failurePolicy": {
         "label": "Failure policy",
