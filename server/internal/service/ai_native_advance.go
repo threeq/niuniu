@@ -505,7 +505,7 @@ func (s *EpicExecutionService) EnsureWorkspaceForIssue(ctx context.Context, issu
 		}
 		return existing, true, nil
 	}
-	res, err := s.createWorkspaceForIssue(ctx, issueID, callerUserID)
+	res, err := s.createWorkspaceForIssue(ctx, issueID, callerUserID, nil)
 	if err != nil {
 		return store.Workspace{}, false, err
 	}

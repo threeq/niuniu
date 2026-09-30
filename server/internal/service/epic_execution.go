@@ -286,8 +286,13 @@ func (e *EpicMergeConflictError) Error() string {
 //     written: the engine records a "main→epic 冲突待解决" exec event with
 //     the conflicted-file list, flips the control workspace to attention and
 //     returns *EpicMergeConflictError (HTTP 409) WITHOUT sending any prompt.
-//  ② MergeAs(epic/<id> → main): the epic branch contains main by now, so
-//     this is always a fast-forward ref update — main can never conflict.
+//  ② epic/<id> → main: the epic branch contains main by now, so this is
+//     always a fast-forward ref move — main can never conflict. When main is
+//     checked out in a worktree (most commonly the user's primary checkout),
+//     the FF is performed INSIDE that worktree (merge --ff-only) so the
+//     branch ref, index and working tree move together; a bare update-ref
+//     there would leave index/files at the old tip (phantom staged diff). A
+//     dirty main checkout refuses the whole repo up front.
 //
 // After all repos: sync the control workspace (unified rows sit ON epic/<id>
 // so the ff-only sync fast-forwards the worktree; legacy ws-<id>/ rows keep
@@ -296,6 +301,9 @@ func (e *EpicMergeConflictError) Error() string {
 // semantics as escalateMultiRepoMergeSplit — cross-repo merges are
 // non-atomic). The prompt asks the agent to VERIFY build/tests and push
 // origin under user confirmation; it performs NO git merge of its own.
+// The whole ①②③ git sequence holds mergeMu — the same serializer the child
+// merges use — so a concurrent child integration can never interleave on the
+// same branches.
 func (s *EpicExecutionService) RequestMergeToMain(ctx context.Context, epicID int64) error {
 	if s.agentProxy == nil {
 		return fmt.Errorf("agent backend not available")
@@ -340,7 +348,15 @@ func (s *EpicExecutionService) RequestMergeToMain(ctx context.Context, epicID in
 	if err := s.ensureEpicBranch(ctx, epicID); err != nil {
 		return fmt.Errorf("ensure epic branch: %w", err)
 	}
+	// The whole git sequence (① per-repo merges, ② epic→main, ③ the control
+	// workspace sync) holds mergeMu: the same non-reentrant serializer the
+	// child→epic merges use, so nothing interleaves on the same branches.
+	// syncEpicWorkspaceLocked REQUIRES its caller to hold mergeMu, and
+	// mergeRepoToMain does not lock internally — one Lock/Unlock pair covers
+	// all three steps; every early return unlocks explicitly first.
+	s.mergeMu.Lock()
 	var mergedRepos []string
+	var refreshedMainCheckouts []string
 	for _, r := range prs {
 		if r.path == "" {
 			continue
@@ -355,7 +371,9 @@ func (s *EpicExecutionService) RequestMergeToMain(ctx context.Context, epicID in
 			slog.Warn("epic merge-to-main: no default branch, skipping repo", "epicID", epicID, "repoID", r.repoID)
 			continue
 		}
-		if mErr := s.mergeRepoToMain(ctx, epic, ws.ID, r.path, main); mErr != nil {
+		refreshed, mErr := s.mergeRepoToMain(ctx, epic, ws.ID, r.path, main)
+		if mErr != nil {
+			s.mergeMu.Unlock()
 			var cf *EpicMergeConflictError
 			if errors.As(mErr, &cf) {
 				s.flipWorkspaceAttention(ctx, epicID)
@@ -370,15 +388,20 @@ func (s *EpicExecutionService) RequestMergeToMain(ctx context.Context, epicID in
 			return mErr
 		}
 		mergedRepos = append(mergedRepos, r.path)
+		if refreshed != "" {
+			refreshedMainCheckouts = append(refreshedMainCheckouts, refreshed)
+		}
 	}
 
-	// Sync the control workspace with the merged state. Serialized by mergeMu
-	// — this touches the same epic branch/worktrees the child merges do.
-	s.mergeMu.Lock()
+	// ③ Sync the control workspace with the merged state — still under the
+	// same mergeMu hold (the sync touches the same epic branch/worktrees).
 	s.syncEpicWorkspaceLocked(ctx, epicID)
 	s.mergeMu.Unlock()
 
-	prompt := composeMergeToMainPrompt(epic, defaults)
+	if len(mergedRepos) == 0 {
+		slog.Warn("epic merge-to-main: no repos were merged (no on-disk/default-branch repos)", "epicID", epicID)
+	}
+	prompt := composeMergeToMainPrompt(epic, defaults, refreshedMainCheckouts, len(mergedRepos) == 0)
 	sess, err := s.agentProxy.GetOrStartSession(ctx, ws.ID, 0)
 	if err != nil || sess == nil {
 		return fmt.Errorf("agent session unavailable: %w", err)
@@ -392,8 +415,10 @@ func (s *EpicExecutionService) RequestMergeToMain(ctx context.Context, epicID in
 // mergeRepoToMain runs spec 2026-09-28 §4 steps ①② for one repo: main→epic
 // pre-merge (conflict → *EpicMergeConflictError, refs untouched) followed by
 // the guaranteed-fast-forward epic→main. Each completed node writes an exec
-// event.
-func (s *EpicExecutionService) mergeRepoToMain(ctx context.Context, epic store.Issue, workspaceID int64, repoPath, main string) error {
+// event. It returns the path of the main checkout that was refreshed in place
+// ("" when main was fast-forwarded via a bare ref update — no worktree holds
+// it). Caller must hold mergeMu.
+func (s *EpicExecutionService) mergeRepoToMain(ctx context.Context, epic store.Issue, workspaceID int64, repoPath, main string) (refreshedMainCheckout string, err error) {
 	epicBranch := epicBranchName(epic.ID)
 	// ① main → epic, skipped when main is already an ancestor of the epic
 	// branch (nothing new to fold in).
@@ -401,24 +426,46 @@ func (s *EpicExecutionService) mergeRepoToMain(ctx context.Context, epic store.I
 		if err := git.MergeAs(repoPath, main, epicBranch, git.Identity{}); err != nil {
 			var cf *git.MergeConflictError
 			if !errors.As(err, &cf) {
-				return fmt.Errorf("main→%s 同步失败(%s): %w", epicBranch, repoPath, err)
+				return "", fmt.Errorf("main→%s 同步失败(%s): %w", epicBranch, repoPath, err)
 			}
 			files := cf.Files
 			if len(files) == 0 {
 				files = []string{err.Error()} // 清单解析为空时回退原始错误文本
 			}
 			s.recordMergeStepEvent(ctx, epic, workspaceID, "gate", "main→epic 冲突待解决", files)
-			return &EpicMergeConflictError{RepoPath: repoPath, Source: cf.Source, Target: cf.Target, ConflictFiles: files}
+			return "", &EpicMergeConflictError{RepoPath: repoPath, Source: cf.Source, Target: cf.Target, ConflictFiles: files}
 		}
 		s.recordMergeStepEvent(ctx, epic, workspaceID, "advance", "main→epic 已同步", nil)
 	}
 	// ② epic → main. The epic branch contains main by construction now, so
 	// this is always a fast-forward ref move — main never conflicts.
+	//
+	// When main is checked out in a worktree (the user's primary checkout,
+	// most commonly), a bare update-ref would resolve HEAD to the new tip
+	// while the index and files stay at the old one — a phantom staged diff
+	// niuniu never self-heals. So the FF is instead performed INSIDE the
+	// checked-out worktree: `merge --ff-only` moves the branch ref, the index
+	// and the working tree together, and git itself refuses on divergence. A
+	// dirty checkout refuses the whole repo up front — nothing has moved.
+	wtPath, dirty, checkedOut, wErr := git.CheckedOutWorktree(repoPath, main)
+	if wErr != nil {
+		return "", fmt.Errorf("探测 %s 的检出工作树失败(%s): %w", main, repoPath, wErr)
+	}
+	if checkedOut {
+		if dirty {
+			return "", fmt.Errorf("main 检出于 %s 且存在未提交改动，请先处理后重试", wtPath)
+		}
+		if err := git.MergeFastForwardOnly(wtPath, epicBranch); err != nil {
+			return "", fmt.Errorf("%s→%s 快进检出工作树失败(%s): %w", epicBranch, main, wtPath, err)
+		}
+		s.recordMergeStepEvent(ctx, epic, workspaceID, "advance", "epic→main 已合并（快进）", nil)
+		return wtPath, nil
+	}
 	if err := git.MergeAs(repoPath, epicBranch, main, git.Identity{}); err != nil {
-		return fmt.Errorf("%s→%s 合并失败(%s): %w", epicBranch, main, repoPath, err)
+		return "", fmt.Errorf("%s→%s 合并失败(%s): %w", epicBranch, main, repoPath, err)
 	}
 	s.recordMergeStepEvent(ctx, epic, workspaceID, "advance", "epic→main 已合并（快进）", nil)
-	return nil
+	return "", nil
 }
 
 // recordMergeStepEvent writes a best-effort exec event for a merge-to-main
@@ -462,17 +509,53 @@ func (s *EpicExecutionService) escalateEpicMergeSplit(ctx context.Context, works
 // every git merge (main→epic pre-merge + epic→main fast-forward) BEFORE this
 // prompt is sent — the agent must not run any git merge of its own; it only
 // verifies build/tests in the workspace and pushes under user confirmation.
-func composeMergeToMainPrompt(epic store.Issue, defaultBranches []string) string {
+// refreshedMainCheckouts lists the main-checkout worktrees the FF refreshed in
+// place (reported so the agent/user knows those paths moved); noRepos adds a
+// leading notice when nothing was merged at all.
+func composeMergeToMainPrompt(epic store.Issue, defaultBranches, refreshedMainCheckouts []string, noRepos bool) string {
 	var b strings.Builder
+	if noRepos {
+		b.WriteString("（注意：没有可合并的仓库）\n")
+	}
 	fmt.Fprintf(&b, "# Epic「%s」已合并到主分支，请验证\n\n", epic.Title)
 	fmt.Fprintf(&b, "服务端已完成 main→epic 同步与 epic→main 合并（快进），Epic 分支 `%s` 已合入各仓库主分支", epicBranchName(epic.ID))
 	if len(defaultBranches) > 0 {
 		fmt.Fprintf(&b, "（%s）", strings.Join(defaultBranches, ", "))
 	}
 	b.WriteString("。\n")
+	if len(refreshedMainCheckouts) > 0 {
+		fmt.Fprintf(&b, "以下主检出工作树已就地快进刷新（分支、暂存区与文件已同步到最新 tip）：\n")
+		for _, p := range refreshedMainCheckouts {
+			fmt.Fprintf(&b, "- %s\n", p)
+		}
+	}
 	b.WriteString("请在本工作空间验证构建/测试是否通过；通过后在用户确认下推送 origin。\n")
 	b.WriteString("不要自行执行任何分支合并操作——所有分支合并已由服务端完成。\n")
 	return b.String()
+}
+
+// EpicCreateOpts carries the optional client-provided dialog fields across the
+// epic-managed delegation (WorkspaceService.Create → createWorkspaceForIssue,
+// spec 2026-09-28 §2b). The delegation used to drop everything the HTTP create
+// dialog offered (CliType/MCPServers/Name/repo subset); these fields restore
+// what the client explicitly chose while keeping the branch semantics intact —
+// branches ALWAYS stay epic-derived, opts never picks a branch. nil opts (the
+// engine's own async paths) means "no client overrides" and changes nothing.
+type EpicCreateOpts struct {
+	// CliType overrides the project default agent when non-empty (the client
+	// explicitly picked codex/qwen in the dialog).
+	CliType string
+	// MCPServers is the dialog's MCP-server selection, passed through as-is
+	// (empty = none selected).
+	MCPServers []string
+	// Name overrides the default workspace name (issue.Title) when non-empty.
+	Name string
+	// Repos is the client-selected repo SUBSET (repo ids only; hand-picked
+	// branches are ignored). Empty = attach the full project repo set. The
+	// subset is intersected with the project's repos; when the intersection
+	// comes up empty the full set is kept (a repo-less epic workspace would
+	// be useless).
+	Repos []RepoBranch
 }
 
 // createWorkspaceForIssue resolves the issue's project owner + repos and creates
@@ -482,7 +565,9 @@ func composeMergeToMainPrompt(epic store.Issue, defaultBranches []string) string
 // the async start_workspace MCP / queue-drain paths). When > 0 it becomes the
 // explicit workspace creator (step 1 of 工作空间创建人确定顺序), taking precedence
 // over the issue/epic created_by fallback resolved inside WorkspaceService.Create.
-func (s *EpicExecutionService) createWorkspaceForIssue(ctx context.Context, issueID, callerUserID int64) (*WorkspaceResult, error) {
+// opts (optional, nil = engine defaults) carries the HTTP dialog's explicit
+// choices through the delegation — see EpicCreateOpts.
+func (s *EpicExecutionService) createWorkspaceForIssue(ctx context.Context, issueID, callerUserID int64, opts *EpicCreateOpts) (*WorkspaceResult, error) {
 	issue, err := s.q.GetIssue(ctx, issueID)
 	if err != nil {
 		return nil, fmt.Errorf("load issue %d: %w", issueID, err)
@@ -516,7 +601,10 @@ func (s *EpicExecutionService) createWorkspaceForIssue(ctx context.Context, issu
 			// an epic branch nobody has checked out. Recursion terminates: the epic
 			// branch of createWorkspaceForIssue never cascades again.
 			if _, ok := s.activeWorkspaceForIssue(ctx, epicID); !ok {
-				if _, pErr := s.createWorkspaceForIssue(ctx, epicID, callerUserID); pErr != nil {
+				// The cascade deliberately drops opts: the parent control
+				// workspace is engine-owned infrastructure, not a dialog
+				// artifact of the child creation that triggered it.
+				if _, pErr := s.createWorkspaceForIssue(ctx, epicID, callerUserID, nil); pErr != nil {
 					return nil, fmt.Errorf("cascade-create parent epic workspace %d: %w", epicID, pErr)
 				}
 			}
@@ -541,21 +629,38 @@ func (s *EpicExecutionService) createWorkspaceForIssue(ctx context.Context, issu
 	if err != nil {
 		return nil, fmt.Errorf("resolve project repos: %w", err)
 	}
+	// Honor the dialog's explicit choices (Fix: the delegation used to drop
+	// them silently — user picked codex, got claude; unchecked repos still
+	// went in). Branch picks are deliberately NOT honored: they stay
+	// epic-derived per spec 2026-09-28.
+	name := issue.Title
+	cliType := ownerRow.ProjectDefaultCliType
+	var mcpServers []string
+	if opts != nil {
+		if opts.Name != "" {
+			name = opts.Name
+		}
+		if opts.CliType != "" {
+			cliType = opts.CliType
+		}
+		mcpServers = opts.MCPServers
+		repos = filterRepoSubset(repos, opts.Repos)
+	}
 	var createdBy *int64
 	if callerUserID > 0 {
 		createdBy = &callerUserID
 	}
 	return s.wsCreator.Create(ctx, CreateWorkspaceInput{
-		IssueID:   &issueID,
-		Name:      issue.Title,
-		Repos:     repos,
-		OwnerType: ownerRow.ProjectOwnerType,
-		OwnerID:   ownerRow.ProjectOwnerID,
-		CreatedBy: createdBy,
-		// Auto-created workspaces inherit the issue's project's default agent
-		// (NOT NULL DEFAULT 'claude', so always populated). Empty would also
-		// default to claude at the workspace SQL layer.
-		CliType: ownerRow.ProjectDefaultCliType,
+		IssueID:    &issueID,
+		Name:       name,
+		Repos:      repos,
+		OwnerType:  ownerRow.ProjectOwnerType,
+		OwnerID:    ownerRow.ProjectOwnerID,
+		CreatedBy:  createdBy,
+		MCPServers: mcpServers,
+		// The project default agent — overridden by an explicit dialog pick
+		// above. Empty would default to claude at the workspace SQL layer.
+		CliType:  cliType,
 		Language: language,
 		// Mark the input as engine-resolved so WorkspaceService.Create's
 		// epic-managed delegation (spec 2026-09-28 §2b) does not recurse.
@@ -563,13 +668,42 @@ func (s *EpicExecutionService) createWorkspaceForIssue(ctx context.Context, issu
 	})
 }
 
+// filterRepoSubset narrows the engine-resolved repos to the client-selected
+// subset (repo ids). An empty subset means "no dialog selection" — the full
+// set is kept. A non-empty selection that matches NOTHING (stale client
+// state) also keeps the full set: an epic workspace with zero worktrees would
+// be dead weight, so the miss is logged and the full set wins.
+func filterRepoSubset(repos, subset []RepoBranch) []RepoBranch {
+	if len(subset) == 0 {
+		return repos
+	}
+	want := make(map[int64]bool, len(subset))
+	for _, r := range subset {
+		want[r.RepoID] = true
+	}
+	kept := make([]RepoBranch, 0, len(repos))
+	for _, r := range repos {
+		if want[r.RepoID] {
+			kept = append(kept, r)
+		}
+	}
+	if len(kept) == 0 {
+		slog.Warn("epic create: client repo subset matches no project repo, keeping the full set",
+			"requested", len(subset), "available", len(repos))
+		return repos
+	}
+	return kept
+}
+
 // EpicCreateDelegate exposes createWorkspaceForIssue as the delegate
 // WorkspaceService.Create uses to funnel creations for epic-managed issues
 // (spec 2026-09-28 §2b): both HTTP create paths converge on Create, which
 // hands epic/child issues over to this so branches are always derived from
 // epic/<id> and the scenario-b cascade runs. Wired once at boot (server.New),
-// after both services are constructed.
-func (s *EpicExecutionService) EpicCreateDelegate() func(ctx context.Context, issueID, callerUserID int64) (*WorkspaceResult, error) {
+// after both services are constructed. opts carries the HTTP dialog's explicit
+// CliType/MCPServers/Name/repo-subset choices through (branch picks are still
+// ignored — branches stay epic-derived).
+func (s *EpicExecutionService) EpicCreateDelegate() func(ctx context.Context, issueID, callerUserID int64, opts *EpicCreateOpts) (*WorkspaceResult, error) {
 	return s.createWorkspaceForIssue
 }
 
@@ -620,7 +754,7 @@ func (s *EpicExecutionService) StartWorkspaceForIssue(ctx context.Context, issue
 		return StartOutcome{Queued: true, QueuePosition: dec.QueuePosition, Warn: dec.Warn, SpentUSD: dec.SpentUSD, BudgetUSD: dec.BudgetUSD}, nil
 	}
 
-	res, err := s.createWorkspaceForIssue(ctx, issueID, 0)
+	res, err := s.createWorkspaceForIssue(ctx, issueID, 0, nil)
 	if err != nil {
 		return StartOutcome{}, err
 	}
@@ -637,7 +771,7 @@ func (s *EpicExecutionService) StartQueuedWorkspace(ctx context.Context, issueID
 		slog.Info("start_workspace(drain): reused existing workspace", "issueID", issueID, "workspaceID", existing.ID)
 		return nil
 	}
-	res, err := s.createWorkspaceForIssue(ctx, issueID, 0)
+	res, err := s.createWorkspaceForIssue(ctx, issueID, 0, nil)
 	if err != nil {
 		return err
 	}

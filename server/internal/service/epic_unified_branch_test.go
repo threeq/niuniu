@@ -389,3 +389,75 @@ func TestEpicUnifiedBranch_LegacyWsPrefixRowsStillDeleteBranchOnArchive(t *testi
 	require.NotContains(t, ubGitOut(t, e.repoDir, "branch", "--list", legacyBranch), legacyBranch,
 		"legacy ws- prefixed rows keep the old archive behaviour (branch deleted)")
 }
+
+// TestEpicUnifiedBranch_DelegateHonorsDialogFields pins the delegation
+// pass-through fix: Create on an epic-managed issue forwards the dialog's
+// explicit CliType / MCPServers / Name / repo subset into the engine's
+// creation path — the workspaces row and ws_repo rows honor them. Only the
+// hand-picked BRANCH stays ignored (work still forks from epic/<id>).
+func TestEpicUnifiedBranch_DelegateHonorsDialogFields(t *testing.T) {
+	e := setupUnifiedBranchEnv(t)
+	e.wsSvc.SetEpicCreateDelegate(e.epicSvc.EpicCreateDelegate())
+
+	epicID := e.makeEpic(t, "透传 epic")
+	childID := e.makeChild(t, epicID, "透传子任务")
+
+	// A second project repo so "subset" is distinguishable from "all".
+	repoB := mtmAddSecondRepo(t, e, "repo-b")
+	require.NotEqual(t, e.repoID, repoB)
+
+	res, err := e.wsSvc.Create(e.ctx, CreateWorkspaceInput{
+		IssueID: &childID,
+		Name:    "对话框自定义名",
+		// Repo subset: repo A only — and a hand-picked branch that must be
+		// ignored (the child still forks from epic/<id>).
+		Repos:      []RepoBranch{{RepoID: e.repoID, Branch: "main"}},
+		OwnerType:  "user",
+		OwnerID:    1,
+		MCPServers: []string{"exa", "context7"},
+		CliType:    "codex",
+	})
+	require.NoError(t, err)
+
+	ws, err := e.q.GetWorkspace(e.ctx, res.Workspace.ID)
+	require.NoError(t, err)
+	require.Equal(t, "对话框自定义名", ws.Name, "the dialog name must override issue.Title")
+	require.Equal(t, "codex", ws.CliType, "the dialog cli pick must override the project default")
+	require.Contains(t, ws.McpServers, "exa", "the dialog MCP selection must be persisted")
+	require.Contains(t, ws.McpServers, "context7")
+
+	// Repo subset honored; the branch is still epic-derived.
+	wts, err := e.q.ListWorktrees(e.ctx, res.Workspace.ID)
+	require.NoError(t, err)
+	require.Len(t, wts, 1, "only the selected repo subset is attached")
+	require.Equal(t, e.repoID, wts[0].RepositoryID, "repo A attached, repo B not")
+	require.True(t, strings.HasPrefix(wts[0].Branch, "ws-"),
+		"child keeps its ws- prefixed fork: %q", wts[0].Branch)
+	epicBranch := fmt.Sprintf("epic/%d", epicID)
+	epicHead := ubGitOut(t, e.repoDir, "rev-parse", epicBranch)
+	require.Equal(t, epicHead, ubGitOut(t, e.repoDir, "merge-base", wts[0].Branch, epicBranch),
+		"the fork point is epic/<id>, NOT the client-picked main")
+}
+
+// TestEpicUnifiedBranch_DelegateStaleSubsetKeepsFullSet pins the defensive
+// half of the repo-subset filter: a client selection matching NO project repo
+// falls back to the full set instead of producing a dead repo-less workspace.
+func TestEpicUnifiedBranch_DelegateStaleSubsetKeepsFullSet(t *testing.T) {
+	e := setupUnifiedBranchEnv(t)
+	e.wsSvc.SetEpicCreateDelegate(e.epicSvc.EpicCreateDelegate())
+
+	epicID := e.makeEpic(t, "陈旧子集 epic")
+	childID := e.makeChild(t, epicID, "陈旧子集子任务")
+
+	res, err := e.wsSvc.Create(e.ctx, CreateWorkspaceInput{
+		IssueID: &childID,
+		Name:    "stale subset",
+		Repos:   []RepoBranch{{RepoID: 999999, Branch: "main"}}, // matches nothing
+		OwnerType: "user",
+		OwnerID:   1,
+	})
+	require.NoError(t, err)
+	wts, err := e.q.ListWorktrees(e.ctx, res.Workspace.ID)
+	require.NoError(t, err)
+	require.Len(t, wts, 1, "a fully stale subset falls back to the full project repo set")
+}

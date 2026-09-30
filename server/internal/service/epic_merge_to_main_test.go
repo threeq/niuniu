@@ -281,6 +281,110 @@ func TestEpicMergeToMain_MultiRepoPartialConflictEscalates(t *testing.T) {
 	require.Equal(t, kickoffsBefore, len(proxy.kickoffs), "no prompt may be sent while the conflict is unresolved")
 }
 
+// TestEpicMergeToMain_MainCheckoutRefreshedInPlace pins the primary-checkout
+// fix: the primary repo dir itself is a main checkout, so the epic→main FF
+// must refresh THAT worktree in place. A bare update-ref would resolve HEAD
+// to the new tip while index/files stayed behind — a phantom staged diff with
+// the epic's files missing on disk. After the flow: clean status, epic content
+// on disk, and the verification prompt names the refreshed path.
+func TestEpicMergeToMain_MainCheckoutRefreshedInPlace(t *testing.T) {
+	e, proxy := mtmEnv(t)
+	epicID := e.makeEpic(t, "主检出刷新 epic")
+	out, err := e.epicSvc.StartWorkspaceForIssue(e.ctx, epicID)
+	require.NoError(t, err)
+	wtPath := mtmControlWorktree(t, e, out.WorkspaceID)
+	epicBranch := fmt.Sprintf("epic/%d", epicID)
+
+	// Precondition: the primary repo dir IS a main checkout (the very shape
+	// that used to be polluted).
+	require.Equal(t, "main", ubGitOut(t, e.repoDir, "symbolic-ref", "--short", "HEAD"))
+
+	// Epic-side work: a new file on the epic branch.
+	ubWriteFile(t, filepath.Join(wtPath, "epic.txt"), "epic work\n")
+	ubRunGit(t, wtPath, "add", "epic.txt")
+	ubRunGit(t, wtPath, "commit", "-q", "-m", "epic advance")
+
+	require.NoError(t, e.epicSvc.RequestMergeToMain(e.ctx, epicID))
+
+	epicHead := ubGitOut(t, e.repoDir, "rev-parse", epicBranch)
+	require.Equal(t, epicHead, ubGitOut(t, e.repoDir, "rev-parse", "main"),
+		"main must fast-forward to the epic head")
+	require.Equal(t, epicHead, ubGitOut(t, e.repoDir, "rev-parse", "HEAD"),
+		"the checked-out main worktree's HEAD must sit on the new tip")
+	require.Empty(t, ubGitOut(t, e.repoDir, "status", "--porcelain"),
+		"the refreshed main checkout must show NO phantom staged diff")
+	content, err := os.ReadFile(filepath.Join(e.repoDir, "epic.txt"))
+	require.NoError(t, err, "the epic file must exist in the refreshed main checkout")
+	require.Equal(t, "epic work\n", strings.ReplaceAll(string(content), "\r\n", "\n"))
+
+	// The verification prompt names the refreshed primary checkout path
+	// (git reports worktree paths with forward slashes; normalize for the
+	// Windows backslash t.TempDir shape).
+	require.NotEmpty(t, proxy.kickoffs)
+	last := proxy.kickoffs[len(proxy.kickoffs)-1]
+	require.Contains(t, last, strings.ReplaceAll(e.repoDir, "\\", "/"),
+		"the prompt must note the refreshed main checkout path")
+	require.Contains(t, last, "已就地快进刷新")
+}
+
+// TestEpicMergeToMain_DirtyMainCheckoutRefuses pins the refusal half: a main
+// checkout with uncommitted changes stops the merge with an error naming the
+// path — and NEITHER ref moves (① is a no-op here since main is already the
+// epic branch's ancestor, ② refuses before touching anything).
+func TestEpicMergeToMain_DirtyMainCheckoutRefuses(t *testing.T) {
+	e, proxy := mtmEnv(t)
+	epicID := e.makeEpic(t, "脏主检出 epic")
+	out, err := e.epicSvc.StartWorkspaceForIssue(e.ctx, epicID)
+	require.NoError(t, err)
+	wtPath := mtmControlWorktree(t, e, out.WorkspaceID)
+	epicBranch := fmt.Sprintf("epic/%d", epicID)
+	kickoffsBefore := len(proxy.kickoffs)
+
+	// Epic-side work that would fast-forward main.
+	ubWriteFile(t, filepath.Join(wtPath, "epic.txt"), "epic work\n")
+	ubRunGit(t, wtPath, "add", "epic.txt")
+	ubRunGit(t, wtPath, "commit", "-q", "-m", "epic advance")
+
+	// The primary main checkout carries an UNCOMMITTED edit.
+	ubWriteFile(t, filepath.Join(e.repoDir, "README.md"), "uncommitted local edit\n")
+
+	mainBefore := ubGitOut(t, e.repoDir, "rev-parse", "main")
+	epicBefore := ubGitOut(t, e.repoDir, "rev-parse", epicBranch)
+
+	err = e.epicSvc.RequestMergeToMain(e.ctx, epicID)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), strings.ReplaceAll(e.repoDir, "\\", "/"),
+		"the error must name the dirty main checkout path (git's forward-slash form)")
+	require.Contains(t, err.Error(), "请先处理后重试", "the error must tell the user what to do")
+
+	// Both refs untouched.
+	require.Equal(t, mainBefore, ubGitOut(t, e.repoDir, "rev-parse", "main"),
+		"main must not move past a dirty checkout")
+	require.Equal(t, epicBefore, ubGitOut(t, e.repoDir, "rev-parse", epicBranch),
+		"the epic ref must not move either (① skipped, ② refused)")
+
+	// The flow stopped before engaging the agent: no prompt sent.
+	require.Equal(t, kickoffsBefore, len(proxy.kickoffs),
+		"no prompt may be sent when the merge is refused")
+}
+
+// TestComposeMergeToMainPrompt_NoReposAndRefreshedCheckouts unit-pins the two
+// packaging additions to the verification prompt: the leading 没有可合并的仓库
+// notice when nothing was merged, and the refreshed main-checkout listing.
+func TestComposeMergeToMainPrompt_NoReposAndRefreshedCheckouts(t *testing.T) {
+	epic := store.Issue{ID: 7, Title: "提示词 epic"}
+
+	both := composeMergeToMainPrompt(epic, []string{"main"}, []string{`E:\repo`, "/x/y"}, true)
+	require.True(t, strings.HasPrefix(both, "（注意：没有可合并的仓库）"),
+		"the zero-repo notice must lead the prompt")
+	require.Contains(t, both, `E:\repo`, "refreshed checkout paths must be listed")
+	require.Contains(t, both, "/x/y")
+
+	plain := composeMergeToMainPrompt(epic, []string{"main"}, nil, false)
+	require.NotContains(t, plain, "没有可合并的仓库")
+	require.NotContains(t, plain, "已就地快进刷新", "no checkout listing when nothing was refreshed")
+}
+
 // TestEpicMergeToMain_WorktreeContentPulledBySync pins the sync step's effect
 // in the simplest shape: with main AHEAD and the epic branch untouched by any
 // pre-merge (main is an ancestor → step ① skipped), main fast-forwards to the

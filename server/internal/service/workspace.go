@@ -59,10 +59,11 @@ type WorkspaceService struct {
 	// SetEpicCreateDelegate). The Epic unified-branch design (spec 2026-09-28
 	// §2b) funnels every creation for an epic or a child of one through the
 	// engine's createWorkspaceForIssue, which resolves the epic feature branch
-	// and runs the scenario-b cascade — any client-supplied branch is ignored.
-	// Wired once at boot (server.New). Nil-safe: without it Create behaves as
-	// before (tests / services that don't opt in).
-	epicCreateDelegate func(ctx context.Context, issueID, callerUserID int64) (*WorkspaceResult, error)
+	// and runs the scenario-b cascade — any client-supplied branch is ignored,
+	// while the dialog's CliType/MCPServers/Name/repo subset ride along in
+	// EpicCreateOpts. Wired once at boot (server.New). Nil-safe: without it
+	// Create behaves as before (tests / services that don't opt in).
+	epicCreateDelegate func(ctx context.Context, issueID, callerUserID int64, opts *EpicCreateOpts) (*WorkspaceResult, error)
 }
 
 func NewWorkspaceService(q *store.Queries, db *sql.DB, cfg *config.WorkspaceConfig, dataDir string, notifyHub *notify.NotificationHub, authz *Authz) *WorkspaceService {
@@ -90,7 +91,7 @@ func (s *WorkspaceService) SetWorkspaceCreatedHook(fn func(context.Context, stor
 // cascade (child creation brings up the parent control workspace) runs. Both
 // HTTP paths — POST /workspaces and POST /issues/{id}/workspace — converge
 // here. Called from server.New after both services are constructed.
-func (s *WorkspaceService) SetEpicCreateDelegate(fn func(ctx context.Context, issueID, callerUserID int64) (*WorkspaceResult, error)) {
+func (s *WorkspaceService) SetEpicCreateDelegate(fn func(ctx context.Context, issueID, callerUserID int64, opts *EpicCreateOpts) (*WorkspaceResult, error)) {
 	s.epicCreateDelegate = fn
 }
 
@@ -873,7 +874,16 @@ func (s *WorkspaceService) Create(ctx context.Context, input CreateWorkspaceInpu
 					callerUserID = *input.CreatedBy
 				}
 				slog.Info("workspace.Create: epic-managed issue, delegating to the epic engine creation path", "issueID", *input.IssueID)
-				return s.epicCreateDelegate(ctx, *input.IssueID, callerUserID)
+				// Pass the dialog's explicit choices through (Fix: the
+				// delegation used to silently drop CliType/MCPServers/Name and
+				// the repo subset). Branch picks stay engine-derived — the
+				// engine ignores Repos' branches entirely.
+				return s.epicCreateDelegate(ctx, *input.IssueID, callerUserID, &EpicCreateOpts{
+					CliType:    input.CliType,
+					MCPServers: input.MCPServers,
+					Name:       input.Name,
+					Repos:      input.Repos,
+				})
 			}
 		}
 	}
