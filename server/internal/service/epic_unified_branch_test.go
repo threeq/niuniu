@@ -159,6 +159,34 @@ func ubWriteFile(t *testing.T, path, content string) {
 	}
 }
 
+// ubAddSecondRepo attaches another repo to the env's project and returns its
+// on-disk dir.
+func ubAddSecondRepo(t *testing.T, e *unifiedBranchEnv, name string) string {
+	t.Helper()
+	col, err := e.q.GetColumn(e.ctx, e.columnID)
+	require.NoError(t, err)
+	dir := filepath.Join(t.TempDir(), name)
+	ubRunGit(t, "", "init", "-q", "-b", "main", dir)
+	ubRunGit(t, dir, "config", "user.email", "epic@example.com")
+	ubRunGit(t, dir, "config", "user.name", "epic-test")
+	ubRunGit(t, dir, "config", "commit.gpgsign", "false")
+	ubWriteFile(t, filepath.Join(dir, "README.md"), "# "+name+"\n")
+	ubRunGit(t, dir, "add", "README.md")
+	ubRunGit(t, dir, "commit", "-q", "-m", "init")
+	repo, err := e.q.CreateRepository(e.ctx, store.CreateRepositoryParams{
+		Name:          name,
+		Path:          dir,
+		DefaultBranch: sql.NullString{String: "main", Valid: true},
+		OwnerType:     "user",
+		OwnerID:       1,
+	})
+	require.NoError(t, err)
+	require.NoError(t, e.q.InsertProjectRepository(e.ctx, store.InsertProjectRepositoryParams{
+		ProjectID: col.ProjectID, RepositoryID: repo.ID, DefaultBranch: "main",
+	}))
+	return dir
+}
+
 // TestEpicUnifiedBranch_ControlWorkspaceChecksOutEpicBranch pins spec §1: the
 // epic's own workspace checks out the existing epic/<id> branch (no ws-<id>/
 // fork), the ws_repo row records epic/<id>, and the diff base stays the real
@@ -430,7 +458,7 @@ func TestEpicUnifiedBranch_DelegateHonorsDialogFields(t *testing.T) {
 	childID := e.makeChild(t, epicID, "透传子任务")
 
 	// A second project repo so "subset" is distinguishable from "all".
-	repoB := mtmAddSecondRepo(t, e, "repo-b")
+	repoB := ubAddSecondRepo(t, e, "repo-b")
 	require.NotEqual(t, e.repoID, repoB)
 
 	res, err := e.wsSvc.Create(e.ctx, CreateWorkspaceInput{

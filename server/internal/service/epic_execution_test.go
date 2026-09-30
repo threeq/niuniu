@@ -596,7 +596,7 @@ func TestEpicExecution_StartWorkspaceQueuedAtCap(t *testing.T) {
 	assert.Equal(t, 0, e.fake.count(), "no workspace created while queued")
 }
 
-// ─── Phase 2: review phase, merge-to-main, child branch integration ───────────
+// ─── Phase 2: review phase, child branch integration ──────────────────────────
 
 // errMergeConflict simulates a real merge conflict for the conflict-path test.
 var errMergeConflict = errors.New("merge conflict")
@@ -917,39 +917,3 @@ func TestEpicExecution_ModeB_PartialMultiRepoMergeBlocksWithoutWaveEngine(t *tes
 	assert.Equal(t, "running", e.execStatus(t, epicID), "epic untouched: no wave-engine failure policy on the orchestration path")
 }
 
-// merge-to-main requires the epic to be 'done'; since spec 2026-09-28 §4 the
-// server performs the git merges itself and the prompt is verification-only
-// (no git merge instructions for the agent).
-func TestEpicExecution_RequestMergeToMain(t *testing.T) {
-	e := setupEpicTest(t)
-	proxy := &fakeAgentProxy{}
-	e.svc.SetAgentProxy(proxy)
-	colID := e.makeProjectColumn(t)
-	epicID := e.makeEpic(t, colID, "Epic MTM")
-	require.NoError(t, e.q.SetIssueExecStatus(e.ctx, store.SetIssueExecStatusParams{ExecStatus: "done", ID: epicID}))
-
-	// Active (non-archived) control workspace bound to the epic.
-	_ = e.makeWorkspace(t, epicID)
-
-	require.NoError(t, e.svc.RequestMergeToMain(e.ctx, epicID))
-	require.NotEmpty(t, proxy.kickoffs)
-	last := proxy.kickoffs[len(proxy.kickoffs)-1]
-	assert.Contains(t, last, "服务端已完成 main→epic 同步与 epic→main 合并（快进）")
-	assert.Contains(t, last, epicBranch(epicID))
-	assert.Contains(t, last, "推送 origin")
-	assert.NotContains(t, last, "就地解决", "the agent must not be told to resolve conflicts in place")
-	assert.NotContains(t, last, "git merge", "the agent must not run any git merge")
-}
-
-func TestEpicExecution_RequestMergeToMainNoWorkspace(t *testing.T) {
-	e := setupEpicTest(t)
-	proxy := &fakeAgentProxy{}
-	e.svc.SetAgentProxy(proxy)
-	colID := e.makeProjectColumn(t)
-	epicID := e.makeEpic(t, colID, "Epic MTM None")
-	require.NoError(t, e.q.SetIssueExecStatus(e.ctx, store.SetIssueExecStatusParams{ExecStatus: "done", ID: epicID}))
-
-	err := e.svc.RequestMergeToMain(e.ctx, epicID)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "no active control workspace")
-}

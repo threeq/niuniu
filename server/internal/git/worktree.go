@@ -202,10 +202,7 @@ func MergeFastForwardOnly(worktreePath, branchName string) error {
 // so the first match is the only one. ok is false when no worktree holds the
 // branch (safe to do a bare ref update). dirty reports uncommitted changes in
 // that worktree (staged or unstaged) — a caller about to move the branch ref
-// must refresh the worktree in place or refuse. Used by the epic merge-to-main
-// flow (spec 2026-09-28 §4): epic→main fast-forwards a checked-out main inside
-// its own worktree instead of update-ref, which would leave the worktree's
-// index/files at the old tip (phantom staged diff).
+// must refresh the worktree in place or refuse.
 func CheckedOutWorktree(repoPath, branch string) (path string, dirty, ok bool, err error) {
 	worktrees, err := ListWorktrees(repoPath)
 	if err != nil {

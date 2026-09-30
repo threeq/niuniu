@@ -1,7 +1,6 @@
 package api
 
 import (
-	"errors"
 	"net/http"
 	"strconv"
 	"strings"
@@ -259,52 +258,6 @@ func (h *EpicExecutionHandler) AbandonIssue(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, res)
-}
-
-// MergeToMain runs the server-side merge-to-main flow (spec 2026-09-28 §4):
-// per repo the backend merges main→epic (conflict → 409 + conflict_files,
-// nothing written) then fast-forwards epic→main, syncs the control workspace,
-// and finally sends the verification prompt to the epic's control-workspace
-// agent. Requires the issue to be an epic whose exec_status is 'done' (review
-// complete). POST /api/issues/:id/merge-to-main
-func (h *EpicExecutionHandler) MergeToMain(c *gin.Context) {
-	userID := c.GetInt64("auth_user_id")
-	issueID, err := strconv.ParseInt(c.Param("id"), 10, 64)
-	if err != nil {
-		BadRequest(c, "invalid issue ID")
-		return
-	}
-	if !h.authzIssueProject(c, userID, issueID) {
-		return
-	}
-	issue, err := h.kanban.GetIssue(c.Request.Context(), issueID)
-	if err != nil {
-		NotFound(c, "ISSUE")
-		return
-	}
-	if issue.IssueType != "epic" {
-		BadRequest(c, "issue is not an epic")
-		return
-	}
-	if issue.ExecStatus != "done" {
-		BadRequest(c, "epic must be 'done' (review complete) before merging to main")
-		return
-	}
-	if err := h.svc.RequestMergeToMain(c.Request.Context(), issueID); err != nil {
-		var cf *service.EpicMergeConflictError
-		if errors.As(err, &cf) {
-			c.JSON(http.StatusConflict, gin.H{"error": cf.Error(), "conflict_files": cf.ConflictFiles})
-			return
-		}
-		BadRequest(c, err.Error())
-		return
-	}
-	done, total, execStatus, err := h.svc.GetEpicProgress(c.Request.Context(), issueID)
-	if err != nil {
-		BadRequest(c, err.Error())
-		return
-	}
-	c.JSON(http.StatusOK, EpicProgressResponse{Done: done, Total: total, ExecStatus: execStatus})
 }
 
 // GetEpicProgress returns derived execution progress for an Epic.
