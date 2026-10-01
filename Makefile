@@ -52,6 +52,15 @@ DARWIN_AMD64_ENV = CGO_ENABLED=1 CGO_CFLAGS="-arch x86_64" CGO_LDFLAGS="-arch x8
 LINUX_AMD64_ENV = CGO_ENABLED=1 CC="zig cc -target x86_64-linux-musl" GOOS=linux GOARCH=amd64
 LINUX_ARM64_ENV = CGO_ENABLED=1 CC="zig cc -target aarch64-linux-musl" GOOS=linux GOARCH=arm64
 
+# Linux 侧车/server-module 构建必须外部链接：CGO_ENABLED=1 下 net（cgo 解析器）
+# 与 runtime/cgo 对象经 zig cc 编成 musl 目标后，Go 内部链接器消化不了——
+# "relocation target pthread_cond_wait/getaddrinfo not defined"（v0.8.9 linux
+# CI 实测，cmd/niuniu-video-mcp 触发：它自身零 cgo 包，恰好只走这条纯
+# CGO-runtime 路径，而 server/mcp 因真实 cgo(webp) 走了另一条路径幸免）。
+# -linkmode external 交给 zig cc 完成最终链接，产出真正的静态 musl 二进制
+# （"static musl" 本就是本节声明的设计意图；与 deploy/self/deploy.sh 一致）。
+LINUX_SERVER_LDFLAGS = -ldflags "$(SERVER_LDFLAGS_COMMON) -linkmode external"
+
 # cgo env for the bundled niuniu-server/niuniu-mcp sidecars built into the
 # desktop-v2 app (_personal-prepare), selected by $(GOOS)_$(GOARCH). Same
 # WebP/cgo requirement as above. Linux is cross-compiled with zig cc (static
@@ -73,6 +82,12 @@ BUNDLE_CGO_windows_amd64 = CGO_ENABLED=1 CC="zig cc -mcpu=baseline"
 BUNDLE_CGO_darwin_arm64  = CGO_ENABLED=1 CGO_CFLAGS="-arch arm64" CGO_LDFLAGS="-arch arm64"
 BUNDLE_CGO_darwin_amd64  = CGO_ENABLED=1 CGO_CFLAGS="-arch x86_64" CGO_LDFLAGS="-arch x86_64"
 BUNDLE_CGO = $(if $(BUNDLE_CGO_$(GOOS)_$(GOARCH)),$(BUNDLE_CGO_$(GOOS)_$(GOARCH)),CGO_ENABLED=1)
+
+# linux 侧车强制外部链接（原因见上 LINUX_SERVER_LDFLAGS 注释）；其他平台为空，
+# 行为不变。追加在 -ldflags 值内部，见 _personal-prepare。
+BUNDLE_LDFLAGS_linux_amd64 = -linkmode external
+BUNDLE_LDFLAGS_linux_arm64 = -linkmode external
+BUNDLE_LDFLAGS = $(BUNDLE_LDFLAGS_$(GOOS)_$(GOARCH))
 
 # UPX compression — OFF by default (install: choco/brew/apt install upx).
 #
@@ -156,14 +171,14 @@ build-win:
 
 build-linux:
 	cd server/web && pnpm install && pnpm build
-	cd server && $(LINUX_AMD64_ENV) go build $(SERVER_LDFLAGS) -o ../bin/niuniu-server-$(VERSION)-linux-amd64 ./cmd/niuniu
-	cd server && $(LINUX_ARM64_ENV) go build $(SERVER_LDFLAGS) -o ../bin/niuniu-server-$(VERSION)-linux-arm64 ./cmd/niuniu
-	cd server && $(LINUX_AMD64_ENV) go build $(SERVER_LDFLAGS) -o ../bin/niuniu-mcp-$(VERSION)-linux-amd64 ./cmd/niuniu-mcp
-	cd server && $(LINUX_ARM64_ENV) go build $(SERVER_LDFLAGS) -o ../bin/niuniu-mcp-$(VERSION)-linux-arm64 ./cmd/niuniu-mcp
+	cd server && $(LINUX_AMD64_ENV) go build $(LINUX_SERVER_LDFLAGS) -o ../bin/niuniu-server-$(VERSION)-linux-amd64 ./cmd/niuniu
+	cd server && $(LINUX_ARM64_ENV) go build $(LINUX_SERVER_LDFLAGS) -o ../bin/niuniu-server-$(VERSION)-linux-arm64 ./cmd/niuniu
+	cd server && $(LINUX_AMD64_ENV) go build $(LINUX_SERVER_LDFLAGS) -o ../bin/niuniu-mcp-$(VERSION)-linux-amd64 ./cmd/niuniu-mcp
+	cd server && $(LINUX_ARM64_ENV) go build $(LINUX_SERVER_LDFLAGS) -o ../bin/niuniu-mcp-$(VERSION)-linux-arm64 ./cmd/niuniu-mcp
 	cd agent && GOOS=linux GOARCH=amd64 go build -o ../bin/niuniu-agent-$(VERSION)-linux-amd64 ./cmd/niuniu-agent
 	cd agent && GOOS=linux GOARCH=arm64 go build -o ../bin/niuniu-agent-$(VERSION)-linux-arm64 ./cmd/niuniu-agent
-	cd server && $(LINUX_AMD64_ENV) go build $(SERVER_LDFLAGS) -o ../bin/niuniu-video-mcp-$(VERSION)-linux-amd64 ./cmd/niuniu-video-mcp
-	cd server && $(LINUX_ARM64_ENV) go build $(SERVER_LDFLAGS) -o ../bin/niuniu-video-mcp-$(VERSION)-linux-arm64 ./cmd/niuniu-video-mcp
+	cd server && $(LINUX_AMD64_ENV) go build $(LINUX_SERVER_LDFLAGS) -o ../bin/niuniu-video-mcp-$(VERSION)-linux-amd64 ./cmd/niuniu-video-mcp
+	cd server && $(LINUX_ARM64_ENV) go build $(LINUX_SERVER_LDFLAGS) -o ../bin/niuniu-video-mcp-$(VERSION)-linux-arm64 ./cmd/niuniu-video-mcp
 	$(call compress,bin/niuniu-server-$(VERSION)-linux-amd64)
 	$(call compress,bin/niuniu-mcp-$(VERSION)-linux-amd64)
 	$(call compress,bin/niuniu-server-$(VERSION)-linux-arm64)
@@ -212,8 +227,8 @@ build-standalone-darwin:
 build-standalone-linux:
 	cd agent && GOOS=linux GOARCH=amd64 go build -o ../bin/niuniu-agent-$(VERSION)-linux-amd64 ./cmd/niuniu-agent
 	cd agent && GOOS=linux GOARCH=arm64 go build -o ../bin/niuniu-agent-$(VERSION)-linux-arm64 ./cmd/niuniu-agent
-	cd server && $(LINUX_AMD64_ENV) go build $(SERVER_LDFLAGS) -o ../bin/niuniu-video-mcp-$(VERSION)-linux-amd64 ./cmd/niuniu-video-mcp
-	cd server && $(LINUX_ARM64_ENV) go build $(SERVER_LDFLAGS) -o ../bin/niuniu-video-mcp-$(VERSION)-linux-arm64 ./cmd/niuniu-video-mcp
+	cd server && $(LINUX_AMD64_ENV) go build $(LINUX_SERVER_LDFLAGS) -o ../bin/niuniu-video-mcp-$(VERSION)-linux-amd64 ./cmd/niuniu-video-mcp
+	cd server && $(LINUX_ARM64_ENV) go build $(LINUX_SERVER_LDFLAGS) -o ../bin/niuniu-video-mcp-$(VERSION)-linux-arm64 ./cmd/niuniu-video-mcp
 
 build-mcp:
 	cd server && go build $(SERVER_LDFLAGS) -o ../bin/niuniu-mcp-$(VERSION) ./cmd/niuniu-mcp
@@ -608,13 +623,13 @@ _personal-prepare:
 	rm -f desktop-v2/binaries/staging/$(GOOS)-$(GOARCH)/niuniu-mcp$(EXT)
 	rm -f desktop-v2/binaries/staging/$(GOOS)-$(GOARCH)/niuniu-agent$(EXT)
 	rm -f desktop-v2/binaries/staging/$(GOOS)-$(GOARCH)/niuniu-video-mcp$(EXT)
-	cd server && $(BUNDLE_CGO) GOOS=$(GOOS) GOARCH=$(GOARCH) go build $(SERVER_LDFLAGS) \
+	cd server && $(BUNDLE_CGO) GOOS=$(GOOS) GOARCH=$(GOARCH) go build -ldflags "$(SERVER_LDFLAGS_COMMON) $(BUNDLE_LDFLAGS)" \
 		-o ../desktop-v2/binaries/staging/$(GOOS)-$(GOARCH)/niuniu-server$(EXT) ./cmd/niuniu
-	cd server && $(BUNDLE_CGO) GOOS=$(GOOS) GOARCH=$(GOARCH) go build $(SERVER_LDFLAGS) \
+	cd server && $(BUNDLE_CGO) GOOS=$(GOOS) GOARCH=$(GOARCH) go build -ldflags "$(SERVER_LDFLAGS_COMMON) $(BUNDLE_LDFLAGS)" \
 		-o ../desktop-v2/binaries/staging/$(GOOS)-$(GOARCH)/niuniu-mcp$(EXT) ./cmd/niuniu-mcp
 	cd agent && GOOS=$(GOOS) GOARCH=$(GOARCH) go build \
 		-o ../desktop-v2/binaries/staging/$(GOOS)-$(GOARCH)/niuniu-agent$(EXT) ./cmd/niuniu-agent
-	cd server && $(BUNDLE_CGO) GOOS=$(GOOS) GOARCH=$(GOARCH) go build $(SERVER_LDFLAGS) \
+	cd server && $(BUNDLE_CGO) GOOS=$(GOOS) GOARCH=$(GOARCH) go build -ldflags "$(SERVER_LDFLAGS_COMMON) $(BUNDLE_LDFLAGS)" \
 		-o ../desktop-v2/binaries/staging/$(GOOS)-$(GOARCH)/niuniu-video-mcp$(EXT) ./cmd/niuniu-video-mcp
 
 _personal-prepare-current:
