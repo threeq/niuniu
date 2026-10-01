@@ -1,5 +1,6 @@
 .PHONY: dev dev-backend dev-frontend \
-	build build-win build-linux build-mcp \
+	build build-win build-linux build-mac build-mcp build-agent-bin \
+	build-standalone-windows build-standalone-darwin build-standalone-linux \
 	build-personal build-personal-current build-personal-all \
 	build-personal-windows build-personal-darwin build-personal-linux \
 	package-personal-darwin package-personal-linux \
@@ -167,6 +168,8 @@ build-linux:
 	$(call compress,bin/niuniu-mcp-$(VERSION)-linux-amd64)
 	$(call compress,bin/niuniu-server-$(VERSION)-linux-arm64)
 	$(call compress,bin/niuniu-mcp-$(VERSION)-linux-arm64)
+	$(call compress,bin/niuniu-agent-$(VERSION)-linux-amd64)
+	$(call compress,bin/niuniu-agent-$(VERSION)-linux-arm64)
 	$(call compress,bin/niuniu-video-mcp-$(VERSION)-linux-amd64)
 	$(call compress,bin/niuniu-video-mcp-$(VERSION)-linux-arm64)
 	@echo "NOTE: Desktop (desktop-v2, Tauri) needs the Linux GTK/WebKit dev packages — build on Linux with: make build-personal-v2-linux"
@@ -177,15 +180,40 @@ build-mac:
 	cd server && GOOS=darwin GOARCH=amd64 go build $(SERVER_LDFLAGS) -o ../bin/niuniu-server-$(VERSION)-darwin-amd64 ./cmd/niuniu
 	cd server && GOOS=darwin GOARCH=arm64 go build $(SERVER_LDFLAGS) -o ../bin/niuniu-mcp-$(VERSION)-darwin-arm64 ./cmd/niuniu-mcp
 	cd server && GOOS=darwin GOARCH=amd64 go build $(SERVER_LDFLAGS) -o ../bin/niuniu-mcp-$(VERSION)-darwin-amd64 ./cmd/niuniu-mcp
+	cd agent && GOOS=darwin GOARCH=arm64 go build -o ../bin/niuniu-agent-$(VERSION)-darwin-arm64 ./cmd/niuniu-agent
+	cd agent && GOOS=darwin GOARCH=amd64 go build -o ../bin/niuniu-agent-$(VERSION)-darwin-amd64 ./cmd/niuniu-agent
 	cd server && GOOS=darwin GOARCH=arm64 go build $(SERVER_LDFLAGS) -o ../bin/niuniu-video-mcp-$(VERSION)-darwin-arm64 ./cmd/niuniu-video-mcp
 	cd server && GOOS=darwin GOARCH=amd64 go build $(SERVER_LDFLAGS) -o ../bin/niuniu-video-mcp-$(VERSION)-darwin-amd64 ./cmd/niuniu-video-mcp
 	$(call compress,bin/niuniu-server-$(VERSION)-darwin-arm64)
 	$(call compress,bin/niuniu-mcp-$(VERSION)-darwin-arm64)
 	$(call compress,bin/niuniu-server-$(VERSION)-darwin-amd64)
 	$(call compress,bin/niuniu-mcp-$(VERSION)-darwin-amd64)
+	$(call compress,bin/niuniu-agent-$(VERSION)-darwin-arm64)
+	$(call compress,bin/niuniu-agent-$(VERSION)-darwin-amd64)
 	$(call compress,bin/niuniu-video-mcp-$(VERSION)-darwin-arm64)
 	$(call compress,bin/niuniu-video-mcp-$(VERSION)-darwin-amd64)
 	@echo "NOTE: Desktop (desktop-v2, Tauri) requires macOS SDK — build on macOS with: make build-personal-v2-darwin"
+
+# ── Standalone agent / video-mcp binaries (CI: release.yml standalone jobs) ──
+# 独立分发的 niuniu-agent（纯 Go 自研引擎，交叉编译零额外工具）与 niuniu-video-mcp
+# （cgo libwebp，工具链与 _personal-prepare 的 BUNDLE_CGO / DARWIN_* / LINUX_* 一致）。
+# 不构建 SPA：video-mcp 不含 web embed，CI 侧用 dist 占位文件兜底。产物为原始
+# 二进制（compress 仅 UPX 加壳、默认关闭），命名与 build-linux / build-mac 一致。
+build-standalone-windows:
+	cd agent && GOOS=windows GOARCH=amd64 go build -o ../bin/niuniu-agent-$(VERSION).exe ./cmd/niuniu-agent
+	cd server && $(BUNDLE_CGO_windows_amd64) GOOS=windows GOARCH=amd64 go build $(SERVER_LDFLAGS) -o ../bin/niuniu-video-mcp-$(VERSION).exe ./cmd/niuniu-video-mcp
+
+build-standalone-darwin:
+	cd agent && GOOS=darwin GOARCH=arm64 go build -o ../bin/niuniu-agent-$(VERSION)-darwin-arm64 ./cmd/niuniu-agent
+	cd agent && GOOS=darwin GOARCH=amd64 go build -o ../bin/niuniu-agent-$(VERSION)-darwin-amd64 ./cmd/niuniu-agent
+	cd server && $(DARWIN_ARM64_ENV) go build $(SERVER_LDFLAGS) -o ../bin/niuniu-video-mcp-$(VERSION)-darwin-arm64 ./cmd/niuniu-video-mcp
+	cd server && $(DARWIN_AMD64_ENV) go build $(SERVER_LDFLAGS) -o ../bin/niuniu-video-mcp-$(VERSION)-darwin-amd64 ./cmd/niuniu-video-mcp
+
+build-standalone-linux:
+	cd agent && GOOS=linux GOARCH=amd64 go build -o ../bin/niuniu-agent-$(VERSION)-linux-amd64 ./cmd/niuniu-agent
+	cd agent && GOOS=linux GOARCH=arm64 go build -o ../bin/niuniu-agent-$(VERSION)-linux-arm64 ./cmd/niuniu-agent
+	cd server && $(LINUX_AMD64_ENV) go build $(SERVER_LDFLAGS) -o ../bin/niuniu-video-mcp-$(VERSION)-linux-amd64 ./cmd/niuniu-video-mcp
+	cd server && $(LINUX_ARM64_ENV) go build $(SERVER_LDFLAGS) -o ../bin/niuniu-video-mcp-$(VERSION)-linux-arm64 ./cmd/niuniu-video-mcp
 
 build-mcp:
 	cd server && go build $(SERVER_LDFLAGS) -o ../bin/niuniu-mcp-$(VERSION) ./cmd/niuniu-mcp

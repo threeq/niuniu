@@ -6,12 +6,16 @@ name: Release
 #
 # 流程（每个平台 job 相同的三段式）：
 #   1. pnpm build 嵌入式 SPA（server/web/dist）
-#   2. make build-personal-v2-<os>   → _personal-prepare 构建 Go server/mcp
-#      侧车（zig cc / clang 处理 libwebp cgo）staging 到 desktop-v2/binaries/
+#   2. make build-personal-v2-<os>   → _personal-prepare 构建 Go 四件侧车
+#      （server / mcp / agent / video-mcp；zig cc / clang 处理 libwebp cgo）
+#      staging 到 desktop-v2/binaries/
 #   3. cargo build --release --target <triple>   → build.rs include_bytes!
 #      把侧车内嵌进单文件产物
 # macOS 额外经 package.sh 包 .app + .dmg（签名/公证由 "Apple Build" 环境的
 # MACOS_CERT_* / APPLE_API_* secrets 启用）；Linux 经 package.sh 包 AppImage。
+#
+# 另有 3 个 standalone job：构建独立分发的 niuniu-agent / niuniu-video-mcp
+# （三平台原始二进制，headless 部署 / 单独更新能力模块用，与桌面包互补）。
 #
 # release notes 用 GitHub 自动生成（--generate-notes）。
 
@@ -195,9 +199,80 @@ jobs:
           set -euo pipefail
           gh release upload "$TAG" --clobber bin/niuniu-desktop-v2-*-linux-amd64.AppImage
 
+  # ── Standalone niuniu-agent / niuniu-video-mcp（独立分发，非桌面包内嵌）──
+  build-standalone-windows:
+    name: Build standalone bins (windows-amd64)
+    needs: prepare
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with: { go-version-file: server/go.mod, cache-dependency-path: server/go.sum }
+      - uses: mlugg/setup-zig@v2
+        with: { version: 0.16.0 }
+      - name: Prepare web embed placeholder
+        shell: bash
+        run: mkdir -p server/web/dist && touch server/web/dist/.gitkeep
+      - name: make build-standalone-windows
+        shell: bash
+        run: VERSION="$TAG" make build-standalone-windows
+      - name: Upload standalone binaries
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release upload "$TAG" --clobber bin/niuniu-agent-*.exe bin/niuniu-video-mcp-*.exe
+
+  build-standalone-darwin:
+    name: Build standalone bins (darwin amd64+arm64)
+    needs: prepare
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with: { go-version-file: server/go.mod, cache-dependency-path: server/go.sum }
+      - name: Prepare web embed placeholder
+        run: mkdir -p server/web/dist && touch server/web/dist/.gitkeep
+      - name: make build-standalone-darwin
+        run: VERSION="$TAG" make build-standalone-darwin
+      - name: Upload standalone binaries
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release upload "$TAG" --clobber bin/niuniu-agent-*-darwin-* bin/niuniu-video-mcp-*-darwin-*
+
+  build-standalone-linux:
+    name: Build standalone bins (linux amd64+arm64)
+    needs: prepare
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with: { go-version-file: server/go.mod, cache-dependency-path: server/go.sum }
+      - uses: mlugg/setup-zig@v2
+        with: { version: 0.16.0 }
+      - name: Prepare web embed placeholder
+        run: mkdir -p server/web/dist && touch server/web/dist/.gitkeep
+      - name: make build-standalone-linux
+        run: VERSION="$TAG" make build-standalone-linux
+      - name: Upload standalone binaries
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release upload "$TAG" --clobber bin/niuniu-agent-*-linux-* bin/niuniu-video-mcp-*-linux-*
+
   publish:
     name: Publish release
-    needs: [prepare, build-windows, build-darwin, build-linux]
+    needs: [prepare, build-windows, build-darwin, build-linux, build-standalone-windows, build-standalone-darwin, build-standalone-linux]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
