@@ -36,7 +36,9 @@ pub fn find_webview2_version() -> Option<String> {
     None
 }
 
+/// 非 Windows 无 WebView2 概念，也无调用方——仅为保持模块 API 统一可编译的 stub。
 #[cfg(not(windows))]
+#[allow(dead_code)]
 pub fn find_webview2_version() -> Option<String> {
     None
 }
@@ -115,7 +117,9 @@ pub fn show_missing_dialog() -> bool {
     false
 }
 
+/// 非 Windows stub（缺失弹窗是 Windows-only 行为），无调用方，保留以统一模块 API。
 #[cfg(not(windows))]
+#[allow(dead_code)]
 pub fn show_missing_dialog() -> bool {
     false
 }
