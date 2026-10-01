@@ -33,6 +33,25 @@ jobs:
       - name: Build go-shared
         run: cd go-shared && go build ./...
 
+  # agent/ is a separate Go module (the built-in engine). Build, vet and test
+  # it here so engine regressions surface in CI instead of only at desktop
+  # packaging time.
+  agent:
+    name: agent build & vet & test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: server/go.mod
+          cache-dependency-path: server/go.sum
+      - name: Build agent
+        run: cd agent && go build ./...
+      - name: Vet agent
+        run: cd agent && go vet ./...
+      - name: Test agent
+        run: cd agent && go test ./...
+
   # desktop-v2 (Tauri v2) compile check. Tauri needs the Linux GTK /
   # WebKitGTK dev headers; the Go sidecars are NOT embedded for cargo check
   # (build.rs only turns on have_embedded_sidecars for release builds with
