@@ -1,12 +1,16 @@
 // Package loop implements the core agent loop: send the conversation to the
 // model, execute any requested tools, feed the results back, and repeat
-// until the model answers with text only — or the turn budget runs out.
+// until the model answers with text only. A round cap is optional
+// (Options.MaxTurns / NIUNIU_AGENT_MAX_TURNS); without one, auto-compact
+// and host cancel/timeout are the session's real bounds.
 package loop
 
 import (
 	"context"
 	"fmt"
 	"log/slog"
+	"os"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -16,9 +20,15 @@ import (
 	"github.com/niuniu-dev/niuniu/agent/internal/tools"
 )
 
-// DefaultMaxTurns is the model round-trip budget when Options.MaxTurns is
-// unset. Each turn may execute several tools.
-const DefaultMaxTurns = 16
+// envMaxTurns reads the optional NIUNIU_AGENT_MAX_TURNS round cap. Unset,
+// invalid, or <= 0 → 0: the loop treats a non-positive cap as unlimited.
+func envMaxTurns() int {
+	n, err := strconv.Atoi(strings.TrimSpace(os.Getenv("NIUNIU_AGENT_MAX_TURNS")))
+	if err != nil || n < 0 {
+		return 0
+	}
+	return n
+}
 
 // EventKind identifies a progress event emitted while a Prompt is in flight.
 type EventKind int
@@ -62,6 +72,10 @@ type TurnResult struct {
 
 // Options bounds one Prompt.
 type Options struct {
+	// MaxTurns caps the model round-trips of one Prompt (each may execute
+	// several tools). <= 0 means unlimited unless NIUNIU_AGENT_MAX_TURNS
+	// sets a positive cap — auto-compact and host cancel/timeout bound the
+	// session instead.
 	MaxTurns int
 	// Perms decides whether a tool may run; nil approves everything (the
 	// caller — CLI main or the ACP server — owns policy).
@@ -142,7 +156,7 @@ func (s *Session) SetModel(m model.Model) { s.m = m }
 // for multimodal turns).
 func (s *Session) PromptBlocks(ctx context.Context, userBlocks []model.Block, opts Options) (TurnResult, error) {
 	if opts.MaxTurns <= 0 {
-		opts.MaxTurns = DefaultMaxTurns
+		opts.MaxTurns = envMaxTurns()
 	}
 	if opts.Perms == nil {
 		opts.Perms = perm.AllowAllChecker()
@@ -162,7 +176,10 @@ func (s *Session) PromptBlocks(ctx context.Context, userBlocks []model.Block, op
 	s.messages = append(s.messages, model.Message{Role: model.RoleUser, Blocks: userBlocks})
 	var result TurnResult
 	lastCtx := 0 // context size reported by the previous round
-	for turn := 1; turn <= opts.MaxTurns; turn++ {
+	for turn := 1; ; turn++ {
+		if opts.MaxTurns > 0 && turn > opts.MaxTurns {
+			return TurnResult{}, fmt.Errorf("turn budget exhausted after %d rounds without a final answer", opts.MaxTurns)
+		}
 		if opts.EvictToolResults > 0 {
 			s.evictOldToolResults(opts.EvictToolResults, opts.EvictKeepBytes)
 		}
@@ -262,7 +279,6 @@ func (s *Session) PromptBlocks(ctx context.Context, userBlocks []model.Block, op
 		}
 		s.messages = append(s.messages, model.Message{Role: model.RoleUser, Blocks: results})
 	}
-	return TurnResult{}, fmt.Errorf("turn budget exhausted after %d rounds without a final answer", opts.MaxTurns)
 }
 
 // execToolUse executes one tool_use with permission gating and error
