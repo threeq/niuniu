@@ -232,7 +232,7 @@ func main() {
 		promptText  = flag.String("p", "", "one-shot prompt: run headless and print the final answer")
 		provider    = flag.String("provider", "", "model provider: anthropic (default) or openai")
 		modelName   = flag.String("model", "", "model name override")
-		maxTurns    = flag.Int("max-turns", 0, "max model round-trips (default 16)")
+		maxTurns    = flag.Int("max-turns", 0, "max model round-trips (0 = unlimited, the default; NIUNIU_AGENT_MAX_TURNS env also sets a cap)")
 		timeout     = flag.Duration("timeout", 5*time.Minute, "overall timeout for the run")
 		yes         = flag.Bool("y", false, "auto-approve mutating tools (Write/Edit/Bash); without it headless mode refuses them")
 		reflectOn   = flag.Bool("reflect", false, "after the run, distill a durable lesson into memory (one extra model call)")
@@ -262,6 +262,7 @@ Usage:
 
 Configuration (env):
   NIUNIU_AGENT_PROVIDER  anthropic (default) | openai
+  NIUNIU_AGENT_MAX_TURNS optional cap on model round-trips per prompt (unset = unlimited)
   ANTHROPIC_BASE_URL / ANTHROPIC_API_KEY | ANTHROPIC_AUTH_TOKEN / ANTHROPIC_MODEL
   OPENAI_BASE_URL / OPENAI_API_KEY / OPENAI_MODEL
 `)

@@ -49,13 +49,14 @@ go run ./cmd/niuniu-agent -p "列出当前目录下有哪些文件"
 | 变量 | 说明 |
 |------|------|
 | `NIUNIU_AGENT_PROVIDER` | `anthropic`（默认）/ `openai` |
+| `NIUNIU_AGENT_MAX_TURNS` | 每次 prompt 的模型往返上限（正整数）；未设或 ≤0 = 不限制 |
 | `ANTHROPIC_BASE_URL` | 默认 `https://api.anthropic.com`；GLM 等兼容网关填其地址 |
 | `ANTHROPIC_AUTH_TOKEN` | Bearer 方式鉴权（Anthropic 兼容网关常用） |
 | `ANTHROPIC_API_KEY` | `x-api-key` 方式鉴权 |
 | `ANTHROPIC_MODEL` | 模型名（或 `-model` 传入） |
 | `OPENAI_BASE_URL` / `OPENAI_API_KEY` / `OPENAI_MODEL` | OpenAI 兼容协议同理 |
 
-其他 flag：`-max-turns`（模型往返上限，默认 16）、`-timeout`（整体超时）、`-profile`（选择 config.json 里的档案）、`-config`（profile 配置路径覆盖）、`-print-system`（stderr 打印合成后的 system）、`-reflect`（回合后反射沉淀经验）、`-resume`（续跑会话）。
+其他 flag：`-max-turns`（模型往返上限，默认不限制；可用 `NIUNIU_AGENT_MAX_TURNS` 环境变量设定上限，对 ACP 会话同样生效）、`-timeout`（整体超时）、`-profile`（选择 config.json 里的档案）、`-config`（profile 配置路径覆盖）、`-print-system`（stderr 打印合成后的 system）、`-reflect`（回合后反射沉淀经验）、`-resume`（续跑会话）。
 
 ### 多 Profile 配置（config.json）
 
