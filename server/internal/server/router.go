@@ -765,6 +765,8 @@ func (s *Server) setupRoutes() {
 
 		// File tree search
 		workspaces.GET("/:id/files", s.fileTreeHandler.Search)
+		// Smart resolution of an agent-emitted file reference (chat links)
+		workspaces.GET("/:id/resolve-file", s.fileTreeHandler.ResolveFile)
 		// Content (grep) search — the other half of the unified search panel
 		workspaces.GET("/:id/search/content", s.fileTreeHandler.SearchContent)
 

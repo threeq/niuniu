@@ -191,6 +191,33 @@ describe('rehypeLinkify', () => {
     expect((a!.children[0] as Text).value).toBe('example.org')
   })
 
+  it('leaves file references with TLD-shaped extensions unlinked', () => {
+    // `README.md:42` parses as host `readme.md` + port `42`, and a bare
+    // `README.md` as host `readme.md` (`md` is a real TLD). These are file
+    // references, not URLs — rehype-file-links claims them downstream.
+    for (const value of ['见 README.md:42 的说明', 'see README.md now']) {
+      const tree = pTree({ type: 'text', value })
+      runLinkify(tree)
+      const children = firstParagraphChildren(tree)
+      expect(children, value).toHaveLength(1)
+      expect(children[0]).toMatchObject({ type: 'text', value })
+    }
+  })
+
+  it('still linkifies schema-less URLs whose PATH ends in a file extension', () => {
+    const tree = pTree({
+      type: 'text',
+      value: 'open example.com/docs/a.html for info',
+    })
+    runLinkify(tree)
+    const children = firstParagraphChildren(tree)
+    const a = children.find(
+      (c): c is Element => c.type === 'element' && c.tagName === 'a',
+    )
+    expect(a).toBeDefined()
+    expect(a!.properties?.href).toBe('http://example.com/docs/a.html')
+  })
+
   it('handles multiple URLs in a single text node', () => {
     const tree = pTree({
       type: 'text',

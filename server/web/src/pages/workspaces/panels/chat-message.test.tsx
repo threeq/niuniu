@@ -1,9 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { http, HttpResponse } from 'msw';
 import { ChatMessage, type TimelineEvent } from './chat-message';
 import { MarkdownMessage } from '@/components/shared/markdown-message';
 import { useWorkspacePanelStore } from '@/stores/workspace-panel-store';
+import { server } from '@/mocks/server-node';
 
 const copyMock = vi.fn().mockResolvedValue(true);
 vi.mock('@/lib/copy-to-clipboard', () => ({
@@ -188,10 +190,31 @@ describe('ChatMessage niuniu-data rendering', () => {
 
 describe('ChatMessage workspace file links', () => {
   const viewerState = () => useWorkspacePanelStore.getState().contentViewer['42'];
+  const RESOLVE = '/api/workspaces/42/resolve-file';
 
   beforeEach(() => {
     useWorkspacePanelStore.setState({ contentViewer: {} });
   });
+
+  /** Mock the resolver; the handler sees the raw ref the client sends. */
+  function resolveWith(
+    impl: (ref: string) => number | { path: string; strategy?: string },
+  ): void {
+    server.use(
+      http.get(RESOLVE, ({ request }) => {
+        const ref = new URL(request.url).searchParams.get('ref') ?? '';
+        const out = impl(ref);
+        if (typeof out === 'number') {
+          return new HttpResponse(null, { status: out });
+        }
+        return HttpResponse.json({
+          path: out.path,
+          strategy: out.strategy ?? 'suffix',
+          candidates: [] as string[],
+        });
+      }),
+    );
+  }
 
   it('renders a plain-text file path as an open-file link', () => {
     render(
@@ -210,22 +233,79 @@ describe('ChatMessage workspace file links', () => {
     expect(link.getAttribute('href')).toMatch(/^niu-file:/);
   });
 
-  it('opens the content viewer with the parsed path and line on click', () => {
+  it('sends the raw ref (line stripped) and opens the server-resolved path', async () => {
+    const seen: string[] = [];
+    resolveWith((ref) => {
+      seen.push(ref);
+      return { path: '.worktrees/niuniu-main/server/web/src/lib/api.ts' };
+    });
     render(
       withQuery(
         <ChatMessage
-          event={baseEvent('请查看 src/app.ts:42 的实现')}
+          event={baseEvent('改的是 `src/lib/api.ts` 这个文件')}
           cliType="claude"
           toolResults={new Map()}
           workspaceId="42"
         />,
       ),
     );
-    fireEvent.click(screen.getByText('src/app.ts:42'));
-    expect(viewerState()).toMatchObject({ kind: 'file', path: 'src/app.ts', line: 42 });
+    fireEvent.click(screen.getByText('src/lib/api.ts'));
+    await waitFor(() =>
+      expect(viewerState()).toMatchObject({
+        kind: 'file',
+        path: '.worktrees/niuniu-main/server/web/src/lib/api.ts',
+      }),
+    );
+    // The fuzzy match is the point: the ref as written would 404, the
+    // server-resolved worktree path opens.
+    expect(seen).toEqual(['src/lib/api.ts']);
   });
 
-  it('resolves an absolute host path to workspace-relative before opening', () => {
+  it('keeps the :line suffix and applies it to the resolved path', async () => {
+    resolveWith(() => ({ path: '.worktrees/niuniu-main/README.md', strategy: 'worktree' }));
+    render(
+      withQuery(
+        <ChatMessage
+          event={baseEvent('见 README.md:42')}
+          cliType="claude"
+          toolResults={new Map()}
+          workspaceId="42"
+        />,
+      ),
+    );
+    fireEvent.click(screen.getByText('README.md:42'));
+    await waitFor(() =>
+      expect(viewerState()).toMatchObject({
+        kind: 'file',
+        path: '.worktrees/niuniu-main/README.md',
+        line: 42,
+      }),
+    );
+  });
+
+  it('falls back to local normalization when the resolver has no match', async () => {
+    resolveWith(() => 404);
+    render(
+      withQuery(
+        <ChatMessage
+          event={baseEvent('见 /host/.niuniu/ws/942/.worktrees/niuniu-main/README.md')}
+          cliType="claude"
+          toolResults={new Map()}
+          workspaceId="42"
+        />,
+      ),
+    );
+    fireEvent.click(screen.getByText('/host/.niuniu/ws/942/.worktrees/niuniu-main/README.md'));
+    await waitFor(() =>
+      expect(viewerState()).toMatchObject({
+        kind: 'file',
+        path: '.worktrees/niuniu-main/README.md',
+      }),
+    );
+  });
+
+  it('falls back to local normalization when the resolver errors (older backend)', async () => {
+    server.use(http.get(RESOLVE, () => HttpResponse.error()));
     render(
       withQuery(
         <ChatMessage
@@ -238,42 +318,9 @@ describe('ChatMessage workspace file links', () => {
       ),
     );
     fireEvent.click(screen.getByText('C:\\Users\\u\\ws942\\src\\main.go'));
-    expect(viewerState()).toMatchObject({ kind: 'file', path: 'src/main.go' });
-  });
-
-  it('cuts an unresolvable absolute path at the last .worktrees segment', () => {
-    render(
-      withQuery(
-        <ChatMessage
-          event={baseEvent('见 /host/.niuniu/ws/942/.worktrees/niuniu-main/README.md')}
-          cliType="claude"
-          toolResults={new Map()}
-          workspaceId="42"
-        />,
-      ),
+    await waitFor(() =>
+      expect(viewerState()).toMatchObject({ kind: 'file', path: 'src/main.go' }),
     );
-    fireEvent.click(screen.getByText('/host/.niuniu/ws/942/.worktrees/niuniu-main/README.md'));
-    expect(viewerState()).toMatchObject({
-      kind: 'file',
-      path: '.worktrees/niuniu-main/README.md',
-    });
-  });
-
-  it('linkifies inline code paths and opens them too', () => {
-    render(
-      withQuery(
-        <ChatMessage
-          event={baseEvent('配置在 `docs/plan.md` 里')}
-          cliType="claude"
-          toolResults={new Map()}
-          workspaceId="42"
-        />,
-      ),
-    );
-    const link = screen.getByText('docs/plan.md');
-    expect(link.tagName).toBe('A');
-    fireEvent.click(link);
-    expect(viewerState()).toMatchObject({ kind: 'file', path: 'docs/plan.md' });
   });
 
   it('leaves fenced code block content unlinked', () => {
@@ -291,7 +338,8 @@ describe('ChatMessage workspace file links', () => {
     expect(text.closest('a')).toBeNull();
   });
 
-  it('opens relative markdown links in the viewer as files', () => {
+  it('opens relative markdown links in the viewer as files', async () => {
+    resolveWith(() => ({ path: 'docs/design.md', strategy: 'exact' }));
     render(
       withQuery(
         <ChatMessage
@@ -303,7 +351,9 @@ describe('ChatMessage workspace file links', () => {
       ),
     );
     fireEvent.click(screen.getByText('设计文档'));
-    expect(viewerState()).toMatchObject({ kind: 'file', path: 'docs/design.md' });
+    await waitFor(() =>
+      expect(viewerState()).toMatchObject({ kind: 'file', path: 'docs/design.md' }),
+    );
   });
 
   it('keeps external http links opening in the browser, not the viewer', () => {

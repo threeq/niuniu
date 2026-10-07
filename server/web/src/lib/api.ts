@@ -706,6 +706,16 @@ export const api = {
       { params: limit ? { q: query, limit: String(limit) } : { q: query } }
     ),
 
+  // Smart resolution of an agent-emitted file reference (repo-relative path,
+  // missing middle segments, bare filename…) to a real workspace-relative
+  // path. suppressError: the caller falls back to opening the ref as-is when
+  // this fails — a global toast would just duplicate the viewer's own 404.
+  resolveWorkspaceFile: (workspaceId: string, ref: string) =>
+    api.get<{ path: string; strategy: string; candidates: string[] }>(
+      `/workspaces/${workspaceId}/resolve-file`,
+      { params: { ref }, suppressError: true },
+    ),
+
   // File-CONTENT (grep) search. Errors are surfaced to the caller rather than
   // swallowed: a failed content search must not look like "no matches".
   // suppressError keeps the global toast away — the search panel renders the

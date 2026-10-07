@@ -6,6 +6,7 @@ import i18n from '@/i18n';
 import { cn } from '@/lib/utils';
 import { copyTextToClipboard } from '@/lib/copy-to-clipboard';
 import { parseFileRef, toWorkspaceRelative } from '@/lib/chat-file-links';
+import { api } from '@/lib/api';
 import { MarkdownMessage } from '@/components/shared/markdown-message';
 import { ThinkingBlock } from '@/components/shared/thinking-block';
 import { stripAttachmentPrefix } from '@/lib/strip-attachment-prefix';
@@ -372,15 +373,27 @@ export function ChatMessage({ event, cliType, showAgentLabel, toolResults, works
   const anchorId = `msg-${blockKey ?? event.messageId}`;
 
   // Click on a file reference in assistant output → resolve to a
-  // workspace-relative path and open the central content viewer. Line-number
-  // suffixes (`app.ts:42`) land the view on that line, mirroring the content
-  // search panel.
+  // workspace-relative path and open the central content viewer. Resolution
+  // goes through the server-side smart matcher first (agent output is often
+  // repo-relative, missing middle segments, or a bare filename); when the
+  // endpoint is unavailable it degrades to local prefix/.worktrees
+  // normalization. Line-number suffixes (`app.ts:42`) land the view on that
+  // line, mirroring the content search panel.
   const handleOpenFile = useCallback(
     (rawRef: string) => {
       const ref = parseFileRef(rawRef);
       if (!ref) return;
-      const rel = toWorkspaceRelative(ref.path, workspacePath);
-      openViewer(workspaceId, contentTargetForPath(rel, undefined, ref.line));
+      void api
+        .resolveWorkspaceFile(workspaceId, ref.path)
+        .then((res) => {
+          openViewer(workspaceId, contentTargetForPath(res.path, undefined, ref.line));
+        })
+        .catch(() => {
+          // Older backend (no resolve-file route) or transient failure —
+          // keep the previous client-side behavior instead of dead-ending.
+          const rel = toWorkspaceRelative(ref.path, workspacePath);
+          openViewer(workspaceId, contentTargetForPath(rel, undefined, ref.line));
+        });
     },
     [openViewer, workspaceId, workspacePath],
   );
