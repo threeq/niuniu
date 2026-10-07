@@ -29,13 +29,19 @@ func (s *WorkspaceSession) runNiuniuAgentBackendTurn(ctx context.Context, workDi
 		return err
 	}
 
-	// Bound a silently-wedged process the same way the other engines do.
+	// Bound a silently-wedged process the same way every other engine does.
 	window := s.turnInactivityTimeout
 	if window <= 0 {
 		window = defaultTurnInactivityTimeout
 	}
-	turnCtx, cancel := context.WithTimeout(ctx, window)
+	// INACTIVITY watchdog (not a hard turn timeout): a hard 15-min cap killed
+	// legitimate long turns mid-flight (an active turn streaming tool calls
+	// died with "context deadline exceeded"). Same contract as
+	// goose/cursor/omp: cancel only when the backend has produced no output
+	// for the window AND no tool has been in flight past its grace ceiling.
+	turnCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
+	go watchBackendTurnInactivity(s, cancel, turnCtx.Done(), window)
 
 	ch, err := be.Prompt(turnCtx, agentbackend.PromptRequest{Message: content})
 	if err != nil {

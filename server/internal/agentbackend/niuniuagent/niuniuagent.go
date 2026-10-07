@@ -410,10 +410,13 @@ func (b *Backend) Prompt(ctx context.Context, req agentbackend.PromptRequest) (<
 
 	blocks := []promptBlock{{Type: "text", Text: req.Message}}
 	started := time.Now()
-	// The per-turn inactivity watchdog upstream (turnCtx) is the real bound,
-	// so 30min here is a generous backstop; runs off the caller's goroutine.
+	// No per-request deadline (-1): a session/prompt spans the WHOLE agent
+	// turn, which the turn-level INACTIVITY watchdog upstream (turnCtx →
+	// Abort below) bounds. A fixed cap here re-introduced the hard-ceiling
+	// bug the watchdog exists to prevent — legitimate long turns died with
+	// "context deadline exceeded" mid-flight.
 	go func() {
-		result, err := b.request(ctx, "session/prompt", promptParams{SessionID: sessionID, Prompt: blocks}, 30*time.Minute)
+		result, err := b.request(ctx, "session/prompt", promptParams{SessionID: sessionID, Prompt: blocks}, -1)
 		if err != nil {
 			b.finishTurn(agentbackend.Event{Type: agentbackend.EventError, Error: err.Error()})
 			return
@@ -548,11 +551,20 @@ func (b *Backend) request(ctx context.Context, method string, params any, timeou
 	}
 
 	var r rpcResponse
+	// timeout > 0 arms a per-request deadline; negative means none — the
+	// caller's ctx is the only bound (used for session/prompt, whose real
+	// bound is the upstream turn-level inactivity watchdog).
+	var timeoutC <-chan time.Time
+	if timeout > 0 {
+		t := time.NewTimer(nonZero(timeout, 30*time.Second))
+		defer t.Stop()
+		timeoutC = t.C
+	}
 	select {
 	case r = <-ch:
 	case <-ctx.Done():
 		return nil, ctx.Err()
-	case <-time.After(nonZero(timeout, 30*time.Second)):
+	case <-timeoutC:
 		return nil, fmt.Errorf("niuniu-agent %s timed out", method)
 	}
 	if r.Error != nil {
