@@ -601,44 +601,6 @@ type WorkspaceSession struct {
 
 const idleTimeout = 30 * time.Minute
 
-// defaultTurnInactivityTimeout bounds how long a single turn may produce NO
-// output at all before the watchdog treats the long-lived process as
-// wedged/lost and kills it. A working agent streams events continuously (text /
-// tool_use / tool_result / stream_event), so this measures INACTIVITY, not
-// total turn duration — a legitimately long turn (e.g. a 700s build with steady
-// output) keeps resetting the clock and is never killed, while a process that
-// has gone silent (hung on a tool/MCP/network call, CLI deadlock, or simply
-// lost) is reaped so SendLoop can recover instead of blocking on turnDone
-// forever. Overridable per-session via WorkspaceSession.turnInactivityTimeout.
-const defaultTurnInactivityTimeout = 15 * time.Minute
-
-// toolInactivityGrace is how long a SINGLE in-flight tool invocation may stay
-// silent before the turn watchdog judges it hung. Long builds / test suites
-// legitimately produce zero stream output for far longer than the base
-// window; a tool running past this ceiling is itself considered wedged and
-// the turn fails into the normal error path.
-const toolInactivityGrace = time.Hour
-
-// turnInactivityExceeded is the single watchdog judgment shared by every
-// engine's turn loop: has this turn produced no output for long enough to
-// act? Base rule: no output within `window`. Grace rule: while a tool is in
-// flight the judgment extends to the tool's own start + toolInactivityGrace —
-// a 30-minute build or test run is legitimate work, but a tool silent past
-// the grace ceiling is itself wedged and the turn should fail.
-func turnInactivityExceeded(s *WorkspaceSession, grace time.Duration, now time.Time) bool {
-	s.mu.Lock()
-	idle := now.Sub(s.lastActivityAt)
-	toolAt := s.toolInProgressAt
-	s.mu.Unlock()
-	if idle < defaultTurnInactivityTimeout {
-		return false // fresh output — a streaming turn, never exceeded
-	}
-	if !toolAt.IsZero() && now.Sub(toolAt) < grace {
-		return false // a tool is running; extend to its own grace ceiling
-	}
-	return true
-}
-
 // maxTransientStreamRetries bounds how many times ONE message is automatically
 // re-run after a transient stream failure (stalled mid-stream, connection
 // refused, watchdog kill) within a single SendLoop. These errors are network/
@@ -3791,11 +3753,14 @@ func (s *WorkspaceSession) Send(ctx context.Context, workDir, content, attachmen
 // signaled by a `result` event or by process exit, so a process that is alive
 // but silent (hung on a tool/MCP/network call, a CLI deadlock, or a lost
 // process that emits nothing) would otherwise block here forever — the turn ctx
-// is context.Background() and never cancels. We poll lastActivityAt (bumped on
-// every line/event the process produces) and, if there has been NO output for
-// the whole window, kill the process and fail the turn so SendLoop recovers
-// instead of blocking. A legitimately long turn streams output continuously and
-// keeps resetting the clock, so it is never killed. Callers must have set
+// is context.Background() and never cancels. The SHARED watchdog
+// (watchdogTurnInactivity, see watchdog.go — one definition and implementation
+// for every engine) polls lastActivityAt (bumped on every line/event the
+// process produces) and fires only after NO output for the whole window. A
+// legitimately long turn streams output continuously and keeps resetting the
+// clock, so it is never killed. Unlike the cancel-style engines this waiter
+// must return the failure to SendLoop, so its watchdog action marks the turn
+// failed, kills the process, and surfaces the error. Callers must have set
 // s.turnDone and seeded s.lastActivityAt for the turn before calling.
 func (s *WorkspaceSession) waitForTurnComplete(ctx context.Context, label string) error {
 	s.mu.Lock()
@@ -3806,37 +3771,37 @@ func (s *WorkspaceSession) waitForTurnComplete(ctx context.Context, label string
 		window = defaultTurnInactivityTimeout
 	}
 
-	// Tick several times per window so detection latency is a fraction of it.
-	ticker := time.NewTicker(window / 5)
-	defer ticker.Stop()
-	for {
+	// Close done when the wait itself is over so the watchdog goroutine exits
+	// without leaking after a clean completion or cancellation.
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
 		select {
 		case <-ch:
-			slog.Info(label+": turn complete", "workspaceID", s.workspaceID)
-			return nil
 		case <-ctx.Done():
-			slog.Warn(label+": context cancelled", "workspaceID", s.workspaceID)
-			return ctx.Err()
-		case <-ticker.C:
-			if !turnInactivityExceeded(s, toolInactivityGrace, time.Now()) {
-				continue // still streaming, or a tool is legitimately running
-			}
-			s.mu.Lock()
-			idle := time.Since(s.lastActivityAt)
-			s.mu.Unlock()
-			slog.Error(label+": turn watchdog — no output within inactivity window, killing unresponsive process",
-				"workspaceID", s.workspaceID, "idle", idle.String())
-			// Mark the turn as an error BEFORE killing so SendLoop treats this as
-			// a failed turn (recover with budget / attention), not a clean turn
-			// to silently autohost-continue. killProcess then restarts a fresh
-			// process on the next turn (--resume preserves session context).
-			s.mu.Lock()
-			s.lastTurnError = true
-			s.lastTurnResult = "agent unresponsive: produced no output within the watchdog window; the process was killed and will restart"
-			s.mu.Unlock()
-			s.killProcess()
-			return fmt.Errorf("turn watchdog: agent produced no output for %s", idle)
 		}
+	}()
+	fired := make(chan time.Duration, 1)
+	go watchdogTurnInactivity(s, done, window, label, func(idle time.Duration) { fired <- idle })
+
+	select {
+	case <-ch:
+		slog.Info(label+": turn complete", "workspaceID", s.workspaceID)
+		return nil
+	case <-ctx.Done():
+		slog.Warn(label+": context cancelled", "workspaceID", s.workspaceID)
+		return ctx.Err()
+	case idle := <-fired:
+		// Mark the turn as an error BEFORE killing so SendLoop treats this as
+		// a failed turn (recover with budget / attention), not a clean turn
+		// to silently autohost-continue. killProcess then restarts a fresh
+		// process on the next turn (--resume preserves session context).
+		s.mu.Lock()
+		s.lastTurnError = true
+		s.lastTurnResult = "agent unresponsive: produced no output within the watchdog window; the process was killed and will restart"
+		s.mu.Unlock()
+		s.killProcess()
+		return fmt.Errorf("turn watchdog: agent produced no output for %s", idle)
 	}
 }
 
