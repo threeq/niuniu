@@ -85,12 +85,26 @@ func (s *WorkspaceSession) getOrStartNiuniuAgentBackend(ctx context.Context, wor
 	}
 
 	s.mu.Lock()
-	if s.niuniuAgentBackend != nil {
-		be := s.niuniuAgentBackend
-		s.mu.Unlock()
-		return be, nil
-	}
+	cached := s.niuniuAgentBackend
 	s.mu.Unlock()
+	if cached != nil {
+		// A backend whose process exited (crash, watchdog kill, manual stop)
+		// cannot serve turns — writing to its stdin fails with a broken pipe
+		// ("write |1: The pipe is being closed."). Drop it and fall through to
+		// start a fresh agent. The prior conversation is not recoverable over
+		// ACP, which the Abort hard-kill path already accepted as the cost of
+		// always being able to kill.
+		if dc, ok := cached.(agentbackend.DeadChecker); !ok || !dc.Dead() {
+			return cached, nil
+		}
+		slog.Warn("niuniu-agent: backend process exited — starting a fresh agent", "workspaceID", s.workspaceID)
+		_ = cached.Close(context.Background())
+		s.mu.Lock()
+		if s.niuniuAgentBackend == cached {
+			s.niuniuAgentBackend = nil
+		}
+		s.mu.Unlock()
+	}
 
 	var envSlice []string
 	var model string

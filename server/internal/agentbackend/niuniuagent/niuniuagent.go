@@ -72,6 +72,8 @@ type Backend struct {
 	stdin    io.WriteCloser
 	started  bool
 	closed   bool
+	exited   bool
+	exitErr  error
 	session  string
 	jobClose func()
 
@@ -167,6 +169,19 @@ func (b *Backend) Start(ctx context.Context) error {
 
 	go b.readLoop(stdout)
 
+	// Reap the process: without Wait the exit is never observed (and the
+	// handle leaks); with it, Dead() can report death accurately and exitErr
+	// explains WHY the agent went away.
+	go func() {
+		waitErr := cmd.Wait()
+		b.mu.Lock()
+		b.exited = true
+		if waitErr != nil && b.exitErr == nil {
+			b.exitErr = waitErr
+		}
+		b.mu.Unlock()
+	}()
+
 	if err := b.initialize(ctx); err != nil {
 		_ = b.Close(context.Background())
 		return err
@@ -217,7 +232,27 @@ func (b *Backend) readLoop(r io.Reader) {
 		}
 		b.dispatch([]byte(line))
 	}
+	// stdout EOF = the process is gone. Mark death immediately (the Wait
+	// goroutine refines exitErr when it lands) so Dead() is accurate and the
+	// next write fails with a clear reason instead of a raw broken pipe.
+	b.mu.Lock()
+	if !b.exited {
+		b.exited = true
+		b.exitErr = errors.New("stdout closed")
+	}
+	b.mu.Unlock()
 	b.finishTurn(agentbackend.Event{Type: agentbackend.EventError, Error: "niuniu-agent process exited"})
+}
+
+// Dead implements agentbackend.DeadChecker: the agent process exited (crash,
+// watchdog kill, manual stop) or the backend was closed — it cannot serve
+// further turns. The session layer drops a dead backend and Starts a fresh
+// one (the Abort hard-kill path relies on this to deliver its promised
+// respawn).
+func (b *Backend) Dead() bool {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.exited || b.closed
 }
 
 // dispatch routes one stdout frame: response (id, no method) resolves a
@@ -581,7 +616,11 @@ func (b *Backend) write(v any) error {
 	}
 	b.mu.Lock()
 	stdin := b.stdin
+	exited, exitErr := b.exited, b.exitErr
 	b.mu.Unlock()
+	if exited {
+		return fmt.Errorf("niuniu-agent process has exited (%v); a fresh agent is started on the next message", exitErr)
+	}
 	if stdin == nil {
 		return errors.New("niuniu-agent stdin not available")
 	}
