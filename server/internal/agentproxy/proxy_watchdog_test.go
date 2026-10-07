@@ -137,6 +137,7 @@ func TestKillProcess_UnblocksWaiter(t *testing.T) {
 // kill when the grace itself is exhausted (the tool itself hung).
 func TestTurnInactivityExceeded_ToolGrace(t *testing.T) {
 	s := newWatchdogSession(time.Minute)
+	window := time.Minute
 	now := time.Now()
 	const grace = time.Hour
 
@@ -144,7 +145,7 @@ func TestTurnInactivityExceeded_ToolGrace(t *testing.T) {
 	s.lastActivityAt = now.Add(-20 * time.Minute) // 20min silent — past the base window
 	s.toolInProgressAt = now.Add(-10 * time.Minute) // tool started 10min ago, still running
 	s.mu.Unlock()
-	if turnInactivityExceeded(s, grace, now) {
+	if turnInactivityExceeded(s, window, grace, now) {
 		t.Fatal("a tool in flight (10min < grace) must NOT be judged exceeded")
 	}
 
@@ -152,7 +153,7 @@ func TestTurnInactivityExceeded_ToolGrace(t *testing.T) {
 	s.mu.Lock()
 	s.toolInProgressAt = now.Add(-2 * time.Hour)
 	s.mu.Unlock()
-	if !turnInactivityExceeded(s, grace, now) {
+	if !turnInactivityExceeded(s, window, grace, now) {
 		t.Fatal("a tool in flight beyond the grace ceiling must be judged exceeded")
 	}
 
@@ -160,7 +161,7 @@ func TestTurnInactivityExceeded_ToolGrace(t *testing.T) {
 	s.mu.Lock()
 	s.toolInProgressAt = time.Time{}
 	s.mu.Unlock()
-	if !turnInactivityExceeded(s, grace, now) {
+	if !turnInactivityExceeded(s, window, grace, now) {
 		t.Fatal("silent + no tool in flight must be judged exceeded")
 	}
 
@@ -169,7 +170,7 @@ func TestTurnInactivityExceeded_ToolGrace(t *testing.T) {
 	s.lastActivityAt = now
 	s.toolInProgressAt = now.Add(-2 * time.Hour)
 	s.mu.Unlock()
-	if turnInactivityExceeded(s, grace, now) {
+	if turnInactivityExceeded(s, window, grace, now) {
 		t.Fatal("fresh output must never be judged exceeded")
 	}
 }

@@ -29,13 +29,19 @@ func (s *WorkspaceSession) runNiuniuAgentBackendTurn(ctx context.Context, workDi
 		return err
 	}
 
-	// Bound a silently-wedged process the same way the other engines do.
+	// Bound a silently-wedged process the same way every other engine does.
 	window := s.turnInactivityTimeout
 	if window <= 0 {
 		window = defaultTurnInactivityTimeout
 	}
-	turnCtx, cancel := context.WithTimeout(ctx, window)
+	// INACTIVITY watchdog (not a hard turn timeout): a hard 15-min cap killed
+	// legitimate long turns mid-flight (an active turn streaming tool calls
+	// died with "context deadline exceeded"). Same contract as
+	// goose/cursor/omp: cancel only when the backend has produced no output
+	// for the window AND no tool has been in flight past its grace ceiling.
+	turnCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
+	go watchBackendTurnInactivity(s, cancel, turnCtx.Done(), window)
 
 	ch, err := be.Prompt(turnCtx, agentbackend.PromptRequest{Message: content})
 	if err != nil {
@@ -79,12 +85,26 @@ func (s *WorkspaceSession) getOrStartNiuniuAgentBackend(ctx context.Context, wor
 	}
 
 	s.mu.Lock()
-	if s.niuniuAgentBackend != nil {
-		be := s.niuniuAgentBackend
-		s.mu.Unlock()
-		return be, nil
-	}
+	cached := s.niuniuAgentBackend
 	s.mu.Unlock()
+	if cached != nil {
+		// A backend whose process exited (crash, watchdog kill, manual stop)
+		// cannot serve turns — writing to its stdin fails with a broken pipe
+		// ("write |1: The pipe is being closed."). Drop it and fall through to
+		// start a fresh agent. The prior conversation is not recoverable over
+		// ACP, which the Abort hard-kill path already accepted as the cost of
+		// always being able to kill.
+		if dc, ok := cached.(agentbackend.DeadChecker); !ok || !dc.Dead() {
+			return cached, nil
+		}
+		slog.Warn("niuniu-agent: backend process exited — starting a fresh agent", "workspaceID", s.workspaceID)
+		_ = cached.Close(context.Background())
+		s.mu.Lock()
+		if s.niuniuAgentBackend == cached {
+			s.niuniuAgentBackend = nil
+		}
+		s.mu.Unlock()
+	}
 
 	var envSlice []string
 	var model string

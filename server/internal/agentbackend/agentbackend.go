@@ -57,6 +57,16 @@ type Backend interface {
 	Close(ctx context.Context) error
 }
 
+// DeadChecker is an optional Backend capability: reports whether the
+// underlying agent process has exited (crash, watchdog kill, manual stop) or
+// the backend is closed. A dead backend cannot serve further turns — writing
+// to its stdin fails with a broken pipe — so the host drops it and Starts a
+// fresh one for the next turn. Hosts type-assert to detect support; backends
+// without death tracking are simply never replaced by this mechanism.
+type DeadChecker interface {
+	Dead() bool
+}
+
 // PromptRequest is a single user turn delivered to the backend.
 type PromptRequest struct {
 	// Message is the user's text prompt.
