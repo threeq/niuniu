@@ -1,7 +1,9 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { ChatMessage, type TimelineEvent } from './chat-message';
+import { MarkdownMessage } from '@/components/shared/markdown-message';
+import { useWorkspacePanelStore } from '@/stores/workspace-panel-store';
 
 const copyMock = vi.fn().mockResolvedValue(true);
 vi.mock('@/lib/copy-to-clipboard', () => ({
@@ -181,5 +183,152 @@ describe('ChatMessage niuniu-data rendering', () => {
     renderMessage('copy me **please**');
     fireEvent.click(screen.getByRole('button', { name: '复制消息' }));
     expect(copyMock).toHaveBeenCalledWith('copy me **please**');
+  });
+});
+
+describe('ChatMessage workspace file links', () => {
+  const viewerState = () => useWorkspacePanelStore.getState().contentViewer['42'];
+
+  beforeEach(() => {
+    useWorkspacePanelStore.setState({ contentViewer: {} });
+  });
+
+  it('renders a plain-text file path as an open-file link', () => {
+    render(
+      withQuery(
+        <ChatMessage
+          event={baseEvent('请查看 src/app.ts 的实现')}
+          cliType="claude"
+          toolResults={new Map()}
+          workspaceId="42"
+          workspacePath="C:\\Users\\u\\ws942"
+        />,
+      ),
+    );
+    const link = screen.getByText('src/app.ts');
+    expect(link.tagName).toBe('A');
+    expect(link.getAttribute('href')).toMatch(/^niu-file:/);
+  });
+
+  it('opens the content viewer with the parsed path and line on click', () => {
+    render(
+      withQuery(
+        <ChatMessage
+          event={baseEvent('请查看 src/app.ts:42 的实现')}
+          cliType="claude"
+          toolResults={new Map()}
+          workspaceId="42"
+        />,
+      ),
+    );
+    fireEvent.click(screen.getByText('src/app.ts:42'));
+    expect(viewerState()).toMatchObject({ kind: 'file', path: 'src/app.ts', line: 42 });
+  });
+
+  it('resolves an absolute host path to workspace-relative before opening', () => {
+    render(
+      withQuery(
+        <ChatMessage
+          event={baseEvent('完成于 C:\\Users\\u\\ws942\\src\\main.go')}
+          cliType="claude"
+          toolResults={new Map()}
+          workspaceId="42"
+          workspacePath="C:\\Users\\u\\ws942"
+        />,
+      ),
+    );
+    fireEvent.click(screen.getByText('C:\\Users\\u\\ws942\\src\\main.go'));
+    expect(viewerState()).toMatchObject({ kind: 'file', path: 'src/main.go' });
+  });
+
+  it('cuts an unresolvable absolute path at the last .worktrees segment', () => {
+    render(
+      withQuery(
+        <ChatMessage
+          event={baseEvent('见 /host/.niuniu/ws/942/.worktrees/niuniu-main/README.md')}
+          cliType="claude"
+          toolResults={new Map()}
+          workspaceId="42"
+        />,
+      ),
+    );
+    fireEvent.click(screen.getByText('/host/.niuniu/ws/942/.worktrees/niuniu-main/README.md'));
+    expect(viewerState()).toMatchObject({
+      kind: 'file',
+      path: '.worktrees/niuniu-main/README.md',
+    });
+  });
+
+  it('linkifies inline code paths and opens them too', () => {
+    render(
+      withQuery(
+        <ChatMessage
+          event={baseEvent('配置在 `docs/plan.md` 里')}
+          cliType="claude"
+          toolResults={new Map()}
+          workspaceId="42"
+        />,
+      ),
+    );
+    const link = screen.getByText('docs/plan.md');
+    expect(link.tagName).toBe('A');
+    fireEvent.click(link);
+    expect(viewerState()).toMatchObject({ kind: 'file', path: 'docs/plan.md' });
+  });
+
+  it('leaves fenced code block content unlinked', () => {
+    render(
+      withQuery(
+        <ChatMessage
+          event={baseEvent('```\nsrc/raw-block.ts\n```')}
+          cliType="claude"
+          toolResults={new Map()}
+          workspaceId="42"
+        />,
+      ),
+    );
+    const text = screen.getByText('src/raw-block.ts');
+    expect(text.closest('a')).toBeNull();
+  });
+
+  it('opens relative markdown links in the viewer as files', () => {
+    render(
+      withQuery(
+        <ChatMessage
+          event={baseEvent('[设计文档](docs/design.md) 已更新')}
+          cliType="claude"
+          toolResults={new Map()}
+          workspaceId="42"
+        />,
+      ),
+    );
+    fireEvent.click(screen.getByText('设计文档'));
+    expect(viewerState()).toMatchObject({ kind: 'file', path: 'docs/design.md' });
+  });
+
+  it('keeps external http links opening in the browser, not the viewer', () => {
+    render(
+      withQuery(
+        <ChatMessage
+          event={baseEvent('[官网](https://example.com) 在这里')}
+          cliType="claude"
+          toolResults={new Map()}
+          workspaceId="42"
+        />,
+      ),
+    );
+    const link = screen.getByText('官网');
+    expect(link.getAttribute('href')).toBe('https://example.com');
+    // Click is intercepted (openExternalUrl) — no viewer target is set.
+    fireEvent.click(link);
+    expect(viewerState()).toBeUndefined();
+  });
+});
+
+describe('MarkdownMessage without onOpenFile', () => {
+  it('renders file paths as plain text (other consumers unaffected)', () => {
+    render(<MarkdownMessage content="check src/app.ts here" role="assistant" />);
+    const text = screen.getByText(/src\/app\.ts/);
+    expect(text.closest('a')).toBeNull();
   });
 });

@@ -1,13 +1,15 @@
-import { useState } from 'react';
+import { useCallback, useState } from 'react';
 import { CheckCircle, RefreshCw, Pin, Copy, Check } from 'lucide-react';
 import { useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import i18n from '@/i18n';
 import { cn } from '@/lib/utils';
 import { copyTextToClipboard } from '@/lib/copy-to-clipboard';
+import { parseFileRef, toWorkspaceRelative } from '@/lib/chat-file-links';
 import { MarkdownMessage } from '@/components/shared/markdown-message';
 import { ThinkingBlock } from '@/components/shared/thinking-block';
 import { stripAttachmentPrefix } from '@/lib/strip-attachment-prefix';
+import { contentTargetForPath, useWorkspacePanelStore } from '@/stores/workspace-panel-store';
 import { ToolCallCard } from './tool-call-card';
 import { AttachmentPreview } from '../components/attachment-preview';
 import { DataResultBlock } from '@/components/data/data-result-block';
@@ -153,10 +155,13 @@ function splitNiuniuDataSegments(content: string): ContentSegment[] {
 // AssistantContent renders assistant markdown, intercepting any niuniu-data
 // fenced blocks into <DataResultBlock>. Pin wires through to the dashboards API
 // with the current workspace id so the panel remembers its origin workspace.
+// `onOpenFile` (optional) makes workspace file references in the text
+// clickable — see MarkdownMessage.
 export function AssistantContent({
   content,
   workspaceId,
   createdAt,
+  onOpenFile,
 }: {
   content: string;
   workspaceId: string;
@@ -168,13 +173,14 @@ export function AssistantContent({
    * back to the result's own query time or the pin time.
    */
   createdAt?: number;
+  onOpenFile?: (rawRef: string) => void;
 }) {
   const queryClient = useQueryClient();
 
   // Only pay the regex cost when a data fence is actually present — the
   // common case (plain assistant text, streamed token-by-token) stays cheap.
   if (!DATA_FENCE_TAGS.some((tag) => content.includes(tag))) {
-    return <MarkdownMessage content={content} role="assistant" />;
+    return <MarkdownMessage content={content} role="assistant" onOpenFile={onOpenFile} />;
   }
 
   const segments = splitNiuniuDataSegments(content);
@@ -246,7 +252,7 @@ export function AssistantContent({
             />
           </div>
         ) : seg.content.trim() ? (
-          <MarkdownMessage key={`text-${i}`} content={seg.content} role="assistant" />
+          <MarkdownMessage key={`text-${i}`} content={seg.content} role="assistant" onOpenFile={onOpenFile} />
         ) : null,
       )}
     </>
@@ -342,6 +348,13 @@ interface ChatMessageProps {
   toolResults: Map<string, { content: string; isError?: boolean }>;
   workspaceId: string;
   /**
+   * Workspace root path on the host (workspace.path). Lets file references
+   * written as absolute host paths be resolved to workspace-relative before
+   * opening the content viewer. Optional: resolution falls back to the
+   * `.worktrees/` heuristic without it.
+   */
+  workspacePath?: string;
+  /**
    * Stable per-block DOM key. The first block of an assistant turn keeps the
    * bare messageId; later blocks (text split across tool calls) get
    * `messageId#N`. Used for the `msg-<key>` anchor and pin identity so pinning
@@ -354,8 +367,23 @@ interface ChatMessageProps {
   onTogglePin?: (event: TimelineEvent) => void;
 }
 
-export function ChatMessage({ event, cliType, showAgentLabel, toolResults, workspaceId, blockKey, isPinned, onTogglePin }: ChatMessageProps) {
+export function ChatMessage({ event, cliType, showAgentLabel, toolResults, workspaceId, workspacePath, blockKey, isPinned, onTogglePin }: ChatMessageProps) {
+  const openViewer = useWorkspacePanelStore((s) => s.openContentViewer);
   const anchorId = `msg-${blockKey ?? event.messageId}`;
+
+  // Click on a file reference in assistant output → resolve to a
+  // workspace-relative path and open the central content viewer. Line-number
+  // suffixes (`app.ts:42`) land the view on that line, mirroring the content
+  // search panel.
+  const handleOpenFile = useCallback(
+    (rawRef: string) => {
+      const ref = parseFileRef(rawRef);
+      if (!ref) return;
+      const rel = toWorkspaceRelative(ref.path, workspacePath);
+      openViewer(workspaceId, contentTargetForPath(rel, undefined, ref.line));
+    },
+    [openViewer, workspaceId, workspacePath],
+  );
   switch (event.type) {
     case 'text': {
       if (event.role === 'user') {
@@ -416,6 +444,7 @@ export function ChatMessage({ event, cliType, showAgentLabel, toolResults, works
             content={event.content}
             workspaceId={workspaceId}
             createdAt={event.createdAt}
+            onOpenFile={handleOpenFile}
           />
           {event.streaming && (
             <span className="inline-block w-1.5 h-3.5 bg-muted-foreground animate-pulse ml-0.5 align-text-bottom" />

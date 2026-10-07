@@ -1,9 +1,10 @@
 import { useRef, useState, type ComponentPropsWithoutRef } from 'react';
 import { Copy, Check } from 'lucide-react';
 import { toast } from 'sonner';
-import ReactMarkdown from 'react-markdown';
+import ReactMarkdown, { defaultUrlTransform } from 'react-markdown';
 import { remarkGfmSafariSafe } from '@/lib/remark-gfm-safari-safe';
 import { rehypeLinkify } from '@/lib/rehype-linkify';
+import { rehypeFileLinks, isFileRefHref, fileRefFromHref } from '@/lib/rehype-file-links';
 import { useConfigStore } from '@/stores/config-store';
 import { openExternalUrl } from '@/lib/shell';
 import { copyTextToClipboard } from '@/lib/copy-to-clipboard';
@@ -71,13 +72,26 @@ function CodeBlock({ children, ...props }: ComponentPropsWithoutRef<'pre'>) {
 // react-markdown re-work when other props are unchanged.
 const REMARK_PLUGINS = [remarkGfmSafariSafe()];
 const REHYPE_PLUGINS = [rehypeLinkify()];
+// File-link variant: appends the workspace file-reference linkifier (which
+// must run AFTER rehypeLinkify so absolute http(s) URLs are claimed first).
+// Used only when an `onOpenFile` handler is provided.
+const REHYPE_PLUGINS_WITH_FILES = [rehypeLinkify(), rehypeFileLinks()];
 
 interface MarkdownMessageProps {
   content: string;
   role: 'user' | 'assistant';
+  /**
+   * When provided, workspace file references found in the text (plain or
+   * inline-code) and relative markdown links become clickable: click invokes
+   * `onOpenFile(rawRef)` with the reference exactly as written (possibly
+   * absolute, possibly with a `:line` suffix). The caller owns resolution to
+   * a workspace-relative path and where to open the file. Absent → text
+   * renders exactly as before (other MarkdownMessage consumers).
+   */
+  onOpenFile?: (rawRef: string) => void;
 }
 
-export function MarkdownMessage({ content, role }: MarkdownMessageProps) {
+export function MarkdownMessage({ content, role, onOpenFile }: MarkdownMessageProps) {
   const handleLinkClick = (href: string) => {
     if (!href.startsWith('http://') && !href.startsWith('https://')) return;
     // Personal edition: server runs on the user's own machine, so route the
@@ -93,8 +107,30 @@ export function MarkdownMessage({ content, role }: MarkdownMessageProps) {
     }
   };
 
+  // react-markdown's defaultUrlTransform strips unknown schemes — without
+  // this, every `niu-file:` href the file-links plugin emits would be
+  // rewritten to '' before reaching the `a` component.
+  const urlTransform = (url: string) => (isFileRefHref(url) ? url : defaultUrlTransform(url));
+
   const components: Components = {
     a: ({ href, children, ...props }) => {
+      if (href && isFileRefHref(href)) {
+        if (!onOpenFile) return <span className="break-all">{children}</span>;
+        return (
+          <a
+            href={href}
+            title={i18n.t('workspaces:chatMessage.openFile')}
+            className="break-all"
+            onClick={(e) => {
+              e.preventDefault();
+              onOpenFile(fileRefFromHref(href));
+            }}
+            {...props}
+          >
+            {children}
+          </a>
+        );
+      }
       const isExternal = href?.startsWith('http://') || href?.startsWith('https://');
       if (isExternal && href) {
         return (
@@ -104,6 +140,31 @@ export function MarkdownMessage({ content, role }: MarkdownMessageProps) {
             onClick={(e) => {
               e.preventDefault();
               handleLinkClick(href);
+            }}
+            {...props}
+          >
+            {children}
+          </a>
+        );
+      }
+      // Relative markdown links ([label](docs/a.md)) point at workspace files
+      // when a file-open handler exists — open them the same way. `#anchor`,
+      // `mailto:` and any other scheme-carrying href keep their native
+      // behavior.
+      if (
+        onOpenFile &&
+        href &&
+        !href.startsWith('#') &&
+        !/^[A-Za-z][A-Za-z0-9+.-]*:/.test(href)
+      ) {
+        return (
+          <a
+            href={href}
+            title={i18n.t('workspaces:chatMessage.openFile')}
+            className="break-all"
+            onClick={(e) => {
+              e.preventDefault();
+              onOpenFile(href);
             }}
             {...props}
           >
@@ -140,7 +201,8 @@ export function MarkdownMessage({ content, role }: MarkdownMessageProps) {
     <div className="prose prose-sm dark:prose-invert max-w-none min-w-0 text-foreground break-words [&_pre]:overflow-x-auto [&_pre]:max-w-full">
       <ReactMarkdown
         remarkPlugins={REMARK_PLUGINS}
-        rehypePlugins={REHYPE_PLUGINS}
+        rehypePlugins={onOpenFile ? REHYPE_PLUGINS_WITH_FILES : REHYPE_PLUGINS}
+        urlTransform={urlTransform}
         components={components}
       >
         {content}
