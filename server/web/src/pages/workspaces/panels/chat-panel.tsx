@@ -943,6 +943,7 @@ export function ChatPanel({ workspace, readOnly }: ChatPanelProps) {
                 showAgentLabel={showAgentLabelSet.has(event.id)}
                 toolResults={toolResults}
                 workspaceId={String(workspaceId)}
+                workspacePath={workspace.path}
                 blockKey={blockKey}
                 isPinned={pinnedKeys.has(blockKey)}
                 onTogglePin={readOnly ? undefined : handleTogglePin}

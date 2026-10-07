@@ -14,6 +14,10 @@
  * It deliberately skips text inside existing `<a>` (don't nest links)
  * and `<script>`/`<style>` (would corrupt JS/CSS syntax).
  *
+ * Matches that are actually FILE references (`README.md:42` — the `md` TLD
+ * makes linkify-it see a host) are left as plain text so the chat pipeline's
+ * `rehype-file-links` can turn them into workspace file links instead.
+ *
  * Code contexts (`<code>`, `<pre>`, `<kbd>`) are INTENTIONALLY linkified:
  * agents frequently emit a bare authorization/login URL inside a fenced
  * code block, and users expect to click it (and the code block's own copy
@@ -30,6 +34,7 @@ import type { Root, Text, Element, ElementContent, Parent } from 'hast'
 import { visit, SKIP } from 'unist-util-visit'
 import LinkifyIt from 'linkify-it'
 import tlds from 'tlds'
+import { looksLikeFilePath } from './chat-file-links'
 
 // Element tag names whose text content should NOT be auto-linkified.
 // - a:    don't nest <a> inside <a>
@@ -69,6 +74,14 @@ export function rehypeLinkify(): Plugin<[], Root> {
         const replacement: ElementContent[] = []
         let cursor = 0
         for (const m of matches) {
+          // A linkify match can be a file reference wearing a URL costume:
+          // `README.md:42` parses as host `readme.md` + port `42` (and a bare
+          // `README.md` as host `readme.md` — `md` is a real TLD). Leave such
+          // text un-anchored so rehype-file-links (running after this plugin
+          // in the chat pipeline) can claim it as a workspace file link.
+          if (looksLikeFilePath(m.text)) {
+            continue
+          }
           if (m.index > cursor) {
             replacement.push({
               type: 'text',

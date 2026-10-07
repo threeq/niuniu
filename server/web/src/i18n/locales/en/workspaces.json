@@ -901,7 +901,8 @@
     "pinFailed": "Action failed",
     "copy": "Copy message",
     "copied": "Copied",
-    "copyFailed": "Copy failed"
+    "copyFailed": "Copy failed",
+    "openFile": "Open file"
   },
   "pinnedPanel": {
     "title": "Pinned",

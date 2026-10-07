@@ -901,7 +901,8 @@
     "pinFailed": "操作失敗",
     "copy": "複製訊息",
     "copied": "已複製",
-    "copyFailed": "複製失敗"
+    "copyFailed": "複製失敗",
+    "openFile": "開啟檔案"
   },
   "pinnedPanel": {
     "title": "Pin 訊息",
