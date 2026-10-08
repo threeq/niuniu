@@ -5,6 +5,7 @@ import { describe, it, expect, vi } from 'vitest';
 
 import { ArtifactPreviewPanel, type ArtifactFile } from './artifact-preview-panel';
 import { useWorkspacePanelStore } from '@/stores/workspace-panel-store';
+import { toast } from 'sonner';
 
 vi.mock('@/lib/workspace-file-url', () => ({
   getFileContentUrl: (id: string, path: string, mode?: string) => `/api/workspaces/${id}/file-content?path=${path}&mode=${mode}`,
@@ -16,6 +17,17 @@ const deleteMock = vi.fn((_endpoint: string) => Promise.resolve({}));
 vi.mock('@/lib/api', () => ({
   api: { delete: (endpoint: string) => deleteMock(endpoint) },
   ApiError: class ApiError extends Error {},
+}));
+// Download is app-managed (fetch + save + toast): stub the helpers so the test
+// asserts the flow without a real network or an anchor click in jsdom.
+const fetchProgressMock = vi.fn((_url: string, _onProgress?: (pct: number) => void) =>
+  Promise.resolve(new Blob(['x'])),
+);
+const saveMock = vi.fn();
+vi.mock('@/lib/download-file', () => ({
+  fetchFileWithProgress: (url: string, onProgress?: (pct: number) => void) =>
+    fetchProgressMock(url, onProgress),
+  saveBlobToLocal: (blob: Blob, name: string) => saveMock(blob, name),
 }));
 vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 
@@ -58,11 +70,17 @@ describe('ArtifactPreviewPanel', () => {
     });
   });
 
-  it('exposes a download link per artifact', () => {
+  it('downloads an artifact through the app-managed flow', async () => {
     renderPanel({ workspaceId: '7', artifacts });
-    const links = screen.getAllByRole('link');
-    expect(links[0]).toHaveAttribute('href', '/api/workspaces/7/file-content?path=report.xlsx&mode=raw');
-    expect(links[0]).toHaveAttribute('download', 'report.xlsx');
+    await userEvent.click(screen.getAllByRole('button', { name: /下载|Download/ })[0]);
+    await waitFor(() =>
+      expect(fetchProgressMock).toHaveBeenCalledWith(
+        '/api/workspaces/7/file-content?path=report.xlsx&mode=raw',
+        undefined,
+      ),
+    );
+    await waitFor(() => expect(saveMock).toHaveBeenCalledWith(expect.any(Blob), 'report.xlsx'));
+    expect(toast.success).toHaveBeenCalledWith(expect.stringContaining('report.xlsx'));
   });
 
   it('removes an artifact via the delete endpoint', async () => {

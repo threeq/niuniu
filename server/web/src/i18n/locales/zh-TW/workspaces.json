@@ -46,7 +46,10 @@
     "submitArtifactFailed": "提交為產物失敗",
     "close": "關閉",
     "imageZoomActual": "檢視原始尺寸",
-    "imageZoomFit": "適應視窗"
+    "imageZoomFit": "適應視窗",
+    "downloading": "下載中…",
+    "downloadDone": "已下載「{{name}}」",
+    "downloadFailed": "下載失敗"
   },
   "artifactPreview": {
     "empty": "暫無可預覽的產物",
@@ -63,7 +66,9 @@
     "play": "自動播放",
     "pause": "暫停",
     "slideFrameTitle": "幻燈片預覽",
-    "textFallback": "暫不支援完整渲染，僅顯示文字"
+    "textFallback": "暫不支援完整渲染，僅顯示文字",
+    "downloadDone": "已下載產物「{{name}}」",
+    "downloadFailed": "下載產物失敗"
   },
   "studioHint": {
     "title": "草稿工作艙",

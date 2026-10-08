@@ -2,9 +2,10 @@ import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
 import { useQueryClient } from '@tanstack/react-query';
-import { FileText, FileSpreadsheet, Presentation, Image as ImageIcon, File, Download, Globe, FileCode, Trash2 } from 'lucide-react';
+import { FileText, FileSpreadsheet, Presentation, Image as ImageIcon, File, Download, Globe, FileCode, Loader2, Trash2 } from 'lucide-react';
 import { api, ApiError } from '@/lib/api';
 import { cn } from '@/lib/utils';
+import { fetchFileWithProgress, saveBlobToLocal } from '@/lib/download-file';
 import { getFileContentUrl } from '@/lib/workspace-file-url';
 import { artifactKind, type ArtifactKind } from '@/lib/artifact-types';
 import { useWorkspacePanelStore, contentTargetForPath } from '@/stores/workspace-panel-store';
@@ -50,6 +51,8 @@ export function ArtifactPreviewPanel({ workspaceId, artifacts, variant = 'viewer
   const openViewer = useWorkspacePanelStore((s) => s.openContentViewer);
   const viewerTarget = useWorkspacePanelStore((s) => s.contentViewer[workspaceId] ?? null);
   const [removingPath, setRemovingPath] = useState<string | null>(null);
+  // The row whose download is in flight (fetch + save) — drives its spinner.
+  const [downloadingPath, setDownloadingPath] = useState<string | null>(null);
   // Inline variant: local selection (defaults to the first artifact so a
   // preview is always visible). Viewer variant derives selection from the
   // central content viewer target.
@@ -94,6 +97,22 @@ export function ArtifactPreviewPanel({ workspaceId, artifacts, variant = 'viewer
     }
   };
 
+  // App-managed download (fetch + save + toast): the bare `<a download>` gave
+  // the webview no completion/failure signal at all.
+  const handleDownload = async (a: ArtifactFile) => {
+    if (downloadingPath) return;
+    setDownloadingPath(a.path);
+    try {
+      const blob = await fetchFileWithProgress(getFileContentUrl(workspaceId, a.path, 'raw'));
+      saveBlobToLocal(blob, a.name);
+      toast.success(t('artifactPreview.downloadDone', { name: a.name }));
+    } catch {
+      toast.error(t('artifactPreview.downloadFailed'));
+    } finally {
+      setDownloadingPath(null);
+    }
+  };
+
   return (
     <div className="flex h-full min-h-0 flex-col bg-card">
       <div
@@ -105,7 +124,6 @@ export function ArtifactPreviewPanel({ workspaceId, artifacts, variant = 'viewer
         {artifacts.map((a) => {
           const Icon = KIND_ICON[artifactKind(a.path)] ?? File;
           const selected = a.path === selectedPath;
-          const downloadUrl = getFileContentUrl(workspaceId, a.path, 'raw');
           return (
             <div
               key={a.path}
@@ -130,15 +148,23 @@ export function ArtifactPreviewPanel({ workspaceId, artifacts, variant = 'viewer
                   {a.name}
                 </span>
               </button>
-              <a
-                href={downloadUrl}
-                download={a.name}
+              <button
+                type="button"
                 title={t('artifactPreview.download')}
-                onClick={(e) => e.stopPropagation()}
-                className="shrink-0 rounded p-1 text-muted-foreground opacity-0 transition-colors hover:bg-background hover:text-info group-hover:opacity-100"
+                aria-label={t('artifactPreview.download')}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleDownload(a);
+                }}
+                disabled={downloadingPath === a.path}
+                className="shrink-0 rounded p-1 text-muted-foreground opacity-0 transition-colors hover:bg-background hover:text-info group-hover:opacity-100 disabled:opacity-50"
               >
-                <Download className="h-3.5 w-3.5" aria-hidden="true" />
-              </a>
+                {downloadingPath === a.path ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
+                ) : (
+                  <Download className="h-3.5 w-3.5" aria-hidden="true" />
+                )}
+              </button>
               <button
                 type="button"
                 onClick={() => handleRemove(a)}
