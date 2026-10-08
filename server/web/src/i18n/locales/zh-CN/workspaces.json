@@ -46,7 +46,10 @@
     "submitArtifactFailed": "提交为产物失败",
     "close": "关闭",
     "imageZoomActual": "查看原始尺寸",
-    "imageZoomFit": "适应窗口"
+    "imageZoomFit": "适应窗口",
+    "downloading": "下载中…",
+    "downloadDone": "已下载「{{name}}」",
+    "downloadFailed": "下载失败"
   },
   "artifactPreview": {
     "empty": "暂无可预览的产物",
@@ -63,7 +66,9 @@
     "play": "自动播放",
     "pause": "暂停",
     "slideFrameTitle": "幻灯片预览",
-    "textFallback": "暂不支持完整渲染，仅显示文本"
+    "textFallback": "暂不支持完整渲染，仅显示文本",
+    "downloadDone": "已下载产物「{{name}}」",
+    "downloadFailed": "下载产物失败"
   },
   "studioHint": {
     "title": "草稿工作舱",

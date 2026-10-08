@@ -5,6 +5,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Download, Loader2, PackagePlus, RefreshCw, Save, Send, X } from 'lucide-react';
 import { api, ApiError } from '@/lib/api';
 import { cn } from '@/lib/utils';
+import { fetchFileWithProgress, saveBlobToLocal } from '@/lib/download-file';
 import { Button } from '@/components/ui/button';
 import { getFileContentUrl } from '@/lib/workspace-file-url';
 import { useThemeStore } from '@/stores/theme-store';
@@ -261,6 +262,10 @@ function FileHeaderActions({
   const { t } = useTranslation('workspaces');
   const queryClient = useQueryClient();
   const [submitting, setSubmitting] = useState(false);
+  // Download feedback: the bare `<a download>` this replaces gave the webview
+  // no signal at all — no progress, no completion, no failure.
+  const [downloading, setDownloading] = useState(false);
+  const [progress, setProgress] = useState(100);
   const downloadUrl = getFileContentUrl(workspaceId, path, 'raw');
 
   const handleSubmitArtifact = async () => {
@@ -278,6 +283,21 @@ function FileHeaderActions({
     }
   };
 
+  const handleDownload = async () => {
+    if (downloading) return;
+    setDownloading(true);
+    setProgress(100);
+    try {
+      const blob = await fetchFileWithProgress(downloadUrl, setProgress);
+      saveBlobToLocal(blob, name);
+      toast.success(t('filePreview.downloadDone', { name }));
+    } catch {
+      toast.error(t('filePreview.downloadFailed'));
+    } finally {
+      setDownloading(false);
+    }
+  };
+
   return (
     <>
       <Button
@@ -290,11 +310,25 @@ function FileHeaderActions({
         <PackagePlus className="h-3.5 w-3.5" aria-hidden="true" />
         <span className="hidden sm:inline">{t('filePreview.submitArtifact')}</span>
       </Button>
-      <Button asChild variant="outline" size="sm" className="h-6 shrink-0 gap-1 px-2 text-xs">
-        <a href={downloadUrl} download={name}>
+      <Button
+        variant="outline"
+        size="sm"
+        className="h-6 shrink-0 gap-1 px-2 text-xs"
+        onClick={handleDownload}
+        disabled={downloading}
+      >
+        {downloading ? (
+          <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
+        ) : (
           <Download className="h-3.5 w-3.5" aria-hidden="true" />
-          <span className="hidden sm:inline">{t('filePreview.download')}</span>
-        </a>
+        )}
+        <span className="hidden sm:inline">
+          {downloading
+            ? progress < 100
+              ? `${progress}%`
+              : t('filePreview.downloading')
+            : t('filePreview.download')}
+        </span>
       </Button>
     </>
   );

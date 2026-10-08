@@ -46,7 +46,10 @@
     "submitArtifactFailed": "Failed to submit as deliverable",
     "close": "Close",
     "imageZoomActual": "View actual size",
-    "imageZoomFit": "Fit to view"
+    "imageZoomFit": "Fit to view",
+    "downloading": "Downloading…",
+    "downloadDone": "Downloaded \"{{name}}\"",
+    "downloadFailed": "Download failed"
   },
   "artifactPreview": {
     "empty": "No previewable deliverables yet",
@@ -63,7 +66,9 @@
     "play": "Auto-play",
     "pause": "Pause",
     "slideFrameTitle": "Slide preview",
-    "textFallback": "Full rendering unavailable — showing text only"
+    "textFallback": "Full rendering unavailable — showing text only",
+    "downloadDone": "Downloaded \"{{name}}\"",
+    "downloadFailed": "Download failed"
   },
   "studioHint": {
     "title": "Draft studio",
