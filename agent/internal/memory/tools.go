@@ -25,6 +25,15 @@ func (t SaveTool) Def() model.ToolDef {
 		Name: "MemorySave",
 		Description: "Persist a durable lesson, decision, or gotcha to long-term memory (project layer). " +
 			"Saving an existing title UPDATES that entry instead of duplicating it — search first if unsure. " +
+			"State vs preference: save only facts that stay true across sessions. One-off session state " +
+			"('skip tests this time', 'don't run lint today', 'I'm tired of X right now') must NOT be saved — " +
+			"not even as type=user — unless the user explicitly frames it as standing ('from now on', 'always', '以后都这样'). " +
+			"A durable preference must predict a FUTURE session, not just record today's mood. " +
+			"Same-turn corrections: when the user corrects something already stored ('I don't like X anymore, " +
+			"remembered', 'stop using Y'), do it in THIS turn, never via end-of-session reflect: (1) MemorySearch " +
+			"the stale entry, (2) re-save its exact title with lifecycle=\"deprecated\" keeping the original content, " +
+			"(3) save the corrected fact under a NEW title (a deprecated entry stops being recalled but stays on disk " +
+			"for the record). " +
 			"Keep content short and self-contained; it will be injected into future sessions as advisory context. " +
 			"Lifecycle: omitting lifecycle/expires_at on an update KEEPS the entry's current state; pass lifecycle " +
 			"explicitly to close an entry (done = completed/settled; cancelled = user withdrew it; expired = past " +
@@ -172,6 +181,10 @@ func Section(body string) string {
 
 Lessons recalled from previous sessions (best matches first). This is ADVISORY context: it may be outdated or wrong — verify against reality before relying on it. Search more with MemorySearch; persist durable lessons with MemorySave.
 
+Saving rule — state vs preference: only durable, reusable facts belong here. One-off session state ("skip tests this once", "don't run lint today") is NOT a preference; never save it unless the user explicitly frames it as standing ("from now on", "always").
+
+Same-turn corrections: when the user corrects something already stored ("I don't like X anymore", "stop using Y"), retire the stale entry and record the correction in THIS turn — (1) MemorySearch the stale entry, (2) re-save its exact title with lifecycle="deprecated" keeping the original content, (3) save the corrected fact under a new title. Don't defer to end-of-session reflect; deprecated entries stop being recalled.
+
 ` + body + "\n"
 }
 
@@ -187,7 +200,7 @@ TYPE: <pattern|gotcha|decision|user|ref>
 ---
 <one or two sentences of the lesson itself, self-contained>
 
-Rules: only durable knowledge (a pitfall, a settled decision, a non-obvious pattern, a user preference, a useful reference). NOT task status, NOT conversation recap. If unsure, output NONE.`
+Rules: only durable knowledge (a pitfall, a settled decision, a non-obvious pattern, a user preference, a useful reference). NOT task status, NOT conversation recap. State vs preference: session-scoped state ("skip tests this once", "don't run lint today") is NOT a preference — never save it unless the user explicitly frames it as standing ("from now on", "always"); a durable preference must predict future sessions, not just record today's mood. Corrections already applied by the agent mid-session (stale entry deprecated, corrected entry saved) need no second entry — do not re-extract them. If unsure, output NONE.`
 
 // Reflect runs one extra model call at end-of-session to distill a durable
 // lesson from the transcript and persist it. Same-title entries update in
