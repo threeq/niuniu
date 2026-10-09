@@ -310,6 +310,15 @@ func toAntMessages(msgs []Message) []antMessage {
 			case BlockImage:
 				blocks = append(blocks, antImage(b.Media, b.MIME))
 			default:
+				// Same trap as the empty thinking block above: a text block
+				// with no text serializes to {"type":"text"} (text is
+				// omitempty) and the gateway rejects it. The stream decoder
+				// legitimately produces these (a text content_block_start
+				// that never receives a delta; index-gap padding blocks), so
+				// drop them rather than trade the failure for a 400.
+				if b.Type == BlockText && b.Text == "" {
+					continue
+				}
 				input := b.Input
 				if b.Type == BlockToolUse && len(input) == 0 {
 					input = json.RawMessage(`{}`)

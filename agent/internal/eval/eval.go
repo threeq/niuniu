@@ -352,6 +352,11 @@ func recallBody(memoryDir, sandboxDir string) string {
 // never injected passes vacuously: its not-contains check cannot fire).
 func RunTaskWithSystem(ctx context.Context, m model.Model, reg *tools.Registry, t Task, timeout time.Duration, system string) Result {
 	res := Result{Name: t.Name}
+	if timeout <= 0 {
+		timeout = 3 * time.Minute
+	}
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
 	dir, err := t.PrepareSandbox()
 	if err != nil {
 		res.Error = "sandbox: " + err.Error()
@@ -443,14 +448,20 @@ func RunChecks(t Task, dir, output string) []CheckResult {
 				cr.Detail = "bad count value " + chk.Value
 				break
 			}
-			entries, derr := os.ReadDir(filepath.Join(dir, filepath.FromSlash(chk.File)))
+			full := filepath.Join(dir, filepath.FromSlash(chk.File))
+			entries, derr := os.ReadDir(full)
 			if derr != nil {
-				// A missing directory holds zero files: with want=0 that is
-				// the expected outcome (nothing was written there), not a
-				// harness error.
+				// A MISSING path holds zero files: with want=0 that is the
+				// expected outcome (nothing was written there). Any other
+				// failure (permissions, the path is actually a file) is a
+				// harness fault and must still fail — judged via Stat, since
+				// ReadDir's own error for "path is a file" is platform-
+				// dependent.
 				if want == 0 {
-					cr.Pass = true
-					break
+					if _, serr := os.Stat(full); os.IsNotExist(serr) {
+						cr.Pass = true
+						break
+					}
 				}
 				cr.Detail = "read dir " + chk.File + ": " + derr.Error()
 				break

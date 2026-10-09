@@ -64,6 +64,7 @@ func TestRunChecksFileCount(t *testing.T) {
 		{Kind: "file-count", File: ".niuniu-agent/memory", Value: "2"},
 		{Kind: "file-count", File: ".niuniu-agent/missing", Value: "0"},
 		{Kind: "file-count", File: ".niuniu-agent/missing", Value: "1"},
+		{Kind: "file-count", File: ".niuniu-agent/memory/a.md", Value: "0"}, // 路径是文件：harness 故障
 	}}
 	res := RunChecks(task, dir, "")
 	if !res[0].Pass {
@@ -77,6 +78,9 @@ func TestRunChecksFileCount(t *testing.T) {
 	}
 	if res[3].Pass {
 		t.Errorf("missing dir with want=1 must fail: %+v", res[3])
+	}
+	if res[4].Pass {
+		t.Errorf("non-ENOENT error (path is a file) must fail even with want=0: %+v", res[4])
 	}
 
 	// 解析：file-count 走「dir, N」双参数形式。

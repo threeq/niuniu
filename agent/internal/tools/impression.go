@@ -49,11 +49,14 @@ func NormalizeImpression(raw string) string {
 			n = len([]rune(l))
 			continue
 		}
-		if n+rl > MaxImpressionRunes {
+		// The joining newline counts toward the cap too — without it a
+		// three-line 200-char value would render 202 runes and break the
+		// "absolute cap" invariant.
+		if n+1+rl > MaxImpressionRunes {
 			break // keep only whole labeled lines
 		}
 		kept = append(kept, l)
-		n += rl
+		n += 1 + rl
 	}
 	return strings.Join(kept, "\n")
 }

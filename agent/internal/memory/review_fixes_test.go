@@ -56,6 +56,48 @@ func TestUpdatePreservesOmittedTypeDomainTags(t *testing.T) {
 	if e = findByTitle(t, s, "coffee-preference"); e.Domain != DomainOther {
 		t.Errorf("explicit domain must win: %q", e.Domain)
 	}
+
+	// tags 的 nil（省略）与空数组（显式清空）语义不同：后者必须清掉旧标签。
+	if _, err := s.Save(Entry{Title: "coffee-preference", Content: "x", Tags: []string{}}); err != nil {
+		t.Fatal(err)
+	}
+	if e = findByTitle(t, s, "coffee-preference"); len(e.Tags) != 0 {
+		t.Errorf("explicit empty tags must clear the stored set, got %v", e.Tags)
+	}
+}
+
+// frontmatter 注入面不止标题：type/domain/lifecycle/tags 里的换行同样会提前
+// 闭合 frontmatter（元数据损毁、updated 归零后被年龄清理误删、deprecated 被
+// 静默重置为 open）；tags 里的逗号还会在磁盘格式（逗号连接）上被误拆。
+func TestSaveSanitizesFrontmatterFields(t *testing.T) {
+	s := testStore(t)
+	if _, err := s.Save(Entry{
+		Title: "inject", Type: "pattern\ntype: user", Domain: "other\nlifecycle: deprecated",
+		Lifecycle: "open\nlifecycle: deprecated", Tags: []string{"ok", "evil\n---\nlifecycle: deprecated", "a,b"},
+		Content: "正文",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	e := findByTitle(t, s, "inject")
+	for name, v := range map[string]string{"type": e.Type, "domain": e.Domain, "lifecycle": e.Lifecycle} {
+		if strings.ContainsAny(v, "\r\n") {
+			t.Errorf("%s kept line breaks: %q", name, v)
+		}
+	}
+	if e.Lifecycle == LifecycleDeprecated {
+		t.Errorf("injected lifecycle took effect: %q", e.Lifecycle)
+	}
+	if e.Updated.IsZero() || e.Created.IsZero() {
+		t.Errorf("frontmatter closed early (timestamps lost): created=%v updated=%v", e.Created, e.Updated)
+	}
+	if len(e.Tags) != 3 {
+		t.Fatalf("tags = %v, want 3 (comma-split must not corrupt)", e.Tags)
+	}
+	for _, tg := range e.Tags {
+		if strings.ContainsAny(tg, "\r\n,") {
+			t.Errorf("tag carries a separator: %q", tg)
+		}
+	}
 }
 
 // 标题里的换行不得注入 frontmatter 键（如伪造 expires_at 让条目静默过期）。

@@ -370,6 +370,29 @@ func TestToAntMessagesDropsEmptyThinkingBlock(t *testing.T) {
 	}
 }
 
+// 空 text 块与空 thinking 块是同一类雷：序列化后是 {"type":"text"}（text 被
+// omitempty 略去），网关 400/422。流式解码器会合法地产生这种块（text 的
+// content_block_start 没有 delta、index 空洞被 padding），回传前必须丢弃。
+func TestToAntMessagesDropsEmptyTextBlock(t *testing.T) {
+	out := toAntMessages([]Message{{
+		Role: RoleAssistant,
+		Blocks: []Block{
+			{Type: BlockText, Text: ""},
+			{Type: BlockToolUse, ID: "tu_1", Name: "LS"},
+		},
+	}})
+	if len(out) != 1 || len(out[0].Content) != 1 || out[0].Content[0].Type != BlockToolUse {
+		t.Fatalf("blocks = %+v, want only the tool_use to survive", out)
+	}
+	data, err := json.Marshal(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(data), `"type":"text"`) {
+		t.Errorf("empty text block leaked onto the wire: %s", data)
+	}
+}
+
 // 仅含一个空思考块的消息必须整条丢弃：丢弃后若把空 content 数组发上线
 // （"content":[]），网关会在此后每个请求上 400——比原本要修的 422 更糟。
 func TestToAntMessagesDropsMessageLeftEmpty(t *testing.T) {

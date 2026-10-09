@@ -90,6 +90,19 @@ func TestNormalizeImpressionDropsWholeLines(t *testing.T) {
 	}
 }
 
+// 上限是不变量：行间换行也计入 200 字——恰好 200 字符的三行拼接（含换行
+// 共 202）必须丢尾行，绝不能输出 202 rune。
+func TestNormalizeImpressionCountsNewlines(t *testing.T) {
+	a, b, c := strings.Repeat("甲", 66), strings.Repeat("乙", 67), strings.Repeat("丙", 67)
+	got := NormalizeImpression(a + "\n" + b + "\n" + c)
+	if n := len([]rune(got)); n > MaxImpressionRunes {
+		t.Errorf("output = %d runes, cap is %d", n, MaxImpressionRunes)
+	}
+	if strings.Contains(got, "丙") {
+		t.Errorf("third line must be dropped whole, got:\n%s", got)
+	}
+}
+
 // 空路径 = 印象维护关闭（子代理/eval/RSI 会话不设 ImpressionPath）：
 // no-op 且不报错——不得触发 os.WriteFile("") 的伪告警。
 func TestWriteImpressionEmptyPathIsNoop(t *testing.T) {

@@ -154,9 +154,16 @@ func NewStore(cwd string) *Store {
 // updated in place — created is preserved, updated is refreshed. Returns
 // the entry id.
 func (s *Store) Save(e Entry) (string, error) {
-	// Titles live in frontmatter: strip line breaks so a title can never
-	// inject extra frontmatter keys (e.g. a second expires_at) into the file.
-	e.Title = strings.TrimSpace(strings.NewReplacer("\r", " ", "\n", " ").Replace(e.Title))
+	// Every value written into the line-oriented frontmatter is sanitized:
+	// a line break in any of them could close the block early (or inject a
+	// second expires_at/lifecycle), which corrupts the entry's metadata and
+	// can get it wrongly age-evicted. Tags additionally cannot contain the
+	// comma the on-disk format joins them with.
+	e.Title = sanitizeFrontmatterValue(e.Title)
+	e.Type = sanitizeFrontmatterValue(e.Type)
+	e.Domain = sanitizeFrontmatterValue(e.Domain)
+	e.Lifecycle = sanitizeFrontmatterValue(e.Lifecycle)
+	e.Tags = sanitizeTags(e.Tags)
 	if e.Title == "" {
 		return "", fmt.Errorf("memory: title is required")
 	}
@@ -186,7 +193,9 @@ func (s *Store) Save(e Entry) (string, error) {
 			if e.Domain == "" {
 				e.Domain = prev.Domain
 			}
-			if len(e.Tags) == 0 {
+			// nil tags = the caller omitted the field → keep the stored set;
+			// an explicit empty slice clears it (json distinguishes the two).
+			if e.Tags == nil {
 				e.Tags = prev.Tags
 			}
 			if !explicitLifecycle {
@@ -625,6 +634,30 @@ func (s *Store) maxEntriesPerLayer() int {
 // slug converts a title into a filesystem-safe id: lowercased ASCII,
 // whitespace/illegal filename characters → '-', trimmed. Non-ASCII
 // (Chinese titles included) is preserved.
+// sanitizeFrontmatterValue strips line breaks from a single-line frontmatter
+// value, so it can never inject extra keys or a premature "---" terminator.
+func sanitizeFrontmatterValue(s string) string {
+	return strings.TrimSpace(strings.NewReplacer("\r", " ", "\n", " ").Replace(s))
+}
+
+// sanitizeTags normalizes tags for the comma-joined on-disk format: line
+// breaks collapse to spaces, the comma/、 separators are dropped (they would
+// split the tag on read), and blank tags are discarded. nil stays nil so an
+// update can tell "omitted" from "explicitly cleared".
+func sanitizeTags(tags []string) []string {
+	if tags == nil {
+		return nil
+	}
+	out := make([]string, 0, len(tags))
+	for _, tg := range tags {
+		tg = strings.NewReplacer("\r", " ", "\n", " ", ",", " ", "，", " ").Replace(tg)
+		if tg = strings.TrimSpace(tg); tg != "" {
+			out = append(out, tg)
+		}
+	}
+	return out
+}
+
 func slug(title string) string {
 	var b strings.Builder
 	for _, r := range strings.ToLower(strings.TrimSpace(title)) {
