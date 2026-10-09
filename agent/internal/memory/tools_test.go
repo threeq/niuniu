@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/niuniu-dev/niuniu/agent/internal/model"
 	"github.com/niuniu-dev/niuniu/agent/internal/tools"
@@ -68,15 +69,154 @@ func TestSaveToolAndSearchTool(t *testing.T) {
 	}
 }
 
+func TestSaveToolLifecycleAndDomain(t *testing.T) {
+	s := testStore(t)
+	reg := tools.NewRegistry(NewSaveTool(s), NewSearchTool(s))
+
+	// 带 lifecycle/expires_at/domain 保存。
+	out, err := reg.Execute(context.Background(), "MemorySave",
+		json.RawMessage(`{"title":"明天面试","type":"ref","domain":"open_item","lifecycle":"open","expires_at":"2026-10-20T09:00:00Z","content":"带作品集"}`))
+	if err != nil {
+		t.Fatalf("MemorySave: %v", err)
+	}
+	if !strings.Contains(out, "明天面试") {
+		t.Errorf("save output = %q", out)
+	}
+	hits, _ := s.Search("面试")
+	if len(hits) != 1 || hits[0].Domain != "open_item" || hits[0].Lifecycle != "open" {
+		t.Fatalf("hits = %+v", hits)
+	}
+	if hits[0].ExpiresAt.IsZero() || hits[0].ExpiresAt.UTC() != time.Date(2026, 10, 20, 9, 0, 0, 0, time.UTC) {
+		t.Errorf("ExpiresAt = %v", hits[0].ExpiresAt)
+	}
+
+	// 非法 expires_at → error（让模型纠正格式）。
+	if _, err := reg.Execute(context.Background(), "MemorySave",
+		json.RawMessage(`{"title":"x","content":"y","expires_at":"明天上午"}`)); err == nil {
+		t.Error("want error for non-RFC3339 expires_at")
+	}
+
+	// MemorySearch 支持 lifecycle / domain 过滤，输出带状态标注。
+	if _, err := reg.Execute(context.Background(), "MemorySave",
+		json.RawMessage(`{"title":"老规则","type":"decision","lifecycle":"deprecated","content":"已被取代"}`)); err != nil {
+		t.Fatal(err)
+	}
+	dep, err := reg.Execute(context.Background(), "MemorySearch",
+		json.RawMessage(`{"query":"","lifecycle":"deprecated"}`))
+	if err != nil {
+		t.Fatalf("MemorySearch lifecycle filter: %v", err)
+	}
+	if !strings.Contains(dep, "老规则") || !strings.Contains(dep, "lifecycle: deprecated") {
+		t.Errorf("filtered output = %q", dep)
+	}
+	if strings.Contains(dep, "明天面试") {
+		t.Errorf("lifecycle filter leaked open entries: %q", dep)
+	}
+	openList, err := reg.Execute(context.Background(), "MemorySearch",
+		json.RawMessage(`{"lifecycle":"open","domain":"open_item"}`))
+	if err != nil {
+		t.Fatalf("MemorySearch combined filter: %v", err)
+	}
+	if !strings.Contains(openList, "明天面试") || !strings.Contains(openList, "due: 2026-10-20") {
+		t.Errorf("combined filter output = %q", openList)
+	}
+	if strings.Contains(openList, "老规则") {
+		t.Errorf("filter leaked deprecated entries: %q", openList)
+	}
+	// 无命中。
+	if got, _ := reg.Execute(context.Background(), "MemorySearch",
+		json.RawMessage(`{"lifecycle":"done"}`)); got != "(no matching memories)" {
+		t.Errorf("no-hit output = %q", got)
+	}
+}
+
 func TestSection(t *testing.T) {
 	if Section("") != "" {
 		t.Error("empty body must omit the section")
 	}
 	sec := Section("- [gotcha] win-paths: 转义")
-	for _, want := range []string{"# Memory", "ADVISORY", "MemorySearch", "win-paths"} {
+	for _, want := range []string{"# Memory", "ADVISORY", "MemorySearch", "win-paths",
+		// 状态 vs 偏好判据与当轮纠错协议必须成文（issue #723）。
+		"One-off session state", "from now on", "deprecated", "new title"} {
 		if !strings.Contains(sec, want) {
 			t.Errorf("section missing %q:\n%s", want, sec)
 		}
+	}
+}
+
+// TestExtractionGuidance pins the state-vs-preference criteria and the
+// same-turn correction protocol into the two guidance surfaces the model
+// actually reads: the -reflect extraction prompt and the MemorySave tool
+// description.
+func TestExtractionGuidance(t *testing.T) {
+	for _, want := range []string{"session-scoped", "from now on", "NONE"} {
+		if !strings.Contains(reflectSystem, want) {
+			t.Errorf("reflectSystem missing %q:\n%s", want, reflectSystem)
+		}
+	}
+	desc := NewSaveTool(testStore(t)).Def().Description
+	for _, want := range []string{"from now on", "deprecated", "NEW title", "MemorySearch"} {
+		if !strings.Contains(desc, want) {
+			t.Errorf("MemorySave description missing %q:\n%s", want, desc)
+		}
+	}
+}
+
+// TestSameTurnCorrectionProtocol walks the documented correction flow at
+// the tool level — one turn, no new tools: find the stale entry, retire it
+// by re-saving its exact title with lifecycle=deprecated (original content
+// kept), then write the corrected fact under a new title.
+func TestSameTurnCorrectionProtocol(t *testing.T) {
+	s := testStore(t)
+	reg := tools.NewRegistry(NewSaveTool(s), NewSearchTool(s))
+	ctx := context.Background()
+
+	// 既有长期偏好。
+	if _, err := reg.Execute(ctx, "MemorySave",
+		json.RawMessage(`{"title":"coffee-preference","type":"user","domain":"preference","content":"Durable preference: the user's usual coffee order is a latte."}`)); err != nil {
+		t.Fatalf("seed save: %v", err)
+	}
+
+	// 用户纠正 → 同轮完成三步。
+	// (1) MemorySearch 找到旧条目。
+	hits, err := reg.Execute(ctx, "MemorySearch", json.RawMessage(`{"query":"coffee"}`))
+	if err != nil || !strings.Contains(hits, "coffee-preference") {
+		t.Fatalf("step1 search: %q err=%v", hits, err)
+	}
+	// (2) 同 title + lifecycle=deprecated 打标（保留原内容）。
+	dep, err := reg.Execute(ctx, "MemorySave",
+		json.RawMessage(`{"title":"coffee-preference","type":"user","domain":"preference","lifecycle":"deprecated","content":"Durable preference: the user's usual coffee order is a latte."}`))
+	if err != nil || !strings.Contains(dep, "updated") {
+		t.Fatalf("step2 deprecate: %q err=%v", dep, err)
+	}
+	// (3) 新 title 写入纠正后的事实。
+	if _, err := reg.Execute(ctx, "MemorySave",
+		json.RawMessage(`{"title":"coffee-preference-v2","type":"user","domain":"preference","content":"Corrected: the user no longer drinks lattes — americano only."}`)); err != nil {
+		t.Fatalf("step3 corrected save: %v", err)
+	}
+
+	// 旧条目已 deprecated 且内容原样保留。
+	all, _ := s.Search("")
+	byID := map[string]Entry{}
+	for _, e := range all {
+		byID[e.ID] = e
+	}
+	old, ok := byID["coffee-preference"]
+	if !ok || old.Lifecycle != LifecycleDeprecated || !strings.Contains(old.Content, "latte") {
+		t.Errorf("stale entry = %+v, want deprecated with original content kept", old)
+	}
+	fresh, ok := byID["coffee-preference-v2"]
+	if !ok || fresh.Lifecycle != LifecycleOpen || !strings.Contains(fresh.Content, "americano") {
+		t.Errorf("corrected entry = %+v, want open with corrected content", fresh)
+	}
+
+	// 召回端联动前提：open 过滤只剩新条目（deprecated 停注入由召回侧负责）。
+	openOnly, err := reg.Execute(ctx, "MemorySearch", json.RawMessage(`{"lifecycle":"open"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(openOnly, "coffee-preference-v2") || strings.Contains(openOnly, "usual coffee order") {
+		t.Errorf("open filter = %q, want only the corrected entry", openOnly)
 	}
 }
 

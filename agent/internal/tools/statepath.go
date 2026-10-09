@@ -16,6 +16,7 @@ import (
 //	~/.niuniu-agent/projects/<escaped-cwd>/session-state.json   compacted state
 //	~/.niuniu-agent/projects/<escaped-cwd>/history/             compact archive
 //	~/.niuniu-agent/projects/<escaped-cwd>/todos.json           task list
+//	~/.niuniu-agent/projects/<escaped-cwd>/impression.md        cross-session impression
 func StateDir(cwd string) string {
 	home, err := os.UserHomeDir()
 	if err != nil || strings.TrimSpace(home) == "" {
@@ -55,6 +56,11 @@ func CompactStatePath(cwd string) string {
 
 // HistoryDir is the compacted-history archive for cwd.
 func HistoryDir(cwd string) string { return filepath.Join(StateDir(cwd), "history") }
+
+// ImpressionPath is the per-project cross-session impression file for cwd.
+func ImpressionPath(cwd string) string {
+	return filepath.Join(StateDir(cwd), "impression.md")
+}
 
 // TodosPath is the task-list file for cwd.
 func TodosPath(cwd string) string { return filepath.Join(StateDir(cwd), "todos.json") }

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -317,5 +318,125 @@ func TestAnthropicIncrementalCacheBreakpoint(t *testing.T) {
 	if l := len(gotBody.Messages); l != 1 || len(gotBody.Messages[0].Content) == 0 ||
 		gotBody.Messages[0].Content[len(gotBody.Messages[0].Content)-1].CacheControl == nil {
 		t.Errorf("single-message request must still mark the last message")
+	}
+}
+
+// 网关可能回一个没有思考文本的 thinking 块（GLM 流式实测：content_block_start
+// 起了 thinking 块但没有 thinking_delta，signature 也未随流下发）。若原样回传，
+// 该块序列化后是 {"type":"thinking"}——thinking/signature 都被 omitempty 略去，
+// 网关直接 422 "missing field `thinking`" 打断整个回合。空文本思考块没有任何
+// 可回传的信息，构造回传消息时必须丢弃（官方 API 不会产生这种块，守卫在其上
+// 恒不触发）。
+func TestToAntMessagesDropsEmptyThinkingBlock(t *testing.T) {
+	out := toAntMessages([]Message{{
+		Role: RoleAssistant,
+		Blocks: []Block{
+			{Type: BlockThinking, Text: "", Signature: "sig-orphan"},
+			{Type: BlockThinking, Text: "带着文本的思考块"},
+			{Type: BlockText, Text: "好的"},
+		},
+	}})
+	if len(out) != 1 || len(out[0].Content) != 2 {
+		t.Fatalf("blocks = %+v, want 2 (empty thinking dropped)", out)
+	}
+	for _, b := range out[0].Content {
+		if b.Type == BlockThinking && b.Thinking == "" {
+			t.Errorf("empty thinking block leaked onto the wire: %+v", b)
+		}
+	}
+	if out[0].Content[0].Thinking != "带着文本的思考块" || out[0].Content[1].Text != "好的" {
+		t.Errorf("order/content broken: %+v", out[0].Content)
+	}
+
+	// 序列化层面兜底：wire JSON 里不允许出现缺 thinking 字段的 thinking 块。
+	data, err := json.Marshal(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var raw []struct {
+		Content []map[string]any `json:"content"`
+	}
+	if err := json.Unmarshal(data, &raw); err != nil {
+		t.Fatal(err)
+	}
+	for _, m := range raw {
+		for _, b := range m.Content {
+			if b["type"] == "thinking" {
+				if _, ok := b["thinking"]; !ok {
+					t.Errorf("wire thinking block missing the `thinking` field: %v", b)
+				}
+			}
+		}
+	}
+}
+
+// 空 text 块与空 thinking 块是同一类雷：序列化后是 {"type":"text"}（text 被
+// omitempty 略去），网关 400/422。流式解码器会合法地产生这种块（text 的
+// content_block_start 没有 delta、index 空洞被 padding），回传前必须丢弃。
+func TestToAntMessagesDropsEmptyTextBlock(t *testing.T) {
+	out := toAntMessages([]Message{{
+		Role: RoleAssistant,
+		Blocks: []Block{
+			{Type: BlockText, Text: ""},
+			{Type: BlockToolUse, ID: "tu_1", Name: "LS"},
+		},
+	}})
+	if len(out) != 1 || len(out[0].Content) != 1 || out[0].Content[0].Type != BlockToolUse {
+		t.Fatalf("blocks = %+v, want only the tool_use to survive", out)
+	}
+	data, err := json.Marshal(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(data), `"type":"text"`) {
+		t.Errorf("empty text block leaked onto the wire: %s", data)
+	}
+}
+
+// 仅含一个空思考块的消息必须整条丢弃：丢弃后若把空 content 数组发上线
+// （"content":[]），网关会在此后每个请求上 400——比原本要修的 422 更糟。
+func TestToAntMessagesDropsMessageLeftEmpty(t *testing.T) {
+	out := toAntMessages([]Message{
+		{Role: RoleUser, Blocks: []Block{{Type: BlockText, Text: "hi"}}},
+		{Role: RoleAssistant, Blocks: []Block{{Type: BlockThinking, Text: ""}}},
+		{Role: RoleUser, Blocks: []Block{{Type: BlockText, Text: "next"}}},
+	})
+	// 空 assistant 消息被丢弃后两侧 user 相邻——同角色合并收口为一条，
+	// 线上保持 user/assistant 严格交替。
+	if len(out) != 1 || out[0].Role != RoleUser || len(out[0].Content) != 2 {
+		t.Fatalf("messages = %+v, want one merged user message carrying both texts", out)
+	}
+	if out[0].Content[0].Text != "hi" || out[0].Content[1].Text != "next" {
+		t.Errorf("merged content order broken: %+v", out[0].Content)
+	}
+	data, err := json.Marshal(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(data), `"content":[]`) {
+		t.Errorf("empty content array on the wire: %s", data)
+	}
+}
+
+// 角色交替是线上硬约束：相邻同角色消息必须合并——两条触发路径都在这里收口：
+// 空消息丢弃后的相邻，以及压缩路径（user 摘要消息插在保留窗口开头的 user
+// 消息之前）。块序保持不变，tool_use/tool_result 配对与 thinking 前置不受影响。
+func TestToAntMessagesMergesAdjacentSameRole(t *testing.T) {
+	out := toAntMessages([]Message{
+		{Role: RoleUser, Blocks: []Block{{Type: BlockText, Text: "summary"}}},
+		{Role: RoleUser, Blocks: []Block{{Type: BlockText, Text: "kept"}}},
+		{Role: RoleAssistant, Blocks: []Block{{Type: BlockText, Text: "a"}}},
+		{Role: RoleUser, Blocks: []Block{{Type: BlockText, Text: "q"}}},
+	})
+	if len(out) != 3 {
+		t.Fatalf("messages = %+v, want 3 (the two leading users merged)", out)
+	}
+	for i := 1; i < len(out); i++ {
+		if out[i].Role == out[i-1].Role {
+			t.Errorf("roles not alternating at index %d: %+v", i, out)
+		}
+	}
+	if len(out[0].Content) != 2 || out[0].Content[0].Text != "summary" || out[0].Content[1].Text != "kept" {
+		t.Errorf("merged blocks = %+v", out[0].Content)
 	}
 }

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 )
 
@@ -291,6 +292,16 @@ func toAntMessages(msgs []Message) []antMessage {
 					Content:   content,
 				})
 			case BlockThinking:
+				// A text-less thinking block carries nothing to echo: GLM's
+				// stream can open a thinking block without ever sending a
+				// thinking_delta, and re-sending it serializes to
+				// {"type":"thinking"} (thinking+signature both omitempty) —
+				// the gateway rejects that with HTTP 422 "missing field
+				// `thinking`", killing the whole run. Drop it. (The official
+				// API never emits such a block, so this guard is inert there.)
+				if strings.TrimSpace(b.Text) == "" {
+					continue
+				}
 				// Echo thinking blocks back verbatim, signature included —
 				// gateways verify it and reject altered thinking.
 				blocks = append(blocks, antBlock{
@@ -299,6 +310,15 @@ func toAntMessages(msgs []Message) []antMessage {
 			case BlockImage:
 				blocks = append(blocks, antImage(b.Media, b.MIME))
 			default:
+				// Same trap as the empty thinking block above: a text block
+				// with no text serializes to {"type":"text"} (text is
+				// omitempty) and the gateway rejects it. The stream decoder
+				// legitimately produces these (a text content_block_start
+				// that never receives a delta; index-gap padding blocks), so
+				// drop them rather than trade the failure for a 400.
+				if b.Type == BlockText && b.Text == "" {
+					continue
+				}
 				input := b.Input
 				if b.Type == BlockToolUse && len(input) == 0 {
 					input = json.RawMessage(`{}`)
@@ -309,8 +329,33 @@ func toAntMessages(msgs []Message) []antMessage {
 				})
 			}
 		}
+		if len(blocks) == 0 {
+			// Every block was dropped (e.g. a lone empty thinking block that
+			// carried no delta AND no other block followed). Serializing the
+			// message would put "content":[] on the wire — the API requires
+			// non-empty content, so skip the message entirely instead of
+			// trading the 422 this guard fixes for a 400 on every later
+			// round. The merge pass below re-establishes role alternation.
+			continue
+		}
 		out = append(out, antMessage{Role: m.Role, Content: blocks})
 	}
+	// The wire requires strictly alternating roles, and the drops above (plus
+	// the compact path, whose user-role summary message is inserted directly
+	// before the kept window's opening user message) can leave two same-role
+	// messages adjacent — the official API rejects that with "roles must
+	// alternate". Merge adjacent same-role messages: block order is
+	// preserved, so tool_use/tool_result pairing and thinking-first ordering
+	// stay valid.
+	alternating := out[:0]
+	for _, m := range out {
+		if n := len(alternating); n > 0 && alternating[n-1].Role == m.Role {
+			alternating[n-1].Content = append(alternating[n-1].Content, m.Content...)
+			continue
+		}
+		alternating = append(alternating, m)
+	}
+	out = alternating
 	// Breakpoint 3 of 3 — the INCREMENTAL checkpoint rides the SECOND-TO-
 	// LAST message (when there is one): its content is frozen by the time
 	// the next round is built, so the breakpoint lands on identical bytes

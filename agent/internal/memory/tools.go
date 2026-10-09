@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/niuniu-dev/niuniu/agent/internal/model"
 	"github.com/niuniu-dev/niuniu/agent/internal/tools"
@@ -24,22 +25,44 @@ func (t SaveTool) Def() model.ToolDef {
 		Name: "MemorySave",
 		Description: "Persist a durable lesson, decision, or gotcha to long-term memory (project layer). " +
 			"Saving an existing title UPDATES that entry instead of duplicating it — search first if unsure. " +
-			"Keep content short and self-contained; it will be injected into future sessions as advisory context.",
+			"On an update, fields you omit (type/domain/tags/lifecycle/expires_at) keep their stored values; " +
+			"pass a value only when you mean to change it. " +
+			"State vs preference: save only facts that stay true across sessions. One-off session state " +
+			"('skip tests this time', 'don't run lint today', 'I'm tired of X right now') must NOT be saved — " +
+			"not even as type=user — unless the user explicitly frames it as standing ('from now on', 'always', '以后都这样'). " +
+			"A durable preference must predict a FUTURE session, not just record today's mood. " +
+			"Same-turn corrections: when the user corrects something already stored ('I don't like X anymore, " +
+			"remembered', 'stop using Y'), do it in THIS turn, never via end-of-session reflect: (1) MemorySearch " +
+			"the stale entry, (2) re-save its exact title with lifecycle=\"deprecated\" keeping the original content, " +
+			"(3) save the corrected fact under a NEW title (a deprecated entry stops being recalled but stays on disk " +
+			"for the record). " +
+			"Keep content short and self-contained; it will be injected into future sessions as advisory context. " +
+			"Lifecycle: omitting lifecycle/expires_at on an update KEEPS the entry's current state; pass lifecycle " +
+			"explicitly to close an entry (done = completed/settled; cancelled = user withdrew it; expired = past " +
+			"its expires_at; deprecated = superseded by a corrected entry — closed entries stay on disk but stop " +
+			"being recalled) or reopen one (open) — reopening an entry whose deadline has passed clears that dead " +
+			"deadline automatically.",
 		InputSchema: json.RawMessage(`{"type":"object","properties":{` +
 			`"title":{"type":"string","description":"Short unique name (the update key)"},` +
 			`"type":{"type":"string","enum":["pattern","gotcha","decision","user","ref"],"description":"Entry kind"},` +
+			`"domain":{"type":"string","enum":["decision","preference","environment","open_item","collaboration","other"],"description":"Life area: decision = settled project decision; preference = durable user preference (reusable across sessions — NOT one-off session state like 'skip tests this once'); environment = user's environment habits (OS, shell, tooling); open_item = in-progress matter worth revisiting, pair with expires_at when there is a deadline; collaboration = how the user wants to work together; other = anything else. Optional."},` +
 			`"content":{"type":"string","description":"The lesson itself, one or two sentences"},` +
-			`"tags":{"type":"array","items":{"type":"string"},"description":"Optional keywords for recall"}},` +
+			`"tags":{"type":"array","items":{"type":"string"},"description":"Optional keywords for recall"},` +
+			`"lifecycle":{"type":"string","enum":["open","done","cancelled","expired","deprecated"],"description":"Life-cycle state: open = live context (default for new entries); done = completed or settled; cancelled = withdrawn, no longer applies; expired = past expires_at; deprecated = superseded by a corrected entry. Closed states are kept for the record but excluded from recall. Optional."},` +
+			`"expires_at":{"type":"string","description":"Optional deadline: RFC3339 (2026-10-20T09:00:00Z) or a date (2026-10-20 — covers that whole day); \"none\" clears an existing deadline. Past it the entry counts as expired and stops being recalled — use for time-bound open items (e.g. an interview tomorrow). Optional."}},` +
 			`"required":["title","content"]}`),
 	}
 }
 
 func (t SaveTool) Execute(_ context.Context, input json.RawMessage) (string, error) {
 	var in struct {
-		Title   string   `json:"title"`
-		Type    string   `json:"type"`
-		Content string   `json:"content"`
-		Tags    []string `json:"tags"`
+		Title     string   `json:"title"`
+		Type      string   `json:"type"`
+		Domain    string   `json:"domain"`
+		Content   string   `json:"content"`
+		Tags      []string `json:"tags"`
+		Lifecycle string   `json:"lifecycle"`
+		ExpiresAt string   `json:"expires_at"`
 	}
 	if err := json.Unmarshal(input, &in); err != nil {
 		return "", fmt.Errorf("invalid input: %w", err)
@@ -50,6 +73,15 @@ func (t SaveTool) Execute(_ context.Context, input json.RawMessage) (string, err
 	if strings.TrimSpace(in.Content) == "" {
 		return "", fmt.Errorf("content is required")
 	}
+	var expires time.Time
+	clearExpires := false
+	if s := strings.TrimSpace(in.ExpiresAt); s != "" {
+		if strings.EqualFold(s, "none") {
+			clearExpires = true
+		} else if expires = parseTime(s); expires.IsZero() {
+			return "", fmt.Errorf("expires_at must be RFC3339 (2026-10-20T09:00:00Z), a date (2026-10-20), or \"none\" to clear: %q", s)
+		}
+	}
 	existed := false
 	if hits, _ := t.store.Search(in.Title); len(hits) > 0 {
 		for _, h := range hits {
@@ -58,7 +90,16 @@ func (t SaveTool) Execute(_ context.Context, input json.RawMessage) (string, err
 			}
 		}
 	}
-	id, err := t.store.Save(Entry{Title: in.Title, Type: in.Type, Content: in.Content, Tags: in.Tags})
+	id, err := t.store.Save(Entry{
+		Title:        in.Title,
+		Type:         in.Type,
+		Domain:       in.Domain,
+		Content:      in.Content,
+		Tags:         in.Tags,
+		Lifecycle:    in.Lifecycle,
+		ExpiresAt:    expires,
+		ClearExpires: clearExpires,
+	})
 	if err != nil {
 		return "", err
 	}
@@ -66,7 +107,22 @@ func (t SaveTool) Execute(_ context.Context, input json.RawMessage) (string, err
 	if existed {
 		verb = "updated"
 	}
-	return fmt.Sprintf("%s memory %q (project layer) — it will be recalled in future sessions", verb, id), nil
+	// Report the FINAL recall state, not a blanket "will be recalled": a
+	// deprecation (the correction protocol's deprecate step) or an already-
+	// past deadline keeps the entry on disk but out of recall, and the
+	// message must not contradict the tool's own lifecycle contract.
+	note := "it will be recalled in future sessions"
+	if hits, _ := t.store.Search(in.Title); len(hits) > 0 {
+		for _, h := range hits {
+			if h.Title == in.Title {
+				if lc := effectiveLifecycle(h, time.Now()); lifecycleClosed(lc) {
+					note = "it is " + lc + " — kept on disk for the record, no longer recalled"
+				}
+				break
+			}
+		}
+	}
+	return fmt.Sprintf("%s memory %q (project layer) — %s", verb, id, note), nil
 }
 
 // SearchTool is the MemorySearch tool.
@@ -77,16 +133,23 @@ func NewSearchTool(s *Store) tools.Tool { return SearchTool{s} }
 
 func (t SearchTool) Def() model.ToolDef {
 	return model.ToolDef{
-		Name:        "MemorySearch",
-		Description: "Search long-term memory by keywords (empty query lists everything). Returns entries with their ids, types, and contents, best matches first.",
+		Name: "MemorySearch",
+		Description: "Search long-term memory by keywords (empty query lists all live entries). Returns entries with their ids, types, lifecycle, and contents, best matches first. " +
+			"Lifecycle: open = live context; done = completed/settled; cancelled = withdrawn; expired = past its expires_at; deprecated = superseded by a corrected entry. " +
+			"Closed entries are excluded from automatic recall AND from default results here — pass the lifecycle filter explicitly to find and update (or deprecate) stale memories. " +
+			"An entry whose expires_at has passed counts as expired for the default exclusion even though its stored lifecycle still reads open; filter lifecycle:\"open\" to find it for renewal.",
 		InputSchema: json.RawMessage(`{"type":"object","properties":{` +
-			`"query":{"type":"string","description":"Keywords; empty lists all entries"}}}`),
+			`"query":{"type":"string","description":"Keywords; empty lists all live entries"},` +
+			`"lifecycle":{"type":"string","description":"Optional exact-match filter: open|done|cancelled|expired|deprecated. Explicit filter overrides the default closed-entry exclusion."},` +
+			`"domain":{"type":"string","description":"Optional exact-match filter: decision|preference|environment|open_item|collaboration|other"}}}`),
 	}
 }
 
 func (t SearchTool) Execute(_ context.Context, input json.RawMessage) (string, error) {
 	var in struct {
-		Query string `json:"query"`
+		Query     string `json:"query"`
+		Lifecycle string `json:"lifecycle"`
+		Domain    string `json:"domain"`
 	}
 	if len(input) > 0 {
 		if err := json.Unmarshal(input, &in); err != nil {
@@ -97,19 +160,55 @@ func (t SearchTool) Execute(_ context.Context, input json.RawMessage) (string, e
 	if err != nil {
 		return "", err
 	}
-	if len(hits) == 0 {
+	filtered := hits[:0:0]
+	now := time.Now()
+	for _, e := range hits {
+		// Default results skip entries whose EFFECTIVE lifecycle is closed
+		// (stored value folded with the lazy-expiry rule — mirrors the recall
+		// filter). An explicit lifecycle query matches the STORED value, so a
+		// past-due entry (whose file still says open) stays findable for
+		// renewal or correction.
+		if in.Lifecycle != "" {
+			if e.Lifecycle != in.Lifecycle {
+				continue
+			}
+		} else if lifecycleClosed(effectiveLifecycle(e, now)) {
+			continue
+		}
+		if in.Domain != "" && e.Domain != in.Domain {
+			continue
+		}
+		filtered = append(filtered, e)
+	}
+	if len(filtered) == 0 {
 		return "(no matching memories)", nil
 	}
 	var b strings.Builder
-	for _, e := range hits {
-		fmt.Fprintf(&b, "[%s] %s (id: %s, %s layer)\n  %s\n", e.Type, e.Title, e.ID, e.Layer, e.Content)
+	for _, e := range filtered {
+		meta := fmt.Sprintf("id: %s, %s layer", e.ID, e.Layer)
+		if e.Domain != "" {
+			meta += ", domain: " + e.Domain
+		}
+		if e.Lifecycle != LifecycleOpen {
+			meta += ", lifecycle: " + e.Lifecycle
+		}
+		if !e.ExpiresAt.IsZero() {
+			// Local calendar day — the deadline is an absolute instant, but
+			// the user means their own date (see recallAnnotation).
+			meta += ", due: " + e.ExpiresAt.Local().Format("2006-01-02")
+		}
+		fmt.Fprintf(&b, "[%s] %s (%s)\n  %s\n", e.Type, e.Title, meta, e.Content)
 	}
 	return strings.TrimRight(b.String(), "\n"), nil
 }
 
 // Section renders the recalled-memory system section; an empty body omits
 // the section entirely. Memory is positioned as ADVISORY context — it may
-// be stale, the model judges.
+// be stale, the model judges. The guidance paragraph is FIXED text (prompt
+// cache: it must stay byte-identical within a session, so no dates, ids or
+// per-recall content in it — see internal/prompt's stable-prefix rules);
+// the advisory phrasing rule lives here rather than in Build so every
+// recall-bearing entry path carries the same contract.
 func Section(body string) string {
 	if strings.TrimSpace(body) == "" {
 		return ""
@@ -117,7 +216,11 @@ func Section(body string) string {
 	return `
 # Memory
 
-Lessons recalled from previous sessions (best matches first). This is ADVISORY context: it may be outdated or wrong — verify against reality before relying on it. Search more with MemorySearch; persist durable lessons with MemorySave.
+Lessons recalled from previous sessions (best matches first). This is ADVISORY context: it may be outdated or wrong — verify against reality before relying on it. When acting on a recalled preference or decision, cite it as a question to confirm, not an assertion — e.g. 之前记录你偏好X，这次沿用吗？; if the user denies it, stop applying it for the rest of the session (and consider saving the correction with MemorySave). Lines tagged [open] or [open, due YYYY-MM-DD] are live follow-ups worth revisiting; past-due ones are filtered out before injection. Search more with MemorySearch; persist durable lessons with MemorySave.
+
+Saving rule — state vs preference: only durable, reusable facts belong here. One-off session state ("skip tests this once", "don't run lint today") is NOT a preference; never save it unless the user explicitly frames it as standing ("from now on", "always").
+
+Same-turn corrections: when the user corrects something already stored ("I don't like X anymore", "stop using Y"), retire the stale entry and record the correction in THIS turn — (1) MemorySearch the stale entry, (2) re-save its exact title with lifecycle="deprecated" keeping the original content, (3) save the corrected fact under a new title. Don't defer to end-of-session reflect; deprecated entries stop being recalled.
 
 ` + body + "\n"
 }
@@ -131,10 +234,11 @@ Output EXACTLY ONE of:
 2. A single memory entry in this format:
 TITLE: <short unique name, kebab-case preferred>
 TYPE: <pattern|gotcha|decision|user|ref>
+DOMAIN: <decision|preference|environment|open_item|collaboration|other>
 ---
 <one or two sentences of the lesson itself, self-contained>
 
-Rules: only durable knowledge (a pitfall, a settled decision, a non-obvious pattern, a user preference, a useful reference). NOT task status, NOT conversation recap. If unsure, output NONE.`
+Rules: only durable knowledge (a pitfall, a settled decision, a non-obvious pattern, a user preference, a useful reference). NOT task status, NOT conversation recap. State vs preference: session-scoped state ("skip tests this once", "don't run lint today") is NOT a preference — never save it unless the user explicitly frames it as standing ("from now on", "always"); a durable preference must predict future sessions, not just record today's mood. Corrections already applied by the agent mid-session (stale entry deprecated, corrected entry saved) need no second entry — do not re-extract them. Pick the DOMAIN that matches the lesson: decision = settled project decision; preference = durable user preference; environment = the user's OS/shell/tooling habits; open_item = an in-progress matter worth revisiting; collaboration = how the user wants to work together; other = anything else. If unsure, output NONE.`
 
 // Reflect runs one extra model call at end-of-session to distill a durable
 // lesson from the transcript and persist it. Same-title entries update in
@@ -183,6 +287,13 @@ func parseReflectOutput(text string) (Entry, error) {
 		return e, fmt.Errorf("missing TYPE: line")
 	}
 	e.Type = strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(typeLine), "TYPE:"))
+	rest = strings.TrimSpace(rest)
+	// DOMAIN is optional: older outputs (and models that omit it) still parse,
+	// leaving the entry unclassified — the same "" legacy files carry.
+	if domLine, r2, ok2 := strings.Cut(rest, "\n"); ok2 && strings.HasPrefix(strings.TrimSpace(domLine), "DOMAIN:") {
+		e.Domain = strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(domLine), "DOMAIN:"))
+		rest = r2
+	}
 	_, body, ok := strings.Cut(strings.TrimSpace(rest), "---")
 	if !ok {
 		return e, fmt.Errorf("missing --- separator")

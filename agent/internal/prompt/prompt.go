@@ -112,7 +112,7 @@ func BuildSessionFor(cwd, taskHint string) string {
 	if err != nil {
 		slog.Warn("memory recall failed", "err", err)
 	}
-	return Build(cwd) + memory.Section(recall)
+	return Build(cwd) + ImpressionSection(cwd) + memory.Section(recall)
 }
 
 // BuildSessionCapped is BuildSession with explicit recall caps. Subagent
@@ -124,7 +124,7 @@ func BuildSessionCapped(cwd string, recallTopN, recallBytes int) string {
 	if err != nil {
 		slog.Warn("memory recall failed", "err", err)
 	}
-	return Build(cwd) + memory.Section(recall)
+	return Build(cwd) + ImpressionSection(cwd) + memory.Section(recall)
 }
 
 // LoadInject reads the host capability injection file for cwd:

@@ -154,3 +154,19 @@ func TestParseTaskValidation(t *testing.T) {
 		t.Errorf("marshal = %s", b)
 	}
 }
+
+// Windows checkouts (core.autocrlf) hand task files over with CRLF line
+// endings; parsing must not depend on the checkout's EOL convention.
+func TestParseTaskCRLF(t *testing.T) {
+	crlf := "---\r\nname: crlf-task\r\ndescription: windows checkout\r\n---\r\n## Task\r\nwrite out.txt = done\r\n## Checks\r\n- file-exists: out.txt\r\n"
+	task, err := parseTask(crlf)
+	if err != nil {
+		t.Fatalf("parseTask CRLF: %v", err)
+	}
+	if task.Name != "crlf-task" || !strings.Contains(task.Prompt, "write out.txt = done") {
+		t.Fatalf("task = %+v", task)
+	}
+	if len(task.Checks) != 1 || task.Checks[0].Kind != "file-exists" {
+		t.Fatalf("checks = %+v", task.Checks)
+	}
+}

@@ -15,6 +15,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/niuniu-dev/niuniu/agent/internal/tools"
 )
 
 // Caps keep the merged state bounded — an unbounded accumulator would
@@ -35,11 +37,18 @@ type CompactState struct {
 	DeadEnds     []string `json:"dead_ends,omitempty"`
 	FilesTouched []string `json:"files_touched,omitempty"`
 	OpenItems    []string `json:"open_items"`
-	Compactions  int      `json:"compactions"`
+	// Impression is the ≤200-character cross-session project impression the
+	// summarizer emits alongside the state (same LLM call — no extra cost).
+	// It is persisted to the per-project impression.md and injected into
+	// FUTURE sessions' system prompts; it is not rendered into the
+	// [auto-compacted] message (the current session already carries it in
+	// its prompt prefix). Carried across chained compactions newest-wins.
+	Impression  string `json:"impression,omitempty"`
+	Compactions int    `json:"compactions"`
 }
 
 // stateSchema is the JSON contract embedded in the summarizer system prompt.
-const stateSchema = `{"goal": "...", "constraints": ["..."], "key_decisions": ["..."], "dead_ends": ["approach tried and why it failed"], "files_touched": ["path"], "open_items": ["next step, in order"]}`
+const stateSchema = `{"goal": "...", "constraints": ["..."], "key_decisions": ["..."], "dead_ends": ["approach tried and why it failed"], "files_touched": ["path"], "open_items": ["next step, in order"], "impression": "技术栈: ...\n关键决策: ...\n用户脾气: ...\n当前阶段: ..."}`
 
 // parseStateJSON extracts the CompactState from a summarizer response,
 // tolerating markdown code fences. Requires key_decisions and open_items —
@@ -90,6 +99,19 @@ func mergeState(old, nw *CompactState) *CompactState {
 	} else if old != nil {
 		out.Goal = old.Goal
 	}
+	// Impression follows Goal's newest-wins rule, with the previous
+	// impression kept when the summarizer omits it (an update pass must not
+	// silently erase the file's content). The 200-rune cap is applied HERE,
+	// at the single merge point, so the chained "Previous state" block, the
+	// persisted session-state.json and the impression file all carry the
+	// same bytes — capping only the file would let the uncapped text ride
+	// the chain and diverge from what future sessions load.
+	if nw.Impression != "" {
+		out.Impression = nw.Impression
+	} else if old != nil {
+		out.Impression = old.Impression
+	}
+	out.Impression = tools.NormalizeImpression(out.Impression)
 	out.Constraints = cappedMerge(out.Constraints, nw.Constraints, maxConstraints)
 	out.KeyDecisions = cappedMerge(out.KeyDecisions, nw.KeyDecisions, maxKeyDecisions)
 	out.DeadEnds = cappedMerge(out.DeadEnds, nw.DeadEnds, maxDeadEnds)
