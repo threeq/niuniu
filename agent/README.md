@@ -33,7 +33,7 @@ niuniu 的自研编码 agent（issue #708 / #709）。可行性分析与总体�
 - ✅ P6 WebFetch/WebSearch：零依赖抓取 + HTML→文本（20KB 截断）；SSRF 硬防护（重定向逐跳公网校验，私网/环回全拒）；WebSearch 可配 provider（duckduckgo 无 key），未配置报指引
 - ✅ P6 子 agent 类型化：内置 explore/plan/worker/reviewer（工具白名单+角色前缀+模型档位），`.niuniu-agent/agents/*.md` 声明式自定义，Agent 工具 `subagent_type` 入参
 - ✅ P6 记忆 consolidate：同主题合并/老化清理/容量 LRU 三趟清理；MemoryConsolidate 工具 + `memory-consolidate` CLI 子命令
-- ✅ P6 eval 评估体系：`eval/tasks/*.md` 任务集（27 个脱敏任务，其中 21-27 为记忆行为语义用例：状态 vs 偏好（不改旧偏好 / 不落临时状态两侧）/ 当轮纠错（文件协议+行为同步）/ 过期停引 / 分域保存 / open_item 回访）、`niuniu-agent eval` runner（一次性沙箱 + 规则判定 contains/not-contains/file-exists/file-count/command-exit-0 等，沙箱 `.niuniu-agent/memory` fixtures 走真实召回注入路径）、JSON+markdown 报告与 baseline.json 对比
+- ✅ P6 eval 评估体系：`eval/tasks/*.md` 任务集（27 个脱敏任务，其中 21-27 为记忆行为语义用例：状态 vs 偏好（不改旧偏好 / 不落临时状态两侧）/ 当轮纠错（文件协议+行为同步）/ 过期停引 / 分域保存 / open_item 回访）、`niuniu-agent eval` runner（一次性沙箱 + 规则判定 contains/not-contains/file-exists/file-count/command-exit-0 等，沙箱 `.niuniu-agent/memory` fixtures 走真实召回注入路径，记忆工具绑定到各任务沙箱）、JSON+markdown 报告与 baseline.json 对比、JSON+markdown 报告与 baseline.json 对比
 - ✅ P7 RSI 探索式预热：explore 三角色（Curriculum 自生成练习任务 → Actor 沙箱执行（记忆冻结）→ Verifier 规则判定零模型调用），广-深两阶段可配，仅 verified pass 沉淀接地经验；方法借鉴 RSIAgent（Apache-2.0），见 ATTRIBUTION.md
 - ✅ P8a 适应度门控自进化：eval 公开/私有拆分（迭代用公开集、采纳看私有集零容差）、think-first 提案协议（缺段拒绝）、对抗复验（均值仍胜才加冕）、PROMPT.md 动态任务指引（32KB 上限、缺失跳过、安全边界成文）；方法融合 OpenRSI 思路，见 ATTRIBUTION.md
 - ✅ 差异化壁垒（路线图表述，长期保留）：P7/P8a 的 eval 门控自进化（公开/私有评估集、对抗复验、零容差采纳）是全部竞品都没有的独有壁垒——竞品迭代 agent 能力均靠人工迭代 prompt，无行为回归门控；niuniu-agent 的每一次能力/语义升级都沉淀为可回归的 eval 用例（如 P4 记忆升级 → 21-27 号用例），防后续迭代回退
@@ -259,6 +259,11 @@ always /「以后都这样」）；持久偏好必须能预测未来会话，而
 条目语义由 `internal/memory` 单测与 `eval/tasks/21`-`27` 号行为用例双重回归
 守护（用例经 eval runner 走真实召回注入路径）；印象层由 `internal/tools` /
 `internal/prompt` / `internal/loop` 的读写下 round-trip、容错与注入单测守护。
+
+评测密封：eval 只注入沙箱 fixture 层与启动目录的项目层（RSI 效果通道），
+**不解析 `~/.niuniu-agent/memory` 用户层**——个人记忆既不进沙箱提示词，同一
+任务也不再因开发者本机存量而分数不同；记忆工具（MemorySave/Search）按任务
+绑定到各自沙箱，读写都不会触及开发机真实存储。
 
 ## 布局
 
