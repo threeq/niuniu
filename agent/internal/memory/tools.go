@@ -107,10 +107,10 @@ func (t SearchTool) Def() model.ToolDef {
 		Name: "MemorySearch",
 		Description: "Search long-term memory by keywords (empty query lists everything). Returns entries with their ids, types, lifecycle, and contents, best matches first. " +
 			"Lifecycle: open = live context; done = completed/settled; cancelled = withdrawn; expired = past its expires_at; deprecated = superseded by a corrected entry. " +
-			"Closed entries are excluded from automatic recall but still searchable here — use that to find and update (or deprecate) stale memories.",
+			"Closed entries are excluded from automatic recall AND from default results here — pass the lifecycle filter explicitly to find and update (or deprecate) stale memories.",
 		InputSchema: json.RawMessage(`{"type":"object","properties":{` +
-			`"query":{"type":"string","description":"Keywords; empty lists all entries"},` +
-			`"lifecycle":{"type":"string","description":"Optional exact-match filter: open|done|cancelled|expired|deprecated"},` +
+			`"query":{"type":"string","description":"Keywords; empty lists all live entries"},` +
+			`"lifecycle":{"type":"string","description":"Optional exact-match filter: open|done|cancelled|expired|deprecated. Explicit filter overrides the default closed-entry exclusion."},` +
 			`"domain":{"type":"string","description":"Optional exact-match filter: decision|preference|environment|open_item|collaboration|other"}}}`),
 	}
 }
@@ -132,7 +132,14 @@ func (t SearchTool) Execute(_ context.Context, input json.RawMessage) (string, e
 	}
 	filtered := hits[:0:0]
 	for _, e := range hits {
-		if in.Lifecycle != "" && e.Lifecycle != in.Lifecycle {
+		// Default results skip closed lifecycles (mirrors the recall
+		// filter); an explicit lifecycle query overrides so stale memories
+		// stay findable for correction.
+		if in.Lifecycle != "" {
+			if e.Lifecycle != in.Lifecycle {
+				continue
+			}
+		} else if lifecycleClosed(e.Lifecycle) {
 			continue
 		}
 		if in.Domain != "" && e.Domain != in.Domain {
@@ -162,7 +169,11 @@ func (t SearchTool) Execute(_ context.Context, input json.RawMessage) (string, e
 
 // Section renders the recalled-memory system section; an empty body omits
 // the section entirely. Memory is positioned as ADVISORY context — it may
-// be stale, the model judges.
+// be stale, the model judges. The guidance paragraph is FIXED text (prompt
+// cache: it must stay byte-identical within a session, so no dates, ids or
+// per-recall content in it — see internal/prompt's stable-prefix rules);
+// the advisory phrasing rule lives here rather than in Build so every
+// recall-bearing entry path carries the same contract.
 func Section(body string) string {
 	if strings.TrimSpace(body) == "" {
 		return ""
@@ -170,7 +181,7 @@ func Section(body string) string {
 	return `
 # Memory
 
-Lessons recalled from previous sessions (best matches first). This is ADVISORY context: it may be outdated or wrong — verify against reality before relying on it. Search more with MemorySearch; persist durable lessons with MemorySave.
+Lessons recalled from previous sessions (best matches first). This is ADVISORY context: it may be outdated or wrong — verify against reality before relying on it. When acting on a recalled preference or decision, cite it as a question to confirm, not an assertion — e.g. 之前记录你偏好X，这次沿用吗？; if the user denies it, stop applying it for the rest of the session (and consider saving the correction with MemorySave). Lines tagged [open] or [open, due YYYY-MM-DD] are live follow-ups worth revisiting; past-due ones are filtered out before injection. Search more with MemorySearch; persist durable lessons with MemorySave.
 
 ` + body + "\n"
 }
