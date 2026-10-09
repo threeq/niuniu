@@ -93,7 +93,9 @@ type Options struct {
 	ContextEditing bool
 	// HistoryDir archives the messages each compaction removes (one JSON
 	// chunk per message) for the HistorySearch tool to retrieve on demand.
-	// Usually <cwd>/.niuniu-agent/history. Empty → no archive.
+	// Usually tools.HistoryDir(cwd) — the private state dir under
+	// ~/.niuniu-agent/projects/<escaped-cwd>/history, matching the dir the
+	// HistorySearch tool is registered with. Empty → no archive.
 	HistoryDir string
 	// CompactStatePath optionally persists the merged structured compaction
 	// state as JSON (usually <cwd>/.niuniu-agent/session-state.json) so exact
