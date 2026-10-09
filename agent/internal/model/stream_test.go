@@ -20,6 +20,9 @@ func TestAnthropicStreamSSE(t *testing.T) {
 		`event: content_block_delta`,
 		`data: {"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":"想一下"}}`,
 		``,
+		`event: content_block_delta`,
+		`data: {"type":"content_block_delta","index":0,"delta":{"type":"signature_delta","signature":"sig-stream-1"}}`,
+		``,
 		`event: content_block_stop`,
 		`data: {"type":"content_block_stop","index":0}`,
 		``,
@@ -71,7 +74,7 @@ func TestAnthropicStreamSSE(t *testing.T) {
 		t.Fatalf("Complete(stream): %v", err)
 	}
 
-	// 增量回调序：thinking → text×2。
+	// 增量回调序：thinking → text×2。signature_delta 不是模型输出，不得产生回调。
 	if len(deltas) != 3 ||
 		deltas[0].Kind != StreamThinking || deltas[0].Text != "想一下" ||
 		deltas[1].Kind != StreamText || deltas[1].Text != "你好" ||
@@ -89,6 +92,16 @@ func TestAnthropicStreamSSE(t *testing.T) {
 	tu := blocks[2]
 	if tu.Type != BlockToolUse || tu.ID != "tu_1" || tu.Name != "LS" || string(tu.Input) != `{"path":"."}` {
 		t.Fatalf("aggregated tool_use = %+v", tu)
+	}
+	// signature_delta 必须落在 thinking 块上：网关在回放工具循环历史时校验签名，
+	// 流式路径丢掉它会让整轮请求被拒（非流式路径从整块里读到，故只有流式受影响）。
+	if blocks[0].Signature != "sig-stream-1" {
+		t.Fatalf("streamed thinking lost its signature: %+v", blocks[0])
+	}
+	echoed := toAntMessages([]Message{resp.Message})
+	if len(echoed) != 1 || len(echoed[0].Content) != 3 ||
+		echoed[0].Content[0].Signature != "sig-stream-1" {
+		t.Fatalf("echoed history lost the signature: %+v", echoed)
 	}
 	if resp.StopReason != StopToolUse || resp.Usage.InputTokens != 12 || resp.Usage.OutputTokens != 34 {
 		t.Fatalf("resp meta = %+v", resp)

@@ -170,3 +170,126 @@ func TestParseTaskCRLF(t *testing.T) {
 		t.Fatalf("checks = %+v", task.Checks)
 	}
 }
+
+// writeMemoryEntry 在 dir 下写一条最小可召回的记忆条目（与任务 fixture 同格式）。
+func writeMemoryEntry(t *testing.T, dir, slug, content string) {
+	t.Helper()
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	body := "---\ntitle: " + slug + "\ntype: pattern\ndomain: decision\nlifecycle: open\n" +
+		"created: 2026-10-01T08:00:00Z\nupdated: 2026-10-01T08:00:00Z\n---\n" + content + "\n"
+	if err := os.WriteFile(filepath.Join(dir, slug+".md"), []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// 记忆语义任务必须能真正调用 MemorySave/MemorySearch，且两者绑定在各自任务的
+// 沙箱层：写进开发机真实记忆会污染用户数据，绑在共享 registry 上则会让后续任务
+// 读写上一个任务的沙箱。
+func TestSandboxToolsBindMemoryToTheSandbox(t *testing.T) {
+	base := tools.NewRegistry(tools.LS{}, tools.Read{}, tools.Write{})
+	sandbox := t.TempDir()
+	reg := sandboxTools(base, sandbox)
+
+	for _, name := range []string{"MemorySave", "MemorySearch"} {
+		if _, ok := reg.Lookup(name); !ok {
+			t.Fatalf("eval tool surface is missing %s", name)
+		}
+	}
+	if _, ok := base.Lookup("MemorySave"); ok {
+		t.Fatal("sandboxTools mutated the caller's shared registry")
+	}
+
+	save, _ := reg.Lookup("MemorySave")
+	if _, err := save.Execute(context.Background(), json.RawMessage(
+		`{"title":"americano-preference","type":"user","domain":"preference","content":"The user drinks americano now."}`)); err != nil {
+		t.Fatalf("MemorySave: %v", err)
+	}
+	path := filepath.Join(sandbox, ".niuniu-agent", "memory", "americano-preference.md")
+	if _, err := os.Stat(path); err != nil {
+		t.Fatalf("saved entry did not land in the sandbox: %v", err)
+	}
+	search, _ := reg.Lookup("MemorySearch")
+	out, err := search.Execute(context.Background(), json.RawMessage(`{"query":"americano"}`))
+	if err != nil {
+		t.Fatalf("MemorySearch: %v", err)
+	}
+	if !strings.Contains(out, "americano") {
+		t.Errorf("search did not read the sandbox entry back: %q", out)
+	}
+}
+
+// memoryToolModel 第一轮用 MemorySave 落库（任务 22 期望的当轮纠错动作），
+// 第二轮收尾——用来验证 RunTask 交给会话的工具面里真的有记忆工具。
+type memoryToolModel struct{ called bool }
+
+func (m *memoryToolModel) Complete(_ context.Context, _ model.Request) (*model.Response, error) {
+	if m.called {
+		return &model.Response{
+			Message:    model.Message{Role: model.RoleAssistant, Blocks: []model.Block{{Type: model.BlockText, Text: "done"}}},
+			StopReason: model.StopEndTurn,
+		}, nil
+	}
+	m.called = true
+	return &model.Response{
+		Message: model.Message{Role: model.RoleAssistant, Blocks: []model.Block{{
+			Type: model.BlockToolUse, ID: "tu_1", Name: "MemorySave",
+			Input: json.RawMessage(`{"title":"americano-preference","type":"user","domain":"preference","content":"The user drinks americano now."}`),
+		}}},
+		StopReason: model.StopToolUse,
+	}, nil
+}
+
+// 端到端：记忆任务只能通过 MemorySave 达成检查（fixture 文件由工具写入沙箱），
+// 工具面缺了它时该任务必失败——这正是「eval 注册表未含 MemorySave/Search」的后果。
+func TestRunTaskGivesMemoryTasksTheMemoryTools(t *testing.T) {
+	tasksDir := t.TempDir()
+	writeTask(t, tasksDir, "correction", `---
+name: correction
+description: same-turn correction through the memory tools
+---
+## Task
+record the corrected coffee preference
+## Checks
+- file-exists: .niuniu-agent/memory/americano-preference.md
+- contains: .niuniu-agent/memory/americano-preference.md, americano
+`)
+	tasks, err := LoadTasks(tasksDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(tasks) != 1 {
+		t.Fatalf("tasks = %+v", tasks)
+	}
+	reg := tools.NewRegistry(tools.LS{}, tools.Read{}, tools.Write{})
+	res := RunTask(context.Background(), &memoryToolModel{}, reg, tasks[0], time.Minute, "")
+	if !res.Pass {
+		t.Fatalf("task did not pass through MemorySave: %+v", res)
+	}
+}
+
+// eval 必须是密封的：开发机 ~/.niuniu-agent/memory 的个人记忆既不进提示词（隐私，
+// 且同一任务在两台机器上会得出不同分数），宿主侧只保留项目层（RSI 效果通道）。
+func TestRecallBodyExcludesHostUserLayer(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home) // Windows 的 os.UserHomeDir 读 USERPROFILE
+	writeMemoryEntry(t, filepath.Join(home, ".niuniu-agent", "memory"), "personal-note", "the developer's private note")
+
+	sandbox := t.TempDir()
+	writeMemoryEntry(t, filepath.Join(sandbox, ".niuniu-agent", "memory"), "sandbox-fixture", "task fixture text")
+	hostProject := t.TempDir()
+	writeMemoryEntry(t, hostProject, "rsi-lesson", "distilled lesson text")
+
+	body := recallBody(hostProject, sandbox)
+	if !strings.Contains(body, "task fixture text") {
+		t.Fatalf("sandbox fixture missing from recall: %q", body)
+	}
+	if !strings.Contains(body, "distilled lesson text") {
+		t.Fatalf("host project layer (RSI channel) missing from recall: %q", body)
+	}
+	if strings.Contains(body, "private note") {
+		t.Fatalf("host user layer leaked into the eval prompt: %q", body)
+	}
+}
