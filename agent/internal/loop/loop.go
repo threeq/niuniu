@@ -100,6 +100,11 @@ type Options struct {
 	// details survive on disk and the agent can Read them back after a
 	// compaction. Empty → state lives only in the context message.
 	CompactStatePath string
+	// ImpressionPath is the per-project cross-session impression file
+	// (usually tools.ImpressionPath(cwd)). Each compaction refreshes it from
+	// the SAME summarizer response — no extra model call. Empty → no
+	// impression maintenance.
+	ImpressionPath string
 	// KeepRecentMessages is how many trailing messages auto-compact keeps
 	// verbatim. 0 → DefaultKeepRecent.
 	KeepRecentMessages int
@@ -197,7 +202,7 @@ func (s *Session) PromptBlocks(ctx context.Context, userBlocks []model.Block, op
 			}
 			slog.Info("loop: auto-compact triggered", "turn", turn,
 				"ctxEstimate", ctxEstimate, "threshold", opts.CompactThresholdTokens)
-			s.compact(ctx, keep, opts.CompactStatePath, opts.HistoryDir)
+			s.compact(ctx, keep, opts.CompactStatePath, opts.ImpressionPath, opts.HistoryDir)
 			lastCtx = 0 // compacted; don't re-trigger on the same overshoot
 		}
 		req := model.Request{

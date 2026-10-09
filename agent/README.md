@@ -23,6 +23,7 @@ niuniu 的自研编码 agent（issue #708 / #709）。可行性分析与总体�
 - ✅ P3 subagent：`Agent` 工具起进程内子 Session（独立对话、复用模型与权限策略、子注册表无 Agent 工具→递归深度限 1）；sync 回填子最终文本 + `[subagent usage]` 行；单子 agent 超时上限（默认 10 分钟）
 - ✅ P4 原生记忆：`~/.niuniu-agent/memory` + `<cwd>/.niuniu-agent/memory` 双层 markdown 存储（title 去重、单条 8KB / 每层 200 条防污染）；`MemorySave`/`MemorySearch` 工具；启动评分召回 top-N 注入 system 的 Memory 段（ADVISORY 定位，字节上限）；`-reflect` 回合后可选反射提炼（同 title 去重，默认关）；纯 env+本地文件独立运行，不依赖 niuniu
 - ✅ P4 能力自动注入：agent 侧 session 启动加载 `<cwd>/.niuniu-agent/inject.md`（40KB 上限）进 system 的 Host capabilities 段；server 侧为 `cli_type=niuniu` 工作空间投影 inject.md（niuniu-mcp 四族工具说明 + AUTOHOST_DONE 收尾约定 + 看板纪律 + 记忆互通指引）并重生成含 niuniu-mcp 的 `.mcp.json`（与 claude 引擎同一生成器）；投影失败不阻断
+- ✅ P4 项目印象层：跨 session 印象文件 `~/.niuniu-agent/projects/<escaped-cwd>/impression.md`（技术栈/关键决策/用户脾气/当前阶段，≤200 字硬约束——写入侧与读取侧双重截断）；compact 时由同一次压缩摘要调用顺带刷新（summarizer 输出 JSON 增加 `impression` 字段，零额外 token），链式压缩沿用上一版防丢；新 session 启动注入 system 前缀末尾可变区（在 AGENTS.md 项目上下文与 Memory 召回段之间，条目级细节仍归 memory）；文件缺失/损坏（非法 UTF-8）/生成失败一律跳过不报错、不影响会话
 - ✅ P5 thinking 全链路：双 adapter 解析思考块（anthropic thinking+signature 原样回传 / openai reasoning_content）→ ACP `agent_thought_chunk` → 服务端 EventThinking 落库；`NIUNIU_AGENT_THINKING`（off|low|medium|high|<tokens>）预算/effort 透传；headless stderr `[thinking]` 行
 - ✅ P5 subagent 共享/隔离：cwd/system 继承钉住、ContextPreamble+context 叠加、background=true + AgentResult 轮询、同回合多 Agent 并行；窗口隔离（仅报告回填）、compact 继承、报告 16KB 截断、TodoWrite 等排除清单、召回减半
 - ✅ P5 长任务：后台 Bash（run_in_background + BashOutput 轮询）、session 持久化 `~/.niuniu-agent/projects/<escaped-cwd>/sessions/`（Claude-Code 式用户目录布局，不污染项目）+ `-resume <id|latest>`、compact 摘要三节结构化（Background/Key decisions/Open items）
@@ -147,13 +148,14 @@ references/hover/symbols 精准导航（按文件扩展名路由，server 进程
 
 ### 状态存储布局
 
-agent 私有状态（会话快照 / 压缩状态 / 压缩归档 / 任务清单）按 Claude-Code
-式布局存**用户主目录**，按项目路径转义分区，不写入项目目录：
+agent 私有状态（会话快照 / 压缩状态 / 压缩归档 / 任务清单 / 项目印象）按
+Claude-Code 式布局存**用户主目录**，按项目路径转义分区，不写入项目目录：
 
 ```
 ~/.niuniu-agent/projects/<escaped-cwd>/
 ├── sessions/<id>.json      # 会话快照（headless 与 ACP 每 turn 保存，-resume 恢复）
 ├── session-state.json      # 结构化压缩状态
+├── impression.md           # 跨 session 项目印象（≤200 字，compact 顺带刷新，启动注入）
 ├── history/                # 被 compact 移除的消息归档（HistorySearch 检索）
 └── todos.json              # 任务清单
 ```

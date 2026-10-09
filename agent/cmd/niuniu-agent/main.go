@@ -341,6 +341,7 @@ Configuration (env):
 			Perms:            perm.NewPolicy(*yes),
 			Stream:           streamOn,
 			CompactStatePath: tools.CompactStatePath(cwd),
+			ImpressionPath:   tools.ImpressionPath(cwd),
 			ContextEditing:   os.Getenv("NIUNIU_AGENT_CONTEXT_EDITING") == "1",
 			HistoryDir:       tools.HistoryDir(cwd),
 			OnEvent: func(e loop.Event) {

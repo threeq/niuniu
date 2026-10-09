@@ -329,6 +329,7 @@ func (s *Server) runPrompt(parent context.Context, st *sessionState, p sessionPr
 		OnEvent:          run.onEvent,
 		Perms:            run,
 		CompactStatePath: tools.CompactStatePath(st.cwd),
+		ImpressionPath:   tools.ImpressionPath(st.cwd),
 		ContextEditing:   os.Getenv("NIUNIU_AGENT_CONTEXT_EDITING") == "1",
 		HistoryDir:       tools.HistoryDir(st.cwd),
 		// SSE streaming: session/update chunks become incremental

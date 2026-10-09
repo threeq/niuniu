@@ -9,6 +9,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"strings"
 
 	"github.com/niuniu-dev/niuniu/agent/internal/model"
@@ -39,6 +40,7 @@ Field rules:
 - dead_ends: approaches that were tried and FAILED, each with the failure reason — the continuation must not retry them. Include every dead end visible in the history; this field prevents repeated failures.
 - files_touched: repository paths modified so far.
 - open_items: current task status and the concrete next steps, in order.
+- impression: a cross-session impression of this PROJECT for future sessions, at most 200 characters total, exactly four labeled lines — 技术栈 / 关键决策 / 用户脾气（协作风格与偏好）/ 当前阶段. Durable project-level facts and observed user preferences only, never transient task state. When a previous impression is provided in the final user message, carry it forward and update only what changed; never drop its still-accurate lines.
 
 Do not answer, do not comment — output the JSON only. If a previous state is provided in the final user message, PRESERVE its still-relevant key_decisions and files_touched (merged with what the recent history adds); only supersede what has changed.`
 
@@ -85,7 +87,7 @@ func compactCut(msgs []model.Message, keep int) int {
 // Options.CompactStatePath (the message carries a pointer so the agent can
 // Read exact details back). On parse failure the raw text is used as a plain
 // summary (legacy behavior).
-func (s *Session) compact(ctx context.Context, keep int, statePath, historyDir string) {
+func (s *Session) compact(ctx context.Context, keep int, statePath, impressionPath, historyDir string) {
 	cut := compactCut(s.messages, keep)
 	if cut <= 0 {
 		return
@@ -103,6 +105,11 @@ func (s *Session) compact(ctx context.Context, keep int, statePath, historyDir s
 		if perr := persistState(statePath, merged); perr == nil && statePath != "" {
 			body += "\n\nFull structured state persisted to " + statePath +
 				" — Read it for exact details (decisions, files, next steps)."
+		}
+		// Impression refresh rides the same summarizer response (no extra
+		// LLM call). Best-effort: a failed write never blocks the turn.
+		if werr := tools.WriteImpression(impressionPath, merged.Impression); werr != nil {
+			slog.Warn("loop: impression write failed", "err", werr)
 		}
 	}
 	// Archive the evicted messages verbatim so the HistorySearch tool can
