@@ -195,6 +195,9 @@ func (s *Store) Save(e Entry) (string, error) {
 
 // Search returns entries matching the keyword query (empty query = all),
 // ranked: keyword score desc, then updated desc, then project layer first.
+// Search itself does NOT filter lifecycle — callers decide (the recall
+// paths and the MemorySearch tool filter; the Save tool relies on Search
+// finding closed entries for its update-in-place check).
 func (s *Store) Search(query string) ([]Entry, error) {
 	all := s.loadAll()
 	if strings.TrimSpace(query) == "" {
@@ -213,25 +216,15 @@ func (s *Store) Search(query string) ([]Entry, error) {
 }
 
 // Recall renders the top-N entries as a system-prompt section body, within
-// maxBytes. Empty store → empty string (the section is omitted).
+// maxBytes. Empty store → empty string (the section is omitted). Closed
+// lifecycles are filtered and domains are routed (see routeRecallDomains).
 func (s *Store) Recall(topN, maxBytes int) (string, error) {
-	all := s.loadAll()
+	all := recallable(s.loadAll())
 	if len(all) == 0 {
 		return "", nil
 	}
 	sortEntries(all, nil)
-	if topN > 0 && len(all) > topN {
-		all = all[:topN]
-	}
-	var b strings.Builder
-	for _, e := range all {
-		line := "- [" + e.Type + "] " + e.Title + ": " + e.Content + "\n"
-		if b.Len()+len(line) > maxBytes {
-			break
-		}
-		b.WriteString(line)
-	}
-	return strings.TrimRight(b.String(), "\n"), nil
+	return renderRecall(routeRecallDomains(all), topN, maxBytes), nil
 }
 
 // RecallFor is the task-aware tiered recall: entries are ranked by
@@ -240,9 +233,11 @@ func (s *Store) Recall(topN, maxBytes int) (string, error) {
 // ones. Use this when the current task is known (eval tasks, subagent
 // hints, explore's deep phase) so only task-relevant experience is
 // injected — recall stays small instead of dumping every stored lesson.
-// With a no-hit hint it degrades to plain recency.
+// With a no-hit hint it degrades to plain recency. Like Recall, it drops
+// closed lifecycles and applies domain routing (relevance orders WITHIN a
+// domain tier; the tier order itself is domain-first).
 func (s *Store) RecallFor(taskHint string, topN, maxBytes int) (string, error) {
-	all := s.loadAll()
+	all := recallable(s.loadAll())
 	if len(all) == 0 {
 		return "", nil
 	}
@@ -257,18 +252,119 @@ func (s *Store) RecallFor(taskHint string, topN, maxBytes int) (string, error) {
 		}
 		return all[i].Updated.After(all[j].Updated)
 	})
-	if topN > 0 && len(all) > topN {
-		all = all[:topN]
+	return renderRecall(routeRecallDomains(all), topN, maxBytes), nil
+}
+
+// effectiveLifecycle folds the lazy expiry rule into an entry's lifecycle:
+// an open entry past its ExpiresAt reads as expired everywhere downstream
+// (recall filter, search display, annotations). "明天面试" therefore stops
+// being injected the day after, without any background job. The judgment is
+// read-path only and never rewrites the file: mutating disk during recall
+// would give reads a write side effect (racy across concurrent sessions);
+// the on-disk state catches up whenever the entry is next saved explicitly.
+func effectiveLifecycle(e Entry, now time.Time) string {
+	if e.Lifecycle == LifecycleOpen && !e.ExpiresAt.IsZero() && now.After(e.ExpiresAt) {
+		return LifecycleExpired
+	}
+	return e.Lifecycle
+}
+
+// lifecycleClosed reports whether a lifecycle is one of the closed states
+// that stop being recalled. Unknown lifecycle values are deliberately NOT
+// closed — the taxonomy is advisory and forward-compatible (a future
+// "archived" state won't silently vanish from recall until it's taught).
+func lifecycleClosed(lc string) bool {
+	switch lc {
+	case LifecycleDone, LifecycleCancelled, LifecycleExpired, LifecycleDeprecated:
+		return true
+	}
+	return false
+}
+
+// recallable drops closed-lifecycle entries; applied at every recall entry
+// point (Recall / RecallFor). MemorySearch keeps its own tool-level filter
+// so an explicit lifecycle query can still find closed entries.
+func recallable(all []Entry) []Entry {
+	out := all[:0]
+	for _, e := range all {
+		if lifecycleClosed(e.Lifecycle) {
+			continue
+		}
+		out = append(out, e)
+	}
+	return out
+}
+
+// MaxLowPriorityRecallSlots caps how many low-priority-domain entries a
+// single recall may inject WHEN at least one signal-domain entry exists.
+//
+// Domain routing trade-off (deliberately minimal): signal domains
+// (decision/preference/open_item/collaboration + unknown domains — don't
+// hide what we don't understand) rank above noise domains
+// (environment/other/"" — "" is unclassified, which the Domain* constants
+// already define as "treated like other"), and noise is capped at one slot
+// so it can still surface but never crowd a window that is only 2–5 lines.
+// When NO signal entry exists the cap lifts: an all-legacy store (pre-domain
+// files are all "") would otherwise recall almost nothing. Type is not a
+// routing axis — pattern/gotcha carry no noise/signal split. No background
+// task, no config knob: pure ordering + quota over the loaded entries.
+func routeRecallDomains(entries []Entry) []Entry {
+	var high, low []Entry
+	for _, e := range entries {
+		if lowRecallDomain(e.Domain) {
+			low = append(low, e)
+		} else {
+			high = append(high, e)
+		}
+	}
+	if len(high) == 0 {
+		return entries
+	}
+	if len(low) > MaxLowPriorityRecallSlots {
+		low = low[:MaxLowPriorityRecallSlots]
+	}
+	return append(high, low...)
+}
+
+const MaxLowPriorityRecallSlots = 1
+
+func lowRecallDomain(d string) bool {
+	switch d {
+	case DomainEnvironment, DomainOther, "":
+		return true
+	}
+	return false
+}
+
+// renderRecall truncates to topN, then renders lines within maxBytes. Live
+// open items carry a status annotation so the model sees a revisit signal
+// (e.g. "[open, due 2026-10-20]"); closed/past-due entries never get here.
+func renderRecall(entries []Entry, topN, maxBytes int) string {
+	if topN > 0 && len(entries) > topN {
+		entries = entries[:topN]
 	}
 	var b strings.Builder
-	for _, e := range all {
-		line := "- [" + e.Type + "] " + e.Title + ": " + e.Content + "\n"
+	for _, e := range entries {
+		line := "- [" + e.Type + "] " + e.Title + ": " + e.Content + recallAnnotation(e) + "\n"
 		if b.Len()+len(line) > maxBytes {
 			break
 		}
 		b.WriteString(line)
 	}
-	return strings.TrimRight(b.String(), "\n"), nil
+	return strings.TrimRight(b.String(), "\n")
+}
+
+func recallAnnotation(e Entry) string {
+	if e.Lifecycle != LifecycleOpen {
+		return ""
+	}
+	if e.Domain != DomainOpenItem && e.ExpiresAt.IsZero() {
+		return ""
+	}
+	if e.ExpiresAt.IsZero() {
+		return " [open]"
+	}
+	return " [open, due " + e.ExpiresAt.Format("2006-01-02") + "]"
 }
 
 // loadAll reads project layer first, then user layer; a project entry
@@ -298,6 +394,7 @@ func (s *Store) loadAll() []Entry {
 				continue // project shadows user
 			}
 			seen[e.ID] = true
+			e.Lifecycle = effectiveLifecycle(e, time.Now())
 			out = append(out, e)
 		}
 	}
