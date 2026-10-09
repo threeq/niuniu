@@ -178,7 +178,7 @@ inject.md、.mcp.json、skills/、PROMPT.md、memory/（项目层）。
 | `domain` | 生活域（与 type 正交，旧数据无此字段 = 未分类）：`decision`（已定项目决策）/ `preference`（长期偏好）/ `environment`（环境习惯）/ `open_item`（进行中事项）/ `collaboration`（协作方式）/ `other` |
 | `tags` | 逗号分隔的召回关键词 |
 | `lifecycle` | 生命周期（见下）；缺省读为 `open` |
-| `expires_at` | 可选截止时间（RFC3339）；已过即在读取路径判定为 expired |
+| `expires_at` | 可选截止时间：RFC3339（`2026-10-20T09:00:00Z`）或 date-only（`2026-10-20`，覆盖该本地日全天）；已过即在读取路径判定为 expired；Save 传 `"none"` 显式清除 |
 | `created` / `updated` | 时间戳；更新保留 created、刷新 updated |
 
 ### 生命周期流转
@@ -186,12 +186,20 @@ inject.md、.mcp.json、skills/、PROMPT.md、memory/（项目层）。
 - 新条目默认 `open`；closed 状态（`done` 完成 / `cancelled` 撤回 / `expired` 过期
   / `deprecated` 被纠正取代）**保留在盘但停止召回**——Recall / RecallFor 与
   MemorySearch 默认结果均过滤；MemorySearch 显式传 lifecycle 过滤仍可查回
-  （供纠错定位旧条目）。
+  （供纠错定位旧条目），显式过滤匹配**磁盘原始值**，因此已过期的 open 条目用
+  `lifecycle: "open"` 可找回续期（默认结果里它按生效状态被隐藏）。
 - **惰性过期**：`lifecycle: open` 且 `expires_at` 已过的条目，在读取/召回路径
   判定为 expired 并停止注入（「明天面试」过期后自动停引，无后台任务）。判定
-  只读不写盘——不引入召回期写副作用，盘上状态在该条目下次被显式保存时才跟进。
-- **更新保留语义**：Save 未显式指定 lifecycle / expires_at 时保留旧值——内容
-  编辑不会悄悄重开 done/deprecated 条目；变更状态必须显式传 lifecycle。
+  只在消费点折叠、绝不改写字段——consolidate 重写幸存条目时盘上仍是原文，
+  不会把 expired 盖章泄漏到文件；重排截止时间或显式 `open` 重开即恢复召回
+  （重开会顺带清除已过期的死截止时间）。
+- **更新保留语义**：Save 未显式指定 type / domain / tags / lifecycle / expires_at
+  时一律保留旧值——内容编辑不会悄悄重开 done/deprecated 条目，也不会把条目
+  重分类或清掉 domain（纠错协议只带 title/content/lifecycle 的部分重存因此
+  安全）；显式传入即覆盖，`expires_at: "none"` 单独清除截止时间。
+- **consolidate 安全**：同主题合并只发生在**生效 open** 的条目之间，分组键含
+  domain——closed 条目是历史记录，既不参与合并也不被吸收（被 deprecated 的
+  纠错内容不会被"复活"进活跃条目）；删除失败（文件被占用）不计入报告数。
 
 ### 纠错协议（当轮完成，不拖到 reflect）
 
@@ -215,25 +223,33 @@ always /「以后都这样」）；持久偏好必须能预测未来会话，而
 - **文件**：`~/.niuniu-agent/projects/<escaped-cwd>/impression.md`（与
   session-state.json 等同级，见「状态存储布局」）；内容为四行结构化摘要——
   技术栈 / 关键决策 / 用户脾气（协作风格与偏好）/ 当前阶段。
-- **硬约束**：≤200 字（rune），写入侧与读取侧双重截断——compact 的超长输出
-  被截断，手工编辑的超大文件也不会挤占 system。
+- **硬约束**：≤200 字（rune），写入侧与读取侧双重截断；截断按**整行边界**进行
+  ——四行结构里放不下的行整行舍弃，绝不把半截标签行注入未来所有会话（仅单行
+  自身超限才硬切）。上限在 mergeState（唯一合并点）施加，链式 Previous state、
+  session-state.json 与印象文件三处字节一致。
 - **刷新**：随 compact 的**同一次**摘要调用顺带产出（summarizer 输出 JSON 增加
-  `impression` 字段，零额外 token 成本）；链式压缩时把上一版传给模型沿用，
-  新输出缺该字段/为空时保留旧文件，不会被静默清空。
+  `impression` 字段，零额外 token 成本）；链式压缩把上一版传给模型沿用，新输出
+  缺该字段/为空时保留旧文件。跨进程同理：新 session 首次 compact 从磁盘读回
+  既有印象喂给 summarizer（进程内 state 不跨 session），旧印象不会被本会话的
+  一次性猜测覆盖；内容未变时跳过重写。
 - **注入**：session 启动时注入 system 前缀末尾可变区（稳定段之后、Memory 召回
   段之前）；session 内字节稳定，不破坏 prompt 缓存。
 - **容错**：文件缺失 / 损坏（非法 UTF-8）/ 写入失败一律跳过——不报错、不影响
-  会话；条目级细节仍归 memory 存储，印象只是氛围（可能过时，ADVISORY 同契约）。
+  会话；写入为原子替换（唯一临时文件 + rename），并发 session 不会读到半截
+  文件，也不留临时残渣；条目级细节仍归 memory 存储，印象只是氛围（可能过时，
+  ADVISORY 同契约）。
 
 ### 召回注入（Memory 段）
 
 - 启动按评分（关键词命中 title×3 / tags×2 / content×1、updated recency、项目层
   优先）取 top-N 注入 system 的 Memory 段，字节封顶；已知任务时走 `RecallFor`
   按任务相关性分层（相关优先，无关条目保持 recency 沉底）。
-- **分域路由**：`decision` / `preference` / `open_item` / `collaboration` 为信号域
-  优先注入（未识别的新域值也按信号域处理——不埋没看不懂的语义）；`environment`
-  / `other` / 未分类（空 domain）降权且限流 1 条（无信号域条目时不限流，存量
-  纯旧库不塌缩）。Type 不是路由轴。
+- **分域路由**：`decision` / `preference` / `open_item` / `collaboration` 为信号域；
+  未分类（空 domain——全部存量旧数据）与未识别新域值同等对待、不降权（既不
+  埋没看不懂的语义，也不因一条带域新条目就饿死旧库）。仅 `environment` /
+  `other` 两个显式噪声域限流 1 条，且限流**原位**生效——超出的条目就地跳过，
+  不会把与任务最相关的 environment 命中挤到队尾而被 top-N 截断；无信号域条目
+  时限流不生效。Type 不是路由轴。
 - **状态标注**：未过期 `open_item`（或带 expires_at 的条目）注入时带
   `[open]` / `[open, due YYYY-MM-DD]` 回访提示；closed 与已过期条目不进注入。
 - **ADVISORY 契约**：记忆可能过期或错误——引用偏好/决策须用确认句式（「之前

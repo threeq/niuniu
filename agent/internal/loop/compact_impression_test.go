@@ -96,6 +96,58 @@ func TestCompactImpressionCappedAt200Runes(t *testing.T) {
 	}
 }
 
+// 跨 session 承接：磁盘已有印象 + 全新 session（s.state 为空，SessionState
+// 不持久化 state）的首次 compact——旧印象必须被喂给 summarizer 并在其省略
+// impression 字段时原样保留，而不是被本会话的一次性猜测覆盖。
+func TestFirstCompactSeedsImpressionFromDisk(t *testing.T) {
+	existing := "技术栈: Rust\n关键决策: 侧车内嵌\n用户脾气: 简洁\n当前阶段: 联调"
+	stateJSON := `{"goal":"g","key_decisions":["k"],"open_items":["o"]}` // 未输出 impression
+	fm := &fakeModel{script: []*model.Response{
+		usageResp([]model.Block{{Type: model.BlockText, Text: "a1"}}, model.StopEndTurn, 100),
+		usageResp([]model.Block{{Type: model.BlockToolUse, ID: "t1", Name: "Echo", Input: json.RawMessage(`{}`)}}, model.StopToolUse, 500_000),
+		usageResp([]model.Block{{Type: model.BlockText, Text: stateJSON}}, model.StopEndTurn, 50),
+		usageResp([]model.Block{{Type: model.BlockText, Text: "a2"}}, model.StopEndTurn, 100),
+	}}
+	reg := tools.NewRegistry(&stubTool{})
+	s := NewSession(fm, reg, "sys") // 全新 session：s.state == nil
+	dir := t.TempDir()
+	imp := filepath.Join(dir, "impression.md")
+	if err := tools.WriteImpression(imp, existing); err != nil {
+		t.Fatal(err)
+	}
+	opts := Options{CompactThresholdTokens: 100_000, KeepRecentMessages: 2, ImpressionPath: imp}
+	// q1 单轮；q2 的工具轮（usage 500k）越过压缩阈值 → 触发本 session 的首次
+	// compact（summarize 即第 3 个请求）。
+	if _, err := s.Prompt(context.Background(), "q1", opts); err != nil {
+		t.Fatalf("prompt1: %v", err)
+	}
+	if _, err := s.Prompt(context.Background(), "q2", opts); err != nil {
+		t.Fatalf("prompt2: %v", err)
+	}
+
+	// summarizer 收到了磁盘上的旧印象（种子进入 Previous state 指令）。
+	req := fm.reqs[2]
+	instr := req.Messages[len(req.Messages)-1].Blocks[0].Text
+	if !strings.Contains(instr, "Previous state") || !strings.Contains(instr, "技术栈") {
+		t.Errorf("summarizer did not receive the on-disk impression seed:\n%s", instr)
+	}
+	// 磁盘印象原样保留（summarizer 未输出 impression → 沿用种子）。
+	got, ok := tools.LoadImpression(imp)
+	if !ok || got != existing {
+		t.Errorf("cross-session impression overwritten on first compact: %q,%v", got, ok)
+	}
+}
+
+// mergeState 是印象上限的唯一施加点：链式 "Previous state"、session-state.json
+// 与印象文件三处必须字节一致，不能出现"文件截断、链上未截断"的双视图。
+func TestMergeStateCapsImpression(t *testing.T) {
+	big := strings.Repeat("印", tools.MaxImpressionRunes+50)
+	out := mergeState(nil, &CompactState{Impression: big})
+	if n := len([]rune(out.Impression)); n > tools.MaxImpressionRunes {
+		t.Errorf("merged impression = %d runes, want capped at %d", n, tools.MaxImpressionRunes)
+	}
+}
+
 // 连锁压缩：第二次 summarizer 未输出 impression 字段 → 沿用上一版印象，
 // 文件不被清空（更新不能静默丢内容）。
 func TestCompactChainedImpressionCarriedForward(t *testing.T) {

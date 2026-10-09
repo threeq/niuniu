@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 // recallBody must surface sandbox memory fixtures on the real injection
@@ -12,7 +13,7 @@ import (
 // eval tasks (过期停引 / open_item 回访) judge exactly that behavior.
 func TestRecallBodySandboxFixtures(t *testing.T) {
 	task := Task{Fixtures: map[string]string{
-		".niuniu-agent/memory/live-item.md": "---\ntitle: live-item\ntype: user\ndomain: open_item\nlifecycle: open\nexpires_at: 2099-12-31T00:00:00Z\ncreated: 2026-09-20T09:00:00Z\nupdated: 2026-09-20T09:00:00Z\n---\n答应帮朋友把 CLI 工具的 README 翻译成英文。",
+		".niuniu-agent/memory/live-item.md":  "---\ntitle: live-item\ntype: user\ndomain: open_item\nlifecycle: open\nexpires_at: 2099-12-31T00:00:00Z\ncreated: 2026-09-20T09:00:00Z\nupdated: 2026-09-20T09:00:00Z\n---\n答应帮朋友把 CLI 工具的 README 翻译成英文。",
 		".niuniu-agent/memory/stale-item.md": "---\ntitle: stale-item\ntype: user\ndomain: open_item\nlifecycle: open\nexpires_at: 2026-01-05T10:00:00Z\ncreated: 2026-01-01T09:00:00Z\nupdated: 2026-01-01T09:00:00Z\n---\n用户约了钢琴调音师上门。",
 	}}
 	dir, err := task.PrepareSandbox()
@@ -25,8 +26,11 @@ func TestRecallBodySandboxFixtures(t *testing.T) {
 	if !strings.Contains(body, "live-item") {
 		t.Errorf("live open_item fixture missing from recall body:\n%s", body)
 	}
-	if !strings.Contains(body, "[open, due 2099-12-31]") {
-		t.Errorf("live open_item fixture should carry a due annotation:\n%s", body)
+	// due 标注按本地日历日渲染（同一 UTC 瞬时在 UTC+8 是 12-31、在 UTC-5
+	// 是 12-30）：期望值按运行机时区计算，不写死 UTC 日期。
+	due := time.Date(2099, 12, 31, 0, 0, 0, 0, time.UTC).Local().Format("2006-01-02")
+	if !strings.Contains(body, "[open, due "+due+"]") {
+		t.Errorf("live open_item fixture should carry a due annotation (due %s):\n%s", due, body)
 	}
 	if strings.Contains(body, "stale-item") || strings.Contains(body, "调音") {
 		t.Errorf("expired fixture must be filtered from recall (lazy expiry):\n%s", body)
@@ -59,6 +63,7 @@ func TestRunChecksFileCount(t *testing.T) {
 		{Kind: "file-count", File: ".niuniu-agent/memory", Value: "1"},
 		{Kind: "file-count", File: ".niuniu-agent/memory", Value: "2"},
 		{Kind: "file-count", File: ".niuniu-agent/missing", Value: "0"},
+		{Kind: "file-count", File: ".niuniu-agent/missing", Value: "1"},
 	}}
 	res := RunChecks(task, dir, "")
 	if !res[0].Pass {
@@ -67,8 +72,11 @@ func TestRunChecksFileCount(t *testing.T) {
 	if res[1].Pass || !strings.Contains(res[1].Detail, "holds 1 files, want 2") {
 		t.Errorf("count 2 should fail with detail: %+v", res[1])
 	}
-	if res[2].Pass {
-		t.Errorf("missing dir must not pass a zero-count check: %+v", res[2])
+	if !res[2].Pass {
+		t.Errorf("missing dir with want=0 must pass (zero files = nothing written): %+v", res[2])
+	}
+	if res[3].Pass {
+		t.Errorf("missing dir with want=1 must fail: %+v", res[3])
 	}
 
 	// 解析：file-count 走「dir, N」双参数形式。

@@ -92,6 +92,17 @@ func (s *Session) compact(ctx context.Context, keep int, statePath, impressionPa
 	if cut <= 0 {
 		return
 	}
+	// Seed the chain from the on-disk impression. s.state is process-local
+	// (SessionState persists only system+messages), so without this seed a
+	// fresh or resumed session's FIRST compaction would hand the summarizer
+	// no previous impression — and mergeState would take its session-local
+	// guess, overwriting the cross-session impression file. With the seed
+	// the stored impression rides into the summarizer and is carried forward.
+	if s.state == nil {
+		if imp, ok := tools.LoadImpression(impressionPath); ok {
+			s.state = &CompactState{Impression: imp}
+		}
+	}
 	early := s.messages[:cut]
 	summary, err := s.summarize(ctx, early)
 	if err != nil {
@@ -107,9 +118,15 @@ func (s *Session) compact(ctx context.Context, keep int, statePath, impressionPa
 				" — Read it for exact details (decisions, files, next steps)."
 		}
 		// Impression refresh rides the same summarizer response (no extra
-		// LLM call). Best-effort: a failed write never blocks the turn.
-		if werr := tools.WriteImpression(impressionPath, merged.Impression); werr != nil {
-			slog.Warn("loop: impression write failed", "err", werr)
+		// LLM call). Best-effort: a failed write never blocks the turn, and
+		// an unchanged impression skips the rewrite entirely. An empty
+		// impressionPath (subagent/eval/RSI sessions) is a no-op by contract.
+		if merged.Impression != "" {
+			if cur, ok := tools.LoadImpression(impressionPath); !ok || cur != merged.Impression {
+				if werr := tools.WriteImpression(impressionPath, merged.Impression); werr != nil {
+					slog.Warn("loop: impression write failed", "err", werr)
+				}
+			}
 		}
 	}
 	// Archive the evicted messages verbatim so the HistorySearch tool can

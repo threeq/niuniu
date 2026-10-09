@@ -76,13 +76,18 @@ func TestLazyExpiryOnRead(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// 读取路径：过期条目 lifecycle 按 expired 呈现。
+	// 读取路径：条目原样呈现磁盘状态（stored lifecycle=open）——惰性过期
+	// 判定只在消费点折叠，绝不回写字段本身（否则 consolidate 重写幸存
+	// 条目时会把 expired 盖章泄漏到磁盘）。
 	hits, err := s.Search("面试")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(hits) != 1 || hits[0].Lifecycle != LifecycleExpired {
-		t.Fatalf("expired-by-time entry reads as %+v, want lifecycle=expired", hits)
+	if len(hits) != 1 || hits[0].Lifecycle != LifecycleOpen {
+		t.Fatalf("expired-by-time entry reads as %+v, want stored lifecycle=open", hits)
+	}
+	if got := effectiveLifecycle(hits[0], time.Now()); got != LifecycleExpired {
+		t.Fatalf("effective lifecycle = %q, want %q", got, LifecycleExpired)
 	}
 
 	// 召回路径：过期条目停注入，未到期条目保留。

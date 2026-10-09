@@ -85,6 +85,10 @@ type Entry struct {
 	// counts as expired even while still lifecycle=open.
 	Lifecycle string
 	ExpiresAt time.Time
+	// ClearExpires is a Save-only directive, never persisted: on an update it
+	// drops any inherited deadline instead of preserving it (the SaveTool maps
+	// expires_at:"none" here). Ignored when ExpiresAt carries a new value.
+	ClearExpires bool
 
 	Created time.Time
 	Updated time.Time
@@ -150,7 +154,9 @@ func NewStore(cwd string) *Store {
 // updated in place — created is preserved, updated is refreshed. Returns
 // the entry id.
 func (s *Store) Save(e Entry) (string, error) {
-	e.Title = strings.TrimSpace(e.Title)
+	// Titles live in frontmatter: strip line breaks so a title can never
+	// inject extra frontmatter keys (e.g. a second expires_at) into the file.
+	e.Title = strings.TrimSpace(strings.NewReplacer("\r", " ", "\n", " ").Replace(e.Title))
 	if e.Title == "" {
 		return "", fmt.Errorf("memory: title is required")
 	}
@@ -158,27 +164,53 @@ func (s *Store) Save(e Entry) (string, error) {
 	if id == "" {
 		return "", fmt.Errorf("memory: title %q has no usable characters", e.Title)
 	}
-	if e.Type == "" {
-		e.Type = TypePattern
-	}
 	e.ID = id
 	e.Layer = "project"
 
 	path := filepath.Join(s.projectDir, id+".md")
 	if _, err := os.Stat(path); err == nil {
-		// Update: preserve the original created timestamp. An absent
-		// lifecycle/expires_at keeps the previous values — a content edit
-		// must not silently reopen done/deprecated entries; pass an explicit
-		// lifecycle to change state.
+		// Update: preserve the original created timestamp and every field the
+		// caller omitted (type/domain/tags/lifecycle/expires_at). A partial
+		// re-save — e.g. the same-turn correction's deprecate call, which
+		// sends only title/content/lifecycle — must not silently reclassify
+		// the entry or erase its domain; explicit values always win. An
+		// absent lifecycle/expires_at keeps the previous state (a content
+		// edit must not silently reopen done/deprecated entries).
 		if prev, perr := readEntry(path, "project"); perr == nil {
+			explicitLifecycle := e.Lifecycle != ""
+			explicitDeadline := !e.ExpiresAt.IsZero()
 			e.Created = prev.Created
-			if e.Lifecycle == "" {
+			if e.Type == "" {
+				e.Type = prev.Type
+			}
+			if e.Domain == "" {
+				e.Domain = prev.Domain
+			}
+			if len(e.Tags) == 0 {
+				e.Tags = prev.Tags
+			}
+			if !explicitLifecycle {
 				e.Lifecycle = prev.Lifecycle
 			}
-			if e.ExpiresAt.IsZero() {
-				e.ExpiresAt = prev.ExpiresAt
+			if !explicitDeadline {
+				if e.ClearExpires {
+					e.ExpiresAt = time.Time{}
+				} else {
+					e.ExpiresAt = prev.ExpiresAt
+				}
+			}
+			// Reopen: an explicit open on an entry whose deadline has passed
+			// clears that dead deadline — otherwise the lazy-expiry fold
+			// would re-close it on the next read and "reopen" would silently
+			// no-op while the tool still claims "will be recalled".
+			if explicitLifecycle && e.Lifecycle == LifecycleOpen && !explicitDeadline &&
+				!e.ExpiresAt.IsZero() && time.Now().After(e.ExpiresAt) {
+				e.ExpiresAt = time.Time{}
 			}
 		}
+	}
+	if e.Type == "" {
+		e.Type = TypePattern
 	}
 	if e.Created.IsZero() {
 		e.Created = time.Now()
@@ -295,13 +327,15 @@ func lifecycleClosed(lc string) bool {
 	return false
 }
 
-// recallable drops closed-lifecycle entries; applied at every recall entry
+// recallable drops entries whose EFFECTIVE lifecycle is closed (the stored
+// lifecycle folded with the lazy-expiry rule); applied at every recall entry
 // point (Recall / RecallFor). MemorySearch keeps its own tool-level filter
 // so an explicit lifecycle query can still find closed entries.
 func recallable(all []Entry) []Entry {
+	now := time.Now()
 	out := all[:0]
 	for _, e := range all {
-		if lifecycleClosed(e.Lifecycle) {
+		if lifecycleClosed(effectiveLifecycle(e, now)) {
 			continue
 		}
 		out = append(out, e)
@@ -312,39 +346,49 @@ func recallable(all []Entry) []Entry {
 // MaxLowPriorityRecallSlots caps how many low-priority-domain entries a
 // single recall may inject WHEN at least one signal-domain entry exists.
 //
-// Domain routing trade-off (deliberately minimal): signal domains
-// (decision/preference/open_item/collaboration + unknown domains — don't
-// hide what we don't understand) rank above noise domains
-// (environment/other/"" — "" is unclassified, which the Domain* constants
-// already define as "treated like other"), and noise is capped at one slot
-// so it can still surface but never crowd a window that is only 2–5 lines.
-// When NO signal entry exists the cap lifts: an all-legacy store (pre-domain
-// files are all "") would otherwise recall almost nothing. Type is not a
-// routing axis — pattern/gotcha carry no noise/signal split. No background
-// task, no config knob: pure ordering + quota over the loaded entries.
+// Domain routing trade-off (deliberately minimal): unclassified entries ("")
+// are NOT noise — every pre-domain legacy file is "", and penalizing them
+// would starve an existing store the moment its first domain-tagged entry
+// appears. Only the explicit noise domains (environment/other) are capped at
+// one slot so they can still surface but never crowd a window of 2–5 lines.
+// The cap is applied IN PLACE: a surplus noise entry is skipped where it
+// sits, never displaced behind the signal entries — otherwise a
+// best-relevance environment lesson would be pushed past the topN cut and
+// silently dropped. When no signal entry exists the cap lifts entirely.
+// Type is not a routing axis — pattern/gotcha carry no noise/signal split.
+// No background task, no config knob: pure ordering + quota.
 func routeRecallDomains(entries []Entry) []Entry {
-	var high, low []Entry
+	hasSignal := false
 	for _, e := range entries {
-		if lowRecallDomain(e.Domain) {
-			low = append(low, e)
-		} else {
-			high = append(high, e)
+		if !lowRecallDomain(e.Domain) {
+			hasSignal = true
+			break
 		}
 	}
-	if len(high) == 0 {
+	if !hasSignal {
 		return entries
 	}
-	if len(low) > MaxLowPriorityRecallSlots {
-		low = low[:MaxLowPriorityRecallSlots]
+	out := entries[:0]
+	lows := 0
+	for _, e := range entries {
+		if lowRecallDomain(e.Domain) {
+			lows++
+			if lows > MaxLowPriorityRecallSlots {
+				continue
+			}
+		}
+		out = append(out, e)
 	}
-	return append(high, low...)
+	return out
 }
 
 const MaxLowPriorityRecallSlots = 1
 
+// lowRecallDomain reports the explicit noise domains. Unknown values and ""
+// are deliberately NOT low: don't hide what we don't understand.
 func lowRecallDomain(d string) bool {
 	switch d {
-	case DomainEnvironment, DomainOther, "":
+	case DomainEnvironment, DomainOther:
 		return true
 	}
 	return false
@@ -378,7 +422,10 @@ func recallAnnotation(e Entry) string {
 	if e.ExpiresAt.IsZero() {
 		return " [open]"
 	}
-	return " [open, due " + e.ExpiresAt.Format("2006-01-02") + "]"
+	// Local time: the deadline is stored as an absolute instant (UTC), but
+	// the user means their own calendar day — formatting in UTC would show
+	// a UTC+8 user "due 2026-10-19" for a deadline they set on the 20th.
+	return " [open, due " + e.ExpiresAt.Local().Format("2006-01-02") + "]"
 }
 
 // loadAll reads project layer first, then user layer; a project entry
@@ -408,7 +455,13 @@ func (s *Store) loadAll() []Entry {
 				continue // project shadows user
 			}
 			seen[e.ID] = true
-			e.Lifecycle = effectiveLifecycle(e, time.Now())
+			// The stored lifecycle is returned verbatim; the lazy-expiry
+			// fold happens at the read CONSUMERS (recallable, search
+			// filtering, consolidation). Never stamp it onto the entry here:
+			// any pass that re-renders what it loaded (consolidate rewrites
+			// every survivor) would leak the stamp to disk — contradicting
+			// effectiveLifecycle's "never rewrites the file" contract and
+			// permanently closing entries the user never closed.
 			out = append(out, e)
 		}
 	}
@@ -589,10 +642,17 @@ func slug(title string) string {
 	return out
 }
 
+// parseTime parses an RFC3339(Nano) timestamp, or a bare date ("2006-01-02"
+// — the format annotations display and humans hand-write) which covers that
+// whole LOCAL day: the deadline lands at 23:59:59 local, so "due 2026-10-20"
+// stays live through the 20th. Unparseable input degrades to the zero time.
 func parseTime(s string) time.Time {
-	t, err := time.Parse(time.RFC3339Nano, s)
-	if err != nil {
-		return time.Time{}
+	s = strings.TrimSpace(s)
+	if t, err := time.Parse(time.RFC3339Nano, s); err == nil {
+		return t
 	}
-	return t
+	if t, err := time.ParseInLocation("2006-01-02", s, time.Local); err == nil {
+		return t.Add(24*time.Hour - time.Second)
+	}
+	return time.Time{}
 }

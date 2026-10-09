@@ -15,6 +15,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/niuniu-dev/niuniu/agent/internal/tools"
 )
 
 // Caps keep the merged state bounded — an unbounded accumulator would
@@ -41,7 +43,7 @@ type CompactState struct {
 	// FUTURE sessions' system prompts; it is not rendered into the
 	// [auto-compacted] message (the current session already carries it in
 	// its prompt prefix). Carried across chained compactions newest-wins.
-	Impression string `json:"impression,omitempty"`
+	Impression  string `json:"impression,omitempty"`
 	Compactions int    `json:"compactions"`
 }
 
@@ -99,12 +101,17 @@ func mergeState(old, nw *CompactState) *CompactState {
 	}
 	// Impression follows Goal's newest-wins rule, with the previous
 	// impression kept when the summarizer omits it (an update pass must not
-	// silently erase the file's content).
+	// silently erase the file's content). The 200-rune cap is applied HERE,
+	// at the single merge point, so the chained "Previous state" block, the
+	// persisted session-state.json and the impression file all carry the
+	// same bytes — capping only the file would let the uncapped text ride
+	// the chain and diverge from what future sessions load.
 	if nw.Impression != "" {
 		out.Impression = nw.Impression
 	} else if old != nil {
 		out.Impression = old.Impression
 	}
+	out.Impression = tools.NormalizeImpression(out.Impression)
 	out.Constraints = cappedMerge(out.Constraints, nw.Constraints, maxConstraints)
 	out.KeyDecisions = cappedMerge(out.KeyDecisions, nw.KeyDecisions, maxKeyDecisions)
 	out.DeadEnds = cappedMerge(out.DeadEnds, nw.DeadEnds, maxDeadEnds)

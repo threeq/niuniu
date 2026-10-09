@@ -15,8 +15,8 @@ import (
 )
 
 // ConsolidateOptions tunes the three passes. Zero fields disable their
-// pass; MergeSimilar groups by (type + exact tag set) and folds each group
-// into one entry that keeps every original text.
+// pass; MergeSimilar groups by (type + domain + exact tag set) and folds
+// each group into one entry that keeps every original text.
 type ConsolidateOptions struct {
 	MaxAgeDays   int  // expire entries whose updated is older than N days
 	MaxEntries   int  // LRU cap (evict oldest-updated beyond it); 0 → store default
@@ -52,29 +52,43 @@ func (s *Store) Consolidate(opts ConsolidateOptions) (*ConsolidateResult, error)
 		var kept []Entry
 		for _, e := range project {
 			if e.Updated.Before(cutoff) {
-				os.Remove(filepath.Join(s.projectDir, e.ID+".md"))
-				res.Expired++
-				continue
+				// Drop the entry only when its file is really gone; a failed
+				// removal (e.g. a locked file on Windows) keeps it so the
+				// reported counts stay truthful.
+				if rerr := os.Remove(filepath.Join(s.projectDir, e.ID+".md")); rerr == nil {
+					res.Expired++
+					continue
+				}
 			}
 			kept = append(kept, e)
 		}
 		project = kept
 	}
 
-	// Pass 2: merge same-topic (same type + identical sorted tag set).
+	// Pass 2: merge same-topic (same type + domain + identical sorted tag
+	// set). Only entries whose EFFECTIVE lifecycle is open take part: a
+	// closed entry is a historical record — folding it into a live entry
+	// would resurrect retracted content (e.g. a same-turn-deprecated
+	// correction), and folding live entries into a closed newest member
+	// would silently retire them. Closed entries pass through untouched.
 	if opts.MergeSimilar {
+		now := time.Now()
 		groups := map[string][]Entry{}
 		for _, e := range project {
-			tags := append([]string(nil), e.Tags...)
-			sort.Strings(tags)
-			groups[e.Type+"|"+strings.Join(tags, ",")] = append(groups[e.Type+"|"+strings.Join(tags, ",")], e)
+			if lifecycleClosed(effectiveLifecycle(e, now)) {
+				continue
+			}
+			key := mergeKey(e)
+			groups[key] = append(groups[key], e)
 		}
 		mergedSeen := map[string]bool{}
 		var kept []Entry
 		for _, e := range project {
-			tags := append([]string(nil), e.Tags...)
-			sort.Strings(tags)
-			key := e.Type + "|" + strings.Join(tags, ",")
+			if lifecycleClosed(effectiveLifecycle(e, now)) {
+				kept = append(kept, e)
+				continue
+			}
+			key := mergeKey(e)
 			g := groups[key]
 			if len(g) < 2 || mergedSeen[key] {
 				if len(g) < 2 {
@@ -89,8 +103,11 @@ func (s *Store) Consolidate(opts ConsolidateOptions) (*ConsolidateResult, error)
 			for _, m := range g {
 				fmt.Fprintf(&b, "- %s: %s\n", m.Title, m.Content)
 				if m.ID != merged.ID {
-					os.Remove(filepath.Join(s.projectDir, m.ID+".md"))
-					res.Merged++
+					// Count only removals that actually happened — a locked
+					// file stays on disk and must not be reported as merged.
+					if rerr := os.Remove(filepath.Join(s.projectDir, m.ID+".md")); rerr == nil {
+						res.Merged++
+					}
 				}
 			}
 			merged.Content = strings.TrimRight(b.String(), "\n")
@@ -110,8 +127,10 @@ func (s *Store) Consolidate(opts ConsolidateOptions) (*ConsolidateResult, error)
 	if len(project) > cap {
 		sort.Slice(project, func(i, j int) bool { return project[i].Updated.Before(project[j].Updated) })
 		for _, e := range project[:len(project)-cap] {
-			os.Remove(filepath.Join(s.projectDir, e.ID+".md"))
-			res.Evicted++
+			// Count only removals that actually happened (see pass 1).
+			if rerr := os.Remove(filepath.Join(s.projectDir, e.ID+".md")); rerr == nil {
+				res.Evicted++
+			}
 		}
 		project = project[len(project)-cap:]
 	}
@@ -126,6 +145,16 @@ func (s *Store) Consolidate(opts ConsolidateOptions) (*ConsolidateResult, error)
 	// Orphaned files (renamed merges) are already removed above.
 	res.After = len(project)
 	return res, nil
+}
+
+// mergeKey groups same-topic entries for the merge pass: same type, same
+// domain, identical sorted tag set. Domain is part of the key so a
+// preference is never folded into a decision, and unclassified ("") entries
+// merge only with other unclassified ones.
+func mergeKey(e Entry) string {
+	tags := append([]string(nil), e.Tags...)
+	sort.Strings(tags)
+	return e.Type + "|" + e.Domain + "|" + strings.Join(tags, ",")
 }
 
 // ConsolidateTool runs the housekeeping on demand.

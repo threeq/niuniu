@@ -345,9 +345,12 @@ func recallBody(memoryDir, sandboxDir string) string {
 }
 
 // RunTaskWithSystem is RunTask with an explicit system prompt (the RSI
-// flywheel injects recalled memory here).
+// flywheel injects recalled memory here). The task's sandbox memory
+// fixtures join that prompt through the SAME injection path RunTask uses —
+// with a different prompt the same task could pass under `niuniu-agent
+// eval` yet measure nothing here (an expired-entry task whose fixture is
+// never injected passes vacuously: its not-contains check cannot fire).
 func RunTaskWithSystem(ctx context.Context, m model.Model, reg *tools.Registry, t Task, timeout time.Duration, system string) Result {
-	sess := loop.NewSession(m, reg, system)
 	res := Result{Name: t.Name}
 	dir, err := t.PrepareSandbox()
 	if err != nil {
@@ -361,6 +364,10 @@ func RunTaskWithSystem(ctx context.Context, m model.Model, reg *tools.Registry, 
 		return res
 	}
 	defer os.Chdir(prevWd)
+	if body := recallBody("", dir); strings.TrimSpace(body) != "" {
+		system += memory.Section(body)
+	}
+	sess := loop.NewSession(m, reg, system)
 	start := time.Now()
 	out, perr := sess.Prompt(ctx, t.Prompt, loop.Options{Perms: perm.NewPolicy(true)})
 	res.Duration = time.Since(start)
@@ -431,8 +438,20 @@ func RunChecks(t Task, dir, output string) []CheckResult {
 			// is exactly "the dir still holds N files" — deterministic,
 			// and immune to the model explaining its own restraint in
 			// prose (which a content-substring check would trip on).
+			want, werr := strconv.Atoi(strings.TrimSpace(chk.Value))
+			if werr != nil {
+				cr.Detail = "bad count value " + chk.Value
+				break
+			}
 			entries, derr := os.ReadDir(filepath.Join(dir, filepath.FromSlash(chk.File)))
 			if derr != nil {
+				// A missing directory holds zero files: with want=0 that is
+				// the expected outcome (nothing was written there), not a
+				// harness error.
+				if want == 0 {
+					cr.Pass = true
+					break
+				}
 				cr.Detail = "read dir " + chk.File + ": " + derr.Error()
 				break
 			}
@@ -441,11 +460,6 @@ func RunChecks(t Task, dir, output string) []CheckResult {
 				if !e.IsDir() {
 					n++
 				}
-			}
-			want, werr := strconv.Atoi(strings.TrimSpace(chk.Value))
-			if werr != nil {
-				cr.Detail = "bad count value " + chk.Value
-				break
 			}
 			cr.Pass = n == want
 			if !cr.Pass {

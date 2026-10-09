@@ -320,6 +320,14 @@ func toAntMessages(msgs []Message) []antMessage {
 				})
 			}
 		}
+		if len(blocks) == 0 {
+			// Every block was dropped (e.g. a lone empty thinking block that
+			// carried no delta AND no other block followed). Serializing the
+			// message would put "content":[] on the wire — the API requires
+			// non-empty content, so skip the message entirely instead of
+			// trading the 422 this guard fixes for a 400 on every later round.
+			continue
+		}
 		out = append(out, antMessage{Role: m.Role, Content: blocks})
 	}
 	// Breakpoint 3 of 3 — the INCREMENTAL checkpoint rides the SECOND-TO-

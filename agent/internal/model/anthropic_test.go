@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -366,5 +367,28 @@ func TestToAntMessagesDropsEmptyThinkingBlock(t *testing.T) {
 				}
 			}
 		}
+	}
+}
+
+// 仅含一个空思考块的消息必须整条丢弃：丢弃后若把空 content 数组发上线
+// （"content":[]），网关会在此后每个请求上 400——比原本要修的 422 更糟。
+func TestToAntMessagesDropsMessageLeftEmpty(t *testing.T) {
+	out := toAntMessages([]Message{
+		{Role: RoleUser, Blocks: []Block{{Type: BlockText, Text: "hi"}}},
+		{Role: RoleAssistant, Blocks: []Block{{Type: BlockThinking, Text: ""}}},
+		{Role: RoleUser, Blocks: []Block{{Type: BlockText, Text: "next"}}},
+	})
+	if len(out) != 2 {
+		t.Fatalf("messages = %+v, want the empty assistant message dropped", out)
+	}
+	data, err := json.Marshal(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(data), `"content":[]`) {
+		t.Errorf("empty content array on the wire: %s", data)
+	}
+	if len(out[1].Content) != 1 || out[1].Content[0].Text != "next" {
+		t.Errorf("surviving messages broken: %+v", out)
 	}
 }

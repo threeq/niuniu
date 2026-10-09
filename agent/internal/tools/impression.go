@@ -6,6 +6,7 @@
 package tools
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -17,32 +18,86 @@ import (
 // hand-edited oversized file must not crowd the system prompt either.
 const MaxImpressionRunes = 200
 
-// normalizeImpression validates and caps raw impression text. Corrupted
-// content (invalid UTF-8) degrades to empty; the 200-rune cap is absolute.
-func normalizeImpression(raw string) string {
+// NormalizeImpression validates and caps raw impression text. Corrupted
+// content (invalid UTF-8) degrades to empty. The 200-rune cap is absolute
+// and applied at LINE boundaries: the impression is a four-line labeled
+// block (技术栈 / 关键决策 / 用户脾气 / 当前阶段), so an oversized value
+// drops whole trailing lines instead of slicing the fourth line mid-label
+// and injecting the fragment into every future session. Only a single line
+// that alone exceeds the cap is hard-cut.
+func NormalizeImpression(raw string) string {
 	if !utf8.ValidString(raw) {
 		return ""
 	}
 	s := strings.TrimSpace(raw)
-	if runes := []rune(s); len(runes) > MaxImpressionRunes {
-		s = string(runes[:MaxImpressionRunes])
+	if len([]rune(s)) <= MaxImpressionRunes {
+		return s
 	}
-	return s
+	var kept []string
+	n := 0
+	for _, ln := range strings.Split(s, "\n") {
+		l := strings.TrimSpace(ln)
+		if l == "" {
+			continue
+		}
+		rl := len([]rune(l))
+		if len(kept) == 0 {
+			if rl > MaxImpressionRunes {
+				l = string([]rune(l)[:MaxImpressionRunes])
+			}
+			kept = append(kept, l)
+			n = len([]rune(l))
+			continue
+		}
+		if n+rl > MaxImpressionRunes {
+			break // keep only whole labeled lines
+		}
+		kept = append(kept, l)
+		n += rl
+	}
+	return strings.Join(kept, "\n")
 }
 
-// WriteImpression persists text as the impression file at path. Empty (or
-// normalization-emptied) content is a no-op — a compact without impression
-// output must never wipe an existing impression. Callers treat errors as
-// best-effort: a failed write must not block the turn.
+// WriteImpression persists text as the impression file at path. An empty
+// path (impression maintenance disabled — subagent, eval and RSI sessions
+// leave Options.ImpressionPath empty) or empty/normalization-emptied
+// content is a no-op: a compact without impression output must never wipe an
+// existing impression, and a path-less session must not attempt — and warn
+// about — a doomed write. The write itself is atomic (unique temp file +
+// rename) so a concurrent session's LoadImpression can never read a torn
+// half-written file. Callers treat errors as best-effort: a failed write
+// must not block the turn.
 func WriteImpression(path, text string) error {
-	s := normalizeImpression(text)
+	if path == "" {
+		return nil
+	}
+	s := NormalizeImpression(text)
 	if s == "" {
 		return nil
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
 	}
-	return os.WriteFile(path, []byte(s+"\n"), 0o644)
+	f, err := os.CreateTemp(dir, filepath.Base(path)+".tmp-*")
+	if err != nil {
+		return err
+	}
+	tmp := f.Name()
+	if _, err := f.WriteString(s + "\n"); err != nil {
+		f.Close()
+		os.Remove(tmp)
+		return fmt.Errorf("impression write: %w", err)
+	}
+	if err := f.Close(); err != nil {
+		os.Remove(tmp)
+		return fmt.Errorf("impression write: %w", err)
+	}
+	if err := os.Rename(tmp, path); err != nil {
+		os.Remove(tmp)
+		return fmt.Errorf("impression write: %w", err)
+	}
+	return nil
 }
 
 // LoadImpression reads the impression file at path. Missing, corrupted
@@ -54,7 +109,7 @@ func LoadImpression(path string) (string, bool) {
 	if err != nil {
 		return "", false
 	}
-	s := normalizeImpression(string(data))
+	s := NormalizeImpression(string(data))
 	if s == "" {
 		return "", false
 	}
