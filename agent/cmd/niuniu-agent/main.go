@@ -103,7 +103,9 @@ const subagentPreamble = "\n\nYou are running as a subagent dispatched by a pare
 func sessionRegistry(cwd string, m model.Model, perms perm.Checker, parentContextOf func() string) (*tools.Registry, io.Closer) {
 	reg := newRegistry()
 	// Archived-history retrieval: compact 归档的精确历史可被检索回注。
-	reg.Register(tools.HistorySearch{Dir: filepath.Join(cwd, ".niuniu-agent", "history")})
+	// Dir must stay identical to loop.Options.HistoryDir (tools.HistoryDir)
+	// — the archive lives in the private state dir, not the project dir.
+	reg.Register(tools.HistorySearch{Dir: tools.HistoryDir(cwd)})
 	// LSP navigation: .niuniu-agent/lsp.json 声明的语言服务器按需拉起。
 	closers := []io.Closer{}
 	if cfgs := lsp.LoadConfig(cwd); len(cfgs) > 0 {
