@@ -1,7 +1,8 @@
 // Package memory implements niuniu-agent's native memory: self-contained,
 // two-layer markdown storage that works with nothing but env and local
 // files — no niuniu server required. Entries are markdown files with a tiny
-// frontmatter (title / type / tags / created / updated) under
+// frontmatter (title / type / domain / tags / lifecycle / expires_at /
+// created / updated) under
 //
 //	~/.niuniu-agent/memory/      (user layer — global across workspaces)
 //	<cwd>/.niuniu-agent/memory/  (project layer — this workspace only)
@@ -32,6 +33,36 @@ const (
 	TypeRef      = "ref"
 )
 
+// Entry lifecycle states. Lifecycle marks where an entry sits in its life
+// cycle: open entries are live context; done/cancelled/expired/deprecated
+// ones are kept for the record but should stop being recalled (the recall
+// filter lives in the injection path). Unknown values are kept as-is — the
+// taxonomy is advisory, never a hard enum.
+const (
+	LifecycleOpen       = "open"       // live context (default)
+	LifecycleDone       = "done"       // completed or settled
+	LifecycleCancelled  = "cancelled"  // withdrawn — no longer applies
+	LifecycleExpired    = "expired"    // past its ExpiresAt
+	LifecycleDeprecated = "deprecated" // superseded by a corrected entry
+)
+
+// Entry domains (life areas). Domain is a separate field rather than an
+// extension of Type: Type is already an open taxonomy persisted in existing
+// files (pattern/gotcha/decision/user/ref, where `user` already overlaps
+// "preference" and `decision` already means "project decision"). Folding the
+// six domain values into Type would make stored old data ambiguous between
+// two overlapping taxonomies and break the existing Type semantics; an
+// orthogonal field keeps old files compatible ("" = unclassified, treated
+// like other) and lets both taxonomies evolve independently.
+const (
+	DomainDecision      = "decision"      // settled project decision
+	DomainPreference    = "preference"    // durable user preference
+	DomainEnvironment   = "environment"   // user's environment habits (OS, shell, tooling)
+	DomainOpenItem      = "open_item"     // in-progress matter worth revisiting
+	DomainCollaboration = "collaboration" // how the user wants to work together
+	DomainOther         = "other"         // anything else
+)
+
 // Anti-pollution limits. MaxEntryBytes caps one entry's whole file;
 // MaxEntriesPerLayer caps how many entries one layer may hold.
 const (
@@ -44,8 +75,17 @@ type Entry struct {
 	ID      string // slug — also the filename base
 	Title   string
 	Type    string
+	Domain  string // life area (see Domain* constants); "" = unclassified
 	Tags    []string
 	Content string
+
+	// Lifecycle defaults to open (both on new entries and when reading old
+	// files that predate the field); unknown values are kept as-is.
+	// ExpiresAt is an optional deadline (zero = none); past it the entry
+	// counts as expired even while still lifecycle=open.
+	Lifecycle string
+	ExpiresAt time.Time
+
 	Created time.Time
 	Updated time.Time
 	Layer   string // "project" | "user"
@@ -112,13 +152,25 @@ func (s *Store) Save(e Entry) (string, error) {
 
 	path := filepath.Join(s.projectDir, id+".md")
 	if _, err := os.Stat(path); err == nil {
-		// Update: preserve the original created timestamp.
+		// Update: preserve the original created timestamp. An absent
+		// lifecycle/expires_at keeps the previous values — a content edit
+		// must not silently reopen done/deprecated entries; pass an explicit
+		// lifecycle to change state.
 		if prev, perr := readEntry(path, "project"); perr == nil {
 			e.Created = prev.Created
+			if e.Lifecycle == "" {
+				e.Lifecycle = prev.Lifecycle
+			}
+			if e.ExpiresAt.IsZero() {
+				e.ExpiresAt = prev.ExpiresAt
+			}
 		}
 	}
 	if e.Created.IsZero() {
 		e.Created = time.Now()
+	}
+	if e.Lifecycle == "" {
+		e.Lifecycle = LifecycleOpen
 	}
 	e.Updated = time.Now()
 
@@ -279,6 +331,12 @@ func readEntry(path, layer string) (Entry, error) {
 			e.Title = val
 		case "type":
 			e.Type = val
+		case "domain":
+			e.Domain = val
+		case "lifecycle":
+			e.Lifecycle = val // unknown values kept as-is, never an error
+		case "expires_at":
+			e.ExpiresAt = parseTime(val)
 		case "tags":
 			if val != "" {
 				e.Tags = strings.Split(val, ",")
@@ -292,6 +350,9 @@ func readEntry(path, layer string) (Entry, error) {
 	if e.Title == "" {
 		return Entry{}, fmt.Errorf("entry without title")
 	}
+	if e.Lifecycle == "" {
+		e.Lifecycle = LifecycleOpen // pre-lifecycle files read as open
+	}
 	if e.ID == "" {
 		e.ID = strings.TrimSuffix(filepath.Base(path), ".md")
 	}
@@ -300,10 +361,19 @@ func readEntry(path, layer string) (Entry, error) {
 }
 
 func render(e Entry) string {
-	return fmt.Sprintf("---\ntitle: %s\ntype: %s\ntags: %s\ncreated: %s\nupdated: %s\n---\n\n%s\n",
-		e.Title, e.Type, strings.Join(e.Tags, ","),
+	var b strings.Builder
+	fmt.Fprintf(&b, "---\ntitle: %s\ntype: %s\n", e.Title, e.Type)
+	if e.Domain != "" {
+		fmt.Fprintf(&b, "domain: %s\n", e.Domain)
+	}
+	fmt.Fprintf(&b, "tags: %s\nlifecycle: %s\n", strings.Join(e.Tags, ","), e.Lifecycle)
+	if !e.ExpiresAt.IsZero() {
+		fmt.Fprintf(&b, "expires_at: %s\n", e.ExpiresAt.UTC().Format(time.RFC3339Nano))
+	}
+	fmt.Fprintf(&b, "created: %s\nupdated: %s\n---\n\n%s\n",
 		e.Created.UTC().Format(time.RFC3339Nano), e.Updated.UTC().Format(time.RFC3339Nano),
 		strings.TrimSpace(e.Content))
+	return b.String()
 }
 
 // score sums term hits: title ×3, tags ×2, content ×1.

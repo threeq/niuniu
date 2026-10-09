@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/niuniu-dev/niuniu/agent/internal/model"
 	"github.com/niuniu-dev/niuniu/agent/internal/tools"
@@ -24,22 +25,32 @@ func (t SaveTool) Def() model.ToolDef {
 		Name: "MemorySave",
 		Description: "Persist a durable lesson, decision, or gotcha to long-term memory (project layer). " +
 			"Saving an existing title UPDATES that entry instead of duplicating it — search first if unsure. " +
-			"Keep content short and self-contained; it will be injected into future sessions as advisory context.",
+			"Keep content short and self-contained; it will be injected into future sessions as advisory context. " +
+			"Lifecycle: omitting lifecycle/expires_at on an update KEEPS the entry's current state; pass lifecycle " +
+			"explicitly to close an entry (done = completed/settled; cancelled = user withdrew it; expired = past " +
+			"its expires_at; deprecated = superseded by a corrected entry — closed entries stay on disk but stop " +
+			"being recalled) or reopen one (open).",
 		InputSchema: json.RawMessage(`{"type":"object","properties":{` +
 			`"title":{"type":"string","description":"Short unique name (the update key)"},` +
 			`"type":{"type":"string","enum":["pattern","gotcha","decision","user","ref"],"description":"Entry kind"},` +
+			`"domain":{"type":"string","enum":["decision","preference","environment","open_item","collaboration","other"],"description":"Life area: decision = settled project decision; preference = durable user preference (reusable across sessions — NOT one-off session state like 'skip tests this once'); environment = user's environment habits (OS, shell, tooling); open_item = in-progress matter worth revisiting, pair with expires_at when there is a deadline; collaboration = how the user wants to work together; other = anything else. Optional."},` +
 			`"content":{"type":"string","description":"The lesson itself, one or two sentences"},` +
-			`"tags":{"type":"array","items":{"type":"string"},"description":"Optional keywords for recall"}},` +
+			`"tags":{"type":"array","items":{"type":"string"},"description":"Optional keywords for recall"},` +
+			`"lifecycle":{"type":"string","enum":["open","done","cancelled","expired","deprecated"],"description":"Life-cycle state: open = live context (default for new entries); done = completed or settled; cancelled = withdrawn, no longer applies; expired = past expires_at; deprecated = superseded by a corrected entry. Closed states are kept for the record but excluded from recall. Optional."},` +
+			`"expires_at":{"type":"string","description":"Optional deadline, RFC3339 (e.g. 2026-10-20T09:00:00Z). Past it the entry counts as expired and stops being recalled — use for time-bound open items (e.g. an interview tomorrow). Optional."}},` +
 			`"required":["title","content"]}`),
 	}
 }
 
 func (t SaveTool) Execute(_ context.Context, input json.RawMessage) (string, error) {
 	var in struct {
-		Title   string   `json:"title"`
-		Type    string   `json:"type"`
-		Content string   `json:"content"`
-		Tags    []string `json:"tags"`
+		Title     string   `json:"title"`
+		Type      string   `json:"type"`
+		Domain    string   `json:"domain"`
+		Content   string   `json:"content"`
+		Tags      []string `json:"tags"`
+		Lifecycle string   `json:"lifecycle"`
+		ExpiresAt string   `json:"expires_at"`
 	}
 	if err := json.Unmarshal(input, &in); err != nil {
 		return "", fmt.Errorf("invalid input: %w", err)
@@ -50,6 +61,14 @@ func (t SaveTool) Execute(_ context.Context, input json.RawMessage) (string, err
 	if strings.TrimSpace(in.Content) == "" {
 		return "", fmt.Errorf("content is required")
 	}
+	var expires time.Time
+	if s := strings.TrimSpace(in.ExpiresAt); s != "" {
+		t, err := time.Parse(time.RFC3339, s)
+		if err != nil {
+			return "", fmt.Errorf("expires_at must be RFC3339 (e.g. 2026-10-20T09:00:00Z): %v", err)
+		}
+		expires = t
+	}
 	existed := false
 	if hits, _ := t.store.Search(in.Title); len(hits) > 0 {
 		for _, h := range hits {
@@ -58,7 +77,15 @@ func (t SaveTool) Execute(_ context.Context, input json.RawMessage) (string, err
 			}
 		}
 	}
-	id, err := t.store.Save(Entry{Title: in.Title, Type: in.Type, Content: in.Content, Tags: in.Tags})
+	id, err := t.store.Save(Entry{
+		Title:     in.Title,
+		Type:      in.Type,
+		Domain:    in.Domain,
+		Content:   in.Content,
+		Tags:      in.Tags,
+		Lifecycle: in.Lifecycle,
+		ExpiresAt: expires,
+	})
 	if err != nil {
 		return "", err
 	}
@@ -77,16 +104,22 @@ func NewSearchTool(s *Store) tools.Tool { return SearchTool{s} }
 
 func (t SearchTool) Def() model.ToolDef {
 	return model.ToolDef{
-		Name:        "MemorySearch",
-		Description: "Search long-term memory by keywords (empty query lists everything). Returns entries with their ids, types, and contents, best matches first.",
+		Name: "MemorySearch",
+		Description: "Search long-term memory by keywords (empty query lists everything). Returns entries with their ids, types, lifecycle, and contents, best matches first. " +
+			"Lifecycle: open = live context; done = completed/settled; cancelled = withdrawn; expired = past its expires_at; deprecated = superseded by a corrected entry. " +
+			"Closed entries are excluded from automatic recall but still searchable here — use that to find and update (or deprecate) stale memories.",
 		InputSchema: json.RawMessage(`{"type":"object","properties":{` +
-			`"query":{"type":"string","description":"Keywords; empty lists all entries"}}}`),
+			`"query":{"type":"string","description":"Keywords; empty lists all entries"},` +
+			`"lifecycle":{"type":"string","description":"Optional exact-match filter: open|done|cancelled|expired|deprecated"},` +
+			`"domain":{"type":"string","description":"Optional exact-match filter: decision|preference|environment|open_item|collaboration|other"}}}`),
 	}
 }
 
 func (t SearchTool) Execute(_ context.Context, input json.RawMessage) (string, error) {
 	var in struct {
-		Query string `json:"query"`
+		Query     string `json:"query"`
+		Lifecycle string `json:"lifecycle"`
+		Domain    string `json:"domain"`
 	}
 	if len(input) > 0 {
 		if err := json.Unmarshal(input, &in); err != nil {
@@ -97,12 +130,32 @@ func (t SearchTool) Execute(_ context.Context, input json.RawMessage) (string, e
 	if err != nil {
 		return "", err
 	}
-	if len(hits) == 0 {
+	filtered := hits[:0:0]
+	for _, e := range hits {
+		if in.Lifecycle != "" && e.Lifecycle != in.Lifecycle {
+			continue
+		}
+		if in.Domain != "" && e.Domain != in.Domain {
+			continue
+		}
+		filtered = append(filtered, e)
+	}
+	if len(filtered) == 0 {
 		return "(no matching memories)", nil
 	}
 	var b strings.Builder
-	for _, e := range hits {
-		fmt.Fprintf(&b, "[%s] %s (id: %s, %s layer)\n  %s\n", e.Type, e.Title, e.ID, e.Layer, e.Content)
+	for _, e := range filtered {
+		meta := fmt.Sprintf("id: %s, %s layer", e.ID, e.Layer)
+		if e.Domain != "" {
+			meta += ", domain: " + e.Domain
+		}
+		if e.Lifecycle != LifecycleOpen {
+			meta += ", lifecycle: " + e.Lifecycle
+		}
+		if !e.ExpiresAt.IsZero() {
+			meta += ", due: " + e.ExpiresAt.Format("2006-01-02")
+		}
+		fmt.Fprintf(&b, "[%s] %s (%s)\n  %s\n", e.Type, e.Title, meta, e.Content)
 	}
 	return strings.TrimRight(b.String(), "\n"), nil
 }

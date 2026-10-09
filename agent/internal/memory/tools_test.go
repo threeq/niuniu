@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/niuniu-dev/niuniu/agent/internal/model"
 	"github.com/niuniu-dev/niuniu/agent/internal/tools"
@@ -65,6 +66,67 @@ func TestSaveToolAndSearchTool(t *testing.T) {
 	// 缺必填 → error。
 	if _, err := reg.Execute(context.Background(), "MemorySave", json.RawMessage(`{"content":"x"}`)); err == nil {
 		t.Error("want error for missing title")
+	}
+}
+
+func TestSaveToolLifecycleAndDomain(t *testing.T) {
+	s := testStore(t)
+	reg := tools.NewRegistry(NewSaveTool(s), NewSearchTool(s))
+
+	// 带 lifecycle/expires_at/domain 保存。
+	out, err := reg.Execute(context.Background(), "MemorySave",
+		json.RawMessage(`{"title":"明天面试","type":"ref","domain":"open_item","lifecycle":"open","expires_at":"2026-10-20T09:00:00Z","content":"带作品集"}`))
+	if err != nil {
+		t.Fatalf("MemorySave: %v", err)
+	}
+	if !strings.Contains(out, "明天面试") {
+		t.Errorf("save output = %q", out)
+	}
+	hits, _ := s.Search("面试")
+	if len(hits) != 1 || hits[0].Domain != "open_item" || hits[0].Lifecycle != "open" {
+		t.Fatalf("hits = %+v", hits)
+	}
+	if hits[0].ExpiresAt.IsZero() || hits[0].ExpiresAt.UTC() != time.Date(2026, 10, 20, 9, 0, 0, 0, time.UTC) {
+		t.Errorf("ExpiresAt = %v", hits[0].ExpiresAt)
+	}
+
+	// 非法 expires_at → error（让模型纠正格式）。
+	if _, err := reg.Execute(context.Background(), "MemorySave",
+		json.RawMessage(`{"title":"x","content":"y","expires_at":"明天上午"}`)); err == nil {
+		t.Error("want error for non-RFC3339 expires_at")
+	}
+
+	// MemorySearch 支持 lifecycle / domain 过滤，输出带状态标注。
+	if _, err := reg.Execute(context.Background(), "MemorySave",
+		json.RawMessage(`{"title":"老规则","type":"decision","lifecycle":"deprecated","content":"已被取代"}`)); err != nil {
+		t.Fatal(err)
+	}
+	dep, err := reg.Execute(context.Background(), "MemorySearch",
+		json.RawMessage(`{"query":"","lifecycle":"deprecated"}`))
+	if err != nil {
+		t.Fatalf("MemorySearch lifecycle filter: %v", err)
+	}
+	if !strings.Contains(dep, "老规则") || !strings.Contains(dep, "lifecycle: deprecated") {
+		t.Errorf("filtered output = %q", dep)
+	}
+	if strings.Contains(dep, "明天面试") {
+		t.Errorf("lifecycle filter leaked open entries: %q", dep)
+	}
+	openList, err := reg.Execute(context.Background(), "MemorySearch",
+		json.RawMessage(`{"lifecycle":"open","domain":"open_item"}`))
+	if err != nil {
+		t.Fatalf("MemorySearch combined filter: %v", err)
+	}
+	if !strings.Contains(openList, "明天面试") || !strings.Contains(openList, "due: 2026-10-20") {
+		t.Errorf("combined filter output = %q", openList)
+	}
+	if strings.Contains(openList, "老规则") {
+		t.Errorf("filter leaked deprecated entries: %q", openList)
+	}
+	// 无命中。
+	if got, _ := reg.Execute(context.Background(), "MemorySearch",
+		json.RawMessage(`{"lifecycle":"done"}`)); got != "(no matching memories)" {
+		t.Errorf("no-hit output = %q", got)
 	}
 }
 
