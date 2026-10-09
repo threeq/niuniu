@@ -144,6 +144,9 @@ type antStreamDelta struct {
 	// text_delta / thinking_delta
 	Text     string `json:"text"`
 	Thinking string `json:"thinking"`
+	// signature_delta — arrives whole (never sharded), after the block's
+	// thinking_delta run.
+	Signature string `json:"signature"`
 	// input_json_delta
 	PartialJSON string `json:"partial_json"`
 	// message_delta
@@ -247,6 +250,15 @@ func streamAnthropic(ctx context.Context, a *anthropicModel, req Request, onDelt
 				if onDelta != nil {
 					onDelta(StreamDelta{Kind: StreamThinking, Text: f.Delta.Thinking})
 				}
+			case "signature_delta":
+				// The signature rides its own delta and is NOT streamed to the
+				// UI (no onDelta — it is verification data, not output). It
+				// must still land on the block: Anthropic verifies it when the
+				// thinking block is echoed back in tool-loop history, so
+				// dropping it here made streamed turns fail where the
+				// non-stream decoder (which reads it off the whole block)
+				// succeeded.
+				blocks[f.Index].Signature = f.Delta.Signature
 			case "input_json_delta":
 				if b := pending[f.Index]; b != nil {
 					b.WriteString(f.Delta.PartialJSON)

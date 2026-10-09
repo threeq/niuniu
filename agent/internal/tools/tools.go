@@ -47,6 +47,24 @@ func NewRegistry(tools ...Tool) *Registry {
 // Defs returns the tool definitions to advertise to the model.
 func (r *Registry) Defs() []model.ToolDef { return r.defs }
 
+// Clone returns a registry holding the same tools, safe to mutate (Register /
+// Remove) without touching the original. Tool implementations are shared, not
+// copied — they are stateless values or hold their own store. Used to give a
+// single run its own tool surface (eval sandboxes bind memory tools to the
+// per-task sandbox) without leaking that binding into the caller's registry
+// or into the next run.
+func (r *Registry) Clone() *Registry {
+	c := &Registry{
+		byName: make(map[string]Tool, len(r.byName)),
+		defs:   make([]model.ToolDef, len(r.defs)),
+	}
+	for name, t := range r.byName {
+		c.byName[name] = t
+	}
+	copy(c.defs, r.defs)
+	return c
+}
+
 // Register adds one tool after construction (appended to the definition
 // order). Re-registering a name replaces the implementation and keeps its
 // original position.

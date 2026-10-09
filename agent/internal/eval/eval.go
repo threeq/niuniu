@@ -271,7 +271,10 @@ func (t *Task) PrepareSandbox() (string, error) {
 // The sandbox's own project layer (fixtures under
 // .niuniu-agent/memory) joins the recall, so memory-semantics tasks
 // exercise the real injection path (lifecycle filtering, domain routing,
-// open-item annotations). The sandbox is removed before returning.
+// open-item annotations). The run's tool surface is reg plus memory tools
+// bound to the sandbox layer (see sandboxTools), so a memory task can
+// actually call MemorySave/MemorySearch. The sandbox is removed before
+// returning.
 func RunTask(ctx context.Context, m model.Model, reg *tools.Registry, t Task, timeout time.Duration, memoryDir string) Result {
 	res := Result{Name: t.Name}
 	if timeout <= 0 {
@@ -299,7 +302,7 @@ func RunTask(ctx context.Context, m model.Model, reg *tools.Registry, t Task, ti
 		system += memory.Section(body)
 	}
 	start := time.Now()
-	sess := loop.NewSession(m, reg, system)
+	sess := loop.NewSession(m, sandboxTools(reg, dir), system)
 	out, err := sess.Prompt(ctx, t.Prompt, loop.Options{Perms: perm.NewPolicy(true)})
 	res.Duration = time.Since(start)
 	if err != nil {
@@ -322,11 +325,34 @@ func RunTask(ctx context.Context, m model.Model, reg *tools.Registry, t Task, ti
 	return res
 }
 
+// sandboxTools returns the tool surface for ONE task run: the caller's tools
+// plus the memory tools bound to the sandbox's own project layer. Binding them
+// to the sandbox — never to the checkout the eval was launched from — is what
+// lets the memory-semantics tasks exercise MemorySave/MemorySearch for real:
+// saves land in the sandbox (where the checks look), and neither tool can read
+// or write the developer's live store. A clone is used because the base
+// registry is shared across the whole run; registering on it would leak the
+// first sandbox's store into every later task.
+func sandboxTools(base *tools.Registry, sandboxDir string) *tools.Registry {
+	reg := base.Clone()
+	store := memory.NewStoreLayers(filepath.Join(sandboxDir, ".niuniu-agent", "memory"), "")
+	reg.Register(memory.NewSaveTool(store))
+	reg.Register(memory.NewSearchTool(store))
+	return reg
+}
+
 // recallBody merges the sandbox project-layer recall (task fixtures under
 // .niuniu-agent/memory — sandbox first, most task-relevant) with the host
-// layer recall (the RSI effect channel). Each side applies the full recall
-// pipeline (lifecycle filtering, domain routing, annotations); the sandbox
-// store carries no user layer, so host user memories aren't injected twice.
+// project-layer recall (the RSI effect channel: lessons explore distilled into
+// the checkout's own .niuniu-agent/memory). Each side applies the full recall
+// pipeline (lifecycle filtering, domain routing, annotations).
+//
+// Both sides deliberately carry NO user layer. Eval must be hermetic: injecting
+// ~/.niuniu-agent/memory would leak the developer's personal memories into
+// every sandbox and make the score depend on whatever they happen to have
+// stored — the same task would grade differently on two machines. The host side
+// is therefore loaded via NewStoreLayers with an empty user dir rather than
+// NewStoreDir, which resolves the user layer from home.
 func recallBody(memoryDir, sandboxDir string) string {
 	var parts []string
 	if sandboxDir != "" {
@@ -336,7 +362,7 @@ func recallBody(memoryDir, sandboxDir string) string {
 		}
 	}
 	if memoryDir != "" {
-		s := memory.NewStoreDir(memoryDir)
+		s := memory.NewStoreLayers(memoryDir, "")
 		if body, err := s.Recall(5, 2048); err == nil && strings.TrimSpace(body) != "" {
 			parts = append(parts, body)
 		}
@@ -372,7 +398,7 @@ func RunTaskWithSystem(ctx context.Context, m model.Model, reg *tools.Registry, 
 	if body := recallBody("", dir); strings.TrimSpace(body) != "" {
 		system += memory.Section(body)
 	}
-	sess := loop.NewSession(m, reg, system)
+	sess := loop.NewSession(m, sandboxTools(reg, dir), system)
 	start := time.Now()
 	out, perr := sess.Prompt(ctx, t.Prompt, loop.Options{Perms: perm.NewPolicy(true)})
 	res.Duration = time.Since(start)
