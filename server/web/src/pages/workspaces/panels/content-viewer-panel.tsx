@@ -18,7 +18,7 @@ import { useWorkspaceDiff } from '@/lib/hooks/use-workspace-diff';
 import { useCanvasBridge } from '@/hooks/use-canvas-bridge';
 import type { WorkspaceComment } from '@/types/api';
 import type { CanvasExporter } from '@/components/canvas/embedded-canvas-panel';
-import { isMarkdownFile, isTextLikeFile } from '@/lib/file-type';
+import { isMarkdownFile, isTextLikeFile, extOf, RICH_PREVIEW_EXTS } from '@/lib/file-type';
 import { FilePreview } from '../components/file-preview';
 import { DiffPane } from './changes-panel';
 import { CodeFileView } from './code-file-view';
@@ -529,13 +529,18 @@ function MarkdownFileBody({
   );
 }
 
-type CodeMode = 'diff' | 'file';
+type CodeMode = 'diff' | 'file' | 'preview';
 
 /**
  * CodeView renders a repo file as a diff and/or its full content, with a
  * GitHub-style toggle between the two (when the file has a diff) and shared
  * per-line comment queue/send. Both modes flow through the DiffViewer, so the
  * horizontal scrollbar stays pinned to the pane bottom.
+ *
+ * Rich formats (markdown/image/pdf/office/html, per RICH_PREVIEW_EXTS) get a
+ * third "preview" tab rendering the type-dispatched FilePreview — the raw file
+ * view is unreadable or unrendered for those. Plain code files skip it: the
+ * preview renderer would just duplicate the file view.
  */
 function CodeView({
   workspaceId,
@@ -588,35 +593,49 @@ function CodeView({
     handleSendAll,
   } = useFileCommentActions(workspaceId, repo, relPath);
 
+  const modes: CodeMode[] = RICH_PREVIEW_EXTS.has(extOf(fileRawPath))
+    ? ['diff', 'file', 'preview']
+    : ['diff', 'file'];
+  // The panel isn't keyed by path, so CodeView stays mounted across file
+  // switches; a stale 'preview' carried onto a file without the tab falls
+  // back to the diff view instead of rendering an impossible mode.
+  const activeMode: CodeMode = modes.includes(mode) ? mode : 'diff';
+
   return (
     <div className="flex h-full flex-col">
       <div className="flex shrink-0 items-center gap-2 border-b border-border bg-card px-3 py-1.5">
         {allowDiff && (
           <div className="flex rounded-lg bg-muted p-0.5 text-[11.5px]">
-            {(['diff', 'file'] as CodeMode[]).map((m) => (
+            {modes.map((m) => (
               <button
                 key={m}
                 type="button"
                 onClick={() => setMode(m)}
                 className={cn(
                   'rounded-md px-2.5 py-1 transition-colors',
-                  mode === m
+                  activeMode === m
                     ? 'bg-background font-medium text-foreground shadow-sm'
                     : 'text-muted-foreground hover:text-foreground',
                 )}
               >
-                {t(m === 'diff' ? 'contentViewer.viewDiff' : 'contentViewer.viewFile')}
+                {t(
+                  m === 'diff'
+                    ? 'contentViewer.viewDiff'
+                    : m === 'file'
+                      ? 'contentViewer.viewFile'
+                      : 'contentViewer.viewPreview',
+                )}
               </button>
             ))}
           </div>
         )}
         <div className="ml-auto flex items-center gap-2">
           <SendQueueButton pendingCount={pendingCount} sending={sendingAll} onClick={handleSendAll} />
-          {mode === 'diff' && <ViewModeToggle mode={viewMode} onChange={setViewMode} />}
+          {activeMode === 'diff' && <ViewModeToggle mode={viewMode} onChange={setViewMode} />}
         </div>
       </div>
       <div className="min-h-0 flex-1">
-        {mode === 'diff' ? (
+        {activeMode === 'diff' ? (
           <DiffModeBody
             workspaceId={workspaceId}
             repo={repo}
@@ -627,6 +646,16 @@ function CodeView({
             onSend={handleSend}
             onSetResolved={handleSetResolved}
           />
+        ) : activeMode === 'preview' ? (
+          <div className="h-full overflow-auto">
+            {/* `_ts` cache-bust + key: see FileBody's FilePreview comment. */}
+            <FilePreview
+              key={refreshTick}
+              workspaceId={workspaceId}
+              path={fileRawPath}
+              cacheBust={refreshTick != null && refreshTick > 0 ? refreshTick : undefined}
+            />
+          </div>
         ) : (
           <FileContentBody
             workspaceId={workspaceId}
