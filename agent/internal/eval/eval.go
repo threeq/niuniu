@@ -133,7 +133,8 @@ func LoadTasks(dir string) ([]Task, error) {
 func parseTask(text string) (*Task, error) {
 	t := &Task{Fixtures: map[string]string{}}
 	// Windows checkouts (core.autocrlf) hand us CRLF bytes; the "---\n"
-	// prefix match and section headers are LF-anchored, so normalize first.
+	// prefix match and section headers are LF-anchored, so normalize first
+	// so frontmatter/section parsing stays checkout-independent.
 	text = strings.ReplaceAll(text, "\r\n", "\n")
 	rest, ok := strings.CutPrefix(text, "---\n")
 	if !ok {
