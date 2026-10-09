@@ -132,6 +132,9 @@ func LoadTasks(dir string) ([]Task, error) {
 //	- output-contains: text
 func parseTask(text string) (*Task, error) {
 	t := &Task{Fixtures: map[string]string{}}
+	// Windows checkouts (core.autocrlf) hand us CRLF bytes; the "---\n"
+	// prefix match and section headers are LF-anchored, so normalize first.
+	text = strings.ReplaceAll(text, "\r\n", "\n")
 	rest, ok := strings.CutPrefix(text, "---\n")
 	if !ok {
 		return nil, fmt.Errorf("missing frontmatter")
