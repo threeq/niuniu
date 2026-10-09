@@ -334,11 +334,28 @@ func toAntMessages(msgs []Message) []antMessage {
 			// carried no delta AND no other block followed). Serializing the
 			// message would put "content":[] on the wire — the API requires
 			// non-empty content, so skip the message entirely instead of
-			// trading the 422 this guard fixes for a 400 on every later round.
+			// trading the 422 this guard fixes for a 400 on every later
+			// round. The merge pass below re-establishes role alternation.
 			continue
 		}
 		out = append(out, antMessage{Role: m.Role, Content: blocks})
 	}
+	// The wire requires strictly alternating roles, and the drops above (plus
+	// the compact path, whose user-role summary message is inserted directly
+	// before the kept window's opening user message) can leave two same-role
+	// messages adjacent — the official API rejects that with "roles must
+	// alternate". Merge adjacent same-role messages: block order is
+	// preserved, so tool_use/tool_result pairing and thinking-first ordering
+	// stay valid.
+	alternating := out[:0]
+	for _, m := range out {
+		if n := len(alternating); n > 0 && alternating[n-1].Role == m.Role {
+			alternating[n-1].Content = append(alternating[n-1].Content, m.Content...)
+			continue
+		}
+		alternating = append(alternating, m)
+	}
+	out = alternating
 	// Breakpoint 3 of 3 — the INCREMENTAL checkpoint rides the SECOND-TO-
 	// LAST message (when there is one): its content is frozen by the time
 	// the next round is built, so the breakpoint lands on identical bytes

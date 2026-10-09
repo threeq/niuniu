@@ -107,7 +107,22 @@ func (t SaveTool) Execute(_ context.Context, input json.RawMessage) (string, err
 	if existed {
 		verb = "updated"
 	}
-	return fmt.Sprintf("%s memory %q (project layer) — it will be recalled in future sessions", verb, id), nil
+	// Report the FINAL recall state, not a blanket "will be recalled": a
+	// deprecation (the correction protocol's deprecate step) or an already-
+	// past deadline keeps the entry on disk but out of recall, and the
+	// message must not contradict the tool's own lifecycle contract.
+	note := "it will be recalled in future sessions"
+	if hits, _ := t.store.Search(in.Title); len(hits) > 0 {
+		for _, h := range hits {
+			if h.Title == in.Title {
+				if lc := effectiveLifecycle(h, time.Now()); lifecycleClosed(lc) {
+					note = "it is " + lc + " — kept on disk for the record, no longer recalled"
+				}
+				break
+			}
+		}
+	}
+	return fmt.Sprintf("%s memory %q (project layer) — %s", verb, id, note), nil
 }
 
 // SearchTool is the MemorySearch tool.
@@ -119,7 +134,7 @@ func NewSearchTool(s *Store) tools.Tool { return SearchTool{s} }
 func (t SearchTool) Def() model.ToolDef {
 	return model.ToolDef{
 		Name: "MemorySearch",
-		Description: "Search long-term memory by keywords (empty query lists everything). Returns entries with their ids, types, lifecycle, and contents, best matches first. " +
+		Description: "Search long-term memory by keywords (empty query lists all live entries). Returns entries with their ids, types, lifecycle, and contents, best matches first. " +
 			"Lifecycle: open = live context; done = completed/settled; cancelled = withdrawn; expired = past its expires_at; deprecated = superseded by a corrected entry. " +
 			"Closed entries are excluded from automatic recall AND from default results here — pass the lifecycle filter explicitly to find and update (or deprecate) stale memories. " +
 			"An entry whose expires_at has passed counts as expired for the default exclusion even though its stored lifecycle still reads open; filter lifecycle:\"open\" to find it for renewal.",

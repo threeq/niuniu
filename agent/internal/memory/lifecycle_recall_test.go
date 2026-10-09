@@ -139,9 +139,9 @@ func TestRecallAnnotatesOpenItems(t *testing.T) {
 	}
 }
 
-// 分域路由：preference/decision/open_item 等信号域优先；environment/other/
-// 未分类域降权且限流（有信号域条目时最多注入 1 条低权域）；全是低权域时
-// 不设限（存量库不塌缩）。
+// 分域路由：environment/other 是显式噪声域——存在信号域/未分类条目时最多
+// 注入 1 条，且原位限流（不重排、不挤掉高相关命中）；未分类（空 domain）
+// 与未知域值不降权（存量旧库不塌缩）；全是噪声域时不设限。
 func TestRecallRoutesDomains(t *testing.T) {
 	s := testStore(t)
 	if _, err := s.Save(Entry{Title: "pref-vim", Type: TypeUser, Domain: DomainPreference, Content: "偏好"}); err != nil {

@@ -401,8 +401,13 @@ func TestToAntMessagesDropsMessageLeftEmpty(t *testing.T) {
 		{Role: RoleAssistant, Blocks: []Block{{Type: BlockThinking, Text: ""}}},
 		{Role: RoleUser, Blocks: []Block{{Type: BlockText, Text: "next"}}},
 	})
-	if len(out) != 2 {
-		t.Fatalf("messages = %+v, want the empty assistant message dropped", out)
+	// 空 assistant 消息被丢弃后两侧 user 相邻——同角色合并收口为一条，
+	// 线上保持 user/assistant 严格交替。
+	if len(out) != 1 || out[0].Role != RoleUser || len(out[0].Content) != 2 {
+		t.Fatalf("messages = %+v, want one merged user message carrying both texts", out)
+	}
+	if out[0].Content[0].Text != "hi" || out[0].Content[1].Text != "next" {
+		t.Errorf("merged content order broken: %+v", out[0].Content)
 	}
 	data, err := json.Marshal(out)
 	if err != nil {
@@ -411,7 +416,27 @@ func TestToAntMessagesDropsMessageLeftEmpty(t *testing.T) {
 	if strings.Contains(string(data), `"content":[]`) {
 		t.Errorf("empty content array on the wire: %s", data)
 	}
-	if len(out[1].Content) != 1 || out[1].Content[0].Text != "next" {
-		t.Errorf("surviving messages broken: %+v", out)
+}
+
+// 角色交替是线上硬约束：相邻同角色消息必须合并——两条触发路径都在这里收口：
+// 空消息丢弃后的相邻，以及压缩路径（user 摘要消息插在保留窗口开头的 user
+// 消息之前）。块序保持不变，tool_use/tool_result 配对与 thinking 前置不受影响。
+func TestToAntMessagesMergesAdjacentSameRole(t *testing.T) {
+	out := toAntMessages([]Message{
+		{Role: RoleUser, Blocks: []Block{{Type: BlockText, Text: "summary"}}},
+		{Role: RoleUser, Blocks: []Block{{Type: BlockText, Text: "kept"}}},
+		{Role: RoleAssistant, Blocks: []Block{{Type: BlockText, Text: "a"}}},
+		{Role: RoleUser, Blocks: []Block{{Type: BlockText, Text: "q"}}},
+	})
+	if len(out) != 3 {
+		t.Fatalf("messages = %+v, want 3 (the two leading users merged)", out)
+	}
+	for i := 1; i < len(out); i++ {
+		if out[i].Role == out[i-1].Role {
+			t.Errorf("roles not alternating at index %d: %+v", i, out)
+		}
+	}
+	if len(out[0].Content) != 2 || out[0].Content[0].Text != "summary" || out[0].Content[1].Text != "kept" {
+		t.Errorf("merged blocks = %+v", out[0].Content)
 	}
 }

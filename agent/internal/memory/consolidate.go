@@ -169,7 +169,7 @@ func (ConsolidateTool) Def() model.ToolDef {
 		Description: "Housekeeping for long-term memory: merge same-topic entries, expire stale ones, and evict beyond the capacity limit. Run when memory feels cluttered or after finishing a large task.",
 		InputSchema: json.RawMessage(`{"type":"object","properties":{` +
 			`"max_age_days":{"type":"integer","description":"Expire entries untouched for N days (optional)"},` +
-			`"merge_similar":{"type":"boolean","description":"Merge same-type same-tags entries (default true)"}}}`),
+			`"merge_similar":{"type":"boolean","description":"Merge same-type+domain+tags entries (default true)"}}}`),
 	}
 }
 

@@ -423,8 +423,43 @@ func TestSearchToolDefaultHidesPastDueButOpenFilterFindsIt(t *testing.T) {
 	}
 }
 
-// reflect 产出带 DOMAIN：自动记忆生产者不再恒为未分类（否则在分域路由下
-// 至多占 1 个噪声槽）。无 DOMAIN 行（旧输出/模型省略）仍按未分类解析。
+// 工具成功文案必须反映保存后的真实召回状态：deprecated（当轮纠错协议的
+// deprecate 步骤）与已过期的保存不得宣称 "will be recalled"。
+func TestSaveToolMessageReflectsRecallState(t *testing.T) {
+	s := testStore(t)
+	save := NewSaveTool(s)
+	ctx := context.Background()
+
+	out, err := save.Execute(ctx, json.RawMessage(`{"title":"old-fact","type":"user","content":"旧偏好"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "will be recalled") {
+		t.Errorf("open save message = %q", out)
+	}
+
+	out, err = save.Execute(ctx, json.RawMessage(`{"title":"old-fact","content":"旧偏好","lifecycle":"deprecated"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(out, "will be recalled") || !strings.Contains(out, "no longer recalled") {
+		t.Errorf("deprecated save message = %q", out)
+	}
+
+	// 已过期的截止时间：生效状态即 expired，同样不能宣称会被召回。
+	past := time.Now().Add(-time.Hour).Format(time.RFC3339)
+	out, err = save.Execute(ctx, json.RawMessage(`{"title":"due-fact","content":"过期事项","expires_at":"`+past+`"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(out, "will be recalled") {
+		t.Errorf("past-due save message = %q", out)
+	}
+}
+
+// reflect 产出带 DOMAIN：自动提炼不再恒为未分类——domain 参与召回路由与
+// 过滤（environment/other 受限流约束），未分类不再是噪声但并不携带语义。
+// 无 DOMAIN 行（旧输出/模型省略）仍按未分类解析。
 func TestParseReflectOutputDomain(t *testing.T) {
 	e, err := parseReflectOutput("TITLE: go-mod-tidy\nTYPE: pattern\nDOMAIN: environment\n---\n先跑 go mod tidy。")
 	if err != nil {
