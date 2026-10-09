@@ -319,3 +319,52 @@ func TestAnthropicIncrementalCacheBreakpoint(t *testing.T) {
 		t.Errorf("single-message request must still mark the last message")
 	}
 }
+
+// 网关可能回一个没有思考文本的 thinking 块（GLM 流式实测：content_block_start
+// 起了 thinking 块但没有 thinking_delta，signature 也未随流下发）。若原样回传，
+// 该块序列化后是 {"type":"thinking"}——thinking/signature 都被 omitempty 略去，
+// 网关直接 422 "missing field `thinking`" 打断整个回合。空文本思考块没有任何
+// 可回传的信息，构造回传消息时必须丢弃（官方 API 不会产生这种块，守卫在其上
+// 恒不触发）。
+func TestToAntMessagesDropsEmptyThinkingBlock(t *testing.T) {
+	out := toAntMessages([]Message{{
+		Role: RoleAssistant,
+		Blocks: []Block{
+			{Type: BlockThinking, Text: "", Signature: "sig-orphan"},
+			{Type: BlockThinking, Text: "带着文本的思考块"},
+			{Type: BlockText, Text: "好的"},
+		},
+	}})
+	if len(out) != 1 || len(out[0].Content) != 2 {
+		t.Fatalf("blocks = %+v, want 2 (empty thinking dropped)", out)
+	}
+	for _, b := range out[0].Content {
+		if b.Type == BlockThinking && b.Thinking == "" {
+			t.Errorf("empty thinking block leaked onto the wire: %+v", b)
+		}
+	}
+	if out[0].Content[0].Thinking != "带着文本的思考块" || out[0].Content[1].Text != "好的" {
+		t.Errorf("order/content broken: %+v", out[0].Content)
+	}
+
+	// 序列化层面兜底：wire JSON 里不允许出现缺 thinking 字段的 thinking 块。
+	data, err := json.Marshal(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var raw []struct {
+		Content []map[string]any `json:"content"`
+	}
+	if err := json.Unmarshal(data, &raw); err != nil {
+		t.Fatal(err)
+	}
+	for _, m := range raw {
+		for _, b := range m.Content {
+			if b["type"] == "thinking" {
+				if _, ok := b["thinking"]; !ok {
+					t.Errorf("wire thinking block missing the `thinking` field: %v", b)
+				}
+			}
+		}
+	}
+}

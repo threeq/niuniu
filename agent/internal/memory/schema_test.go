@@ -164,3 +164,26 @@ func TestUpdatePreservesLifecycleUnlessSet(t *testing.T) {
 		t.Fatalf("new entry = %+v, want default open", all)
 	}
 }
+
+// NewStoreLayers：显式指定两层目录，空目录 = 该层缺席。eval 沙箱用它召回
+// fixture 而不把宿主 user 层二次注入（宿主 project 层 store 已含 user 层）。
+func TestNewStoreLayersEmptyUserDir(t *testing.T) {
+	projectDir := filepath.Join(t.TempDir(), "memory")
+	if err := os.MkdirAll(projectDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := NewStoreLayers(projectDir, "").Save(Entry{
+		Title: "sandbox-fixture", Type: TypeUser, Domain: DomainOpenItem,
+		Content: "沙箱内的进行中事项",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	s := NewStoreLayers(projectDir, "")
+	out, err := s.Recall(5, 1<<16)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "sandbox-fixture") {
+		t.Errorf("project-layer fixture missing from recall:\n%s", out)
+	}
+}

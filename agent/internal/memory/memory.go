@@ -119,6 +119,20 @@ func NewStoreDir(projectDir string) *Store {
 	return s
 }
 
+// NewStoreLayers builds a store over explicit project- and user-layer
+// directories; an empty dir means the layer is absent (loadAll skips it).
+// Eval sandboxes use it to recall task fixtures from the sandbox project
+// layer without re-injecting the host's user layer alongside the host
+// project-layer store.
+func NewStoreLayers(projectDir, userDir string) *Store {
+	return &Store{
+		projectDir:         projectDir,
+		userDir:            userDir,
+		MaxEntryBytes:      DefaultMaxEntryBytes,
+		MaxEntriesPerLayer: DefaultMaxEntriesPerLayer,
+	}
+}
+
 func NewStore(cwd string) *Store {
 	s := &Store{
 		projectDir:         filepath.Join(cwd, ".niuniu-agent", "memory"),

@@ -27,7 +27,7 @@ func TestReasoningTaskSetParses(t *testing.T) {
 		}
 		for _, chk := range task.Checks {
 			switch chk.Kind {
-			case "contains", "not-contains", "file-exists", "command-exit-0", "output-contains":
+			case "contains", "not-contains", "file-exists", "file-count", "command-exit-0", "output-contains":
 			default:
 				t.Errorf("task %s: unknown check kind %q", task.Name, chk.Kind)
 			}

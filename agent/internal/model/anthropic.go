@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 )
 
@@ -291,6 +292,16 @@ func toAntMessages(msgs []Message) []antMessage {
 					Content:   content,
 				})
 			case BlockThinking:
+				// A text-less thinking block carries nothing to echo: GLM's
+				// stream can open a thinking block without ever sending a
+				// thinking_delta, and re-sending it serializes to
+				// {"type":"thinking"} (thinking+signature both omitempty) —
+				// the gateway rejects that with HTTP 422 "missing field
+				// `thinking`", killing the whole run. Drop it. (The official
+				// API never emits such a block, so this guard is inert there.)
+				if strings.TrimSpace(b.Text) == "" {
+					continue
+				}
 				// Echo thinking blocks back verbatim, signature included —
 				// gateways verify it and reject altered thinking.
 				blocks = append(blocks, antBlock{

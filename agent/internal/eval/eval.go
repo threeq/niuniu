@@ -17,6 +17,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -38,9 +39,9 @@ type Task struct {
 
 // Check is one rule assertion.
 type Check struct {
-	Kind  string // contains | not-contains | file-exists | command-exit-0 | output-contains
-	File  string // file the check applies to
-	Value string // expected/forbidden text, or the command
+	Kind  string // contains | not-contains | file-exists | file-count | command-exit-0 | output-contains
+	File  string // file (or dir, for file-count) the check applies to
+	Value string // expected/forbidden text, the expected count, or the command
 }
 
 // CheckResult is the outcome of one rule assertion.
@@ -128,6 +129,7 @@ func LoadTasks(dir string) ([]Task, error) {
 //	## Checks
 //	- contains: file, text
 //	- file-exists: path
+//	- file-count: dir, N
 //	- command-exit-0: cmd
 //	- output-contains: text
 func parseTask(text string) (*Task, error) {
@@ -212,7 +214,7 @@ func parseTask(text string) (*Task, error) {
 			chk := Check{Kind: strings.TrimSpace(kind)}
 			rest2 = strings.TrimSpace(rest2)
 			switch chk.Kind {
-			case "contains", "not-contains":
+			case "contains", "not-contains", "file-count":
 				f, v, _ := strings.Cut(rest2, ",")
 				// Strip ONE leading space, never TrimSpace: the expected
 				// value may legitimately start with whitespace (a tab).
@@ -266,7 +268,10 @@ func (t *Task) PrepareSandbox() (string, error) {
 // judge with the rule checks. memoryDir (optional) injects recalled
 // long-term memory from that layer into the task system prompt — the RSI
 // effect channel (explore-distilled lessons reach the evaluated runs).
-// The sandbox is removed before returning.
+// The sandbox's own project layer (fixtures under
+// .niuniu-agent/memory) joins the recall, so memory-semantics tasks
+// exercise the real injection path (lifecycle filtering, domain routing,
+// open-item annotations). The sandbox is removed before returning.
 func RunTask(ctx context.Context, m model.Model, reg *tools.Registry, t Task, timeout time.Duration, memoryDir string) Result {
 	res := Result{Name: t.Name}
 	if timeout <= 0 {
@@ -290,13 +295,8 @@ func RunTask(ctx context.Context, m model.Model, reg *tools.Registry, t Task, ti
 	defer os.Chdir(prevWd)
 
 	system := "You are niuniu-agent in an evaluation sandbox. Complete the task using the tools."
-	if memoryDir != "" {
-		store := memory.NewStoreDir(memoryDir)
-		recall, rerr := store.Recall(5, 2048)
-		if rerr != nil {
-			recall = ""
-		}
-		system += memory.Section(recall)
+	if body := recallBody(memoryDir, dir); strings.TrimSpace(body) != "" {
+		system += memory.Section(body)
 	}
 	start := time.Now()
 	sess := loop.NewSession(m, reg, system)
@@ -320,6 +320,28 @@ func RunTask(ctx context.Context, m model.Model, reg *tools.Registry, t Task, ti
 	}
 	res.Pass = true
 	return res
+}
+
+// recallBody merges the sandbox project-layer recall (task fixtures under
+// .niuniu-agent/memory — sandbox first, most task-relevant) with the host
+// layer recall (the RSI effect channel). Each side applies the full recall
+// pipeline (lifecycle filtering, domain routing, annotations); the sandbox
+// store carries no user layer, so host user memories aren't injected twice.
+func recallBody(memoryDir, sandboxDir string) string {
+	var parts []string
+	if sandboxDir != "" {
+		s := memory.NewStoreLayers(filepath.Join(sandboxDir, ".niuniu-agent", "memory"), "")
+		if body, err := s.Recall(5, 2048); err == nil && strings.TrimSpace(body) != "" {
+			parts = append(parts, body)
+		}
+	}
+	if memoryDir != "" {
+		s := memory.NewStoreDir(memoryDir)
+		if body, err := s.Recall(5, 2048); err == nil && strings.TrimSpace(body) != "" {
+			parts = append(parts, body)
+		}
+	}
+	return strings.Join(parts, "\n")
 }
 
 // RunTaskWithSystem is RunTask with an explicit system prompt (the RSI
@@ -401,6 +423,33 @@ func RunChecks(t Task, dir, output string) []CheckResult {
 				if !cr.Pass {
 					cr.Detail = fmt.Sprintf("%s %q in %s", chk.Kind, chk.Value, chk.File)
 				}
+			}
+		case "file-count":
+			// Direct (non-recursive) regular-file count of a directory.
+			// Memory-semantics tasks use it as a write-detector: "the
+			// transient state must NOT have landed in the memory layer"
+			// is exactly "the dir still holds N files" — deterministic,
+			// and immune to the model explaining its own restraint in
+			// prose (which a content-substring check would trip on).
+			entries, derr := os.ReadDir(filepath.Join(dir, filepath.FromSlash(chk.File)))
+			if derr != nil {
+				cr.Detail = "read dir " + chk.File + ": " + derr.Error()
+				break
+			}
+			n := 0
+			for _, e := range entries {
+				if !e.IsDir() {
+					n++
+				}
+			}
+			want, werr := strconv.Atoi(strings.TrimSpace(chk.Value))
+			if werr != nil {
+				cr.Detail = "bad count value " + chk.Value
+				break
+			}
+			cr.Pass = n == want
+			if !cr.Pass {
+				cr.Detail = fmt.Sprintf("dir %s holds %d files, want %d", chk.File, n, want)
 			}
 		case "output-contains":
 			cr.Pass = strings.Contains(output, chk.Value)
