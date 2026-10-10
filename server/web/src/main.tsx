@@ -15,6 +15,7 @@ import { useAuthStore, refreshUser, refreshAccessToken, isAccessTokenNearExpiry 
 import { startUpdateChecker } from './lib/update-checker'
 import { postDesktopRunnerToken, isDesktopShell } from './lib/desktop-runner-context'
 import { installIMECaretFix } from './lib/ime-caret-fix'
+import { installFileDropGuard } from './lib/file-drop-guard'
 import './index.css'
 
 // WebView2 (Windows desktop) IME workaround. RE-ENABLED after the ws-683
@@ -25,6 +26,13 @@ import './index.css'
 // re-anchoring the candidate to the caret. No-op on non-Windows. Root-cause fix
 // for candidate positioning is a WebView2 Runtime upgrade (see issue #478 / docs).
 installIMECaretFix()
+
+// File drops that no drop zone handled must never navigate the renderer to the
+// dropped file — in the desktop shell that replaces the whole app with the
+// file's contents and there is no back button. Counterpart of desktop-v2's
+// `Html5DragDrop` (which re-enables HTML5 drag and drop in the webview); see
+// the module for the full chain.
+installFileDropGuard()
 
 const queryClient = new QueryClient({
   defaultOptions: {

@@ -9,6 +9,33 @@ use crate::config::DesktopConfig;
 use crate::i18n;
 use crate::state::{ConnInfo, RebuildingState};
 
+/// 每个 webview 创建链都必须带上 `.html5_drag_drop()` —— 关闭 Tauri 的原生拖放
+/// 拦截，让网页拿回标准 HTML5 拖放。
+///
+/// Tauri 2 默认开启原生拖放（`drag_drop_handler_enabled = true`）：Windows 上
+/// tauri-runtime-wry 会调用 `with_drag_drop_handler`，wry 随即为窗口挂一个原生
+/// OLE drop target（wry 的 webview2/drag_drop.rs → DragDropController），顶掉
+/// WebView2 自带的 HTML5 拖放 —— 网页根本收不到 drag/drop 事件。这就是「桌面端
+/// 把文件拖进工作空间 chat-input 毫无反应、而粘贴正常」的原因：粘贴走剪贴板，
+/// 不经过拖放通道。Tauri 对此的原话是 "This is required to use HTML5 drag and
+/// drop APIs on the frontend on Windows"。
+///
+/// 应用没有任何代码消费 Tauri 的原生拖放事件（tauri://drag-drop），所以关掉拦截
+/// 不丢任何能力：前端沿用标准 HTML5 拖放（与浏览器同一套代码），拖拽上传恢复。
+/// 未命中落点的文件拖放由前端 `installFileDropGuard` 兜底，不会触发 WebView2
+/// 默认的「导航到该文件」。内嵌的外部 AI 网页同理受益（其附件区也是 HTML5 拖放）。
+///
+/// 用 trait 而非裸调用：策略有名可 grep（新增窗口漏带时一查即知），说明只此一处。
+pub trait Html5DragDrop: Sized {
+    fn html5_drag_drop(self) -> Self;
+}
+
+impl<'a> Html5DragDrop for WebviewWindowBuilder<'a, tauri::Wry, tauri::AppHandle> {
+    fn html5_drag_drop(self) -> Self {
+        self.disable_drag_drop_handler()
+    }
+}
+
 /// WebView2 用户数据目录：固定到 ~/.niuniu/webview2（绝对路径，跨构建稳定，
 /// 对齐 v1 main.go 的 WebviewUserDataPath）。避免启动上下文未继承 LOCALAPPDATA
 /// 时 Tauri 解析失败、wry 回退到 CWD 下 <exename>.WebView2。
@@ -197,6 +224,7 @@ pub fn create_main_window(
     // 挂死主线程——见 webview_gate.rs 模块注释）。
     let win = crate::webview_gate::gated_create(app, || {
         WebviewWindowBuilder::new(app, "main", WebviewUrl::External(splash_data_url(lang)))
+            .html5_drag_drop()
             .title(title)
             .inner_size(1440.0, 900.0)
             .min_inner_size(800.0, 600.0)
@@ -215,6 +243,7 @@ pub fn create_main_window(
 pub fn create_picker_window(app: &tauri::AppHandle, lang: &str) -> tauri::Result<WebviewWindow> {
     let win = crate::webview_gate::gated_create(app, || {
         WebviewWindowBuilder::new(app, "picker", WebviewUrl::App("index.html".into()))
+            .html5_drag_drop()
             .title(i18n::manage_title(lang))
             .inner_size(1280.0, 800.0)
             .visible(false)
@@ -239,6 +268,7 @@ pub fn create_picker_window(app: &tauri::AppHandle, lang: &str) -> tauri::Result
 pub fn create_ai_hub_window(app: &tauri::AppHandle, lang: &str) -> tauri::Result<WebviewWindow> {
     let win = crate::webview_gate::gated_create(app, || {
         WebviewWindowBuilder::new(app, "ai-hub", WebviewUrl::App("ai.html".into()))
+            .html5_drag_drop()
             .title(i18n::ai_title(lang))
             .inner_size(980.0, 720.0)
             .visible(false)
@@ -270,6 +300,7 @@ pub fn create_ai_hub_window(app: &tauri::AppHandle, lang: &str) -> tauri::Result
 pub fn create_runners_window(app: &tauri::AppHandle, lang: &str) -> tauri::Result<WebviewWindow> {
     let win = crate::webview_gate::gated_create(app, || {
         WebviewWindowBuilder::new(app, "runners", WebviewUrl::App("runners.html".into()))
+            .html5_drag_drop()
             .title(i18n::runners_title(lang))
             .inner_size(900.0, 640.0)
             .visible(false)
@@ -315,6 +346,7 @@ pub fn open_connection_window(
         let url = connecting_splash_url(&lang, &info.name, &target);
         let built = crate::webview_gate::gated_create(&app, || {
             WebviewWindowBuilder::new(&app, &label, WebviewUrl::External(url))
+                .html5_drag_drop()
                 .title(i18n::remote_title(&lang, &info.name, &base))
                 .inner_size(1280.0, 840.0)
                 .visible(false)
