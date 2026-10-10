@@ -13,7 +13,7 @@ use crate::config;
 use crate::i18n;
 use crate::server;
 use crate::state::{AiState, AppMeta, CfgState, ConnInfo, ConnState, DiscoverState, ServerState};
-use crate::windows;
+use crate::windows::{self, Html5DragDrop};
 
 // ─── 连接管理 ──────────────────────────────────────────────────────────────
 
@@ -750,6 +750,7 @@ pub fn activate_ai_service(app: tauri::AppHandle, id: String) -> Result<AIActiva
         // 挂死主线程（表现为同时开多窗口时整个应用卡死、页面加载不出）。
         let built = crate::webview_gate::gated_create(&app2, || {
             tauri::WebviewWindowBuilder::new(&app2, &label, tauri::WebviewUrl::External(parsed_url))
+                .html5_drag_drop()
                 .title(format!("{} · {}", i18n::ai_title(&lang), name))
                 .decorations(false)
                 // 无框窗口默认带 DWM「无装饰阴影」：tao 的 WM_NCCALCSIZE 会按
