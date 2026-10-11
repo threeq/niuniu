@@ -37,7 +37,7 @@ WHERE o.org_id = sqlc.arg(org_id)
        OR (sqlc.arg(outcome) = 'pending' AND o.action = 'integration.approval.escalated'))
   AND o.created_at >= COALESCE(sqlc.narg(from_ts), o.created_at)
   AND o.created_at <= COALESCE(sqlc.narg(to_ts), o.created_at)
-ORDER BY o.id DESC
+ORDER BY o.created_at DESC, o.id DESC
 LIMIT sqlc.arg(lim) OFFSET sqlc.arg(off);
 
 -- name: CountOrgApprovalAudit :one

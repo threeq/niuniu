@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -145,6 +146,46 @@ var csvHeader = []string{
 	"body_sha256", "body_bytes", "body_fields", "note",
 }
 
+// csvSafeCell neutralises spreadsheet formula injection.
+//
+// Every value in this export is influenced by the people being audited: the
+// provider name, the (redacted) statement summary, an approval's subject label
+// and note, a member's display name, even the body-fingerprint field names. A
+// cell starting with =, +, -, @, TAB or CR is evaluated as a formula by Excel /
+// Sheets / LibreOffice, so an audited member could plant one and have it run on
+// the auditor's machine when the compliance export is opened. Prefixing such a
+// cell with a single quote is the standard mitigation: spreadsheets then treat
+// it as literal text. Already-literal cells are untouched, and the export's own
+// numeric/timestamp columns never start with a trigger character.
+//
+// Two checks, because the two families of importer disagree about whitespace:
+// the raw first byte catches TAB/CR-led cells, and the first non-space byte
+// catches " =1" which some importers still evaluate.
+func csvSafeCell(v string) string {
+	if v == "" {
+		return v
+	}
+	switch v[0] {
+	case '=', '+', '-', '@', '\t', '\r':
+		return "'" + v
+	}
+	if trimmed := strings.TrimLeft(v, " \t\r\n"); trimmed != "" {
+		switch trimmed[0] {
+		case '=', '+', '-', '@':
+			return "'" + v
+		}
+	}
+	return v
+}
+
+// csvSafeRow applies csvSafeCell to every cell of a row.
+func csvSafeRow(row []string) []string {
+	for i := range row {
+		row[i] = csvSafeCell(row[i])
+	}
+	return row
+}
+
 // csvRow flattens one feed item into the header's column order.
 func csvRow(it service.OrgActivityItem) []string {
 	row := make([]string, len(csvHeader))
@@ -187,7 +228,7 @@ func csvRow(it service.OrgActivityItem) []string {
 		row[10] = it.Status
 		row[16] = firstNonEmpty(it.Note, it.Summary)
 	}
-	return row
+	return csvSafeRow(row)
 }
 
 func firstNonEmpty(vals ...string) string {
@@ -241,16 +282,15 @@ func (s *Server) orgIntegrationActivityExport(c *gin.Context) {
 		return
 	}
 
-	counts, err := s.integrationAuditSvc.OrgActivityCounts(c.Request.Context(), in)
+	// Collect the whole set BEFORE writing a byte. The CSV header commits the
+	// response, so streaming would turn a later failure into a truncated file
+	// that still looks like a valid export -- the one outcome a compliance
+	// artefact must never have. An over-cap range therefore still answers with
+	// a clean 400.
+	items, err := s.integrationAuditSvc.ExportOrgActivity(c.Request.Context(), in)
 	if err != nil {
 		writeActivityErr(c, err)
 		return
-	}
-	for _, n := range counts {
-		if n > service.MaxExportRows {
-			c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{"code": "BAD_REQUEST", "message": "结果集过大，请缩小时间范围或增加过滤条件"}})
-			return
-		}
 	}
 
 	label, _ := c.Get("auth_username")
@@ -264,16 +304,15 @@ func (s *Server) orgIntegrationActivityExport(c *gin.Context) {
 
 	w := csv.NewWriter(c.Writer)
 	_ = w.Write(csvHeader)
-
-	rows := 0
-	// A write error here means the client went away mid-download; there is no
-	// way to report it through the (already committed) response, so it is
-	// surfaced only to the caller's own stream.
-	_ = s.integrationAuditSvc.ExportOrgActivity(c.Request.Context(), in, func(it service.OrgActivityItem) error {
-		rows++
-		return w.Write(csvRow(it))
-	})
+	for _, it := range items {
+		// A write error now only means the client went away mid-download; the
+		// data itself is already fully in hand, so there is nothing to truncate.
+		if err := w.Write(csvRow(it)); err != nil {
+			break
+		}
+	}
 	w.Flush()
+	rows := len(items)
 
 	filters := map[string]any{
 		"kind":             in.Kind,

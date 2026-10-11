@@ -217,48 +217,33 @@ func (s *IntegrationAuditService) ListOrgActivity(ctx context.Context, in OrgAct
 	return &OrgActivityPage{Items: page, Total: total, Limit: limit, Offset: offset}, nil
 }
 
-// ExportOrgActivity streams every row matching the filters, newest first, to
-// fn. It exists so a compliance export covers the whole filtered range rather
-// than the page the admin happens to be looking at. Each source is capped at
-// maxExportRows; exceeding the cap is an error rather than a silent
-// truncation, because a truncated compliance artefact is worse than none.
-func (s *IntegrationAuditService) ExportOrgActivity(ctx context.Context, in OrgActivityInput, fn func(OrgActivityItem) error) error {
+// ExportOrgActivity returns EVERY row matching the filters, newest first, so a
+// compliance export covers the whole filtered range rather than the page the
+// admin happens to be looking at.
+//
+// It returns the complete set instead of streaming it because the HTTP layer
+// must write the CSV header before the first row, and a header already on the
+// wire cannot be taken back -- streaming would turn any later failure (a DB
+// error, or a cap breach) into a truncated file that still looks valid. Each
+// source is capped at MaxExportRows, which also bounds what is buffered here.
+func (s *IntegrationAuditService) ExportOrgActivity(ctx context.Context, in OrgActivityInput) ([]OrgActivityItem, error) {
 	if _, _, err := normaliseOrgPage(in); err != nil {
-		return err
+		return nil, err
 	}
-
 	items, counts, err := s.collectOrgActivity(ctx, in, MaxExportRows+1)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	for _, n := range counts {
 		if n > MaxExportRows {
-			return ErrExportTooLarge
+			return nil, ErrExportTooLarge
 		}
 	}
-	for _, it := range items {
-		if err := fn(it); err != nil {
-			return err
-		}
-	}
-	return nil
+	return items, nil
 }
 
 // ErrExportTooLarge reports that the filtered range exceeds the export cap.
 var ErrExportTooLarge = errors.New("export range too large; narrow the filters")
-
-// OrgActivityCounts returns the per-source row counts for the filters, without
-// fetching any rows. The export handler uses it to refuse an over-cap export
-// BEFORE it starts streaming, since a header already sent cannot be taken back.
-func (s *IntegrationAuditService) OrgActivityCounts(ctx context.Context, in OrgActivityInput) (map[string]int64, error) {
-	if _, _, err := normaliseOrgPage(in); err != nil {
-		return nil, err
-	}
-	// window=1: the counts come from independent COUNT queries, so the fetched
-	// window does not affect them.
-	_, counts, err := s.collectOrgActivity(ctx, in, 1)
-	return counts, err
-}
 
 // RecordAuditExport appends an entry to the org's append-only audit log saying
 // who pulled the audit trail and with which filters. The export changes
@@ -433,11 +418,14 @@ func (s *IntegrationAuditService) collectOrgActivity(ctx context.Context, in Org
 		}
 	}
 
-	// Newest first; id breaks same-timestamp ties so a page boundary never
-	// drops or duplicates a pair. Every source orders by id DESC, so ids are
-	// only comparable WITHIN a kind -- the timestamp is the cross-kind key and
-	// the id tiebreak is applied per kind, which is stable because the merge
-	// is deterministic.
+	// Newest first, id breaking same-timestamp ties. The window-fetch argument
+	// above is only exact if each source is queried in the SAME order it is
+	// merged in, which is why every List* query orders by (created_at DESC,
+	// id DESC) -- ordering by id alone would be equivalent only while ids
+	// happen to track time, and a single back-dated row would then let a page
+	// boundary drop a row. Ids are comparable only within a kind, so the
+	// timestamp is the cross-kind key and the id tiebreak is per kind, which is
+	// stable because the merged slice is a deterministic function of the rows.
 	sort.SliceStable(items, func(i, j int) bool {
 		if !items[i].CreatedAt.Equal(items[j].CreatedAt) {
 			return items[i].CreatedAt.After(items[j].CreatedAt)

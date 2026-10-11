@@ -40,7 +40,12 @@ const (
 //	2026-10-05  data      member   personal source     ok
 //	2026-10-06  api       outsider org credential      GET  /x     200   <- excluded
 //	2026-10-07  org_audit member.added (not an approval)                 <- excluded
-//	2026-10-08  api       acme?    other org's row                        <- excluded
+//	2026-10-08  org_audit other org's approval decision                  <- excluded
+//	2026-10-09  api       owner    OTHER org's credential GET /b-org 200 <- excluded (cross-tenant)
+//	2026-10-10  data      owner    OTHER org's source                     <- excluded (cross-tenant)
+//
+// The owner (user 9) is deliberately a member of BOTH orgs: membership alone
+// must never be enough to surface another org's credential or source.
 func orgAuditFixture(t *testing.T) (*sql.DB, *service.IntegrationAuditService, *service.Authz) {
 	t.Helper()
 	db, q := niutest.SetupDBRaw(t)
@@ -64,17 +69,19 @@ func orgAuditFixture(t *testing.T) (*sql.DB, *service.IntegrationAuditService, *
 			u.id, "user"+u.id, u.name, u.role)
 	}
 	exec(`INSERT INTO organizations (id, slug, name, created_by) VALUES (100, 'acme', 'Acme', 7), (101, 'other', 'Other', 7)`)
-	exec(`INSERT INTO org_members (org_id, user_id, role) VALUES (100, 7, 'admin'), (100, 8, 'member'), (100, 9, 'owner'), (101, 50, 'member')`)
+	exec(`INSERT INTO org_members (org_id, user_id, role) VALUES (100, 7, 'admin'), (100, 8, 'member'), (100, 9, 'owner'), (101, 50, 'member'), (101, 9, 'member')`)
 
 	exec(`INSERT INTO external_providers (id, name, api_base_url) VALUES (10, 'github', 'https://api.github.com')`)
 	exec(`INSERT INTO external_provider_credentials (id, owner_type, owner_id, user_id, provider, alias)
 	      VALUES (30, 'org', 100, 7, 'github', 'acme-ci'),
 	             (31, 'user', 7, 8, 'github', 'bob-personal'),
-	             (32, 'org', 100, 50, 'github', 'outsider-org')`)
+	             (32, 'org', 100, 50, 'github', 'outsider-org'),
+	             (33, 'org', 101, 9, 'github', 'other-org-ci')`)
 
 	exec(`INSERT INTO data_sources (id, owner_type, owner_id, user_id, name, kind) VALUES
 	        (20, 'org', 100, 7, 'acme-warehouse', 'postgres'),
-	        (21, 'user', 8, 8, 'bob-scratch', 'postgres')`)
+	        (21, 'user', 8, 8, 'bob-scratch', 'postgres'),
+	        (22, 'org', 101, 9, 'other-org-warehouse', 'postgres')`)
 
 	// The project dimension: one project of the org, with the org credential
 	// and the org data source bound to it. "What did this project's agents do"
@@ -115,6 +122,12 @@ func orgAuditFixture(t *testing.T) (*sql.DB, *service.IntegrationAuditService, *
 	exec(`INSERT INTO org_audit_log (org_id, actor_user_id, actor_label, action, target_type, target_id, payload, created_at)
 	      VALUES (101, 50, 'Out Sider', 'integration.approval.denied', 'integration_approval', 88,
 	              '{"action":"publish","subject_label":"other-org"}', '2026-10-08 10:00:00')`)
+	// The owner is a member of BOTH orgs; these two rows carry org 101's
+	// credential and source and must stay out of org 100's feed.
+	exec(`INSERT INTO external_api_audit (user_id, provider_id, credential_id, method, path, status_code, created_at)
+	      VALUES (9, 10, 33, 'GET', '/b-org', 200, '2026-10-09 10:00:00')`)
+	exec(`INSERT INTO data_source_audit (user_id, source_id, access_mode, database_name, objects, statement_summary, status, "rows", duration_ms, created_at)
+	      VALUES (9, 22, 'read', 'app', '[]', 'SELECT other-org', 'ok', 1, 3, '2026-10-10 10:00:00')`)
 
 	return db, service.NewIntegrationAuditService(q), service.NewAuthz(q, db)
 }
@@ -322,44 +335,32 @@ func TestOrgActivity_EnrichesPeopleSourcesAndCredentials(t *testing.T) {
 	}
 }
 
-func TestOrgActivityExport_StreamsEveryFilteredRow(t *testing.T) {
+func TestOrgActivityExport_ReturnsEveryFilteredRow(t *testing.T) {
 	_, svc, _ := orgAuditFixture(t)
 
-	var got []service.OrgActivityItem
-	err := svc.ExportOrgActivity(context.Background(), service.OrgActivityInput{OrgID: orgAcme}, func(it service.OrgActivityItem) error {
-		got = append(got, it)
-		return nil
-	})
+	got, err := svc.ExportOrgActivity(context.Background(), service.OrgActivityInput{OrgID: orgAcme})
 	if err != nil {
 		t.Fatalf("ExportOrgActivity: %v", err)
 	}
 	if len(got) != 5 {
 		t.Fatalf("export: want all 5 matching rows (not just one page), got %d", len(got))
 	}
-	// Export must honour the filters, not widen to everything.
-	got = nil
-	if err := svc.ExportOrgActivity(context.Background(), service.OrgActivityInput{OrgID: orgAcme, Kind: service.ActivityKindAPI}, func(it service.OrgActivityItem) error {
-		got = append(got, it)
-		return nil
-	}); err != nil {
+	// The whole set comes back before the caller writes anything, so a failure
+	// can never leave a half-written file behind.
+	if _, err := svc.ExportOrgActivity(context.Background(), service.OrgActivityInput{OrgID: orgAcme, Kind: service.ActivityKindAPI}); err != nil {
 		t.Fatalf("filtered export: %v", err)
 	}
-	if len(got) != 2 {
-		t.Fatalf("filtered export: want 2 api rows, got %d", len(got))
-	}
-}
-
-func TestOrgActivity_CountsMatchTheFeed(t *testing.T) {
-	_, svc, _ := orgAuditFixture(t)
-
-	counts, err := svc.OrgActivityCounts(context.Background(), service.OrgActivityInput{OrgID: orgAcme})
+	filtered, err := svc.ExportOrgActivity(context.Background(), service.OrgActivityInput{OrgID: orgAcme, Kind: service.ActivityKindAPI})
 	if err != nil {
-		t.Fatalf("OrgActivityCounts: %v", err)
+		t.Fatalf("filtered export: %v", err)
 	}
-	want := map[string]int64{service.ActivityKindAPI: 2, service.ActivityKindData: 2, service.ActivityKindApproval: 1}
-	for k, n := range want {
-		if counts[k] != n {
-			t.Errorf("counts[%s]: want %d, got %d", k, n, counts[k])
+	if len(filtered) != 2 {
+		t.Fatalf("filtered export: want 2 api rows, got %d", len(filtered))
+	}
+	// Export must honour the org scope too, not just the kind.
+	for _, it := range got {
+		if it.CredentialOwnerID == orgOther || it.SourceOwnerID == orgOther {
+			t.Errorf("export leaked org %d's resource: %+v", orgOther, it)
 		}
 	}
 }
@@ -409,9 +410,12 @@ func TestOrgActivityExport_RefusesOverCapRange(t *testing.T) {
 	service.MaxExportRows = 1
 	t.Cleanup(func() { service.MaxExportRows = orig })
 
-	err := svc.ExportOrgActivity(context.Background(), service.OrgActivityInput{OrgID: orgAcme}, func(service.OrgActivityItem) error { return nil })
+	items, err := svc.ExportOrgActivity(context.Background(), service.OrgActivityInput{OrgID: orgAcme})
 	if !errors.Is(err, service.ErrExportTooLarge) {
 		t.Fatalf("over-cap export: want ErrExportTooLarge (a truncated compliance export is worse than none), got %v", err)
+	}
+	if items != nil {
+		t.Errorf("over-cap export: want no rows handed back, got %d", len(items))
 	}
 }
 
@@ -464,5 +468,40 @@ func TestOrgActivity_ProjectFilter(t *testing.T) {
 	// ...and a project with no bindings matches nothing.
 	if p := listOrg(t, svc, service.OrgActivityInput{ProjectID: 999}); p.Total != 0 {
 		t.Errorf("unbound project: want 0, got %d", p.Total)
+	}
+}
+
+// A user can belong to several orgs. Membership alone must not surface a call
+// made with ANOTHER org's credential: the alias and owner id would be that
+// tenant's data. This is the leak the per-org owner guard exists to stop.
+func TestOrgActivity_DoesNotLeakAnotherOrgsCredentialsOrSources(t *testing.T) {
+	db, svc, _ := orgAuditFixture(t)
+
+	var dual int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM org_members WHERE user_id = 9`).Scan(&dual); err != nil {
+		t.Fatalf("count memberships: %v", err)
+	}
+	if dual != 2 {
+		t.Fatalf("fixture must model dual membership, got %d orgs for user 9", dual)
+	}
+
+	mine := listOrg(t, svc, service.OrgActivityInput{Limit: 50})
+	if mine.Total != 5 {
+		t.Fatalf("org 100 feed: want 5 (the dual member's other-tenant rows must not appear), got %d", mine.Total)
+	}
+	for _, it := range mine.Items {
+		if it.CredentialOwnerID == orgOther || it.SourceOwnerID == orgOther {
+			t.Errorf("org 100's feed carries org %d's resource: %+v", orgOther, it)
+		}
+	}
+
+	// The same rows ARE visible to the org that owns them -- the guard scopes,
+	// it does not hide.
+	other, err := svc.ListOrgActivity(context.Background(), service.OrgActivityInput{OrgID: orgOther, Limit: 50})
+	if err != nil {
+		t.Fatalf("ListOrgActivity(org 101): %v", err)
+	}
+	if other.Total != 3 { // the dual member's 2 rows + org 101's own approval
+		t.Fatalf("org 101 feed: want 3, got %d", other.Total)
 	}
 }

@@ -69,6 +69,7 @@ WHERE (CAST(?2 AS BIGINT) = 0 OR d.user_id = ?2)
             SELECT b.source_id FROM data_source_bindings b
             WHERE b.target_type = 'project'
               AND b.target_id = ?4))
+  AND (s.owner_type IS NULL OR s.owner_type <> 'org' OR s.owner_id = ?1)
   AND (CAST(?5 AS TEXT) = ''
        OR COALESCE(s.owner_type, '') = CAST(?5 AS TEXT))
   AND (CAST(?6 AS TEXT) = ''
@@ -474,6 +475,7 @@ WHERE (CAST(?2 AS BIGINT) = 0 OR d.user_id = ?2)
             SELECT b.source_id FROM data_source_bindings b
             WHERE b.target_type = 'project'
               AND b.target_id = ?4))
+  AND (s.owner_type IS NULL OR s.owner_type <> 'org' OR s.owner_id = ?1)
   AND (CAST(?5 AS TEXT) = ''
        OR COALESCE(s.owner_type, '') = CAST(?5 AS TEXT))
   AND (CAST(?6 AS TEXT) = ''
@@ -481,7 +483,7 @@ WHERE (CAST(?2 AS BIGINT) = 0 OR d.user_id = ?2)
        OR (?6 = 'error' AND d.status <> 'ok'))
   AND d.created_at >= COALESCE(?7, d.created_at)
   AND d.created_at <= COALESCE(?8, d.created_at)
-ORDER BY d.id DESC
+ORDER BY d.created_at DESC, d.id DESC
 LIMIT ?10 OFFSET ?9
 `
 

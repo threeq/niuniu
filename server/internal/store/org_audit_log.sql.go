@@ -98,7 +98,7 @@ WHERE o.org_id = ?1
        OR (?4 = 'pending' AND o.action = 'integration.approval.escalated'))
   AND o.created_at >= COALESCE(?5, o.created_at)
   AND o.created_at <= COALESCE(?6, o.created_at)
-ORDER BY o.id DESC
+ORDER BY o.created_at DESC, o.id DESC
 LIMIT ?8 OFFSET ?7
 `
 

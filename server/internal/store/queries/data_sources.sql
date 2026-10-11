@@ -72,6 +72,7 @@ WHERE (CAST(sqlc.arg(member_id) AS BIGINT) = 0 OR d.user_id = sqlc.arg(member_id
             SELECT b.source_id FROM data_source_bindings b
             WHERE b.target_type = 'project'
               AND b.target_id = sqlc.arg(project_id)))
+  AND (s.owner_type IS NULL OR s.owner_type <> 'org' OR s.owner_id = sqlc.arg(org_id))
   AND (CAST(sqlc.arg(credential_scope) AS TEXT) = ''
        OR COALESCE(s.owner_type, '') = CAST(sqlc.arg(credential_scope) AS TEXT))
   AND (CAST(sqlc.arg(outcome) AS TEXT) = ''
@@ -79,7 +80,7 @@ WHERE (CAST(sqlc.arg(member_id) AS BIGINT) = 0 OR d.user_id = sqlc.arg(member_id
        OR (sqlc.arg(outcome) = 'error' AND d.status <> 'ok'))
   AND d.created_at >= COALESCE(sqlc.narg(from_ts), d.created_at)
   AND d.created_at <= COALESCE(sqlc.narg(to_ts), d.created_at)
-ORDER BY d.id DESC
+ORDER BY d.created_at DESC, d.id DESC
 LIMIT sqlc.arg(lim) OFFSET sqlc.arg(off);
 
 -- name: CountOrgDataSourceAudit :one
@@ -94,6 +95,7 @@ WHERE (CAST(sqlc.arg(member_id) AS BIGINT) = 0 OR d.user_id = sqlc.arg(member_id
             SELECT b.source_id FROM data_source_bindings b
             WHERE b.target_type = 'project'
               AND b.target_id = sqlc.arg(project_id)))
+  AND (s.owner_type IS NULL OR s.owner_type <> 'org' OR s.owner_id = sqlc.arg(org_id))
   AND (CAST(sqlc.arg(credential_scope) AS TEXT) = ''
        OR COALESCE(s.owner_type, '') = CAST(sqlc.arg(credential_scope) AS TEXT))
   AND (CAST(sqlc.arg(outcome) AS TEXT) = ''

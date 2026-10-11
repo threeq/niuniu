@@ -50,6 +50,7 @@ WHERE (CAST(?2 AS BIGINT) = 0 OR a.user_id = ?2)
             SELECT pes.credential_id FROM project_external_sources pes
             WHERE pes.project_id = ?4
               AND pes.credential_id IS NOT NULL))
+  AND (c.owner_type IS NULL OR c.owner_type <> 'org' OR c.owner_id = ?1)
   AND (CAST(?5 AS TEXT) = ''
        OR COALESCE(c.owner_type, '') = CAST(?5 AS TEXT))
   AND (CAST(?6 AS TEXT) = ''
@@ -359,6 +360,7 @@ WHERE (CAST(?2 AS BIGINT) = 0 OR a.user_id = ?2)
             SELECT pes.credential_id FROM project_external_sources pes
             WHERE pes.project_id = ?4
               AND pes.credential_id IS NOT NULL))
+  AND (c.owner_type IS NULL OR c.owner_type <> 'org' OR c.owner_id = ?1)
   AND (CAST(?5 AS TEXT) = ''
        OR COALESCE(c.owner_type, '') = CAST(?5 AS TEXT))
   AND (CAST(?6 AS TEXT) = ''
@@ -366,7 +368,7 @@ WHERE (CAST(?2 AS BIGINT) = 0 OR a.user_id = ?2)
        OR (?6 = 'error' AND a.status_code >= 400))
   AND a.created_at >= COALESCE(?7, a.created_at)
   AND a.created_at <= COALESCE(?8, a.created_at)
-ORDER BY a.id DESC
+ORDER BY a.created_at DESC, a.id DESC
 LIMIT ?10 OFFSET ?9
 `
 
@@ -409,6 +411,12 @@ type ListOrgExternalApiAuditRow struct {
 // is reported as unattributed rather than guessed at. outcome maps onto the
 // HTTP status code: 'ok' < 400, 'error' >= 400. member_id/provider_id = 0
 // means "any".
+//
+// Cross-tenant guard: a user may belong to several orgs, so membership alone
+// would surface a call made with ANOTHER org's credential (with that org's
+// alias and owner id) to this org's admin. Rows whose credential belongs to a
+// different org are therefore excluded outright; a member's own credential
+// (owner_type='user') and an unattributed row (credential_id 0, c NULL) stay.
 //
 // project_id narrows to the integrations BOUND to that project. The audit row
 // itself has no project column (a credential is org- or user-owned, and one

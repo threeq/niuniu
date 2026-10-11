@@ -237,3 +237,47 @@ func TestAuditViewHasNoMutatingRoute(t *testing.T) {
 		t.Fatalf("expected at least the personal and org audit routes, matched %d", checked)
 	}
 }
+
+// The export is opened in a spreadsheet by the auditor; the values in it were
+// chosen by the people being audited. A cell starting with =, +, -, @, TAB or
+// CR would be evaluated as a formula in Excel / Sheets / LibreOffice, letting
+// an audited member plant code that runs on the auditor's machine.
+func TestCsvExport_NeutralisesSpreadsheetFormulaInjection(t *testing.T) {
+	for _, tc := range []struct {
+		in, want string
+	}{
+		{`=HYPERLINK("http://evil/","x")`, `'=HYPERLINK("http://evil/","x")`},
+		{"+SUM(1)", "'+SUM(1)"},
+		{"-2+3", "'-2+3"},
+		{"@import", "'@import"},
+		{"\tcmd", "'\tcmd"},
+		{"\r=1", "'\r=1"},
+		{" =1", "' =1"},
+		{"SELECT 1", "SELECT 1"},
+		{"2026-10-01T10:00:00Z", "2026-10-01T10:00:00Z"},
+		{"", ""},
+	} {
+		if got := csvSafeCell(tc.in); got != tc.want {
+			t.Errorf("csvSafeCell(%q) = %q, want %q", tc.in, got, tc.want)
+		}
+	}
+
+	// A whole row is sanitised, not just the fields we remembered.
+	row := csvRow(service.OrgActivityItem{
+		Kind:             service.ActivityKindData,
+		UserName:         "@import",
+		SourceName:       "+SUM(1)",
+		StatementSummary: `=HYPERLINK("http://evil/","x")`,
+	})
+	for i, cell := range row {
+		if cell == "" {
+			continue
+		}
+		if strings.ContainsRune("=+-@", rune(cell[0])) {
+			t.Errorf("export column %d (%q) still starts with a formula trigger", i, cell)
+		}
+	}
+	if row[9] != `'=HYPERLINK("http://evil/","x")` {
+		t.Errorf("statement summary not neutralised: %q", row[9])
+	}
+}
