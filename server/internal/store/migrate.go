@@ -573,6 +573,12 @@ func Migrate(db *sql.DB) {
 	// (CREATE TABLE IF NOT EXISTS runs on every startup).
 	MigrateIntegrationHealth(db)
 
+	// Operable capability descriptions (Epic #726 / #738): the
+	// integration_capabilities table for pre-existing DBs.
+	if err := MigrateIntegrationCapabilities(db); err != nil {
+		slog.Error("MigrateIntegrationCapabilities failed", "error", err)
+	}
+
 	// External credential alias + credential_id migration.
 	migrateExternalCredentialAlias(db)
 
@@ -3798,6 +3804,38 @@ func MigrateIntegrationHealth(db *sql.DB) {
 	addColumnIfNotExists(db, "data_sources", "last_probe_error", "TEXT NOT NULL DEFAULT ''")
 	addColumnIfNotExists(db, "data_sources", "auto_disabled_at", tsCol+" DEFAULT NULL")
 	addColumnIfNotExists(db, "data_sources", "probe_interval_seconds", intCol+" NOT NULL DEFAULT 86400")
+}
+
+// MigrateIntegrationCapabilities creates the integration_capabilities table
+// (Epic #726 / #738) on pre-existing databases. Fresh databases get it from
+// schema.sql / schema_postgres.sql; this only backfills upgrades. Idempotent via
+// a schema_migrations marker, matching MigrateExternalProviders.
+func MigrateIntegrationCapabilities(db *sql.DB) error {
+	w := Wrap(db)
+	ctx := context.Background()
+
+	idCol, intCol, tsCol := "INTEGER PRIMARY KEY AUTOINCREMENT", "INTEGER", "DATETIME"
+	if Driver == "postgres" {
+		idCol, intCol, tsCol = "BIGSERIAL PRIMARY KEY", "BIGINT", "TIMESTAMPTZ"
+	}
+
+	if migrationApplied(w, "integration_capabilities_v1") {
+		return nil
+	}
+	if _, err := w.ExecContext(ctx, `CREATE TABLE IF NOT EXISTS integration_capabilities (
+		id `+idCol+`,
+		subject_kind TEXT NOT NULL CHECK (subject_kind IN ('provider','data_source')),
+		subject_id `+intCol+` NOT NULL,
+		source_digest TEXT NOT NULL DEFAULT '',
+		doc TEXT NOT NULL DEFAULT '',
+		created_at `+tsCol+` NOT NULL DEFAULT CURRENT_TIMESTAMP,
+		updated_at `+tsCol+` NOT NULL DEFAULT CURRENT_TIMESTAMP,
+		UNIQUE (subject_kind, subject_id)
+	)`); err != nil {
+		return fmt.Errorf("create integration_capabilities: %w", err)
+	}
+	markMigration(w, "integration_capabilities_v1")
+	return nil
 }
 
 // migrateHarnessSpecsTypedColumns adds typed config columns to harness_specs

@@ -127,6 +127,12 @@ func main() {
 	// which runs the three-layer gate + audit before executing a read-only query.
 	registerDataProxyTools(s, api)
 
+	// Operable capability descriptions (Epic #726 / #738) — describe_source
+	// returns how to drive a provider or data source (operations/scope, limits,
+	// examples), generated from the confirmed contract. The discovery surface
+	// that lets an agent onboard-and-use a new source without reading its docs.
+	registerCapabilityTools(s, api)
+
 	// Data dashboards — pin_query / list_dashboards tunnel to /mcp/dashboards/*.
 	// pin_query records the current workspace (from the session token) as the
 	// pinned query's origin so the chart can link back to this workspace.

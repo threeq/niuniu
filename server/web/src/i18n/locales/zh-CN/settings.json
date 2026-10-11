@@ -265,6 +265,28 @@
         "deleteSuccess": "Provider 已删除",
         "deleteFailed": "删除失败：{{error}}"
       }
+    },
+    "capability": {
+      "viewButton": "查看能力说明",
+      "title": "能力说明 · {{name}}",
+      "description": "系统依据已确认契约自动生成的可操作说明；只读，不能在此编辑。",
+      "loading": "加载中…",
+      "loadFailed": "无法加载能力说明。",
+      "kindProvider": "外部 API",
+      "kindDataSource": "数据源",
+      "operations": "可用操作",
+      "readOnly": "只读",
+      "write": "写/敏感",
+      "scope": "可用范围",
+      "scopeKind": "类型",
+      "scopeDatabases": "可用数据库",
+      "scopeAllow": "放行对象",
+      "scopeDeny": "排除对象",
+      "scopeAccessMode": "访问模式",
+      "examples": "示例",
+      "limits": "限制",
+      "agentBlock": "Agent 看到的内容",
+      "agentBlockHint": "以下内容会以“数据（非指令）”分区注入工作空间的指令文件，与实际下发完全一致。"
     }
   },
   "page": {

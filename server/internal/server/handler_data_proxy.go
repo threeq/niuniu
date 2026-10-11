@@ -242,6 +242,10 @@ func (s *Server) dataProxyCreateSource(c *gin.Context) {
 	}
 
 	resp := gin.H{"source": dto}
+	// Onboarding time: generate the operable capability description from the
+	// new source's confirmed metadata, so the agent can drive it right away
+	// (Epic #726 / #738).
+	s.refreshDataSourceCapability(c, dto.ID, userID, wsOrgIDs(ws))
 	if req.Verify {
 		verified, rolledBack, verr := s.dataSourceSvc.VerifyOrRollback(
 			c.Request.Context(), dto.ID, userID, wsOrgIDs(ws), req.KeepOnVerifyFail)
@@ -323,13 +327,23 @@ func (s *Server) dataProxySources(c *gin.Context) {
 
 	items := make([]gin.H, len(sources))
 	for i, src := range sources {
-		items[i] = gin.H{
+		item := gin.H{
 			"id":                  src.ID,
 			"name":                src.Name,
 			"kind":                src.Kind,
 			"default_access_mode": src.DefaultAccessMode,
 			"scope_config":        src.ScopeConfig,
 		}
+		// Operable capability description (Epic #726 / #738): the "how to drive
+		// this source" document, generated from the confirmed metadata and
+		// refreshed if the source digest moved. Never authored by a caller.
+		srcCopy := src
+		if s.capabilitySvc != nil {
+			if capDoc, err := s.capabilitySvc.EnsureDataSource(c.Request.Context(), &srcCopy); err == nil && capDoc != nil {
+				item["capability"] = capDoc
+			}
+		}
+		items[i] = item
 	}
 	c.JSON(http.StatusOK, gin.H{"items": items})
 }

@@ -124,6 +124,10 @@ type Server struct {
 	externalProxySvc    *service.ExternalProxyService
 	// Read side of the two integration audit tables (Epic #726 / #728).
 	integrationAuditSvc *service.IntegrationAuditService
+	// Operable capability descriptions (Epic #726 / #738): the "how to drive
+	// this source" document shared by the MCP discovery surface, the SPA
+	// visibility screen, and the workspace context injection.
+	capabilitySvc *service.CapabilityService
 
 	// Data integration (M1): owner-scoped SQL data sources + connector
 	// registry/pool. Parallel to the HTTP external-proxy above; see
@@ -1487,6 +1491,11 @@ func New(cfg *config.Config, db *sql.DB, frontendFS fs.FS) *Server {
 	// /mcp/data-proxy/query handler and the run_data_query MCP tool drive it.
 	s.dataProxySvc = service.NewDataProxyService(s.dataSourceSvc, s.dataconnRegistry, s.permService, s.queries)
 
+	// Operable capability descriptions (Epic #726 / #738). Depends on the
+	// provider, data-source and project-external-source services it resolves
+	// targets through.
+	s.capabilitySvc = service.NewCapabilityService(s.queries, db, providerSvc, s.dataSourceSvc, s.extSourceSvc)
+
 	// Data dashboards (M1): saved queries / dashboards / panels. PanelData
 	// reuses the data proxy gate, so the dashboard service depends on it.
 	s.dashboardSvc = service.NewDashboardService(s.queries, s.dataSourceSvc, s.dataconnRegistry, s.dataProxySvc)
@@ -1509,6 +1518,12 @@ func New(cfg *config.Config, db *sql.DB, frontendFS fs.FS) *Server {
 	// for direct read-only Read/Grep/Glob. Resolved per spawn so it tracks
 	// current bindings; same owner+project visibility gate as kb_search.
 	s.agentProxy.SetKBResolver(service.NewAgentProxyKBResolver(s.kbSvc))
+
+	// Operable capability descriptions (Epic #726 / #738): inject the bound
+	// providers'/data sources' capability sections into the workspace instruction
+	// file at spawn, so the agent knows what it can call and how. Resolved per
+	// spawn so a republished contract is reflected on the next start.
+	s.agentProxy.SetCapabilityResolver(service.NewAgentProxyCapabilityResolver(s.capabilitySvc))
 
 	// Knowledge-base management UI (Epic #496 · #498): REST layer over #497's
 	// KBService + raw-SQL lifecycle/binding columns. Drives the settings panel.
