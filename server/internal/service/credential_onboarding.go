@@ -67,6 +67,11 @@ var ErrCredentialLinkInvalid = errors.New("credential onboarding: invalid link d
 // field, bad type).
 var ErrCredentialSubmissionInvalid = errors.New("credential onboarding: invalid submission")
 
+// ErrCredentialOwnerMismatch is returned when a link bound to one owner is
+// redeemed against a project that now belongs to a different owner (issue
+// #742: cross-owner submit / takeover is refused).
+var ErrCredentialOwnerMismatch = errors.New("credential onboarding: link owner mismatch")
+
 // CredentialFieldSpec is one field the public submission form renders. Only
 // Label/Secret/Required/Placeholder are exposed to the browser — never a value.
 type CredentialFieldSpec struct {
@@ -233,10 +238,20 @@ func (s *CredentialOnboardingService) Issue(ctx context.Context, projectID, issu
 		return "", err
 	}
 
+	// Bind the link to its target owner at issue time (issue #742). Submit
+	// re-checks the project still resolves to this owner, so a link cannot be
+	// silently redirected to a different owner (cross-owner submit / takeover).
+	ownerType, ownerID, err := s.projectOwner(ctx, projectID)
+	if err != nil {
+		return "", err
+	}
+
 	if _, err := s.q.CreateCredentialOnboardingToken(ctx, store.CreateCredentialOnboardingTokenParams{
 		TokenHash:  hex.EncodeToString(hash[:]),
 		ProjectID:  projectID,
 		IssuedBy:   issuedBy,
+		OwnerType:  ownerType,
+		OwnerID:    ownerID,
 		Kind:       kind,
 		Title:      title,
 		FieldsJson: string(fieldsJSON),
@@ -245,7 +260,51 @@ func (s *CredentialOnboardingService) Issue(ctx context.Context, projectID, issu
 	}); err != nil {
 		return "", err
 	}
+	s.auditLink(ctx, ownerType, ownerID, issuedBy, "credential_link.issued", 0, map[string]any{
+		"kind":       kind,
+		"project_id": projectID,
+		"title":      title,
+	})
 	return rawToken, nil
+}
+
+// auditLink appends an org-scoped audit row for a credential-link lifecycle
+// event. Only org-owned targets are recorded (personal links keep the current
+// no-audit behavior). Best effort — a logging failure never fails the action.
+func (s *CredentialOnboardingService) auditLink(ctx context.Context, ownerType string, ownerID, actorUserID int64, action string, targetID int64, extra map[string]any) {
+	if ownerType != "org" {
+		return
+	}
+	payload := ""
+	if len(extra) > 0 {
+		if b, err := json.Marshal(extra); err == nil {
+			payload = string(b)
+		}
+	}
+	if err := s.q.AppendOrgAudit(ctx, store.AppendOrgAuditParams{
+		OrgID:       ownerID,
+		ActorUserID: sql.NullInt64{Int64: actorUserID, Valid: actorUserID != 0},
+		Action:      action,
+		TargetType:  "credential_onboarding_token",
+		TargetID:    targetID,
+		Payload:     payload,
+	}); err != nil {
+		slog.Warn("credential link audit write failed", "action", action, "org_id", ownerID, "error", err)
+	}
+}
+
+// RevokeUnusedOnboardingTokensByIssuerInOrg drops a departing member's unused
+// credential links inside the org, so a removed member leaves no redeemable
+// link behind (team-edition member lifecycle, issue #742). Scoped by the
+// token's bound owner: links the member issued in OTHER orgs stay intact.
+func (s *CredentialOnboardingService) RevokeUnusedOnboardingTokensByIssuerInOrg(ctx context.Context, orgID, userID int64) (int64, error) {
+	if userID == 0 {
+		return 0, nil
+	}
+	return s.q.DeleteUnusedCredentialOnboardingTokensByIssuerInOrg(ctx, store.DeleteUnusedCredentialOnboardingTokensByIssuerInOrgParams{
+		IssuedBy: userID,
+		OwnerID:  orgID,
+	})
 }
 
 // normalizeCredentialFields validates + de-duplicates the declared field names
@@ -430,6 +489,15 @@ func (s *CredentialOnboardingService) Submit(ctx context.Context, rawToken strin
 	if err != nil {
 		return nil, err
 	}
+	// Team-edition owner binding (issue #742): the token was issued against a
+	// specific target owner. If the project has since moved to a different owner
+	// (or the link is being replayed against another owner) the submission is
+	// refused — the credential can never be written under an owner it was not
+	// requested for. Legacy rows (owner_type='') keep the project-derived owner.
+	if row.OwnerType != "" && (row.OwnerType != ownerType || row.OwnerID != ownerID) {
+		return nil, fmt.Errorf("%w: token bound to %s/%d but project now belongs to %s/%d",
+			ErrCredentialOwnerMismatch, row.OwnerType, row.OwnerID, ownerType, ownerID)
+	}
 
 	// Claim the token BEFORE writing, with a conditional UPDATE that only the
 	// first redeemer can win. Validating first (above) keeps a bad submission
@@ -444,12 +512,20 @@ func (s *CredentialOnboardingService) Submit(ctx context.Context, rawToken strin
 		return nil, ErrCredentialTokenInvalid
 	}
 
+	// Attribute the write to the token's BOUND owner (issue #742) — the value
+	// captured at issue time, not a fresh derivation — so ownership is exactly
+	// what the requester asked for.
+	attrOwnerType, attrOwnerID := ownerType, ownerID
+	if row.OwnerType != "" {
+		attrOwnerType, attrOwnerID = row.OwnerType, row.OwnerID
+	}
+
 	var result *CredentialSubmitResult
 	switch row.Kind {
 	case CredentialKindProviderCredential:
-		result, err = s.submitProviderCredential(ctx, row, ownerType, ownerID, clean)
+		result, err = s.submitProviderCredential(ctx, row, attrOwnerType, attrOwnerID, clean)
 	case CredentialKindDataSource:
-		result, err = s.submitDataSource(ctx, row, ownerType, ownerID, clean)
+		result, err = s.submitDataSource(ctx, row, attrOwnerType, attrOwnerID, clean)
 	default:
 		return nil, fmt.Errorf("%w: unknown kind %q", ErrCredentialLinkInvalid, row.Kind)
 	}
@@ -457,6 +533,12 @@ func (s *CredentialOnboardingService) Submit(ctx context.Context, rawToken strin
 		slog.Warn("credential onboarding: write failed after token claim", "tokenID", row.ID, "kind", row.Kind, "error", err)
 		return nil, err
 	}
+	s.auditLink(ctx, attrOwnerType, attrOwnerID, row.IssuedBy, "credential_link.submitted", row.ID, map[string]any{
+		"kind":          row.Kind,
+		"project_id":    row.ProjectID,
+		"credential_id": result.CredentialID,
+		"source_id":     result.SourceID,
+	})
 	return result, nil
 }
 

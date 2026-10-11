@@ -35,7 +35,7 @@ func TestExternalProxy_OversizeBodyWarnsAndFlags(t *testing.T) {
 	credSvc := service.NewExternalCredentialService(env.Queries(), env.DB, kr, reg)
 	provSvc := service.NewExternalProviderService(env.Queries(), env.DB)
 	authz := service.NewAuthz(env.Queries(), env.DB)
-	svc := service.NewExternalProxyService(env.Queries(), env.DB, provSvc, credSvc, authz)
+	svc := service.NewExternalProxyService(env.Queries(), env.DB, provSvc, credSvc, authz, nil)
 
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")

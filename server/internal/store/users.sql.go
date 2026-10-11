@@ -7,6 +7,7 @@ package store
 
 import (
 	"context"
+	"strings"
 	"time"
 )
 
@@ -198,6 +199,55 @@ func (q *Queries) GetUserByUsername(ctx context.Context, username string) (User,
 		&i.UpdatedAt,
 	)
 	return i, err
+}
+
+const listUserNamesByIDs = `-- name: ListUserNamesByIDs :many
+SELECT id, username, display_name FROM users
+WHERE id IN (/*SLICE:ids*/?)
+ORDER BY id
+`
+
+type ListUserNamesByIDsRow struct {
+	ID          int64  `json:"id"`
+	Username    string `json:"username"`
+	DisplayName string `json:"display_name"`
+}
+
+// id -> (username, display_name) map for the attribution column of the
+// team-edition audit feed (#743). Deliberately narrow: never selects password
+// hashes, roles or MFA state, so an org-wide feed cannot widen into a user
+// directory dump.
+func (q *Queries) ListUserNamesByIDs(ctx context.Context, ids []int64) ([]ListUserNamesByIDsRow, error) {
+	query := listUserNamesByIDs
+	var queryParams []interface{}
+	if len(ids) > 0 {
+		for _, v := range ids {
+			queryParams = append(queryParams, v)
+		}
+		query = strings.Replace(query, "/*SLICE:ids*/?", strings.Repeat(",?", len(ids))[1:], 1)
+	} else {
+		query = strings.Replace(query, "/*SLICE:ids*/?", "NULL", 1)
+	}
+	rows, err := q.db.QueryContext(ctx, query, queryParams...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListUserNamesByIDsRow{}
+	for rows.Next() {
+		var i ListUserNamesByIDsRow
+		if err := rows.Scan(&i.ID, &i.Username, &i.DisplayName); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const listUsers = `-- name: ListUsers :many

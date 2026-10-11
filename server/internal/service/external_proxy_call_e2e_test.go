@@ -45,7 +45,7 @@ func TestExternalProxy_Call_E2E(t *testing.T) {
 	provSvc := service.NewExternalProviderService(env.Queries(), env.DB)
 	credSvc := service.NewExternalCredentialService(env.Queries(), env.DB, kr, integration.NewRegistry())
 	authz := service.NewAuthz(env.Queries(), env.DB)
-	svc := service.NewExternalProxyService(env.Queries(), env.DB, provSvc, credSvc, authz)
+	svc := service.NewExternalProxyService(env.Queries(), env.DB, provSvc, credSvc, authz, nil)
 
 	// Upstream that only accepts a known bearer token and records what it saw.
 	var seenAuth, seenPath string

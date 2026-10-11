@@ -34,6 +34,10 @@ ORDER BY alias;
 DELETE FROM external_provider_credentials
 WHERE id = ? AND owner_type = ? AND owner_id = ? AND user_id = ?;
 
+-- name: DeleteExternalCredentialsForUserInOwner :execrows
+DELETE FROM external_provider_credentials
+WHERE owner_type = ? AND owner_id = ? AND user_id = ?;
+
 -- name: TouchCredentialVerifiedAtByID :exec
 UPDATE external_provider_credentials
 SET last_verified_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP

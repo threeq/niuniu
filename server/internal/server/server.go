@@ -112,6 +112,7 @@ type Server struct {
 	intgKeyring          *crypto.Keyring
 	extCredSvc           *service.ExternalCredentialService
 	extCredHandler       *api.ExternalCredentialHandler
+	credUsagePolicySvc   *service.CredentialUsagePolicyService
 	extSourceSvc         *service.ExternalSourceService
 	extSourceHandler     *api.ExternalSourceHandler
 	gitRemoteCredSvc     *service.GitRemoteCredentialService
@@ -246,6 +247,11 @@ type Server struct {
 
 	orgSvc     *service.OrgService
 	orgHandler *api.OrgHandler
+
+	// Team-edition integration authorization approvals (issue #741).
+	integrationApprovalSvc *service.IntegrationApprovalService
+	projectMemberSvc       *service.ProjectMemberService
+	approvalHandler        *api.IntegrationApprovalHandler
 	meHandler  *api.MeHandler
 
 	adminUserSvc     *service.AdminUserService
@@ -268,6 +274,39 @@ type Server struct {
 	labelSvc     *service.LabelService
 	labelHandler *api.LabelHandler
 	issueHandler *api.IssueHandler
+}
+
+// startApprovalEscalator runs the integration-approval timeout escalation loop.
+// A dedicated ticker (not the 24h daily prune) so a request past its TTL is
+// escalated within ~30 minutes. No-op outside team edition (empty queue).
+func (s *Server) startApprovalEscalator() {
+	svc := s.integrationApprovalSvc
+	if svc == nil {
+		return
+	}
+	go func() {
+		ticker := time.NewTicker(30 * time.Minute)
+		defer ticker.Stop()
+		run := func() {
+			defer func() {
+				if r := recover(); r != nil {
+					slog.Error("approval escalation panicked", "recover", r)
+				}
+			}()
+			// Compare against the same clock encoding Submit wrote with
+			// (time.Now(), not UTC) so the expiry comparison stays consistent.
+			n, err := svc.EscalateExpired(context.Background(), time.Now())
+			if err != nil {
+				slog.Warn("integration approval escalation failed", "err", err)
+			} else if n > 0 {
+				slog.Info("integration approvals escalated", "count", n)
+			}
+		}
+		for {
+			run()
+			<-ticker.C
+		}
+	}()
 }
 
 // slogRecovery is a recovery middleware that logs panics using slog
@@ -1408,7 +1447,11 @@ func New(cfg *config.Config, db *sql.DB, frontendFS fs.FS) *Server {
 	// proxy architecture does not need pre-flight credential checks.
 	intgRegistry := integration.NewRegistry()
 	s.extCredSvc = service.NewExternalCredentialService(s.queries, db, keyring, intgRegistry)
-	s.extCredHandler = api.NewExternalCredentialHandler(s.extCredSvc, authz)
+	// Org-credential usage policy (issue #742): "which projects/workspaces may
+	// use this org credential", enforced at the service layer. Personal
+	// credentials are exempt, so single-user behavior is unchanged.
+	s.credUsagePolicySvc = service.NewCredentialUsagePolicyService(s.queries, db, s.extCredSvc, authz)
+	s.extCredHandler = api.NewExternalCredentialHandler(s.extCredSvc, authz, s.credUsagePolicySvc)
 	// Back-fill the scene projector's credential service so scene MCP env
 	// ${cred:alias.field} placeholders resolve to the owner+user decrypted value.
 	if s.sceneProjector != nil {
@@ -1424,7 +1467,7 @@ func New(cfg *config.Config, db *sql.DB, frontendFS fs.FS) *Server {
 	// through the external-proxy service. Browse() on the service still
 	// exists but is no longer routed — adapters were removed when the
 	// proxy architecture replaced them.
-	s.extSourceSvc = service.NewExternalSourceService(s.queries, db, s.extCredSvc, intgRegistry, authz)
+	s.extSourceSvc = service.NewExternalSourceService(s.queries, db, s.extCredSvc, intgRegistry, authz, s.credUsagePolicySvc)
 	s.extSourceHandler = api.NewExternalSourceHandler(s.extSourceSvc, authz)
 
 	// Per-user git remote SSH credentials (v5 Phase 2 sub-phase A).
@@ -1449,7 +1492,7 @@ func New(cfg *config.Config, db *sql.DB, frontendFS fs.FS) *Server {
 	if err := providerSvc.DemoteDeprecatedSystemProviders(context.Background()); err != nil {
 		slog.Warn("demote deprecated system providers", "err", err)
 	}
-	proxySvc := service.NewExternalProxyService(s.queries, db, providerSvc, s.extCredSvc, authz)
+	proxySvc := service.NewExternalProxyService(s.queries, db, providerSvc, s.extCredSvc, authz, s.credUsagePolicySvc)
 	s.externalProviderSvc = providerSvc
 	s.externalProxySvc = proxySvc
 	s.integrationAuditSvc = service.NewIntegrationAuditService(s.queries)
@@ -1592,6 +1635,26 @@ func New(cfg *config.Config, db *sql.DB, frontendFS fs.FS) *Server {
 	s.imbotConnMgr = imbot.NewConnectorManager(s.imbotSvc, imbotAdapters, s.imbotSvc.HandleInbound)
 	s.imbotSvc.SetConnectorManager(s.imbotConnMgr)
 	s.imbotHandler = api.NewIMBotHandler(s.imbotSvc, s.authzSvc, s.db)
+
+	// Team-edition integration authorization approvals (issue #741). Org-scoped
+	// only: user-owned (personal) resources never enter this queue, so single-
+	// user behaviour is byte-identical. The revoker reclaims a departing
+	// member's pending approvals, project-admin grants, org credentials and
+	// unused credential links.
+	s.projectMemberSvc = service.NewProjectMemberService(s.queries, authz)
+	s.integrationApprovalSvc = service.NewIntegrationApprovalService(
+		s.queries, authz, newApprovalNotifier(s.notifyHub))
+	s.orgSvc.SetMemberIntegrationRevoker(&service.IntegrationMemberRevoker{
+		Approvals:   s.integrationApprovalSvc,
+		Projects:    s.projectMemberSvc,
+		Credentials: s.extCredSvc,
+		Onboarding:  s.imbotSvc,
+		CredLinks:   s.credOnboardingSvc,
+	})
+	s.approvalHandler = api.NewIntegrationApprovalHandler(s.integrationApprovalSvc, s.projectMemberSvc, s.authzSvc)
+	// Escalate pending approvals that outlive their deadline so a stale card
+	// cannot hang forever. Runs more often than the daily prune (TTL is 24h).
+	s.startApprovalEscalator()
 	// Wire the AI-onboarding dispatch + deliverer (T3): the same DispatchService
 	// and AgentProxy that the inbound IM pipeline uses, so StartOnboarding creates a
 	// real issue+workspace and delivers the kickoff prompt through the same path.

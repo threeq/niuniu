@@ -188,6 +188,8 @@ type CredentialOnboardingToken struct {
 	TokenHash  string       `json:"token_hash"`
 	ProjectID  int64        `json:"project_id"`
 	IssuedBy   int64        `json:"issued_by"`
+	OwnerType  string       `json:"owner_type"`
+	OwnerID    int64        `json:"owner_id"`
 	Kind       string       `json:"kind"`
 	Title      string       `json:"title"`
 	FieldsJson string       `json:"fields_json"`
@@ -195,6 +197,15 @@ type CredentialOnboardingToken struct {
 	ExpiresAt  time.Time    `json:"expires_at"`
 	UsedAt     sql.NullTime `json:"used_at"`
 	CreatedAt  time.Time    `json:"created_at"`
+}
+
+type CredentialUsageGrant struct {
+	ID           int64     `json:"id"`
+	CredentialID int64     `json:"credential_id"`
+	ScopeType    string    `json:"scope_type"`
+	ScopeID      int64     `json:"scope_id"`
+	GrantedBy    int64     `json:"granted_by"`
+	CreatedAt    time.Time `json:"created_at"`
 }
 
 type Dashboard struct {
@@ -326,16 +337,17 @@ type EnvProvider struct {
 }
 
 type ExternalApiAudit struct {
-	ID         int64     `json:"id"`
-	UserID     int64     `json:"user_id"`
-	ProviderID int64     `json:"provider_id"`
-	Method     string    `json:"method"`
-	Path       string    `json:"path"`
-	StatusCode int64     `json:"status_code"`
-	BodySha256 string    `json:"body_sha256"`
-	BodyBytes  int64     `json:"body_bytes"`
-	BodyFields string    `json:"body_fields"`
-	CreatedAt  time.Time `json:"created_at"`
+	ID           int64     `json:"id"`
+	UserID       int64     `json:"user_id"`
+	ProviderID   int64     `json:"provider_id"`
+	CredentialID int64     `json:"credential_id"`
+	Method       string    `json:"method"`
+	Path         string    `json:"path"`
+	StatusCode   int64     `json:"status_code"`
+	BodySha256   string    `json:"body_sha256"`
+	BodyBytes    int64     `json:"body_bytes"`
+	BodyFields   string    `json:"body_fields"`
+	CreatedAt    time.Time `json:"created_at"`
 }
 
 type ExternalApiWritePref struct {
@@ -545,15 +557,16 @@ type ImBotInbox struct {
 }
 
 type ImBotOnboardingToken struct {
-	ID             int64        `json:"id"`
-	TokenHash      string       `json:"token_hash"`
-	ProjectID      int64        `json:"project_id"`
-	Platform       string       `json:"platform"`
-	ChannelName    string       `json:"channel_name"`
-	ConnectionMode string       `json:"connection_mode"`
-	ExpiresAt      time.Time    `json:"expires_at"`
-	UsedAt         sql.NullTime `json:"used_at"`
-	CreatedAt      time.Time    `json:"created_at"`
+	ID             int64         `json:"id"`
+	TokenHash      string        `json:"token_hash"`
+	ProjectID      int64         `json:"project_id"`
+	Platform       string        `json:"platform"`
+	ChannelName    string        `json:"channel_name"`
+	ConnectionMode string        `json:"connection_mode"`
+	IssuedByUserID sql.NullInt64 `json:"issued_by_user_id"`
+	ExpiresAt      time.Time     `json:"expires_at"`
+	UsedAt         sql.NullTime  `json:"used_at"`
+	CreatedAt      time.Time     `json:"created_at"`
 }
 
 type ImBotThread struct {
@@ -563,6 +576,30 @@ type ImBotThread struct {
 	IssueID     int64     `json:"issue_id"`
 	WorkspaceID int64     `json:"workspace_id"`
 	CreatedAt   time.Time `json:"created_at"`
+}
+
+type IntegrationApprovalRequest struct {
+	ID              int64         `json:"id"`
+	OwnerType       string        `json:"owner_type"`
+	OwnerID         int64         `json:"owner_id"`
+	ProjectID       sql.NullInt64 `json:"project_id"`
+	Action          string        `json:"action"`
+	SubjectType     string        `json:"subject_type"`
+	SubjectID       int64         `json:"subject_id"`
+	SubjectLabel    string        `json:"subject_label"`
+	Diff            string        `json:"diff"`
+	Summary         string        `json:"summary"`
+	RequestedBy     int64         `json:"requested_by"`
+	RequiredRole    string        `json:"required_role"`
+	Status          string        `json:"status"`
+	DecidedBy       sql.NullInt64 `json:"decided_by"`
+	DecidedAt       sql.NullTime  `json:"decided_at"`
+	DecisionNote    string        `json:"decision_note"`
+	EscalationCount int64         `json:"escalation_count"`
+	EscalatedAt     sql.NullTime  `json:"escalated_at"`
+	ExpiresAt       time.Time     `json:"expires_at"`
+	CreatedAt       time.Time     `json:"created_at"`
+	UpdatedAt       time.Time     `json:"updated_at"`
 }
 
 type IntegrationCapability struct {
@@ -984,6 +1021,14 @@ type ProjectExternalSource struct {
 	CredentialID sql.NullInt64 `json:"credential_id"`
 	Config       string        `json:"config"`
 	CreatedAt    time.Time     `json:"created_at"`
+}
+
+type ProjectMember struct {
+	ProjectID int64     `json:"project_id"`
+	UserID    int64     `json:"user_id"`
+	Role      string    `json:"role"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
 }
 
 type ProjectRepository struct {

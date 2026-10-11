@@ -74,6 +74,9 @@ const INVALIDATION_MAP: Record<string, QueryKeyMapper> = {
   // observation counter moved) and the call audit, so the owner lands on the
   // request trail the alert is telling them to read.
   function_anomaly: () => [['operation-functions']],
+  // Team-edition integration approvals (issue #741): a request raised/decided/
+  // escalated/invalidated refreshes both the org queue and the "mine" view.
+  integration_approval: () => [['org-integration-approvals'], ['me-integration-approvals']],
 };
 
 export type ToastTarget =

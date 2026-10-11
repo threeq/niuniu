@@ -48,7 +48,7 @@ func newVerifyEnv(t *testing.T, status int) *verifyEnv {
 	credSvc := service.NewExternalCredentialService(env.Queries(), env.DB, kr, reg)
 	provSvc := service.NewExternalProviderService(env.Queries(), env.DB)
 	authz := service.NewAuthz(env.Queries(), env.DB)
-	svc := service.NewExternalProxyService(env.Queries(), env.DB, provSvc, credSvc, authz)
+	svc := service.NewExternalProxyService(env.Queries(), env.DB, provSvc, credSvc, authz, nil)
 
 	var hits int32
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

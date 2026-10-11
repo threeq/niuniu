@@ -55,4 +55,8 @@ const (
 	// "异常告警" half of the observation window: the window exists to produce a
 	// full request trail, and a trail nobody is told to read is not a control.
 	TopicFunctionAnomaly = "function_anomaly"
+	// TopicIntegrationApproval signals an integration authorization approval
+	// request changing state (raised / decided / escalated / invalidated).
+	// Delivered per eligible approver via OwnerType="user".
+	TopicIntegrationApproval = "integration_approval"
 )

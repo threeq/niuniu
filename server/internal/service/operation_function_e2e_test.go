@@ -128,7 +128,9 @@ func newFnE2E(t *testing.T) *fnE2E {
 	// egress time for a reason that has nothing to do with the test.
 	credSvc := NewExternalCredentialService(q, db, testKeyring(t), integration.NewRegistry())
 	providers := NewExternalProviderService(q, db)
-	proxy := NewExternalProxyService(q, db, providers, credSvc, nil)
+	// nil policy: this E2E uses a USER-owned credential, for which the org
+	// usage-policy gate (#742) does not apply.
+	proxy := NewExternalProxyService(q, db, providers, credSvc, nil, nil)
 	functions := NewOperationFunctionService(q, db, providers, proxy)
 	// The REAL health service, not a nil stand-in: publishing leaves the target
 	// disabled and enables it through this path, so a nil here would leave the

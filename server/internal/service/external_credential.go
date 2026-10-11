@@ -567,6 +567,47 @@ func (s *ExternalCredentialService) DeleteByID(ctx context.Context, id int64, ow
 	return nil
 }
 
+// RevokeAllForUserInOwner deletes every credential the user created under the
+// given owner, used by the member-removal lifecycle. Project-external-source
+// bindings that reference those credentials are removed first (the FK is
+// ON DELETE RESTRICT); a source whose credential is being revoked can no longer
+// authenticate, so leaving a dangling binding would only produce runtime
+// failures. Returns the number of credentials deleted.
+func (s *ExternalCredentialService) RevokeAllForUserInOwner(ctx context.Context, ownerType string, ownerID, userID int64) (int64, error) {
+	if userID == 0 {
+		return 0, nil
+	}
+	creds, err := s.q.ListExternalCredentialsForUser(ctx, store.ListExternalCredentialsForUserParams{
+		OwnerType: ownerType,
+		OwnerID:   ownerID,
+		UserID:    userID,
+	})
+	if err != nil {
+		return 0, err
+	}
+	if len(creds) == 0 {
+		return 0, nil
+	}
+	for _, c := range creds {
+		if _, err := s.db.ExecContext(ctx,
+			`DELETE FROM project_external_sources WHERE credential_id = ?`, c.ID); err != nil {
+			return 0, err
+		}
+	}
+	n, err := s.q.DeleteExternalCredentialsForUserInOwner(ctx, store.DeleteExternalCredentialsForUserInOwnerParams{
+		OwnerType: ownerType,
+		OwnerID:   ownerID,
+		UserID:    userID,
+	})
+	if err != nil {
+		return 0, err
+	}
+	if n > 0 {
+		s.fireChange(ownerType, ownerID, userID)
+	}
+	return n, nil
+}
+
 func validateAlias(s string) error {
 	trim := strings.TrimSpace(s)
 	if trim == "" {

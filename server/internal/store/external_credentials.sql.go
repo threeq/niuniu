@@ -87,6 +87,25 @@ func (q *Queries) DeleteExternalCredentialByID(ctx context.Context, arg DeleteEx
 	return err
 }
 
+const deleteExternalCredentialsForUserInOwner = `-- name: DeleteExternalCredentialsForUserInOwner :execrows
+DELETE FROM external_provider_credentials
+WHERE owner_type = ? AND owner_id = ? AND user_id = ?
+`
+
+type DeleteExternalCredentialsForUserInOwnerParams struct {
+	OwnerType string `json:"owner_type"`
+	OwnerID   int64  `json:"owner_id"`
+	UserID    int64  `json:"user_id"`
+}
+
+func (q *Queries) DeleteExternalCredentialsForUserInOwner(ctx context.Context, arg DeleteExternalCredentialsForUserInOwnerParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, deleteExternalCredentialsForUserInOwner, arg.OwnerType, arg.OwnerID, arg.UserID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const getExternalCredentialByID = `-- name: GetExternalCredentialByID :one
 SELECT id, owner_type, owner_id, user_id, provider, alias, config, last_verified_at, created_at, updated_at FROM external_provider_credentials
 WHERE id = ? AND owner_type = ? AND owner_id = ? AND user_id = ?
