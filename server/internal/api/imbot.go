@@ -1009,7 +1009,7 @@ func (h *IMBotHandler) SubmitOnboardingCredential(c *gin.Context) {
 // minted by the scan itself. Requires project write access (same gate as the
 // AI-guided onboarding start).
 func (h *IMBotHandler) IssueWechatLink(c *gin.Context) {
-	pid, _, _, ok := h.writeAccessWithOwner(c)
+	pid, uid, _, ok := h.writeAccessWithOwner(c)
 	if !ok {
 		return
 	}
@@ -1021,7 +1021,7 @@ func (h *IMBotHandler) IssueWechatLink(c *gin.Context) {
 	if name == "" {
 		name = "微信ClawBot"
 	}
-	rawToken, err := h.svc.IssueOnboardingToken(c.Request.Context(), pid, "wechat", name, "stream")
+	rawToken, err := h.svc.IssueOnboardingToken(c.Request.Context(), pid, uid, "wechat", name, "stream")
 	if err != nil {
 		h.mapErr(c, err)
 		return
@@ -1118,7 +1118,7 @@ func (h *IMBotHandler) mcpReadAccess(c *gin.Context) (projectID, uid int64, ok b
 // submission URL. The raw token is embedded only in the URL — never in any other
 // response field.
 func (h *IMBotHandler) MCPRequestCredentialLink(c *gin.Context) {
-	pid, _, ok := h.mcpReadAccess(c)
+	pid, uid, ok := h.mcpReadAccess(c)
 	if !ok {
 		return
 	}
@@ -1135,7 +1135,7 @@ func (h *IMBotHandler) MCPRequestCredentialLink(c *gin.Context) {
 	if mode == "" {
 		mode = "stream"
 	}
-	rawToken, err := h.svc.IssueOnboardingToken(c.Request.Context(), pid, body.Platform, body.Name, mode)
+	rawToken, err := h.svc.IssueOnboardingToken(c.Request.Context(), pid, uid, body.Platform, body.Name, mode)
 	if err != nil {
 		h.mapErr(c, err)
 		return

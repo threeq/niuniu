@@ -118,5 +118,35 @@
       "noResults": "未找到使用者。已是本組織成員的使用者不會出現在這裡。",
       "showing": "顯示前 {{shown}} 條,共 {{total}} 條匹配,請輸入更多關鍵字縮小範圍。"
     }
+  },
+  "approvals": {
+    "tab": "整合審批",
+    "hint": "整合授權動作（草稿確認 / 放寬 scope / 開啟寫權限 / 發布）須由具備相應角色的成員批准；發起人不能自批。",
+    "noPermission": "僅組織擁有者與管理員可檢視整合審批。",
+    "loading": "載入中…",
+    "empty": "暫無待審批的整合授權申請。",
+    "decideFailed": "審批失敗：{{error}}",
+    "escalated": "已升級 ×{{count}}",
+    "actions": {
+      "draft_confirm": "確認草稿影響範圍",
+      "scope_relax": "放寬 scope",
+      "enable_write": "開啟寫權限",
+      "publish": "發布"
+    },
+    "role": {
+      "project_admin": "專案管理員",
+      "admin": "管理員",
+      "owner": "擁有者"
+    },
+    "requiredRole": "需要{{role}}權限",
+    "requestedBy": "發起人：{{user}}",
+    "unknownUser": "使用者 #{{id}}",
+    "expiresAt": "過期時間 {{time}}",
+    "diff": "變更內容",
+    "notePlaceholder": "備註（可選）",
+    "approve": "批准",
+    "deny": "拒絕",
+    "selfDecide": "您是發起人，不能批准自己的申請。",
+    "notPermitted": "您的角色無權批准此項。"
   }
 }

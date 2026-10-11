@@ -237,8 +237,8 @@ JOIN columns c ON c.id = i.column_id
 WHERE w.id = ?;
 
 -- name: CreateOnboardingToken :one
-INSERT INTO im_bot_onboarding_tokens (token_hash, project_id, platform, channel_name, connection_mode, expires_at)
-VALUES (?, ?, ?, ?, ?, ?)
+INSERT INTO im_bot_onboarding_tokens (token_hash, project_id, platform, channel_name, connection_mode, issued_by_user_id, expires_at)
+VALUES (?, ?, ?, ?, ?, ?, ?)
 RETURNING *;
 
 -- name: GetOnboardingTokenByHash :one
@@ -249,3 +249,8 @@ UPDATE im_bot_onboarding_tokens SET used_at = CURRENT_TIMESTAMP WHERE id = ?;
 
 -- name: DeleteExpiredOnboardingTokens :exec
 DELETE FROM im_bot_onboarding_tokens WHERE expires_at < CURRENT_TIMESTAMP;
+
+-- name: DeleteUnusedOnboardingTokensByIssuerInOrg :execrows
+DELETE FROM im_bot_onboarding_tokens
+WHERE issued_by_user_id = ? AND used_at IS NULL
+  AND project_id IN (SELECT id FROM projects WHERE owner_type = 'org' AND owner_id = ?);

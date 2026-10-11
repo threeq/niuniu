@@ -25,6 +25,11 @@ func Migrate(db *sql.DB) {
 	// dropped in Phase 7 (drop_legacy_phase7_v1). On existing DBs that still
 	// have it, the column persists until MigrateDropLegacyPhase7 runs.
 
+	// im_bot_onboarding_tokens.issued_by_user_id: records who issued a one-time
+	// credential link so a removed member's unused links can be invalidated
+	// (team-edition member lifecycle, issue #741). Retrofit for existing DBs.
+	addColumnIfNotExists(db, "im_bot_onboarding_tokens", "issued_by_user_id", fk+" DEFAULT NULL REFERENCES users(id) ON DELETE CASCADE")
+
 	// Add harness_run_id column to agent_messages if missing (existing databases).
 	addColumnIfNotExists(db, "agent_messages", "harness_run_id", fk+" DEFAULT NULL")
 

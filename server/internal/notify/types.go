@@ -34,4 +34,8 @@ const (
 	TopicAskUserPending    = "ask_user_pending"
 	TopicPinned            = "pinned"
 	TopicLocalRunner       = "local_runner"
+	// TopicIntegrationApproval signals an integration authorization approval
+	// request changing state (raised / decided / escalated / invalidated).
+	// Delivered per eligible approver via OwnerType="user".
+	TopicIntegrationApproval = "integration_approval"
 )

@@ -277,18 +277,19 @@ func (q *Queries) CreateIMBotThread(ctx context.Context, arg CreateIMBotThreadPa
 }
 
 const createOnboardingToken = `-- name: CreateOnboardingToken :one
-INSERT INTO im_bot_onboarding_tokens (token_hash, project_id, platform, channel_name, connection_mode, expires_at)
-VALUES (?, ?, ?, ?, ?, ?)
-RETURNING id, token_hash, project_id, platform, channel_name, connection_mode, expires_at, used_at, created_at
+INSERT INTO im_bot_onboarding_tokens (token_hash, project_id, platform, channel_name, connection_mode, issued_by_user_id, expires_at)
+VALUES (?, ?, ?, ?, ?, ?, ?)
+RETURNING id, token_hash, project_id, platform, channel_name, connection_mode, issued_by_user_id, expires_at, used_at, created_at
 `
 
 type CreateOnboardingTokenParams struct {
-	TokenHash      string    `json:"token_hash"`
-	ProjectID      int64     `json:"project_id"`
-	Platform       string    `json:"platform"`
-	ChannelName    string    `json:"channel_name"`
-	ConnectionMode string    `json:"connection_mode"`
-	ExpiresAt      time.Time `json:"expires_at"`
+	TokenHash      string        `json:"token_hash"`
+	ProjectID      int64         `json:"project_id"`
+	Platform       string        `json:"platform"`
+	ChannelName    string        `json:"channel_name"`
+	ConnectionMode string        `json:"connection_mode"`
+	IssuedByUserID sql.NullInt64 `json:"issued_by_user_id"`
+	ExpiresAt      time.Time     `json:"expires_at"`
 }
 
 func (q *Queries) CreateOnboardingToken(ctx context.Context, arg CreateOnboardingTokenParams) (ImBotOnboardingToken, error) {
@@ -298,6 +299,7 @@ func (q *Queries) CreateOnboardingToken(ctx context.Context, arg CreateOnboardin
 		arg.Platform,
 		arg.ChannelName,
 		arg.ConnectionMode,
+		arg.IssuedByUserID,
 		arg.ExpiresAt,
 	)
 	var i ImBotOnboardingToken
@@ -308,6 +310,7 @@ func (q *Queries) CreateOnboardingToken(ctx context.Context, arg CreateOnboardin
 		&i.Platform,
 		&i.ChannelName,
 		&i.ConnectionMode,
+		&i.IssuedByUserID,
 		&i.ExpiresAt,
 		&i.UsedAt,
 		&i.CreatedAt,
@@ -351,6 +354,25 @@ DELETE FROM im_bot_threads WHERE issue_id = ?
 func (q *Queries) DeleteIMBotThreadsByIssue(ctx context.Context, issueID int64) error {
 	_, err := q.db.ExecContext(ctx, deleteIMBotThreadsByIssue, issueID)
 	return err
+}
+
+const deleteUnusedOnboardingTokensByIssuerInOrg = `-- name: DeleteUnusedOnboardingTokensByIssuerInOrg :execrows
+DELETE FROM im_bot_onboarding_tokens
+WHERE issued_by_user_id = ? AND used_at IS NULL
+  AND project_id IN (SELECT id FROM projects WHERE owner_type = 'org' AND owner_id = ?)
+`
+
+type DeleteUnusedOnboardingTokensByIssuerInOrgParams struct {
+	IssuedByUserID sql.NullInt64 `json:"issued_by_user_id"`
+	OwnerID        int64         `json:"owner_id"`
+}
+
+func (q *Queries) DeleteUnusedOnboardingTokensByIssuerInOrg(ctx context.Context, arg DeleteUnusedOnboardingTokensByIssuerInOrgParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, deleteUnusedOnboardingTokensByIssuerInOrg, arg.IssuedByUserID, arg.OwnerID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }
 
 const getIMBotChannel = `-- name: GetIMBotChannel :one
@@ -514,7 +536,7 @@ func (q *Queries) GetIMBotThreadByExt(ctx context.Context, arg GetIMBotThreadByE
 }
 
 const getOnboardingTokenByHash = `-- name: GetOnboardingTokenByHash :one
-SELECT id, token_hash, project_id, platform, channel_name, connection_mode, expires_at, used_at, created_at FROM im_bot_onboarding_tokens WHERE token_hash = ?
+SELECT id, token_hash, project_id, platform, channel_name, connection_mode, issued_by_user_id, expires_at, used_at, created_at FROM im_bot_onboarding_tokens WHERE token_hash = ?
 `
 
 func (q *Queries) GetOnboardingTokenByHash(ctx context.Context, tokenHash string) (ImBotOnboardingToken, error) {
@@ -527,6 +549,7 @@ func (q *Queries) GetOnboardingTokenByHash(ctx context.Context, tokenHash string
 		&i.Platform,
 		&i.ChannelName,
 		&i.ConnectionMode,
+		&i.IssuedByUserID,
 		&i.ExpiresAt,
 		&i.UsedAt,
 		&i.CreatedAt,

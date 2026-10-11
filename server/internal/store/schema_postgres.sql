@@ -1086,6 +1086,56 @@ CREATE TABLE IF NOT EXISTS org_audit_log (
 CREATE INDEX IF NOT EXISTS idx_org_audit_org_time
     ON org_audit_log(org_id, created_at DESC);
 
+-- Project-level role (project admin). Org roles (owner/admin/member) live in
+-- org_members; this adds a project-scoped delegation so a project's integration
+-- actions can be approved by that project's admins without requiring an
+-- org-wide admin. The project owner is implicit and need not be listed.
+CREATE TABLE IF NOT EXISTS project_members (
+    project_id BIGINT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    user_id    BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    role       TEXT NOT NULL DEFAULT 'project_admin'
+                 CHECK (role IN ('project_admin')),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    PRIMARY KEY (project_id, user_id)
+);
+CREATE INDEX IF NOT EXISTS idx_project_members_user ON project_members(user_id);
+
+-- Team-edition integration authorization approvals. A member's request to run a
+-- privileged integration action (draft confirm / relax scope / enable write /
+-- publish) is parked here as 'pending' and routed to members holding the
+-- required role (never the requester). Decisions are written to org_audit_log.
+-- Removing a member invalidates the rows they requested.
+CREATE TABLE IF NOT EXISTS integration_approval_requests (
+    id               BIGSERIAL PRIMARY KEY,
+    owner_type       TEXT NOT NULL DEFAULT 'org' CHECK (owner_type IN ('user','org')),
+    owner_id         BIGINT NOT NULL,
+    project_id       BIGINT REFERENCES projects(id) ON DELETE SET NULL,
+    action           TEXT NOT NULL CHECK (action IN ('draft_confirm','scope_relax','enable_write','publish')),
+    subject_type     TEXT NOT NULL DEFAULT '',
+    subject_id       BIGINT NOT NULL DEFAULT 0,
+    subject_label    TEXT NOT NULL DEFAULT '',
+    diff             TEXT NOT NULL DEFAULT '',
+    summary          TEXT NOT NULL DEFAULT '',
+    requested_by     BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    required_role    TEXT NOT NULL CHECK (required_role IN ('project_admin','admin','owner')),
+    status           TEXT NOT NULL CHECK (status IN ('pending','approved','denied','expired','cancelled','invalidated')),
+    decided_by       BIGINT REFERENCES users(id) ON DELETE SET NULL,
+    decided_at       TIMESTAMPTZ,
+    decision_note    TEXT NOT NULL DEFAULT '',
+    escalation_count INTEGER NOT NULL DEFAULT 0,
+    escalated_at     TIMESTAMPTZ,
+    expires_at       TIMESTAMPTZ NOT NULL,
+    created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at       TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_iar_owner_status
+    ON integration_approval_requests(owner_type, owner_id, status);
+CREATE INDEX IF NOT EXISTS idx_iar_requester_status
+    ON integration_approval_requests(requested_by, status);
+CREATE INDEX IF NOT EXISTS idx_iar_pending_expires
+    ON integration_approval_requests(expires_at) WHERE status='pending';
+
 CREATE TABLE IF NOT EXISTS mcp_session_tokens (
     id           BIGSERIAL PRIMARY KEY,
     workspace_id BIGINT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
@@ -1803,6 +1853,7 @@ CREATE TABLE IF NOT EXISTS im_bot_onboarding_tokens (
     platform        TEXT NOT NULL CHECK (platform IN ('lark','dingtalk','telegram','wework','wechat')),
     channel_name    TEXT NOT NULL DEFAULT '',
     connection_mode TEXT NOT NULL DEFAULT 'stream' CHECK (connection_mode IN ('stream','webhook')),
+    issued_by_user_id BIGINT REFERENCES users(id) ON DELETE CASCADE,
     expires_at      TIMESTAMP NOT NULL,
     used_at         TIMESTAMP,
     created_at      TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP

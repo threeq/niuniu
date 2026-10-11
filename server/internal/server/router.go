@@ -363,12 +363,25 @@ func (s *Server) setupRoutes() {
 		orgs.DELETE("/:id/members/:user_id", s.orgHandler.RemoveMember)
 		orgs.POST("/:id/transfer-ownership", s.orgHandler.TransferOwnership)
 		orgs.GET("/:id/audit-log", s.orgHandler.ListAuditLog)
+
+		// Integration authorization approvals (team edition, issue #741). The
+		// service enforces the action→role matrix; these routes are the
+		// authoritative gate (the SPA hide is convenience only).
+		orgs.POST("/:id/integration-approvals", s.approvalHandler.Submit)
+		orgs.GET("/:id/integration-approvals", s.approvalHandler.ListByOrg)
+		orgs.GET("/:id/integration-approvals/:req_id", s.approvalHandler.Get)
+		orgs.POST("/:id/integration-approvals/:req_id/decision", s.approvalHandler.Decide)
+		orgs.DELETE("/:id/integration-approvals/:req_id", s.approvalHandler.Cancel)
 	}
 
 	// Me routes
 	me := api.Group("/me")
 	{
 		me.GET("/orgs", s.meHandler.ListOrgs)
+
+		// Pending integration approvals this caller is entitled to decide
+		// (role-matched, never their own). Empty outside team edition.
+		me.GET("/integration-approvals", s.approvalHandler.ListMine)
 
 		// "需要我处理的" view (spec §19): issues in a terminal needs-human exec_status
 		// (blocked-needs-human / waiting-user-input / abandoned) across accessible owners.
@@ -516,6 +529,13 @@ func (s *Server) setupRoutes() {
 		// Assignable users (Task 11): owner-resolved member list for the
 		// issue-detail assignee picker.
 		projects.GET("/:id/assignable-users", s.projectHandler.ListAssignableUsers)
+
+		// Project-level role (project admin) management — team edition only.
+		// Granting requires org admin; on a personal project the service rejects
+		// the mutation (no delegation outside an org).
+		projects.GET("/:id/members", s.approvalHandler.ListProjectMembers)
+		projects.POST("/:id/members", s.approvalHandler.GrantProjectMember)
+		projects.DELETE("/:id/members/:user_id", s.approvalHandler.RevokeProjectMember)
 
 		// External-source bindings (project ↔ GitHub repo / TAPD workspace / Jira).
 		// Browse / import are no longer exposed — AI handles those through MCP

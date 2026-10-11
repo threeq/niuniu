@@ -20,7 +20,7 @@ func TestOnboarding_HappyPath(t *testing.T) {
 	svc := buildIMBotSvc(t, env)
 	ctx := context.Background()
 
-	rawToken, err := svc.IssueOnboardingToken(ctx, proj.ID, "lark", "team-bot", "stream")
+	rawToken, err := svc.IssueOnboardingToken(ctx, proj.ID, 0, "lark", "team-bot", "stream")
 	if err != nil {
 		t.Fatalf("IssueOnboardingToken: %v", err)
 	}
@@ -84,7 +84,7 @@ func TestOnboarding_ExpiredTokenRejected(t *testing.T) {
 	//
 	// Actually: simplest approach — issue a real token and then directly update
 	// expires_at to the past via raw SQL.
-	rawToken2, err := svc.IssueOnboardingToken(ctx, proj.ID, "lark", "aged-bot", "stream")
+	rawToken2, err := svc.IssueOnboardingToken(ctx, proj.ID, 0, "lark", "aged-bot", "stream")
 	if err != nil {
 		t.Fatalf("IssueOnboardingToken: %v", err)
 	}
@@ -109,7 +109,7 @@ func TestOnboarding_ReusedTokenRejected(t *testing.T) {
 	svc := buildIMBotSvc(t, env)
 	ctx := context.Background()
 
-	rawToken, err := svc.IssueOnboardingToken(ctx, proj.ID, "lark", "reuse-bot", "stream")
+	rawToken, err := svc.IssueOnboardingToken(ctx, proj.ID, 0, "lark", "reuse-bot", "stream")
 	if err != nil {
 		t.Fatalf("IssueOnboardingToken: %v", err)
 	}
@@ -148,7 +148,7 @@ func TestOnboarding_WebhookSecretExtracted(t *testing.T) {
 	svc := buildIMBotSvc(t, env)
 	ctx := context.Background()
 
-	rawToken, err := svc.IssueOnboardingToken(ctx, proj.ID, "lark", "hook-bot", "webhook")
+	rawToken, err := svc.IssueOnboardingToken(ctx, proj.ID, 0, "lark", "hook-bot", "webhook")
 	if err != nil {
 		t.Fatalf("IssueOnboardingToken: %v", err)
 	}
@@ -213,7 +213,7 @@ func TestOnboarding_WebhookSecretNonStringRejected(t *testing.T) {
 	svc := buildIMBotSvc(t, env)
 	ctx := context.Background()
 
-	rawToken, err := svc.IssueOnboardingToken(ctx, proj.ID, "lark", "wstype-bot", "webhook")
+	rawToken, err := svc.IssueOnboardingToken(ctx, proj.ID, 0, "lark", "wstype-bot", "webhook")
 	if err != nil {
 		t.Fatalf("IssueOnboardingToken: %v", err)
 	}
@@ -245,13 +245,13 @@ func TestOnboarding_InvalidPlatform(t *testing.T) {
 	svc := buildIMBotSvc(t, env)
 	ctx := context.Background()
 
-	_, err := svc.IssueOnboardingToken(ctx, proj.ID, "feishu", "bad-bot", "stream")
+	_, err := svc.IssueOnboardingToken(ctx, proj.ID, 0, "feishu", "bad-bot", "stream")
 	if !errors.Is(err, service.ErrInvalidChannelConfig) {
 		t.Errorf("invalid platform 'feishu': err = %v, want ErrInvalidChannelConfig", err)
 	}
 
 	// Also verify a completely unknown value.
-	_, err = svc.IssueOnboardingToken(ctx, proj.ID, "slack", "bad-bot", "stream")
+	_, err = svc.IssueOnboardingToken(ctx, proj.ID, 0, "slack", "bad-bot", "stream")
 	if !errors.Is(err, service.ErrInvalidChannelConfig) {
 		t.Errorf("invalid platform 'slack': err = %v, want ErrInvalidChannelConfig", err)
 	}
@@ -265,12 +265,12 @@ func TestOnboarding_InvalidConnectionMode(t *testing.T) {
 	svc := buildIMBotSvc(t, env)
 	ctx := context.Background()
 
-	_, err := svc.IssueOnboardingToken(ctx, proj.ID, "telegram", "bad-bot", "longpoll")
+	_, err := svc.IssueOnboardingToken(ctx, proj.ID, 0, "telegram", "bad-bot", "longpoll")
 	if !errors.Is(err, service.ErrInvalidChannelConfig) {
 		t.Errorf("invalid mode 'longpoll': err = %v, want ErrInvalidChannelConfig", err)
 	}
 
-	_, err = svc.IssueOnboardingToken(ctx, proj.ID, "lark", "bad-bot", "poll")
+	_, err = svc.IssueOnboardingToken(ctx, proj.ID, 0, "lark", "bad-bot", "poll")
 	if !errors.Is(err, service.ErrInvalidChannelConfig) {
 		t.Errorf("invalid mode 'poll': err = %v, want ErrInvalidChannelConfig", err)
 	}
@@ -285,7 +285,7 @@ func TestOnboarding_EmptyConnectionModeDefaultsToStream(t *testing.T) {
 	ctx := context.Background()
 
 	// Should succeed: empty mode defaults to "stream".
-	_, err := svc.IssueOnboardingToken(ctx, proj.ID, "lark", "default-mode-bot", "")
+	_, err := svc.IssueOnboardingToken(ctx, proj.ID, 0, "lark", "default-mode-bot", "")
 	if err != nil {
 		t.Errorf("empty connection_mode should default to stream, got err: %v", err)
 	}
@@ -300,7 +300,7 @@ func TestGetOnboardingTokenInfo_ValidToken(t *testing.T) {
 	svc := buildIMBotSvc(t, env)
 	ctx := context.Background()
 
-	rawToken, err := svc.IssueOnboardingToken(ctx, proj.ID, "dingtalk", "钉钉-研发群", "stream")
+	rawToken, err := svc.IssueOnboardingToken(ctx, proj.ID, 0, "dingtalk", "钉钉-研发群", "stream")
 	if err != nil {
 		t.Fatalf("IssueOnboardingToken: %v", err)
 	}
@@ -338,7 +338,7 @@ func TestGetOnboardingTokenInfo_WeworkWebhook(t *testing.T) {
 	svc := buildIMBotSvc(t, env)
 	ctx := context.Background()
 
-	rawToken, err := svc.IssueOnboardingToken(ctx, proj.ID, "wework", "企微-销售群", "webhook")
+	rawToken, err := svc.IssueOnboardingToken(ctx, proj.ID, 0, "wework", "企微-销售群", "webhook")
 	if err != nil {
 		t.Fatalf("IssueOnboardingToken: %v", err)
 	}
@@ -365,7 +365,7 @@ func TestGetOnboardingTokenInfo_ExpiredToken(t *testing.T) {
 	svc := buildIMBotSvc(t, env)
 	ctx := context.Background()
 
-	rawToken, err := svc.IssueOnboardingToken(ctx, proj.ID, "lark", "expired-info-bot", "stream")
+	rawToken, err := svc.IssueOnboardingToken(ctx, proj.ID, 0, "lark", "expired-info-bot", "stream")
 	if err != nil {
 		t.Fatalf("IssueOnboardingToken: %v", err)
 	}
@@ -391,7 +391,7 @@ func TestGetOnboardingTokenInfo_UsedToken(t *testing.T) {
 	svc := buildIMBotSvc(t, env)
 	ctx := context.Background()
 
-	rawToken, err := svc.IssueOnboardingToken(ctx, proj.ID, "lark", "used-info-bot", "stream")
+	rawToken, err := svc.IssueOnboardingToken(ctx, proj.ID, 0, "lark", "used-info-bot", "stream")
 	if err != nil {
 		t.Fatalf("IssueOnboardingToken: %v", err)
 	}

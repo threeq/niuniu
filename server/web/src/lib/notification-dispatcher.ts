@@ -64,6 +64,9 @@ const INVALIDATION_MAP: Record<string, QueryKeyMapper> = {
   queue: (n) => [['workspace', String(n.id), 'queue']],
   pinned: (n) => [['pinned-messages', String(n.id)]],
   workspace_bg_task: () => [['workspaces']],
+  // Team-edition integration approvals (issue #741): a request raised/decided/
+  // escalated/invalidated refreshes both the org queue and the "mine" view.
+  integration_approval: () => [['org-integration-approvals'], ['me-integration-approvals']],
 };
 
 export type ToastTarget =

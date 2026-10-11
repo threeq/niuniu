@@ -36,7 +36,11 @@ var ErrOnboardingTokenInvalid = errors.New("imbot: onboarding token invalid or e
 // (>= 32 bytes, URL-safe base64 encoded), stores only the sha256 hex hash
 // in the database with a 15-minute expiry, and returns the raw token to the
 // caller. The raw token is never stored and is returned exactly once.
-func (s *IMBotService) IssueOnboardingToken(ctx context.Context, projectID int64, platform, channelName, connectionMode string) (rawToken string, err error) {
+//
+// issuedByUserID records who minted the link (0 = no acting user, e.g. a
+// system/test caller). A removed org member's unused links are revoked by the
+// member-lifecycle path, which needs this binding (issue #741).
+func (s *IMBotService) IssueOnboardingToken(ctx context.Context, projectID, issuedByUserID int64, platform, channelName, connectionMode string) (rawToken string, err error) {
 	// Validate platform against the DB CHECK constraint so an invalid value
 	// returns ErrInvalidChannelConfig (→ 400) rather than a raw-SQL 500.
 	if !validPlatforms[platform] {
@@ -67,12 +71,27 @@ func (s *IMBotService) IssueOnboardingToken(ctx context.Context, projectID int64
 		Platform:       platform,
 		ChannelName:    channelName,
 		ConnectionMode: connectionMode,
+		IssuedByUserID: sql.NullInt64{Int64: issuedByUserID, Valid: issuedByUserID != 0},
 		ExpiresAt:      time.Now().UTC().Add(15 * time.Minute),
 	})
 	if err != nil {
 		return "", err
 	}
 	return rawToken, nil
+}
+
+// RevokeUnusedOnboardingTokensByIssuerInOrg deletes unused credential links
+// minted by a user for projects owned by orgID. Called from the member-removal
+// lifecycle: a departing member must not leave live credential-submission
+// links behind, but links they minted for other orgs / personal projects stand.
+func (s *IMBotService) RevokeUnusedOnboardingTokensByIssuerInOrg(ctx context.Context, orgID, userID int64) (int64, error) {
+	if userID == 0 {
+		return 0, nil
+	}
+	return s.q.DeleteUnusedOnboardingTokensByIssuerInOrg(ctx, store.DeleteUnusedOnboardingTokensByIssuerInOrgParams{
+		IssuedByUserID: sql.NullInt64{Int64: userID, Valid: true},
+		OwnerID:        orgID,
+	})
 }
 
 // GetOnboardingTokenInfo looks up token metadata without consuming it.

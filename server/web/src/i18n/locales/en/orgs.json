@@ -119,5 +119,35 @@
       "noResults": "No users found. Existing members of this organization are excluded.",
       "showing": "Showing the first {{shown}} of {{total}} matches; type more keywords to narrow the search."
     }
+  },
+  "approvals": {
+    "tab": "Approvals",
+    "hint": "Integration authorization actions (confirm draft scope / relax scope / enable write / publish) must be approved by a member holding the required role. The requester cannot approve their own request.",
+    "noPermission": "Only organization owners and admins can view integration approvals.",
+    "loading": "Loading…",
+    "empty": "No pending integration approvals.",
+    "decideFailed": "Decision failed: {{error}}",
+    "escalated": "Escalated ×{{count}}",
+    "actions": {
+      "draft_confirm": "Confirm draft scope",
+      "scope_relax": "Relax scope",
+      "enable_write": "Enable write access",
+      "publish": "Publish"
+    },
+    "role": {
+      "project_admin": "project admin",
+      "admin": "admin",
+      "owner": "owner"
+    },
+    "requiredRole": "Requires {{role}}",
+    "requestedBy": "Requested by {{user}}",
+    "unknownUser": "user #{{id}}",
+    "expiresAt": "Expires {{time}}",
+    "diff": "Proposed change",
+    "notePlaceholder": "Note (optional)",
+    "approve": "Approve",
+    "deny": "Deny",
+    "selfDecide": "You are the requester and cannot approve your own request.",
+    "notPermitted": "Your role cannot approve this action."
   }
 }

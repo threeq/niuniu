@@ -200,7 +200,7 @@ func TestEndpointB_HappyPath(t *testing.T) {
 
 	// Issue a token for the project.
 	ctx := context.Background()
-	rawToken, err := env.svc.IssueOnboardingToken(ctx, env.projectID, "lark", "my-bot", "stream")
+	rawToken, err := env.svc.IssueOnboardingToken(ctx, env.projectID, 0, "lark", "my-bot", "stream")
 	if err != nil {
 		t.Fatalf("IssueOnboardingToken: %v", err)
 	}
@@ -414,7 +414,7 @@ func TestEndpointC_ValidToken(t *testing.T) {
 	r := buildOnboardingRouter(t, env, &fakeRouter{lastIssueID: 1, lastWorkspaceID: 1}, &fakeDeliverer{})
 
 	ctx := context.Background()
-	rawToken, err := env.svc.IssueOnboardingToken(ctx, env.projectID, "dingtalk", "钉钉-测试群", "stream")
+	rawToken, err := env.svc.IssueOnboardingToken(ctx, env.projectID, 0, "dingtalk", "钉钉-测试群", "stream")
 	if err != nil {
 		t.Fatalf("IssueOnboardingToken: %v", err)
 	}
@@ -467,7 +467,7 @@ func TestEndpointC_ExpiredToken(t *testing.T) {
 	r := buildOnboardingRouter(t, env, &fakeRouter{lastIssueID: 1, lastWorkspaceID: 1}, &fakeDeliverer{})
 
 	ctx := context.Background()
-	rawToken, err := env.svc.IssueOnboardingToken(ctx, env.projectID, "lark", "expired-c-bot", "stream")
+	rawToken, err := env.svc.IssueOnboardingToken(ctx, env.projectID, 0, "lark", "expired-c-bot", "stream")
 	if err != nil {
 		t.Fatalf("IssueOnboardingToken: %v", err)
 	}
@@ -494,7 +494,7 @@ func TestEndpointC_UsedToken(t *testing.T) {
 	r := buildOnboardingRouter(t, env, &fakeRouter{lastIssueID: 1, lastWorkspaceID: 1}, &fakeDeliverer{})
 
 	ctx := context.Background()
-	rawToken, err := env.svc.IssueOnboardingToken(ctx, env.projectID, "lark", "used-c-bot", "stream")
+	rawToken, err := env.svc.IssueOnboardingToken(ctx, env.projectID, 0, "lark", "used-c-bot", "stream")
 	if err != nil {
 		t.Fatalf("IssueOnboardingToken: %v", err)
 	}

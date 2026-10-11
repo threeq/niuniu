@@ -359,7 +359,8 @@ func (a *Authz) CanAccessAgent(ctx context.Context, userID, agentID int64) (Owne
 // IsProjectAdmin reports whether userID has admin-level rights on the project:
 //
 //	personal project (owner_type='user') → owner == userID
-//	org project      (owner_type='org')  → user is org owner or admin
+//	org project      (owner_type='org')  → user is org owner/admin, or holds an
+//	                                        explicit project_admin grant
 //
 // Returns (false, nil) when the project does not exist (caller can layer their
 // own ErrNotFound semantics on top if needed) or when the user has no admin
@@ -385,13 +386,25 @@ func (a *Authz) IsProjectAdmin(ctx context.Context, userID, projectID int64) (bo
 			`SELECT role FROM org_members WHERE org_id = ? AND user_id = ?`,
 			ownerID, userID,
 		).Scan(&role)
+		if err != nil && err != sql.ErrNoRows {
+			return false, err
+		}
+		if err == nil && (role == "owner" || role == "admin") {
+			return true, nil
+		}
+		// Explicit project-admin delegation (project_members).
+		var one int
+		err = a.db.QueryRowContext(ctx,
+			`SELECT 1 FROM project_members WHERE project_id = ? AND user_id = ? AND role = 'project_admin' LIMIT 1`,
+			projectID, userID,
+		).Scan(&one)
 		if err == sql.ErrNoRows {
 			return false, nil
 		}
 		if err != nil {
 			return false, err
 		}
-		return role == "owner" || role == "admin", nil
+		return true, nil
 	default:
 		return false, nil
 	}
