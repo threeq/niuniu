@@ -310,6 +310,7 @@
       "audit": "Call audit",
       "noAudit": "No calls recorded yet.",
       "fenceOk": "OS fence is in force ({{backend}})",
+      "fenceDegraded": "OS fence is in force, but a hardening layer is missing ({{backend}})",
       "fenceUnavailable": "OS fence unavailable: this host refuses to run operation functions",
       "fenceEnforced": "enforced",
       "fenceHardeningOnly": "hardening only — missing weakens but does not block",

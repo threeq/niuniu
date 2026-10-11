@@ -392,20 +392,28 @@ export function OperationFunctionsPanel() {
 // FenceBanner is the "no silent degradation" surface: when the OS sandbox could
 // not be established, functions are refused, and this says so plainly instead
 // of letting the user discover it one failed call at a time.
+//
+// Degraded gets its own headline rather than the healthy one. A fence running
+// without a hardening layer must not read as "in force" — colour alone is not a
+// disclosure, and the whole point of this component is that a weaker fence is
+// never something the user has to infer.
 function FenceBanner({ fence }: { fence: FenceAvailability }) {
   const { t } = useTranslation('settings');
+  const ready = fence.available && !fence.degraded;
   const tone = !fence.available
     ? 'border-destructive text-destructive'
     : fence.degraded
-      ? 'border-amber-500 text-amber-600'
-      : 'border-emerald-600 text-emerald-700';
+      ? 'border-warning text-warning'
+      : 'border-success text-success';
   return (
     <div className={`rounded-md border p-3 text-sm ${tone}`}>
       <p className="flex items-center gap-2 font-medium">
-        {fence.available ? <ShieldCheck className="h-4 w-4" /> : <AlertTriangle className="h-4 w-4" />}
-        {fence.available
-          ? t('integrations.functions.fenceOk', { backend: fence.backend })
-          : t('integrations.functions.fenceUnavailable')}
+        {ready ? <ShieldCheck className="h-4 w-4" /> : <AlertTriangle className="h-4 w-4" />}
+        {!fence.available
+          ? t('integrations.functions.fenceUnavailable')
+          : fence.degraded
+            ? t('integrations.functions.fenceDegraded', { backend: fence.backend })
+            : t('integrations.functions.fenceOk', { backend: fence.backend })}
       </p>
       {fence.reason && <p className="mt-1 text-xs">{fence.reason}</p>}
       <ul className="mt-2 flex flex-col gap-1 text-xs">

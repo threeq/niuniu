@@ -310,6 +310,7 @@
       "audit": "调用审计",
       "noAudit": "还没有调用记录。",
       "fenceOk": "操作系统围栏已生效（{{backend}}）",
+      "fenceDegraded": "操作系统围栏已生效，但缺少一层加固（{{backend}}）",
       "fenceUnavailable": "操作系统围栏不可用：本机拒绝运行操作函数",
       "fenceEnforced": "已强制",
       "fenceHardeningOnly": "仅加固项，缺失会降低强度但不阻断运行",

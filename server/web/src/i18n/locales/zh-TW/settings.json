@@ -310,6 +310,7 @@
       "audit": "呼叫稽核",
       "noAudit": "還沒有呼叫記錄。",
       "fenceOk": "作業系統圍欄已生效（{{backend}}）",
+      "fenceDegraded": "作業系統圍欄已生效，但缺少一層加固（{{backend}}）",
       "fenceUnavailable": "作業系統圍欄不可用：本機拒絕執行操作函式",
       "fenceEnforced": "已強制",
       "fenceHardeningOnly": "僅加固項，缺失會降低強度但不阻斷執行",
