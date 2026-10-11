@@ -5,8 +5,9 @@
 // Each provider row stores the base URL, auth wiring (header name, prefix,
 // type), an optional OpenAPI spec URL for auto-discovery, a JSON whitelist
 // of curated (method, path-pattern) pairs (the "default safe set" used
-// when the per-user write toggle is off), and a JSON profile (endpoint
-// schemas) that AI can query at runtime via get_provider_schema.
+// when the per-user write toggle is off), and a structured integration
+// contract in the profile column (see provider_contract.go) that AI reads
+// at runtime via get_provider_schema.
 //
 // Whitelist matching is bundled here because it is a pure function of the
 // provider row — no network, no DB — so the proxy service just delegates
@@ -59,7 +60,7 @@ type ProviderDef struct {
 	AuthType   string `json:"auth_type"`
 	AuthHeader string `json:"auth_header"`
 	AuthPrefix string `json:"auth_prefix"`
-	Profile    string `json:"profile"`     // JSON schema of endpoints
+	Profile    string `json:"profile"`     // structured integration contract (JSON); may be legacy free text
 	OpenAPIURL string `json:"openapi_url"` // OpenAPI spec URL
 	Whitelist  string `json:"whitelist"`   // JSON array of WhitelistRule
 	Enabled    bool   `json:"enabled"`
@@ -343,51 +344,85 @@ var systemSeed = []ProviderDef{
 	// system rows are released to the user by DemoteDeprecatedSystemProviders.
 }
 
-// serpAPIProfile is the endpoint schema the agent fetches via get_provider_schema
-// to learn how to drive SerpAPI through call_external_api. The api_key is
-// injected by the proxy — the agent must NOT pass it.
+// serpAPIProfile is the structured integration contract the agent fetches via
+// get_provider_schema to learn how to drive SerpAPI through call_external_api.
+// The api_key is injected by the proxy — the agent must NOT pass it. This is
+// the sample contract for the Contract shape (see provider_contract.go).
 const serpAPIProfile = `{
+  "schema_version": "1",
   "provider": "SerpAPI",
   "base_url": "https://serpapi.com",
-  "auth": "api_key is injected automatically by the niuniu proxy as a query parameter — do NOT include it yourself.",
-  "endpoints": [
+  "auth": {
+    "strategy": "query_param",
+    "param": "api_key",
+    "note": "api_key is injected automatically by the niuniu proxy as a query parameter — do NOT include it yourself."
+  },
+  "capabilities": ["serp", "web-search", "keyword-ranking", "seo"],
+  "verify_operation": "search",
+  "operations": [
     {
+      "name": "search",
       "method": "GET",
       "path": "/search",
+      "read_only": true,
       "summary": "Run a search-engine query and get structured JSON results (organic_results, ads, related_questions, answer_box, ...).",
-      "query_params": {
-        "engine": "google | google_news | google_scholar | bing | baidu | duckduckgo | yahoo (default google)",
-        "q": "the search query / keyword",
-        "location": "geographic location name, e.g. 'Austin, Texas, United States'",
-        "google_domain": "e.g. google.com",
-        "gl": "country code, e.g. us, cn",
-        "hl": "UI language, e.g. en, zh-cn",
-        "num": "number of results (google max 100)",
-        "start": "result offset for pagination",
-        "device": "desktop | mobile | tablet"
-      },
-      "notes": "For keyword ranking, search q for the keyword then read the target domain's position from organic_results[].position. Output is JSON."
+      "parameters": [
+        {"name": "engine", "in": "query", "type": "string", "description": "google | google_news | google_scholar | bing | baidu | duckduckgo | yahoo (default google)"},
+        {"name": "q", "in": "query", "type": "string", "required": true, "description": "the search query / keyword"},
+        {"name": "location", "in": "query", "type": "string", "description": "geographic location name, e.g. 'Austin, Texas, United States'"},
+        {"name": "google_domain", "in": "query", "type": "string", "description": "e.g. google.com"},
+        {"name": "gl", "in": "query", "type": "string", "description": "country code, e.g. us, cn"},
+        {"name": "hl", "in": "query", "type": "string", "description": "UI language, e.g. en, zh-cn"},
+        {"name": "num", "in": "query", "type": "integer", "description": "number of results (google max 100)"},
+        {"name": "start", "in": "query", "type": "integer", "description": "result offset for pagination"},
+        {"name": "device", "in": "query", "type": "string", "description": "desktop | mobile | tablet"}
+      ],
+      "request_example": {"engine": "google", "q": "best crm software", "gl": "us", "num": 10},
+      "response_shape": "JSON object with organic_results[] (each: position, title, link, snippet), ads[], related_questions[], answer_box.",
+      "notes": "For keyword ranking, search q for the keyword then read the target domain's position from organic_results[].position."
     }
   ]
 }`
 
-// gscProfile is the endpoint schema for Google Search Console (Search Console
-// API v3). The OAuth2 Bearer token is injected by the proxy.
+// gscProfile is the structured integration contract for Google Search Console
+// (Search Console API v3). The OAuth2 Bearer token is injected by the proxy.
 const gscProfile = `{
+  "schema_version": "1",
   "provider": "Google Search Console (Search Console API v3)",
   "base_url": "https://searchconsole.googleapis.com",
-  "auth": "OAuth2 access token (Bearer) injected automatically by the niuniu proxy. Mint the token for scope https://www.googleapis.com/auth/webmasters.readonly on a Google account verified for the property.",
-  "endpoints": [
+  "auth": {
+    "strategy": "bearer",
+    "header": "Authorization",
+    "prefix": "Bearer",
+    "note": "OAuth2 access token (Bearer) injected automatically by the niuniu proxy. Mint the token for scope https://www.googleapis.com/auth/webmasters.readonly on a Google account verified for the property."
+  },
+  "capabilities": ["search-analytics", "seo", "site-performance"],
+  "verify_operation": "list_sites",
+  "operations": [
     {
+      "name": "list_sites",
       "method": "GET",
       "path": "/webmasters/v3/sites",
-      "summary": "List the verified properties (sites) the token can access."
+      "read_only": true,
+      "summary": "List the verified properties (sites) the token can access.",
+      "response_shape": "JSON object with siteEntry[] each {siteUrl, permissionLevel}."
     },
     {
+      "name": "query_search_analytics",
       "method": "POST",
       "path": "/webmasters/v3/sites/{siteUrl}/searchAnalytics/query",
+      "read_only": true,
       "summary": "Query search analytics (clicks, impressions, ctr, position) for a property.",
-      "notes": "siteUrl must be URL-encoded, e.g. https%3A%2F%2Fexample.com%2F or sc-domain%3Aexample.com. Body: {\"startDate\":\"2026-06-01\",\"endDate\":\"2026-06-30\",\"dimensions\":[\"query\"|\"page\"|\"date\"|\"country\"|\"device\"],\"rowLimit\":25000}. Returns rows[] each with keys[] + clicks/impressions/ctr/position."
+      "parameters": [
+        {"name": "siteUrl", "in": "path", "type": "string", "required": true, "description": "URL-encoded property, e.g. https%3A%2F%2Fexample.com%2F or sc-domain%3Aexample.com"},
+        {"name": "startDate", "in": "body", "type": "string", "required": true, "description": "YYYY-MM-DD"},
+        {"name": "endDate", "in": "body", "type": "string", "required": true, "description": "YYYY-MM-DD"},
+        {"name": "dimensions", "in": "body", "type": "array", "description": "query | page | date | country | device"},
+        {"name": "rowLimit", "in": "body", "type": "integer", "description": "max rows, e.g. 25000"}
+      ],
+      "request_example": {"siteUrl": "https%3A%2F%2Fexample.com%2F", "startDate": "2026-06-01", "endDate": "2026-06-30", "dimensions": ["query"], "rowLimit": 25000},
+      "response_shape": "JSON object with rows[] each {keys[], clicks, impressions, ctr, position}.",
+      "notes": "siteUrl must be URL-encoded. The POST only READS data — it is in the default safe set; genuine writes (sitemap submit) still need the write toggle."
     }
   ]
 }`

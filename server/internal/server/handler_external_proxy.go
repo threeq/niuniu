@@ -276,6 +276,14 @@ func (s *Server) proxyGetProviderSchema(c *gin.Context) {
 			"whitelist":  prov.Whitelist,
 			"enabled":    prov.Enabled,
 			"created_by": prov.CreatedBy,
+			// `contract` is the structured integration contract (operations /
+			// auth / verify_operation / capabilities + a content digest) the
+			// agent drives the provider with. Derived from the profile column;
+			// a legacy free-text / loose-JSON profile degrades to an
+			// empty-operations contract (raw text preserved in
+			// legacy_profile) rather than failing — old providers never break.
+			// `profile` is kept above for backward compatibility.
+			"contract": prov.Contract(),
 		},
 	})
 }
