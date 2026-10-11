@@ -87,6 +87,11 @@ type IntegrationActivityItem struct {
 	BodySHA256   string   `json:"body_sha256,omitempty"`
 	BodyBytes    int64    `json:"body_bytes,omitempty"`
 	BodyFields   []string `json:"body_fields,omitempty"`
+	// Oversize is derived at read time (the row persists the byte count, not a
+	// flag): true when the outbound body exceeded the egress warn threshold, so
+	// the feed can mark the row. Derived — never stored — so it cannot go stale
+	// if the threshold changes. Epic #726 / #747.
+	Oversize bool `json:"oversize,omitempty"`
 
 	// kind == "data"
 	SourceID         *int64   `json:"source_id,omitempty"`
@@ -113,11 +118,24 @@ type IntegrationActivityPage struct {
 // IntegrationAuditService reads the two integration audit tables.
 type IntegrationAuditService struct {
 	q *store.Queries
+	// policy supplies the egress warn threshold used to flag an over-threshold
+	// body on read. Defaults to the personal-edition policy.
+	policy EgressPolicy
 }
 
 // NewIntegrationAuditService wires the reader.
 func NewIntegrationAuditService(q *store.Queries) *IntegrationAuditService {
-	return &IntegrationAuditService{q: q}
+	return &IntegrationAuditService{q: q, policy: DefaultEgressPolicy{}}
+}
+
+// SetEgressPolicy sets the policy whose warn threshold flags over-threshold
+// rows. A nil policy restores the default. server.go wires this to the SAME
+// policy the write side uses, so the two views never disagree.
+func (s *IntegrationAuditService) SetEgressPolicy(p EgressPolicy) {
+	if p == nil {
+		p = DefaultEgressPolicy{}
+	}
+	s.policy = p
 }
 
 // ListActivity returns one page of the caller's merged integration activity.
@@ -195,8 +213,13 @@ func (s *IntegrationAuditService) ListActivity(ctx context.Context, in Integrati
 			return nil, err
 		}
 		total += n
+		// The over-threshold flag is derived here, not stored, using the same
+		// warn threshold the write path warned at (Epic #726 / #747).
+		limit := egressWarnBytes(s.policy)
 		for _, r := range rows {
-			items = append(items, apiActivityItem(r))
+			it := apiActivityItem(r)
+			it.Oversize = r.BodyBytes > limit
+			items = append(items, it)
 		}
 	}
 

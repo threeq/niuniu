@@ -934,7 +934,13 @@
       "cancelled": "— Cancelled",
       "subagent": "→ {{type}}",
       "toolInputJson": "tool input (JSON)",
-      "fallbackTool": "general-purpose"
+      "fallbackTool": "general-purpose",
+      "dataQueryObjects": "Targets: {{objects}}",
+      "dataSummaryTitle": "Data to be sent",
+      "dataSummarySize": "{{bytes}} B",
+      "dataSummaryFields": "fields: {{fields}}",
+      "dataSummaryFieldsNone": "(no fields)",
+      "dataSummarySensitive": "Sensitive patterns matched: {{patterns}}"
     },
     "matcher": {
       "onlyThisCommand": "Only this command: {{cmd}}",

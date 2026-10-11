@@ -49,7 +49,10 @@
       "noBody": "無請求體",
       "fieldsNone": "（無欄位）",
       "fingerprint": "請求體 sha256 {{hash}}… · {{bytes}} B · 欄位：{{fields}}",
-      "dataMeta": "{{rows}} 行 · {{ms}} ms"
+      "dataMeta": "{{rows}} 行 · {{ms}} ms",
+      "oversize": "超出閾值",
+      "oversizeHint": "外發請求體超過出口告警閾值。",
+      "oversizeToast": "發往 {{provider}} 的外發資料體超出閾值，已標記，請在「整合活動」中查看。"
     },
     "pageTitle": "整合",
     "addCredential": "新增憑據",

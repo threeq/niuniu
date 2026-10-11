@@ -934,7 +934,13 @@
       "cancelled": "— 已取消",
       "subagent": "→ {{type}}",
       "toolInputJson": "tool input (JSON)",
-      "fallbackTool": "general-purpose"
+      "fallbackTool": "general-purpose",
+      "dataQueryObjects": "目標對象：{{objects}}",
+      "dataSummaryTitle": "將傳送的資料摘要",
+      "dataSummarySize": "{{bytes}} 位元組",
+      "dataSummaryFields": "欄位：{{fields}}",
+      "dataSummaryFieldsNone": "（無欄位）",
+      "dataSummarySensitive": "命中敏感模式：{{patterns}}"
     },
     "matcher": {
       "onlyThisCommand": "僅這條命令: {{cmd}}",
