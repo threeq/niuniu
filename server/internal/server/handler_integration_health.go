@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/niuniu-dev/niuniu/internal/auth"
 	"github.com/niuniu-dev/niuniu/internal/notify"
 	"github.com/niuniu-dev/niuniu/internal/service"
 )
@@ -85,6 +86,9 @@ func (s *Server) integrationHealthProbe(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "data source not found"})
 		return
 	}
+	if kind == service.ProbeSubjectProvider && !s.requireProviderAdmin(c) {
+		return
+	}
 	var (
 		outcome *service.ProbeOutcome
 		err     error
@@ -129,6 +133,9 @@ func (s *Server) integrationHealthSetEnabled(c *gin.Context, enabled bool) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "data source not found"})
 		return
 	}
+	if kind == service.ProbeSubjectProvider && !s.requireProviderAdmin(c) {
+		return
+	}
 	if err := s.integrationHealthSvc.SetEnabled(c.Request.Context(), kind, id, enabled); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -151,6 +158,9 @@ func (s *Server) integrationHealthAckDrift(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "contract drift only applies to providers"})
 		return
 	}
+	if !s.requireProviderAdmin(c) {
+		return
+	}
 	if err := s.integrationHealthSvc.AcknowledgeDrift(c.Request.Context(), id); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -158,7 +168,7 @@ func (s *Server) integrationHealthAckDrift(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"drift": false})
 }
 
-// runs returns recent probe history.
+// runs returns recent probe history, scoped to the caller's owner set.
 func (s *Server) integrationHealthRuns(c *gin.Context) {
 	uid := c.GetInt64("auth_user_id")
 	if uid <= 0 {
@@ -172,13 +182,19 @@ func (s *Server) integrationHealthRuns(c *gin.Context) {
 	}
 	var subjectID int64
 	if v := c.Query("id"); v != "" {
-		subjectID, _ = strconv.ParseInt(v, 10, 64)
+		parsed, err := strconv.ParseInt(v, 10, 64)
+		if err != nil || parsed < 0 {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+			return
+		}
+		subjectID = parsed
 	}
 	var limit int64
 	if v := c.Query("limit"); v != "" {
 		limit, _ = strconv.ParseInt(v, 10, 64)
 	}
-	runs, err := s.integrationHealthSvc.ListProbeRuns(c.Request.Context(), kind, subjectID, limit)
+	runs, err := s.integrationHealthSvc.ListProbeRuns(
+		c.Request.Context(), kind, subjectID, uid, limit)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -204,12 +220,34 @@ func (s *Server) integrationHealthParams(c *gin.Context) (kind string, id int64,
 // callerCanReachDataSource applies the data-source owner gate (personal owner
 // or a member org), reusing DataSourceService.Get.
 func (s *Server) callerCanReachDataSource(c *gin.Context, uid, id int64) bool {
-	var orgIDs []int64
-	if s.authzSvc != nil {
-		if owners, err := s.authzSvc.Accessible(c.Request.Context(), uid); err == nil {
-			orgIDs = owners.OrgIDs
-		}
-	}
-	_, err := s.dataSourceSvc.Get(c.Request.Context(), id, uid, orgIDs)
+	_, err := s.dataSourceSvc.Get(c.Request.Context(), id, uid, s.callerOrgIDs(c, uid))
 	return err == nil
+}
+
+// callerOrgIDs resolves the orgs the caller belongs to. Nil when Authz is
+// unwired or the lookup fails — personal scope only, never a wider set.
+func (s *Server) callerOrgIDs(c *gin.Context, uid int64) []int64 {
+	if s.authzSvc == nil {
+		return nil
+	}
+	owners, err := s.authzSvc.Accessible(c.Request.Context(), uid)
+	if err != nil {
+		return nil
+	}
+	return owners.OrgIDs
+}
+
+// requireProviderAdmin gates an action on a GLOBAL provider behind the admin
+// role. Providers are not owner-scoped, so there is no per-owner gate to apply
+// (unlike data sources); the project's idiom for administrative actions is
+// auth.RequireAdmin, which is a pass-through when auth is disabled (personal
+// edition, single user). Returns false and has already written the 403 when the
+// caller is not permitted.
+//
+// This is deliberately stricter than the pre-existing PUT /providers/:id (which
+// any authenticated user can call), so the health endpoints cannot widen access
+// to global provider state.
+func (s *Server) requireProviderAdmin(c *gin.Context) bool {
+	auth.RequireAdmin(s.cfg.Auth.Enabled)(c)
+	return !c.IsAborted()
 }
