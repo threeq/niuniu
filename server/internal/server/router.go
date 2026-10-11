@@ -406,6 +406,9 @@ func (s *Server) setupRoutes() {
 		me.PUT("/external-proxy/providers/:id", s.proxyUpdateProvider)
 		me.DELETE("/external-proxy/providers/:id", s.proxyDeleteProvider)
 		me.PATCH("/external-proxy/providers/:id/write-enabled", s.proxySetWriteEnabled)
+		// Audit read side (Epic #726 / #728): the caller's own external API
+		// calls, newest first.
+		me.GET("/external-proxy/audit", s.proxyAudit)
 
 		// Data integration (M1): owner-scoped SQL data sources. CRUD + verify.
 		// Spec: docs/superpowers/specs/2026-06-04-data-integration-and-dashboard-design.md
@@ -414,6 +417,13 @@ func (s *Server) setupRoutes() {
 		me.PATCH("/data-sources/:id", s.dataSourceHandler.Update)
 		me.DELETE("/data-sources/:id", s.dataSourceHandler.Delete)
 		me.POST("/data-sources/:id/verify", s.dataSourceHandler.Verify)
+		// Audit read side (Epic #726 / #728): the caller's own data queries.
+		me.GET("/data-sources/audit", s.dataSourceAudit)
+
+		// Unified integration activity feed (Epic #726 / #728): both audit
+		// tables merged into one newest-first page with a shared filter set.
+		// This is what the Settings -> Integrations activity view reads.
+		me.GET("/integration-activity", s.integrationActivity)
 
 		// Knowledge bases (Epic #496): owner-scoped corpora — CRUD, async
 		// ingest (local/upload/url), browse + keyword search, retry/mirror.
