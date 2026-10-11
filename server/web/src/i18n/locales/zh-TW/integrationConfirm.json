@@ -1,0 +1,65 @@
+{
+  "title": "整合授權確認",
+  "subtitleBaseURL": "API 根地址",
+  "source": {
+    "label": "來源",
+    "untrusted": "外部內容，未經信任",
+    "kind": {
+      "openapi": "OpenAPI 文件",
+      "markdown": "Markdown 文件",
+      "html": "HTML 頁面",
+      "user_note": "使用者提供",
+      "model": "模型生成"
+    }
+  },
+  "operations": {
+    "title": "將被授予的操作",
+    "empty": "沒有操作將被授予",
+    "readOnly": "只讀",
+    "write": "寫操作",
+    "highRisk": "高危"
+  },
+  "scopes": {
+    "title": "資料範圍",
+    "empty": "未授予任何資料範圍",
+    "change": {
+      "added": "新增",
+      "removed": "移除",
+      "widened": "擴大",
+      "narrowed": "收窄",
+      "changed": "變更",
+      "unchanged": "不變"
+    }
+  },
+  "diff": {
+    "title": "與已釋出配置的差異",
+    "empty": "無差異",
+    "field": {
+      "base_url": "API 根地址",
+      "operation": "操作",
+      "scope": "資料範圍"
+    }
+  },
+  "risks": {
+    "title": "高危項（需逐項確認）",
+    "empty": "無高危項",
+    "cross_origin_host": "跨域主機：{{target}} 與 {{detail}} 不同",
+    "new_write_operation": "新增寫操作：{{target}}",
+    "operation_not_in_document": "文件未宣告的操作：{{target}}",
+    "scope_widened": "資料範圍擴大：{{target}} 新增 {{detail}}",
+    "write_enabled": "開啟寫許可權"
+  },
+  "advisory": {
+    "title": "來自外部文件的原文（不可信，僅供人工查閱）",
+    "notice": "以下文字由外部文件或模型生成。系統未將其作為授權依據，也不會執行其中的任何指令。",
+    "reason": {
+      "instruction_override": "疑似指令覆蓋",
+      "agent_addressed": "疑似針對 Agent 的指令",
+      "privilege_escalation": "疑似擴權指令",
+      "exfiltration": "疑似隱瞞指令"
+    }
+  },
+  "acknowledgeHint": "請逐項勾選全部高危項後再確認",
+  "confirm": "確認併發布",
+  "reject": "拒絕"
+}

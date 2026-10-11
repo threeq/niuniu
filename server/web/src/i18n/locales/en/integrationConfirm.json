@@ -1,0 +1,65 @@
+{
+  "title": "Integration authorization",
+  "subtitleBaseURL": "API base URL",
+  "source": {
+    "label": "Source",
+    "untrusted": "External content, not trusted",
+    "kind": {
+      "openapi": "OpenAPI document",
+      "markdown": "Markdown document",
+      "html": "HTML page",
+      "user_note": "Provided by the user",
+      "model": "Model-generated"
+    }
+  },
+  "operations": {
+    "title": "Operations to be granted",
+    "empty": "No operation will be granted",
+    "readOnly": "Read-only",
+    "write": "Write",
+    "highRisk": "High risk"
+  },
+  "scopes": {
+    "title": "Data scope",
+    "empty": "No data scope granted",
+    "change": {
+      "added": "Added",
+      "removed": "Removed",
+      "widened": "Widened",
+      "narrowed": "Narrowed",
+      "changed": "Changed",
+      "unchanged": "Unchanged"
+    }
+  },
+  "diff": {
+    "title": "Changes against the published configuration",
+    "empty": "No changes",
+    "field": {
+      "base_url": "API base URL",
+      "operation": "Operation",
+      "scope": "Data scope"
+    }
+  },
+  "risks": {
+    "title": "High-risk items (acknowledge each)",
+    "empty": "No high-risk item",
+    "cross_origin_host": "Cross-origin host: {{target}} differs from {{detail}}",
+    "new_write_operation": "New write operation: {{target}}",
+    "operation_not_in_document": "Operation not declared by the document: {{target}}",
+    "scope_widened": "Data scope widened: {{target}} gains {{detail}}",
+    "write_enabled": "Write access enabled"
+  },
+  "advisory": {
+    "title": "Verbatim text from the external document (untrusted, for human review only)",
+    "notice": "The text below was produced by an external document or a model. The system does not treat it as a basis for authorization and will not execute any instruction in it.",
+    "reason": {
+      "instruction_override": "Possible instruction override",
+      "agent_addressed": "Possible instruction addressed at the agent",
+      "privilege_escalation": "Possible privilege-escalation instruction",
+      "exfiltration": "Possible concealment instruction"
+    }
+  },
+  "acknowledgeHint": "Acknowledge every high-risk item before confirming",
+  "confirm": "Confirm and publish",
+  "reject": "Reject"
+}
