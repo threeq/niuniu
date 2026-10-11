@@ -31,6 +31,10 @@ const (
 	exitRuntime      = 5
 	exitInterrupted  = 6
 	exitInternalFail = 7
+	// exitFenceEscaped: --fence-selftest ran the escape attempts and at least
+	// one was NOT refused. Distinct from exitSelfFence (the fence could not be
+	// applied at all) — this one means it was applied and did not hold.
+	exitFenceEscaped = 8
 )
 
 func main() {
@@ -53,8 +57,18 @@ func main() {
 	}
 	if *selfTest {
 		out := bufio.NewWriter(os.Stdout)
-		_ = sandbox.WriteFrame(out, fenceSelfTest(*probeFile, *probeAddr))
+		result := fenceSelfTest(*probeFile, *probeAddr)
+		_ = sandbox.WriteFrame(out, result)
 		finish(out)
+		// Holds the verdict in the exit code too. The host reads the frame, but
+		// a person checking a new platform runs this by hand — and an escape
+		// that still exits 0 is exactly the silent failure #739 forbids.
+		if o, ok := result.Output.(map[string]any); ok {
+			if escaped, _ := o["escaped"].(bool); escaped {
+				fmt.Fprintln(os.Stderr, "funcbox: the OS fence did NOT hold; at least one escape attempt succeeded")
+				os.Exit(exitFenceEscaped)
+			}
+		}
 		os.Exit(exitOK)
 	}
 

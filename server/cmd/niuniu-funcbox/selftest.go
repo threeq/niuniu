@@ -24,26 +24,47 @@ func fenceSelfTest(file, addr string) sandbox.ResultMessage {
 		probeConnect(addr),
 		probeSpawn(),
 	}
-	allDenied := true
-	for _, p := range probes {
-		if denied, _ := p["denied"].(bool); !denied {
-			allDenied = false
-		}
-	}
+	allDenied, escaped := classifyProbes(probes)
 	return sandbox.ResultMessage{
 		Kind: sandbox.KindResult,
 		OK:   true,
 		Output: map[string]any{
 			"all_denied": allDenied,
+			"escaped":    escaped,
 			"probes":     probes,
 			"pid":        os.Getpid(),
 		},
 	}
 }
 
+// classifyProbes separates "every probe the fence was asked to stop, it
+// stopped" from "the fence let something through".
+//
+// A probe with no path/address is SKIPPED, not denied: leaving it out of
+// allDenied keeps an unconfigured run from looking like a failure. An escaped
+// probe is the opposite — it is the one outcome that must never be reported as
+// success, so it is tracked separately and turns the process exit code.
+func classifyProbes(probes []map[string]any) (allDenied, escaped bool) {
+	allDenied = true
+	for _, p := range probes {
+		if skipped, _ := p["skipped"].(bool); skipped {
+			continue
+		}
+		if didEscape, _ := p["escaped"].(bool); didEscape {
+			escaped = true
+			allDenied = false
+			continue
+		}
+		if denied, _ := p["denied"].(bool); !denied {
+			allDenied = false
+		}
+	}
+	return allDenied, escaped
+}
+
 func probeRead(path string) map[string]any {
 	if path == "" {
-		return map[string]any{"name": "read_file", "denied": false,
+		return map[string]any{"name": "read_file", "denied": false, "skipped": true,
 			"error": "no probe path was supplied"}
 	}
 	data, err := os.ReadFile(path)
@@ -52,13 +73,13 @@ func probeRead(path string) map[string]any {
 	}
 	// A successful read that returned nothing is still an escape; report the
 	// size so a false positive cannot hide behind an empty file.
-	return map[string]any{"name": "read_file", "denied": false,
+	return map[string]any{"name": "read_file", "denied": false, "escaped": true,
 		"error": fmt.Sprintf("the file was readable (%d bytes)", len(data))}
 }
 
 func probeConnect(addr string) map[string]any {
 	if addr == "" {
-		return map[string]any{"name": "direct_socket", "denied": false,
+		return map[string]any{"name": "direct_socket", "denied": false, "skipped": true,
 			"error": "no probe address was supplied"}
 	}
 	conn, err := net.DialTimeout("tcp", addr, 3*time.Second)
@@ -66,7 +87,7 @@ func probeConnect(addr string) map[string]any {
 		return map[string]any{"name": "direct_socket", "denied": true, "error": err.Error()}
 	}
 	_ = conn.Close()
-	return map[string]any{"name": "direct_socket", "denied": false,
+	return map[string]any{"name": "direct_socket", "denied": false, "escaped": true,
 		"error": "a TCP connection was established"}
 }
 
@@ -84,6 +105,6 @@ func probeSpawn() map[string]any {
 	if err != nil {
 		return map[string]any{"name": "spawn_subprocess", "denied": true, "error": err.Error()}
 	}
-	return map[string]any{"name": "spawn_subprocess", "denied": false,
+	return map[string]any{"name": "spawn_subprocess", "denied": false, "escaped": true,
 		"error": fmt.Sprintf("a child process ran and produced %q", string(out))}
 }
