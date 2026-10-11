@@ -465,6 +465,13 @@ func (s *Server) proxyGetProviderSchema(c *gin.Context) {
 	}
 
 	providerName := c.Param("provider")
+	// In-workspace (MCP) callers may only read a provider's schema when it is
+	// bound to their project — the same visibility list_providers enforces. The
+	// SPA management path (no workspace context) keeps the full catalog.
+	if !s.providerVisibleToWorkspace(c, providerName) {
+		c.JSON(http.StatusNotFound, gin.H{"error": gin.H{"code": "NOT_FOUND", "message": "provider not found: " + providerName}})
+		return
+	}
 	prov, err := s.externalProviderSvc.GetByName(c.Request.Context(), providerName)
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": gin.H{"code": "NOT_FOUND", "message": "provider not found: " + providerName}})

@@ -21,13 +21,20 @@
 // read regenerates it — so the description cannot drift from what the proxy
 // actually enforces.
 //
-// Injection defence. Every free-text field the built doc carries (operation
-// summaries/notes, parameter descriptions, provider notes, target names) is
-// sanitized on the way in: marker sequences are neutralised so the text cannot
-// break out of the data partition, and text that reads as an instruction is
-// replaced outright (reusing the untrusted-input classifier). The rendered
-// agent block is then presented as a DATA section, clearly fenced off from the
-// agent's instructions — so a poisoned summary cannot turn into a directive.
+// Injection defence. Every contract-derived field the built doc carries is
+// sanitized on the way in: identity fields (operation names/paths/parameters,
+// scope entries) and prose fields (summaries, descriptions, notes) all have
+// marker sequences neutralised so text cannot break out of the data partition,
+// and BOTH classes are run through the untrusted-input classifier so text that
+// reads as an instruction is replaced outright — an instruction smuggled into a
+// name is withheld exactly like one smuggled into a summary. Values interpolated
+// into a worked example must additionally be a plain identifier / path prefix,
+// so a crafted scope entry cannot shape the example into arbitrary text. The
+// rendered agent block is then presented as a DATA section, clearly fenced off
+// from the agent's instructions. The one deliberate exception is the target
+// identifier (the provider/source name the caller passed in): it is rendered
+// marker-stripped and quoted, because it must round-trip exactly for the
+// examples to be usable.
 package service
 
 import (
@@ -148,29 +155,32 @@ func BuildProviderCapabilityDoc(p *ProviderDef) *CapabilityDoc {
 	doc := &CapabilityDoc{
 		SchemaVersion: CapabilitySchemaVersion,
 		TargetKind:    CapabilityTargetProvider,
-		Name:          sanitizeCapabilityText(p.Name),
-		DisplayName:   sanitizeCapabilityProse(pickNonEmpty(p.Label, p.Name)),
-		SourceDigest:  contract.Digest,
-		Tool:          capabilityToolProvider,
-		Operations:    []CapabilityOperation{},
-		Limits:        []string{},
-		Examples:      []CapabilityExample{},
+		// Name is the identifier the caller passed in and must round-trip exactly
+		// (the worked examples embed it), so it gets marker-stripping only — and is
+		// always rendered quoted (see providerCallExample).
+		Name:         sanitizeCapabilityText(p.Name),
+		DisplayName:  sanitizeCapabilityProse(pickNonEmpty(p.Label, p.Name)),
+		SourceDigest: contract.Digest,
+		Tool:         capabilityToolProvider,
+		Operations:   []CapabilityOperation{},
+		Limits:       []string{},
+		Examples:     []CapabilityExample{},
 	}
 	for _, op := range contract.Operations {
 		cop := CapabilityOperation{
-			Name:     sanitizeCapabilityText(op.Name),
+			Name:     sanitizeCapabilityProse(op.Name),
 			Method:   strings.ToUpper(strings.TrimSpace(op.Method)),
-			Path:     sanitizeCapabilityText(op.Path),
+			Path:     sanitizeCapabilityProse(op.Path),
 			Summary:  sanitizeCapabilityProse(op.Summary),
 			ReadOnly: op.ReadOnly,
 			Notes:    sanitizeCapabilityProse(op.Notes),
 		}
 		for _, prm := range op.Parameters {
 			cop.Params = append(cop.Params, CapabilityParam{
-				Name:        sanitizeCapabilityText(prm.Name),
+				Name:        sanitizeCapabilityProse(prm.Name),
 				In:          strings.TrimSpace(prm.In),
 				Required:    prm.Required,
-				Type:        sanitizeCapabilityText(prm.Type),
+				Type:        sanitizeCapabilityProse(prm.Type),
 				Description: sanitizeCapabilityProse(prm.Description),
 			})
 		}
@@ -420,19 +430,76 @@ func dataSourceExamples(doc *CapabilityDoc, dto *DataSourceDTO) []CapabilityExam
 			Call: fmt.Sprintf("%s(source=%q, operation={\"index\": \"logs-2026.10.11\", \"es_method\": \"GET\", \"es_path\": \"_search\", \"query\": {\"size\": 10}})", capabilityToolDataSource, name),
 		}}
 	case "http":
-		example := firstOr(doc.Scope.Allow, "/v1/pets")
-		method := firstOr(doc.Scope.Methods, "GET")
+		// Only interpolate a scope value that is unambiguously a path prefix;
+		// anything else falls back to a schema-independent placeholder, so a
+		// crafted scope entry cannot shape the example into arbitrary text.
+		example := "/your_path"
+		if v := firstOr(doc.Scope.Allow, ""); plainPathPrefix(v) {
+			example = v
+		}
+		method := "GET"
+		if v := firstOr(doc.Scope.Methods, ""); plainHTTPMethod(v) {
+			method = v
+		}
 		return []CapabilityExample{{
 			Task: "调用一个只读接口",
 			Call: fmt.Sprintf("%s(source=%q, operation={\"http_method\": %q, \"http_path\": %q})", capabilityToolDataSource, name, method, example),
 		}}
 	default:
-		table := firstOr(doc.Scope.Allow, firstOr(doc.Scope.Databases, "your_table"))
+		table := "your_table"
+		if v := firstOr(doc.Scope.Allow, firstOr(doc.Scope.Databases, "")); plainIdentifier(v) {
+			table = v
+		}
 		return []CapabilityExample{{
 			Task: "查一批数据",
 			Call: fmt.Sprintf("%s(source=%q, statement=\"SELECT * FROM %s LIMIT 10\")", capabilityToolDataSource, name, table),
 		}}
 	}
+}
+
+// plainIdentifier reports whether s is a bare SQL identifier (letters, digits,
+// underscore, and interior dots) — the only shape safe to interpolate verbatim
+// into an example statement. Anything else yields a placeholder.
+func plainIdentifier(s string) bool {
+	if s == "" {
+		return false
+	}
+	for i, r := range s {
+		switch {
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r == '_':
+		case (r >= '0' && r <= '9' || r == '.') && i > 0:
+		default:
+			return false
+		}
+	}
+	return true
+}
+
+// plainPathPrefix reports whether s is a plain URL path prefix starting with "/"
+// and free of quotes, backslashes, angle brackets and control characters.
+func plainPathPrefix(s string) bool {
+	if !strings.HasPrefix(s, "/") || len(s) < 2 {
+		return false
+	}
+	for _, r := range s {
+		if r <= ' ' || r == '"' || r == '\'' || r == '`' || r == '\\' || r == '<' || r == '>' {
+			return false
+		}
+	}
+	return true
+}
+
+// plainHTTPMethod reports whether s is a bare HTTP verb (letters only).
+func plainHTTPMethod(s string) bool {
+	if s == "" || len(s) > 10 {
+		return false
+	}
+	for _, r := range s {
+		if !(r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z') {
+			return false
+		}
+	}
+	return true
 }
 
 // --- digest + staleness -----------------------------------------------------
@@ -628,13 +695,12 @@ func scopeSubjectLabel(kind string) string {
 
 // --- sanitization (injection defence) ---------------------------------------
 
-// sanitizeCapabilityText neutralises an IDENTITY field (an operation name,
-// path, method, parameter name, scope object) before it enters a capability doc.
+// sanitizeCapabilityText neutralises a field before it enters a capability doc.
 // It strips marker / comment sequences and collapses whitespace, so the text can
-// neither close the data partition nor forge a new block line. Identity values
-// are NOT run through the instruction classifier: they must survive verbatim to
-// stay usable in a worked example (`operation="<name>"`), and they are rendered
-// as inline code inside a block explicitly framed as data.
+// neither close the data partition nor forge a new block line. It is the inner
+// half of sanitizeCapabilityProse; it is used alone only for the target
+// identifier, which must round-trip exactly for the worked examples to be usable
+// (and is always rendered quoted).
 func sanitizeCapabilityText(s string) string {
 	if s == "" {
 		return ""
@@ -650,11 +716,11 @@ func sanitizeCapabilityText(s string) string {
 	return strings.TrimSpace(s)
 }
 
-// sanitizeCapabilityProse neutralises a PROSE field (an operation summary, a
-// parameter description, a display label). Beyond the identity treatment it
-// applies a second, stronger defence: text that reads as an instruction (per the
-// untrusted-input classifier) is replaced outright, so an instruction smuggled
-// into a summary can never be rendered as a directive.
+// sanitizeCapabilityProse neutralises a contract-derived field — an operation
+// name/path, a parameter name/description, a scope entry, a summary or note.
+// Beyond the marker/whitespace treatment it applies the instruction classifier:
+// text that reads as an instruction is replaced outright, so an instruction
+// smuggled into a name is withheld exactly like one smuggled into a summary.
 func sanitizeCapabilityProse(s string) string {
 	s = sanitizeCapabilityText(s)
 	if s == "" {
@@ -667,11 +733,13 @@ func sanitizeCapabilityProse(s string) string {
 }
 
 // sanitizeStringList sanitizes each element of a JSON-derived string list.
+// Elements are caller-supplied (scope_config), so they get the full prose
+// treatment: an instruction smuggled into a table name is withheld, not rendered.
 func sanitizeStringList(v any) []string {
 	raw := toStringList(v)
 	out := make([]string, 0, len(raw))
 	for _, s := range raw {
-		if t := sanitizeCapabilityText(s); t != "" {
+		if t := sanitizeCapabilityProse(s); t != "" {
 			out = append(out, t)
 		}
 	}
