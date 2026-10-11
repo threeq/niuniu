@@ -64,5 +64,46 @@
   },
   "acknowledgeHint": "请逐项勾选全部高危项后再确认",
   "confirm": "确认并发布",
-  "reject": "拒绝"
+  "reject": "拒绝",
+  "draft": {
+    "title": "集成草稿",
+    "notice": "草稿是尚未生效的候选配置。agent 可以起草，但只有用户可以确认并发布。",
+    "empty": "当前没有待处理的草稿",
+    "emptyHint": "当 agent 提议新的 Provider 或数据源时，草稿会出现在这里。",
+    "loading": "正在加载草稿…",
+    "kind": {
+      "provider": "Provider",
+      "data_source": "数据源"
+    },
+    "status": {
+      "draft": "待确认",
+      "lint_failed": "预检未通过",
+      "confirmed": "已确认，未发布",
+      "published": "已发布",
+      "rejected": "已拒绝"
+    },
+    "agentAuthored": "由 agent 起草",
+    "noCard": "该草稿没有可用的确认卡。",
+    "confirmImpact": "确认影响范围",
+    "publish": "发布",
+    "publishHint": "先以停用状态应用候选配置，执行上方验证探针，探针通过后才启用。",
+    "publishDone": "已发布并通过验证。",
+    "publishRolledBack": "验证探针失败，已恢复上一版配置并保留草稿。",
+    "second": {
+      "title": "该草稿会放宽权限",
+      "notice": "它授予了当前未发布的 scope，或开启了写权限。批准它需要额外的、单独的二次确认。",
+      "checkbox": "我已了解这会放宽访问权限，仍要审阅",
+      "stillRequired": "卡上的放宽项已勾选，但仍缺少单独的二次确认。"
+    },
+    "versions": {
+      "title": "已发布版本",
+      "version": "版本 {{version}}",
+      "active": "生效中",
+      "rollback": "回退",
+      "confirmRollback": "确认并回退"
+    },
+    "rollbackNeedsConfirmation": "回退到版本 {{version}} 会改变 scope，因此需要先确认。目前尚未应用任何改动。",
+    "rollbackDone": "已回退。",
+    "rollbackFailed": "回退后的配置未通过验证，线上配置保持不变。"
+  }
 }

@@ -142,6 +142,23 @@ func (s *Server) proxyCall(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"data": output})
 }
 
+// providerPathID reads the provider path parameter as a numeric id.
+//
+// The routes under /external-proxy/providers/ are addressed two ways: by NAME
+// (:provider/schema, :provider/verify) and by numeric ID (:id, :id/publish,
+// :id/openapi-draft, :id/write-enabled). Gin permits only ONE wildcard name per
+// path position, and a second one panics the router at boot — so the position is
+// spelled ":provider" throughout and the id-addressed handlers parse it here.
+// The URL shape is unchanged, so existing callers are unaffected.
+func providerPathID(c *gin.Context) (int64, bool) {
+	id, err := strconv.ParseInt(c.Param("provider"), 10, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{"code": "BAD_REQUEST", "message": "invalid provider id"}})
+		return 0, false
+	}
+	return id, true
+}
+
 // confirmProbe routes a non-GET verification probe through the chat permission
 // card (in-workspace agents only), with the probe manifest as the card input so
 // a human sees exactly which request will be sent. Returns (allowed, true) when
@@ -228,9 +245,8 @@ func (s *Server) proxyPublishProvider(c *gin.Context) {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": gin.H{"code": "UNAUTHORIZED", "message": "authentication required"}})
 		return
 	}
-	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{"code": "BAD_REQUEST", "message": "invalid provider id"}})
+	id, ok := providerPathID(c)
+	if !ok {
 		return
 	}
 	var req struct {
@@ -407,9 +423,8 @@ func (s *Server) proxySetWriteEnabled(c *gin.Context) {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": gin.H{"code": "UNAUTHORIZED", "message": "authentication required"}})
 		return
 	}
-	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{"code": "BAD_REQUEST", "message": "invalid provider id"}})
+	id, ok := providerPathID(c)
+	if !ok {
 		return
 	}
 	// Resolve the provider so we 404 cleanly on bad ids (otherwise the
@@ -532,9 +547,8 @@ func (s *Server) proxyUpdateProvider(c *gin.Context) {
 		return
 	}
 
-	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{"code": "BAD_REQUEST", "message": "invalid provider id"}})
+	id, ok := providerPathID(c)
+	if !ok {
 		return
 	}
 
@@ -627,9 +641,8 @@ func (s *Server) proxyUpdateProvider(c *gin.Context) {
 
 // proxyDeleteProvider handles DELETE /api/me/external-proxy/providers/:id
 func (s *Server) proxyDeleteProvider(c *gin.Context) {
-	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{"code": "BAD_REQUEST", "message": "invalid provider id"}})
+	id, ok := providerPathID(c)
+	if !ok {
 		return
 	}
 	existing, err := s.externalProviderSvc.GetByID(c.Request.Context(), id)

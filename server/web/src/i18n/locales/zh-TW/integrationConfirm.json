@@ -64,5 +64,46 @@
   },
   "acknowledgeHint": "請逐項勾選全部高危項後再確認",
   "confirm": "確認併發布",
-  "reject": "拒絕"
+  "reject": "拒絕",
+  "draft": {
+    "title": "整合草稿",
+    "notice": "草稿是尚未生效的候選設定。agent 可以起草，但只有使用者可以確認並發布。",
+    "empty": "目前沒有待處理的草稿",
+    "emptyHint": "當 agent 提議新的 Provider 或資料來源時，草稿會出現在這裡。",
+    "loading": "正在載入草稿…",
+    "kind": {
+      "provider": "Provider",
+      "data_source": "資料來源"
+    },
+    "status": {
+      "draft": "待確認",
+      "lint_failed": "預檢未通過",
+      "confirmed": "已確認，未發布",
+      "published": "已發布",
+      "rejected": "已拒絕"
+    },
+    "agentAuthored": "由 agent 起草",
+    "noCard": "該草稿沒有可用的確認卡。",
+    "confirmImpact": "確認影響範圍",
+    "publish": "發布",
+    "publishHint": "先以停用狀態套用候選設定，執行上方驗證探針，探針通過後才啟用。",
+    "publishDone": "已發布並通過驗證。",
+    "publishRolledBack": "驗證探針失敗，已還原上一版設定並保留草稿。",
+    "second": {
+      "title": "該草稿會放寬權限",
+      "notice": "它授予了目前未發布的 scope，或開啟了寫權限。批准它需要額外的、獨立的二次確認。",
+      "checkbox": "我已了解這會放寬存取權限，仍要審閱",
+      "stillRequired": "卡上的放寬項已勾選，但仍缺少獨立的二次確認。"
+    },
+    "versions": {
+      "title": "已發布版本",
+      "version": "版本 {{version}}",
+      "active": "生效中",
+      "rollback": "還原",
+      "confirmRollback": "確認並還原"
+    },
+    "rollbackNeedsConfirmation": "還原到版本 {{version}} 會改變 scope，因此需要先確認。目前尚未套用任何變更。",
+    "rollbackDone": "已還原。",
+    "rollbackFailed": "還原後的設定未通過驗證，線上設定保持不變。"
+  }
 }

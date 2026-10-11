@@ -67,7 +67,7 @@ func newOpenAPIDraftTestServer(t *testing.T) (*gin.Engine, *service.ExternalProv
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.Use(func(c *gin.Context) { c.Set("auth_user_id", int64(1)) })
-	r.POST("/api/me/external-proxy/providers/:id/openapi-draft", srv.proxyOpenAPIDraft)
+	r.POST("/api/me/external-proxy/providers/:provider/openapi-draft", srv.proxyOpenAPIDraft)
 	return r, svc
 }
 

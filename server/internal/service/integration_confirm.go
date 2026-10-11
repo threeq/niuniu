@@ -632,13 +632,16 @@ func unionScopeKeys(a, b map[string]any) []string {
 	return keys
 }
 
-// scopeValues reads a scope key as a sorted, de-duplicated string list.
+// scopeValues reads a scope key as a sorted, de-duplicated string list. The
+// result is always non-nil: a scope key that grants nothing must serialize as
+// `[]`, never `null` — the card model's wire shape is part of what consumers
+// render, and a null list is not a list.
 func scopeValues(m map[string]any, key string) []string {
+	vals := []string{}
 	raw, ok := m[key]
 	if !ok {
-		return []string{}
+		return vals
 	}
-	var vals []string
 	switch v := raw.(type) {
 	case []any:
 		for _, e := range v {

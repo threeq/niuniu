@@ -127,6 +127,11 @@ func main() {
 	// which runs the three-layer gate + audit before executing a read-only query.
 	registerDataProxyTools(s, api)
 
+	// Integration draft pipeline (Epic #726 / #734) — draft_integration and
+	// get_integration_draft. Deliberately no publish tool: an agent may propose
+	// an integration, only the user may grant it.
+	registerDraftTools(s, api)
+
 	// Data dashboards — pin_query / list_dashboards tunnel to /mcp/dashboards/*.
 	// pin_query records the current workspace (from the session token) as the
 	// pinned query's origin so the chart can link back to this workspace.

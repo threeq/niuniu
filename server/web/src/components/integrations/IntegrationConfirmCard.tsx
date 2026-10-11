@@ -20,6 +20,13 @@ interface Props {
   onDecide: (body: ConfirmDecisionBody) => void;
   /** Disable both actions while a decision is in flight. */
   pending?: boolean;
+  /**
+   * i18n key (within the `integrationConfirm` namespace) for the approve
+   * action. Defaults to `confirm` ("Confirm and publish"). Callers that run the
+   * approval and the publish as two separate steps pass `confirmOnly` so the
+   * button says what it actually does.
+   */
+  confirmLabelKey?: string;
 }
 
 /**
@@ -34,7 +41,12 @@ interface Props {
  * confirm action unlocks, so a risky draft cannot be rubber-stamped with a
  * single click.
  */
-export function IntegrationConfirmCard({ model, onDecide, pending = false }: Props) {
+export function IntegrationConfirmCard({
+  model,
+  onDecide,
+  pending = false,
+  confirmLabelKey = 'confirm',
+}: Props) {
   const { t } = useTranslation('integrationConfirm');
   const [acknowledged, setAcknowledged] = useState<Record<string, boolean>>({});
 
@@ -195,7 +207,7 @@ export function IntegrationConfirmCard({ model, onDecide, pending = false }: Pro
             disabled={pending || !allAcknowledged}
             onClick={() => onDecide({ decision: 'approve', acknowledged: ackKeys })}
           >
-            {t('confirm')}
+            {t(confirmLabelKey)}
           </Button>
           <Button
             size="sm"

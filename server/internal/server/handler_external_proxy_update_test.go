@@ -60,7 +60,7 @@ func newProviderUpdateTestServer(t *testing.T) (*gin.Engine, *service.ExternalPr
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.Use(func(c *gin.Context) { c.Set("auth_user_id", int64(1)) })
-	r.PUT("/api/me/external-proxy/providers/:id", srv.proxyUpdateProvider)
+	r.PUT("/api/me/external-proxy/providers/:provider", srv.proxyUpdateProvider)
 	return r, svc, db
 }
 

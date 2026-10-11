@@ -165,6 +165,11 @@ method + path。
 AI 侧不得自行拼装或改写卡片文案；文案全部来自 i18n + 结构化字段。`Title`/`Label` 的取值
 规则见 §4.1.1。
 
+> **已实现（#734）**：这条接入缝已经落地——`server/internal/service/integration_draft.go` 的
+> `buildCardFromPayload` 是草稿卡、发布前复核、回退卡三者的**唯一**构造点；
+> `IntegrationDraftPanel.tsx` 渲染下发的 model，自身不拼任何授权文案。落地细节与取舍见
+> [`integration-draft-pipeline.md`](./integration-draft-pipeline.md)。
+
 ### 4.4 行为预演一致性（与 #739 协同）
 
 `BehaviorPreview` 是"发布后会真正产生的出网行为"的唯一结构化描述：每条被批准的操作对应

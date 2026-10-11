@@ -526,6 +526,30 @@ type ImBotThread struct {
 	CreatedAt   time.Time `json:"created_at"`
 }
 
+type IntegrationDraft struct {
+	ID              int64        `json:"id"`
+	OwnerType       string       `json:"owner_type"`
+	OwnerID         int64        `json:"owner_id"`
+	Kind            string       `json:"kind"`
+	TargetName      string       `json:"target_name"`
+	TargetID        int64        `json:"target_id"`
+	Status          string       `json:"status"`
+	Payload         string       `json:"payload"`
+	OriginJson      string       `json:"origin_json"`
+	AdvisoryJson    string       `json:"advisory_json"`
+	DocOpsJson      string       `json:"doc_ops_json"`
+	DocHost         string       `json:"doc_host"`
+	LintJson        string       `json:"lint_json"`
+	ConfirmJson     string       `json:"confirm_json"`
+	AckJson         string       `json:"ack_json"`
+	SecondConfirmed int64        `json:"second_confirmed"`
+	AgentAuthored   int64        `json:"agent_authored"`
+	CreatedBy       int64        `json:"created_by"`
+	PublishedAt     sql.NullTime `json:"published_at"`
+	CreatedAt       time.Time    `json:"created_at"`
+	UpdatedAt       time.Time    `json:"updated_at"`
+}
+
 type IntegrationProbeRun struct {
 	ID                  int64     `json:"id"`
 	SubjectKind         string    `json:"subject_kind"`
@@ -541,6 +565,23 @@ type IntegrationProbeRun struct {
 	ConsecutiveFailures int64     `json:"consecutive_failures"`
 	AutoDisabled        int64     `json:"auto_disabled"`
 	CreatedAt           time.Time `json:"created_at"`
+}
+
+type IntegrationVersion struct {
+	ID            int64     `json:"id"`
+	OwnerType     string    `json:"owner_type"`
+	OwnerID       int64     `json:"owner_id"`
+	Kind          string    `json:"kind"`
+	TargetName    string    `json:"target_name"`
+	TargetID      int64     `json:"target_id"`
+	Version       int64     `json:"version"`
+	Payload       string    `json:"payload"`
+	ScopeJson     string    `json:"scope_json"`
+	Digest        string    `json:"digest"`
+	Active        int64     `json:"active"`
+	PublishedBy   int64     `json:"published_by"`
+	SourceDraftID int64     `json:"source_draft_id"`
+	CreatedAt     time.Time `json:"created_at"`
 }
 
 type IpLockout struct {

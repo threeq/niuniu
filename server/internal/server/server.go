@@ -159,6 +159,9 @@ type Server struct {
 	// event-bus dispatcher pushing outbound notifications.
 	imbotSvc        *service.IMBotService
 	integrationHealthSvc *service.IntegrationHealthService
+	// integrationDraftSvc is the shared draft -> lint -> confirm -> publish ->
+	// verify/rollback pipeline for both onboarding lines (Epic #726 / #734).
+	integrationDraftSvc *service.IntegrationDraftService
 	imbotHandler    *api.IMBotHandler
 	imbotConnMgr    *imbot.ConnectorManager
 	imbotDispatcher *service.IMBotDispatcher
@@ -1476,6 +1479,12 @@ func New(cfg *config.Config, db *sql.DB, frontendFS fs.FS) *Server {
 	if cfg.IntegrationHealth.Enabled {
 		s.scheduler.RegisterHealthSweep(cfg.IntegrationHealth.SweepCron, s.integrationHealthSvc.RunSweep)
 	}
+
+	// Integration draft pipeline (Epic #726 / #734): the controlled path from an
+	// AI-authored candidate to a live integration. Constructed after the health
+	// service because publishing flips a target's enabled flag through it.
+	s.integrationDraftSvc = service.NewIntegrationDraftService(
+		s.queries, providerSvc, s.dataSourceSvc, proxySvc, s.integrationHealthSvc)
 
 	// Generic one-time credential links (issue #727). Depends on both encrypted
 	// stores, so it is constructed after them.

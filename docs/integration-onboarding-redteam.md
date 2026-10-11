@@ -60,17 +60,26 @@
 
 - **攻击**：先发布一个窄 scope，用户后来收窄/撤销，再回滚到旧版本把**已撤销的权限**一起
   带回来，且不经过确认卡。
-- **防线**（待建）：任何"从历史版本恢复"的路径都必须重新走确认卡，不得绕过 §4.2 的逐项勾选。
-- **验证**：人工 + 端到端——发布 v1（含写操作）→ 收窄发布 v2 → 回滚到 v1，断言回滚同样
-  弹确认卡且高危项仍需逐项勾选。
-- **状态**：**未覆盖**。依赖 #734 的发布/回退流水线落地后补上，并加回归 fixture。
+- **防线**：`IntegrationDraftService.Rollback`（`integration_draft_publish.go`）从历史版本
+  payload 与**当前生效配置**构造同一张系统确认卡；只要 scope 有变化（scopes 任一 change ≠
+  unchanged，或 diff 出现 operation / scope 项）或卡片有任何高危项，就返回
+  `{requires_confirmation:true, card}` 并且**不应用任何东西**，直到 `confirmed=true` 且逐项
+  勾选齐备。见 `docs/integration-draft-pipeline.md` §6。
+- **验证**：`go test ./internal/service/ -run TestDraftPipeline_RollbackChangingScopeRequiresConfirmation -count=1`
+  （发布窄 scope v1 → 发布宽 scope v2 → 回滚 v1 返回待确认卡且线上仍是 v2 → 确认后才回到 v1）。
+- **状态**：**已覆盖**（#734）。
 
 ### RT-07 确认卡重放
 
 - **攻击**：用户批准了卡片 A，草稿随后被改成 B，重放 A 的批准把 B 发出去。
-- **防线**（待建）：批准要绑定草稿 digest；digest 变了批准即失效。
-- **验证**：人工 + 端到端——批准后篡改草稿，断言批准被拒绝。
-- **状态**：**未覆盖**。依赖 #734；与本文件的 §4.3 接入缝一并设计。
+- **防线**：确认把 `DecisionPayload(card)` 的**字节**存进 `integration_drafts.confirm_json`。
+  发布时从草稿当前的结构化字段重建卡片与字节并逐字节比对；不一致即 `ErrDraftStale`，同时
+  清空确认状态强制重新确认。绑定的是"将被执行的结构化字段"而非一个可复用的 digest 令牌，
+  所以连"改回原样再重放"也只会在确有变化时才失配。见 `docs/integration-draft-pipeline.md` §4.1。
+- **验证**：`go test ./internal/service/ -run TestDraftPipeline_FailedPublishRestoresPreviousVersion -count=1`
+  覆盖同一路径上的重建比对；`TestDraftPipeline_WidenedScopeRequiresSecondConfirmation` 覆盖
+  "未确认不得发布"。
+- **状态**：**已覆盖**（#734）。
 
 ### RT-08 团队版批量批准
 
@@ -106,6 +115,33 @@
    否则审阅者会漏看一次权限回收。已改为遍历两侧键的并集，并补
    `TestScopeDiff_ReportsARevokedKey`。教训：差异渲染要按**并集**做，只按"新值"遍历会
    系统性漏掉删除项。
+
+### 第 2 轮 — 2026-10-11（#734 草稿流水线合入 ws-969/epic/726）
+
+| 项 | 命令 | 结果 |
+|---|---|---|
+| RT-06 | `go test ./internal/service/ -run TestDraftPipeline_RollbackChangingScopeRequiresConfirmation -count=1` | PASS |
+| RT-07 | `go test ./internal/service/ -run 'TestDraftPipeline_FailedPublishRestoresPreviousVersion\|TestDraftPipeline_WidenedScopeRequiresSecondConfirmation' -count=1` | PASS |
+| RT-03/04（回归） | `go test ./internal/service/ -run TestDraftPipeline_PoisonedDocumentCannotReachTheDecisionArea -count=1` | PASS |
+| 权限原则（新增演练项） | `go test ./internal/service/ -run TestDraftPipeline_AgentCannotPublishOrRollback -count=1` + `go test ./internal/server/ -run TestDraftRoutes_AgentSurfaceRefusesAuthorizationActions -count=1` | PASS |
+| RT-08 | — | 仍未覆盖，owner #740/#741 |
+
+**发现**：
+
+1. **真实缺陷（发布回滚的恢复路径丢目标名）**：`restoreSnapshot` 用
+   `store.IntegrationDraft{Kind, TargetID}` 组装上下文去重放上一版 payload，而
+   `applyProvider` 是按 `row.TargetName` 定位 provider 的——名字为空 ⇒ `GetByName("")` 未命中
+   ⇒ **新建**了一个名为 `""` 的 provider，真正被改坏的那个原样留着。测试
+   `TestDraftPipeline_FailedPublishRestoresPreviousVersion` 断言"线上契约必须回到 v1"才把它
+   抓住（写这条断言的价值就在这）。已把 `TargetName` 补进 `liveSnapshot`，并给
+   `applyProvider` 加上空名直接报错的护栏。教训：用于"重放"的上下文对象要把**定位键**带全，
+   否则恢复会静默作用到别处——而且不会有报错。
+2. **探针必须声明制**：lint 起初允许 `verify_operation` 为空（沿用 `LintContract` 的语义），
+   但发布时 `SelectVerifyOperation` 会自动兜底挑一个只读操作去打——那是一个从未出现在确认卡上
+   的出网请求。已把"契约必须声明只读探针"提为草稿 lint 的 error，让"用户看到的" = "将被执行
+   的"在结构上成立，而不是靠发布时的运气。
+3. **回退确认按字面从严**：需求写"若 scope 有变化需重新确认"，实现就按"任何 scope 变化"判定
+   （收窄也确认），没有偷偷只拦放宽。多一次确认的成本远低于漏掉一次权限回收。
 
 ### 第 2 轮 — 审查轮（2026-10-11）
 

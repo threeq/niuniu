@@ -64,5 +64,46 @@
   },
   "acknowledgeHint": "Acknowledge every high-risk item before confirming",
   "confirm": "Confirm and publish",
-  "reject": "Reject"
+  "reject": "Reject",
+  "draft": {
+    "title": "Integration drafts",
+    "notice": "A draft is a candidate configuration that is not live yet. An agent can create one; only you can confirm and publish it.",
+    "empty": "No draft is waiting",
+    "emptyHint": "Drafts appear here when an agent proposes a new provider or data source.",
+    "loading": "Loading drafts…",
+    "kind": {
+      "provider": "Provider",
+      "data_source": "Data source"
+    },
+    "status": {
+      "draft": "Awaiting confirmation",
+      "lint_failed": "Pre-check failed",
+      "confirmed": "Confirmed, not published",
+      "published": "Published",
+      "rejected": "Rejected"
+    },
+    "agentAuthored": "drafted by an agent",
+    "noCard": "No confirmation card is available for this draft.",
+    "confirmImpact": "Confirm impact",
+    "publish": "Publish",
+    "publishHint": "Applies the candidate disabled, runs the verification probe above, and enables it only if the probe passes.",
+    "publishDone": "Published and verified.",
+    "publishRolledBack": "The verification probe failed; the previous configuration was restored and the draft was kept.",
+    "second": {
+      "title": "This draft widens authority",
+      "notice": "It grants a scope or turns on writes beyond what is currently published. Approving it takes a second, separate confirmation.",
+      "checkbox": "I understand this widens access, and I want to review it anyway",
+      "stillRequired": "The widening was acknowledged on the card, but the separate second confirmation is still missing."
+    },
+    "versions": {
+      "title": "Published versions",
+      "version": "Version {{version}}",
+      "active": "Live",
+      "rollback": "Restore",
+      "confirmRollback": "Confirm and restore"
+    },
+    "rollbackNeedsConfirmation": "Restoring version {{version}} changes the scope, so it must be confirmed first. Nothing has been applied yet.",
+    "rollbackDone": "Restored.",
+    "rollbackFailed": "The restored configuration failed verification; the live configuration was left unchanged."
+  }
 }

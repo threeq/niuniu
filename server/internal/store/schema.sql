@@ -1562,6 +1562,89 @@ CREATE INDEX IF NOT EXISTS idx_integration_probe_runs_subject
     ON integration_probe_runs(subject_kind, subject_id, created_at DESC);
 
 -- ============================================================
+-- Integration draft pipeline (Epic #726 / #734): draft -> lint -> impact
+-- confirmation -> publish -> verify/rollback, shared by both onboarding lines
+-- (kind=provider / kind=data_source).
+--
+-- A draft is a PERSISTED candidate configuration that is NOT live. Creating one
+-- changes nothing about the running integration, so an agent may draft freely;
+-- publishing it (or widening its scope / turning on writes) is a user
+-- authorization action that an agent may never perform on its own — see
+-- agent_authored below. Persisting the draft is also what makes an interrupted
+-- agent task harmless: the candidate survives in the row, not in a conversation.
+--
+-- payload holds the candidate config as JSON. It carries NO secrets: the
+-- credential VALUES arrive through the one-time credential link (#727), and
+-- credential_fields records only which fields the draft needs.
+--
+-- confirm_json is the exact DecisionPayload the reviewer approved (advisory
+-- region dropped by construction); ack_json is the acknowledged risk keys, and
+-- second_confirmed records the separate confirmation a widening change demands.
+CREATE TABLE IF NOT EXISTS integration_drafts (
+    id                INTEGER PRIMARY KEY AUTOINCREMENT,
+    owner_type        TEXT NOT NULL DEFAULT 'user' CHECK (owner_type IN ('user','org')),
+    owner_id          INTEGER NOT NULL DEFAULT 0,
+    kind              TEXT NOT NULL CHECK (kind IN ('provider','data_source')),
+    -- target_name is the provider name / data-source name the draft publishes
+    -- into. It is an identifier, never model-authored prose.
+    target_name       TEXT NOT NULL,
+    -- target_id is the live row's id once known (0 = a draft for a new entity).
+    target_id         INTEGER NOT NULL DEFAULT 0,
+    status            TEXT NOT NULL DEFAULT 'draft'
+                      CHECK (status IN ('draft','lint_failed','confirmed','published','rejected')),
+    payload           TEXT NOT NULL DEFAULT '{}',
+    -- Provenance + quarantine of the source document this draft came from, so
+    -- the confirmation card can show where the material came from.
+    origin_json       TEXT NOT NULL DEFAULT '{}',
+    advisory_json     TEXT NOT NULL DEFAULT '[]',
+    doc_ops_json      TEXT NOT NULL DEFAULT '[]',
+    doc_host          TEXT NOT NULL DEFAULT '',
+    lint_json         TEXT NOT NULL DEFAULT '[]',
+    confirm_json      TEXT NOT NULL DEFAULT '',
+    ack_json          TEXT NOT NULL DEFAULT '[]',
+    second_confirmed  INTEGER NOT NULL DEFAULT 0,
+    -- 1 when the draft was created through the agent-facing (MCP) path. Such a
+    -- draft can never be published, and its scope can never be widened, by the
+    -- agent that created it.
+    agent_authored    INTEGER NOT NULL DEFAULT 0,
+    created_by        INTEGER NOT NULL DEFAULT 0,
+    published_at      TIMESTAMP DEFAULT NULL,
+    created_at        TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at        TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_integration_drafts_owner
+    ON integration_drafts(owner_type, owner_id, kind, created_at DESC);
+
+-- Published versions of an integration (the rollback chain).
+-- One row per successful publish; `active` marks the version currently live.
+-- A rollback restores an older row's payload, and because that can re-grant
+-- authority the user had since revoked, it is itself an authorization action
+-- requiring a fresh confirmation when scope changes (see integration_draft.go).
+CREATE TABLE IF NOT EXISTS integration_versions (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    owner_type      TEXT NOT NULL DEFAULT 'user' CHECK (owner_type IN ('user','org')),
+    owner_id        INTEGER NOT NULL DEFAULT 0,
+    kind            TEXT NOT NULL CHECK (kind IN ('provider','data_source')),
+    target_name     TEXT NOT NULL,
+    target_id       INTEGER NOT NULL DEFAULT 0,
+    version         INTEGER NOT NULL DEFAULT 1,
+    payload         TEXT NOT NULL DEFAULT '{}',
+    -- scope_json records what this version granted (scope_config for a data
+    -- source; the operation set + write gate for a provider). It is the audit
+    -- trail of the authority each version carried; the rollback decision itself
+    -- is made by rebuilding the confirmation card from payload, so that "what
+    -- the user reviewed" and "what is compared" are the same thing.
+    scope_json      TEXT NOT NULL DEFAULT '{}',
+    digest          TEXT NOT NULL DEFAULT '',
+    active          INTEGER NOT NULL DEFAULT 1,
+    published_by    INTEGER NOT NULL DEFAULT 0,
+    source_draft_id INTEGER NOT NULL DEFAULT 0,
+    created_at      TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_integration_versions_target
+    ON integration_versions(kind, target_name, version DESC);
+
+-- ============================================================
 -- Data integration: external data sources (SQL/Redis/CK/Mongo).
 -- Spec: docs/superpowers/specs/2026-06-04-data-integration-and-dashboard-design.md
 -- config is AES-GCM encrypted (host/port/user/password/options).

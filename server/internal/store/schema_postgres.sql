@@ -1556,6 +1556,55 @@ CREATE INDEX IF NOT EXISTS idx_integration_probe_runs_subject
     ON integration_probe_runs(subject_kind, subject_id, created_at DESC);
 
 -- ============================================================
+-- Integration draft pipeline (Epic #726 / #734). See schema.sql for the full
+-- commentary; the two files must stay byte-equivalent in structure.
+CREATE TABLE IF NOT EXISTS integration_drafts (
+    id                BIGSERIAL PRIMARY KEY,
+    owner_type        TEXT NOT NULL DEFAULT 'user' CHECK (owner_type IN ('user','org')),
+    owner_id          BIGINT NOT NULL DEFAULT 0,
+    kind              TEXT NOT NULL CHECK (kind IN ('provider','data_source')),
+    target_name       TEXT NOT NULL,
+    target_id         BIGINT NOT NULL DEFAULT 0,
+    status            TEXT NOT NULL DEFAULT 'draft'
+                      CHECK (status IN ('draft','lint_failed','confirmed','published','rejected')),
+    payload           TEXT NOT NULL DEFAULT '{}',
+    origin_json       TEXT NOT NULL DEFAULT '{}',
+    advisory_json     TEXT NOT NULL DEFAULT '[]',
+    doc_ops_json      TEXT NOT NULL DEFAULT '[]',
+    doc_host          TEXT NOT NULL DEFAULT '',
+    lint_json         TEXT NOT NULL DEFAULT '[]',
+    confirm_json      TEXT NOT NULL DEFAULT '',
+    ack_json          TEXT NOT NULL DEFAULT '[]',
+    second_confirmed  BIGINT NOT NULL DEFAULT 0,
+    agent_authored    BIGINT NOT NULL DEFAULT 0,
+    created_by        BIGINT NOT NULL DEFAULT 0,
+    published_at      TIMESTAMPTZ DEFAULT NULL,
+    created_at        TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at        TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_integration_drafts_owner
+    ON integration_drafts(owner_type, owner_id, kind, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS integration_versions (
+    id              BIGSERIAL PRIMARY KEY,
+    owner_type      TEXT NOT NULL DEFAULT 'user' CHECK (owner_type IN ('user','org')),
+    owner_id        BIGINT NOT NULL DEFAULT 0,
+    kind            TEXT NOT NULL CHECK (kind IN ('provider','data_source')),
+    target_name     TEXT NOT NULL,
+    target_id       BIGINT NOT NULL DEFAULT 0,
+    version         BIGINT NOT NULL DEFAULT 1,
+    payload         TEXT NOT NULL DEFAULT '{}',
+    scope_json      TEXT NOT NULL DEFAULT '{}',
+    digest          TEXT NOT NULL DEFAULT '',
+    active          BIGINT NOT NULL DEFAULT 1,
+    published_by    BIGINT NOT NULL DEFAULT 0,
+    source_draft_id BIGINT NOT NULL DEFAULT 0,
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_integration_versions_target
+    ON integration_versions(kind, target_name, version DESC);
+
+-- ============================================================
 -- Data integration: external data sources (SQL/Redis/CK/Mongo).
 -- Spec: docs/superpowers/specs/2026-06-04-data-integration-and-dashboard-design.md
 -- config is AES-GCM encrypted (host/port/user/password/options).
