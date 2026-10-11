@@ -301,6 +301,9 @@ func (s *Server) setupRoutes() {
 		mcpGroup.POST("/external-proxy/call", s.proxyCall)
 		mcpGroup.GET("/external-proxy/providers", s.proxyListProviders)
 		mcpGroup.GET("/external-proxy/providers/:provider/schema", s.proxyGetProviderSchema)
+		// openapi-draft — parse the provider's openapi_url into a provider
+		// contract draft + an HTTP data source draft (read-only; grants nothing).
+		mcpGroup.POST("/external-proxy/providers/:id/openapi-draft", s.proxyOpenAPIDraft)
 
 		// Data integration proxy — run_data_query / list_data_sources tunnel here.
 		// Three-layer gate + audit lives in DataProxyService.
@@ -406,6 +409,11 @@ func (s *Server) setupRoutes() {
 		me.PUT("/external-proxy/providers/:id", s.proxyUpdateProvider)
 		me.DELETE("/external-proxy/providers/:id", s.proxyDeleteProvider)
 		me.PATCH("/external-proxy/providers/:id/write-enabled", s.proxySetWriteEnabled)
+		// Generate integration drafts from the provider's openapi_url (Epic #726
+		// / #731). Read-only: parses an external document into suggested config;
+		// applying a draft is the draft pipeline's job (#734), behind a human
+		// confirmation. ?refresh=true bypasses the short-TTL cache.
+		me.POST("/external-proxy/providers/:id/openapi-draft", s.proxyOpenAPIDraft)
 		// Audit read side (Epic #726 / #728): the caller's own external API
 		// calls, newest first.
 		me.GET("/external-proxy/audit", s.proxyAudit)
