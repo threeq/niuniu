@@ -1364,13 +1364,17 @@ func New(cfg *config.Config, db *sql.DB, frontendFS fs.FS) *Server {
 	s.usersHandler = api.NewUsersHandler(s.userSvc)
 
 	// External issue tracker integration (M1).
-	// Keyring auto-generates ~/.niuniu/integration_secret on first boot;
-	// failure here is fatal because we never silently fall back to plain-
-	// text storage of provider tokens (spec §4.5 / §8.2).
-	keyring, err := crypto.LoadOrCreate(filepath.Join(cfg.DataDir, "integration_secret"))
+	// The integration master key lives in the OS keychain (macOS Keychain /
+	// Windows Credential Manager / Linux Secret Service). A pre-existing
+	// plaintext ~/.niuniu/integration_secret is migrated into the keychain and
+	// deleted; hosts without a Secret Service degrade to that file, loudly.
+	// Failure here is fatal because we never silently fall back to plain-text
+	// storage of provider tokens (spec §4.5 / §8.2).
+	intgOutcome, err := crypto.LoadIntegrationKeyring(cfg.DataDir)
 	if err != nil {
 		panic("load integration secret: " + err.Error())
 	}
+	keyring := intgOutcome.Keyring
 	s.intgKeyring = keyring
 	// Legacy registry (empty — all adapters removed). Kept for
 	// ExternalCredentialService constructor compatibility; Verify now

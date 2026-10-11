@@ -1,9 +1,18 @@
 // Package crypto holds the AES-GCM keyring for encrypting integration
-// credentials at rest. The 32-byte master key lives in
-// ~/.niuniu/integration_secret (mode 0600). On startup the server calls
-// LoadOrCreate; if the file does not exist a fresh random key is
-// generated, otherwise the existing key is loaded. Boot fails if the
-// file is unreadable — we never silently fall back to plaintext.
+// credentials at rest.
+//
+// The 32-byte master key lives in the OS secure store — macOS Keychain,
+// Windows Credential Manager, Linux Secret Service — via LoadOrMigrate /
+// LoadIntegrationKeyring. The legacy plaintext file ~/.niuniu/integration_secret
+// is migrated into the keychain on first run and then deleted. Hosts without a
+// usable Secret Service fall back to that 0600 file, but never silently: the
+// fallback is reported in Outcome.Warnings and logged at startup. A read error
+// that is neither "absent" nor "backend unavailable" is fatal.
+//
+// Threat-model boundary: the keychain protects the *at-rest file-read* surface.
+// The key is still plaintext in the memory of the same-user process that holds
+// it, so it does not defend against a process that can already read this
+// process's memory (debugger, same-uid ptrace). See docs/integrations.md §8.
 package crypto
 
 import (

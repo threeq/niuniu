@@ -130,13 +130,24 @@ niuniu 在以下事件**自动**写回 GitHub：
 
 ## 8. 安全说明
 
-- PAT 在 niuniu 后端以 **AES-GCM** 加密落库，密钥保存在 `~/.niuniu/integration_secret`，文件权限 `0600`
-  - 服务器启动时若该文件不存在自动生成；存在则直接复用
-  - **不会**自动 fallback 到明文存储；密钥读不到则启动失败（安全第一）
+- PAT（及全部集成凭证：Provider / 数据源 / IM Bot / Git）在 niuniu 后端以 **AES-GCM** 加密落库，主密钥（32 字节）存放在**操作系统安全存储**中：
+  - macOS → Keychain，Windows → 凭据管理器，Linux → Secret Service（libsecret）
+  - keychain 条目：`service=niuniu-desktop`、`account=integration-master-key`
+  - 服务器启动时若 keychain 无该密钥则自动生成；已存在则复用
+- **兼容迁移**：老部署的明文文件 `~/.niuniu/integration_secret` 会在首次启动时被读入 keychain 并**删除**；密钥值不变，因此**已有密文无需重新加密**。迁移幂等，重复启动不会二次迁移
+- **降级路径**：无 Secret Service 的 Linux（headless / 服务器 / 精简容器）会**显式降级**回 `~/.niuniu/integration_secret`（0600），并在启动时打出显式 WARNING —— **禁止静默降级**。也可用环境变量主动指定：
+  - `NIUNIU_INTEGRATION_KEYRING_BACKEND=file` 强制使用文件后端（keychain 不可用/不想要时）
+  - `NIUNIU_INTEGRATION_KEYRING_EXPORT=/path` 在启动时把主密钥**一次性导出**到该文件（0600），用于备份 / 灾备；备份后请删除
+- **可回退**：用 `NIUNIU_INTEGRATION_KEYRING_EXPORT` 把 keychain 中的主密钥导出到 `~/.niuniu/integration_secret`，再设 `NIUNIU_INTEGRATION_KEYRING_BACKEND=file` 重启，即回到文件后端且**密钥值不变**（已有密文照常解密）——迁移不是单向门
+- **威胁模型边界（如实说明）**：keychain 保护的是**「能读文件即可解密」这一攻击面** —— 密钥不再以明文落盘，仅能由登录用户会话经 OS 授权读取。但它**不**防御以下情形：
+  - 同一用户身份、能读取 niuniu-server **进程内存**的代码（调试器 / 同 uid ptrace）：解密中的密钥与明文凭证在进程内存里仍是明文
+  - 用户已登录会话中被授予输入权限的 agent / 程序：它们可以像本人一样向 keychain 请求密钥
+  - 因此 keychain 提升的是「静态文件泄露」的下限，而非「同机同用户」的整体隔离
+- 密钥读不到（非「不存在」也非「后端不可用」的其它错误）则启动失败（安全第一）
 - handler 永远**不**在响应体里返回明文 token —— 即便是凭据列表也只回 `last_verified_at` / `expires_at` 等元数据
 - API 调用日志强制 **redact** `Authorization` header 与请求 body 中可能含 token 的字段
 - 每次调用 GitHub API，niuniu 后端日志只记录 `provider` / `action` / `external_id` / `actor_user_id` / `duration_ms` / `status`，不记 body
-- 若怀疑 `integration_secret` 泄露，运维侧用 `niuniu admin rotate-integration-secret` 轮转（会要求所有用户重新粘贴 PAT，旧密文不可解）
+- 若怀疑主密钥泄露，需要轮转主密钥（会要求所有用户重新粘贴 PAT，旧密文不可解）：删除 keychain 中的 `integration-master-key` 条目（或降级路径下的 `~/.niuniu/integration_secret`）后重启，将生成新密钥
 
 ---
 
