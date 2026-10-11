@@ -14,8 +14,12 @@ SELECT id, token_hash, project_id, issued_by, kind, title, fields_json, target_j
 FROM credential_onboarding_tokens
 WHERE token_hash = ?;
 
--- name: MarkCredentialOnboardingTokenUsed :exec
-UPDATE credential_onboarding_tokens SET used_at = CURRENT_TIMESTAMP WHERE id = ?;
+-- name: MarkCredentialOnboardingTokenUsed :execrows
+-- Conditional claim: only the first redeemer flips used_at, so two concurrent
+-- submissions of the same link cannot both write a credential (rows affected is
+-- 0 for the loser).
+UPDATE credential_onboarding_tokens SET used_at = CURRENT_TIMESTAMP
+WHERE id = ? AND used_at IS NULL;
 
 -- name: DeleteExpiredCredentialOnboardingTokens :exec
 DELETE FROM credential_onboarding_tokens WHERE expires_at < CURRENT_TIMESTAMP;

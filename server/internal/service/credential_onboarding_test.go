@@ -315,6 +315,44 @@ func TestCredentialOnboarding_FieldValidation(t *testing.T) {
 	}
 }
 
+// TestCredentialOnboarding_ClaimIsAtomic locks the single-use guarantee at the
+// SQL level: the conditional claim only ever succeeds once, so two redeemers
+// racing on the same link cannot both write a credential.
+func TestCredentialOnboarding_ClaimIsAtomic(t *testing.T) {
+	env := niutest.NewIsolationEnv(t)
+	proj := env.NewProject(t, env.UserA, "P-claim")
+	svc := buildCredOnboardingSvc(t, env)
+	ctx := context.Background()
+
+	raw, err := svc.Issue(ctx, proj.ID, env.UserA, service.CredentialKindProviderCredential, "t",
+		[]string{"token"}, map[string]any{"provider": "github", "alias": "claim"})
+	if err != nil {
+		t.Fatalf("Issue: %v", err)
+	}
+	sum := sha256.Sum256([]byte(raw))
+	row, err := env.Queries().GetCredentialOnboardingTokenByHash(ctx, hex.EncodeToString(sum[:]))
+	if err != nil {
+		t.Fatalf("GetCredentialOnboardingTokenByHash: %v", err)
+	}
+
+	first, err := env.Queries().MarkCredentialOnboardingTokenUsed(ctx, row.ID)
+	if err != nil {
+		t.Fatalf("claim #1: %v", err)
+	}
+	second, err := env.Queries().MarkCredentialOnboardingTokenUsed(ctx, row.ID)
+	if err != nil {
+		t.Fatalf("claim #2: %v", err)
+	}
+	if first != 1 || second != 0 {
+		t.Fatalf("claim rows affected = (%d, %d), want (1, 0)", first, second)
+	}
+
+	// A claimed token is no longer redeemable through the public path either.
+	if _, err := svc.Submit(ctx, raw, map[string]any{"token": "x"}); !errors.Is(err, service.ErrCredentialTokenInvalid) {
+		t.Errorf("Submit(claimed) err = %v, want ErrCredentialTokenInvalid", err)
+	}
+}
+
 func mustKeyring(t *testing.T, env *niutest.IsolationEnv) *crypto.Keyring {
 	t.Helper()
 	kr, err := crypto.LoadOrCreate(env.TempPath(t, "integration_secret"))

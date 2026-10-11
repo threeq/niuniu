@@ -431,6 +431,19 @@ func (s *CredentialOnboardingService) Submit(ctx context.Context, rawToken strin
 		return nil, err
 	}
 
+	// Claim the token BEFORE writing, with a conditional UPDATE that only the
+	// first redeemer can win. Validating first (above) keeps a bad submission
+	// from burning the link, while claiming first means two concurrent
+	// submissions cannot both write a credential. A write that fails after the
+	// claim does consume the link — the safe direction for a one-time token.
+	claimed, err := s.q.MarkCredentialOnboardingTokenUsed(ctx, row.ID)
+	if err != nil {
+		return nil, err
+	}
+	if claimed == 0 {
+		return nil, ErrCredentialTokenInvalid
+	}
+
 	var result *CredentialSubmitResult
 	switch row.Kind {
 	case CredentialKindProviderCredential:
@@ -441,13 +454,8 @@ func (s *CredentialOnboardingService) Submit(ctx context.Context, rawToken strin
 		return nil, fmt.Errorf("%w: unknown kind %q", ErrCredentialLinkInvalid, row.Kind)
 	}
 	if err != nil {
+		slog.Warn("credential onboarding: write failed after token claim", "tokenID", row.ID, "kind", row.Kind, "error", err)
 		return nil, err
-	}
-
-	if markErr := s.q.MarkCredentialOnboardingTokenUsed(ctx, row.ID); markErr != nil {
-		// The credential is already written; a failed mark only leaves the token
-		// replayable within its 15-minute window. Log, don't fail the submission.
-		slog.Warn("credential onboarding: mark token used failed", "tokenID", row.ID, "error", markErr)
 	}
 	return result, nil
 }

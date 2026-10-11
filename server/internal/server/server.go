@@ -782,6 +782,12 @@ func New(cfg *config.Config, db *sql.DB, frontendFS fs.FS) *Server {
 			if err := s.queries.DeleteExpiredOnboardingTokens(ctx); err != nil {
 				slog.Warn("expired imbot onboarding tokens prune failed", "err", err)
 			}
+			// Same contract for the generic credential-onboarding tokens
+			// (issue #727) — single-use, 15-minute TTL, so spent/expired rows
+			// have no reason to persist.
+			if err := s.queries.DeleteExpiredCredentialOnboardingTokens(ctx); err != nil {
+				slog.Warn("expired credential onboarding tokens prune failed", "err", err)
+			}
 		}
 		for {
 			prune()

@@ -95,11 +95,18 @@ func (q *Queries) GetCredentialOnboardingTokenByHash(ctx context.Context, tokenH
 	return i, err
 }
 
-const markCredentialOnboardingTokenUsed = `-- name: MarkCredentialOnboardingTokenUsed :exec
-UPDATE credential_onboarding_tokens SET used_at = CURRENT_TIMESTAMP WHERE id = ?
+const markCredentialOnboardingTokenUsed = `-- name: MarkCredentialOnboardingTokenUsed :execrows
+UPDATE credential_onboarding_tokens SET used_at = CURRENT_TIMESTAMP
+WHERE id = ? AND used_at IS NULL
 `
 
-func (q *Queries) MarkCredentialOnboardingTokenUsed(ctx context.Context, id int64) error {
-	_, err := q.db.ExecContext(ctx, markCredentialOnboardingTokenUsed, id)
-	return err
+// Conditional claim: only the first redeemer flips used_at, so two concurrent
+// submissions of the same link cannot both write a credential (rows affected is
+// 0 for the loser).
+func (q *Queries) MarkCredentialOnboardingTokenUsed(ctx context.Context, id int64) (int64, error) {
+	result, err := q.db.ExecContext(ctx, markCredentialOnboardingTokenUsed, id)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }
