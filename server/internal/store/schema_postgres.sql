@@ -1537,7 +1537,12 @@ CREATE TABLE IF NOT EXISTS external_providers (
     updated_at  TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
--- External API proxy: audit log
+-- External API proxy: audit log.
+-- body_sha256 / body_bytes / body_fields fingerprint the outbound request body
+-- of write methods (POST/PUT/PATCH/DELETE): SHA-256 of the exact bytes sent,
+-- the byte count, and a JSON array of TOP-LEVEL FIELD NAMES. Field VALUES are
+-- never persisted -- the fingerprint answers "what shape left this machine"
+-- without leaking the payload (Epic #726 / #747). Empty for reads.
 CREATE TABLE IF NOT EXISTS external_api_audit (
     id          BIGSERIAL PRIMARY KEY,
     user_id     BIGINT NOT NULL,
@@ -1545,6 +1550,9 @@ CREATE TABLE IF NOT EXISTS external_api_audit (
     method      TEXT NOT NULL,
     path        TEXT NOT NULL,
     status_code INTEGER NOT NULL DEFAULT 0,
+    body_sha256 TEXT NOT NULL DEFAULT '',
+    body_bytes  BIGINT NOT NULL DEFAULT 0,
+    body_fields TEXT NOT NULL DEFAULT '[]',
     created_at  TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 

@@ -3666,6 +3666,9 @@ func addAuditIndexes(db *sql.DB) {
 		`CREATE INDEX IF NOT EXISTS idx_audit_user ON external_api_audit(user_id)`,
 		`CREATE INDEX IF NOT EXISTS idx_audit_provider ON external_api_audit(provider_id)`,
 		`CREATE INDEX IF NOT EXISTS idx_audit_created ON external_api_audit(created_at)`,
+		// The two audit feeds are read newest-first, filtered by owner + time.
+		`CREATE INDEX IF NOT EXISTS idx_data_source_audit_created ON data_source_audit(created_at)`,
+		`CREATE INDEX IF NOT EXISTS idx_data_source_audit_user ON data_source_audit(user_id)`,
 	} {
 		if _, err := db.Exec(idx); err != nil {
 			slog.Warn("audit index creation failed", "index", idx, "error", err)
@@ -3744,6 +3747,15 @@ func MigrateExternalProviders(db *sql.DB) error {
 		}
 		markMigration(w, "external_api_write_prefs_v1")
 	}
+
+	// Body fingerprint on the proxy audit (Epic #726 / #728): hash + byte size +
+	// top-level field names of the outbound write body, never the values. Lives
+	// here rather than only in schema.sql so pre-existing DBs pick up the
+	// columns; the index for created_at lives in addAuditIndexes below, because
+	// schema.sql cannot index a migration-added column.
+	addColumnIfNotExists(db, "external_api_audit", "body_sha256", "TEXT NOT NULL DEFAULT ''")
+	addColumnIfNotExists(db, "external_api_audit", "body_bytes", intCol+" NOT NULL DEFAULT 0")
+	addColumnIfNotExists(db, "external_api_audit", "body_fields", "TEXT NOT NULL DEFAULT '[]'")
 
 	// Add audit indexes regardless — fresh installs need them, and
 	// existing DBs that ran the migration before indexes were added

@@ -6,6 +6,8 @@ import type {
   ProviderName,
   CreateCredentialBody,
   PatchCredentialBody,
+  IntegrationActivityFilters,
+  IntegrationActivityPage,
 } from '@/types/integration';
 
 // External issue tracker integration — REST client.
@@ -88,4 +90,27 @@ export const integrationApi = {
 
   deleteSource: (projectId: number, sourceId: number): Promise<void> =>
     api.delete(`/projects/${projectId}/external-sources/${sourceId}`),
+
+  // Integration activity (Epic #726 / #728) — the caller's own external API
+  // calls and data queries merged into one newest-first page. The backend
+  // wraps the page in a `{data: ...}` envelope (handler_integration_activity.go),
+  // matching the external-proxy handlers above.
+  listActivity: (args: {
+    filters?: IntegrationActivityFilters;
+    limit: number;
+    offset: number;
+  }): Promise<IntegrationActivityPage> =>
+    api
+      .get<{ data: IntegrationActivityPage }>('/me/integration-activity', {
+        params: {
+          kind: args.filters?.kind,
+          provider_id: args.filters?.provider_id,
+          source_id: args.filters?.source_id,
+          from: args.filters?.from,
+          to: args.filters?.to,
+          limit: args.limit,
+          offset: args.offset,
+        },
+      })
+      .then((r) => r.data),
 };

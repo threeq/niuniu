@@ -7,11 +7,39 @@ package store
 
 import (
 	"context"
+	"database/sql"
 )
 
+const countExternalApiAudit = `-- name: CountExternalApiAudit :one
+SELECT COUNT(*) AS n FROM external_api_audit
+WHERE user_id = ?1
+  AND (CAST(?2 AS BIGINT) = 0 OR provider_id = ?2)
+  AND created_at >= COALESCE(?3, created_at)
+  AND created_at <= COALESCE(?4, created_at)
+`
+
+type CountExternalApiAuditParams struct {
+	UserID     int64        `json:"user_id"`
+	ProviderID int64        `json:"provider_id"`
+	FromTs     sql.NullTime `json:"from_ts"`
+	ToTs       sql.NullTime `json:"to_ts"`
+}
+
+func (q *Queries) CountExternalApiAudit(ctx context.Context, arg CountExternalApiAuditParams) (int64, error) {
+	row := q.db.QueryRowContext(ctx, countExternalApiAudit,
+		arg.UserID,
+		arg.ProviderID,
+		arg.FromTs,
+		arg.ToTs,
+	)
+	var n int64
+	err := row.Scan(&n)
+	return n, err
+}
+
 const createAuditLog = `-- name: CreateAuditLog :exec
-INSERT INTO external_api_audit (user_id, provider_id, method, path, status_code)
-VALUES (?, ?, ?, ?, ?)
+INSERT INTO external_api_audit (user_id, provider_id, method, path, status_code, body_sha256, body_bytes, body_fields)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 `
 
 type CreateAuditLogParams struct {
@@ -20,6 +48,9 @@ type CreateAuditLogParams struct {
 	Method     string `json:"method"`
 	Path       string `json:"path"`
 	StatusCode int64  `json:"status_code"`
+	BodySha256 string `json:"body_sha256"`
+	BodyBytes  int64  `json:"body_bytes"`
+	BodyFields string `json:"body_fields"`
 }
 
 func (q *Queries) CreateAuditLog(ctx context.Context, arg CreateAuditLogParams) error {
@@ -29,6 +60,9 @@ func (q *Queries) CreateAuditLog(ctx context.Context, arg CreateAuditLogParams) 
 		arg.Method,
 		arg.Path,
 		arg.StatusCode,
+		arg.BodySha256,
+		arg.BodyBytes,
+		arg.BodyFields,
 	)
 	return err
 }
@@ -191,12 +225,39 @@ func (q *Queries) ListAPIWritePrefsForUser(ctx context.Context, userID int64) ([
 	return items, nil
 }
 
-const listAuditLogs = `-- name: ListAuditLogs :many
-SELECT id, user_id, provider_id, method, path, status_code, created_at FROM external_api_audit ORDER BY created_at DESC LIMIT ?
+const listExternalApiAudit = `-- name: ListExternalApiAudit :many
+SELECT id, user_id, provider_id, method, path, status_code, body_sha256, body_bytes, body_fields, created_at FROM external_api_audit
+WHERE user_id = ?1
+  AND (CAST(?2 AS BIGINT) = 0 OR provider_id = ?2)
+  AND created_at >= COALESCE(?3, created_at)
+  AND created_at <= COALESCE(?4, created_at)
+ORDER BY id DESC
+LIMIT ?6 OFFSET ?5
 `
 
-func (q *Queries) ListAuditLogs(ctx context.Context, limit int64) ([]ExternalApiAudit, error) {
-	rows, err := q.db.QueryContext(ctx, listAuditLogs, limit)
+type ListExternalApiAuditParams struct {
+	UserID     int64        `json:"user_id"`
+	ProviderID int64        `json:"provider_id"`
+	FromTs     sql.NullTime `json:"from_ts"`
+	ToTs       sql.NullTime `json:"to_ts"`
+	Off        int64        `json:"off"`
+	Lim        int64        `json:"lim"`
+}
+
+// Caller-scoped audit feed, newest first (id DESC tracks insert order and is
+// stable across same-second rows, unlike created_at). provider_id = 0 means
+// "any provider". from_ts/to_ts are nullable (NULL = unbounded); COALESCE
+// anchors the parameter type to the created_at column so Postgres can infer it
+// at parse time, and makes the NULL case a no-op comparison.
+func (q *Queries) ListExternalApiAudit(ctx context.Context, arg ListExternalApiAuditParams) ([]ExternalApiAudit, error) {
+	rows, err := q.db.QueryContext(ctx, listExternalApiAudit,
+		arg.UserID,
+		arg.ProviderID,
+		arg.FromTs,
+		arg.ToTs,
+		arg.Off,
+		arg.Lim,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -211,6 +272,9 @@ func (q *Queries) ListAuditLogs(ctx context.Context, limit int64) ([]ExternalApi
 			&i.Method,
 			&i.Path,
 			&i.StatusCode,
+			&i.BodySha256,
+			&i.BodyBytes,
+			&i.BodyFields,
 			&i.CreatedAt,
 		); err != nil {
 			return nil, err
