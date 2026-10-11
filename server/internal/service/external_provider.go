@@ -65,6 +65,14 @@ type ProviderDef struct {
 	Whitelist  string `json:"whitelist"`   // JSON array of WhitelistRule
 	Enabled    bool   `json:"enabled"`
 	CreatedBy  string `json:"created_by"`
+	// Continuous-health + contract-drift state (Epic #726 / #744).
+	HealthStatus        string       `json:"health_status"`
+	ConsecutiveFailures int64        `json:"consecutive_failures"`
+	LastProbeAt         sql.NullTime `json:"last_probe_at"`
+	LastProbeError      string       `json:"last_probe_error"`
+	AutoDisabledAt      sql.NullTime `json:"auto_disabled_at"`
+	ContractDrift       bool         `json:"contract_drift"`
+	LastDriftAt         sql.NullTime `json:"last_drift_at"`
 }
 
 // rowToProviderDef converts a sqlc row into the service-layer type.
@@ -82,6 +90,14 @@ func rowToProviderDef(r store.ExternalProvider) ProviderDef {
 		Whitelist:  r.Whitelist,
 		Enabled:    r.Enabled == 1,
 		CreatedBy:  r.CreatedBy,
+
+		HealthStatus:        r.HealthStatus,
+		ConsecutiveFailures: r.ConsecutiveFailures,
+		LastProbeAt:         r.LastProbeAt,
+		LastProbeError:      r.LastProbeError,
+		AutoDisabledAt:      r.AutoDisabledAt,
+		ContractDrift:       r.ContractDrift != 0,
+		LastDriftAt:         r.LastDriftAt,
 	}
 }
 

@@ -21,3 +21,10 @@ func (s *ExternalProxyService) SetClientForTest(c *http.Client) {
 	s.client = c
 }
 
+// SetClientForTest swaps the health service's HTTP client, used for the
+// upstream OpenAPI drift fetch. Same loopback rationale as the proxy shim
+// above (#744 drift tests point openapi_url at an httptest server).
+func (s *IntegrationHealthService) SetClientForTest(c *http.Client) {
+	s.client = c
+}
+

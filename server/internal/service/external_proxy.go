@@ -112,6 +112,14 @@ type ProxyInput struct {
 	Body        map[string]any
 	WorkspaceID int64  // >0 when called by an in-workspace MCP agent; resolve credential by project binding
 	SourceKey   string // optional disambiguator when a project binds multiple sources for the same provider
+
+	// HealthProbe marks a call made by the continuous health sweep (Epic #726 /
+	// #744). It relaxes ONLY the provider `enabled` gate, so an auto-disabled
+	// provider can still be probed and then auto-recovered. Every other
+	// boundary -- the whitelist/permission gate, credential auth, the SSRF
+	// guard, and audit -- still applies. Never set this from a request-handler
+	// or MCP path.
+	HealthProbe bool
 }
 
 // ProxyOutput is the response from call_external_api.
@@ -147,7 +155,7 @@ func (s *ExternalProxyService) Call(ctx context.Context, in ProxyInput) (*ProxyO
 	if err != nil {
 		return nil, fmt.Errorf("provider %q not found: %w", in.Provider, err)
 	}
-	if !prov.Enabled {
+	if !prov.Enabled && !in.HealthProbe {
 		return nil, fmt.Errorf("provider %q is disabled", in.Provider)
 	}
 

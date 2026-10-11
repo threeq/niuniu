@@ -43,6 +43,7 @@ type Scheduler struct {
 	allowRun    func() bool            // license gate; nil = always allowed
 	entries     map[int64]cron.EntryID // scheduleID → cron entry
 	timers      map[int64]*time.Timer  // scheduleID → one-shot timer
+	healthEntry cron.EntryID           // integration-source health sweep (#744); 0 = unregistered
 	mu          sync.Mutex
 }
 
@@ -60,6 +61,34 @@ func New(q *store.Queries, proxy *agentproxy.AgentProxy) *Scheduler {
 // SetDB wires the raw DB connection for triggered_by membership checks (spec §5.11).
 func (s *Scheduler) SetDB(db *sql.DB) {
 	s.db = db
+}
+
+// RegisterHealthSweep schedules the integration-source health sweep (Epic #726
+// / #744) on the scheduler's own cron engine -- the same cron.Cron instance
+// that drives workspace schedules, so no second scheduler is created. expr is
+// a standard cron expression (e.g. "0 * * * *" hourly); an empty expr or a nil
+// run disables the sweep. Register before Start; re-calling replaces the
+// previous entry. The per-source interval decides whether a due source is
+// actually probed, so the sweep can safely run more often than the interval.
+func (s *Scheduler) RegisterHealthSweep(expr string, run func(context.Context)) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.healthEntry != 0 {
+		s.cron.Remove(s.healthEntry)
+		s.healthEntry = 0
+	}
+	if expr == "" || run == nil {
+		return
+	}
+	entryID, err := s.cron.AddFunc(expr, func() {
+		run(context.Background())
+	})
+	if err != nil {
+		slog.Error("scheduler: register health sweep failed", "expr", expr, "err", err)
+		return
+	}
+	s.healthEntry = entryID
+	slog.Info("scheduler: registered integration health sweep", "expr", expr)
 }
 
 // Start begins the cron scheduler.

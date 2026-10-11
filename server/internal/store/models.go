@@ -223,19 +223,26 @@ type DashboardPanel struct {
 }
 
 type DataSource struct {
-	ID                int64        `json:"id"`
-	OwnerType         string       `json:"owner_type"`
-	OwnerID           int64        `json:"owner_id"`
-	UserID            int64        `json:"user_id"`
-	Name              string       `json:"name"`
-	Kind              string       `json:"kind"`
-	Config            string       `json:"config"`
-	ScopeConfig       string       `json:"scope_config"`
-	DefaultAccessMode string       `json:"default_access_mode"`
-	RequireConfirm    string       `json:"require_confirm"`
-	LastVerifiedAt    sql.NullTime `json:"last_verified_at"`
-	CreatedAt         time.Time    `json:"created_at"`
-	UpdatedAt         time.Time    `json:"updated_at"`
+	ID                   int64        `json:"id"`
+	OwnerType            string       `json:"owner_type"`
+	OwnerID              int64        `json:"owner_id"`
+	UserID               int64        `json:"user_id"`
+	Name                 string       `json:"name"`
+	Kind                 string       `json:"kind"`
+	Config               string       `json:"config"`
+	ScopeConfig          string       `json:"scope_config"`
+	DefaultAccessMode    string       `json:"default_access_mode"`
+	RequireConfirm       string       `json:"require_confirm"`
+	LastVerifiedAt       sql.NullTime `json:"last_verified_at"`
+	Enabled              int64        `json:"enabled"`
+	HealthStatus         string       `json:"health_status"`
+	ConsecutiveFailures  int64        `json:"consecutive_failures"`
+	LastProbeAt          sql.NullTime `json:"last_probe_at"`
+	LastProbeError       string       `json:"last_probe_error"`
+	AutoDisabledAt       sql.NullTime `json:"auto_disabled_at"`
+	ProbeIntervalSeconds int64        `json:"probe_interval_seconds"`
+	CreatedAt            time.Time    `json:"created_at"`
+	UpdatedAt            time.Time    `json:"updated_at"`
 }
 
 type DataSourceAudit struct {
@@ -338,20 +345,29 @@ type ExternalApiWritePref struct {
 }
 
 type ExternalProvider struct {
-	ID         int64     `json:"id"`
-	Name       string    `json:"name"`
-	Label      string    `json:"label"`
-	ApiBaseUrl string    `json:"api_base_url"`
-	AuthType   string    `json:"auth_type"`
-	AuthHeader string    `json:"auth_header"`
-	AuthPrefix string    `json:"auth_prefix"`
-	Profile    string    `json:"profile"`
-	OpenapiUrl string    `json:"openapi_url"`
-	Whitelist  string    `json:"whitelist"`
-	Enabled    int64     `json:"enabled"`
-	CreatedBy  string    `json:"created_by"`
-	CreatedAt  time.Time `json:"created_at"`
-	UpdatedAt  time.Time `json:"updated_at"`
+	ID                   int64        `json:"id"`
+	Name                 string       `json:"name"`
+	Label                string       `json:"label"`
+	ApiBaseUrl           string       `json:"api_base_url"`
+	AuthType             string       `json:"auth_type"`
+	AuthHeader           string       `json:"auth_header"`
+	AuthPrefix           string       `json:"auth_prefix"`
+	Profile              string       `json:"profile"`
+	OpenapiUrl           string       `json:"openapi_url"`
+	Whitelist            string       `json:"whitelist"`
+	Enabled              int64        `json:"enabled"`
+	HealthStatus         string       `json:"health_status"`
+	ConsecutiveFailures  int64        `json:"consecutive_failures"`
+	LastProbeAt          sql.NullTime `json:"last_probe_at"`
+	LastProbeError       string       `json:"last_probe_error"`
+	AutoDisabledAt       sql.NullTime `json:"auto_disabled_at"`
+	ProbeIntervalSeconds int64        `json:"probe_interval_seconds"`
+	UpstreamSpecDigest   string       `json:"upstream_spec_digest"`
+	ContractDrift        int64        `json:"contract_drift"`
+	LastDriftAt          sql.NullTime `json:"last_drift_at"`
+	CreatedBy            string       `json:"created_by"`
+	CreatedAt            time.Time    `json:"created_at"`
+	UpdatedAt            time.Time    `json:"updated_at"`
 }
 
 type ExternalProviderCredential struct {
@@ -508,6 +524,23 @@ type ImBotThread struct {
 	IssueID     int64     `json:"issue_id"`
 	WorkspaceID int64     `json:"workspace_id"`
 	CreatedAt   time.Time `json:"created_at"`
+}
+
+type IntegrationProbeRun struct {
+	ID                  int64     `json:"id"`
+	SubjectKind         string    `json:"subject_kind"`
+	SubjectID           int64     `json:"subject_id"`
+	OwnerType           string    `json:"owner_type"`
+	OwnerID             int64     `json:"owner_id"`
+	Status              string    `json:"status"`
+	Message             string    `json:"message"`
+	LatencyMs           int64     `json:"latency_ms"`
+	ContractDigest      string    `json:"contract_digest"`
+	UpstreamDigest      string    `json:"upstream_digest"`
+	Drift               int64     `json:"drift"`
+	ConsecutiveFailures int64     `json:"consecutive_failures"`
+	AutoDisabled        int64     `json:"auto_disabled"`
+	CreatedAt           time.Time `json:"created_at"`
 }
 
 type IpLockout struct {

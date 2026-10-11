@@ -93,9 +93,23 @@ export interface DataSource {
   default_access_mode: AccessMode
   require_confirm: RequireConfirm
   last_verified_at?: string | null
+  /** Consecutive-health (#744): false once the health sweep auto-disabled the
+   *  source after repeated probe failures, or the user turned it off. A
+   *  disabled source refuses agent queries. */
+  enabled: boolean
+  /** Last probe verdict: unknown | healthy | unhealthy | disabled. */
+  health_status?: HealthStatus
+  /** Consecutive probe failures; reset to 0 by a successful probe. */
+  consecutive_failures?: number
+  last_probe_at?: string | null
+  /** Reason the last probe failed (empty when healthy). */
+  last_probe_error?: string
   /** Visibility bindings; empty means invisible to every agent. */
   bindings: DataSourceBinding[]
 }
+
+/** Continuous-health verdict shared by providers and data sources (#744). */
+export type HealthStatus = 'unknown' | 'healthy' | 'unhealthy' | 'disabled'
 
 export interface CreateDataSourceBody {
   name: string
@@ -150,6 +164,38 @@ export async function removeDataSource(id: number): Promise<void> {
 
 export async function verifyDataSource(id: number): Promise<VerifyResult> {
   return api.post<VerifyResult>(`/me/data-sources/${id}/verify`)
+}
+
+// --- Continuous health (#744) -----------------------------------------------
+
+/** A single health-probe outcome (backend service.ProbeOutcome). */
+export interface ProbeOutcome {
+  subject_kind: 'provider' | 'data_source'
+  subject_id: number
+  status: 'ok' | 'failed' | 'drift' | 'skipped'
+  message: string
+  latency_ms: number
+  drift: boolean
+  consecutive_failures: number
+  auto_disabled: boolean
+}
+
+/** Run (or re-run) the health probe for a data source immediately. */
+export async function probeDataSource(id: number): Promise<ProbeOutcome> {
+  const r = await api.post<{ outcome: ProbeOutcome }>(
+    `/me/integration-health/data_source/${id}/probe`,
+  )
+  return r.outcome
+}
+
+/** Re-enable a data source after an auto-disable, clearing the failure streak. */
+export async function reenableDataSource(id: number): Promise<void> {
+  await api.post(`/me/integration-health/data_source/${id}/reenable`)
+}
+
+/** Turn a data source off manually. */
+export async function disableDataSource(id: number): Promise<void> {
+  await api.post(`/me/integration-health/data_source/${id}/disable`)
 }
 
 // --- Project-scoped data-source association (project settings) ---------------

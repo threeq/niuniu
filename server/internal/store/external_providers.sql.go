@@ -70,7 +70,7 @@ func (q *Queries) CreateAuditLog(ctx context.Context, arg CreateAuditLogParams) 
 const createProvider = `-- name: CreateProvider :one
 INSERT INTO external_providers (name, label, api_base_url, auth_type, auth_header, auth_prefix, profile, openapi_url, whitelist, enabled, created_by)
 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-RETURNING id, name, label, api_base_url, auth_type, auth_header, auth_prefix, profile, openapi_url, whitelist, enabled, created_by, created_at, updated_at
+RETURNING id, name, label, api_base_url, auth_type, auth_header, auth_prefix, profile, openapi_url, whitelist, enabled, health_status, consecutive_failures, last_probe_at, last_probe_error, auto_disabled_at, probe_interval_seconds, upstream_spec_digest, contract_drift, last_drift_at, created_by, created_at, updated_at
 `
 
 type CreateProviderParams struct {
@@ -114,6 +114,15 @@ func (q *Queries) CreateProvider(ctx context.Context, arg CreateProviderParams) 
 		&i.OpenapiUrl,
 		&i.Whitelist,
 		&i.Enabled,
+		&i.HealthStatus,
+		&i.ConsecutiveFailures,
+		&i.LastProbeAt,
+		&i.LastProbeError,
+		&i.AutoDisabledAt,
+		&i.ProbeIntervalSeconds,
+		&i.UpstreamSpecDigest,
+		&i.ContractDrift,
+		&i.LastDriftAt,
 		&i.CreatedBy,
 		&i.CreatedAt,
 		&i.UpdatedAt,
@@ -147,7 +156,7 @@ func (q *Queries) GetAPIWritePrefs(ctx context.Context, arg GetAPIWritePrefsPara
 }
 
 const getProviderByID = `-- name: GetProviderByID :one
-SELECT id, name, label, api_base_url, auth_type, auth_header, auth_prefix, profile, openapi_url, whitelist, enabled, created_by, created_at, updated_at FROM external_providers WHERE id = ?
+SELECT id, name, label, api_base_url, auth_type, auth_header, auth_prefix, profile, openapi_url, whitelist, enabled, health_status, consecutive_failures, last_probe_at, last_probe_error, auto_disabled_at, probe_interval_seconds, upstream_spec_digest, contract_drift, last_drift_at, created_by, created_at, updated_at FROM external_providers WHERE id = ?
 `
 
 func (q *Queries) GetProviderByID(ctx context.Context, id int64) (ExternalProvider, error) {
@@ -165,6 +174,15 @@ func (q *Queries) GetProviderByID(ctx context.Context, id int64) (ExternalProvid
 		&i.OpenapiUrl,
 		&i.Whitelist,
 		&i.Enabled,
+		&i.HealthStatus,
+		&i.ConsecutiveFailures,
+		&i.LastProbeAt,
+		&i.LastProbeError,
+		&i.AutoDisabledAt,
+		&i.ProbeIntervalSeconds,
+		&i.UpstreamSpecDigest,
+		&i.ContractDrift,
+		&i.LastDriftAt,
 		&i.CreatedBy,
 		&i.CreatedAt,
 		&i.UpdatedAt,
@@ -173,7 +191,7 @@ func (q *Queries) GetProviderByID(ctx context.Context, id int64) (ExternalProvid
 }
 
 const getProviderByName = `-- name: GetProviderByName :one
-SELECT id, name, label, api_base_url, auth_type, auth_header, auth_prefix, profile, openapi_url, whitelist, enabled, created_by, created_at, updated_at FROM external_providers WHERE name = ?
+SELECT id, name, label, api_base_url, auth_type, auth_header, auth_prefix, profile, openapi_url, whitelist, enabled, health_status, consecutive_failures, last_probe_at, last_probe_error, auto_disabled_at, probe_interval_seconds, upstream_spec_digest, contract_drift, last_drift_at, created_by, created_at, updated_at FROM external_providers WHERE name = ?
 `
 
 func (q *Queries) GetProviderByName(ctx context.Context, name string) (ExternalProvider, error) {
@@ -191,6 +209,15 @@ func (q *Queries) GetProviderByName(ctx context.Context, name string) (ExternalP
 		&i.OpenapiUrl,
 		&i.Whitelist,
 		&i.Enabled,
+		&i.HealthStatus,
+		&i.ConsecutiveFailures,
+		&i.LastProbeAt,
+		&i.LastProbeError,
+		&i.AutoDisabledAt,
+		&i.ProbeIntervalSeconds,
+		&i.UpstreamSpecDigest,
+		&i.ContractDrift,
+		&i.LastDriftAt,
 		&i.CreatedBy,
 		&i.CreatedAt,
 		&i.UpdatedAt,
@@ -291,7 +318,7 @@ func (q *Queries) ListExternalApiAudit(ctx context.Context, arg ListExternalApiA
 }
 
 const listProviders = `-- name: ListProviders :many
-SELECT id, name, label, api_base_url, auth_type, auth_header, auth_prefix, profile, openapi_url, whitelist, enabled, created_by, created_at, updated_at FROM external_providers ORDER BY name
+SELECT id, name, label, api_base_url, auth_type, auth_header, auth_prefix, profile, openapi_url, whitelist, enabled, health_status, consecutive_failures, last_probe_at, last_probe_error, auto_disabled_at, probe_interval_seconds, upstream_spec_digest, contract_drift, last_drift_at, created_by, created_at, updated_at FROM external_providers ORDER BY name
 `
 
 func (q *Queries) ListProviders(ctx context.Context) ([]ExternalProvider, error) {
@@ -315,6 +342,15 @@ func (q *Queries) ListProviders(ctx context.Context) ([]ExternalProvider, error)
 			&i.OpenapiUrl,
 			&i.Whitelist,
 			&i.Enabled,
+			&i.HealthStatus,
+			&i.ConsecutiveFailures,
+			&i.LastProbeAt,
+			&i.LastProbeError,
+			&i.AutoDisabledAt,
+			&i.ProbeIntervalSeconds,
+			&i.UpstreamSpecDigest,
+			&i.ContractDrift,
+			&i.LastDriftAt,
 			&i.CreatedBy,
 			&i.CreatedAt,
 			&i.UpdatedAt,
@@ -337,7 +373,7 @@ UPDATE external_providers
 SET label = ?, api_base_url = ?, auth_type = ?, auth_header = ?, auth_prefix = ?,
     profile = ?, openapi_url = ?, whitelist = ?, enabled = ?, updated_at = CURRENT_TIMESTAMP
 WHERE id = ?
-RETURNING id, name, label, api_base_url, auth_type, auth_header, auth_prefix, profile, openapi_url, whitelist, enabled, created_by, created_at, updated_at
+RETURNING id, name, label, api_base_url, auth_type, auth_header, auth_prefix, profile, openapi_url, whitelist, enabled, health_status, consecutive_failures, last_probe_at, last_probe_error, auto_disabled_at, probe_interval_seconds, upstream_spec_digest, contract_drift, last_drift_at, created_by, created_at, updated_at
 `
 
 type UpdateProviderParams struct {
@@ -379,6 +415,15 @@ func (q *Queries) UpdateProvider(ctx context.Context, arg UpdateProviderParams) 
 		&i.OpenapiUrl,
 		&i.Whitelist,
 		&i.Enabled,
+		&i.HealthStatus,
+		&i.ConsecutiveFailures,
+		&i.LastProbeAt,
+		&i.LastProbeError,
+		&i.AutoDisabledAt,
+		&i.ProbeIntervalSeconds,
+		&i.UpstreamSpecDigest,
+		&i.ContractDrift,
+		&i.LastDriftAt,
 		&i.CreatedBy,
 		&i.CreatedAt,
 		&i.UpdatedAt,

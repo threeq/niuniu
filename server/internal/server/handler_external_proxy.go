@@ -19,6 +19,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/niuniu-dev/niuniu/internal/service"
@@ -159,6 +160,14 @@ func (s *Server) proxyListProviders(c *gin.Context) {
 		AuthModes    []string `json:"auth_modes"`
 		OpenAPIURL   string   `json:"openapi_url,omitempty"`
 		CreatedBy    string   `json:"created_by"`
+		// Continuous health + contract drift (#744).
+		HealthStatus        string     `json:"health_status"`
+		ConsecutiveFailures int64      `json:"consecutive_failures"`
+		LastProbeAt         *time.Time `json:"last_probe_at,omitempty"`
+		LastProbeError      string     `json:"last_probe_error,omitempty"`
+		AutoDisabledAt      *time.Time `json:"auto_disabled_at,omitempty"`
+		ContractDrift       bool       `json:"contract_drift"`
+		LastDriftAt         *time.Time `json:"last_drift_at,omitempty"`
 	}
 	items := make([]providerItem, 0, len(providers))
 	for _, p := range providers {
@@ -173,6 +182,14 @@ func (s *Server) proxyListProviders(c *gin.Context) {
 			AuthModes:    p.AuthModes(),
 			OpenAPIURL:   p.OpenAPIURL,
 			CreatedBy:    p.CreatedBy,
+
+			HealthStatus:        p.HealthStatus,
+			ConsecutiveFailures: p.ConsecutiveFailures,
+			LastProbeAt:         nullTimePtr(p.LastProbeAt),
+			LastProbeError:      p.LastProbeError,
+			AutoDisabledAt:      nullTimePtr(p.AutoDisabledAt),
+			ContractDrift:       p.ContractDrift,
+			LastDriftAt:         nullTimePtr(p.LastDriftAt),
 		})
 	}
 

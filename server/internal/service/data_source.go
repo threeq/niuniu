@@ -101,6 +101,13 @@ type DataSourceDTO struct {
 	DefaultAccessMode string         `json:"default_access_mode"`
 	RequireConfirm    string         `json:"require_confirm"`
 	LastVerifiedAt    sql.NullTime   `json:"last_verified_at"`
+	// Continuous-health fields (Epic #726 / #744). enabled=0 means the source
+	// is switched off; health_status is the last probe verdict.
+	Enabled             int64        `json:"enabled"`
+	HealthStatus        string       `json:"health_status"`
+	ConsecutiveFailures int64        `json:"consecutive_failures"`
+	LastProbeAt         sql.NullTime `json:"last_probe_at"`
+	LastProbeError      string       `json:"last_probe_error"`
 	// Bindings is populated on the settings list/get path (ListForOwner); it is
 	// left nil on the proxy path where only id/name/kind matter.
 	Bindings []DataSourceBinding `json:"bindings"`
@@ -654,6 +661,14 @@ func (s *DataSourceService) Verify(ctx context.Context, id, userID int64, orgIDs
 	if err != nil {
 		return err
 	}
+	return s.VerifyRow(ctx, row)
+}
+
+// VerifyRow pings a source identified by an already-loaded row, bypassing the
+// owner gate. Service-only: the health sweep (#744) has already resolved and
+// trusted the row. Same Ping/SSH-tunnel path as Verify, same last_verified_at
+// bump on success.
+func (s *DataSourceService) VerifyRow(ctx context.Context, row store.DataSource) error {
 	conn, err := s.registry.Get(dataconn.SourceKind(row.Kind))
 	if err != nil {
 		return &ErrDataSourceKindUnsupported{Kind: row.Kind}
@@ -672,7 +687,7 @@ func (s *DataSourceService) Verify(ctx context.Context, id, userID int64, orgIDs
 	if err := conn.Ping(ctx, cc); err != nil {
 		return err
 	}
-	return s.q.TouchDataSourceVerified(ctx, id)
+	return s.q.TouchDataSourceVerified(ctx, row.ID)
 }
 
 // LoadConnConfig returns the decrypted dataconn.ConnConfig for a row the caller
@@ -890,6 +905,13 @@ func (s *DataSourceService) rowToRedactedDTO(row store.DataSource) DataSourceDTO
 		// would otherwise surface as "never" and mismatch the DTO/TS contract.
 		RequireConfirm: normalizeRequireConfirm(row.RequireConfirm),
 		LastVerifiedAt: row.LastVerifiedAt,
+		Enabled:        row.Enabled,
+		HealthStatus:   row.HealthStatus,
+		// Populated by the health sweep (#744); exposed so the source list can
+		// render a health light and the failure reason.
+		ConsecutiveFailures: row.ConsecutiveFailures,
+		LastProbeAt:         row.LastProbeAt,
+		LastProbeError:      row.LastProbeError,
 	}
 }
 
