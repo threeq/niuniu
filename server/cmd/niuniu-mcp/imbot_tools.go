@@ -19,6 +19,7 @@ import (
 
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
+	"github.com/niuniu-dev/niuniu/internal/credpolicy"
 )
 
 func registerIMBotTools(s *server.MCPServer, api *apiClient, pid string) {
@@ -29,6 +30,7 @@ func registerIMBotTools(s *server.MCPServer, api *apiClient, pid string) {
 	s.AddTool(
 		mcp.NewTool("imbot_request_credential_link",
 			mcp.WithDescription("Generate a one-time credential submission link for IM Bot onboarding. "+
+				credpolicy.Discipline+" "+
 				"The user opens the returned URL in their browser and fills in the platform credentials "+
 				"(AppID, AppSecret, etc.). The link expires in 15 minutes. "+
 				"Call this after the user has chosen a platform and bot name. "+

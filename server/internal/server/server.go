@@ -133,6 +133,11 @@ type Server struct {
 	knowledgeBaseHandler *api.KnowledgeBaseHandler
 	dataProxySvc         *service.DataProxyService
 
+	// Generic one-time credential links (issue #727): generalize the IM-Bot
+	// onboarding link to provider credentials and data sources.
+	credOnboardingSvc     *service.CredentialOnboardingService
+	credOnboardingHandler *api.CredentialOnboardingHandler
+
 	// Data dashboards (M1): saved queries / dashboards / panels.
 	dashboardSvc     *service.DashboardService
 	dashboardHandler *api.DashboardHandler
@@ -1426,6 +1431,11 @@ func New(cfg *config.Config, db *sql.DB, frontendFS fs.FS) *Server {
 	s.dataSourceSvc = service.NewDataSourceService(s.queries, db, keyring, s.dataconnRegistry)
 	s.dataSourceHandler = api.NewDataSourceHandler(s.dataSourceSvc, s.dataconnPool)
 	s.dataSourceHandler.Authz = s.authzSvc
+
+	// Generic one-time credential links (issue #727). Depends on both encrypted
+	// stores, so it is constructed after them.
+	s.credOnboardingSvc = service.NewCredentialOnboardingService(s.queries, s.extCredSvc, s.dataSourceSvc)
+	s.credOnboardingHandler = api.NewCredentialOnboardingHandler(s.credOnboardingSvc, s.authzSvc)
 
 	// Data proxy: the three-layer gate (read/write separation, data-scope
 	// authorization, per-op confirmation via PermissionService) + audit. The

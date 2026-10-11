@@ -999,6 +999,18 @@
       "channelIdHint": "回到對話把這個數字告訴助手，即可繼續連通性測試。"
     }
   },
+  "credentialOnboarding": {
+    "pageTitle": "憑據錄入",
+    "pageDescription": "請在下方填寫憑據。提交後憑據將直接加密儲存，不會進入對話或模型上下文。",
+    "loading": "載入中…",
+    "submit": "提交",
+    "submitting": "提交中…",
+    "successMessage": "已儲存 —— 回到對話繼續即可。",
+    "expiredMessage": "此連結無效或已過期",
+    "errorMessage": "提交失敗，請重試",
+    "showSecret": "顯示",
+    "hideSecret": "隱藏"
+  },
   "externalIssues": {
     "drawerTitle": "外部工單",
     "openDrawer": "外部工單",

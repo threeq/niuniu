@@ -47,6 +47,12 @@ func (s *Server) setupRoutes() {
 	s.engine.POST("/api/imbot/onboarding/:token/wechat/login/start", s.imbotHandler.WechatLoginStart)
 	s.engine.POST("/api/imbot/onboarding/:token/wechat/login/poll", s.imbotHandler.WechatLoginPoll)
 
+	// Generic credential-onboarding (issue #727): the same token-is-the-auth
+	// model, generalized to provider credentials and data sources. Every
+	// response carries hardened headers (no-store / strict CSP / no-referrer).
+	s.engine.GET("/api/credential-onboarding/:token", s.credOnboardingHandler.GetCredentialLinkInfo)
+	s.engine.POST("/api/credential-onboarding/:token", s.credOnboardingHandler.SubmitCredentialLink)
+
 	// Latest desktop release (proxied from the official website changelog) —
 	// no auth required; only consumed by the personal-mode "check for updates".
 	s.engine.GET("/api/app-update/latest", s.appUpdateHandler.Latest)
@@ -277,6 +283,14 @@ func (s *Server) setupRoutes() {
 		// for the guidance agent. All enforce CanAccessProject via the :id param
 		// (must share the same wildcard name as the other /mcp/projects/:id/* routes).
 		mcpGroup.POST("/projects/:id/imbot/onboarding-token", s.imbotHandler.MCPRequestCredentialLink)
+
+		// Generic one-time credential links (issue #727): issue a link for a
+		// provider credential or data source, and query credential presence
+		// (boolean only). Issuing is rate-limited to blunt link farming.
+		mcpGroup.POST("/projects/:id/credential-links",
+			auth.RateLimitMiddleware(0.2, 5),
+			s.credOnboardingHandler.MCPRequestCredentialLink)
+		mcpGroup.POST("/projects/:id/credential-links/status", s.credOnboardingHandler.MCPCredentialStatus)
 		mcpGroup.POST("/projects/:id/imbot/channels/:cid/test", s.imbotHandler.MCPTestChannel)
 		mcpGroup.GET("/projects/:id/imbot/pending-chats", s.imbotHandler.MCPListPendingChats)
 		mcpGroup.POST("/projects/:id/imbot/chats/:chatid/approve", s.imbotHandler.MCPApproveChat)
@@ -1284,8 +1298,19 @@ func (s *Server) setupRoutes() {
 	// All non-API requests serve static files or fallback to index.html
 	// Serve frontend SPA (if embedded)
 	if s.frontendFS != nil {
+		// The credential submission page is registered explicitly (rather than
+		// falling through the SPA handler) so the HTML document itself carries
+		// the hardened headers.
+		s.engine.GET("/credential/:token", s.serveCredentialPage)
 		s.engine.NoRoute(spaFileHandler(s.frontendFS))
 	}
+}
+
+// serveCredentialPage serves the SPA shell for the credential submission route
+// with no-store / strict CSP / no-referrer applied to the document response.
+func (s *Server) serveCredentialPage(c *gin.Context) {
+	apipkg.ApplyCredentialPageHeaders(c)
+	c.FileFromFS("/", http.FS(s.frontendFS))
 }
 
 // spaFileHandler serves embedded frontend static files, falling back to the SPA
