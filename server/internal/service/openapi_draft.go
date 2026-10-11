@@ -15,7 +15,8 @@ package service
 //     surface to appear on. (Tags survive only as capability labels, sanitized
 //     to [a-z0-9-]; the title survives only as a display name.)
 //  2. No inherited permission. The suggested scope is a minimal read-only
-//     starting point (GET/HEAD over literal, path-parameter-free prefixes) and
+//     starting point (the shared read-only method baseline over literal,
+//     path-parameter-free prefixes) and
 //     never widens because the document asks for it. Widening is a deliberate
 //     user action in the confirmation card, not a derived default.
 //
@@ -1000,11 +1001,11 @@ func (d *openAPIDoc) buildDataSource(ep endpointInfo, ops []docOp, creds []Draft
 			Port:     ep.port,
 			BasePath: ep.basePath,
 		},
-		// Minimal start: read-only verbs over narrow literal prefixes. Never
-		// widened by anything the document says.
+		// Minimal start: the project's shared read-only method baseline over
+		// narrow literal prefixes. Never widened by anything the document says.
 		ScopeConfig: HTTPDraftScope{
 			PathPrefixes: []string{},
-			Methods:      []string{"GET", "HEAD"},
+			Methods:      minimalHTTPMethods(),
 		},
 		DefaultAccessMode: "read",
 		RequireConfirm:    "writes_only",
@@ -1036,6 +1037,28 @@ func (d *openAPIDoc) buildDataSource(ep endpointInfo, ops []docOp, creds []Draft
 			fmt.Sprintf("%d non-read operation(s) are excluded from the minimal scope; a user must add them explicitly", len(ds.Excluded)))
 	}
 	return ds
+}
+
+// minimalHTTPMethods returns the read-only method baseline for an http source
+// from the project's shared minimal-scope definition (MinimalScopeDefaults,
+// introduced by the AI-output hardening work), so #731's suggestion and the
+// draft pipeline's own "minimal" baseline cannot drift apart. Falls back to
+// GET-only if the shared default ever stops declaring methods.
+func minimalHTTPMethods() []string {
+	raw, ok := MinimalScopeDefaults(draftKindHTTP)["methods"].([]any)
+	if !ok {
+		return []string{"GET"}
+	}
+	out := make([]string, 0, len(raw))
+	for _, v := range raw {
+		if s, ok := v.(string); ok && strings.TrimSpace(s) != "" {
+			out = append(out, strings.ToUpper(strings.TrimSpace(s)))
+		}
+	}
+	if len(out) == 0 {
+		return []string{"GET"}
+	}
+	return out
 }
 
 // narrowPrefixes reduces read paths to literal, path-parameter-free prefixes.

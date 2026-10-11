@@ -164,7 +164,7 @@ func TestProxyOpenAPIDraft_GeneratesFromProvider(t *testing.T) {
 	}
 	scope := ds["scope_config"].(map[string]any)
 	methods := scope["methods"].([]any)
-	if len(methods) != 2 || methods[0] != "GET" || methods[1] != "HEAD" {
+	if len(methods) != 1 || methods[0] != "GET" {
 		t.Fatalf("scope must start read-only, got %v", methods)
 	}
 	if ds["default_access_mode"] != "read" {

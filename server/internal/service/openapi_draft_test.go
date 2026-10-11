@@ -93,7 +93,7 @@ func TestParseOpenAPIDocument_OpenAPI3(t *testing.T) {
 	require.Equal(t, "/v1", ds.Config.BasePath)
 	require.Equal(t, "read", ds.DefaultAccessMode)
 
-	require.Equal(t, []string{"GET", "HEAD"}, ds.ScopeConfig.Methods)
+	require.Equal(t, []string{"GET"}, ds.ScopeConfig.Methods)
 	require.Equal(t, []string{"/pets"}, ds.ScopeConfig.PathPrefixes)
 	require.Equal(t, "data", ds.ListPath)
 	require.Equal(t, []DraftCredential{{Name: "Authorization", Location: "header", Required: true, Hint: "Bearer <token>"}}, ds.CredentialFields)
@@ -129,7 +129,7 @@ func TestParseOpenAPIDocument_Swagger2(t *testing.T) {
 	require.Equal(t, "/api/v2", ds.Config.BasePath)
 	require.Equal(t, "items", ds.ListPath, "list_path drifts to the envelope's array property")
 	require.Equal(t, []string{"/contacts"}, ds.ScopeConfig.PathPrefixes)
-	require.Equal(t, []string{"GET", "HEAD"}, ds.ScopeConfig.Methods)
+	require.Equal(t, []string{"GET"}, ds.ScopeConfig.Methods)
 	require.Equal(t, []DraftCredential{{Name: "X-API-Key", Location: "header", Required: true, Hint: "API key"}}, ds.CredentialFields)
 	require.Equal(t, []string{"POST /contacts/{id}/notes"}, ds.Excluded)
 }
@@ -182,7 +182,7 @@ func TestParseOpenAPIDocument_PoisonedDocument(t *testing.T) {
 	require.NotNil(t, ds)
 
 	// 1. No inherited write permission, ever.
-	require.Equal(t, []string{"GET", "HEAD"}, ds.ScopeConfig.Methods)
+	require.Equal(t, []string{"GET"}, ds.ScopeConfig.Methods)
 	for _, m := range ds.ScopeConfig.Methods {
 		require.NotContains(t, []string{"POST", "PUT", "PATCH", "DELETE"}, m,
 			"the minimal scope must never contain a write verb")
@@ -337,6 +337,24 @@ func TestParseOpenAPIDocument_TraversalPathSkipped(t *testing.T) {
 	require.Len(t, d.ProviderContract.Operations, 1)
 	require.Equal(t, "/ok", d.ProviderContract.Operations[0].Path)
 	require.Contains(t, strings.Join(d.Warnings, "\n"), "/../../etc/passwd")
+}
+
+// TestMinimalHTTPMethods_SharesPipelineBaseline pins the emitted method
+// baseline to the project's shared MinimalScopeDefaults, so #731's suggestion
+// and the draft pipeline's widening check cannot drift apart.
+func TestMinimalHTTPMethods_SharesPipelineBaseline(t *testing.T) {
+	shared, ok := MinimalScopeDefaults(draftKindHTTP)["methods"].([]any)
+	require.True(t, ok, "the shared minimal-scope default must declare http methods")
+
+	got := minimalHTTPMethods()
+	require.Len(t, got, len(shared))
+	for i, v := range shared {
+		require.Equal(t, v, got[i])
+	}
+	require.Equal(t, []string{"GET"}, got)
+	for _, m := range got {
+		require.NotContains(t, []string{"POST", "PUT", "PATCH", "DELETE"}, m)
+	}
 }
 
 // TestNarrowPrefixes pins the scope-reduction rules directly.
