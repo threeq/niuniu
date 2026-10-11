@@ -362,3 +362,49 @@ func TestRunnerRecoversAfterACrash(t *testing.T) {
 		t.Fatalf("the supervisor did not recover: %v", res.Error)
 	}
 }
+
+// The two verdicts must not be interchangeable: a missing OPTIONAL layer is a
+// degraded but usable fence (Linux without user namespaces, which #739 allows),
+// while a missing REQUIRED layer means no function may run at all. Collapsing
+// them either way would let the box run with less protection than advertised,
+// or refuse to run on hosts the spec says should work.
+func TestVerdictSeparatesDegradedFromUnavailable(t *testing.T) {
+	required := func(ok bool) ComponentStatus {
+		return ComponentStatus{Name: "landlock", Required: true, OK: ok, Detail: "landlock ABI 3"}
+	}
+	optional := func(ok bool) ComponentStatus {
+		return ComponentStatus{Name: "user-namespaces", Required: false, OK: ok, Detail: "sysctl says no"}
+	}
+
+	cases := []struct {
+		name          string
+		comps         []ComponentStatus
+		wantAvailable bool
+		wantDegraded  bool
+	}{
+		{"everything present", []ComponentStatus{required(true), optional(true)}, true, false},
+		{"optional missing degrades but still runs", []ComponentStatus{required(true), optional(false)}, true, true},
+		{"required missing refuses to run", []ComponentStatus{required(false), optional(true)}, false, false},
+		{"required missing outranks the optional one", []ComponentStatus{required(false), optional(false)}, false, false},
+		// Degraded is only meaningful when the fence is usable; an unavailable
+		// fence must not also advertise itself as merely degraded.
+		{"unavailable is not reported as degraded", []ComponentStatus{required(false), optional(false)}, false, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			av := verdictFrom("linux/amd64", "test", tc.comps)
+			if av.Available != tc.wantAvailable {
+				t.Errorf("Available = %v, want %v (reason %q)", av.Available, tc.wantAvailable, av.Reason)
+			}
+			if av.Degraded != tc.wantDegraded {
+				t.Errorf("Degraded = %v, want %v", av.Degraded, tc.wantDegraded)
+			}
+			if !av.Available && av.Reason == "" {
+				t.Error("an unavailable fence must carry a reason for the UI")
+			}
+			if av.Available && av.Reason != "" {
+				t.Errorf("a usable fence should not carry a refusal reason, got %q", av.Reason)
+			}
+		})
+	}
+}

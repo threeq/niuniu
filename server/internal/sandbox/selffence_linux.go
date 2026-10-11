@@ -188,16 +188,28 @@ func buildAuditArch() uint32 {
 	}
 }
 
-// applySeccomp installs the syscall filter. PR_SET_NO_NEW_PRIVS is set first so
-// the filter can be installed without CAP_SYS_ADMIN even outside a user
-// namespace.
+// setNoNewPrivs sets the flag Landlock AND seccomp both require.
+//
+// Landlock's restrict_self refuses with EPERM unless no_new_privs is already
+// set or the caller holds CAP_SYS_ADMIN. Inside a user namespace the box is
+// uid 0 and has that capability, so the ordering mistake went unnoticed there;
+// unprivileged — which is what the degraded Linux path is — it is a hard
+// failure. Setting it once, first, is what makes both layers work without
+// privileges.
+func setNoNewPrivs() error {
+	if _, _, errno := unix.RawSyscall(unix.SYS_PRCTL, prSetNoNewPrivs, 1, 0); errno != 0 {
+		return fmt.Errorf("prctl(PR_SET_NO_NEW_PRIVS): %w", errno)
+	}
+	return nil
+}
+
+// applySeccomp installs the syscall filter. It requires no_new_privs to have
+// been set already (see ApplySelfFence), which is what lets the filter be
+// installed without CAP_SYS_ADMIN.
 func applySeccomp() error {
 	arch := buildAuditArch()
 	if arch == 0 {
 		return fmt.Errorf("no seccomp architecture filter is defined for %s", runtime.GOARCH)
-	}
-	if _, _, errno := unix.RawSyscall(unix.SYS_PRCTL, prSetNoNewPrivs, 1, 0); errno != 0 {
-		return fmt.Errorf("prctl(PR_SET_NO_NEW_PRIVS): %w", errno)
 	}
 	prog := buildSeccompProgram(arch)
 	if _, _, errno := unix.RawSyscall(unix.SYS_PRCTL, prSetSeccomp, seccompModeFilter,
@@ -237,7 +249,15 @@ func buildSeccompProgram(auditArch uint32) sockFprog {
 
 // ApplySelfFence is the box's startup hardening. It must run BEFORE any
 // function code is evaluated; the helper calls it on boot.
+//
+// Order matters: no_new_privs first (Landlock's restrict_self refuses without
+// it when the box is not privileged), then the filesystem rules, then the
+// syscall filter. The last two are also ordered deliberately — once seccomp is
+// installed, the syscalls Landlock needs are already gone.
 func ApplySelfFence(memoryMB int) error {
+	if err := setNoNewPrivs(); err != nil {
+		return err
+	}
 	if err := applyLandlock(); err != nil {
 		return err
 	}

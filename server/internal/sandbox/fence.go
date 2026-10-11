@@ -168,9 +168,26 @@ func SelfCheck(force bool) Availability {
 			Detail:   "the niuniu-funcbox helper binary was not found next to the server",
 		})
 	}
+	av := verdictFrom(runtime.GOOS+"/"+runtime.GOARCH, f.Backend(), comps)
+	selfCheckCache = &av
+	return av
+}
+
+// verdictFrom turns probed components into the self-check verdict.
+//
+// Two outcomes matter and they are not the same thing:
+//
+//   - a REQUIRED component is missing -> the fence cannot be trusted, so
+//     Available is false and the host refuses to run any function;
+//   - only OPTIONAL components are missing -> the fence still holds but a layer
+//     of defence in depth is gone (Linux without user namespaces drops to
+//     Landlock + seccomp, which #739 explicitly allows). Degraded says so, so
+//     the UI can name the missing layer instead of the user quietly getting
+//     less protection than the design promises.
+func verdictFrom(platform, backend string, comps []ComponentStatus) Availability {
 	av := Availability{
-		Platform:   runtime.GOOS + "/" + runtime.GOARCH,
-		Backend:    f.Backend(),
+		Platform:   platform,
+		Backend:    backend,
 		Components: comps,
 		ProbedAt:   time.Now(),
 	}
@@ -193,7 +210,6 @@ func SelfCheck(force bool) Availability {
 			}
 		}
 	}
-	selfCheckCache = &av
 	return av
 }
 

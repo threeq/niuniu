@@ -103,5 +103,5 @@ jobs:
         run: |
           cd server
           go test -count=1 -timeout 20m -v \
-            -run 'TestOperationFunction|TestFenceDenies|TestSelfCheck|TestRunFunction|TestRunaway|TestEgressBudget|TestBoxCrash|TestRunnerRecovers|TestSpawnRefused|TestURLIsNotExpressible|TestUndeclaredOperation|TestClassifyProbes|TestProbesMark' \
+            -run 'TestOperationFunction|TestFenceDenies|TestSelfCheck|TestRunFunction|TestRunaway|TestEgressBudget|TestBoxCrash|TestRunnerRecovers|TestSpawnRefused|TestURLIsNotExpressible|TestUndeclaredOperation|TestClassifyProbes|TestProbesMark|TestVerdict|TestDegradedFence|TestNamespaces' \
             ./internal/sandbox/ ./internal/service/ ./cmd/niuniu-funcbox/
