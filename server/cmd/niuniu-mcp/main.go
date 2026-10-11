@@ -138,6 +138,12 @@ func main() {
 	// an integration, only the user may grant it.
 	registerDraftTools(s, api)
 
+	// Sandbox operation functions (Epic #726 / #739). Registers the generic
+	// list/call pair plus one dynamic tool per published function, named
+	// ext__<source>__<function>. The registration never blocks startup: a
+	// failure leaves the generic tools in place.
+	registerOperationFunctionTools(s, api)
+
 	// Data dashboards — pin_query / list_dashboards tunnel to /mcp/dashboards/*.
 	// pin_query records the current workspace (from the session token) as the
 	// pinned query's origin so the chart can link back to this workspace.

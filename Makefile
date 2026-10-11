@@ -151,6 +151,7 @@ build:
 	cd server && go build $(SERVER_LDFLAGS) -o ../bin/niuniu-mcp-$(VERSION) ./cmd/niuniu-mcp
 	cd agent && go build -o ../bin/niuniu-agent-$(VERSION) ./cmd/niuniu-agent
 	cd server && go build $(SERVER_LDFLAGS) -o ../bin/niuniu-video-mcp-$(VERSION) ./cmd/niuniu-video-mcp
+	cd server && go build -o ../bin/niuniu-funcbox-$(VERSION) ./cmd/niuniu-funcbox
 	$(call compress,bin/niuniu-server-$(VERSION))
 	$(call compress,bin/niuniu-mcp-$(VERSION))
 	$(call compress,bin/niuniu-agent-$(VERSION))
@@ -163,6 +164,7 @@ build-win:
 	cd server && go build $(SERVER_LDFLAGS) -o ../bin/niuniu-mcp-$(VERSION).exe ./cmd/niuniu-mcp
 	cd agent && go build -o ../bin/niuniu-agent-$(VERSION).exe ./cmd/niuniu-agent
 	cd server && go build $(SERVER_LDFLAGS) -o ../bin/niuniu-video-mcp-$(VERSION).exe ./cmd/niuniu-video-mcp
+	cd server && go build -o ../bin/niuniu-funcbox-$(VERSION).exe ./cmd/niuniu-funcbox
 	$(call compress,bin/niuniu-server-$(VERSION).exe)
 	$(call compress,bin/niuniu-mcp-$(VERSION).exe)
 	$(call compress,bin/niuniu-agent-$(VERSION).exe)
@@ -179,6 +181,8 @@ build-linux:
 	cd agent && GOOS=linux GOARCH=arm64 go build -o ../bin/niuniu-agent-$(VERSION)-linux-arm64 ./cmd/niuniu-agent
 	cd server && $(LINUX_AMD64_ENV) go build $(LINUX_SERVER_LDFLAGS) -o ../bin/niuniu-video-mcp-$(VERSION)-linux-amd64 ./cmd/niuniu-video-mcp
 	cd server && $(LINUX_ARM64_ENV) go build $(LINUX_SERVER_LDFLAGS) -o ../bin/niuniu-video-mcp-$(VERSION)-linux-arm64 ./cmd/niuniu-video-mcp
+	cd server && CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o ../bin/niuniu-funcbox-$(VERSION)-linux-amd64 ./cmd/niuniu-funcbox
+	cd server && CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -o ../bin/niuniu-funcbox-$(VERSION)-linux-arm64 ./cmd/niuniu-funcbox
 	$(call compress,bin/niuniu-server-$(VERSION)-linux-amd64)
 	$(call compress,bin/niuniu-mcp-$(VERSION)-linux-amd64)
 	$(call compress,bin/niuniu-server-$(VERSION)-linux-arm64)
@@ -199,6 +203,8 @@ build-mac:
 	cd agent && GOOS=darwin GOARCH=amd64 go build -o ../bin/niuniu-agent-$(VERSION)-darwin-amd64 ./cmd/niuniu-agent
 	cd server && GOOS=darwin GOARCH=arm64 go build $(SERVER_LDFLAGS) -o ../bin/niuniu-video-mcp-$(VERSION)-darwin-arm64 ./cmd/niuniu-video-mcp
 	cd server && GOOS=darwin GOARCH=amd64 go build $(SERVER_LDFLAGS) -o ../bin/niuniu-video-mcp-$(VERSION)-darwin-amd64 ./cmd/niuniu-video-mcp
+	cd server && CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build -o ../bin/niuniu-funcbox-$(VERSION)-darwin-arm64 ./cmd/niuniu-funcbox
+	cd server && CGO_ENABLED=0 GOOS=darwin GOARCH=amd64 go build -o ../bin/niuniu-funcbox-$(VERSION)-darwin-amd64 ./cmd/niuniu-funcbox
 	$(call compress,bin/niuniu-server-$(VERSION)-darwin-arm64)
 	$(call compress,bin/niuniu-mcp-$(VERSION)-darwin-arm64)
 	$(call compress,bin/niuniu-server-$(VERSION)-darwin-amd64)
@@ -236,7 +242,7 @@ build-mcp:
 
 # Clean build artifacts
 clean:
-	rm -rf bin/ server/web/dist/ desktop-v2/binaries/niuniu-server* desktop-v2/binaries/niuniu-mcp* desktop-v2/binaries/niuniu-agent* desktop-v2/binaries/niuniu-video-mcp* desktop-v2/binaries/staging/
+	rm -rf bin/ server/web/dist/ desktop-v2/binaries/niuniu-server* desktop-v2/binaries/niuniu-mcp* desktop-v2/binaries/niuniu-agent* desktop-v2/binaries/niuniu-video-mcp* desktop-v2/binaries/niuniu-funcbox* desktop-v2/binaries/staging/
 
 # Testing targets
 test:

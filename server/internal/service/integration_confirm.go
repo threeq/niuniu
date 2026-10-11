@@ -22,6 +22,8 @@ import (
 	"net/url"
 	"sort"
 	"strings"
+
+	"github.com/niuniu-dev/niuniu/internal/sandbox"
 )
 
 // ConfirmDecisionKind discriminates the two onboarding lines.
@@ -53,6 +55,12 @@ const (
 	RiskScopeWidened = "scope_widened"
 	// RiskWriteEnabled — the provider write gate is being turned on.
 	RiskWriteEnabled = "write_enabled"
+	// RiskFunctionUnrehearsed — an operation function (#739) is being published
+	// without a behaviour rehearsal, so its egress was never previewed.
+	RiskFunctionUnrehearsed = "function_unrehearsed"
+	// RiskFunctionUndeclaredOp — a function's rehearsal showed it calling an
+	// operation outside the set it declares.
+	RiskFunctionUndeclaredOp = "function_undeclared_operation"
 )
 
 // Change values for scope and diff entries.
@@ -79,6 +87,10 @@ type PublishedState struct {
 	BaseURL     string         `json:"base_url,omitempty"`
 	Operations  []OperationKey `json:"operations,omitempty"`
 	ScopeConfig map[string]any `json:"scope_config,omitempty"`
+	// FunctionScope is the authority the live operation functions currently
+	// hold (provider line only). A rollback that would change it is a
+	// re-authorization, so it has to be part of what the diff compares.
+	FunctionScope []FunctionScopeEntry `json:"function_scope,omitempty"`
 }
 
 // ConfirmDraftInput is the structured input to the card builder — exactly the
@@ -122,6 +134,33 @@ type ConfirmDraftInput struct {
 
 	// Previous is the published state, or nil when creating.
 	Previous *PublishedState
+
+	// Functions are the sandbox operation functions this draft would publish
+	// (Epic #726 / #739). They belong to the DECISION, not to decoration: the
+	// approval covers each function's code hash, its declared egress set and
+	// the behaviour rehearsal, because for AI-authored code the behaviour is
+	// what a human is actually approving.
+	Functions []ConfirmFunction
+}
+
+// ConfirmFunction is one operation function on the confirmation card.
+type ConfirmFunction struct {
+	Name       string                `json:"name"`
+	ToolName   string                `json:"tool_name"`
+	Runtime    string                `json:"runtime"`
+	Code       string                `json:"code"`
+	CodeHash   string                `json:"code_hash"`
+	Idempotent bool                  `json:"idempotent"`
+	Enabled    bool                  `json:"enabled"`
+	Egress     []string              `json:"egress"`
+	Lint       []sandbox.LintFinding `json:"lint,omitempty"`
+	// Rehearsal is the system-run behaviour preview. Nil means the preview
+	// could not be produced, which is itself a fact the reviewer must see.
+	Rehearsal *RehearsalReport `json:"rehearsal,omitempty"`
+	// IsNew distinguishes a first-time grant from a re-publish, so the reviewer
+	// knows whether this authority already existed.
+	IsNew        bool   `json:"is_new"`
+	PreviousHash string `json:"previous_hash,omitempty"`
 }
 
 // ConfirmOperation is one operation in the decision area. Method and Path are
@@ -193,6 +232,12 @@ type ConfirmCardModel struct {
 	Diff        []ConfirmDiff      `json:"diff"`
 	Risks       []ConfirmRisk      `json:"risks"`
 	Advisory    []QuarantinedChunk `json:"advisory,omitempty"`
+	// Functions are the sandbox operation functions this version would publish.
+	// RequiresFunctionAck is set when at least one of them is new or changed, so
+	// the UI can present the group as a unit the reviewer must look at rather
+	// than another line of boilerplate.
+	Functions           []ConfirmFunction `json:"functions,omitempty"`
+	RequiresFunctionAck bool              `json:"requires_function_ack,omitempty"`
 }
 
 // BuildConfirmCard renders the confirmation card for a draft. It is
@@ -245,6 +290,40 @@ func BuildConfirmCard(in ConfirmDraftInput) ConfirmCardModel {
 
 	m.Scopes = buildScopes(in)
 	m.Diff = buildDiff(in, m.Operations)
+
+	// Operation functions (Epic #726 / #739). They are rendered in full — code,
+	// declared reach and the behaviour rehearsal — because for AI-authored code
+	// the behaviour is the thing being approved. A missing rehearsal is
+	// surfaced as a risk rather than hidden: "we could not preview it" is
+	// exactly what a reviewer needs to know.
+	m.Functions = in.Functions
+	for i := range m.Functions {
+		f := &m.Functions[i]
+		if f.IsNew || f.PreviousHash != f.CodeHash {
+			m.RequiresFunctionAck = true
+		}
+		if f.Rehearsal == nil {
+			m.RequiresFunctionAck = true
+			m.Risks = append(m.Risks, ConfirmRisk{
+				Code:     RiskFunctionUnrehearsed,
+				Severity: RiskSeverityHigh,
+				Target:   f.Name,
+				Detail:   "no behaviour rehearsal was produced for this function",
+				AckKey:   RiskFunctionUnrehearsed + ":" + f.Name,
+			})
+			continue
+		}
+		if len(f.Rehearsal.UndeclaredOps) > 0 {
+			m.Risks = append(m.Risks, ConfirmRisk{
+				Code:     RiskFunctionUndeclaredOp,
+				Severity: RiskSeverityHigh,
+				Target:   f.Name,
+				Detail:   "during rehearsal it called " + strings.Join(f.Rehearsal.UndeclaredOps, ", ") + " without declaring it",
+				AckKey:   RiskFunctionUndeclaredOp + ":" + f.Name,
+			})
+		}
+	}
+	m.Risks = dedupeRisks(m.Risks)
 	return m
 }
 
@@ -496,6 +575,59 @@ func scopeChange(next, prior []string) string {
 	}
 }
 
+// functionScopeDiff compares the authority the proposed functions hold with the
+// authority the live ones hold. Field names use the "scope." prefix so the
+// existing rule — any scope-prefixed diff means the change must be
+// re-confirmed — covers function authority without a second mechanism.
+func functionScopeDiff(next []ConfirmFunction, prev []FunctionScopeEntry) []ConfirmDiff {
+	prevBy := map[string]FunctionScopeEntry{}
+	for _, f := range prev {
+		prevBy[f.Name] = f
+	}
+	nextBy := map[string]bool{}
+	var diff []ConfirmDiff
+	for _, f := range next {
+		nextBy[f.Name] = true
+		field := "scope.function." + f.Name
+		before, existed := prevBy[f.Name]
+		entry := FunctionScopeEntry{Name: f.Name, Enabled: f.Enabled, Idempotent: f.Idempotent, Egress: f.Egress, CodeHash: f.CodeHash}
+		if !existed {
+			diff = append(diff, ConfirmDiff{Field: field, After: scopeEntryString(entry), Change: ChangeAdded})
+			continue
+		}
+		// Only AUTHORITY changes are diffed: which operations it may reach, and
+		// whether it may be replayed. A pure code edit with the same reach is
+		// reviewed on the card but does not by itself re-grant anything.
+		if scopeEntryString(entry) != scopeEntryString(before) {
+			diff = append(diff, ConfirmDiff{
+				Field: field, Before: scopeEntryString(before), After: scopeEntryString(entry),
+				Change: ChangeChanged,
+			})
+		}
+	}
+	for _, f := range prev {
+		if !nextBy[f.Name] {
+			diff = append(diff, ConfirmDiff{
+				Field: "scope.function." + f.Name, Before: scopeEntryString(f), Change: ChangeRemoved,
+			})
+		}
+	}
+	return diff
+}
+
+func scopeEntryString(e FunctionScopeEntry) string {
+	ops := append([]string(nil), e.Egress...)
+	sort.Strings(ops)
+	s := strings.Join(ops, ",")
+	if e.Idempotent {
+		s += " (idempotent)"
+	}
+	if !e.Enabled {
+		s += " (disabled)"
+	}
+	return s
+}
+
 func buildDiff(in ConfirmDraftInput, ops []ConfirmOperation) []ConfirmDiff {
 	diff := []ConfirmDiff{}
 	prev := in.Previous
@@ -528,6 +660,7 @@ func buildDiff(in ConfirmDraftInput, ops []ConfirmOperation) []ConfirmDiff {
 	}
 	if prev != nil {
 		diff = append(diff, scopeDiff(in.ScopeConfig, prev.ScopeConfig)...)
+		diff = append(diff, functionScopeDiff(in.Functions, prev.FunctionScope)...)
 	}
 	sort.Slice(diff, func(i, j int) bool {
 		if diff[i].Field != diff[j].Field {

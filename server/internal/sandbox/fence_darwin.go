@@ -1,0 +1,175 @@
+//go:build darwin
+
+package sandbox
+
+import (
+	"fmt"
+	"os"
+	"os/exec"
+	"strings"
+	"syscall"
+)
+
+// macOS fence: the box is launched through `sandbox-exec` with a Seatbelt
+// profile that denies by default, denies all networking, and allows only the
+// stdio the supervisor needs.
+//
+// This backend is implemented but was authored on Windows and therefore has NOT
+// been exercised on a real macOS host — the #739 acceptance run on each desktop
+// platform is what closes that gap. Because a profile that is too strict would
+// make the box unrunnable, the probe executes a trivial command through
+// sandbox-exec first and the host refuses to run functions if that fails:
+// a fence that cannot be established is reported, never worked around.
+//
+// Known risk, recorded here because it is a platform fact rather than a bug:
+// sandbox-exec is deprecated and has been restricted on recent macOS releases.
+// When it is unavailable the probe fails closed. The documented stronger
+// alternative — a helper signed with App Sandbox entitlements — is not
+// implemented in this build.
+
+type darwinFence struct{}
+
+func platformFence() fence { return darwinFence{} }
+
+func (darwinFence) Backend() string { return "darwin-seatbelt" }
+
+// sandboxExecPath is where sandbox-exec lives on every macOS release that has
+// it. Absence is a probe failure, not a fallback trigger.
+const sandboxExecPath = "/usr/bin/sandbox-exec"
+
+func (darwinFence) Spawn(req SpawnRequest) (boxProcess, error) {
+	if _, err := os.Stat(sandboxExecPath); err != nil {
+		return nil, fmt.Errorf("sandbox-exec is unavailable: %w", err)
+	}
+	profile := seatbeltProfile(req.Path)
+	args := append([]string{"-p", profile, req.Path}, req.Args...)
+	// The command is executed through sandbox-exec, so the wrapper is the
+	// direct child and the box is its child: killing the process group is what
+	// keeps a crashed supervisor from leaving the box behind.
+	configure := func(cmd *exec.Cmd) (*exec.Cmd, func() error, error) {
+		cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+		kill := func() error {
+			if cmd.Process == nil {
+				return nil
+			}
+			// Negative pid = the whole process group.
+			if err := syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL); err != nil {
+				return cmd.Process.Kill()
+			}
+			return nil
+		}
+		return cmd, kill, nil
+	}
+	return startExec(sandboxExecPath, args, boxEnv(), boxWorkDir(), configure)
+}
+
+// seatbeltProfile renders the SBPL profile. Deny-by-default plus an explicit
+// "deny network*" is the load-bearing part: it is what makes a direct socket
+// attempt fail at the OS rather than inside the interpreter, where the function
+// has no socket API anyway.
+func seatbeltProfile(helperPath string) string {
+	var b strings.Builder
+	b.WriteString("(version 1)\n")
+	b.WriteString("(deny default)\n")
+	b.WriteString("(deny network*)\n")
+	// Process: the helper itself may exec (it is already; this covers the
+	// sandbox-exec trampoline) and nothing else may.
+	b.WriteString("(allow process-exec (literal \"")
+	b.WriteString(sbplEscape(sandboxExecPath))
+	b.WriteString("\") (literal \"")
+	b.WriteString(sbplEscape(helperPath))
+	b.WriteString("\"))\n")
+	b.WriteString("(allow process-fork)\n")
+	b.WriteString("(allow signal (target self))\n")
+	// The Go runtime queries the CPU count and needs entropy; both are reads.
+	b.WriteString("(allow sysctl-read)\n")
+	b.WriteString("(allow file-read* (literal \"/dev/urandom\") (literal \"/dev/null\"))\n")
+	// Loading the helper's own image and the system dylibs it links against.
+	b.WriteString("(allow file-read* (literal \"")
+	b.WriteString(sbplEscape(helperPath))
+	b.WriteString("\") (subpath \"/usr/lib\") (subpath \"/System/Library\"))\n")
+	// stdio only, and only writing to it.
+	b.WriteString("(allow file-write-data (literal \"/dev/null\") (literal \"/dev/stdout\") (literal \"/dev/stderr\") (literal \"/dev/fd/1\") (literal \"/dev/fd/2\"))\n")
+	b.WriteString("(allow file-read-metadata)\n")
+	return b.String()
+}
+
+func sbplEscape(s string) string {
+	return strings.ReplaceAll(strings.ReplaceAll(s, "\\", "\\\\"), "\"", "\\\"")
+}
+
+func (darwinFence) Probe() []ComponentStatus {
+	comps := []ComponentStatus{
+		{Name: "separate-process", Required: true, OK: true,
+			Detail: "the box always runs in its own process"},
+	}
+	if _, err := os.Stat(sandboxExecPath); err != nil {
+		comps = append(comps, ComponentStatus{
+			Name: "seatbelt-sandbox-exec", Required: true, OK: false,
+			Detail: "sandbox-exec not found at " + sandboxExecPath,
+		})
+	} else {
+		comps = append(comps, ComponentStatus{
+			Name: "seatbelt-sandbox-exec", Required: true, OK: true,
+			Detail: "sandbox-exec present; a sealed profile denies network and filesystem access",
+		})
+	}
+	// The only honest check is running one: a present-but-restricted
+	// sandbox-exec would otherwise pass a presence check and fail every call.
+	ok, detail := probeSeatbelt()
+	comps = append(comps, ComponentStatus{
+		Name: "seatbelt-profile-applies", Required: true, OK: ok, Detail: detail,
+	})
+	// Memory is the one ceiling Seatbelt does not express and RLIMIT_AS cannot
+	// supply for a Go binary. The supervisor reports peak usage after exit but
+	// cannot cap it in flight, so this is declared as a HARDENING GAP rather
+	// than quietly presented as enforced.
+	comps = append(comps, ComponentStatus{
+		Name:     "memory-limit",
+		Required: false,
+		OK:       false,
+		Detail:   "no in-flight hard memory cap on this platform; CPU seconds and wall clock are capped, peak memory is reported after exit",
+	})
+	if p := HelperPath(); p != "" {
+		ok, detail := darwinProbeSpawn(p)
+		comps = append(comps, ComponentStatus{
+			Name: "fenced-spawn", Required: true, OK: ok, Detail: detail,
+		})
+	}
+	return comps
+}
+
+func darwinProbeSpawn(helper string) (bool, string) {
+	p, err := (darwinFence{}).Spawn(SpawnRequest{
+		Path:        helper,
+		Args:        []string{"--probe"},
+		Env:         boxEnv(),
+		Dir:         boxWorkDir(),
+		MemoryBytes: 64 << 20,
+	})
+	if err != nil {
+		return false, err.Error()
+	}
+	defer func() {
+		_ = p.Kill()
+		p.Close()
+	}()
+	_ = p.Stdin().Close()
+	if err := p.Wait(); err != nil {
+		return false, fmt.Sprintf("fenced box exited abnormally: %v", err)
+	}
+	return true, "the box starts inside a deny-default Seatbelt profile and exits cleanly"
+}
+
+func probeSeatbelt() (bool, string) {
+	if _, err := os.Stat(sandboxExecPath); err != nil {
+		return false, "sandbox-exec not found"
+	}
+	cmd := exec.Command(sandboxExecPath, "-p",
+		"(version 1)(deny default)(allow process-exec (literal \"/usr/bin/true\"))(allow file-read*)(allow sysctl-read)",
+		"/usr/bin/true")
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return false, fmt.Sprintf("sandbox-exec refused the probe profile: %v %s", err, strings.TrimSpace(string(out)))
+	}
+	return true, "a deny-default profile executes successfully"
+}

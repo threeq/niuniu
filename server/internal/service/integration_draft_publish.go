@@ -482,7 +482,7 @@ func (s *IntegrationDraftService) applyPayload(ctx context.Context, row store.In
 		if err := json.Unmarshal([]byte(payloadJSON), &p); err != nil {
 			return 0, fmt.Errorf("apply provider draft: %w", err)
 		}
-		return s.applyProvider(ctx, row.TargetName, p)
+		return s.applyProviderFrom(ctx, row.TargetName, p, row.OwnerType, row.OwnerID, row.CreatedBy, row.ID)
 	case DraftKindDataSource:
 		var d DataSourceDraftPayload
 		if err := json.Unmarshal([]byte(payloadJSON), &d); err != nil {
@@ -494,6 +494,15 @@ func (s *IntegrationDraftService) applyPayload(ctx context.Context, row store.In
 }
 
 func (s *IntegrationDraftService) applyProvider(ctx context.Context, name string, p ProviderDraftPayload) (int64, error) {
+	return s.applyProviderFrom(ctx, name, p, "", 0, 0, 0)
+}
+
+// applyProviderFrom is applyProvider with the ownership + draft identity needed
+// to write the function registry, which is owner-scoped like every other
+// integration table.
+func (s *IntegrationDraftService) applyProviderFrom(ctx context.Context, name string, p ProviderDraftPayload,
+	ownerType string, ownerID, byUser, draftID int64) (int64, error) {
+
 	if p.Contract == nil {
 		return 0, fmt.Errorf("%w: provider contract is required", ErrDraftInvalid)
 	}
@@ -520,6 +529,19 @@ func (s *IntegrationDraftService) applyProvider(ctx context.Context, name string
 	}
 	label := strings.TrimSpace(p.Label)
 
+	// syncFunctions writes the draft's operation functions once the provider row
+	// exists. It runs on both the create and the update path so a republish and
+	// a first publish behave identically.
+	syncFunctions := func(providerID int64) error {
+		if s.functions == nil {
+			if len(p.Functions) > 0 {
+				return fmt.Errorf("%w: the sandbox function runtime is not available in this build", ErrDraftInvalid)
+			}
+			return nil
+		}
+		return s.functions.SyncProviderFunctions(ctx, ownerType, ownerID, providerID, name, byUser, draftID, p.Functions)
+	}
+
 	existing, err := s.providers.GetByName(ctx, name)
 	if err == nil {
 		if existing.CreatedBy == CreatedBySystem {
@@ -534,6 +556,9 @@ func (s *IntegrationDraftService) applyProvider(ctx context.Context, name string
 			authPrefix, p.Whitelist, contractJSON, p.OpenAPIURL, false); err != nil {
 			return 0, err
 		}
+		if err := syncFunctions(existing.ID); err != nil {
+			return 0, err
+		}
 		return existing.ID, nil
 	}
 	if label == "" {
@@ -545,6 +570,9 @@ func (s *IntegrationDraftService) applyProvider(ctx context.Context, name string
 	}
 	if _, err := s.providers.Update(ctx, created.ID, label, baseURL, authType, authHeader,
 		authPrefix, p.Whitelist, contractJSON, p.OpenAPIURL, false); err != nil {
+		return 0, err
+	}
+	if err := syncFunctions(created.ID); err != nil {
 		return 0, err
 	}
 	return created.ID, nil
@@ -626,6 +654,12 @@ func (s *IntegrationDraftService) recordVersion(ctx context.Context, row store.I
 // scopeSnapshot denormalizes the authority a version grants: the scope_config
 // for a data source, the operation set for a provider. It is what a rollback
 // diffs to decide "does restoring this re-grant authority?".
+//
+// For a provider it also carries the FUNCTION SCOPE (#739): which operations
+// each published function may reach. A rollback that restores an older
+// provider version restores its functions too, so the authority that changes
+// has to be part of the same snapshot or the re-confirmation rule would miss
+// it.
 func scopeSnapshot(kind, payloadJSON string) string {
 	switch kind {
 	case DraftKindProvider:
@@ -637,7 +671,12 @@ func scopeSnapshot(kind, payloadJSON string) string {
 		for _, op := range p.Contract.Operations {
 			ops = append(ops, OperationKey{Method: op.Method, Path: op.Path})
 		}
-		b, _ := json.Marshal(map[string]any{"base_url": p.BaseURL, "operations": ops, "write_enabled": p.WriteEnabled})
+		b, _ := json.Marshal(map[string]any{
+			"base_url":      p.BaseURL,
+			"operations":    ops,
+			"write_enabled": p.WriteEnabled,
+			"function_scope": FunctionScopeForDraft(p.Functions),
+		})
 		return string(b)
 	case DraftKindDataSource:
 		var d DataSourceDraftPayload

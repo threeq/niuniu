@@ -1957,3 +1957,105 @@ CREATE TABLE IF NOT EXISTS credential_onboarding_tokens (
     used_at     TIMESTAMP,
     created_at  TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
+
+-- ============================================================
+-- Sandbox operation functions (Epic #726 / #739). Postgres twin of the
+-- SQLite definitions in schema.sql -- keep the two in step.
+-- ============================================================
+CREATE TABLE IF NOT EXISTS integration_functions (
+    id                BIGSERIAL PRIMARY KEY,
+    owner_type        TEXT NOT NULL DEFAULT 'user' CHECK (owner_type IN ('user','org')),
+    owner_id          BIGINT NOT NULL DEFAULT 0,
+    provider_id       BIGINT NOT NULL,
+    provider_name     TEXT NOT NULL,
+    name              TEXT NOT NULL,
+    description       TEXT NOT NULL DEFAULT '',
+    runtime           TEXT NOT NULL DEFAULT 'goja',
+    code              TEXT NOT NULL,
+    code_hash         TEXT NOT NULL DEFAULT '',
+    entry             TEXT NOT NULL DEFAULT 'main',
+    limits_json       TEXT NOT NULL DEFAULT '{}',
+    egress_json       TEXT NOT NULL DEFAULT '[]',
+    idempotent        BIGINT NOT NULL DEFAULT 0,
+    enabled           BIGINT NOT NULL DEFAULT 1,
+    version           BIGINT NOT NULL DEFAULT 1,
+    status            TEXT NOT NULL DEFAULT 'observing'
+                      CHECK (status IN ('observing','active','disabled')),
+    observation_calls BIGINT NOT NULL DEFAULT 0,
+    observation_limit BIGINT NOT NULL DEFAULT 20,
+    observation_until TIMESTAMPTZ DEFAULT NULL,
+    created_by        BIGINT NOT NULL DEFAULT 0,
+    created_at        TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at        TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE (provider_id, name)
+);
+CREATE INDEX IF NOT EXISTS idx_integration_functions_provider
+    ON integration_functions(provider_id, name);
+CREATE INDEX IF NOT EXISTS idx_integration_functions_owner
+    ON integration_functions(owner_type, owner_id, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS integration_function_versions (
+    id              BIGSERIAL PRIMARY KEY,
+    function_id     BIGINT NOT NULL,
+    owner_type      TEXT NOT NULL DEFAULT 'user' CHECK (owner_type IN ('user','org')),
+    owner_id        BIGINT NOT NULL DEFAULT 0,
+    provider_id     BIGINT NOT NULL,
+    name            TEXT NOT NULL,
+    version         BIGINT NOT NULL DEFAULT 1,
+    code            TEXT NOT NULL,
+    code_hash       TEXT NOT NULL DEFAULT '',
+    egress_json     TEXT NOT NULL DEFAULT '[]',
+    limits_json     TEXT NOT NULL DEFAULT '{}',
+    idempotent      BIGINT NOT NULL DEFAULT 0,
+    scope_json      TEXT NOT NULL DEFAULT '{}',
+    active          BIGINT NOT NULL DEFAULT 1,
+    published_by    BIGINT NOT NULL DEFAULT 0,
+    source_draft_id BIGINT NOT NULL DEFAULT 0,
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_integration_function_versions_fn
+    ON integration_function_versions(function_id, version DESC);
+
+CREATE TABLE IF NOT EXISTS function_call_audit (
+    id                BIGSERIAL PRIMARY KEY,
+    owner_type        TEXT NOT NULL DEFAULT 'user',
+    owner_id          BIGINT NOT NULL DEFAULT 0,
+    user_id           BIGINT NOT NULL DEFAULT 0,
+    function_id       BIGINT NOT NULL,
+    provider_id       BIGINT NOT NULL,
+    function_name     TEXT NOT NULL DEFAULT '',
+    provider_name     TEXT NOT NULL DEFAULT '',
+    workspace_id      BIGINT NOT NULL DEFAULT 0,
+    caller            TEXT NOT NULL DEFAULT '',
+    status            TEXT NOT NULL,
+    error_code        TEXT NOT NULL DEFAULT '',
+    error_message     TEXT NOT NULL DEFAULT '',
+    duration_ms       BIGINT NOT NULL DEFAULT 0,
+    egress_calls      BIGINT NOT NULL DEFAULT 0,
+    egress_ops        TEXT NOT NULL DEFAULT '[]',
+    input_sha256      TEXT NOT NULL DEFAULT '',
+    input_bytes       BIGINT NOT NULL DEFAULT 0,
+    output_bytes      BIGINT NOT NULL DEFAULT 0,
+    peak_memory_bytes BIGINT NOT NULL DEFAULT 0,
+    idempotency_key   TEXT NOT NULL DEFAULT '',
+    replayed          BIGINT NOT NULL DEFAULT 0,
+    observation       BIGINT NOT NULL DEFAULT 0,
+    fence_backend     TEXT NOT NULL DEFAULT '',
+    code_hash         TEXT NOT NULL DEFAULT '',
+    created_at        TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_function_call_audit_function
+    ON function_call_audit(function_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_function_call_audit_owner
+    ON function_call_audit(owner_type, owner_id, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS function_idempotency (
+    id            BIGSERIAL PRIMARY KEY,
+    function_id   BIGINT NOT NULL,
+    idem_key      TEXT NOT NULL,
+    call_audit_id BIGINT NOT NULL DEFAULT 0,
+    status        TEXT NOT NULL DEFAULT '',
+    output_json   TEXT NOT NULL DEFAULT '',
+    created_at    TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE (function_id, idem_key)
+);

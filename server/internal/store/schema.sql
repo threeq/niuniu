@@ -2000,3 +2000,129 @@ CREATE TABLE IF NOT EXISTS credential_onboarding_tokens (
     used_at     TIMESTAMP,
     created_at  TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
+
+-- ============================================================
+-- Sandbox operation functions (Epic #726 / #739).
+--
+-- An operation function is AI-authored code that turns ONE integration
+-- operation into the HTTP calls it needs, for cases the declarative path
+-- cannot express (exchange a token then query, sign a request). It is stored
+-- per provider, published only through the integration draft pipeline (human
+-- review), and executed on every call in a throwaway OS-fenced process.
+--
+-- code_hash pins the exact published source: each call records the hash it ran,
+-- so "what was live when this happened" stays answerable, and a rollback
+-- restores a byte-identical body rather than whatever the row says later.
+--
+-- egress_json is the operation allowlist and the authorization object: the box
+-- cannot name a URL, only an operation, and the host refuses any operation not
+-- listed here. enabled is independent of the provider so one function can be
+-- switched off without touching the source.
+-- ============================================================
+CREATE TABLE IF NOT EXISTS integration_functions (
+    id                INTEGER PRIMARY KEY AUTOINCREMENT,
+    owner_type        TEXT NOT NULL DEFAULT 'user' CHECK (owner_type IN ('user','org')),
+    owner_id          INTEGER NOT NULL DEFAULT 0,
+    provider_id       INTEGER NOT NULL,
+    provider_name     TEXT NOT NULL,
+    name              TEXT NOT NULL,
+    description       TEXT NOT NULL DEFAULT '',
+    runtime           TEXT NOT NULL DEFAULT 'goja',
+    code              TEXT NOT NULL,
+    code_hash         TEXT NOT NULL DEFAULT '',
+    entry             TEXT NOT NULL DEFAULT 'main',
+    limits_json       TEXT NOT NULL DEFAULT '{}',
+    egress_json       TEXT NOT NULL DEFAULT '[]',
+    idempotent        INTEGER NOT NULL DEFAULT 0,
+    enabled           INTEGER NOT NULL DEFAULT 1,
+    version           INTEGER NOT NULL DEFAULT 1,
+    status            TEXT NOT NULL DEFAULT 'observing'
+                      CHECK (status IN ('observing','active','disabled')),
+    observation_calls INTEGER NOT NULL DEFAULT 0,
+    observation_limit INTEGER NOT NULL DEFAULT 20,
+    observation_until TIMESTAMP DEFAULT NULL,
+    created_by        INTEGER NOT NULL DEFAULT 0,
+    created_at        DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at        DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE (provider_id, name)
+);
+CREATE INDEX IF NOT EXISTS idx_integration_functions_provider
+    ON integration_functions(provider_id, name);
+CREATE INDEX IF NOT EXISTS idx_integration_functions_owner
+    ON integration_functions(owner_type, owner_id, created_at DESC);
+
+-- Published versions of a function: the rollback chain. One row per publish;
+-- active marks the live one. scope_json denormalizes the authority the version
+-- carried (its egress operation set and idempotency), which is what a rollback
+-- diffs to decide whether restoring it re-grants authority.
+CREATE TABLE IF NOT EXISTS integration_function_versions (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    function_id     INTEGER NOT NULL,
+    owner_type      TEXT NOT NULL DEFAULT 'user' CHECK (owner_type IN ('user','org')),
+    owner_id        INTEGER NOT NULL DEFAULT 0,
+    provider_id     INTEGER NOT NULL,
+    name            TEXT NOT NULL,
+    version         INTEGER NOT NULL DEFAULT 1,
+    code            TEXT NOT NULL,
+    code_hash       TEXT NOT NULL DEFAULT '',
+    egress_json     TEXT NOT NULL DEFAULT '[]',
+    limits_json     TEXT NOT NULL DEFAULT '{}',
+    idempotent      INTEGER NOT NULL DEFAULT 0,
+    scope_json      TEXT NOT NULL DEFAULT '{}',
+    active          INTEGER NOT NULL DEFAULT 1,
+    published_by    INTEGER NOT NULL DEFAULT 0,
+    source_draft_id INTEGER NOT NULL DEFAULT 0,
+    created_at      TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_integration_function_versions_fn
+    ON integration_function_versions(function_id, version DESC);
+
+-- One row per invocation: the per-call audit record. input_sha256 is a digest,
+-- never the input itself. egress_ops is the request trail an operator reviews
+-- during the first-run observation window.
+CREATE TABLE IF NOT EXISTS function_call_audit (
+    id                INTEGER PRIMARY KEY AUTOINCREMENT,
+    owner_type        TEXT NOT NULL DEFAULT 'user',
+    owner_id          INTEGER NOT NULL DEFAULT 0,
+    user_id           INTEGER NOT NULL DEFAULT 0,
+    function_id       INTEGER NOT NULL,
+    provider_id       INTEGER NOT NULL,
+    function_name     TEXT NOT NULL DEFAULT '',
+    provider_name     TEXT NOT NULL DEFAULT '',
+    workspace_id      INTEGER NOT NULL DEFAULT 0,
+    caller            TEXT NOT NULL DEFAULT '',
+    status            TEXT NOT NULL,
+    error_code        TEXT NOT NULL DEFAULT '',
+    error_message     TEXT NOT NULL DEFAULT '',
+    duration_ms       INTEGER NOT NULL DEFAULT 0,
+    egress_calls      INTEGER NOT NULL DEFAULT 0,
+    egress_ops        TEXT NOT NULL DEFAULT '[]',
+    input_sha256      TEXT NOT NULL DEFAULT '',
+    input_bytes       INTEGER NOT NULL DEFAULT 0,
+    output_bytes      INTEGER NOT NULL DEFAULT 0,
+    peak_memory_bytes INTEGER NOT NULL DEFAULT 0,
+    idempotency_key   TEXT NOT NULL DEFAULT '',
+    replayed          INTEGER NOT NULL DEFAULT 0,
+    observation       INTEGER NOT NULL DEFAULT 0,
+    fence_backend     TEXT NOT NULL DEFAULT '',
+    code_hash         TEXT NOT NULL DEFAULT '',
+    created_at        DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_function_call_audit_function
+    ON function_call_audit(function_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_function_call_audit_owner
+    ON function_call_audit(owner_type, owner_id, created_at DESC);
+
+-- Idempotency ledger. A non-idempotent function's repeated key is REFUSED (the
+-- platform never auto-replays something that could charge twice); an idempotent
+-- function's repeated key returns the recorded outcome instead of re-running.
+CREATE TABLE IF NOT EXISTS function_idempotency (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    function_id   INTEGER NOT NULL,
+    idem_key      TEXT NOT NULL,
+    call_audit_id INTEGER NOT NULL DEFAULT 0,
+    status        TEXT NOT NULL DEFAULT '',
+    output_json   TEXT NOT NULL DEFAULT '',
+    created_at    TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE (function_id, idem_key)
+);

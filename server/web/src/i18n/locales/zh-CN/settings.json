@@ -287,6 +287,40 @@
       "limits": "限制",
       "agentBlock": "Agent 看到的内容",
       "agentBlockHint": "以下内容会以“数据（非指令）”分区注入工作空间的指令文件，与实际下发完全一致。"
+    },
+    "functions": {
+      "title": "操作函数（沙箱运行时）",
+      "empty": "还没有发布操作函数。当声明式表达不了某个对接时，可让 AI 起草一个函数，经你在草稿确认卡上审核后发布。",
+      "runSelfTest": "运行隔离自检",
+      "denied": "已被拒绝",
+      "allowed": "未被拒绝",
+      "idempotent": "可重放",
+      "toggleEnabled": "启用/停用该函数",
+      "details": "详情",
+      "observing": "首次运行观察期：{{calls}}/{{limit}} 次调用，期间的每次出网都已被记录",
+      "run": "手动执行",
+      "runInputLabel": "传给函数的 input 参数（JSON）",
+      "versions": "版本与回滚",
+      "activeVersion": "当前",
+      "rollback": "回滚到此版本",
+      "rollbackWidens": "该回滚会改变函数可达的操作范围，需要你再次确认",
+      "confirmRollback": "确认回滚并重新授权",
+      "observationTrail": "观察期请求轨迹",
+      "noObservation": "观察期内还没有调用。",
+      "audit": "调用审计",
+      "noAudit": "还没有调用记录。",
+      "fenceOk": "操作系统围栏已生效（{{backend}}）",
+      "fenceUnavailable": "操作系统围栏不可用：本机拒绝运行操作函数",
+      "fenceEnforced": "已强制",
+      "fenceHardeningOnly": "仅加固项，缺失会降低强度但不阻断运行",
+      "refresh": "刷新",
+      "close": "关闭",
+      "delete": "删除",
+      "status": {
+        "observing": "观察期",
+        "active": "生效中",
+        "disabled": "已停用"
+      }
     }
   },
   "page": {

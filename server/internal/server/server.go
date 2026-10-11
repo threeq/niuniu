@@ -166,6 +166,10 @@ type Server struct {
 	// integrationDraftSvc is the shared draft -> lint -> confirm -> publish ->
 	// verify/rollback pipeline for both onboarding lines (Epic #726 / #734).
 	integrationDraftSvc *service.IntegrationDraftService
+	// functionSvc is the sandbox operation-function runtime (Epic #726 / #739):
+	// AI-authored functions that run in a throwaway OS-fenced process and reach
+	// the outside world only through the proxy egress.
+	functionSvc *service.OperationFunctionService
 	imbotHandler    *api.IMBotHandler
 	imbotConnMgr    *imbot.ConnectorManager
 	imbotDispatcher *service.IMBotDispatcher
@@ -1489,6 +1493,14 @@ func New(cfg *config.Config, db *sql.DB, frontendFS fs.FS) *Server {
 	// service because publishing flips a target's enabled flag through it.
 	s.integrationDraftSvc = service.NewIntegrationDraftService(
 		s.queries, providerSvc, s.dataSourceSvc, proxySvc, s.integrationHealthSvc)
+
+	// Sandbox operation functions (Epic #726 / #739): the serverless escape
+	// hatch for integrations the declarative path cannot express. Constructed
+	// after the proxy because every call it makes egresses through it, and
+	// wired into the draft pipeline because a function publishes only as part
+	// of a reviewed provider draft.
+	s.functionSvc = service.NewOperationFunctionService(s.queries, s.db, providerSvc, proxySvc)
+	s.integrationDraftSvc.SetFunctionService(s.functionSvc)
 
 	// Generic one-time credential links (issue #727). Depends on both encrypted
 	// stores, so it is constructed after them.

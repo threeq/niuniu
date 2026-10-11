@@ -34,6 +34,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/niuniu-dev/niuniu/internal/sandbox"
 	"github.com/niuniu-dev/niuniu/internal/store"
 )
 
@@ -97,6 +98,11 @@ type ProviderDraftPayload struct {
 	WriteEnabled bool `json:"write_enabled"`
 	// CredentialFields are the FIELD names the provider needs (never values).
 	CredentialFields []DraftCredential `json:"credential_fields,omitempty"`
+	// Functions are the sandbox operation functions this draft would publish
+	// (Epic #726 / #739). Their lint verdicts and behaviour rehearsals are
+	// regenerated server-side on ingest, so a draft cannot present a
+	// flattering preview of code that behaves differently.
+	Functions []FunctionDraftPayload `json:"functions,omitempty"`
 }
 
 // DataSourceDraftPayload is the candidate configuration of the data-source line.
@@ -222,7 +228,16 @@ type IntegrationDraftService struct {
 	sources   *DataSourceService
 	health    *IntegrationHealthService
 	verifier  DraftVerifier
+	// functions is the sandbox operation-function runtime (#739). It is wired
+	// after construction (SetFunctionService) so the draft pipeline keeps
+	// working in builds and tests that do not exercise functions at all.
+	functions *OperationFunctionService
 }
+
+// SetFunctionService wires the operation-function runtime into the draft
+// pipeline. Nil is a supported state: a draft carrying functions is then
+// refused with a clear reason rather than silently dropping them.
+func (s *IntegrationDraftService) SetFunctionService(f *OperationFunctionService) { s.functions = f }
 
 // NewIntegrationDraftService wires the pipeline to the live services. The
 // verifier defaults to the real probe path (liveVerifier).
@@ -276,8 +291,46 @@ func (s *IntegrationDraftService) CreateDraft(ctx context.Context, in CreateDraf
 		if err := normalizeProviderDraft(in.Provider); err != nil {
 			return nil, err
 		}
+		// Operation functions (#739) are linted and REHEARSED here, on the
+		// server, before the draft is stored. Whatever the caller sent in the
+		// lint/rehearsal fields is discarded: the preview a human approves must
+		// be the system's own, or a draft could show benign behaviour and ship
+		// something else.
+		if len(in.Provider.Functions) > 0 && s.functions != nil {
+			prepared, flints, err := s.functions.PrepareFunctionDrafts(ctx, name, in.Provider.Functions, in.CreatedBy)
+			if err != nil {
+				return nil, err
+			}
+			in.Provider.Functions = prepared
+			for _, fl := range flints {
+				path := "function:" + fl.Function
+				if fl.Blocking && len(fl.Findings) == 0 {
+					// A blocking verdict with no finding means the rehearsal
+					// itself failed; that is still a reason not to publish.
+					issues = append(issues, DraftIssue{
+						Severity: "error", Path: path,
+						Message: "the behaviour rehearsal did not complete, so this function's egress was never previewed",
+					})
+				}
+				for _, f := range fl.Findings {
+					issues = append(issues, DraftIssue{
+						Severity: string(f.Severity),
+						Path:     path,
+						Message:  fmt.Sprintf("line %d: %s", f.Line, f.Message),
+					})
+				}
+				if fl.Blocking && !sandbox.LintBlocks(fl.Findings) && len(fl.Findings) > 0 {
+					issues = append(issues, DraftIssue{
+						Severity: "error", Path: path,
+						Message: "the behaviour rehearsal failed or reached an undeclared operation",
+					})
+				}
+			}
+		} else if len(in.Provider.Functions) > 0 && s.functions == nil {
+			return nil, fmt.Errorf("%w: the sandbox function runtime is not available in this build", ErrDraftInvalid)
+		}
 		payload = in.Provider
-		issues = s.lintProvider(in.Provider)
+		issues = append(issues, s.lintProvider(in.Provider)...)
 	case DraftKindDataSource:
 		if in.DataSource == nil {
 			return nil, fmt.Errorf("%w: data_source payload is required", ErrDraftInvalid)
@@ -449,6 +502,37 @@ func (s *IntegrationDraftService) view(ctx context.Context, row store.Integratio
 // cardFor builds the system-rendered confirmation card for a draft row. This is
 // the ONLY construction point: every decision field comes from a structured
 // draft field or from the published state being diffed against, never from text.
+// confirmFunctions projects the draft's function entries onto the card.
+func confirmFunctions(fns []FunctionDraftPayload, providerName string) []ConfirmFunction {
+	if len(fns) == 0 {
+		return nil
+	}
+	out := make([]ConfirmFunction, 0, len(fns))
+	for _, f := range fns {
+		cf := ConfirmFunction{
+			Name:       f.Name,
+			ToolName:   sandbox.ToolName(providerName, f.Name),
+			Runtime:    f.Runtime,
+			Code:       f.Code,
+			CodeHash:   f.CodeHash,
+			Idempotent: f.Idempotent,
+			Enabled:    f.Enabled,
+			Lint:       f.Lint,
+			IsNew:      f.ExistingID == 0,
+			PreviousHash: f.PreviousHash,
+		}
+		for _, e := range f.Egress {
+			cf.Egress = append(cf.Egress, e.Key())
+		}
+		if f.Rehearsal != nil {
+			det := f.Rehearsal.Deterministic()
+			cf.Rehearsal = &det
+		}
+		out = append(out, cf)
+	}
+	return out
+}
+
 func (s *IntegrationDraftService) cardFor(ctx context.Context, row store.IntegrationDraft, docOps []OperationKey) (ConfirmCardModel, error) {
 	var origin UntrustedOrigin
 	_ = json.Unmarshal([]byte(row.OriginJson), &origin)
@@ -488,6 +572,7 @@ func buildCardFromPayload(kind, targetName, payloadJSON string, docOps []Operati
 		in.BaseURL = p.BaseURL
 		in.Contract = p.Contract
 		in.WriteEnabled = p.WriteEnabled
+		in.Functions = confirmFunctions(p.Functions, targetName)
 	case DraftKindDataSource:
 		var d DataSourceDraftPayload
 		if err := json.Unmarshal([]byte(payloadJSON), &d); err != nil {
@@ -525,7 +610,13 @@ func (s *IntegrationDraftService) publishedState(ctx context.Context, ownerType 
 		for _, op := range c.Operations {
 			ops = append(ops, OperationKey{Method: op.Method, Path: op.Path})
 		}
-		return &PublishedState{BaseURL: c.BaseURL, Operations: ops}, nil
+		state := &PublishedState{BaseURL: c.BaseURL, Operations: ops}
+		if s.functions != nil {
+			// The live functions are part of what a rollback would replace, so
+			// their authority belongs in the state the diff compares against.
+			state.FunctionScope = s.functions.FunctionScopeForProvider(ctx, prov.ID).Functions
+		}
+		return state, nil
 	case DraftKindDataSource:
 		id, err := s.sources.ResolveSourceID(ctx, targetName, dsOwnershipUserID(ownerType, ownerID), orgIDsForOwner(ownerType, ownerID))
 		if err != nil || id <= 0 {

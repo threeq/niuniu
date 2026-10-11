@@ -328,6 +328,14 @@ func (s *Server) setupRoutes() {
 		mcpGroup.POST("/integration-drafts/:id/publish", s.draftPublishAgent)
 		mcpGroup.POST("/integration-versions/:id/rollback", s.draftRollbackAgent)
 
+		// Sandbox operation functions (Epic #726 / #739) — the AGENT surface.
+		// An agent may discover published functions and CALL them; publishing,
+		// enabling, deleting and rolling back are all human authorization
+		// actions and have no agent route at all.
+		mcpGroup.GET("/operation-functions", s.mcpFunctionList)
+		mcpGroup.POST("/operation-functions/call", s.mcpFunctionCall)
+		mcpGroup.GET("/operation-functions/fence", s.mcpFunctionFence)
+
 		// Data integration proxy — run_data_query / list_data_sources tunnel here.
 		// Three-layer gate + audit lives in DataProxyService.
 		mcpGroup.POST("/data-proxy/query", s.dataProxyQuery)
@@ -481,6 +489,24 @@ func (s *Server) setupRoutes() {
 		me.POST("/integration-drafts/:id/publish", s.draftPublish)
 		me.GET("/integration-versions", s.draftVersions)
 		me.POST("/integration-versions/:id/rollback", s.draftRollback)
+
+		// Sandbox operation functions (Epic #726 / #739) — the HUMAN surface.
+		// Listing, running by hand, enabling/disabling, deleting, the rollback
+		// chain, the first-run observation trail, and the OS-fence self-check
+		// (including the live isolation acceptance). Publication is NOT here:
+		// it rides the provider draft pipeline above, where the confirmation
+		// card lives.
+		me.GET("/operation-functions", s.functionList)
+		me.GET("/operation-functions/audit", s.functionAudit)
+		me.GET("/operation-functions/sandbox", s.functionSandbox)
+		me.POST("/operation-functions/sandbox/selftest", s.functionSandboxSelfTest)
+		me.POST("/operation-functions/rehearse", s.functionRehearse)
+		me.PUT("/operation-functions/:id/enabled", s.functionSetEnabled)
+		me.DELETE("/operation-functions/:id", s.functionDelete)
+		me.POST("/operation-functions/:id/invoke", s.functionInvoke)
+		me.GET("/operation-functions/:id/versions", s.functionVersions)
+		me.POST("/operation-functions/:id/rollback", s.functionRollback)
+		me.GET("/operation-functions/:id/observation", s.functionObservation)
 
 		// Continuous integration-source health (Epic #726 / #744): probe now,
 		// recovery (re-enable / disable), contract-drift acknowledge, and the

@@ -4,6 +4,7 @@ import { ProviderList } from '@/components/integrations/ProviderList';
 import { DataSourcesPanel } from '@/components/integrations/data-sources-panel';
 import { IntegrationActivityPanel } from '@/components/integrations/IntegrationActivityPanel';
 import { IntegrationDraftPanel } from '@/components/integrations/IntegrationDraftPanel';
+import { OperationFunctionsPanel } from '@/components/integrations/OperationFunctionsPanel';
 
 // Two boards on this page:
 //   1. Providers   — "where can I connect, with what auth scheme, and what
@@ -30,6 +31,7 @@ export function IntegrationsPage() {
     <div className="flex flex-col gap-4 p-6 max-w-2xl">
       <h1 className="text-xl font-semibold">{t('integrations.pageTitle')}</h1>
       <IntegrationDraftPanel />
+      <OperationFunctionsPanel />
       <ProviderList />
       <CredentialList />
       <DataSourcesPanel />
