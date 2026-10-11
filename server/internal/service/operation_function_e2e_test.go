@@ -389,6 +389,74 @@ func TestOperationFunctionEndToEnd(t *testing.T) {
 		t.Fatalf("the replay did not come from the ledger: %#v", replay)
 	}
 
+	// The unified integration activity feed must show the function call. A
+	// sandbox function reaches the outside world through the SAME proxy egress
+	// (same credential, same scope, same audit) as a direct call, so a feed that
+	// stopped at the api/data tables would hide credential-bearing calls from
+	// the one surface that exists to show them — and the team edition's
+	// cross-user audit view (#743) reuses exactly this reader.
+	auditSvc := NewIntegrationAuditService(e.q)
+	feed, err := auditSvc.ListActivity(ctx, IntegrationActivityInput{UserID: 7, Kind: ActivityKindFunction})
+	if err != nil {
+		t.Fatalf("activity feed: %v", err)
+	}
+	if len(feed.Items) == 0 {
+		t.Fatal("the sandbox function call is missing from the unified activity feed")
+	}
+	var runs, replays int
+	for _, it := range feed.Items {
+		if it.Kind != ActivityKindFunction || it.FunctionID == nil || *it.FunctionID != fn.ID {
+			continue
+		}
+		// The row must name the PROVIDER it ran against (not just the function),
+		// otherwise a provider-scoped view cannot attribute it.
+		if it.ProviderID == nil || *it.ProviderID != fn.ProviderID {
+			t.Fatalf("the feed row does not name its provider: %+v", it)
+		}
+		if it.FunctionName != fn.Name || it.Caller != CallerAgent {
+			t.Fatalf("the feed row lost the function name/caller: %+v", it)
+		}
+		if it.CodeHash != fn.CodeHash {
+			t.Fatalf("the feed row lost the code hash: %+v", it)
+		}
+		if it.Replayed {
+			// A ledger replay made no outbound call, so a trail on it would be a
+			// lie about what egressed.
+			replays++
+			if it.EgressCalls == nil || *it.EgressCalls != 0 || len(it.EgressOps) != 0 {
+				t.Fatalf("a replayed row claims outbound calls: %+v", it)
+			}
+			continue
+		}
+		runs++
+		if it.EgressCalls == nil || *it.EgressCalls != 2 || len(it.EgressOps) != 2 {
+			t.Fatalf("the real run should carry both operations: calls=%v ops=%v",
+				it.EgressCalls, it.EgressOps)
+		}
+	}
+	if runs != 1 || replays != 1 {
+		t.Fatalf("expected one real run and one replay in the feed, got runs=%d replays=%d",
+			runs, replays)
+	}
+
+	// Filtering to the provider keeps the function's rows: a provider filter
+	// that dropped them would hide precisely the egress a reviewer looks for.
+	byProvider, err := auditSvc.ListActivity(ctx, IntegrationActivityInput{
+		UserID: 7, ProviderID: fn.ProviderID,
+	})
+	if err != nil {
+		t.Fatalf("provider-filtered feed: %v", err)
+	}
+	sawFunction := false
+	for _, it := range byProvider.Items {
+		if it.Kind == ActivityKindFunction {
+			sawFunction = true
+		}
+	}
+	if !sawFunction {
+		t.Fatal("a provider filter dropped that provider's function calls from the feed")
+	}
+
 	// The observation trail is readable and shows the window's request log.
 	trail, err := e.functions.ObservationTrail(ctx, fn.ID, 10)
 	if err != nil {
