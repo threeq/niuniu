@@ -1,6 +1,7 @@
 package store
 
 import (
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -37,6 +38,11 @@ func TestAuditTablesAreNeverUpdatedOrDeleted(t *testing.T) {
 		t.Fatalf("expected to scan the query sources and generated store, found only %d files", len(files))
 	}
 
+	report := func(path string, lineNo int, verb, table, line string) {
+		t.Errorf("%s:%d mutates the append-only audit table %s with %s: %s",
+			path, lineNo, table, verb, strings.TrimSpace(line))
+	}
+
 	for _, path := range files {
 		raw, err := os.ReadFile(path)
 		if err != nil {
@@ -49,12 +55,68 @@ func TestAuditTablesAreNeverUpdatedOrDeleted(t *testing.T) {
 			}
 			for _, audit := range auditTables {
 				if table == audit {
-					t.Errorf("%s:%d mutates the append-only audit table %s with %s: %s",
-						path, i+1, audit, verb, strings.TrimSpace(line))
+					report(path, i+1, verb, audit, line)
 				}
 			}
 		}
 	}
+
+	// The scan above only sees canonical statements: the sqlc sources and the
+	// SQL they generate. Hand-written Go can mutate just as effectively through
+	// a raw string handed to db.Exec, so every non-test Go file under
+	// internal/ is scanned too -- otherwise the guard would be narrower than
+	// the guarantee it claims.
+	for _, path := range goFilesUnderInternal(t) {
+		raw, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatalf("read %s: %v", path, err)
+		}
+		for i, line := range strings.Split(string(raw), "\n") {
+			trimmed := strings.TrimSpace(line)
+			if strings.HasPrefix(trimmed, "//") || strings.HasPrefix(trimmed, "*") {
+				continue
+			}
+			lower := strings.ToLower(line)
+			for _, audit := range auditTables {
+				for _, verb := range []string{"update ", "delete from "} {
+					if strings.Contains(lower, verb+audit) {
+						report(path, i+1, strings.ToUpper(strings.TrimSpace(verb)), audit, line)
+					}
+				}
+			}
+		}
+	}
+}
+
+// goFilesUnderInternal walks the server's Go sources, skipping the frontend
+// tree and test files (a test may legitimately assert on such a statement).
+func goFilesUnderInternal(t *testing.T) []string {
+	t.Helper()
+	root := filepath.Join("..", "..") // server/internal/store -> server/
+	var out []string
+	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() {
+			if d.Name() == "web" || d.Name() == "node_modules" || d.Name() == "dist" {
+				return fs.SkipDir
+			}
+			return nil
+		}
+		if !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
+			return nil
+		}
+		out = append(out, filepath.ToSlash(path))
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("walk %s: %v", root, err)
+	}
+	if len(out) < 50 {
+		t.Fatalf("expected to scan the Go sources under %s, found only %d", root, len(out))
+	}
+	return out
 }
 
 // TestAuditWritePathsAreInsertsOnly documents the sanctioned way to add to the
