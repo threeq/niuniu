@@ -56,11 +56,12 @@ func registerExternalProxyTools(s *server.MCPServer, api *apiClient) {
 	// === call_external_api ===
 	s.AddTool(
 		mcp.NewTool("call_external_api",
-			mcp.WithDescription("Call an external API through the niuniu proxy. The proxy handles auth injection, whitelist enforcement, and audit logging. Use this to interact with any configured external provider (GitHub, Jira, TAPD, etc.)."),
+			mcp.WithDescription("Call an external API through the niuniu proxy. The proxy handles auth injection, operation-level authorization, and audit logging. Address a call EITHER by a semantic operation name from the provider's contract (preferred — call get_provider_schema to list operations) OR by an explicit method+path pair. Use this to interact with any configured external provider (GitHub, Jira, TAPD, etc.)."),
 			mcp.WithString("provider", mcp.Description("Provider name (e.g. 'github', 'tapd')"), mcp.Required()),
-			mcp.WithString("method", mcp.Description("HTTP method: GET, POST, PATCH, PUT, DELETE"), mcp.Required()),
-			mcp.WithString("path", mcp.Description("API path relative to provider base URL, e.g. '/repos/owner/repo/issues'"), mcp.Required()),
-			mcp.WithObject("query", mcp.Description("Query parameters as JSON object, e.g. {\"state\":\"open\",\"labels\":\"bug\"}")),
+			mcp.WithString("operation", mcp.Description("Semantic operation name from the provider's contract (e.g. 'cancelOrder'). Preferred over method+path: the proxy resolves the method/path and authorizes by operation. Call get_provider_schema to see the available operations and which are write/sensitive.")),
+			mcp.WithString("method", mcp.Description("HTTP method: GET, POST, PATCH, PUT, DELETE. Required only when `operation` is not supplied.")),
+			mcp.WithString("path", mcp.Description("API path relative to provider base URL, e.g. '/repos/owner/repo/issues'. Required only when `operation` is not supplied.")),
+			mcp.WithObject("query", mcp.Description("Query parameters as JSON object, e.g. {\"state\":\"open\",\"labels\":\"bug\"}. Values named by the operation's path parameters are folded into the path automatically.")),
 			mcp.WithObject("body", mcp.Description("Request body as JSON object (for POST/PATCH/PUT)")),
 			mcp.WithString("source_key",
 				mcp.Description("Optional. When a project binds multiple sources of the same provider (e.g. two TAPD workspaces), pick one by its source_key. Omit when there is only one."),
@@ -72,19 +73,24 @@ func registerExternalProxyTools(s *server.MCPServer, api *apiClient) {
 			if errRes != nil {
 				return errRes, nil
 			}
-			method, errRes := requireString(args, "method")
-			if errRes != nil {
-				return errRes, nil
-			}
-			path, errRes := requireString(args, "path")
-			if errRes != nil {
-				return errRes, nil
+			operation, _ := args["operation"].(string)
+			// method/path are optional when an operation names the target; the
+			// proxy resolves them from the contract. Require them otherwise.
+			method, _ := args["method"].(string)
+			path, _ := args["path"].(string)
+			if operation == "" && (method == "" || path == "") {
+				return mcp.NewToolResultError("either `operation`, or both `method` and `path`, are required"), nil
 			}
 
-			payload := map[string]any{
-				"provider": provider,
-				"method":   method,
-				"path":     path,
+			payload := map[string]any{"provider": provider}
+			if operation != "" {
+				payload["operation"] = operation
+			}
+			if method != "" {
+				payload["method"] = method
+			}
+			if path != "" {
+				payload["path"] = path
 			}
 			if q, ok := args["query"].(map[string]any); ok {
 				payload["query"] = q

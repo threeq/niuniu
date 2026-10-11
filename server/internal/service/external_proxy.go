@@ -84,6 +84,10 @@ type ExternalProxyService struct {
 	credSvc     *ExternalCredentialService
 	authz       *Authz
 	client      *http.Client
+	// oauthCache holds short-lived OAuth2 access tokens per credential, so a
+	// refresh token is exchanged once and reused until it nears expiry (issue
+	// #737). Service-scoped (not a package singleton) so tests stay isolated.
+	oauthCache *oauthTokenCache
 }
 
 // NewExternalProxyService wires the proxy with its dependencies.
@@ -98,14 +102,21 @@ func NewExternalProxyService(q *store.Queries, rawDB *sql.DB, providerSvc *Exter
 		// user-supplied api_base_url can't reach loopback/private/link-local/
 		// cloud-metadata (169.254.169.254) addresses, and DNS rebinding + proxy
 		// bypass are closed. Redirect hops re-dial through the same hook.
-		client: NewSSRFGuardedClient(30*time.Second, 30*time.Second),
+		client:     NewSSRFGuardedClient(30*time.Second, 30*time.Second),
+		oauthCache: newOAuthTokenCache(),
 	}
 }
 
 // ProxyInput is the request to call_external_api.
 type ProxyInput struct {
-	UserID      int64
-	Provider    string
+	UserID   int64
+	Provider string
+	// Operation names a contract operation (e.g. "cancelOrder"). When set, the
+	// proxy resolves method+path from the contract and authorizes by operation
+	// — the semantic, operation-level authorization added in issue #737. When
+	// empty, the legacy Method+Path pair is matched against the contract (and
+	// against the curated whitelist as a fallback).
+	Operation   string
 	Method      string
 	Path        string
 	Query       map[string]any
@@ -129,6 +140,7 @@ type ProxyOutput struct {
 // auth failures into something diagnosable (e.g. "scheme=Basic" when Bearer
 // was expected, or "token_len=41" revealing trailing whitespace).
 type AuthDebug struct {
+	Strategy         string   `json:"strategy"`   // resolved strategy, e.g. "static" / "oauth2_refresh" / "sigv4"
 	Scheme           string   `json:"scheme"`     // "Bearer" / "Basic" / "" (no auth)
 	AuthMode         string   `json:"auth_mode"`  // stored credential auth_mode (may be empty)
 	TokenLen         int      `json:"token_len"`  // length of the encoded auth payload that was sent
@@ -138,9 +150,10 @@ type AuthDebug struct {
 	BaseURL          string   `json:"base_url"`
 }
 
-// Call resolves the provider + credential, checks authz, builds and executes
-// the HTTP request, records an audit log, and returns the raw response to
-// the AI.
+// Call resolves the provider + credential, authorizes the call (by contract
+// operation when one is named/resolved, else against the curated whitelist),
+// injects auth via the resolved strategy, executes the HTTP request, records
+// an audit log, and returns the raw response to the AI.
 func (s *ExternalProxyService) Call(ctx context.Context, in ProxyInput) (*ProxyOutput, error) {
 	// 1. Resolve provider
 	prov, err := s.providerSvc.GetByName(ctx, in.Provider)
@@ -151,11 +164,11 @@ func (s *ExternalProxyService) Call(ctx context.Context, in ProxyInput) (*ProxyO
 		return nil, fmt.Errorf("provider %q is disabled", in.Provider)
 	}
 
-	// 2. Single per-user gate: write_enabled ON bypasses everything;
-	// write_enabled OFF falls back to the provider's curated whitelist
-	// (usually GET *), so reads keep working without any opt-in. Failing
-	// closed on DB errors (missing-row is the normal first-time case) but
-	// logging the unexpected ones so operators can spot a broken store.
+	// 2. Single per-user write gate: write_enabled ON authorizes everything;
+	// write_enabled OFF authorizes read-only contract operations plus the
+	// provider's curated whitelist (usually GET *). Failing closed on DB errors
+	// (missing-row is the normal first-time case) but logging the unexpected
+	// ones so operators can spot a broken store.
 	prefs, err := s.q.GetAPIWritePrefs(ctx, store.GetAPIWritePrefsParams{
 		UserID:     in.UserID,
 		ProviderID: prov.ID,
@@ -165,15 +178,17 @@ func (s *ExternalProxyService) Call(ctx context.Context, in ProxyInput) (*ProxyO
 			"provider", in.Provider, "user_id", in.UserID, "error", err)
 	}
 	writeEnabled := err == nil && prefs.Enabled == 1
-	if !s.gateAllows(writeEnabled, prov.Whitelist, in.Method, in.Path) {
-		return nil, &ProxyError{
-			Code:     "write_disabled",
-			Message:  fmt.Sprintf("Operation %s %s on %s is not in the default safe set. Enable \"Allow writes\" for this provider in Settings -> Integrations.", in.Method, in.Path, in.Provider),
-			Provider: in.Provider,
-		}
+
+	// 3. Resolve the target operation and authorize it at egress. This is the
+	// operation-level authorization (issue #737): a contract operation is the
+	// authorization object, and the decision names the operation in its reason.
+	contract := prov.Contract()
+	method, path, query, body, err := s.authorizeCall(prov, contract, in, writeEnabled)
+	if err != nil {
+		return nil, err
 	}
 
-	// 3. Resolve the credential. In-workspace MCP agents resolve via the
+	// 4. Resolve the credential. In-workspace MCP agents resolve via the
 	// project binding (so any member's agent uses the bound credential);
 	// SPA direct calls fall back to the caller's own. See resolveCredential.
 	cred, err := s.resolveCredential(ctx, in)
@@ -181,103 +196,121 @@ func (s *ExternalProxyService) Call(ctx context.Context, in ProxyInput) (*ProxyO
 		return nil, err
 	}
 
-	// 4. Build URL. For query-param-auth providers (e.g. SerpAPI's ?api_key=)
-	// the credential secret is injected into the query string here — server
-	// side — so the agent never supplies or even sees it; it only names the
-	// endpoint and the non-secret params. Header-auth providers are untouched.
+	// 5. Build URL. The credential secret is NOT placed here — the resolved
+	// auth strategy injects it (header or query) at egress, so the agent never
+	// supplies or even sees it.
 	baseURL := strings.TrimRight(prov.APIBaseURL, "/")
-	fullURL := baseURL + "/" + strings.TrimLeft(in.Path, "/")
-	authQueryName, authQueryVal := buildAuthQuery(prov, cred.Config)
+	fullURL := baseURL + "/" + strings.TrimLeft(path, "/")
 	q := url.Values{}
-	for k, v := range in.Query {
+	for k, v := range query {
 		q.Set(k, fmt.Sprintf("%v", v))
-	}
-	if authQueryName != "" {
-		q.Set(authQueryName, authQueryVal)
 	}
 	if len(q) > 0 {
 		fullURL += "?" + q.Encode()
 	}
 
-	// 5. Build request. The marshaled bytes are kept so the audit step can
-	// fingerprint exactly what was sent (not a re-marshal that could differ).
-	var bodyReader io.Reader
+	// 6. Marshal the body once; the exact bytes feed both the request and the
+	// audit fingerprint (a re-marshal could differ). A body is sent exactly
+	// when the caller supplied one, matching pre-#737 behaviour.
 	var bodyBytes []byte
 	if in.Body != nil {
-		bodyBytes, err = json.Marshal(in.Body)
+		bodyBytes, err = json.Marshal(body)
 		if err != nil {
 			return nil, fmt.Errorf("marshal body: %w", err)
 		}
-		bodyReader = bytes.NewReader(bodyBytes)
-	}
-	req, err := http.NewRequestWithContext(ctx, strings.ToUpper(in.Method), fullURL, bodyReader)
-	if err != nil {
-		return nil, fmt.Errorf("build request: %w", err)
 	}
 
-	// 6. Inject auth — emit a structured diagnostic on every call. The
-	// log is intentionally token-safe: only the auth scheme prefix and a
-	// short prefix/suffix mask of the encoded value are recorded, never
-	// the full token. Drop the log line once the integration matures.
-	authValue := buildAuthHeader(prov, cred.Config)
+	// 7. Resolve the auth strategy. An unknown strategy name degrades to the
+	// static path so a provider that declares nothing (or something this build
+	// does not know) keeps the pre-#737 behaviour rather than failing closed on
+	// a credential that is actually fine.
+	strategyName := resolveAuthStrategyName(contract, prov, cred.Config)
+	strategy, ok := authStrategyFactory(strategyName, s.oauthCache)
+	if !ok {
+		slog.Warn("external proxy: unknown auth strategy, falling back to static",
+			"provider", in.Provider, "strategy", strategyName)
+		strategy = staticAuthStrategy{}
+	}
+	credKey := fmt.Sprintf("%s:%d", in.Provider, cred.ID)
+
+	// 8. Execute, with a single forced-refresh retry when a refreshing
+	// strategy meets a 401 (the cached token may have just expired upstream).
+	doAttempt := func(forceRefresh bool) (*http.Response, []byte, *AuthOutcome, error) {
+		var bodyReader io.Reader
+		if bodyBytes != nil {
+			bodyReader = bytes.NewReader(bodyBytes)
+		}
+		req, rerr := http.NewRequestWithContext(ctx, method, fullURL, bodyReader)
+		if rerr != nil {
+			return nil, nil, nil, fmt.Errorf("build request: %w", rerr)
+		}
+		if bodyBytes != nil {
+			req.Header.Set("Content-Type", "application/json")
+		}
+		req.Header.Set("Accept", "application/json")
+
+		outcome, aerr := strategy.Apply(ctx, &AuthRequest{
+			Method:       method,
+			URL:          req.URL,
+			Header:       req.Header,
+			Body:         bodyBytes,
+			Provider:     prov,
+			Config:       cred.Config,
+			Client:       s.client,
+			CredKey:      credKey,
+			ForceRefresh: forceRefresh,
+		})
+		if aerr != nil {
+			return nil, nil, nil, aerr
+		}
+		client := s.client
+		if cp, ok := strategy.(AuthClientProvider); ok {
+			c, cerr := cp.Client(s.client, cred.Config)
+			if cerr != nil {
+				return nil, nil, nil, cerr
+			}
+			client = c
+		}
+		resp, derr := client.Do(req)
+		if derr != nil {
+			return nil, nil, nil, fmt.Errorf("proxy request failed: %w", derr)
+		}
+		defer resp.Body.Close()
+		const maxBody = 10 << 20 // 10 MB cap
+		rb, rerr2 := io.ReadAll(io.LimitReader(resp.Body, maxBody+1))
+		if rerr2 != nil {
+			return nil, nil, nil, fmt.Errorf("read response: %w", rerr2)
+		}
+		if len(rb) > maxBody {
+			return nil, nil, nil, fmt.Errorf("response body exceeds 10 MB limit")
+		}
+		return resp, rb, outcome, nil
+	}
+
+	resp, respBody, outcome, err := doAttempt(false)
+	if err != nil {
+		return nil, asProxyAuthError(in.Provider, strategyName, err)
+	}
+	// A forced refresh can only help when there is a token endpoint to refresh
+	// against; a pasted static access token has nothing to re-mint, so the
+	// retry would just repeat the same failing request.
+	if resp.StatusCode == http.StatusUnauthorized && canRefreshStrategy(strategyName) &&
+		strings.TrimSpace(strFromCfg(cred.Config, "token_url")) != "" {
+		s.oauthCache.invalidate(credKey)
+		if resp2, body2, outcome2, err2 := doAttempt(true); err2 == nil {
+			resp, respBody, outcome = resp2, body2, outcome2
+		} else {
+			slog.Warn("external proxy: forced auth refresh retry failed",
+				"provider", in.Provider, "strategy", strategyName, "error", err2)
+		}
+	}
+
+	// 9. Structured, token-safe auth diagnostic (masked payload only).
 	mode, _ := cred.Config["auth_mode"].(string)
 	cfgKeys := credentialConfigKeys(cred.Config)
-	authScheme, authPayload := splitAuth(authValue)
-	if authValue != "" {
-		req.Header.Set(prov.AuthHeader, authValue)
-		slog.Info("proxy auth injected",
-			"provider", in.Provider,
-			"user_id", in.UserID,
-			"auth_mode", mode,
-			"header", prov.AuthHeader,
-			"scheme", authScheme,
-			"payload_mask", maskToken(authPayload),
-			"payload_len", len(authPayload),
-			"cred_keys", cfgKeys,
-		)
-	} else if authQueryName != "" {
-		// Secret delivered via the URL query string (query_param providers like
-		// SerpAPI), not a header — expected, so this is not the empty-header
-		// warning path. Token-safe: only the param name + a short mask.
-		slog.Info("proxy auth injected via query param",
-			"provider", in.Provider,
-			"user_id", in.UserID,
-			"auth_mode", mode,
-			"param", authQueryName,
-			"payload_mask", maskToken(authQueryVal),
-			"payload_len", len(authQueryVal),
-			"cred_keys", cfgKeys,
-		)
-	} else {
-		slog.Warn("proxy auth NOT injected — credential produced empty header",
-			"provider", in.Provider,
-			"user_id", in.UserID,
-			"auth_mode", mode,
-			"cred_keys", cfgKeys,
-			"provider_auth_type", prov.AuthType,
-		)
-	}
-	if in.Body != nil {
-		req.Header.Set("Content-Type", "application/json")
-	}
-	req.Header.Set("Accept", "application/json")
+	logAuthInjection(in, outcome, mode, cfgKeys, prov)
 
-	// 7. Execute
-	resp, err := s.client.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("proxy request failed: %w", err)
-	}
-	defer resp.Body.Close()
-	const maxBody = 10 << 20 // 10 MB cap
-	respBody, err := io.ReadAll(io.LimitReader(resp.Body, maxBody+1))
-	if err != nil {
-		return nil, fmt.Errorf("read response: %w", err)
-	}
-	if len(respBody) > maxBody {
-		return nil, fmt.Errorf("response body exceeds 10 MB limit")
-	}
-
-	// 8. Record audit. The body fingerprint (hash + size + top-level field
+	// 10. Record audit. The body fingerprint (hash + size + top-level field
 	// names, never values) is what lets the activity view answer "what shape of
 	// data left this machine" without the audit table itself becoming a
 	// secondary copy of the payload. See Epic #726 / #747.
@@ -286,8 +319,8 @@ func (s *ExternalProxyService) Call(ctx context.Context, in ProxyInput) (*ProxyO
 	if err := s.q.CreateAuditLog(ctx, store.CreateAuditLogParams{
 		UserID:     in.UserID,
 		ProviderID: prov.ID,
-		Method:     strings.ToUpper(in.Method),
-		Path:       in.Path,
+		Method:     method,
+		Path:       path,
 		StatusCode: statusCode,
 		BodySha256: fp.sha256,
 		BodyBytes:  fp.bytes,
@@ -296,21 +329,22 @@ func (s *ExternalProxyService) Call(ctx context.Context, in ProxyInput) (*ProxyO
 		slog.Warn("external proxy audit log write failed", "error", err)
 	}
 
-	// 9. Collect headers
+	// 11. Collect headers
 	headers := make(map[string]string)
 	for k := range resp.Header {
 		headers[k] = resp.Header.Get(k)
 	}
 
 	// On an upstream failure, attach a token-safe auth diagnostic so the
-	// caller can see what scheme/keys were used without the secret.
+	// caller can see what strategy/scheme/keys were used without the secret.
 	var authDebug *AuthDebug
 	if resp.StatusCode >= 400 {
 		authDebug = &AuthDebug{
-			Scheme:           authScheme,
+			Strategy:         outcome.Strategy,
+			Scheme:           outcome.Scheme,
 			AuthMode:         strings.ToLower(strings.TrimSpace(mode)),
-			TokenLen:         len(authPayload),
-			TokenMask:        maskToken(authPayload),
+			TokenLen:         len(outcome.Payload),
+			TokenMask:        maskToken(outcome.Payload),
 			CredKeys:         cfgKeys,
 			ProviderAuthType: prov.AuthType,
 			BaseURL:          baseURL,
@@ -323,6 +357,161 @@ func (s *ExternalProxyService) Call(ctx context.Context, in ProxyInput) (*ProxyO
 		Body:      json.RawMessage(respBody),
 		AuthDebug: authDebug,
 	}, nil
+}
+
+// authorizeCall resolves the target operation — from an explicit `operation`
+// name, or by matching Method+Path against the contract — and applies the
+// egress authorization decision. It returns the effective method/path plus the
+// caller's query/body with any path-parameter keys already folded into the
+// path removed.
+//
+// Decision matrix (write toggle OFF; ON authorizes everything):
+//
+//   - explicit `operation` unknown to the contract  -> 403 unknown_operation
+//   - resolved operation is read-only               -> allow
+//   - resolved operation is a write                 -> 403 operation_requires_write
+//   - no operation resolves (legacy / off-contract) -> fall back to the curated
+//     method+path whitelist, preserving pre-#737 behaviour
+func (s *ExternalProxyService) authorizeCall(prov *ProviderDef, contract *ProviderContract, in ProxyInput, writeEnabled bool) (method, path string, query, body map[string]any, err error) {
+	method = strings.ToUpper(strings.TrimSpace(in.Method))
+	path = in.Path
+	query = copyAnyMap(in.Query)
+	body = copyAnyMap(in.Body)
+
+	var op *ContractOperation
+	if name := strings.TrimSpace(in.Operation); name != "" {
+		resolved, found := contract.OperationByName(name)
+		if !found {
+			return "", "", nil, nil, &ProxyError{
+				Code:     "unknown_operation",
+				Message:  fmt.Sprintf("provider %q has no operation named %q. Call get_provider_schema to list this provider's operations.", in.Provider, name),
+				Provider: in.Provider,
+			}
+		}
+		op = resolved
+		method = strings.ToUpper(strings.TrimSpace(op.Method))
+		resolvedPath, consumed, perr := op.ResolvePath(query, body)
+		if perr != nil {
+			return "", "", nil, nil, &ProxyError{
+				Code:     "invalid_operation_params",
+				Message:  perr.Error(),
+				Provider: in.Provider,
+			}
+		}
+		path = resolvedPath
+		for _, c := range consumed {
+			where, name, _ := strings.Cut(c, ":")
+			switch where {
+			case "query":
+				delete(query, name)
+			case "body":
+				delete(body, name)
+			}
+		}
+	} else if matched, found := contract.MatchOperation(in.Method, in.Path); found {
+		op = matched
+	}
+
+	if writeEnabled {
+		return method, path, query, body, nil
+	}
+	switch {
+	case op != nil && op.ReadOnly:
+		// Read-only operation — in the default safe set.
+	case op != nil:
+		return "", "", nil, nil, &ProxyError{
+			Code: "operation_requires_write",
+			Message: fmt.Sprintf("operation %q (%s %s) on provider %q is a write operation. Enable \"Allow writes\" for this provider in Settings -> Integrations to allow it.",
+				op.Name, op.Method, op.Path, in.Provider),
+			Provider: in.Provider,
+		}
+	default:
+		// No contract operation matched — fall back to the historical curated
+		// whitelist so legacy providers and off-contract calls never regress.
+		if !s.gateAllows(false, prov.Whitelist, in.Method, in.Path) {
+			return "", "", nil, nil, &ProxyError{
+				Code:     "write_disabled",
+				Message:  fmt.Sprintf("Operation %s %s on %s is not in the default safe set. Enable \"Allow writes\" for this provider in Settings -> Integrations.", in.Method, in.Path, in.Provider),
+				Provider: in.Provider,
+			}
+		}
+	}
+	return method, path, query, body, nil
+}
+
+// copyAnyMap shallow-copies a request map so operation resolution can delete
+// path-parameter keys without mutating the caller's input.
+func copyAnyMap(m map[string]any) map[string]any {
+	if m == nil {
+		return nil
+	}
+	out := make(map[string]any, len(m))
+	for k, v := range m {
+		out[k] = v
+	}
+	return out
+}
+
+// canRefreshStrategy reports whether a forced credential refresh can fix a 401
+// for this strategy (currently OAuth2 access tokens).
+func canRefreshStrategy(name string) bool {
+	return normalizeStrategyName(name) == strategyOAuth2
+}
+
+// asProxyAuthError maps a strategy failure to a ProxyError (403) so the agent
+// sees a fixable integration-config problem rather than a 502 upstream fault.
+// Non-strategy errors (transport failures) are returned unchanged.
+func asProxyAuthError(provider, strategy string, err error) error {
+	var se *AuthStrategyError
+	if errors.As(err, &se) {
+		return &ProxyError{Code: "auth_strategy_error", Message: se.Error(), Provider: provider}
+	}
+	return err
+}
+
+// logAuthInjection emits the token-safe diagnostic for an authenticated
+// request: strategy, header/param name, and a short mask — never the secret.
+func logAuthInjection(in ProxyInput, outcome *AuthOutcome, mode string, cfgKeys []string, prov *ProviderDef) {
+	if outcome == nil {
+		return
+	}
+	switch {
+	case outcome.MTLS:
+		slog.Info("proxy auth injected via mutual TLS",
+			"provider", in.Provider, "user_id", in.UserID, "strategy", outcome.Strategy)
+	case outcome.HeaderName != "" && outcome.Payload != "":
+		slog.Info("proxy auth injected",
+			"provider", in.Provider,
+			"user_id", in.UserID,
+			"strategy", outcome.Strategy,
+			"auth_mode", mode,
+			"header", outcome.HeaderName,
+			"scheme", outcome.Scheme,
+			"payload_mask", maskToken(outcome.Payload),
+			"payload_len", len(outcome.Payload),
+			"cred_keys", cfgKeys,
+		)
+	case outcome.QueryName != "":
+		slog.Info("proxy auth injected via query param",
+			"provider", in.Provider,
+			"user_id", in.UserID,
+			"strategy", outcome.Strategy,
+			"auth_mode", mode,
+			"param", outcome.QueryName,
+			"payload_mask", maskToken(outcome.QueryValue),
+			"payload_len", len(outcome.QueryValue),
+			"cred_keys", cfgKeys,
+		)
+	default:
+		slog.Warn("proxy auth NOT injected — credential produced no auth material",
+			"provider", in.Provider,
+			"user_id", in.UserID,
+			"strategy", outcome.Strategy,
+			"auth_mode", mode,
+			"cred_keys", cfgKeys,
+			"provider_auth_type", prov.AuthType,
+		)
+	}
 }
 
 // resolveCredential picks the credential to use for this call.

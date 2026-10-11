@@ -34,6 +34,7 @@ func (s *Server) proxyCall(c *gin.Context) {
 
 	var req struct {
 		Provider  string         `json:"provider"`
+		Operation string         `json:"operation"`
 		Method    string         `json:"method"`
 		Path      string         `json:"path"`
 		Query     map[string]any `json:"query"`
@@ -45,20 +46,30 @@ func (s *Server) proxyCall(c *gin.Context) {
 		return
 	}
 
-	if req.Provider == "" || req.Method == "" || req.Path == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{"code": "BAD_REQUEST", "message": "provider, method, and path are required"}})
+	// A call is addressed either by a contract operation name (semantic,
+	// operation-level authorization — issue #737) or by an explicit
+	// method+path pair (legacy). provider is always required.
+	if req.Provider == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{"code": "BAD_REQUEST", "message": "provider is required"}})
 		return
 	}
-	switch req.Method {
-	case "GET", "POST", "PUT", "PATCH", "DELETE":
-	default:
-		c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{"code": "BAD_REQUEST", "message": "unsupported HTTP method: " + req.Method}})
+	if req.Operation == "" && (req.Method == "" || req.Path == "") {
+		c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{"code": "BAD_REQUEST", "message": "either operation, or both method and path, are required"}})
 		return
+	}
+	if req.Method != "" {
+		switch strings.ToUpper(req.Method) {
+		case "GET", "POST", "PUT", "PATCH", "DELETE":
+		default:
+			c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{"code": "BAD_REQUEST", "message": "unsupported HTTP method: " + req.Method}})
+			return
+		}
 	}
 
 	output, err := s.externalProxySvc.Call(c.Request.Context(), service.ProxyInput{
 		UserID:      userID,
 		Provider:    req.Provider,
+		Operation:   req.Operation,
 		Method:      req.Method,
 		Path:        req.Path,
 		Query:       req.Query,
@@ -256,6 +267,12 @@ func (s *Server) proxyGetProviderSchema(c *gin.Context) {
 		return
 	}
 
+	contract := prov.Contract()
+	// 写/敏感操作单列 (issue #737): the read-only vs write split is what the
+	// confirmation card and the per-operation write control consume, so it is
+	// surfaced explicitly rather than left for the agent to derive.
+	readOps, writeOps := contract.SplitOperations()
+
 	c.JSON(http.StatusOK, gin.H{
 		"data": gin.H{
 			"id":           prov.ID,
@@ -283,7 +300,12 @@ func (s *Server) proxyGetProviderSchema(c *gin.Context) {
 			// empty-operations contract (raw text preserved in
 			// legacy_profile) rather than failing — old providers never break.
 			// `profile` is kept above for backward compatibility.
-			"contract": prov.Contract(),
+			"contract": contract,
+			// Operation-level authorization view: the semantic operations that
+			// run without the write toggle, and the write/sensitive ones that
+			// require it. Empty for providers without a structured contract.
+			"read_operations":  readOps,
+			"write_operations": writeOps,
 		},
 	})
 }
