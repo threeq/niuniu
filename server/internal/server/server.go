@@ -140,6 +140,11 @@ type Server struct {
 	credOnboardingSvc     *service.CredentialOnboardingService
 	credOnboardingHandler *api.CredentialOnboardingHandler
 
+	// Local credential proxy (issue #733): keeps scene-injected MCP credentials
+	// out of the agent-readable workspace config by replacing them with an
+	// opaque loopback pointer token.
+	credProxySvc *service.CredProxyService
+
 	// Data dashboards (M1): saved queries / dashboards / panels.
 	dashboardSvc     *service.DashboardService
 	dashboardHandler *api.DashboardHandler
@@ -1376,6 +1381,15 @@ func New(cfg *config.Config, db *sql.DB, frontendFS fs.FS) *Server {
 	}
 	keyring := intgOutcome.Keyring
 	s.intgKeyring = keyring
+	// Local credential proxy (issue #733): scene-injected MCP secrets
+	// (${cred:...} in an http/sse header) are replaced by a loopback pointer
+	// token instead of being written into the agent-readable .mcp.json. Sealed
+	// with the integration keyring so a token survives a restart; the live
+	// credential is resolved per request from the projector.
+	if s.sceneProjector != nil {
+		s.credProxySvc = service.NewCredProxyService(keyring, mcpGen.APIBase, s.sceneProjector.ResolveProxyTarget)
+		s.sceneProjector.SetCredentialProxy(s.credProxySvc)
+	}
 	// Legacy registry (empty — all adapters removed). Kept for
 	// ExternalCredentialService constructor compatibility; Verify now
 	// returns "provider not found" which is acceptable since the new

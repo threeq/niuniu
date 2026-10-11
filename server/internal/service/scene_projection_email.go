@@ -42,9 +42,17 @@ const emailMCPServerName = "email"
 // would silently skip email integration.
 const imapProviderName = "imap"
 
-// emailConfigSubpath is the per-workspace location of the generated TOML config
-// pointed at by MCP_EMAIL_SERVER_CONFIG_PATH.
-const emailConfigSubdir = ".email-config"
+// emailConfigName is the file name of the generated TOML config pointed at by
+// MCP_EMAIL_SERVER_CONFIG_PATH. It holds plaintext mailbox passwords and lives
+// under the owner's credential-material dir (OwnerRef.CredMaterialPath), never
+// inside the workspace the agent can read.
+const emailConfigName = "email-config.toml"
+
+// emailLegacyConfigSubdir is where an older niuniu materialized the same TOML
+// INSIDE the workspace (<wsDir>/.email-config/config.toml). Projection removes
+// any file left there so an upgraded install does not keep a readable plaintext
+// password in the workspace.
+const emailLegacyConfigSubdir = ".email-config"
 
 // emailAlwaysDenyTools are denied regardless of write-permission: niuniu owns
 // the account config, so the agent must not add accounts.
@@ -120,7 +128,10 @@ func (p *SceneProjector) applyEmailIntegration(
 	// cfgPath holds plaintext passwords; whenever we drop the email server
 	// (no credential, decrypt failure, write error) remove any stale file so a
 	// deleted/changed credential's password doesn't linger on disk. Best-effort.
-	cfgPath := filepath.Join(wsDir, emailConfigSubdir, "config.toml")
+	cfgPath := owner.CredMaterialPath(p.dataDir, wsID, emailConfigName)
+	// One-off cleanup for installs that materialized the TOML inside the
+	// workspace before the credential-material dir existed.
+	removeLegacyEmailConfig(wsDir)
 	drop := func() {
 		delete(resolvedConfigs, emailMCPServerName)
 		dropped[emailMCPServerName] = true
@@ -176,8 +187,27 @@ func (p *SceneProjector) applyEmailIntegration(
 		if err := p.mcpGen.SetWorkspaceManagedDeny(wsDir, emailMCPServerName, deny); err != nil {
 			slog.Warn("scene projector: email deny-list write failed", "err", err)
 		}
+		// Keep the agent's file tools off the materialized credential file even
+		// though it lives outside the workspace — its path is spelled out in
+		// .mcp.json, so "outside the workspace" alone is not a barrier.
+		if err := p.mcpGen.SetWorkspaceCredPathDeny(wsDir, []string{filepath.Dir(cfgPath)}); err != nil {
+			slog.Warn("scene projector: credential-path deny write failed", "err", err)
+		}
 	}
 	return missing
+}
+
+// removeLegacyEmailConfig deletes the pre-credential-material location of the
+// office-mail TOML (<wsDir>/.email-config/config.toml) and prunes the directory
+// when it becomes empty. Best-effort: a leftover file is a plaintext-password
+// leak in the workspace, so we try on every projection, but a failure only logs.
+func removeLegacyEmailConfig(wsDir string) {
+	dir := filepath.Join(wsDir, emailLegacyConfigSubdir)
+	if err := os.Remove(filepath.Join(dir, "config.toml")); err != nil && !os.IsNotExist(err) {
+		slog.Warn("scene projector: legacy email config cleanup failed", "err", err)
+		return
+	}
+	_ = os.Remove(dir) // succeeds only when empty
 }
 
 // collectEmailAccounts decrypts the imap credentials BOUND TO THE WORKSPACE'S

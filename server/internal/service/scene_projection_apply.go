@@ -40,6 +40,7 @@ type SceneProjector struct {
 	notifyHub   *notify.NotificationHub
 	extCred     *ExternalCredentialService // optional, decrypts ${cred:...} placeholders
 	localRunner *LocalRunnerService        // optional, Epic #526 子B — prompt fragment injection
+	credProxy   *CredProxyService          // optional, keeps resolved secrets out of .mcp.json
 
 	// installCheck resolves whether a plugin is currently present on disk.
 	// Defaults to pluginInst.IsInstalled; overridable in tests to exercise
@@ -51,6 +52,12 @@ type SceneProjector struct {
 // configured claude.md prompt fragment into the worktree when the workspace's
 // desktop runner is online (Epic #526 子B, #492). Optional; nil-safe.
 func (p *SceneProjector) SetLocalRunner(s *LocalRunnerService) { p.localRunner = s }
+
+// SetCredentialProxy wires the loopback credential proxy so resolved
+// ${cred:...} headers are replaced by a pointer token instead of being written
+// into .mcp.json. Optional, but a nil proxy is fail-closed: an http server with
+// a resolved secret header is dropped rather than materialized.
+func (p *SceneProjector) SetCredentialProxy(c *CredProxyService) { p.credProxy = c }
 
 // NewSceneProjector wires the dependencies. mcpGen and pluginInst may be nil
 // in test scenarios — Apply degrades gracefully (skips the matching step
@@ -245,7 +252,7 @@ func (p *SceneProjector) Apply(ctx context.Context, wsID int64) (*ApplyResult, e
 	if ws.CreatedBy.Valid {
 		userID = ws.CreatedBy.Int64
 	}
-	resolvedMCPConfigs, droppedMCP, credMissing := p.resolveProjectionCredentials(ctx, owner, userID, proj)
+	resolvedMCPConfigs, droppedMCP, credMissing := p.resolveProjectionCredentials(ctx, owner, userID, ws.ID, proj)
 	// 0b. office-mail / mcp-email-server is env-driven: inject the decrypted
 	//     mailbox credential as MCP_EMAIL_SERVER_* env (IMAP always, SMTP only
 	//     when write-permission is granted), and gate delete/move/mark via

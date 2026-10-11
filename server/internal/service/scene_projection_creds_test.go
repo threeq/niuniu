@@ -3,6 +3,8 @@ package service
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/niuniu-dev/niuniu/internal/integration"
@@ -126,7 +128,7 @@ func TestResolveProjectionCredentials_InjectsAndMapsSecurity(t *testing.T) {
 		RequiredCredentials: []RequiredCredential{{Alias: "mailbox", Provider: "imap"}},
 	}, LayerOrigin(1))
 
-	resolved, dropped, missing := projector.resolveProjectionCredentials(ctx, owner, 1, proj)
+	resolved, dropped, missing := projector.resolveProjectionCredentials(ctx, owner, 1, 0, proj)
 	require.Empty(t, dropped)
 	require.Empty(t, missing)
 	env := resolved["imap-mail"]["env"].(map[string]any)
@@ -141,11 +143,13 @@ func TestResolveProjectionCredentials_InjectsAndMapsSecurity(t *testing.T) {
 	assert.Equal(t, "${cred:mailbox.password}", orig["IMAP_PASS"], "source projection env untouched")
 }
 
-// TestResolveProjectionCredentials_InjectsHTTPHeaders covers the user-configured
-// knowledge-base MCP path (issue B): an http/sse MCP server authenticates via an
-// `Authorization: Bearer ${cred:kb-api.token}` header, and the token is resolved
-// from a credstore credential at projection time — never persisted in the scene.
-func TestResolveProjectionCredentials_InjectsHTTPHeaders(t *testing.T) {
+// TestResolveProjectionCredentials_ProxiesHTTPHeaders covers the
+// user-configured knowledge-base MCP path: an http/sse MCP server authenticates
+// via an `Authorization: Bearer ${cred:kb-api.token}` header, and the resolved
+// token must NOT reach the workspace config — the server is pointed at the
+// loopback credential proxy instead, which re-resolves the credential per
+// request.
+func TestResolveProjectionCredentials_ProxiesHTTPHeaders(t *testing.T) {
 	ctx := context.Background()
 	db := setupSceneTestDB(t)
 	dataDir := t.TempDir()
@@ -160,7 +164,9 @@ func TestResolveProjectionCredentials_InjectsHTTPHeaders(t *testing.T) {
 	})
 	require.NoError(t, err)
 
+	proxy := NewCredProxyService(testKeyring(t), func() string { return "http://127.0.0.1:3000" }, nil)
 	projector := NewSceneProjector(db, dataDir, nil, nil, nil, cred)
+	projector.SetCredentialProxy(proxy)
 	proj := NewProjection()
 	proj.MergeFrom(&SceneDefinition{
 		MCP: []MCPDecl{{Name: "kb", Config: map[string]any{
@@ -173,17 +179,66 @@ func TestResolveProjectionCredentials_InjectsHTTPHeaders(t *testing.T) {
 		RequiredCredentials: []RequiredCredential{{Alias: "kb-api", Provider: "knowledge-base"}},
 	}, LayerOrigin(1))
 
-	resolved, dropped, missing := projector.resolveProjectionCredentials(ctx, owner, 1, proj)
+	resolved, dropped, missing := projector.resolveProjectionCredentials(ctx, owner, 1, 42, proj)
 	require.Empty(t, dropped)
 	require.Empty(t, missing)
-	headers := resolved["kb"]["headers"].(map[string]any)
-	assert.Equal(t, "Bearer sk-kb-secret-123", headers["Authorization"])
-	// URL and other non-secret fields carried through verbatim.
-	assert.Equal(t, "https://kb.example.com/mcp", resolved["kb"]["url"])
 
-	// Missing token drops the whole server — never write a half-filled auth header.
+	// The secret header is gone; the url now points at the loopback proxy.
+	assert.NotContains(t, resolved["kb"], "headers", "secret header removed from the config")
+	proxied, _ := resolved["kb"]["url"].(string)
+	require.True(t, strings.HasPrefix(proxied, "http://127.0.0.1:3000"+ProxyPathPrefix), "url rewritten to the proxy, got %q", proxied)
+
+	// The token names the projection target but carries no secret: the live
+	// upstream and header come from the projector, per request.
+	token := strings.TrimPrefix(proxied, "http://127.0.0.1:3000"+ProxyPathPrefix)
+	claims, err := proxy.openToken(token)
+	require.NoError(t, err)
+	assert.Equal(t, "kb", claims.ServerName)
+	assert.NotContains(t, token, "kb", "even the server name is sealed, not readable")
+
+	// The rendered config JSON must not contain the plaintext secret anywhere.
+	raw, err := json.Marshal(resolved["kb"])
+	require.NoError(t, err)
+	assert.NotContains(t, string(raw), "sk-kb-secret-123")
+
+	// The persisted projection MCPConfigs must NOT be mutated (deep copy).
 	orig := proj.MCPConfigs["kb"]["headers"].(map[string]any)
 	assert.Equal(t, "Bearer ${cred:kb-api.token}", orig["Authorization"], "source projection headers untouched")
+}
+
+// TestResolveProjectionCredentials_HeaderWithoutProxyDropsServer is the
+// fail-closed guard: with no credential proxy wired, a resolved secret header
+// must drop the server rather than land in .mcp.json.
+func TestResolveProjectionCredentials_HeaderWithoutProxyDropsServer(t *testing.T) {
+	ctx := context.Background()
+	db := setupSceneTestDB(t)
+	dataDir := t.TempDir()
+	owner := OwnerRef{Type: "user", ID: 1}
+
+	cred := newImapCredSvc(t, db)
+	_, err := cred.Create(ctx, ExternalCredentialUpsertInput{
+		OwnerType: "user", OwnerID: 1, UserID: 1,
+		Provider:  integration.ProviderName("knowledge-base"),
+		Alias:     "kb-api",
+		RawConfig: map[string]any{"token": "sk-kb-secret-123"},
+	})
+	require.NoError(t, err)
+
+	projector := NewSceneProjector(db, dataDir, nil, nil, nil, cred) // no SetCredentialProxy
+	proj := NewProjection()
+	proj.MergeFrom(&SceneDefinition{
+		MCP: []MCPDecl{{Name: "kb", Config: map[string]any{
+			"type":    "http",
+			"url":     "https://kb.example.com/mcp",
+			"headers": map[string]any{"Authorization": "Bearer ${cred:kb-api.token}"},
+		}}},
+		RequiredCredentials: []RequiredCredential{{Alias: "kb-api", Provider: "knowledge-base"}},
+	}, LayerOrigin(1))
+
+	resolved, dropped, missing := projector.resolveProjectionCredentials(ctx, owner, 1, 42, proj)
+	assert.True(t, dropped["kb"], "server dropped rather than write the secret")
+	assert.NotContains(t, resolved, "kb")
+	assert.True(t, missing["kb-api"], "alias surfaced so the bind-credential card shows")
 }
 
 // TestResolveProjectionCredentials_MissingHeaderCredDropsServer ensures an
@@ -206,7 +261,7 @@ func TestResolveProjectionCredentials_MissingHeaderCredDropsServer(t *testing.T)
 		RequiredCredentials: []RequiredCredential{{Alias: "kb-api", Provider: "knowledge-base"}},
 	}, LayerOrigin(1))
 
-	resolved, dropped, missing := projector.resolveProjectionCredentials(ctx, owner, 1, proj)
+	resolved, dropped, missing := projector.resolveProjectionCredentials(ctx, owner, 1, 0, proj)
 	assert.True(t, dropped["kb"], "http server with unresolved header token is dropped")
 	assert.NotContains(t, resolved, "kb")
 	assert.True(t, missing["kb-api"])
@@ -230,7 +285,7 @@ func TestResolveProjectionCredentials_MissingCredDropsServer(t *testing.T) {
 		RequiredCredentials: []RequiredCredential{{Alias: "mailbox", Provider: "imap"}},
 	}, LayerOrigin(1))
 
-	resolved, dropped, missing := projector.resolveProjectionCredentials(ctx, owner, 1, proj)
+	resolved, dropped, missing := projector.resolveProjectionCredentials(ctx, owner, 1, 0, proj)
 	assert.True(t, dropped["imap-mail"], "server with unresolved placeholder is dropped entirely")
 	assert.NotContains(t, resolved, "imap-mail", "dropped server never written")
 	assert.True(t, missing["mailbox"], "alias reported missing")
@@ -259,7 +314,7 @@ func TestResolveProjectionCredentials_CrossUserInvisible(t *testing.T) {
 	}, LayerOrigin(1))
 
 	// ... but resolving as user_id=2 must NOT see it.
-	_, dropped, missing := projector.resolveProjectionCredentials(ctx, owner, 2, proj)
+	_, dropped, missing := projector.resolveProjectionCredentials(ctx, owner, 2, 0, proj)
 	assert.True(t, dropped["imap-mail"], "another user's credential is invisible")
 	assert.True(t, missing["mailbox"])
 }

@@ -53,6 +53,15 @@ func (s *Server) setupRoutes() {
 	s.engine.GET("/api/credential-onboarding/:token", s.credOnboardingHandler.GetCredentialLinkInfo)
 	s.engine.POST("/api/credential-onboarding/:token", s.credOnboardingHandler.SubmitCredentialLink)
 
+	// Local credential proxy (issue #733): the loopback endpoint a projected
+	// MCP server is pointed at instead of carrying the secret itself. The
+	// opaque, expiring path token IS the authorization, so these sit outside
+	// the authenticated groups like the onboarding links above. Both the bare
+	// and the sub-path form are registered: MCP clients POST to the exact
+	// configured url, while a client that treats it as a base url appends.
+	s.engine.Any("/cred-proxy/:token", s.credProxyForward)
+	s.engine.Any("/cred-proxy/:token/*rest", s.credProxyForward)
+
 	// Latest desktop release (proxied from the official website changelog) —
 	// no auth required; only consumed by the personal-mode "check for updates".
 	s.engine.GET("/api/app-update/latest", s.appUpdateHandler.Latest)
