@@ -42,6 +42,15 @@ func (r *recordingApprovalEvents) kinds() []ApprovalEventKind {
 	return out
 }
 
+func (r *recordingApprovalEvents) lastApprovers() []int64 {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if len(r.calls) == 0 {
+		return nil
+	}
+	return r.calls[len(r.calls)-1].Approvers
+}
+
 // ---- fixtures ----------------------------------------------------------------
 
 type approvalFixture struct {
@@ -164,6 +173,28 @@ func TestIntegrationApprovalSubmitRejectsForeignProject(t *testing.T) {
 			Action: ApprovalDraftConfirm, RequestedBy: f.memberID,
 		})
 		assert.ErrorIs(t, err, ErrForbidden)
+	})
+}
+
+// ACCEPTANCE: the confirmation card is routed to role holders, never the
+// requester.
+func TestIntegrationApprovalRoutesToRoleHoldersExcludingRequester(t *testing.T) {
+	pgtest.ForEachDriver(t, func(t *testing.T, drv string) {
+		f := newApprovalFixture(t, drv)
+
+		// scope_relax needs admin → owner + admin are routed (member is not).
+		f.submit(t, ApprovalScopeRelax, f.memberID, 0)
+		assert.ElementsMatch(t, []int64{f.ownerID, f.adminID}, f.events.lastApprovers())
+		assert.NotContains(t, f.events.lastApprovers(), f.memberID)
+
+		// publish needs owner → only the owner.
+		f.submit(t, ApprovalPublish, f.memberID, 0)
+		assert.Equal(t, []int64{f.ownerID}, f.events.lastApprovers())
+
+		// The requester is never routed their own card, even when they hold the role.
+		f.submit(t, ApprovalScopeRelax, f.adminID, 0)
+		assert.NotContains(t, f.events.lastApprovers(), f.adminID)
+		assert.Equal(t, []int64{f.ownerID}, f.events.lastApprovers())
 	})
 }
 
