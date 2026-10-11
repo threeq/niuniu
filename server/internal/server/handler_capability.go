@@ -51,6 +51,15 @@ func (s *Server) getCapability(c *gin.Context) {
 	)
 	switch kind {
 	case service.CapabilityTargetProvider:
+		// In-workspace (MCP) callers are scoped to the providers actually bound
+		// to their project's external sources — the same policy list_providers
+		// applies — so an agent cannot describe a provider it was not given.
+		if !s.providerVisibleToWorkspace(c, ref) {
+			// Not-found rather than 403 so an in-workspace agent cannot probe
+			// which providers exist outside its binding.
+			c.JSON(http.StatusNotFound, gin.H{"error": gin.H{"code": "NOT_FOUND", "message": "provider not found: " + ref}})
+			return
+		}
 		doc, err = s.capabilitySvc.EnsureProviderByName(ctx, ref)
 	case service.CapabilityTargetDataSource:
 		var id int64
@@ -100,6 +109,20 @@ func (s *Server) resolveCapabilityDataSourceID(c *gin.Context, ref string, userI
 		return s.dataSourceSvc.ResolveSourceIDForWorkspace(c.Request.Context(), ref, ws, userID, wsOrgIDs(ws))
 	}
 	return s.dataSourceSvc.ResolveSourceID(c.Request.Context(), ref, userID, s.capabilityCallerOrgIDs(c, userID))
+}
+
+// providerVisibleToWorkspace reports whether an in-workspace (MCP) caller may
+// act on a provider: only providers bound to the workspace's project as external
+// sources are visible, exactly like list_providers. A caller with no workspace
+// context (the SPA management surface) sees the full catalog. This is the single
+// scoping gate shared by every provider-discovery read (get_provider_schema,
+// describe_source), so an agent can never describe a provider it was not given.
+func (s *Server) providerVisibleToWorkspace(c *gin.Context, name string) bool {
+	wsID := c.GetInt64("mcp_workspace_id")
+	if wsID <= 0 {
+		return true
+	}
+	return s.workspaceSourceProviderNames(c.Request.Context(), wsID)[name]
 }
 
 // capabilityCallerOrgIDs mirrors DataSourceHandler.callerOrgIDs: the orgs the

@@ -18,8 +18,9 @@ import (
 
 // newCapabilityTestServer wires the minimal Server slice getCapability needs:
 // a provider service plus a capability service over an in-memory SQLite that has
-// the integration_capabilities table.
-func newCapabilityTestServer(t *testing.T) (*gin.Engine, *service.ExternalProviderService) {
+// the integration_capabilities table. The returned Server can be re-mounted on a
+// router with a different auth/workspace middleware for scoping tests.
+func newCapabilityTestServerParts(t *testing.T) (*service.ExternalProviderService, *Server) {
 	t.Helper()
 	db, err := sql.Open("sqlite", ":memory:")
 	if err != nil {
@@ -70,8 +71,15 @@ func newCapabilityTestServer(t *testing.T) (*gin.Engine, *service.ExternalProvid
 	q := store.New(store.Wrap(db))
 	provSvc := service.NewExternalProviderService(q, db)
 	capSvc := service.NewCapabilityService(q, db, provSvc, nil, nil)
-	srv := &Server{externalProviderSvc: provSvc, capabilitySvc: capSvc}
+	srv := &Server{externalProviderSvc: provSvc, capabilitySvc: capSvc, queries: q}
+	return provSvc, srv
+}
 
+// newCapabilityTestServer mounts the parts on a router with a plain auth
+// middleware (no workspace context: the SPA path).
+func newCapabilityTestServer(t *testing.T) (*gin.Engine, *service.ExternalProviderService) {
+	t.Helper()
+	provSvc, srv := newCapabilityTestServerParts(t)
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.Use(func(c *gin.Context) { c.Set("auth_user_id", int64(1)) })
@@ -149,6 +157,73 @@ func TestCapabilityRoutesAreReadOnly(t *testing.T) {
 		if w.Code == http.StatusOK {
 			t.Fatalf("%s on the capability endpoint must not succeed (status %d)", method, w.Code)
 		}
+	}
+}
+
+// TestGetCapability_ProviderScopedForWorkspaceAgents is the IDOR regression: an
+// in-workspace (MCP) caller may only describe providers bound to its project. A
+// provider that exists but is not bound is reported as not-found (no existence
+// probe), while the SPA path (no workspace) still sees the management catalog.
+func TestGetCapability_ProviderScopedForWorkspaceAgents(t *testing.T) {
+	provSvc, srv := newCapabilityTestServerParts(t)
+	ctx := t.Context()
+	if _, err := provSvc.Create(ctx, "demo", "Demo", "https://api.demo.dev"); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	if _, err := provSvc.Update(ctx, 1, "Demo", "https://api.demo.dev", "bearer", "Authorization", "Bearer",
+		`[{"method":"GET","path":"*"}]`, capTestContract, "", true); err != nil {
+		t.Fatalf("Update: %v", err)
+	}
+
+	// Mount the same handler with a workspace context. The test DB has no
+	// project/issue linkage, so the bound-provider set is empty → not-found.
+	gin.SetMode(gin.TestMode)
+	w := gin.New()
+	w.Use(func(c *gin.Context) {
+		c.Set("auth_user_id", int64(1))
+		c.Set("mcp_workspace_id", int64(1))
+	})
+	w.GET("/api/me/capabilities/:subject_kind/:ref", srv.getCapability)
+
+	rec := httptest.NewRecorder()
+	w.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/me/capabilities/provider/demo", nil))
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("in-workspace describe of an unbound provider: status %d, want 404 (body %s)", rec.Code, rec.Body)
+	}
+
+	// The SPA path (no workspace context) still resolves it.
+	spa := gin.New()
+	spa.Use(func(c *gin.Context) { c.Set("auth_user_id", int64(1)) })
+	spa.GET("/api/me/capabilities/:subject_kind/:ref", srv.getCapability)
+	rec2 := httptest.NewRecorder()
+	spa.ServeHTTP(rec2, httptest.NewRequest(http.MethodGet, "/api/me/capabilities/provider/demo", nil))
+	if rec2.Code != http.StatusOK {
+		t.Fatalf("SPA describe: status %d, want 200 (body %s)", rec2.Code, rec2.Body)
+	}
+}
+
+// TestGetProviderSchema_ScopedForWorkspaceAgents: the same provider-scoping gate
+// guards get_provider_schema, so the IDOR class is closed on both discovery
+// reads (the schema endpoint now also returns the capability doc).
+func TestGetProviderSchema_ScopedForWorkspaceAgents(t *testing.T) {
+	provSvc, srv := newCapabilityTestServerParts(t)
+	ctx := t.Context()
+	if _, err := provSvc.Create(ctx, "demo", "Demo", "https://api.demo.dev"); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	gin.SetMode(gin.TestMode)
+	w := gin.New()
+	w.Use(func(c *gin.Context) {
+		c.Set("auth_user_id", int64(1))
+		c.Set("mcp_workspace_id", int64(1))
+	})
+	w.GET("/api/me/external-proxy/providers/:provider/schema", srv.proxyGetProviderSchema)
+
+	rec := httptest.NewRecorder()
+	w.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/me/external-proxy/providers/demo/schema", nil))
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("in-workspace schema read of an unbound provider: status %d, want 404", rec.Code)
 	}
 }
 
