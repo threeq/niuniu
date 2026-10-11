@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"syscall"
 )
@@ -72,12 +73,17 @@ func seatbeltProfile(helperPath string) string {
 	b.WriteString("(version 1)\n")
 	b.WriteString("(deny default)\n")
 	b.WriteString("(deny network*)\n")
-	// Process: the helper itself may exec (it is already; this covers the
-	// sandbox-exec trampoline) and nothing else may.
+	// Process: sandbox-exec's own image and the helper's DIRECTORY. A literal
+	// path for the helper is the tighter rule, but it silently stops matching
+	// when the bundle path is reached through a symlink or a versioned app
+	// directory — and a profile that denies the exec makes the box fail to
+	// start at all. The helper ships next to the server in the app's own
+	// sidecar directory, so allowing that directory is both sufficient and
+	// bounded.
 	b.WriteString("(allow process-exec (literal \"")
 	b.WriteString(sbplEscape(sandboxExecPath))
-	b.WriteString("\") (literal \"")
-	b.WriteString(sbplEscape(helperPath))
+	b.WriteString("\") (subpath \"")
+	b.WriteString(sbplEscape(filepath.Dir(helperPath)))
 	b.WriteString("\"))\n")
 	b.WriteString("(allow process-fork)\n")
 	b.WriteString("(allow signal (target self))\n")
@@ -87,7 +93,14 @@ func seatbeltProfile(helperPath string) string {
 	// Loading the helper's own image and the system dylibs it links against.
 	b.WriteString("(allow file-read* (literal \"")
 	b.WriteString(sbplEscape(helperPath))
+	b.WriteString("\") (subpath \"")
+	b.WriteString(sbplEscape(filepath.Dir(helperPath)))
 	b.WriteString("\") (subpath \"/usr/lib\") (subpath \"/System/Library\"))\n")
+	// Timezone data. A function that formats a local time would otherwise fail
+	// with a permission error that says nothing about timezones — a confusing
+	// failure for a call that is entirely legitimate. Read-only, and the zone
+	// database holds nothing user-specific.
+	b.WriteString("(allow file-read* (literal \"/etc/localtime\") (subpath \"/usr/share/zoneinfo\") (subpath \"/var/db/timezone\"))\n")
 	// stdio only, and only writing to it.
 	b.WriteString("(allow file-write-data (literal \"/dev/null\") (literal \"/dev/stdout\") (literal \"/dev/stderr\") (literal \"/dev/fd/1\") (literal \"/dev/fd/2\"))\n")
 	b.WriteString("(allow file-read-metadata)\n")

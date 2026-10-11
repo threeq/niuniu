@@ -10,6 +10,19 @@ import (
 
 // Runtime identifiers for the in-box language engine. The runtime is
 // orthogonal to isolation: all of them execute inside the same OS fence.
+//
+// Note on the wazero tier's CPU story, because #739 asked for it to be checked
+// at implementation time rather than assumed: wazero has NO deterministic fuel
+// or instruction-counting meter. Its published API offers a hard linear-memory
+// cap and context-based cancellation, and nothing that charges per instruction
+// (checked against wazero's own documentation — there is no fuel API to
+// configure). So the wazero tier bounds CPU exactly the way the goja tier does:
+// the wall clock plus the in-box interrupt, backed by the OS fence. It is NOT a
+// CPU-metering upgrade over goja; its advantage is the memory ceiling, which
+// goja does not have.
+//
+// The Node/Deno tier is declared for the heavy-npm case the spec describes; it
+// is a different in-box process image, not a different isolation model.
 const (
 	RuntimeGoja   = "goja"   // pure-Go JS engine — the default (zero toolchain,即写即跑)
 	RuntimeWazero = "wazero" // pure-Go WASM runtime — declared, not yet implemented
