@@ -3,10 +3,12 @@ package server
 import (
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/gin-gonic/gin"
@@ -20,7 +22,7 @@ import (
 // needs (externalProviderSvc over an in-memory SQLite) plus a gin router with an
 // auth stub. The SSRF gate is opened so the handler may fetch an httptest
 // loopback document.
-func newOpenAPIDraftTestServer(t *testing.T) (*gin.Engine, *service.ExternalProviderService) {
+func newOpenAPIDraftTestServer(t *testing.T) (*gin.Engine, *service.ExternalProviderService, *gin.Engine, *sql.DB) {
 	t.Helper()
 
 	prev := service.KBAllowLocalSources()
@@ -52,14 +54,48 @@ func newOpenAPIDraftTestServer(t *testing.T) (*gin.Engine, *service.ExternalProv
 		t.Fatalf("create table: %v", err)
 	}
 
-	svc := service.NewExternalProviderService(store.New(store.Wrap(db)), db)
-	srv := &Server{externalProviderSvc: svc}
+	// Minimal tables the MCP-path scoping walks: workspace -> issue -> column ->
+	// project, then project_external_sources.
+	for _, ddl := range []string{
+		`CREATE TABLE workspaces (id INTEGER PRIMARY KEY, issue_id INTEGER NOT NULL DEFAULT 0)`,
+		`CREATE TABLE issues (id INTEGER PRIMARY KEY, column_id INTEGER NOT NULL DEFAULT 0)`,
+		`CREATE TABLE columns (id INTEGER PRIMARY KEY, project_id INTEGER NOT NULL DEFAULT 0)`,
+		`CREATE TABLE project_external_sources (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			project_id INTEGER NOT NULL,
+			provider TEXT NOT NULL,
+			source_key TEXT NOT NULL DEFAULT '',
+			credential_id INTEGER,
+			config TEXT NOT NULL DEFAULT '{}',
+			created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+		)`,
+	} {
+		if _, err := db.Exec(ddl); err != nil {
+			t.Fatalf("create scoping table: %v", err)
+		}
+	}
+
+	q := store.New(store.Wrap(db))
+	svc := service.NewExternalProviderService(q, db)
+	srv := &Server{
+		externalProviderSvc: svc,
+		queries:             q,
+		extSourceSvc:        service.NewExternalSourceService(q, db, nil, nil, nil),
+	}
 
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.Use(func(c *gin.Context) { c.Set("auth_user_id", int64(1)) })
 	r.POST("/api/me/external-proxy/providers/:id/openapi-draft", srv.proxyOpenAPIDraft)
-	return r, svc
+	// Same handler on an MCP-shaped route, with the workspace resolved from the
+	// session token (as MCPTokenAuth does in production).
+	mcp := gin.New()
+	mcp.Use(func(c *gin.Context) {
+		c.Set("auth_user_id", int64(1))
+		c.Set("mcp_workspace_id", int64(7))
+	})
+	mcp.POST("/mcp/external-proxy/providers/:id/openapi-draft", srv.proxyOpenAPIDraft)
+	return r, svc, mcp, db
 }
 
 func petstoreDoc(t *testing.T) []byte {
@@ -80,7 +116,7 @@ func TestProxyOpenAPIDraft_GeneratesFromProvider(t *testing.T) {
 	}))
 	defer docSrv.Close()
 
-	r, svc := newOpenAPIDraftTestServer(t)
+	r, svc, _, _ := newOpenAPIDraftTestServer(t)
 	ctx := t.Context()
 	if _, err := svc.Create(ctx, "petstore", "Petstore", "https://api.petstore.example/v1"); err != nil {
 		t.Fatalf("Create: %v", err)
@@ -130,7 +166,7 @@ func TestProxyOpenAPIDraft_GeneratesFromProvider(t *testing.T) {
 // TestProxyOpenAPIDraft_NoURL: a provider without an openapi_url is a 400, not a
 // fetch attempt.
 func TestProxyOpenAPIDraft_NoURL(t *testing.T) {
-	r, svc := newOpenAPIDraftTestServer(t)
+	r, svc, _, _ := newOpenAPIDraftTestServer(t)
 	if _, err := svc.Create(t.Context(), "plain", "Plain", "https://plain.dev"); err != nil {
 		t.Fatalf("Create: %v", err)
 	}
@@ -151,7 +187,7 @@ func TestProxyOpenAPIDraft_BadDocument(t *testing.T) {
 	}))
 	defer docSrv.Close()
 
-	r, svc := newOpenAPIDraftTestServer(t)
+	r, svc, _, _ := newOpenAPIDraftTestServer(t)
 	ctx := t.Context()
 	if _, err := svc.Create(ctx, "bad", "Bad", "https://bad.dev"); err != nil {
 		t.Fatalf("Create: %v", err)
@@ -167,4 +203,72 @@ func TestProxyOpenAPIDraft_BadDocument(t *testing.T) {
 	if w.Code != http.StatusBadGateway {
 		t.Fatalf("expected 502 for an unusable document, got %d body %s", w.Code, w.Body)
 	}
+}
+
+// TestProxyOpenAPIDraft_MCPPathScopedToProject: on the MCP path an agent may
+// only draft a provider bound to its own workspace's project — the same scoping
+// the provider list applies, so an agent cannot probe the catalog by id.
+func TestProxyOpenAPIDraft_MCPPathScopedToProject(t *testing.T) {
+	docSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write(petstoreDoc(t))
+	}))
+	defer docSrv.Close()
+
+	_, svc, mcp, db := newOpenAPIDraftTestServer(t)
+	ctx := t.Context()
+
+	for _, name := range []string{"bound", "unbound"} {
+		if _, err := svc.Create(ctx, name, name, "https://"+name+".example"); err != nil {
+			t.Fatalf("Create %s: %v", name, err)
+		}
+		id := providerIDByName(t, db, name)
+		if _, err := svc.Update(ctx, id, name, "https://"+name+".example", "bearer", "Authorization", "Bearer",
+			`[{"method":"GET","path":"*"}]`, "", docSrv.URL, true); err != nil {
+			t.Fatalf("Update %s: %v", name, err)
+		}
+	}
+
+	// Workspace 7 -> issue 1 -> column 2 -> project 5; only "bound" is a source
+	// of project 5.
+	for _, stmt := range []string{
+		`INSERT INTO workspaces (id, issue_id) VALUES (7, 1)`,
+		`INSERT INTO issues (id, column_id) VALUES (1, 2)`,
+		`INSERT INTO columns (id, project_id) VALUES (2, 5)`,
+		`INSERT INTO project_external_sources (project_id, provider) VALUES (5, 'bound')`,
+	} {
+		if _, err := db.Exec(stmt); err != nil {
+			t.Fatalf("seed scoping row: %v", err)
+		}
+	}
+
+	boundID := providerIDByName(t, db, "bound")
+	unboundID := providerIDByName(t, db, "unbound")
+
+	req := httptest.NewRequest(http.MethodPost,
+		fmt.Sprintf("/mcp/external-proxy/providers/%d/openapi-draft", boundID), nil)
+	w := httptest.NewRecorder()
+	mcp.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("a provider bound to the workspace project must be draftable, got %d body %s", w.Code, w.Body)
+	}
+
+	req = httptest.NewRequest(http.MethodPost,
+		fmt.Sprintf("/mcp/external-proxy/providers/%d/openapi-draft", unboundID), nil)
+	w = httptest.NewRecorder()
+	mcp.ServeHTTP(w, req)
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("a provider outside the workspace project must 404, got %d body %s", w.Code, w.Body)
+	}
+	if body := w.Body.String(); strings.Contains(body, "unbound") {
+		t.Fatalf("the scoped 404 must not reveal the provider: %s", body)
+	}
+}
+
+func providerIDByName(t *testing.T, db *sql.DB, name string) int64 {
+	t.Helper()
+	var id int64
+	if err := db.QueryRow(`SELECT id FROM external_providers WHERE name = ?`, name).Scan(&id); err != nil {
+		t.Fatalf("lookup provider %s: %v", name, err)
+	}
+	return id
 }

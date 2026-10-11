@@ -383,6 +383,54 @@ func TestFetchOpenAPIDocument_SSRFGuard(t *testing.T) {
 	require.NotEmpty(t, body)
 }
 
+// TestRedactDocURL pins the credential-stripping used for every echoed url.
+func TestRedactDocURL(t *testing.T) {
+	cases := map[string]string{
+		"https://user:pw@api.example/spec.json?token=secret#frag": "https://api.example/spec.json",
+		"https://api.example/openapi.json":                        "https://api.example/openapi.json",
+		"https://api.example/v1/openapi.json?key=abc":             "https://api.example/v1/openapi.json",
+		"": "",
+	}
+	for in, want := range cases {
+		require.Equal(t, want, redactDocURL(in), "input %q", in)
+	}
+}
+
+// TestParseOpenAPIDocument_RedactsSourceURLCredentials: a signed/pre-authed
+// document url must not be echoed verbatim into the draft payload.
+func TestParseOpenAPIDocument_RedactsSourceURLCredentials(t *testing.T) {
+	signed := "https://user:pw@api.petstore.example/openapi.json?token=SUPERSECRET"
+	d, err := ParseOpenAPIDocument(signed, readFixture(t, "petstore3.json"))
+	require.NoError(t, err)
+	require.Equal(t, "https://api.petstore.example/openapi.json", d.SourceURL)
+
+	blob, err := json.Marshal(d)
+	require.NoError(t, err)
+	require.NotContains(t, string(blob), "SUPERSECRET")
+	require.NotContains(t, string(blob), "user:pw")
+}
+
+// TestFetchOpenAPIDocument_DoesNotLeakURLCredentials: a transport failure must
+// not echo the request url (Go redacts only the password, keeping the username
+// and any query token).
+func TestFetchOpenAPIDocument_DoesNotLeakURLCredentials(t *testing.T) {
+	withLocalSources(t, true)
+
+	// A server that immediately closes the connection forces a transport error.
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		hj, ok := w.(http.Hijacker)
+		require.True(t, ok)
+		conn, _, err := hj.Hijack()
+		require.NoError(t, err)
+		_ = conn.Close()
+	}))
+	defer srv.Close()
+
+	_, err := FetchOpenAPIDocument(context.Background(), srv.URL+"/spec.json?token=SUPERSECRET")
+	require.Error(t, err)
+	require.NotContains(t, err.Error(), "SUPERSECRET", "the query token must not appear in the error")
+}
+
 // TestFetchOpenAPIDocument_Limits covers the size and redirect bounds.
 func TestFetchOpenAPIDocument_Limits(t *testing.T) {
 	withLocalSources(t, true)

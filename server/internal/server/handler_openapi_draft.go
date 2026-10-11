@@ -42,6 +42,21 @@ func (s *Server) proxyOpenAPIDraft(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"error": gin.H{"code": "NOT_FOUND", "message": "provider not found"}})
 		return
 	}
+
+	// On the MCP path an agent may only draft a provider bound to its own
+	// project as an external source — the same scoping proxyListProviders
+	// applies, so an agent cannot probe the rest of the catalog by id. The
+	// /api/me path is the user's own settings surface and keeps the full
+	// catalog, exactly as the list handler does. (Providers carry no per-user
+	// owner: the catalog is global, and per-user state lives in the
+	// write-preference rows.)
+	if wsID := c.GetInt64("mcp_workspace_id"); wsID > 0 {
+		if !s.workspaceSourceProviderNames(c.Request.Context(), wsID)[prov.Name] {
+			c.JSON(http.StatusNotFound, gin.H{"error": gin.H{"code": "NOT_FOUND", "message": "provider not found"}})
+			return
+		}
+	}
+
 	if strings.TrimSpace(prov.OpenAPIURL) == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{
 			"code":    "NO_OPENAPI_URL",

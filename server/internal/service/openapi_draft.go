@@ -38,6 +38,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -96,11 +97,15 @@ func FetchOpenAPIDocument(ctx context.Context, rawURL string) ([]byte, error) {
 	}
 	u, err := url.Parse(raw)
 	if err != nil {
-		return nil, fmt.Errorf("openapi: invalid url: %w", err)
+		return nil, fmt.Errorf("openapi: invalid url")
 	}
 	if u.Scheme != "http" && u.Scheme != "https" {
 		return nil, fmt.Errorf("openapi: unsupported scheme %q (use http or https)", u.Scheme)
 	}
+	// Every message below names the document by its redacted form: an OpenAPI
+	// url is frequently a signed/authenticated link (?token=…) or carries
+	// userinfo, and neither belongs in an error surfaced to a client or a log.
+	safe := redactDocURL(raw)
 
 	client := NewSSRFGuardedClient(10*time.Second, openAPIFetchTimeout)
 	hops := 0
@@ -116,14 +121,18 @@ func FetchOpenAPIDocument(ctx context.Context, rawURL string) ([]byte, error) {
 	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, raw, nil)
 	if err != nil {
-		return nil, fmt.Errorf("openapi: build request: %w", err)
+		return nil, fmt.Errorf("openapi: build request for %s: %w", safe, err)
 	}
 	req.Header.Set("Accept", "application/json, application/yaml, text/yaml, */*")
 	req.Header.Set("User-Agent", "niuniu-openapi-draft")
 
 	resp, err := client.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("openapi: fetch: %w", err)
+		// http.Client wraps transport errors in *url.Error, whose message
+		// repeats the request url (Go redacts the password but keeps the
+		// username and any query token). Unwrap to the cause so the credential
+		// never reaches the message.
+		return nil, fmt.Errorf("openapi: fetch %s: %w", safe, unwrapURLError(err))
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
@@ -137,6 +146,33 @@ func FetchOpenAPIDocument(ctx context.Context, rawURL string) ([]byte, error) {
 		return nil, fmt.Errorf("openapi: document exceeds %d bytes", openAPIMaxDocBytes)
 	}
 	return body, nil
+}
+
+// redactDocURL strips userinfo and the query/fragment from a document url so it
+// can be echoed safely in a draft or an error message. An OpenAPI url is often
+// a signed/authenticated link, so the credential-bearing parts are dropped
+// rather than passed through.
+func redactDocURL(raw string) string {
+	u, err := url.Parse(strings.TrimSpace(raw))
+	if err != nil {
+		return ""
+	}
+	u.User = nil
+	u.RawQuery = ""
+	u.ForceQuery = false
+	u.Fragment = ""
+	u.RawFragment = ""
+	return u.String()
+}
+
+// unwrapURLError returns the underlying cause of an *url.Error, dropping the
+// repeated (credential-bearing) url from the message.
+func unwrapURLError(err error) error {
+	var ue *url.Error
+	if errors.As(err, &ue) && ue.Err != nil {
+		return ue.Err
+	}
+	return err
 }
 
 // --- draft output types -----------------------------------------------------
@@ -395,8 +431,10 @@ func ParseOpenAPIDocument(sourceURL string, body []byte) (*IntegrationDocDraft, 
 	}
 
 	sum := sha256.Sum256(trimmed)
+	// The echoed source url is redacted (see redactDocURL) so a signed document
+	// link cannot leak through the draft payload.
 	draft := &IntegrationDocDraft{
-		SourceURL: strings.TrimSpace(sourceURL),
+		SourceURL: redactDocURL(sourceURL),
 		SpecKind:  specKind,
 		Title:     truncateText(doc.Info.Title, openAPIMaxFreeText),
 		Version:   truncateText(doc.Info.Version, 64),
