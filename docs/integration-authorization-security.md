@@ -97,8 +97,35 @@ Provider 线的最小起步沿用既有语义：空白名单即 GET-only（`IsAl
 操作项**不含** summary/description 等描述性文本——它们是文档/模型写的，属于建议区。
 决策区里留下的 `method + path + read_only + name` 才是"用户看到的 = 将被执行的"。
 
-`DecisionPayload(m)` 产出审阅者实际批准的那串字节：按构造丢弃建议区。回归测试断言投毒
-文本（`IGNORE` / `DELETE /admin`）不可能出现在其中。
+### 4.1.1 展示标签 vs 授权内容
+
+决策区里有两类字段，**只有一类构成授权**：
+
+| | 字段 | 性质 |
+|---|---|---|
+| **授权内容** | 操作 `method` + `path`、scope 值 | 代理实际强制执行的边界 |
+| **展示标签** | `title`、操作 `name`、风险的 `target` | 只为让人认出在批什么，**本身不授予任何权限** |
+
+展示标签可能来自文档（`operationId`）或用户填的名称，所以**不得当作安全声明读**——
+`name: "safe_readonly_lookup"` 完全可以对应 `DELETE /admin/users`，真正被强制的是
+method + path。
+
+**给 #734 的硬规则**：`Title` / `Label` 只能取自用户输入或 provider 标识符，**不得取自
+文档prose 或模型叙述**——否则投毒方能把"内部可信 API"这类帽子扣到一组危险操作上。
+风险项要指名道姓时用 `Name`（标识符）而不是 `Label`（显示名），这一点构造器已强制
+（见 `structuredName`）。
+
+`DecisionPayload(m)` 产出审阅者实际批准的那串字节：按构造丢弃建议区。回归测试两层断言：
+(a) 投毒文本（`IGNORE` / `DELETE /admin`）不出现在其中；(b) **只改建议区、决策字节
+逐字节不变**（`TestDecisionPayload_IsIndependentOfAdvisory`）——后者才是不变式，前者只是
+抽样。
+
+### 4.1.2 描述性不可信文本不上授权卡
+
+操作 summary、模型叙述这类**描述性**（非指令性）不可信文本，**刻意不在授权卡上渲染**：
+它们既不进决策区，也不进建议区（建议区只放被隔离的指令性文本）。能力说明归
+#738 的能力说明面，不归授予决策面——授权卡上少一个投毒面，就少一次"用户以为在批 A、
+实际批了 B"的机会。
 
 ### 4.2 高危项逐项勾选、默认不勾
 
@@ -119,16 +146,20 @@ Provider 线的最小起步沿用既有语义：空白名单即 GET-only（`IsAl
 
 #734 的草稿流水线在"影响范围确认"这一步：
 
-1. 从草稿的结构化字段构造 `ConfirmDraftInput`（契约 / `scope_config` / `DocDeclaredOperations`
-   / `DocDeclaredHost` / `Origin` / `Advisory` / `Previous`）；
-2. `model := service.BuildConfirmCard(input)`——**这是唯一的构造点**，不要在 #734 里另
+1. **先过 lint**：`service.ValidateContract(contract)`（= `LintContract` 的 error 级）
+   必须在构造卡片之前挡住不可发布的契约；卡片是给人看的，不是校验器。
+2. 从草稿的结构化字段构造 `ConfirmDraftInput`（契约 / `scope_config` / `DocDeclaredOperations`
+   / `DocDeclaredHost` / `Origin` / `Advisory` / `Previous`）；`DocDeclaredOperations` 必须
+   来自文档的**结构化**段落（OpenAPI 的 `paths`），不是从 prose 里猜的。
+3. `model := service.BuildConfirmCard(input)`——**这是唯一的构造点**，不要在 #734 里另
    写一套渲染；
-3. 把 `model` 原样下发（JSON 字段名见 `src/types/integration-confirm.ts`），前端用
+4. 把 `model` 原样下发（JSON 字段名见 `src/types/integration-confirm.ts`），前端用
    `<IntegrationConfirmCard model={model} onDecide={...} />` 渲染；
-4. 批准后落库与审计用 `service.DecisionPayload(model)`——**不要**用 `json.Marshal(model)`，
+5. 批准后落库与审计用 `service.DecisionPayload(model)`——**不要**用 `json.Marshal(model)`，
    那会把建议区一起写进批准记录。
 
-AI 侧不得自行拼装或改写卡片文案；文案全部来自 i18n + 结构化字段。
+AI 侧不得自行拼装或改写卡片文案；文案全部来自 i18n + 结构化字段。`Title`/`Label` 的取值
+规则见 §4.1.1。
 
 ### 4.4 行为预演一致性（与 #739 协同）
 

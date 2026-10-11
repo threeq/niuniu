@@ -110,18 +110,28 @@ type ConfirmDraftInput struct {
 
 	// Origin is the provenance of the document this draft came from.
 	Origin UntrustedOrigin
-	// Advisory is untrusted free text (doc prose, model narrative). It is shown
-	// in a separate region and never enters a decision field.
+	// Advisory carries the QUARANTINED chunks — untrusted text that reads as an
+	// instruction, held back by IngestUntrustedDoc. It is shown in a separate
+	// region and never enters a decision field.
+	//
+	// Plain descriptive prose (operation summaries, model narrative) has no
+	// place here either: descriptive untrusted text is deliberately not
+	// rendered on the authorization card at all. It belongs to the
+	// capability-description surface (#738), not to a grant decision.
 	Advisory []QuarantinedChunk
 
 	// Previous is the published state, or nil when creating.
 	Previous *PublishedState
 }
 
-// ConfirmOperation is one operation in the decision area. It carries only the
-// fields the proxy enforces; the document's prose about the operation stays in
-// the advisory region.
+// ConfirmOperation is one operation in the decision area. Method and Path are
+// the identity the proxy enforces; Name is a display label (typically the
+// document's operationId) with no authority of its own. The document's prose
+// about the operation never appears here.
 type ConfirmOperation struct {
+	// Name is a display label. It may originate from the document, so it must
+	// never be read as a security claim — the enforced identity is
+	// Method + Path.
 	Name     string `json:"name"`
 	Method   string `json:"method"`
 	Path     string `json:"path"`
@@ -161,8 +171,16 @@ type ConfirmRisk struct {
 // ConfirmCardModel is the only thing the confirmation card renders. Every field
 // is derived from a structured source. Advisory is the sole free-text field and
 // is displayed outside the decision area.
+//
+// Display labels vs authority: Title, ConfirmOperation.Name and ConfirmRisk
+// targets exist so a human can recognise what they are approving — they carry
+// no authority. The fields the proxy actually enforces are the operation
+// method/path and the scope values; those are what an approval grants.
 type ConfirmCardModel struct {
-	Kind       string             `json:"kind"`
+	Kind string `json:"kind"`
+	// Title is a display label for the integration. Callers must derive it from
+	// the user or the provider identifier — never from document prose or model
+	// narrative, which can mislabel what the operations actually do.
 	Title      string             `json:"title"`
 	Subtitle   string             `json:"subtitle,omitempty"`
 	Origin     UntrustedOrigin    `json:"origin"`
@@ -202,7 +220,7 @@ func BuildConfirmCard(in ConfirmDraftInput) ConfirmCardModel {
 		m.Risks = append(m.Risks, ConfirmRisk{
 			Code:     RiskWriteEnabled,
 			Severity: RiskSeverityHigh,
-			Target:   confirmTitle(in),
+			Target:   structuredName(in),
 			AckKey:   RiskWriteEnabled,
 		})
 	}
@@ -285,6 +303,16 @@ func confirmTitle(in ConfirmDraftInput) string {
 		if t := strings.TrimSpace(s); t != "" {
 			return t
 		}
+	}
+	return string(in.Kind)
+}
+
+// structuredName is the integration's identifier — the name credentials and the
+// API reference. Unlike the display label it is never model-authored, so it is
+// the right subject for a risk that must name its target unambiguously.
+func structuredName(in ConfirmDraftInput) string {
+	if name := strings.TrimSpace(in.Name); name != "" {
+		return name
 	}
 	return string(in.Kind)
 }

@@ -154,7 +154,6 @@ export function IntegrationConfirmCard({ model, onDecide, pending = false }: Pro
                 {model.risks.map((risk) => (
                   <RiskRow
                     key={risk.ack_key}
-                    risk={risk}
                     label={riskLabel(risk)}
                     checked={Boolean(acknowledged[risk.ack_key])}
                     disabled={pending}
@@ -208,13 +207,11 @@ function SourceRow({ origin }: { origin: UntrustedOrigin }) {
 }
 
 function RiskRow({
-  risk,
   label,
   checked,
   disabled,
   onCheckedChange,
 }: {
-  risk: ConfirmRisk;
   label: string;
   checked: boolean;
   disabled: boolean;
@@ -232,7 +229,6 @@ function RiskRow({
       />
       <Label htmlFor={id} className="text-xs font-normal leading-snug">
         <span className="font-medium text-warning">{label}</span>
-        <code className="ml-2 text-warm-text-muted">{risk.ack_key}</code>
       </Label>
     </li>
   );

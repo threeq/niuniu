@@ -72,7 +72,7 @@
     {
       "code": "write_enabled",
       "severity": "high",
-      "target": "Pets",
+      "target": "pets",
       "ack_key": "write_enabled"
     }
   ]

@@ -106,3 +106,27 @@
    否则审阅者会漏看一次权限回收。已改为遍历两侧键的并集，并补
    `TestScopeDiff_ReportsARevokedKey`。教训：差异渲染要按**并集**做，只按"新值"遍历会
    系统性漏掉删除项。
+
+### 第 2 轮 — 审查轮（2026-10-11）
+
+逐行复读 `integration_confirm.go` + 组件，四项发现（全部就地修复）：
+
+| # | 发现 | 处置 |
+|---|---|---|
+| R-1 | `write_enabled` 风险的 `Target` 取了**显示名**（`Label`，可由模型/文档提供），把自由文本塞进了本应是结构化的字段 | 改用 `structuredName`（=`Name` 标识符，非模型产出）；golden 随之更新 |
+| R-2 | 「展示标签 vs 授权内容」的分野此前只存在于实现者脑内，没有写进契约 | 写入实现文档 §4.1.1 + 类型注释；并给 #734 定死规则：`Title`/`Label` 只能取自用户输入或 provider 标识符 |
+| R-3 | 「不可信文本不影响决策」只有字符串抽样断言（`Contains("DELETE")`），强度不足 | 新增 `TestDecisionPayload_IsIndependentOfAdvisory`：只改建议区，批准字节**逐字节不变** |
+| R-4 | UI 上裸露渲染机器键 `ack_key`（`new_write_operation:POST /pets`），与标签重复且不符设计系统 | 移除该展示；键仍保留在协议载荷里作稳定标识 |
+
+**本轮复核结论（记下来避免重复劳动）**：
+
+- 决策区里**没有任何字段承担授权**的同时又是自由文本：授权只由 `method`/`path`/scope 值
+  构成，三者全部来自结构化输入。`Title` / `Operation.Name` / `Risk.Target` 是展示标签，
+  已显式标注"不得当作安全声明读"。
+- 描述性不可信文本（operation summary、模型叙述）**刻意不上授权卡**——这是设计选择而非
+  遗漏，归 #738 的能力说明面。授权卡上少一个投毒面就少一次误批。
+- 残余风险已如实记录：RT-06（回滚复权）、RT-07（确认卡重放）仍待 #734。R-1/R-3 修完后
+  重跑：Go 全绿（含新用例）、vitest 9/9、tsc 0、eslint 0。
+
+**验证**（本轮实际执行）：`go vet` 干净 · Go 安全测试含 `TestDecisionPayload_IsIndependentOfAdvisory`
+与 `TestScopeDiff_ReportsARevokedKey` 全绿 · vitest 9/9 · `tsc -b` 0 · eslint 0。
