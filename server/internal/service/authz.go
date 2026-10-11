@@ -481,6 +481,20 @@ func (a *Authz) IsOrgManagerSomewhere(ctx context.Context, userID int64) (bool, 
 	return true, nil
 }
 
+// EnsureOrgAuditReadable is the read gate for the org-wide integration audit
+// view (#743). It is deliberately STRICTER than EnsureOwnerReadable: the feed
+// exposes what every member called, when, and with which credential, so an
+// org's activity is limited to those who administer the org rather than every
+// member.
+//
+//	org → owner/admin of that org, or a global admin (CanManageOrg)
+//
+// There is no personal-edition equivalent: the routes themselves live under
+// the license-gated /orgs group, so a personal build never reaches this.
+func (a *Authz) EnsureOrgAuditReadable(ctx context.Context, userID, orgID int64) error {
+	return a.CanManageOrg(ctx, userID, orgID)
+}
+
 // EnsureOwnerWritable verifies userID may write to resources owned by owner.
 // Per spec §6.5:
 //   - personal: owner.ID must equal userID.

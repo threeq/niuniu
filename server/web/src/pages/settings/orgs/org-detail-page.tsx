@@ -12,9 +12,17 @@ import { TabMembers } from './tab-members'
 import { TabResources } from './tab-resources'
 import { TabAudit } from './tab-audit'
 import { TabApprovals } from './tab-approvals'
+import { TabActivity } from './tab-activity'
 import { TabDanger } from './tab-danger'
 
-type OrgTab = 'general' | 'members' | 'resources' | 'approvals' | 'audit' | 'danger'
+type OrgTab =
+  | 'general'
+  | 'members'
+  | 'resources'
+  | 'approvals'
+  | 'activity'
+  | 'audit'
+  | 'danger'
 
 interface OrgDetailPageProps {
   slug: string
@@ -48,6 +56,7 @@ export function OrgDetailPage({ slug }: OrgDetailPageProps) {
     { id: 'members', label: t('detail.tabs.members') },
     { id: 'resources', label: t('detail.tabs.resources') },
     { id: 'approvals', label: t('approvals.tab') },
+    { id: 'activity', label: t('activity.tab') },
     { id: 'audit', label: t('detail.tabs.audit') },
     { id: 'danger', label: t('detail.tabs.danger') },
   ]
@@ -125,6 +134,7 @@ export function OrgDetailPage({ slug }: OrgDetailPageProps) {
           {activeTab === 'members' && <TabMembers org={org} role={role} />}
           {activeTab === 'resources' && <TabResources org={org} />}
           {activeTab === 'approvals' && <TabApprovals org={org} role={role} />}
+          {activeTab === 'activity' && <TabActivity org={org} role={role} />}
           {activeTab === 'audit' && <TabAudit org={org} role={role} />}
           {activeTab === 'danger' && (
             <TabDanger org={org} role={role} members={members} />

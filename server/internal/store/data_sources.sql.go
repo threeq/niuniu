@@ -9,6 +9,7 @@ import (
 	"context"
 	"database/sql"
 	"strings"
+	"time"
 )
 
 const countDataSourceAudit = `-- name: CountDataSourceAudit :one
@@ -51,6 +52,54 @@ type CountDataSourceBindingParams struct {
 
 func (q *Queries) CountDataSourceBinding(ctx context.Context, arg CountDataSourceBindingParams) (int64, error) {
 	row := q.db.QueryRowContext(ctx, countDataSourceBinding, arg.SourceID, arg.TargetType, arg.TargetID)
+	var n int64
+	err := row.Scan(&n)
+	return n, err
+}
+
+const countOrgDataSourceAudit = `-- name: CountOrgDataSourceAudit :one
+SELECT COUNT(*) AS n
+FROM data_source_audit d
+JOIN org_members m ON m.user_id = d.user_id AND m.org_id = ?1
+LEFT JOIN data_sources s ON s.id = d.source_id
+WHERE (CAST(?2 AS BIGINT) = 0 OR d.user_id = ?2)
+  AND (CAST(?3 AS BIGINT) = 0 OR d.source_id = ?3)
+  AND (CAST(?4 AS BIGINT) = 0
+       OR d.source_id IN (
+            SELECT b.source_id FROM data_source_bindings b
+            WHERE b.target_type = 'project'
+              AND b.target_id = ?4))
+  AND (CAST(?5 AS TEXT) = ''
+       OR COALESCE(s.owner_type, '') = CAST(?5 AS TEXT))
+  AND (CAST(?6 AS TEXT) = ''
+       OR (?6 = 'ok' AND d.status = 'ok')
+       OR (?6 = 'error' AND d.status <> 'ok'))
+  AND d.created_at >= COALESCE(?7, d.created_at)
+  AND d.created_at <= COALESCE(?8, d.created_at)
+`
+
+type CountOrgDataSourceAuditParams struct {
+	OrgID           int64        `json:"org_id"`
+	MemberID        int64        `json:"member_id"`
+	SourceID        int64        `json:"source_id"`
+	ProjectID       int64        `json:"project_id"`
+	CredentialScope string       `json:"credential_scope"`
+	Outcome         string       `json:"outcome"`
+	FromTs          sql.NullTime `json:"from_ts"`
+	ToTs            sql.NullTime `json:"to_ts"`
+}
+
+func (q *Queries) CountOrgDataSourceAudit(ctx context.Context, arg CountOrgDataSourceAuditParams) (int64, error) {
+	row := q.db.QueryRowContext(ctx, countOrgDataSourceAudit,
+		arg.OrgID,
+		arg.MemberID,
+		arg.SourceID,
+		arg.ProjectID,
+		arg.CredentialScope,
+		arg.Outcome,
+		arg.FromTs,
+		arg.ToTs,
+	)
 	var n int64
 	err := row.Scan(&n)
 	return n, err
@@ -394,6 +443,120 @@ func (q *Queries) ListDataSourcesForOwners(ctx context.Context, arg ListDataSour
 			&i.LastVerifiedAt,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listOrgDataSourceAudit = `-- name: ListOrgDataSourceAudit :many
+SELECT
+    d.id, d.user_id, d.source_id, d.access_mode, d.database_name, d.objects,
+    d.statement_summary, d.status, d.rows, d.duration_ms, d.created_at,
+    COALESCE(s.owner_type, '') AS source_owner_type,
+    COALESCE(s.owner_id, 0)    AS source_owner_id,
+    COALESCE(s.name, '')       AS source_name
+FROM data_source_audit d
+JOIN org_members m ON m.user_id = d.user_id AND m.org_id = ?1
+LEFT JOIN data_sources s ON s.id = d.source_id
+WHERE (CAST(?2 AS BIGINT) = 0 OR d.user_id = ?2)
+  AND (CAST(?3 AS BIGINT) = 0 OR d.source_id = ?3)
+  AND (CAST(?4 AS BIGINT) = 0
+       OR d.source_id IN (
+            SELECT b.source_id FROM data_source_bindings b
+            WHERE b.target_type = 'project'
+              AND b.target_id = ?4))
+  AND (CAST(?5 AS TEXT) = ''
+       OR COALESCE(s.owner_type, '') = CAST(?5 AS TEXT))
+  AND (CAST(?6 AS TEXT) = ''
+       OR (?6 = 'ok' AND d.status = 'ok')
+       OR (?6 = 'error' AND d.status <> 'ok'))
+  AND d.created_at >= COALESCE(?7, d.created_at)
+  AND d.created_at <= COALESCE(?8, d.created_at)
+ORDER BY d.id DESC
+LIMIT ?10 OFFSET ?9
+`
+
+type ListOrgDataSourceAuditParams struct {
+	OrgID           int64        `json:"org_id"`
+	MemberID        int64        `json:"member_id"`
+	SourceID        int64        `json:"source_id"`
+	ProjectID       int64        `json:"project_id"`
+	CredentialScope string       `json:"credential_scope"`
+	Outcome         string       `json:"outcome"`
+	FromTs          sql.NullTime `json:"from_ts"`
+	ToTs            sql.NullTime `json:"to_ts"`
+	Off             int64        `json:"off"`
+	Lim             int64        `json:"lim"`
+}
+
+type ListOrgDataSourceAuditRow struct {
+	ID               int64     `json:"id"`
+	UserID           int64     `json:"user_id"`
+	SourceID         int64     `json:"source_id"`
+	AccessMode       string    `json:"access_mode"`
+	DatabaseName     string    `json:"database_name"`
+	Objects          string    `json:"objects"`
+	StatementSummary string    `json:"statement_summary"`
+	Status           string    `json:"status"`
+	Rows             int64     `json:"rows"`
+	DurationMs       int64     `json:"duration_ms"`
+	CreatedAt        time.Time `json:"created_at"`
+	SourceOwnerType  string    `json:"source_owner_type"`
+	SourceOwnerID    int64     `json:"source_owner_id"`
+	SourceName       string    `json:"source_name"`
+}
+
+// Team-edition cross-user data-query audit feed (#743), mirroring
+// ListOrgExternalApiAudit. Scoped to the members of org_id; rows carry the
+// data source's owner so credential_scope ('user' / 'org') can narrow the feed
+// to queries against the organization's own sources. outcome maps onto the
+// proxy's own status vocabulary: 'ok' or 'error'. project_id narrows to the
+// sources BOUND to that project, resolved through data_source_bindings (the
+// same binding that scopes a source to a workspace's agent).
+func (q *Queries) ListOrgDataSourceAudit(ctx context.Context, arg ListOrgDataSourceAuditParams) ([]ListOrgDataSourceAuditRow, error) {
+	rows, err := q.db.QueryContext(ctx, listOrgDataSourceAudit,
+		arg.OrgID,
+		arg.MemberID,
+		arg.SourceID,
+		arg.ProjectID,
+		arg.CredentialScope,
+		arg.Outcome,
+		arg.FromTs,
+		arg.ToTs,
+		arg.Off,
+		arg.Lim,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListOrgDataSourceAuditRow{}
+	for rows.Next() {
+		var i ListOrgDataSourceAuditRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.UserID,
+			&i.SourceID,
+			&i.AccessMode,
+			&i.DatabaseName,
+			&i.Objects,
+			&i.StatementSummary,
+			&i.Status,
+			&i.Rows,
+			&i.DurationMs,
+			&i.CreatedAt,
+			&i.SourceOwnerType,
+			&i.SourceOwnerID,
+			&i.SourceName,
 		); err != nil {
 			return nil, err
 		}

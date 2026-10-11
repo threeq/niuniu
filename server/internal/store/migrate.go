@@ -3757,6 +3757,13 @@ func MigrateExternalProviders(db *sql.DB) error {
 	addColumnIfNotExists(db, "external_api_audit", "body_bytes", intCol+" NOT NULL DEFAULT 0")
 	addColumnIfNotExists(db, "external_api_audit", "body_fields", "TEXT NOT NULL DEFAULT '[]'")
 
+	// Credential attribution on the proxy audit (#743). Rows written before
+	// this column existed keep credential_id = 0 and are reported as
+	// "unattributed" by the team-edition audit view rather than being guessed
+	// at. No index: the org feed joins this column to
+	// external_provider_credentials by primary key, not by scan.
+	addColumnIfNotExists(db, "external_api_audit", "credential_id", intCol+" NOT NULL DEFAULT 0")
+
 	// Add audit indexes regardless — fresh installs need them, and
 	// existing DBs that ran the migration before indexes were added
 	// will pick them up here.

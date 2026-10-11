@@ -372,6 +372,16 @@ func (s *Server) setupRoutes() {
 		orgs.GET("/:id/integration-approvals/:req_id", s.approvalHandler.Get)
 		orgs.POST("/:id/integration-approvals/:req_id/decision", s.approvalHandler.Decide)
 		orgs.DELETE("/:id/integration-approvals/:req_id", s.approvalHandler.Cancel)
+
+		// Cross-user integration audit view (team edition, issue #743):
+		// "who called what, when, with which of the org's credentials, and how
+		// did it end", merged with the approval decisions #741 wrote to the org
+		// audit log. Admin-only -- the service gate answers 403 for a plain
+		// member -- and the /orgs group itself is license-gated, so a personal
+		// build has no such view at all. Read-only by construction: there is
+		// deliberately no mutating route for audit records.
+		orgs.GET("/:id/integration-activity", s.orgIntegrationActivity)
+		orgs.GET("/:id/integration-activity/export", s.orgIntegrationActivityExport)
 	}
 
 	// Me routes

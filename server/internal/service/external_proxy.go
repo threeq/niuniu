@@ -281,17 +281,24 @@ func (s *ExternalProxyService) Call(ctx context.Context, in ProxyInput) (*ProxyO
 	// names, never values) is what lets the activity view answer "what shape of
 	// data left this machine" without the audit table itself becoming a
 	// secondary copy of the payload. See Epic #726 / #747.
+	//
+	// credential_id records WHICH credential authenticated the call. The
+	// provider is a global definition; the credential is the owned one, so this
+	// is what lets the team-edition view (#743) attribute a call to "one of the
+	// organization's credentials" -- or to the member's own -- exactly, rather
+	// than inferring it from a (user, provider) pair that may match several.
 	statusCode := int64(resp.StatusCode)
 	fp := fingerprintBody(bodyBytes)
 	if err := s.q.CreateAuditLog(ctx, store.CreateAuditLogParams{
-		UserID:     in.UserID,
-		ProviderID: prov.ID,
-		Method:     strings.ToUpper(in.Method),
-		Path:       in.Path,
-		StatusCode: statusCode,
-		BodySha256: fp.sha256,
-		BodyBytes:  fp.bytes,
-		BodyFields: fp.fields,
+		UserID:       in.UserID,
+		ProviderID:   prov.ID,
+		CredentialID: cred.ID,
+		Method:       strings.ToUpper(in.Method),
+		Path:         in.Path,
+		StatusCode:   statusCode,
+		BodySha256:   fp.sha256,
+		BodyBytes:    fp.bytes,
+		BodyFields:   fp.fields,
 	}); err != nil {
 		slog.Warn("external proxy audit log write failed", "error", err)
 	}

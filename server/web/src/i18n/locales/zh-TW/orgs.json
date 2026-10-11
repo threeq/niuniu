@@ -148,5 +148,58 @@
     "deny": "拒絕",
     "selfDecide": "您是發起人，不能批准自己的申請。",
     "notPermitted": "您的角色無權批准此項。"
+  },
+  "activity": {
+    "tab": "整合活動",
+    "hint": "組織內成員使用整合時的稽核記錄：誰、何時、用了哪份憑證、呼叫了什麼、結果如何。審批決定同樣留痕。記錄只增不改、不可刪，可匯出留存。",
+    "noPermission": "僅組織擁有者與管理員可檢視跨使用者稽核。",
+    "loading": "載入中…",
+    "empty": "目前篩選條件下沒有整合活動。",
+    "loadFailed": "載入失敗：{{error}}",
+    "export": "匯出 CSV",
+    "exporting": "匯出中…",
+    "exportFailed": "匯出失敗：{{error}}",
+    "exportDone": "已匯出 {{count}} 筆記錄",
+    "filters": {
+      "kind": "類型",
+      "kindAll": "全部類型",
+      "member": "成員",
+      "memberAll": "全部成員",
+      "project": "專案",
+      "projectAll": "全部專案",
+      "credentialScope": "憑證歸屬",
+      "credentialScopeAll": "全部憑證",
+      "outcome": "結果",
+      "outcomeAll": "全部結果",
+      "from": "開始日期",
+      "to": "結束日期",
+      "clear": "清除篩選"
+    },
+    "kinds": {
+      "api": "外部 API",
+      "data": "資料查詢",
+      "approval": "審批"
+    },
+    "outcomes": {
+      "ok": "成功",
+      "error": "失敗",
+      "pending": "待處理"
+    },
+    "scope": {
+      "org": "組織憑證",
+      "personal": "個人憑證"
+    },
+    "fingerprint": "載荷指紋",
+    "fingerprintDetail": "SHA-256 {{sha}} · {{bytes}} 位元組 · 頂層欄位：{{fields}}",
+    "fingerprintNone": "無請求主體",
+    "rows": "{{count}} 列",
+    "duration": "{{ms}} ms",
+    "requestedBy": "申請人：{{user}}",
+    "unknownUser": "使用者 #{{id}}",
+    "page": "共 {{total}} 筆",
+    "prev": "上一頁",
+    "next": "下一頁",
+    "selfAction": "本人",
+    "auditNote": "匯出行為本身也會記入組織稽核日誌。"
   }
 }

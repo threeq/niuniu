@@ -48,6 +48,60 @@ WHERE user_id = sqlc.arg(user_id)
   AND created_at >= COALESCE(sqlc.narg(from_ts), created_at)
   AND created_at <= COALESCE(sqlc.narg(to_ts), created_at);
 
+-- name: ListOrgDataSourceAudit :many
+-- Team-edition cross-user data-query audit feed (#743), mirroring
+-- ListOrgExternalApiAudit. Scoped to the members of org_id; rows carry the
+-- data source's owner so credential_scope ('user' / 'org') can narrow the feed
+-- to queries against the organization's own sources. outcome maps onto the
+-- proxy's own status vocabulary: 'ok' or 'error'. project_id narrows to the
+-- sources BOUND to that project, resolved through data_source_bindings (the
+-- same binding that scopes a source to a workspace's agent).
+SELECT
+    d.id, d.user_id, d.source_id, d.access_mode, d.database_name, d.objects,
+    d.statement_summary, d.status, d.rows, d.duration_ms, d.created_at,
+    COALESCE(s.owner_type, '') AS source_owner_type,
+    COALESCE(s.owner_id, 0)    AS source_owner_id,
+    COALESCE(s.name, '')       AS source_name
+FROM data_source_audit d
+JOIN org_members m ON m.user_id = d.user_id AND m.org_id = sqlc.arg(org_id)
+LEFT JOIN data_sources s ON s.id = d.source_id
+WHERE (CAST(sqlc.arg(member_id) AS BIGINT) = 0 OR d.user_id = sqlc.arg(member_id))
+  AND (CAST(sqlc.arg(source_id) AS BIGINT) = 0 OR d.source_id = sqlc.arg(source_id))
+  AND (CAST(sqlc.arg(project_id) AS BIGINT) = 0
+       OR d.source_id IN (
+            SELECT b.source_id FROM data_source_bindings b
+            WHERE b.target_type = 'project'
+              AND b.target_id = sqlc.arg(project_id)))
+  AND (CAST(sqlc.arg(credential_scope) AS TEXT) = ''
+       OR COALESCE(s.owner_type, '') = CAST(sqlc.arg(credential_scope) AS TEXT))
+  AND (CAST(sqlc.arg(outcome) AS TEXT) = ''
+       OR (sqlc.arg(outcome) = 'ok' AND d.status = 'ok')
+       OR (sqlc.arg(outcome) = 'error' AND d.status <> 'ok'))
+  AND d.created_at >= COALESCE(sqlc.narg(from_ts), d.created_at)
+  AND d.created_at <= COALESCE(sqlc.narg(to_ts), d.created_at)
+ORDER BY d.id DESC
+LIMIT sqlc.arg(lim) OFFSET sqlc.arg(off);
+
+-- name: CountOrgDataSourceAudit :one
+SELECT COUNT(*) AS n
+FROM data_source_audit d
+JOIN org_members m ON m.user_id = d.user_id AND m.org_id = sqlc.arg(org_id)
+LEFT JOIN data_sources s ON s.id = d.source_id
+WHERE (CAST(sqlc.arg(member_id) AS BIGINT) = 0 OR d.user_id = sqlc.arg(member_id))
+  AND (CAST(sqlc.arg(source_id) AS BIGINT) = 0 OR d.source_id = sqlc.arg(source_id))
+  AND (CAST(sqlc.arg(project_id) AS BIGINT) = 0
+       OR d.source_id IN (
+            SELECT b.source_id FROM data_source_bindings b
+            WHERE b.target_type = 'project'
+              AND b.target_id = sqlc.arg(project_id)))
+  AND (CAST(sqlc.arg(credential_scope) AS TEXT) = ''
+       OR COALESCE(s.owner_type, '') = CAST(sqlc.arg(credential_scope) AS TEXT))
+  AND (CAST(sqlc.arg(outcome) AS TEXT) = ''
+       OR (sqlc.arg(outcome) = 'ok' AND d.status = 'ok')
+       OR (sqlc.arg(outcome) = 'error' AND d.status <> 'ok'))
+  AND d.created_at >= COALESCE(sqlc.narg(from_ts), d.created_at)
+  AND d.created_at <= COALESCE(sqlc.narg(to_ts), d.created_at);
+
 -- name: ListDataSourceNamesByIDs :many
 -- id -> name map for rendering the audit feed's source column. Never selects
 -- config/scope_config, so no credential material can leak through it.
