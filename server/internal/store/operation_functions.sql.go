@@ -7,6 +7,7 @@ package store
 
 import (
 	"context"
+	"database/sql"
 	"time"
 )
 
@@ -19,6 +20,33 @@ WHERE id = ?1
 func (q *Queries) ActivateIntegrationFunctionVersion(ctx context.Context, id int64) error {
 	_, err := q.db.ExecContext(ctx, activateIntegrationFunctionVersion, id)
 	return err
+}
+
+const countFunctionCallAuditByUser = `-- name: CountFunctionCallAuditByUser :one
+SELECT COUNT(*) AS n FROM function_call_audit
+WHERE user_id = ?1
+  AND (CAST(?2 AS BIGINT) = 0 OR provider_id = ?2)
+  AND created_at >= COALESCE(?3, created_at)
+  AND created_at <= COALESCE(?4, created_at)
+`
+
+type CountFunctionCallAuditByUserParams struct {
+	UserID     int64        `json:"user_id"`
+	ProviderID int64        `json:"provider_id"`
+	FromTs     sql.NullTime `json:"from_ts"`
+	ToTs       sql.NullTime `json:"to_ts"`
+}
+
+func (q *Queries) CountFunctionCallAuditByUser(ctx context.Context, arg CountFunctionCallAuditByUserParams) (int64, error) {
+	row := q.db.QueryRowContext(ctx, countFunctionCallAuditByUser,
+		arg.UserID,
+		arg.ProviderID,
+		arg.FromTs,
+		arg.ToTs,
+	)
+	var n int64
+	err := row.Scan(&n)
+	return n, err
 }
 
 const countFunctionCallsSince = `-- name: CountFunctionCallsSince :one
@@ -625,6 +653,88 @@ type ListFunctionCallAuditParams struct {
 
 func (q *Queries) ListFunctionCallAudit(ctx context.Context, arg ListFunctionCallAuditParams) ([]FunctionCallAudit, error) {
 	rows, err := q.db.QueryContext(ctx, listFunctionCallAudit, arg.OwnerType, arg.OwnerID, arg.LimitCount)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []FunctionCallAudit{}
+	for rows.Next() {
+		var i FunctionCallAudit
+		if err := rows.Scan(
+			&i.ID,
+			&i.OwnerType,
+			&i.OwnerID,
+			&i.UserID,
+			&i.FunctionID,
+			&i.ProviderID,
+			&i.FunctionName,
+			&i.ProviderName,
+			&i.WorkspaceID,
+			&i.Caller,
+			&i.Status,
+			&i.ErrorCode,
+			&i.ErrorMessage,
+			&i.DurationMs,
+			&i.EgressCalls,
+			&i.EgressOps,
+			&i.InputSha256,
+			&i.InputBytes,
+			&i.OutputBytes,
+			&i.PeakMemoryBytes,
+			&i.IdempotencyKey,
+			&i.Replayed,
+			&i.Observation,
+			&i.FenceBackend,
+			&i.CodeHash,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listFunctionCallAuditByUser = `-- name: ListFunctionCallAuditByUser :many
+
+SELECT id, owner_type, owner_id, user_id, function_id, provider_id, function_name, provider_name, workspace_id, caller, status, error_code, error_message, duration_ms, egress_calls, egress_ops, input_sha256, input_bytes, output_bytes, peak_memory_bytes, idempotency_key, replayed, observation, fence_backend, code_hash, created_at FROM function_call_audit
+WHERE user_id = ?1
+  AND (CAST(?2 AS BIGINT) = 0 OR provider_id = ?2)
+  AND created_at >= COALESCE(?3, created_at)
+  AND created_at <= COALESCE(?4, created_at)
+ORDER BY id DESC
+LIMIT ?6 OFFSET ?5
+`
+
+type ListFunctionCallAuditByUserParams struct {
+	UserID     int64        `json:"user_id"`
+	ProviderID int64        `json:"provider_id"`
+	FromTs     sql.NullTime `json:"from_ts"`
+	ToTs       sql.NullTime `json:"to_ts"`
+	Off        int64        `json:"off"`
+	Lim        int64        `json:"lim"`
+}
+
+// --- unified activity feed (Epic #726 / #728 + #739) -----------------------
+// Caller-scoped feed of sandbox function calls, newest first. Mirrors
+// ListExternalApiAudit: provider_id = 0 means "any", and COALESCE anchors the
+// nullable time bounds to the created_at column so Postgres can infer their
+// type at parse time (and makes the NULL case a no-op comparison).
+func (q *Queries) ListFunctionCallAuditByUser(ctx context.Context, arg ListFunctionCallAuditByUserParams) ([]FunctionCallAudit, error) {
+	rows, err := q.db.QueryContext(ctx, listFunctionCallAuditByUser,
+		arg.UserID,
+		arg.ProviderID,
+		arg.FromTs,
+		arg.ToTs,
+		arg.Off,
+		arg.Lim,
+	)
 	if err != nil {
 		return nil, err
 	}

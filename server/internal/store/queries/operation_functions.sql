@@ -205,3 +205,25 @@ SET status = sqlc.arg(status),
     output_json = sqlc.arg(output_json),
     call_audit_id = sqlc.arg(call_audit_id)
 WHERE function_id = sqlc.arg(function_id) AND idem_key = sqlc.arg(idem_key);
+
+-- --- unified activity feed (Epic #726 / #728 + #739) -----------------------
+
+-- name: ListFunctionCallAuditByUser :many
+-- Caller-scoped feed of sandbox function calls, newest first. Mirrors
+-- ListExternalApiAudit: provider_id = 0 means "any", and COALESCE anchors the
+-- nullable time bounds to the created_at column so Postgres can infer their
+-- type at parse time (and makes the NULL case a no-op comparison).
+SELECT * FROM function_call_audit
+WHERE user_id = sqlc.arg(user_id)
+  AND (CAST(sqlc.arg(provider_id) AS BIGINT) = 0 OR provider_id = sqlc.arg(provider_id))
+  AND created_at >= COALESCE(sqlc.narg(from_ts), created_at)
+  AND created_at <= COALESCE(sqlc.narg(to_ts), created_at)
+ORDER BY id DESC
+LIMIT sqlc.arg(lim) OFFSET sqlc.arg(off);
+
+-- name: CountFunctionCallAuditByUser :one
+SELECT COUNT(*) AS n FROM function_call_audit
+WHERE user_id = sqlc.arg(user_id)
+  AND (CAST(sqlc.arg(provider_id) AS BIGINT) = 0 OR provider_id = sqlc.arg(provider_id))
+  AND created_at >= COALESCE(sqlc.narg(from_ts), created_at)
+  AND created_at <= COALESCE(sqlc.narg(to_ts), created_at);
