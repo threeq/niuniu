@@ -80,6 +80,11 @@ func (s *Server) proxyOpenAPIDraft(c *gin.Context) {
 		"data": gin.H{
 			"provider": gin.H{"id": prov.ID, "name": prov.Name, "label": prov.Label},
 			"draft":    draft,
+			// draft_payload is the same result already shaped as the draft
+			// pipeline's inputs (#734), so the agent can hand it straight to
+			// draft_integration instead of transcribing OpenAPI paths itself.
+			// Still a suggestion: it grants nothing until a human confirms.
+			"draft_payload": draft.PipelinePayload(),
 		},
 	})
 }

@@ -144,8 +144,9 @@ func TestProxyOpenAPIDraft_GeneratesFromProvider(t *testing.T) {
 
 	var env struct {
 		Data struct {
-			Provider map[string]any `json:"provider"`
-			Draft    map[string]any `json:"draft"`
+			Provider     map[string]any `json:"provider"`
+			Draft        map[string]any `json:"draft"`
+			DraftPayload map[string]any `json:"draft_payload"`
 		} `json:"data"`
 	}
 	if err := json.Unmarshal(w.Body.Bytes(), &env); err != nil {
@@ -169,6 +170,29 @@ func TestProxyOpenAPIDraft_GeneratesFromProvider(t *testing.T) {
 	}
 	if ds["default_access_mode"] != "read" {
 		t.Fatalf("access mode must start read-only, got %v", ds["default_access_mode"])
+	}
+
+	// draft_payload is the same result shaped as the #734 pipeline's inputs, so
+	// an agent can hand it to draft_integration without transcribing paths.
+	pl, ok := env.Data.DraftPayload["provider"].(map[string]any)
+	if !ok {
+		t.Fatalf("draft_payload.provider missing: %v", env.Data.DraftPayload)
+	}
+	if pl["write_enabled"] != false {
+		t.Fatalf("draft_payload must never enable writes, got %v", pl["write_enabled"])
+	}
+	plDS, ok := env.Data.DraftPayload["data_source"].(map[string]any)
+	if !ok {
+		t.Fatalf("draft_payload.data_source missing: %v", env.Data.DraftPayload)
+	}
+	plScope := plDS["scope_config"].(map[string]any)
+	plMethods := plScope["methods"].([]any)
+	if len(plMethods) != 1 || plMethods[0] != "GET" {
+		t.Fatalf("draft_payload scope must start read-only, got %v", plMethods)
+	}
+	ops, ok := env.Data.DraftPayload["doc_ops"].([]any)
+	if !ok || len(ops) == 0 {
+		t.Fatalf("draft_payload.doc_ops must carry the document's declared operations, got %v", env.Data.DraftPayload["doc_ops"])
 	}
 }
 

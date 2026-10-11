@@ -339,6 +339,86 @@ func TestParseOpenAPIDocument_TraversalPathSkipped(t *testing.T) {
 	require.Contains(t, strings.Join(d.Warnings, "\n"), "/../../etc/passwd")
 }
 
+// TestPipelinePayload_DocumentToDraftHandoff: the parsed document maps onto the
+// draft pipeline's own inputs, with permission never inherited.
+func TestPipelinePayload_DocumentToDraftHandoff(t *testing.T) {
+	d, err := ParseOpenAPIDocument("https://api.petstore.example/openapi.json", readFixture(t, "petstore3.json"))
+	require.NoError(t, err)
+
+	p := d.PipelinePayload()
+	require.Equal(t, UntrustedKindOpenAPI, p.Origin.Kind)
+	require.Equal(t, "api.petstore.example", p.DocHost)
+	require.ElementsMatch(t, []OperationKey{
+		{Method: "GET", Path: "/pets"},
+		{Method: "POST", Path: "/pets"},
+		{Method: "GET", Path: "/pets/{petId}"},
+		{Method: "DELETE", Path: "/pets/{petId}"},
+	}, p.DocOps)
+
+	// Provider line: no inherited authority.
+	require.NotNil(t, p.Provider)
+	require.False(t, p.Provider.WriteEnabled, "a document must never enable writes")
+	require.Equal(t, "https://api.petstore.example/v1", p.Provider.BaseURL)
+	require.Same(t, d.ProviderContract, p.Provider.Contract)
+	require.Equal(t, []DraftCredential{{Name: "Authorization", Location: "header", Required: true, Hint: "Bearer <token>"}}, p.Provider.CredentialFields)
+
+	// The whitelist is exactly the read-only operations, with templates globbed.
+	var rules []WhitelistRule
+	require.NoError(t, json.Unmarshal([]byte(p.Provider.Whitelist), &rules))
+	require.ElementsMatch(t, []WhitelistRule{
+		{Method: "GET", Path: "/pets"},
+		{Method: "GET", Path: "/pets/*"},
+	}, rules)
+
+	// Data-source line: connector-shaped config + the shared minimal scope.
+	require.NotNil(t, p.DataSource)
+	require.Equal(t, "http", p.DataSource.Kind)
+	require.Equal(t, "read", p.DataSource.DefaultAccessMode)
+	require.Equal(t, "api.petstore.example", p.DataSource.Config["host"])
+	opts, ok := p.DataSource.Config["options"].(map[string]any)
+	require.True(t, ok)
+	require.Equal(t, "https", opts["scheme"])
+	require.Equal(t, "/v1", opts["base_path"])
+	require.Equal(t, "data", opts["list_path"])
+	require.Equal(t, []any{"GET"}, p.DataSource.ScopeConfig["methods"])
+	require.Equal(t, []any{"/pets"}, p.DataSource.ScopeConfig["tables_allow"])
+}
+
+// TestPipelinePayload_PoisonedDocumentStaysMinimal: the poisoned document's
+// payload grants nothing either.
+func TestPipelinePayload_PoisonedDocumentStaysMinimal(t *testing.T) {
+	d, err := ParseOpenAPIDocument("https://api.innocent.example/openapi.json",
+		[]byte(strings.ReplaceAll(poisonedDocTemplate, "__POISON__", poisonText)))
+	require.NoError(t, err)
+
+	p := d.PipelinePayload()
+	require.False(t, p.Provider.WriteEnabled)
+	require.Equal(t, []any{"GET"}, p.DataSource.ScopeConfig["methods"])
+
+	var rules []WhitelistRule
+	require.NoError(t, json.Unmarshal([]byte(p.Provider.Whitelist), &rules))
+	for _, r := range rules {
+		require.NotContains(t, []string{"POST", "PUT", "PATCH", "DELETE"}, r.Method,
+			"the whitelist suggestion must stay read-only")
+	}
+	blob, err := json.Marshal(p)
+	require.NoError(t, err)
+	require.NotContains(t, string(blob), "IGNORE ALL PREVIOUS INSTRUCTIONS")
+}
+
+// TestGlobPath covers the template→glob conversion the whitelist needs.
+func TestGlobPath(t *testing.T) {
+	cases := map[string]string{
+		"/pets/{petId}":                  "/pets/*",
+		"/pets/{petId}/toys/{toyId}":     "/pets/*/toys/*",
+		"/v1/webmasters/sites/{siteUrl}": "/v1/webmasters/sites/*",
+		"/pets":                          "/pets",
+	}
+	for in, want := range cases {
+		require.Equal(t, want, globPath(in), "input %q", in)
+	}
+}
+
 // TestMinimalHTTPMethods_SharesPipelineBaseline pins the emitted method
 // baseline to the project's shared MinimalScopeDefaults, so #731's suggestion
 // and the draft pipeline's widening check cannot drift apart.

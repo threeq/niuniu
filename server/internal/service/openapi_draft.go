@@ -247,6 +247,153 @@ type DraftCredential struct {
 	Hint     string `json:"hint,omitempty"`
 }
 
+// PipelinePayload is the #731 → draft-pipeline handoff: the parsed document
+// reduced to exactly the inputs CreateDraftInput (and the draft_integration
+// tool) take, so a document can be turned into a pipeline draft without an
+// agent hand-transcribing OpenAPI paths. It reuses the pipeline's own payload
+// types, so the two shapes cannot drift.
+//
+// Permission is never inherited here either: WriteEnabled stays false, the
+// scope carries only the shared read-only method baseline, and the credential
+// list carries field names only.
+type PipelinePayload struct {
+	Provider   *ProviderDraftPayload   `json:"provider,omitempty"`
+	DataSource *DataSourceDraftPayload `json:"data_source,omitempty"`
+	Origin     UntrustedOrigin         `json:"origin"`
+	// DocOps / DocHost are the STRUCTURED facts the pipeline diffs a proposed
+	// scope against ("operations the document does not declare" is a high-risk
+	// item on the card).
+	DocOps  []OperationKey `json:"doc_ops"`
+	DocHost string         `json:"doc_host,omitempty"`
+}
+
+// PipelinePayload derives the draft-pipeline inputs from this document draft.
+func (d *IntegrationDocDraft) PipelinePayload() *PipelinePayload {
+	p := &PipelinePayload{
+		Origin: NewUntrustedOrigin(UntrustedKindOpenAPI, d.SourceURL),
+		DocOps: []OperationKey{},
+	}
+	if d.HTTPDataSource != nil {
+		p.DocHost = d.HTTPDataSource.Config.Host
+	}
+	if c := d.ProviderContract; c != nil {
+		for _, op := range c.Operations {
+			p.DocOps = append(p.DocOps, OperationKey{Method: op.Method, Path: op.Path})
+		}
+		p.Provider = &ProviderDraftPayload{
+			Label:    c.Provider,
+			BaseURL:  c.BaseURL,
+			Contract: c,
+			// A whitelist of exactly the document's read-only operations — the
+			// same set the empty-whitelist default (GET-only) already allows,
+			// made explicit so the card can show what is granted.
+			Whitelist:  suggestWhitelist(c),
+			OpenAPIURL: d.SourceURL,
+			// Never inherited: turning writes on is the user's explicit act.
+			WriteEnabled:     false,
+			CredentialFields: d.HTTPDataSource.credentialFields(),
+		}
+	}
+	if ds := d.HTTPDataSource; ds != nil {
+		p.DataSource = &DataSourceDraftPayload{
+			Name:              ds.Name,
+			Kind:              ds.Kind,
+			Config:            ds.connConfig(),
+			ScopeConfig:       ds.scopeConfigMap(),
+			DefaultAccessMode: ds.DefaultAccessMode,
+			RequireConfirm:    ds.RequireConfirm,
+			CredentialFields:  ds.CredentialFields,
+		}
+	}
+	return p
+}
+
+// credentialFields is nil-safe so a draft with no data-source half still maps.
+func (ds *HTTPDataSourceDraft) credentialFields() []DraftCredential {
+	if ds == nil {
+		return nil
+	}
+	return ds.CredentialFields
+}
+
+// connConfig renders the connector-shaped config map (dataconn/http.go reads
+// host / port / options.scheme / options.base_path / options.list_path).
+func (ds *HTTPDataSourceDraft) connConfig() map[string]any {
+	cfg := map[string]any{"host": ds.Config.Host}
+	if ds.Config.Port != 0 {
+		cfg["port"] = ds.Config.Port
+	}
+	opts := map[string]any{}
+	if ds.Config.Scheme != "" {
+		opts["scheme"] = ds.Config.Scheme
+	}
+	if ds.Config.BasePath != "" {
+		opts["base_path"] = ds.Config.BasePath
+	}
+	if ds.ListPath != "" {
+		opts["list_path"] = ds.ListPath
+	}
+	if len(opts) > 0 {
+		cfg["options"] = opts
+	}
+	return cfg
+}
+
+// scopeConfigMap starts from the shared minimal-scope default (so the pipeline's
+// widening check sees an identical baseline) and overlays this document's
+// read-only method set and narrow literal prefixes.
+func (ds *HTTPDataSourceDraft) scopeConfigMap() map[string]any {
+	scope := MinimalScopeDefaults(ds.Kind)
+	scope["methods"] = stringsToAny(ds.ScopeConfig.Methods)
+	scope["tables_allow"] = stringsToAny(ds.ScopeConfig.PathPrefixes)
+	return scope
+}
+
+// suggestWhitelist renders the contract's read-only operations as a whitelist
+// JSON blob. Path placeholders become "*" so they match the proxy's per-segment
+// glob (a literal "{petId}" would never match). Returns "" when there is
+// nothing to suggest, leaving the provider's default behaviour untouched.
+func suggestWhitelist(c *ProviderContract) string {
+	if c == nil {
+		return ""
+	}
+	rules := make([]WhitelistRule, 0, len(c.Operations))
+	for _, op := range c.Operations {
+		if !op.ReadOnly {
+			continue
+		}
+		rules = append(rules, WhitelistRule{Method: op.Method, Path: globPath(op.Path)})
+	}
+	if len(rules) == 0 {
+		return ""
+	}
+	b, err := json.Marshal(rules)
+	if err != nil {
+		return ""
+	}
+	return string(b)
+}
+
+// globPath turns an OpenAPI path template into the proxy's per-segment glob:
+// "/pets/{petId}" → "/pets/*".
+func globPath(p string) string {
+	segs := strings.Split(p, "/")
+	for i, s := range segs {
+		if strings.HasPrefix(s, "{") && strings.HasSuffix(s, "}") {
+			segs[i] = "*"
+		}
+	}
+	return strings.Join(segs, "/")
+}
+
+func stringsToAny(in []string) []any {
+	out := make([]any, 0, len(in))
+	for _, s := range in {
+		out = append(out, s)
+	}
+	return out
+}
+
 // --- document model (OpenAPI 3.x + Swagger 2.0 subset) ---------------------
 
 type openAPIDoc struct {
