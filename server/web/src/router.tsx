@@ -31,6 +31,11 @@ function lazyNamed<M, K extends keyof M>(loader: () => Promise<M>, name: K): M[K
 
 const ImBotOnboardingPage = lazyNamed(() => import('./pages/imbot/onboarding'), 'ImBotOnboardingPage');
 
+const CredentialOnboardingPage = lazyNamed(
+  () => import('./pages/credential/onboarding'),
+  'CredentialOnboardingPage',
+);
+
 const WorkspacePage = lazyNamed(() => import('./pages/workspaces/workspace-page'), 'WorkspacePage');
 const WorkspacesOverview = lazyNamed(() => import('./pages/workspaces/workspaces-overview'), 'WorkspacesOverview');
 const WorkspaceSidebar = lazyNamed(() => import('./pages/workspaces/workspace-sidebar'), 'WorkspaceSidebar');
@@ -76,6 +81,17 @@ const imbotOnboardingRoute = createRoute({
   component: () => {
     const { token } = imbotOnboardingRoute.useParams();
     return <ImBotOnboardingPage token={token} />;
+  },
+});
+
+// Generic one-time credential submission page (issue #727) — likewise public:
+// the token in the path is the authorization.
+const credentialOnboardingRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/credential/$token',
+  component: () => {
+    const { token } = credentialOnboardingRoute.useParams();
+    return <CredentialOnboardingPage token={token} />;
   },
 });
 
@@ -357,6 +373,7 @@ const dashboardDetailRoute = createRoute({
 const routeTree = rootRoute.addChildren([
   loginRoute,
   imbotOnboardingRoute,
+  credentialOnboardingRoute,
   layoutRoute.addChildren([
     indexRoute,
     workspacesRoute,

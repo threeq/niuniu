@@ -171,6 +171,11 @@ func main() {
 		// the guidance agent. The pid closure is captured at registration time;
 		// no project_id argument is exposed to the agent.
 		registerIMBotTools(s, api, pid)
+		// Generic credential-link tools (issue #727): mint a one-time secure
+		// link for a provider credential or data source, and query whether a
+		// credential is stored (boolean only). Project-scoped like the IM Bot
+		// tools, since the link's owner is resolved from the project.
+		registerCredentialTools(s, api, pid)
 	}
 
 	if *workspaceID > 0 {

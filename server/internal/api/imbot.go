@@ -15,6 +15,7 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
+	"github.com/niuniu-dev/niuniu/internal/credpolicy"
 	"github.com/niuniu-dev/niuniu/internal/service"
 	"github.com/niuniu-dev/niuniu/internal/store"
 )
@@ -801,7 +802,7 @@ func (h *IMBotHandler) PatchChatOwner(c *gin.Context) {
 // agent is fully self-sufficient from this text alone.
 const onboardingKickoffPrompt = `你是本项目的 IM 机器人接入向导。目标：把用户从零带到「渠道建好、连通、配对、双向闭环」。
 
-**安全铁律：绝不在对话里索取或接收 App Secret / Bot Token 等明文密钥。** 凭据一律通过安全录入链接提交——链接在独立页面收取，不进入对话。
+**` + credpolicy.Discipline + `**
 
 ## 可用 MCP 工具（5 个）
 
@@ -1151,7 +1152,7 @@ func (h *IMBotHandler) MCPRequestCredentialLink(c *gin.Context) {
 		"url":                onboardPath,
 		"link_markdown":      "[点击打开凭据录入页面（" + body.Platform + "）](" + onboardPath + ")",
 		"expires_in_seconds": 900,
-		"note":               "url 是站点内相对路径，浏览器会按当前页面自动补全协议与域名/端口（个人版与团队版通用）。请把 link_markdown 原样发给用户（渲染为可点击链接）；切勿把凭据留在对话里。",
+		"note":               credpolicy.LinkNote,
 	})
 }
 

@@ -1858,3 +1858,24 @@ CREATE TABLE IF NOT EXISTS im_bot_onboarding_tokens (
     used_at         TIMESTAMP,
     created_at      TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
+
+-- credential_onboarding_tokens: generic one-time credential-entry token shared
+-- by every credential-bearing onboarding flow (provider credentials, data
+-- sources). Generalizes im_bot_onboarding_tokens (kept untouched for
+-- zero-regression). Only the sha256 hex of the raw token is stored; the raw
+-- token is returned exactly once and never persisted. fields_json/target_json
+-- carry NON-SECRET descriptors only (which fields the public form must render,
+-- and where the submitted values get written).
+CREATE TABLE IF NOT EXISTS credential_onboarding_tokens (
+    id          BIGSERIAL PRIMARY KEY,
+    token_hash  TEXT NOT NULL UNIQUE,
+    project_id  BIGINT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    issued_by   BIGINT NOT NULL DEFAULT 0,
+    kind        TEXT NOT NULL CHECK (kind IN ('provider_credential','data_source')),
+    title       TEXT NOT NULL DEFAULT '',
+    fields_json TEXT NOT NULL DEFAULT '[]',
+    target_json TEXT NOT NULL DEFAULT '{}',
+    expires_at  TIMESTAMP NOT NULL,
+    used_at     TIMESTAMP,
+    created_at  TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);

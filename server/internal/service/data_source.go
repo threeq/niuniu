@@ -705,6 +705,51 @@ func ownerVisible(ownerType string, ownerID, userID int64, orgIDs []int64) bool 
 	return false
 }
 
+// HasCredential reports whether a source's stored config carries a non-empty
+// secret (db password, ES api_key, http auth headers, or SSH secrets). It
+// decrypts server-side only to answer a boolean — the value never leaves the
+// service. ownerType/ownerID scope the lookup exactly like Get.
+func (s *DataSourceService) HasCredential(ctx context.Context, id int64, ownerType string, ownerID int64) (bool, error) {
+	var userID int64
+	var orgIDs []int64
+	if ownerType == "org" {
+		orgIDs = []int64{ownerID}
+	} else {
+		userID = ownerID
+	}
+	row, err := s.getOwned(ctx, id, userID, orgIDs)
+	if err != nil {
+		return false, err
+	}
+	cfg, err := s.decryptConfig(row.Config)
+	if err != nil {
+		return false, err
+	}
+	return configHasSecret(cfg), nil
+}
+
+// configHasSecret reports whether a decrypted data-source config carries any
+// secret material.
+func configHasSecret(cfg map[string]any) bool {
+	if stringField(cfg, "password") != "" || stringField(cfg, "private_key") != "" {
+		return true
+	}
+	if opts, ok := cfg["options"].(map[string]any); ok {
+		if stringField(opts, "api_key") != "" || stringField(opts, "token") != "" {
+			return true
+		}
+		if h, ok := opts["headers"].(map[string]any); ok && len(h) > 0 {
+			return true
+		}
+	}
+	if ssh, ok := cfg["ssh"].(map[string]any); ok {
+		if stringField(ssh, "password") != "" || stringField(ssh, "private_key") != "" {
+			return true
+		}
+	}
+	return false
+}
+
 func (s *DataSourceService) encryptConfig(cfg map[string]any) (string, error) {
 	plaintext, err := marshalJSONObject(cfg)
 	if err != nil {

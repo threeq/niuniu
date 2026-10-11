@@ -999,6 +999,18 @@
       "channelIdHint": "Go back to the chat and tell the assistant this number to continue the connectivity test."
     }
   },
+  "credentialOnboarding": {
+    "pageTitle": "Credential entry",
+    "pageDescription": "Enter the credential below. It is encrypted and stored directly — it never enters the conversation or the model's context.",
+    "loading": "Loading…",
+    "submit": "Submit",
+    "submitting": "Submitting…",
+    "successMessage": "Saved — go back to the conversation to continue.",
+    "expiredMessage": "This link is invalid or has expired",
+    "errorMessage": "Submission failed, please try again",
+    "showSecret": "Show",
+    "hideSecret": "Hide"
+  },
   "externalIssues": {
     "drawerTitle": "External issues",
     "openDrawer": "External issues",

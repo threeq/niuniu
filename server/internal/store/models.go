@@ -183,6 +183,20 @@ type CommunityAgent struct {
 	UpdatedAt    time.Time `json:"updated_at"`
 }
 
+type CredentialOnboardingToken struct {
+	ID         int64        `json:"id"`
+	TokenHash  string       `json:"token_hash"`
+	ProjectID  int64        `json:"project_id"`
+	IssuedBy   int64        `json:"issued_by"`
+	Kind       string       `json:"kind"`
+	Title      string       `json:"title"`
+	FieldsJson string       `json:"fields_json"`
+	TargetJson string       `json:"target_json"`
+	ExpiresAt  time.Time    `json:"expires_at"`
+	UsedAt     sql.NullTime `json:"used_at"`
+	CreatedAt  time.Time    `json:"created_at"`
+}
+
 type Dashboard struct {
 	ID        int64     `json:"id"`
 	OwnerType string    `json:"owner_type"`
