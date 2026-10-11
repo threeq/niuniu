@@ -23,6 +23,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"sort"
 	"strconv"
 	"strings"
@@ -673,6 +674,25 @@ func (s *DataSourceService) Verify(ctx context.Context, id, userID int64, orgIDs
 		return err
 	}
 	return s.q.TouchDataSourceVerified(ctx, id)
+}
+
+// VerifyOrRollback runs Verify on a just-created source and, on failure, deletes
+// it again (rollback) unless keepOnFail. This is the "verify after publish" step
+// for the data-source line: a source that fails its post-create connection
+// check must not linger as a live-looking, unusable entry. Returns
+// (verified, rolledBack, err); a non-nil err is the verification failure (also
+// returned when the source was kept).
+func (s *DataSourceService) VerifyOrRollback(ctx context.Context, id, userID int64, orgIDs []int64, keepOnFail bool) (bool, bool, error) {
+	if err := s.Verify(ctx, id, userID, orgIDs); err != nil {
+		if keepOnFail {
+			return false, false, err
+		}
+		if derr := s.Delete(ctx, id, userID, orgIDs); derr != nil {
+			slog.Warn("data source verify rollback failed", "source_id", id, "error", derr)
+		}
+		return false, true, err
+	}
+	return true, false, nil
 }
 
 // LoadConnConfig returns the decrypted dataconn.ConnConfig for a row the caller

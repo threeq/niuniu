@@ -39,6 +39,7 @@ func (s *Server) proxyCall(c *gin.Context) {
 		Query     map[string]any `json:"query"`
 		Body      map[string]any `json:"body"`
 		SourceKey string         `json:"source_key"`
+		DryRun    bool           `json:"dry_run"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{"code": "BAD_REQUEST", "message": err.Error()}})
@@ -56,7 +57,7 @@ func (s *Server) proxyCall(c *gin.Context) {
 		return
 	}
 
-	output, err := s.externalProxySvc.Call(c.Request.Context(), service.ProxyInput{
+	in := service.ProxyInput{
 		UserID:      userID,
 		Provider:    req.Provider,
 		Method:      req.Method,
@@ -65,7 +66,21 @@ func (s *Server) proxyCall(c *gin.Context) {
 		Body:        req.Body,
 		WorkspaceID: c.GetInt64("mcp_workspace_id"), // 0 on SPA path -> service falls back to caller cred
 		SourceKey:   req.SourceKey,
-	})
+	}
+
+	// dry_run: validate locally (visibility, whitelist, credential, contract
+	// params) and return the verdict WITHOUT contacting the upstream.
+	if req.DryRun {
+		precheck, perr := s.externalProxySvc.PrecheckCall(c.Request.Context(), in)
+		if perr != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": gin.H{"code": "INTERNAL_ERROR", "message": perr.Error()}})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"data": precheck})
+		return
+	}
+
+	output, err := s.externalProxySvc.Call(c.Request.Context(), in)
 	if err != nil {
 		// Credential-resolution failures are client-side faults, not upstream
 		// outages — map them to 4xx so the agent doesn't misread a 502 as a
@@ -92,7 +107,14 @@ func (s *Server) proxyCall(c *gin.Context) {
 			return
 		}
 		if pe, ok := err.(*service.ProxyError); ok {
-			c.JSON(http.StatusForbidden, gin.H{
+			// outcome_unknown is an ambiguous transport failure on a write, not
+			// an authz refusal — map it to 502 so the agent can tell "the call
+			// may have applied upstream; do not blindly retry" apart from a 403.
+			status := http.StatusForbidden
+			if pe.Code == "outcome_unknown" {
+				status = http.StatusBadGateway
+			}
+			c.JSON(status, gin.H{
 				"error": gin.H{
 					"code":     pe.Code,
 					"message":  pe.Message,
@@ -106,6 +128,142 @@ func (s *Server) proxyCall(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"data": output})
+}
+
+// confirmProbe routes a non-GET verification probe through the chat permission
+// card (in-workspace agents only), with the probe manifest as the card input so
+// a human sees exactly which request will be sent. Returns (allowed, true) when
+// the card ran; (false, false) when there is no workspace context to card
+// against (the SPA confirmation surface is the caller's own UI).
+func (s *Server) confirmProbe(c *gin.Context, workspaceID int64, provider string, probe *service.ProbeManifest, detail string) (bool, bool) {
+	if workspaceID <= 0 || s.permService == nil || probe == nil {
+		return false, false
+	}
+	ws, err := s.queries.GetWorkspace(c.Request.Context(), workspaceID)
+	if err != nil {
+		return false, false
+	}
+	resp, err := s.permService.Request(c.Request.Context(), ws.ID, ws.OwnerType, ws.OwnerID,
+		ws.SessionID.String, "ProviderProbe", map[string]any{
+			"provider": provider,
+			"probe":    probe,
+			"detail":   detail,
+		})
+	if err != nil {
+		return false, false
+	}
+	return resp.Behavior == "allow", true
+}
+
+// proxyVerifyProvider handles POST /api/me/external-proxy/providers/:provider/verify
+// and the /mcp equivalent. It runs the provider's read-only verification probe
+// (auth + connectivity) and returns the verdict + probe manifest. It never
+// changes the provider's enabled state.
+func (s *Server) proxyVerifyProvider(c *gin.Context) {
+	userID := c.GetInt64("auth_user_id")
+	if userID == 0 {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": gin.H{"code": "UNAUTHORIZED", "message": "authentication required"}})
+		return
+	}
+	provider := c.Param("provider")
+	var req struct {
+		SourceKey string `json:"source_key"`
+		Confirm   bool   `json:"confirm"`
+	}
+	_ = c.ShouldBindJSON(&req) // body is optional
+
+	in := service.VerifyProviderInput{
+		Provider:    provider,
+		UserID:      userID,
+		WorkspaceID: c.GetInt64("mcp_workspace_id"),
+		SourceKey:   req.SourceKey,
+		Confirmed:   req.Confirm,
+	}
+	res, err := s.externalProxySvc.VerifyProvider(c.Request.Context(), in)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": gin.H{"code": "NOT_FOUND", "message": err.Error()}})
+		return
+	}
+	if res.RequiresConfirmation {
+		if allowed, handled := s.confirmProbe(c, in.WorkspaceID, res.Provider, res.Probe, res.Detail); handled {
+			if !allowed {
+				c.JSON(http.StatusForbidden, gin.H{"data": res, "error": gin.H{"code": "denied", "message": "the verification probe was not approved"}})
+				return
+			}
+			in.Confirmed = true
+			res, err = s.externalProxySvc.VerifyProvider(c.Request.Context(), in)
+			if err != nil {
+				c.JSON(http.StatusNotFound, gin.H{"error": gin.H{"code": "NOT_FOUND", "message": err.Error()}})
+				return
+			}
+		}
+	}
+	c.JSON(http.StatusOK, gin.H{"data": res})
+}
+
+// proxyPublishProvider handles POST /api/me/external-proxy/providers/:id/publish
+// and the /mcp equivalent. It lints the candidate contract, runs the
+// verification probe, and only on success persists + enables the provider.
+// A probe that is not a coarse read-only method (GET/HEAD) is routed through
+// the chat permission card — with the probe manifest as the card input — so a
+// human sees exactly what will be called before it runs.
+func (s *Server) proxyPublishProvider(c *gin.Context) {
+	userID := c.GetInt64("auth_user_id")
+	if userID == 0 {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": gin.H{"code": "UNAUTHORIZED", "message": "authentication required"}})
+		return
+	}
+	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{"code": "BAD_REQUEST", "message": "invalid provider id"}})
+		return
+	}
+	var req struct {
+		Profile   *string `json:"profile"`
+		Confirm   bool    `json:"confirm"`
+		SourceKey string  `json:"source_key"`
+	}
+	_ = c.ShouldBindJSON(&req)
+
+	in := service.PublishProviderInput{
+		ProviderID:  id,
+		UserID:      userID,
+		WorkspaceID: c.GetInt64("mcp_workspace_id"),
+		SourceKey:   req.SourceKey,
+		Profile:     req.Profile,
+		Confirmed:   req.Confirm,
+	}
+
+	res, err := s.externalProxySvc.PublishProvider(c.Request.Context(), in)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": gin.H{"code": "NOT_FOUND", "message": err.Error()}})
+		return
+	}
+
+	// Non-coarse probe + an in-workspace agent: show the probe on the
+	// confirmation card and only proceed if the human allows it.
+	if res.RequiresConfirmation {
+		if allowed, handled := s.confirmProbe(c, in.WorkspaceID, res.Provider, res.Probe, res.Detail); handled {
+			if !allowed {
+				c.JSON(http.StatusForbidden, gin.H{"data": res, "error": gin.H{"code": "denied", "message": "the verification probe was not approved"}})
+				return
+			}
+			in.Confirmed = true
+			res, err = s.externalProxySvc.PublishProvider(c.Request.Context(), in)
+			if err != nil {
+				c.JSON(http.StatusNotFound, gin.H{"error": gin.H{"code": "NOT_FOUND", "message": err.Error()}})
+				return
+			}
+		}
+	}
+
+	// A publish that did not go live is a conflict (the caller must act), not
+	// a server error — 409 carries the next_action / alternatives payload.
+	status := http.StatusOK
+	if !res.Published {
+		status = http.StatusConflict
+	}
+	c.JSON(status, gin.H{"data": res})
 }
 
 // proxyListProviders handles GET /api/me/external-proxy/providers and /mcp/external-proxy/providers

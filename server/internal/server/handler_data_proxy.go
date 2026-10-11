@@ -43,6 +43,7 @@ func (s *Server) dataProxyQuery(c *gin.Context) {
 		Params    []any               `json:"params"`
 		RowLimit  int                 `json:"row_limit"`
 		Operation *dataProxyOperation `json:"operation"`
+		DryRun    bool                `json:"dry_run"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error(), "code": "bad_request"})
@@ -103,6 +104,30 @@ func (s *Server) dataProxyQuery(c *gin.Context) {
 		in.HTTPMethod, in.HTTPPath = op.HTTPMethod, op.HTTPPath
 		in.HTTPQuery, in.HTTPBody = op.HTTPQuery, op.HTTPBody
 		in.HTTPListPath = op.HTTPListPath
+	}
+
+	// dry_run: run the same gate but never confirm / connect / execute. Returns
+	// the scope + read/write + confirmation verdict for the agent to self-check.
+	if req.DryRun {
+		pre, perr := s.dataProxySvc.Precheck(c.Request.Context(), in)
+		if perr != nil {
+			if errors.Is(perr, service.ErrDataSourceNotFound) {
+				c.JSON(http.StatusNotFound, gin.H{"error": "data source not found", "code": "not_found"})
+				return
+			}
+			if pe, ok := service.IsDataProxyError(perr); ok {
+				status := http.StatusForbidden
+				if pe.Code == "invalid_input" {
+					status = http.StatusBadRequest
+				}
+				c.JSON(status, gin.H{"message": pe.Message, "code": pe.Code})
+				return
+			}
+			c.JSON(http.StatusBadGateway, gin.H{"error": perr.Error(), "code": "query_error"})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"data": pre})
+		return
 	}
 
 	rs, err := s.dataProxySvc.Query(c.Request.Context(), in)
@@ -179,6 +204,11 @@ func (s *Server) dataProxyCreateSource(c *gin.Context) {
 		DefaultAccessMode string         `json:"default_access_mode"`
 		RequireConfirm    string         `json:"require_confirm"`
 		Verify            bool           `json:"verify"`
+		// KeepOnVerifyFail opts out of the rollback: on a failed post-create
+		// verification the source is normally deleted again (so a broken
+		// connection never lingers as a live-looking source). Set true to keep
+		// the source anyway and get the failure detail back.
+		KeepOnVerifyFail bool `json:"keep_on_verify_fail"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error(), "code": "bad_request"})
@@ -213,11 +243,30 @@ func (s *Server) dataProxyCreateSource(c *gin.Context) {
 
 	resp := gin.H{"source": dto}
 	if req.Verify {
-		if verr := s.dataSourceSvc.Verify(c.Request.Context(), dto.ID, userID, wsOrgIDs(ws)); verr != nil {
-			resp["verified"] = false
+		verified, rolledBack, verr := s.dataSourceSvc.VerifyOrRollback(
+			c.Request.Context(), dto.ID, userID, wsOrgIDs(ws), req.KeepOnVerifyFail)
+		if rolledBack {
+			// Verify-after-publish failed and the source was rolled back (deleted)
+			// so it cannot linger as a live-looking, unusable connection. Hand the
+			// caller the failure + next_action / alternatives.
+			c.JSON(http.StatusConflict, gin.H{
+				"source":       nil,
+				"published":    false,
+				"rolled_back":  true,
+				"verify_error": verr.Error(),
+				"next_action":  "fix the connection settings, then create the source again",
+				"alternatives": []string{
+					"double-check host/port/credentials and the source kind",
+					"if the server is only reachable behind a tunnel, add the SSH settings and retry",
+				},
+			})
+			return
+		}
+		resp["verified"] = verified
+		if !verified {
 			resp["verify_error"] = verr.Error()
-		} else {
-			resp["verified"] = true
+			resp["rolled_back"] = false
+			resp["next_action"] = "the source was kept but is unreachable; fix the connection settings or delete the source"
 		}
 	}
 	c.JSON(http.StatusCreated, resp)

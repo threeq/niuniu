@@ -112,6 +112,13 @@ type ProxyInput struct {
 	Body        map[string]any
 	WorkspaceID int64  // >0 when called by an in-workspace MCP agent; resolve credential by project binding
 	SourceKey   string // optional disambiguator when a project binds multiple sources for the same provider
+	// Probe marks an internal verification probe (see provider_verify.go), not
+	// an agent call. A probe runs against a not-yet-enabled provider and skips
+	// the write whitelist gate: it is the contract's own declared safe endpoint,
+	// already vetted by lint + human confirmation. It still resolves the
+	// credential, injects auth, enforces SSRF, and writes an audit row — every
+	// egress path stays identical. Never set from an HTTP/MCP handler.
+	Probe bool
 }
 
 // ProxyOutput is the response from call_external_api.
@@ -147,25 +154,15 @@ func (s *ExternalProxyService) Call(ctx context.Context, in ProxyInput) (*ProxyO
 	if err != nil {
 		return nil, fmt.Errorf("provider %q not found: %w", in.Provider, err)
 	}
-	if !prov.Enabled {
+	if !prov.Enabled && !in.Probe {
 		return nil, fmt.Errorf("provider %q is disabled", in.Provider)
 	}
 
 	// 2. Single per-user gate: write_enabled ON bypasses everything;
 	// write_enabled OFF falls back to the provider's curated whitelist
-	// (usually GET *), so reads keep working without any opt-in. Failing
-	// closed on DB errors (missing-row is the normal first-time case) but
-	// logging the unexpected ones so operators can spot a broken store.
-	prefs, err := s.q.GetAPIWritePrefs(ctx, store.GetAPIWritePrefsParams{
-		UserID:     in.UserID,
-		ProviderID: prov.ID,
-	})
-	if err != nil && !errors.Is(err, sql.ErrNoRows) {
-		slog.Warn("external proxy write-prefs lookup failed; defaulting to write_enabled=false",
-			"provider", in.Provider, "user_id", in.UserID, "error", err)
-	}
-	writeEnabled := err == nil && prefs.Enabled == 1
-	if !s.gateAllows(writeEnabled, prov.Whitelist, in.Method, in.Path) {
+	// (usually GET *), so reads keep working without any opt-in.
+	writeEnabled := s.writeEnabledFor(ctx, in.UserID, prov.ID)
+	if !in.Probe && !s.gateAllows(writeEnabled, prov.Whitelist, in.Method, in.Path) {
 		return nil, &ProxyError{
 			Code:     "write_disabled",
 			Message:  fmt.Sprintf("Operation %s %s on %s is not in the default safe set. Enable \"Allow writes\" for this provider in Settings -> Integrations.", in.Method, in.Path, in.Provider),
@@ -262,9 +259,21 @@ func (s *ExternalProxyService) Call(ctx context.Context, in ProxyInput) (*ProxyO
 	}
 	req.Header.Set("Accept", "application/json")
 
-	// 7. Execute
+	// 7. Execute. A transport error on a WRITE is ambiguous: the request may
+	// have reached the upstream and been applied before the connection broke
+	// (timeout, reset, DNS flap). Replaying it could duplicate the effect
+	// (double-charge, double-post), so it is surfaced as outcome_unknown with
+	// an explicit "do NOT blindly retry — re-read the resource" instruction.
+	// Reads carry no such risk: a plain error is enough.
 	resp, err := s.client.Do(req)
 	if err != nil {
+		if isWriteMethod(in.Method) {
+			return nil, &ProxyError{
+				Code:     "outcome_unknown",
+				Message:  fmt.Sprintf("The %s %s request to %s did not complete (%v). It may or may not have been applied upstream — do NOT blindly retry. Re-read the resource (GET) to determine whether it took effect, then act on what you find.", strings.ToUpper(in.Method), in.Path, in.Provider, err),
+				Provider: in.Provider,
+			}
+		}
 		return nil, fmt.Errorf("proxy request failed: %w", err)
 	}
 	defer resp.Body.Close()
@@ -423,6 +432,22 @@ func (s *ExternalProxyService) resolveCredential(ctx context.Context, in ProxyIn
 		return nil, fmt.Errorf("no credential configured for %s", in.Provider)
 	}
 	return s.credSvc.GetByID(ctx, creds[0].ID, "user", in.UserID, in.UserID)
+}
+
+// writeEnabledFor resolves the per-user "Allow writes" toggle for a provider.
+// Missing row is the normal first-time case (=> false, fail closed); any other
+// DB error is logged and also treated as false so a broken store can never
+// silently open writes.
+func (s *ExternalProxyService) writeEnabledFor(ctx context.Context, userID, providerID int64) bool {
+	prefs, err := s.q.GetAPIWritePrefs(ctx, store.GetAPIWritePrefsParams{
+		UserID:     userID,
+		ProviderID: providerID,
+	})
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		slog.Warn("external proxy write-prefs lookup failed; defaulting to write_enabled=false",
+			"provider_id", providerID, "user_id", userID, "error", err)
+	}
+	return err == nil && prefs.Enabled == 1
 }
 
 // gateAllows is the single permission predicate. Pure function so it can

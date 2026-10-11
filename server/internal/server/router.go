@@ -301,6 +301,10 @@ func (s *Server) setupRoutes() {
 		mcpGroup.POST("/external-proxy/call", s.proxyCall)
 		mcpGroup.GET("/external-proxy/providers", s.proxyListProviders)
 		mcpGroup.GET("/external-proxy/providers/:provider/schema", s.proxyGetProviderSchema)
+		// Verify probe (auth + connectivity) and publish-with-verify, so an agent
+		// can onboard a provider end to end (#732).
+		mcpGroup.POST("/external-proxy/providers/:provider/verify", s.proxyVerifyProvider)
+		mcpGroup.POST("/external-proxy/providers/:id/publish", s.proxyPublishProvider)
 
 		// Data integration proxy — run_data_query / list_data_sources tunnel here.
 		// Three-layer gate + audit lives in DataProxyService.
@@ -406,6 +410,8 @@ func (s *Server) setupRoutes() {
 		me.PUT("/external-proxy/providers/:id", s.proxyUpdateProvider)
 		me.DELETE("/external-proxy/providers/:id", s.proxyDeleteProvider)
 		me.PATCH("/external-proxy/providers/:id/write-enabled", s.proxySetWriteEnabled)
+		me.POST("/external-proxy/providers/:provider/verify", s.proxyVerifyProvider)
+		me.POST("/external-proxy/providers/:id/publish", s.proxyPublishProvider)
 		// Audit read side (Epic #726 / #728): the caller's own external API
 		// calls, newest first.
 		me.GET("/external-proxy/audit", s.proxyAudit)

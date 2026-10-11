@@ -425,7 +425,9 @@ func (i ContractIssue) String() string {
 //   - each parameter needs a name and a valid location
 //     (query|path|body|header);
 //   - verify_operation, when set, must name an existing operation, and that
-//     operation must be read-only (the probe must be side-effect-free);
+//     operation must be read-only (the probe must be side-effect-free); a
+//     read-only verify_operation whose method is not GET/HEAD earns a warning
+//     (the coarse check cannot prove it is safe — human confirmation backs it);
 //   - a non-GET/HEAD operation declared read_only is a warning — the coarse
 //     check cannot distinguish a read-by-POST (e.g. GSC searchAnalytics) from
 //     a write; human confirmation is the backstop.
@@ -483,6 +485,14 @@ func LintContract(c *ProviderContract) []ContractIssue {
 		case !op.ReadOnly:
 			issues = append(issues, ContractIssue{"error", "verify_operation",
 				"verify_operation " + c.VerifyOperation + " must be read-only (probe must have no side effects)"})
+		case !coarseReadOnly(op.Method):
+			// Declared read-only but not GET/HEAD (a read-via-POST). The coarse
+			// check cannot prove it is side-effect-free (e.g. a GET that mutates,
+			// or a POST that deletes), so flag it for human confirmation rather
+			// than silently trusting the declaration.
+			issues = append(issues, ContractIssue{"warning", "verify_operation",
+				"verify_operation " + c.VerifyOperation + " uses " + op.Method +
+					" — the read-only check is coarse; confirm the probe has no side effects (human confirmation required)"})
 		}
 	}
 	return issues

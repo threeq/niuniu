@@ -10,6 +10,7 @@ import (
 	"context"
 	"database/sql"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	_ "modernc.org/sqlite"
@@ -22,9 +23,11 @@ import (
 
 // fakeConnector classifies via the real SQL classifier (so read/write + object
 // parsing is exercised for real) but executes against an in-memory SQLite DB.
+// execs counts Execute calls so a dry-run test can prove the query never ran.
 type fakeConnector struct {
-	real dataconn.Connector // for Classify
-	db   *sql.DB
+	real  dataconn.Connector // for Classify
+	db    *sql.DB
+	execs int32
 }
 
 func (f *fakeConnector) Kind() dataconn.SourceKind { return dataconn.KindMySQL }
@@ -35,6 +38,7 @@ func (f *fakeConnector) Classify(op dataconn.Operation) (dataconn.AccessMode, da
 	return f.real.Classify(op)
 }
 func (f *fakeConnector) Execute(ctx context.Context, conn dataconn.ConnConfig, op dataconn.Operation) (*dataconn.ResultSet, error) {
+	atomic.AddInt32(&f.execs, 1)
 	rows, err := f.db.QueryContext(ctx, op.Statement, op.Params...)
 	if err != nil {
 		return nil, err
@@ -82,6 +86,7 @@ type proxyDeps struct {
 	perm         *fakePermission
 	uid          int64
 	db           *sql.DB
+	conn         *fakeConnector
 }
 
 func newTestDataProxy(t *testing.T, requireConfirm string, accessMode string) proxyDeps {
@@ -103,7 +108,8 @@ func newTestDataProxy(t *testing.T, requireConfirm string, accessMode string) pr
 	if _, err := db.Exec(`CREATE TABLE orders(id INTEGER, amt REAL); INSERT INTO orders VALUES (1,10.5),(2,20.0)`); err != nil {
 		t.Fatalf("seed sqlite: %v", err)
 	}
-	reg.Register(dataconn.KindMySQL, &fakeConnector{real: dataconn.NewMySQLConnector(), db: db})
+	conn := &fakeConnector{real: dataconn.NewMySQLConnector(), db: db}
+	reg.Register(dataconn.KindMySQL, conn)
 
 	dsSvc := service.NewDataSourceService(env.Queries(), env.DB, kr, reg)
 	uid := env.UserA
@@ -119,7 +125,7 @@ func newTestDataProxy(t *testing.T, requireConfirm string, accessMode string) pr
 
 	perm := &fakePermission{resp: service.AllowResp{Behavior: "allow"}}
 	svc := service.NewDataProxyServiceWithSeams(dsSvc, reg, perm, env.Queries())
-	return proxyDeps{svc: svc, readSourceID: id, perm: perm, uid: uid, db: env.DB}
+	return proxyDeps{svc: svc, readSourceID: id, perm: perm, uid: uid, db: env.DB, conn: conn}
 }
 
 func TestDataProxyGate(t *testing.T) {
