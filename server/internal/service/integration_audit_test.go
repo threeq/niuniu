@@ -294,7 +294,8 @@ func TestExternalProxy_AuditStoresBodyFingerprintNotBody(t *testing.T) {
 	credSvc := service.NewExternalCredentialService(env.Queries(), env.DB, kr, reg)
 	provSvc := service.NewExternalProviderService(env.Queries(), env.DB)
 	authz := service.NewAuthz(env.Queries(), env.DB)
-	svc := service.NewExternalProxyService(env.Queries(), env.DB, provSvc, credSvc, authz)
+	policy := service.NewCredentialUsagePolicyService(env.Queries(), env.DB, credSvc, authz)
+	svc := service.NewExternalProxyService(env.Queries(), env.DB, provSvc, credSvc, authz, policy)
 
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -392,7 +393,8 @@ func TestExternalProxy_AuditBodylessReadHasEmptyFingerprint(t *testing.T) {
 	credSvc := service.NewExternalCredentialService(env.Queries(), env.DB, kr, reg)
 	provSvc := service.NewExternalProviderService(env.Queries(), env.DB)
 	authz := service.NewAuthz(env.Queries(), env.DB)
-	svc := service.NewExternalProxyService(env.Queries(), env.DB, provSvc, credSvc, authz)
+	policy := service.NewCredentialUsagePolicyService(env.Queries(), env.DB, credSvc, authz)
+	svc := service.NewExternalProxyService(env.Queries(), env.DB, provSvc, credSvc, authz, policy)
 
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write([]byte(`{}`))
