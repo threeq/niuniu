@@ -25,6 +25,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"net/url"
 	"strings"
 )
 
@@ -48,6 +49,12 @@ type ProviderContract struct {
 	// Auth describes how the proxy injects credentials at egress. The agent
 	// never sees or passes secrets — this is a requirement description only.
 	Auth *ContractAuth `json:"auth,omitempty"`
+	// AuthStrategy is the flat, forward-compatible spelling of the auth
+	// strategy name (issue #737: `auth_strategy: oauth2_refresh | sigv4 | …`).
+	// It is a convenience alias: ParseContract folds it into Auth.Strategy, so
+	// consumers only ever read Auth.Strategy. Kept on the wire so a contract may
+	// declare the strategy without the nested `auth` object.
+	AuthStrategy string `json:"auth_strategy,omitempty"`
 	// Capabilities are coarse tags ("serp", "seo", "search-analytics") used
 	// for discovery and matching a task to a candidate provider.
 	Capabilities []string `json:"capabilities,omitempty"`
@@ -206,6 +213,16 @@ func (c *ProviderContract) normalized() *ProviderContract {
 	}
 	if c.Operations == nil {
 		c.Operations = []ContractOperation{}
+	}
+	// Fold the flat `auth_strategy` alias into the canonical Auth.Strategy so
+	// every consumer reads the strategy from one place (issue #737).
+	if c.AuthStrategy != "" {
+		if c.Auth == nil {
+			c.Auth = &ContractAuth{}
+		}
+		if c.Auth.Strategy == "" {
+			c.Auth.Strategy = c.AuthStrategy
+		}
 	}
 	return c
 }
@@ -411,6 +428,172 @@ type ContractIssue struct {
 
 func (i ContractIssue) String() string {
 	return fmt.Sprintf("%s: %s: %s", i.Severity, i.Path, i.Message)
+}
+
+// --- operation resolution (operation-level authorization, issue #737) ------
+
+// HasOperations reports whether the contract declares any named operation.
+// Only such contracts are governed by operation-level authorization; a
+// contract with none falls back to the legacy method+path whitelist.
+func (c *ProviderContract) HasOperations() bool {
+	return c != nil && len(c.Operations) > 0
+}
+
+// OperationByName returns the operation with the given semantic name. Names
+// are matched case-insensitively so an agent's casing never causes a spurious
+// "unknown operation".
+func (c *ProviderContract) OperationByName(name string) (*ContractOperation, bool) {
+	if c == nil {
+		return nil, false
+	}
+	want := strings.TrimSpace(name)
+	for i := range c.Operations {
+		if strings.EqualFold(strings.TrimSpace(c.Operations[i].Name), want) {
+			return &c.Operations[i], true
+		}
+	}
+	return nil, false
+}
+
+// MatchOperation resolves a concrete (method, path) request back to the
+// contract operation it targets — the reference used when a caller passes
+// method+path instead of an operation name. Matching is method
+// (case-insensitive) + segment-wise path, where a `{param}` segment in the
+// operation template matches any single non-empty path segment. Returns
+// ok=false when the request targets no declared operation (the caller then
+// falls back to the legacy whitelist).
+func (c *ProviderContract) MatchOperation(method, path string) (*ContractOperation, bool) {
+	if c == nil {
+		return nil, false
+	}
+	wantMethod := strings.ToUpper(strings.TrimSpace(method))
+	// Normalise away the query string if the caller passed one in the path.
+	if i := strings.IndexByte(path, '?'); i >= 0 {
+		path = path[:i]
+	}
+	reqSegs := splitPathSegments(path)
+	for i := range c.Operations {
+		op := &c.Operations[i]
+		if strings.ToUpper(strings.TrimSpace(op.Method)) != wantMethod {
+			continue
+		}
+		if pathTemplateMatches(op.Path, reqSegs) {
+			return op, true
+		}
+	}
+	return nil, false
+}
+
+// IsReadOnly reports whether the operation has no side effects. Nil-safe.
+func (o *ContractOperation) IsReadOnly() bool {
+	return o != nil && o.ReadOnly
+}
+
+// SplitOperations partitions the contract's operations into read-only and
+// write/sensitive name lists (issue #737: 写/敏感操作单列). Order follows the
+// contract so the listing is stable. The confirm card and the write switch
+// consume this to control authorization at operation granularity.
+func (c *ProviderContract) SplitOperations() (readOnly, write []string) {
+	readOnly, write = []string{}, []string{}
+	if c == nil {
+		return readOnly, write
+	}
+	for i := range c.Operations {
+		op := &c.Operations[i]
+		if op.ReadOnly {
+			readOnly = append(readOnly, op.Name)
+		} else {
+			write = append(write, op.Name)
+		}
+	}
+	return readOnly, write
+}
+
+// ResolvePath fills an operation's path template (`{name}` placeholders) from
+// the caller's query/body values and reports which keys were consumed. Path
+// parameter values are searched in query first, then body, and URL-escaped per
+// segment so a value containing "/" cannot escape its segment. A missing
+// required placeholder yields an error naming the parameter, so an
+// operation-level call can never silently address the wrong URL.
+//
+// Consumed keys are returned so the caller can drop them from the outgoing
+// query/body (a path parameter must not also be sent as a query parameter).
+func (o *ContractOperation) ResolvePath(query, body map[string]any) (string, []string, error) {
+	path := o.Path
+	if !strings.Contains(path, "{") {
+		return path, nil, nil
+	}
+	var consumed []string
+	var missing []string
+	segments := strings.Split(path, "/")
+	for i, seg := range segments {
+		if len(seg) < 3 || seg[0] != '{' || seg[len(seg)-1] != '}' {
+			continue
+		}
+		name := seg[1 : len(seg)-1]
+		val, where, ok := lookupParam(name, query, body)
+		if !ok {
+			missing = append(missing, name)
+			continue
+		}
+		segments[i] = url.PathEscape(fmt.Sprintf("%v", val))
+		consumed = append(consumed, where)
+	}
+	if len(missing) > 0 {
+		return "", nil, fmt.Errorf("operation %q is missing path parameter(s): %s", o.Name, strings.Join(missing, ", "))
+	}
+	return strings.Join(segments, "/"), consumed, nil
+}
+
+// lookupParam finds name in query then body, returning the value and a
+// "<where>:<name>" token so the caller can drop the key from the right map.
+func lookupParam(name string, query, body map[string]any) (any, string, bool) {
+	if query != nil {
+		if v, ok := query[name]; ok {
+			return v, "query:" + name, true
+		}
+	}
+	if body != nil {
+		if v, ok := body[name]; ok {
+			return v, "body:" + name, true
+		}
+	}
+	return nil, "", false
+}
+
+// splitPathSegments splits a URL path into its non-empty segments, ignoring a
+// leading slash. Query/fragment are the caller's responsibility (stripped in
+// MatchOperation).
+func splitPathSegments(path string) []string {
+	raw := strings.Split(strings.Trim(path, "/"), "/")
+	out := make([]string, 0, len(raw))
+	for _, s := range raw {
+		out = append(out, s)
+	}
+	return out
+}
+
+// pathTemplateMatches reports whether a concrete request path (already split
+// into segments) matches an operation path template. A `{param}` segment
+// matches any single non-empty segment; every other segment must match
+// exactly.
+func pathTemplateMatches(tmpl string, reqSegs []string) bool {
+	tmplSegs := splitPathSegments(tmpl)
+	if len(tmplSegs) != len(reqSegs) {
+		return false
+	}
+	for i, ts := range tmplSegs {
+		if len(ts) >= 3 && ts[0] == '{' && ts[len(ts)-1] == '}' {
+			if reqSegs[i] == "" {
+				return false
+			}
+			continue
+		}
+		if ts != reqSegs[i] {
+			return false
+		}
+	}
+	return true
 }
 
 // LintContract validates a contract and returns every finding. An empty slice

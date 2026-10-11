@@ -143,6 +143,12 @@ export interface ExternalProviderDetail extends ExternalProviderListItem {
   auth_prefix: string;
   profile: string;
   whitelist: string;
+  /** Operation-level authorization view (issue #737): names of the provider's
+   *  read-only operations (run without the write toggle) and of its
+   *  write/sensitive operations (require it). Empty for providers without a
+   *  structured contract. */
+  read_operations?: string[];
+  write_operations?: string[];
 }
 
 export interface CreateProviderBody {
