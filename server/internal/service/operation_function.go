@@ -48,6 +48,19 @@ const (
 	FuncStatusReplayRefused = "replay_refused"
 )
 
+// Idempotency-ledger states. A key is RESERVED before the box starts, so a
+// concurrent duplicate loses the race at the database rather than both calls
+// running and the constraint firing afterwards — with a non-idempotent function
+// that would be exactly the duplicate side effect the rule exists to prevent.
+const (
+	IdemRunning = "running"
+	IdemFailed  = "failed"
+)
+
+// idemStaleAfter bounds how long a reservation may block a key. A reservation
+// left in 'running' by a hard crash must not wedge the key forever.
+const idemStaleAfter = 10 * time.Minute
+
 // Caller values: where a call came from. The observation window treats an
 // agent call as the interesting one, but rehearsal is recorded too so the audit
 // is a complete account of what ran.
@@ -274,9 +287,17 @@ func (s *OperationFunctionService) SetEnabled(ctx context.Context, ownerType str
 	})
 }
 
-// Delete removes one function and its version chain.
+// Delete removes one function, its version chain and its idempotency ledger.
+// The CALL AUDIT is deliberately kept: it is the record of what ran, and
+// deleting the function must not erase the history of what it did.
 func (s *OperationFunctionService) Delete(ctx context.Context, ownerType string, ownerID, id int64) error {
 	if _, err := s.ownedFunction(ctx, ownerType, ownerID, id); err != nil {
+		return err
+	}
+	if err := s.q.DeleteIntegrationFunctionVersions(ctx, id); err != nil {
+		return err
+	}
+	if err := s.q.DeleteFunctionIdempotencyForFunction(ctx, id); err != nil {
 		return err
 	}
 	return s.q.DeleteIntegrationFunction(ctx, id)
@@ -286,6 +307,18 @@ func (s *OperationFunctionService) Delete(ctx context.Context, ownerType string,
 // half of the delivery requirement. Deleting a source must not leave callable
 // functions pointing at operations that no longer exist.
 func (s *OperationFunctionService) DeleteForProvider(ctx context.Context, providerID int64) error {
+	rows, err := s.q.ListIntegrationFunctionsByProvider(ctx, providerID)
+	if err != nil {
+		return err
+	}
+	for _, row := range rows {
+		if err := s.q.DeleteIntegrationFunctionVersions(ctx, row.ID); err != nil {
+			return err
+		}
+		if err := s.q.DeleteFunctionIdempotencyForFunction(ctx, row.ID); err != nil {
+			return err
+		}
+	}
 	return s.q.DeleteIntegrationFunctionsByProvider(ctx, providerID)
 }
 
@@ -411,18 +444,24 @@ func (s *OperationFunctionService) Rollback(ctx context.Context, in FunctionRoll
 		}, nil
 	}
 
-	var limits sandbox.Limits
-	_ = json.Unmarshal([]byte(ver.LimitsJson), &limits)
+	// A rollback is recorded as a NEW version carrying the old body, not as a
+	// re-activation of the old row. Both say "this code is live", but only the
+	// former keeps the function's version counter equal to the version that is
+	// actually running — otherwise the list shows version 5 while the active
+	// row says 3, and "which version is live" stops being answerable.
+	nextVersion := row.Version + 1
 	if err := s.q.ReplaceIntegrationFunctionBody(ctx, store.ReplaceIntegrationFunctionBodyParams{
-		Description:      row.Description,
-		Runtime:          row.Runtime,
-		Code:             ver.Code,
-		CodeHash:         ver.CodeHash,
-		Entry:            row.Entry,
-		LimitsJson:       ver.LimitsJson,
-		EgressJson:       ver.EgressJson,
-		Idempotent:       ver.Idempotent,
-		Version:          row.Version + 1,
+		Description: row.Description,
+		Runtime:     row.Runtime,
+		Code:        ver.Code,
+		CodeHash:    ver.CodeHash,
+		Entry:       row.Entry,
+		LimitsJson:  ver.LimitsJson,
+		EgressJson:  ver.EgressJson,
+		Idempotent:  ver.Idempotent,
+		Version:     nextVersion,
+		// A restored body is not automatically trusted: it re-enters the
+		// first-run observation window like any other publish.
 		Status:           FuncObserving,
 		ObservationCalls: 0,
 		ObservationLimit: observationDefaultCalls,
@@ -431,18 +470,38 @@ func (s *OperationFunctionService) Rollback(ctx context.Context, in FunctionRoll
 	}); err != nil {
 		return nil, err
 	}
+	restored, err := s.q.CreateIntegrationFunctionVersion(ctx, store.CreateIntegrationFunctionVersionParams{
+		FunctionID:    row.ID,
+		OwnerType:     row.OwnerType,
+		OwnerID:       row.OwnerID,
+		ProviderID:    row.ProviderID,
+		Name:          row.Name,
+		Version:       nextVersion,
+		Code:          ver.Code,
+		CodeHash:      ver.CodeHash,
+		EgressJson:    ver.EgressJson,
+		LimitsJson:    ver.LimitsJson,
+		Idempotent:    ver.Idempotent,
+		ScopeJson:     ver.ScopeJson,
+		Active:        1,
+		PublishedBy:   in.ByUser,
+		SourceDraftID: ver.SourceDraftID,
+	})
+	if err != nil {
+		return nil, err
+	}
 	if err := s.q.DeactivateIntegrationFunctionVersions(ctx, row.ID); err != nil {
 		return nil, err
 	}
-	if err := s.q.ActivateIntegrationFunctionVersion(ctx, ver.ID); err != nil {
+	if err := s.q.ActivateIntegrationFunctionVersion(ctx, restored.ID); err != nil {
 		return nil, err
 	}
 	return &FunctionRollbackResult{
 		RolledBack: true,
 		FunctionID: row.ID,
-		Version:    ver.Version,
-		Detail: fmt.Sprintf("restored version %d; the function is back in its first-run observation window",
-			ver.Version),
+		Version:    nextVersion,
+		Detail: fmt.Sprintf("restored the body of version %d as version %d; the function is back in its first-run observation window",
+			ver.Version, nextVersion),
 	}, nil
 }
 
@@ -523,9 +582,13 @@ func (s *OperationFunctionService) Invoke(ctx context.Context, in FunctionInvoke
 		}, nil
 	}
 
-	// 3. Idempotency. A repeated key on a non-idempotent function is REFUSED:
-	//    the platform never auto-replays something that could charge twice.
-	if key := strings.TrimSpace(in.IdempotencyKey); key != "" {
+	// 3. Idempotency. The key is RESERVED before the box starts, so two
+	//    concurrent calls with the same key cannot both execute — the loser
+	//    fails at the database rather than at the end, which is what makes the
+	//    guarantee real for a non-idempotent function.
+	key := strings.TrimSpace(in.IdempotencyKey)
+	reserved := false
+	if key != "" {
 		prior, err := s.q.GetFunctionIdempotency(ctx, store.GetFunctionIdempotencyParams{
 			FunctionID: row.ID, IdemKey: key,
 		})
@@ -538,13 +601,42 @@ func (s *OperationFunctionService) Invoke(ctx context.Context, in FunctionInvoke
 				OK: true, Output: out, Replayed: true, AuditID: prior.CallAuditID,
 				Detail: "this call was already completed; the recorded result is returned because the function is declared idempotent",
 			}, nil
-		case err == nil:
+		case err == nil && prior.Status == FuncStatusOK:
 			detail := "a call with this idempotency key already ran, and the function is not declared idempotent — it will not be replayed"
 			s.audit(ctx, row, in, caller, FuncStatusReplayRefused, "replay_refused", detail, nil, nil, false, false, spec)
 			return &FunctionInvokeResult{
 				OK: false, Error: detail, ErrorCode: "replay_refused", Detail: detail,
 			}, nil
-		case !errors.Is(err, sql.ErrNoRows):
+		case err == nil && prior.Status == IdemRunning && !idemReservationIsStale(prior.CreatedAt):
+			detail := "a call with this idempotency key is already in flight"
+			s.audit(ctx, row, in, caller, FuncStatusReplayRefused, "replay_refused", detail, nil, nil, false, false, spec)
+			return &FunctionInvokeResult{
+				OK: false, Error: detail, ErrorCode: "replay_refused", Detail: detail,
+			}, nil
+		case err == nil:
+			// A failed call, or a reservation abandoned by a crash: the key is
+			// free again, so the caller may retry.
+			if err := s.q.FinalizeFunctionIdempotency(ctx, store.FinalizeFunctionIdempotencyParams{
+				Status: IdemRunning, OutputJson: "", CallAuditID: 0,
+				FunctionID: row.ID, IdemKey: key,
+			}); err != nil {
+				return nil, err
+			}
+			reserved = true
+		case errors.Is(err, sql.ErrNoRows):
+			if _, err := s.q.CreateFunctionIdempotency(ctx, store.CreateFunctionIdempotencyParams{
+				FunctionID: row.ID, IdemKey: key, CallAuditID: 0,
+				Status: IdemRunning, OutputJson: "",
+			}); err != nil {
+				// Lost the race with a concurrent call holding the same key.
+				detail := "a call with this idempotency key is already in flight"
+				s.audit(ctx, row, in, caller, FuncStatusReplayRefused, "replay_refused", detail, nil, nil, false, false, spec)
+				return &FunctionInvokeResult{
+					OK: false, Error: detail, ErrorCode: "replay_refused", Detail: detail,
+				}, nil
+			}
+			reserved = true
+		default:
 			return nil, err
 		}
 	}
@@ -581,14 +673,23 @@ func (s *OperationFunctionService) Invoke(ctx context.Context, in FunctionInvoke
 		s.advanceObservation(ctx, row, status)
 	}
 
-	// 6. Record the idempotency outcome so a retry can be answered.
-	if key := strings.TrimSpace(in.IdempotencyKey); key != "" && res.OK {
-		raw, _ := json.Marshal(res.Output)
-		if _, err := s.q.CreateFunctionIdempotency(ctx, store.CreateFunctionIdempotencyParams{
-			FunctionID: row.ID, IdemKey: key, CallAuditID: auditID,
-			Status: FuncStatusOK, OutputJson: string(raw),
+	// 6. Settle the reservation so a retry can be answered: 'ok' with the
+	//    result when the function is replay-safe, 'failed' otherwise (which
+	//    frees the key for a genuine retry).
+	if reserved {
+		settled := IdemFailed
+		output := ""
+		if res.OK && spec.Idempotent {
+			settled = FuncStatusOK
+			if raw, err := json.Marshal(res.Output); err == nil {
+				output = string(raw)
+			}
+		}
+		if err := s.q.FinalizeFunctionIdempotency(ctx, store.FinalizeFunctionIdempotencyParams{
+			Status: settled, OutputJson: output, CallAuditID: auditID,
+			FunctionID: row.ID, IdemKey: key,
 		}); err != nil {
-			// A ledger write failure must not fail a call that already
+			// A ledger write failure must not change a call that already
 			// happened; the audit row still records it.
 			_ = err
 		}
@@ -644,7 +745,61 @@ func (s *OperationFunctionService) resolveForInvoke(ctx context.Context, in Func
 	if row.Enabled == 0 || row.Status == FuncDisabled {
 		return row, fmt.Errorf("%w: %s", ErrFunctionDisabled, row.Name)
 	}
+	// A function belongs to a source: if the source is off, every call it makes
+	// would be refused at egress anyway. Saying so here turns a confusing
+	// in-box `http_request` failure into a clear "the source is disabled".
+	if prov, perr := s.providers.GetByName(ctx, row.ProviderName); perr == nil && !prov.Enabled {
+		return row, fmt.Errorf("%w: the source %q is disabled", ErrFunctionDisabled, row.ProviderName)
+	}
 	return row, nil
+}
+
+// EnsureOwner verifies a function belongs to the caller's owner scope. Read
+// surfaces (versions, observation trail) go through it so a function id alone
+// is never enough to read someone else's function — the same IDOR gate the
+// write paths already had via ownedFunction.
+func (s *OperationFunctionService) EnsureOwner(ctx context.Context, ownerType string, ownerID, id int64) error {
+	_, err := s.ownedFunction(ctx, ownerType, ownerID, id)
+	return err
+}
+
+// FunctionsForProviderAsDraft reconstructs the live function set as draft
+// payloads. The publish rollback path uses it to put the registry back exactly
+// as it was after a failed publish — including the code, not just the counts.
+func (s *OperationFunctionService) FunctionsForProviderAsDraft(ctx context.Context, providerID int64) []FunctionDraftPayload {
+	rows, err := s.q.ListIntegrationFunctionsByProvider(ctx, providerID)
+	if err != nil {
+		return nil
+	}
+	out := make([]FunctionDraftPayload, 0, len(rows))
+	for _, row := range rows {
+		payload := FunctionDraftPayload{
+			Name:        row.Name,
+			Description: row.Description,
+			Runtime:     row.Runtime,
+			Code:        row.Code,
+			Entry:       row.Entry,
+			Idempotent:  row.Idempotent != 0,
+			Enabled:     row.Enabled != 0,
+			CodeHash:    row.CodeHash,
+			ExistingID:  row.ID,
+		}
+		_ = json.Unmarshal([]byte(row.LimitsJson), &payload.Limits)
+		if err := json.Unmarshal([]byte(row.EgressJson), &payload.Egress); err != nil {
+			return nil
+		}
+		out = append(out, payload)
+	}
+	return out
+}
+
+// idemReservationIsStale reports whether a 'running' reservation is old enough
+// to treat as abandoned.
+func idemReservationIsStale(createdAt time.Time) bool {
+	if createdAt.IsZero() {
+		return false
+	}
+	return time.Since(createdAt) > idemStaleAfter
 }
 
 // serveEgress is the bridge between the box and the ordinary proxy egress.
@@ -685,6 +840,9 @@ func (s *OperationFunctionService) serveEgress(ctx context.Context, row store.In
 }
 
 // advanceObservation moves a function through its first-run window.
+//
+// The status flip is conditional in SQL so a call still in flight when the user
+// disables the function cannot switch it back on.
 func (s *OperationFunctionService) advanceObservation(ctx context.Context, row store.IntegrationFunction, status string) {
 	next := row.ObservationCalls + 1
 	newStatus := FuncObserving
@@ -692,7 +850,9 @@ func (s *OperationFunctionService) advanceObservation(ctx context.Context, row s
 		newStatus = FuncActive
 	}
 	if err := s.q.RecordFunctionObservationCall(ctx, store.RecordFunctionObservationCallParams{
-		Status: newStatus, ID: row.ID,
+		ObservingStatus: FuncObserving,
+		NextStatus:      newStatus,
+		ID:              row.ID,
 	}); err != nil {
 		return
 	}

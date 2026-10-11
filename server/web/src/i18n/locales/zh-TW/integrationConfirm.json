@@ -50,7 +50,9 @@
     "new_write_operation": "新增寫操作：{{target}}",
     "operation_not_in_document": "文件未宣告的操作：{{target}}",
     "scope_widened": "資料範圍擴大：{{target}} 新增 {{detail}}",
-    "write_enabled": "開啟寫許可權"
+    "write_enabled": "開啟寫許可權",
+    "function_unrehearsed": "該函式沒有行為預演就發佈：它的出網從未被預覽過",
+    "function_undeclared_operation": "該函式在預演中呼叫了未宣告的 {detail}"
   },
   "advisory": {
     "title": "來自外部文件的原文（不可信，僅供人工查閱）",
@@ -105,5 +107,17 @@
     "rollbackNeedsConfirmation": "還原到版本 {{version}} 會改變 scope，因此需要先確認。目前尚未套用任何變更。",
     "rollbackDone": "已還原。",
     "rollbackFailed": "還原後的設定未通過驗證，線上設定保持不變。"
+  },
+  "functions": {
+    "title": "操作函式（沙箱）",
+    "isNew": "新增",
+    "changed": "有改動",
+    "idempotent": "可重放",
+    "notIdempotent": "不可重放",
+    "reach": "可呼叫：",
+    "noRehearsal": "沒有產出行為預演——該函式的出網從未被預覽過。",
+    "undeclared": "預演中它呼叫了未宣告的 {ops}。",
+    "lintLine": "第 {line} 行：{message}",
+    "code": "檢視程式碼"
   }
 }

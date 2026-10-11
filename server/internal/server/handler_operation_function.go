@@ -161,12 +161,13 @@ func (s *Server) functionVersions(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{"code": "BAD_REQUEST", "message": "invalid function id"}})
 		return
 	}
-	if _, err := s.functionSvc.Get(c.Request.Context(), id); err != nil {
+	// A function id alone must not be enough to read another owner's function:
+	// the write paths already gate on ownership, and these reads have to as
+	// well or the gate is trivially bypassed.
+	if err := s.functionSvc.EnsureOwner(c.Request.Context(), ownerType, ownerID, id); err != nil {
 		writeFunctionError(c, err)
 		return
 	}
-	_ = ownerType
-	_ = ownerID
 	versions, err := s.functionSvc.ListVersions(c.Request.Context(), id, queryInt64(c, "limit"))
 	if err != nil {
 		writeFunctionError(c, err)
@@ -176,12 +177,19 @@ func (s *Server) functionVersions(c *gin.Context) {
 }
 
 func (s *Server) functionObservation(c *gin.Context) {
-	if _, _, _, ok := s.functionOwner(c); !ok {
+	ownerType, ownerID, _, ok := s.functionOwner(c)
+	if !ok {
 		return
 	}
 	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{"code": "BAD_REQUEST", "message": "invalid function id"}})
+		return
+	}
+	// The observation trail contains the functions's request history, so it is
+	// owner-scoped for the same reason the versions are.
+	if err := s.functionSvc.EnsureOwner(c.Request.Context(), ownerType, ownerID, id); err != nil {
+		writeFunctionError(c, err)
 		return
 	}
 	trail, err := s.functionSvc.ObservationTrail(c.Request.Context(), id, queryInt64(c, "limit"))

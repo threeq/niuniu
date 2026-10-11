@@ -224,11 +224,30 @@ func TestSpawnRefusedWhenFenceUnavailable(t *testing.T) {
 	}
 }
 
-func TestApplySelfFenceIsCallable(t *testing.T) {
-	// The helper applies this on boot; on this platform it must be a no-op that
-	// does not break the test process.
-	if err := ApplySelfFence(128); err != nil && runtime.GOOS == "linux" {
-		t.Skipf("self-fence unavailable in this environment: %v", err)
+// ApplySelfFence is applied by the BOX on boot, never by the server. Calling it
+// in the test process would be destructive on Linux (Landlock + seccomp are
+// irreversible for the process) and would arm a CPU rlimit on macOS, so the
+// assertion runs it where it actually runs: in a spawned box. The `--probe`
+// self-check below is that run.
+func TestApplySelfFenceIsExercisedByTheProbe(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("on Windows the fence is applied by the parent, so the box has nothing to self-apply")
+	}
+	testHelper(t)
+	p, err := currentFence().Spawn(SpawnRequest{
+		Path: HelperPath(), Args: []string{"--probe"},
+		Env: boxEnv(), Dir: boxWorkDir(), MemoryBytes: 64 << 20,
+	})
+	if err != nil {
+		t.Fatalf("spawn: %v", err)
+	}
+	defer func() {
+		_ = p.Kill()
+		p.Close()
+	}()
+	_ = p.Stdin().Close()
+	if err := p.Wait(); err != nil {
+		t.Fatalf("a box that self-fenced exited abnormally: %v", err)
 	}
 	_ = os.Getpid()
 }

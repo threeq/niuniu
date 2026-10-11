@@ -55,8 +55,11 @@ var lintRules = []lintRule{
 		fix:     "operation functions have no npm access and no Node API; declare the operation in the contract and use http_request, or ask the platform to add the capability",
 	},
 	{
+		// Named network APIs only. Bare words like `net` or `tls` were in an
+		// earlier revision and blocked legitimate code that merely used them as
+		// identifiers, which teaches a reviewer to click past the warnings.
 		id: "no-host-network", severity: SeverityError,
-		re:      regexp.MustCompile(`\b(fetch|XMLHttpRequest|WebSocket|EventSource|net|tls|dgram)\b`),
+		re:      regexp.MustCompile(`\b(fetch|XMLHttpRequest|WebSocket|EventSource)\b|\bnet\s*\.|\btls\s*\.|\bdgram\s*\.`),
 		message: "the function has no network API of its own; http_request is the only egress",
 		fix:     "use http_request({operation, params, body}) so the call goes through the proxy (scope, credentials and audit included)",
 	},

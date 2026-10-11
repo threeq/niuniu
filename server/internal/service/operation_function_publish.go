@@ -73,6 +73,11 @@ type FunctionDraftLint struct {
 	Findings []sandbox.LintFinding `json:"findings"`
 }
 
+// maxFunctionsPerDraft bounds one draft. Each entry costs a real sandboxed
+// rehearsal (up to the function's whole time budget), so an unbounded list is a
+// cheap way for a caller to make the server run hundreds of boxes.
+const maxFunctionsPerDraft = 16
+
 // PrepareFunctionDrafts is the server-side pass that turns caller-supplied
 // function bodies into reviewable entries: validate, lint, and rehearse against
 // a mock upstream. The rehearsal and lint fields on the way out are the
@@ -80,6 +85,10 @@ type FunctionDraftLint struct {
 func (s *OperationFunctionService) PrepareFunctionDrafts(
 	ctx context.Context, providerName string, in []FunctionDraftPayload, byUser int64,
 ) ([]FunctionDraftPayload, []FunctionDraftLint, error) {
+	if len(in) > maxFunctionsPerDraft {
+		return nil, nil, fmt.Errorf("%w: a draft may carry at most %d functions (got %d)",
+			ErrDraftInvalid, maxFunctionsPerDraft, len(in))
+	}
 	out := make([]FunctionDraftPayload, 0, len(in))
 	lints := make([]FunctionDraftLint, 0, len(in))
 	seen := map[string]bool{}

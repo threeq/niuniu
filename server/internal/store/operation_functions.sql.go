@@ -364,12 +364,32 @@ func (q *Queries) DeactivateIntegrationFunctionVersions(ctx context.Context, fun
 	return err
 }
 
+const deleteFunctionIdempotencyForFunction = `-- name: DeleteFunctionIdempotencyForFunction :exec
+DELETE FROM function_idempotency WHERE function_id = ?1
+`
+
+// The ledger is implementation state, not an audit record: the audit table is
+// kept forever, but a deleted function's reservations have no reader.
+func (q *Queries) DeleteFunctionIdempotencyForFunction(ctx context.Context, functionID int64) error {
+	_, err := q.db.ExecContext(ctx, deleteFunctionIdempotencyForFunction, functionID)
+	return err
+}
+
 const deleteIntegrationFunction = `-- name: DeleteIntegrationFunction :exec
 DELETE FROM integration_functions WHERE id = ?1
 `
 
 func (q *Queries) DeleteIntegrationFunction(ctx context.Context, id int64) error {
 	_, err := q.db.ExecContext(ctx, deleteIntegrationFunction, id)
+	return err
+}
+
+const deleteIntegrationFunctionVersions = `-- name: DeleteIntegrationFunctionVersions :exec
+DELETE FROM integration_function_versions WHERE function_id = ?1
+`
+
+func (q *Queries) DeleteIntegrationFunctionVersions(ctx context.Context, functionID int64) error {
+	_, err := q.db.ExecContext(ctx, deleteIntegrationFunctionVersions, functionID)
 	return err
 }
 
@@ -381,6 +401,36 @@ DELETE FROM integration_functions WHERE provider_id = ?1
 // meaning without the provider whose operations it reaches.
 func (q *Queries) DeleteIntegrationFunctionsByProvider(ctx context.Context, providerID int64) error {
 	_, err := q.db.ExecContext(ctx, deleteIntegrationFunctionsByProvider, providerID)
+	return err
+}
+
+const finalizeFunctionIdempotency = `-- name: FinalizeFunctionIdempotency :exec
+UPDATE function_idempotency
+SET status = ?1,
+    output_json = ?2,
+    call_audit_id = ?3
+WHERE function_id = ?4 AND idem_key = ?5
+`
+
+type FinalizeFunctionIdempotencyParams struct {
+	Status      string `json:"status"`
+	OutputJson  string `json:"output_json"`
+	CallAuditID int64  `json:"call_audit_id"`
+	FunctionID  int64  `json:"function_id"`
+	IdemKey     string `json:"idem_key"`
+}
+
+// Settles a reserved idempotency key once the call has actually finished.
+// A reservation left in 'running' by a crash is retryable after the staleness
+// window the service applies.
+func (q *Queries) FinalizeFunctionIdempotency(ctx context.Context, arg FinalizeFunctionIdempotencyParams) error {
+	_, err := q.db.ExecContext(ctx, finalizeFunctionIdempotency,
+		arg.Status,
+		arg.OutputJson,
+		arg.CallAuditID,
+		arg.FunctionID,
+		arg.IdemKey,
+	)
 	return err
 }
 
@@ -916,20 +966,27 @@ func (q *Queries) ListObservationFunctionCalls(ctx context.Context, arg ListObse
 const recordFunctionObservationCall = `-- name: RecordFunctionObservationCall :exec
 UPDATE integration_functions
 SET observation_calls = observation_calls + 1,
-    status = ?1,
+    status = CASE WHEN status = ?1
+                  THEN ?2
+                  ELSE status END,
     updated_at = CURRENT_TIMESTAMP
-WHERE id = ?2
+WHERE id = ?3
 `
 
 type RecordFunctionObservationCallParams struct {
-	Status string `json:"status"`
-	ID     int64  `json:"id"`
+	ObservingStatus string `json:"observing_status"`
+	NextStatus      string `json:"next_status"`
+	ID              int64  `json:"id"`
 }
 
 // Advances the first-run observation counter and flips to 'active' when the
 // window closes.
+//
+// The status transition is conditional on the row still being 'observing': a
+// call that was already in flight when the user disabled the function must not
+// flip it back on as a side effect of its own bookkeeping.
 func (q *Queries) RecordFunctionObservationCall(ctx context.Context, arg RecordFunctionObservationCallParams) error {
-	_, err := q.db.ExecContext(ctx, recordFunctionObservationCall, arg.Status, arg.ID)
+	_, err := q.db.ExecContext(ctx, recordFunctionObservationCall, arg.ObservingStatus, arg.NextStatus, arg.ID)
 	return err
 }
 

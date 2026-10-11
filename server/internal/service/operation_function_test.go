@@ -1,6 +1,7 @@
 package service
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -182,5 +183,63 @@ func TestTruncateMsg(t *testing.T) {
 	}
 	if got := truncateMsg("ab", 3); got != "ab" {
 		t.Fatalf("got %q", got)
+	}
+}
+
+// A draft that carries more functions than the cap is refused before any box is
+// spawned: each entry costs a real sandboxed rehearsal, so an unbounded list is
+// a cheap way to make the server run hundreds of them.
+func TestPrepareFunctionDraftsCapsTheBatch(t *testing.T) {
+	svc := &OperationFunctionService{}
+	fns := make([]FunctionDraftPayload, maxFunctionsPerDraft+1)
+	for i := range fns {
+		fns[i] = FunctionDraftPayload{Name: "f", Code: "function main() {}"}
+	}
+	if _, _, err := svc.PrepareFunctionDrafts(context.Background(), "p", fns, 1); err == nil {
+		t.Fatal("an over-long function list was accepted")
+	}
+}
+
+// A body that cannot be normalized is reported as a BLOCKING finding rather
+// than an error, so the review UI can show the reason next to the code instead
+// of failing the whole draft.
+func TestPrepareFunctionDraftsReportsInvalidBodiesAsBlocking(t *testing.T) {
+	svc := &OperationFunctionService{}
+	prepared, lints, err := svc.PrepareFunctionDrafts(context.Background(), "p", []FunctionDraftPayload{
+		{Name: "noEgress", Code: "function main() { return 1; }"},
+	}, 1)
+	if err != nil {
+		t.Fatalf("an invalid body must be a lint verdict, not an error: %v", err)
+	}
+	if len(prepared) != 1 || prepared[0].CodeHash == "" {
+		t.Fatalf("the body was not carried through with a hash: %#v", prepared)
+	}
+	if !FunctionLintBlocks(lints) {
+		t.Fatalf("a body with no declared egress did not block: %#v", lints)
+	}
+}
+
+func TestPrepareFunctionDraftsRejectsDuplicateNames(t *testing.T) {
+	svc := &OperationFunctionService{}
+	_, _, err := svc.PrepareFunctionDrafts(context.Background(), "p", []FunctionDraftPayload{
+		{Name: "same", Code: "function main() {}"},
+		{Name: "same", Code: "function main() {}"},
+	}, 1)
+	if err == nil {
+		t.Fatal("duplicate function names were accepted")
+	}
+}
+
+// A reservation abandoned by a crash must not wedge an idempotency key forever,
+// and a fresh one must still block a concurrent duplicate.
+func TestIdemReservationStaleness(t *testing.T) {
+	if !idemReservationIsStale(time.Now().Add(-idemStaleAfter - time.Minute)) {
+		t.Fatal("an abandoned reservation is still blocking its key")
+	}
+	if idemReservationIsStale(time.Now()) {
+		t.Fatal("a fresh reservation was treated as abandoned, so a concurrent duplicate would run")
+	}
+	if idemReservationIsStale(time.Time{}) {
+		t.Fatal("a zero timestamp must not be read as stale")
 	}
 }

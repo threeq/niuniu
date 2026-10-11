@@ -679,6 +679,15 @@ func (s *Server) proxyDeleteProvider(c *gin.Context) {
 		}})
 		return
 	}
+	// Operation functions belong to their source ("函数随源删除"): remove them
+	// before the provider row goes, so nothing stays callable while pointing at
+	// operations that no longer exist.
+	if s.functionSvc != nil {
+		if err := s.functionSvc.DeleteForProvider(c.Request.Context(), id); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": gin.H{"code": "INTERNAL_ERROR", "message": err.Error()}})
+			return
+		}
+	}
 	if err := s.externalProviderSvc.Delete(c.Request.Context(), id); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": gin.H{"code": "INTERNAL_ERROR", "message": err.Error()}})
 		return

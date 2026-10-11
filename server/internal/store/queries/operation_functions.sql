@@ -69,11 +69,25 @@ WHERE id = sqlc.arg(id);
 -- name: RecordFunctionObservationCall :exec
 -- Advances the first-run observation counter and flips to 'active' when the
 -- window closes.
+--
+-- The status transition is conditional on the row still being 'observing': a
+-- call that was already in flight when the user disabled the function must not
+-- flip it back on as a side effect of its own bookkeeping.
 UPDATE integration_functions
 SET observation_calls = observation_calls + 1,
-    status = sqlc.arg(status),
+    status = CASE WHEN status = sqlc.arg(observing_status)
+                  THEN sqlc.arg(next_status)
+                  ELSE status END,
     updated_at = CURRENT_TIMESTAMP
 WHERE id = sqlc.arg(id);
+
+-- name: DeleteIntegrationFunctionVersions :exec
+DELETE FROM integration_function_versions WHERE function_id = sqlc.arg(function_id);
+
+-- name: DeleteFunctionIdempotencyForFunction :exec
+-- The ledger is implementation state, not an audit record: the audit table is
+-- kept forever, but a deleted function's reservations have no reader.
+DELETE FROM function_idempotency WHERE function_id = sqlc.arg(function_id);
 
 -- --- versions (rollback chain) -------------------------------------------
 
@@ -180,4 +194,14 @@ RETURNING *;
 
 -- name: GetFunctionIdempotency :one
 SELECT * FROM function_idempotency
+WHERE function_id = sqlc.arg(function_id) AND idem_key = sqlc.arg(idem_key);
+
+-- name: FinalizeFunctionIdempotency :exec
+-- Settles a reserved idempotency key once the call has actually finished.
+-- A reservation left in 'running' by a crash is retryable after the staleness
+-- window the service applies.
+UPDATE function_idempotency
+SET status = sqlc.arg(status),
+    output_json = sqlc.arg(output_json),
+    call_audit_id = sqlc.arg(call_audit_id)
 WHERE function_id = sqlc.arg(function_id) AND idem_key = sqlc.arg(idem_key);

@@ -48,6 +48,10 @@ export function OperationFunctionsPanel() {
   const [runError, setRunError] = useState<string | null>(null);
   const [runOutput, setRunOutput] = useState<string | null>(null);
   const [rollbackScopes, setRollbackScopes] = useState<string[] | null>(null);
+  // The version the re-confirmation is about. Guessing it from the list (e.g.
+  // "the first inactive one") rolls back something the user did not click.
+  const [pendingRollback, setPendingRollback] = useState<number | null>(null);
+  const [selfTestError, setSelfTestError] = useState<string | null>(null);
 
   const fence = useQuery<FenceAvailability>({
     queryKey: ['operation-functions', 'sandbox'],
@@ -104,11 +108,13 @@ export function OperationFunctionsPanel() {
   const rollback = useMutation({
     mutationFn: ({ id, versionId, confirmed }: { id: number; versionId: number; confirmed: boolean }) =>
       operationFunctionsApi.rollback(id, { version_id: versionId, confirmed }),
-    onSuccess: result => {
+    onSuccess: (result, variables) => {
       if (result.requires_confirmation && result.changed_scopes) {
-        setRollbackScopes(result.changed_scopes.map(s => `${s.key}: ${s.before} → ${s.after}`));
+        setPendingRollback(variables.versionId);
+        setRollbackScopes(result.changed_scopes.map(sc => `${sc.key}: ${sc.before} → ${sc.after}`));
         return;
       }
+      setPendingRollback(null);
       setRollbackScopes(null);
       refreshAll();
     },
@@ -116,7 +122,13 @@ export function OperationFunctionsPanel() {
   const selfTest = useMutation({
     mutationFn: () => operationFunctionsApi.sandboxSelfTest(),
     onSuccess: () => {
+      setSelfTestError(null);
       void queryClient.invalidateQueries({ queryKey: ['operation-functions', 'sandbox'] });
+    },
+    // A host whose fence is missing answers 503 here. Swallowing that would
+    // leave the user staring at a button that appears to do nothing.
+    onError: (err: unknown) => {
+      setSelfTestError(err instanceof Error ? err.message : String(err));
     },
   });
 
@@ -146,6 +158,8 @@ export function OperationFunctionsPanel() {
             {t('integrations.functions.refresh')}
           </Button>
         </div>
+
+        {selfTestError && <p className="text-sm text-destructive">{selfTestError}</p>}
 
         {selfTest.data && (
           <ul className="flex flex-col gap-1 text-sm">
@@ -222,6 +236,7 @@ export function OperationFunctionsPanel() {
                     setRunOutput(null);
                     setRunError(null);
                     setRollbackScopes(null);
+                    setPendingRollback(null);
                   }}
                 >
                   {t('integrations.functions.close')}
@@ -311,11 +326,14 @@ export function OperationFunctionsPanel() {
                     variant="destructive"
                     size="sm"
                     className="mt-2"
+                    disabled={pendingRollback === null}
                     onClick={() => {
-                      const last = (versions.data ?? []).find(v => !v.active);
-                      if (last) {
-                        rollback.mutate({ id: selected.id, versionId: last.id, confirmed: true });
-                      }
+                      if (pendingRollback === null) return;
+                      rollback.mutate({
+                        id: selected.id,
+                        versionId: pendingRollback,
+                        confirmed: true,
+                      });
                     }}
                   >
                     {t('integrations.functions.confirmRollback')}

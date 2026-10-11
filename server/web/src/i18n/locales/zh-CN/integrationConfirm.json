@@ -50,7 +50,9 @@
     "new_write_operation": "新增写操作：{{target}}",
     "operation_not_in_document": "文档未声明的操作：{{target}}",
     "scope_widened": "数据范围扩大：{{target}} 新增 {{detail}}",
-    "write_enabled": "开启写权限"
+    "write_enabled": "开启写权限",
+    "function_unrehearsed": "该函数没有行为预演就发布：它的出网从未被预览过",
+    "function_undeclared_operation": "该函数在预演中调用了未声明的 {detail}"
   },
   "advisory": {
     "title": "来自外部文档的原文（不可信，仅供人工查阅）",
@@ -105,5 +107,17 @@
     "rollbackNeedsConfirmation": "回退到版本 {{version}} 会改变 scope，因此需要先确认。目前尚未应用任何改动。",
     "rollbackDone": "已回退。",
     "rollbackFailed": "回退后的配置未通过验证，线上配置保持不变。"
+  },
+  "functions": {
+    "title": "操作函数（沙箱）",
+    "isNew": "新增",
+    "changed": "有改动",
+    "idempotent": "可重放",
+    "notIdempotent": "不可重放",
+    "reach": "可调用：",
+    "noRehearsal": "没有产出行为预演——该函数的出网从未被预览过。",
+    "undeclared": "预演中它调用了未声明的 {ops}。",
+    "lintLine": "第 {line} 行：{message}",
+    "code": "查看代码"
   }
 }

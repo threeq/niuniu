@@ -381,6 +381,13 @@ func (s *IntegrationDraftService) snapshot(ctx context.Context, row store.Integr
 		if prefs, err := s.providers.ListWritePrefs(ctx, byUser); err == nil {
 			p.WriteEnabled = prefs[prov.ID]
 		}
+		// The live functions belong to the snapshot too. A publish writes the
+		// registry, so restoring only the provider row would leave a failed
+		// publish's functions live — the "函数随源" rule has to hold on the
+		// failure path as well as the happy one.
+		if s.functions != nil {
+			p.Functions = s.functions.FunctionsForProviderAsDraft(ctx, prov.ID)
+		}
 		raw, err := json.Marshal(p)
 		if err != nil {
 			return nil, err
@@ -455,6 +462,13 @@ func (s *IntegrationDraftService) restoreSnapshot(ctx context.Context, snap *liv
 func (s *IntegrationDraftService) deleteTarget(ctx context.Context, kind string, targetID int64) {
 	switch kind {
 	case DraftKindProvider:
+		// Remove the functions first: the provider row is about to disappear,
+		// and a function whose source is gone must not stay callable.
+		if s.functions != nil {
+			if err := s.functions.DeleteForProvider(ctx, targetID); err != nil {
+				logRestoreFailure(&liveSnapshot{Kind: kind, TargetID: targetID}, err)
+			}
+		}
 		if err := s.providers.Delete(ctx, targetID); err != nil {
 			logRestoreFailure(&liveSnapshot{Kind: kind, TargetID: targetID}, err)
 		}
