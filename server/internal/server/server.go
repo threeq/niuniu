@@ -122,6 +122,8 @@ type Server struct {
 	// layer with auth injection + whitelist enforcement + audit logging.
 	externalProviderSvc *service.ExternalProviderService
 	externalProxySvc    *service.ExternalProxyService
+	// Read side of the two integration audit tables (Epic #726 / #728).
+	integrationAuditSvc *service.IntegrationAuditService
 
 	// Data integration (M1): owner-scoped SQL data sources + connector
 	// registry/pool. Parallel to the HTTP external-proxy above; see
@@ -1409,6 +1411,7 @@ func New(cfg *config.Config, db *sql.DB, frontendFS fs.FS) *Server {
 	proxySvc := service.NewExternalProxyService(s.queries, db, providerSvc, s.extCredSvc, authz)
 	s.externalProviderSvc = providerSvc
 	s.externalProxySvc = proxySvc
+	s.integrationAuditSvc = service.NewIntegrationAuditService(s.queries)
 	// Reproject the user's office-mail workspaces when they toggle imap write-
 	// permission, so config.toml (outgoing/SMTP) + permissions.deny refresh to
 	// the new state (otherwise the toggle never reaches the materialized files

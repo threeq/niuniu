@@ -29,6 +29,32 @@ INSERT INTO data_source_audit
   (user_id, source_id, access_mode, database_name, objects, statement_summary, status, rows, duration_ms)
 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);
 
+-- name: ListDataSourceAudit :many
+-- Caller-scoped data-query audit feed, newest first. source_id = 0 means "any
+-- source"; from_ts/to_ts are nullable (NULL = unbounded). Same COALESCE-anchored
+-- time comparison as ListExternalApiAudit, for the same Postgres-typing reason.
+SELECT * FROM data_source_audit
+WHERE user_id = sqlc.arg(user_id)
+  AND (CAST(sqlc.arg(source_id) AS BIGINT) = 0 OR source_id = sqlc.arg(source_id))
+  AND created_at >= COALESCE(sqlc.narg(from_ts), created_at)
+  AND created_at <= COALESCE(sqlc.narg(to_ts), created_at)
+ORDER BY id DESC
+LIMIT sqlc.arg(lim) OFFSET sqlc.arg(off);
+
+-- name: CountDataSourceAudit :one
+SELECT COUNT(*) AS n FROM data_source_audit
+WHERE user_id = sqlc.arg(user_id)
+  AND (CAST(sqlc.arg(source_id) AS BIGINT) = 0 OR source_id = sqlc.arg(source_id))
+  AND created_at >= COALESCE(sqlc.narg(from_ts), created_at)
+  AND created_at <= COALESCE(sqlc.narg(to_ts), created_at);
+
+-- name: ListDataSourceNamesByIDs :many
+-- id -> name map for rendering the audit feed's source column. Never selects
+-- config/scope_config, so no credential material can leak through it.
+SELECT id, name FROM data_sources
+WHERE id IN (sqlc.slice('ids'))
+ORDER BY id;
+
 -- name: CreateDataSourceBinding :exec
 -- Callers delete all bindings for the source first (DeleteBindingsForSource)
 -- and re-insert, so no ON CONFLICT clause is needed.

@@ -7,8 +7,36 @@ package store
 
 import (
 	"context"
+	"database/sql"
 	"strings"
 )
+
+const countDataSourceAudit = `-- name: CountDataSourceAudit :one
+SELECT COUNT(*) AS n FROM data_source_audit
+WHERE user_id = ?1
+  AND (CAST(?2 AS BIGINT) = 0 OR source_id = ?2)
+  AND created_at >= COALESCE(?3, created_at)
+  AND created_at <= COALESCE(?4, created_at)
+`
+
+type CountDataSourceAuditParams struct {
+	UserID   int64        `json:"user_id"`
+	SourceID int64        `json:"source_id"`
+	FromTs   sql.NullTime `json:"from_ts"`
+	ToTs     sql.NullTime `json:"to_ts"`
+}
+
+func (q *Queries) CountDataSourceAudit(ctx context.Context, arg CountDataSourceAuditParams) (int64, error) {
+	row := q.db.QueryRowContext(ctx, countDataSourceAudit,
+		arg.UserID,
+		arg.SourceID,
+		arg.FromTs,
+		arg.ToTs,
+	)
+	var n int64
+	err := row.Scan(&n)
+	return n, err
+}
 
 const countDataSourceBinding = `-- name: CountDataSourceBinding :one
 SELECT COUNT(*) AS n FROM data_source_bindings
@@ -197,6 +225,116 @@ func (q *Queries) ListBindingsForSource(ctx context.Context, sourceID int64) ([]
 			&i.TargetID,
 			&i.CreatedAt,
 		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listDataSourceAudit = `-- name: ListDataSourceAudit :many
+SELECT id, user_id, source_id, access_mode, database_name, objects, statement_summary, status, "rows", duration_ms, created_at FROM data_source_audit
+WHERE user_id = ?1
+  AND (CAST(?2 AS BIGINT) = 0 OR source_id = ?2)
+  AND created_at >= COALESCE(?3, created_at)
+  AND created_at <= COALESCE(?4, created_at)
+ORDER BY id DESC
+LIMIT ?6 OFFSET ?5
+`
+
+type ListDataSourceAuditParams struct {
+	UserID   int64        `json:"user_id"`
+	SourceID int64        `json:"source_id"`
+	FromTs   sql.NullTime `json:"from_ts"`
+	ToTs     sql.NullTime `json:"to_ts"`
+	Off      int64        `json:"off"`
+	Lim      int64        `json:"lim"`
+}
+
+// Caller-scoped data-query audit feed, newest first. source_id = 0 means "any
+// source"; from_ts/to_ts are nullable (NULL = unbounded). Same COALESCE-anchored
+// time comparison as ListExternalApiAudit, for the same Postgres-typing reason.
+func (q *Queries) ListDataSourceAudit(ctx context.Context, arg ListDataSourceAuditParams) ([]DataSourceAudit, error) {
+	rows, err := q.db.QueryContext(ctx, listDataSourceAudit,
+		arg.UserID,
+		arg.SourceID,
+		arg.FromTs,
+		arg.ToTs,
+		arg.Off,
+		arg.Lim,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []DataSourceAudit{}
+	for rows.Next() {
+		var i DataSourceAudit
+		if err := rows.Scan(
+			&i.ID,
+			&i.UserID,
+			&i.SourceID,
+			&i.AccessMode,
+			&i.DatabaseName,
+			&i.Objects,
+			&i.StatementSummary,
+			&i.Status,
+			&i.Rows,
+			&i.DurationMs,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listDataSourceNamesByIDs = `-- name: ListDataSourceNamesByIDs :many
+SELECT id, name FROM data_sources
+WHERE id IN (/*SLICE:ids*/?)
+ORDER BY id
+`
+
+type ListDataSourceNamesByIDsRow struct {
+	ID   int64  `json:"id"`
+	Name string `json:"name"`
+}
+
+// id -> name map for rendering the audit feed's source column. Never selects
+// config/scope_config, so no credential material can leak through it.
+func (q *Queries) ListDataSourceNamesByIDs(ctx context.Context, ids []int64) ([]ListDataSourceNamesByIDsRow, error) {
+	query := listDataSourceNamesByIDs
+	var queryParams []interface{}
+	if len(ids) > 0 {
+		for _, v := range ids {
+			queryParams = append(queryParams, v)
+		}
+		query = strings.Replace(query, "/*SLICE:ids*/?", strings.Repeat(",?", len(ids))[1:], 1)
+	} else {
+		query = strings.Replace(query, "/*SLICE:ids*/?", "NULL", 1)
+	}
+	rows, err := q.db.QueryContext(ctx, query, queryParams...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListDataSourceNamesByIDsRow{}
+	for rows.Next() {
+		var i ListDataSourceNamesByIDsRow
+		if err := rows.Scan(&i.ID, &i.Name); err != nil {
 			return nil, err
 		}
 		items = append(items, i)

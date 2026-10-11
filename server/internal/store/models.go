@@ -311,6 +311,9 @@ type ExternalApiAudit struct {
 	Method     string    `json:"method"`
 	Path       string    `json:"path"`
 	StatusCode int64     `json:"status_code"`
+	BodySha256 string    `json:"body_sha256"`
+	BodyBytes  int64     `json:"body_bytes"`
+	BodyFields string    `json:"body_fields"`
 	CreatedAt  time.Time `json:"created_at"`
 }
 
