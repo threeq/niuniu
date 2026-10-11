@@ -477,9 +477,12 @@ func buildDiff(in ConfirmDraftInput, ops []ConfirmOperation) []ConfirmDiff {
 	return diff
 }
 
+// scopeDiff reports per-key scope changes against the published config. It
+// walks the union of both key sets so a scope key revoked outright (present
+// before, gone now) still shows up as a removal instead of vanishing.
 func scopeDiff(next, prev map[string]any) []ConfirmDiff {
 	diff := []ConfirmDiff{}
-	for _, key := range sortedScopeKeys(next) {
+	for _, key := range unionScopeKeys(next, prev) {
 		added := valuesOutside(scopeValues(next, key), scopeValues(prev, key))
 		removed := valuesOutside(scopeValues(prev, key), scopeValues(next, key))
 		if len(added) > 0 {
@@ -545,6 +548,23 @@ func hostOf(raw string) string {
 func sortedScopeKeys(m map[string]any) []string {
 	keys := make([]string, 0, len(m))
 	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys
+}
+
+// unionScopeKeys returns the sorted union of both maps' keys.
+func unionScopeKeys(a, b map[string]any) []string {
+	seen := make(map[string]bool, len(a)+len(b))
+	for k := range a {
+		seen[k] = true
+	}
+	for k := range b {
+		seen[k] = true
+	}
+	keys := make([]string, 0, len(seen))
+	for k := range seen {
 		keys = append(keys, k)
 	}
 	sort.Strings(keys)

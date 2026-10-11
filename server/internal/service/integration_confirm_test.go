@@ -224,6 +224,29 @@ func TestScopeChange_ReportsWidenedAndNarrowed(t *testing.T) {
 	}
 }
 
+func TestScopeDiff_ReportsARevokedKey(t *testing.T) {
+	card := BuildConfirmCard(ConfirmDraftInput{
+		Kind: ConfirmKindDataSource, Name: "warehouse", SourceKind: "mysql",
+		ScopeConfig: map[string]any{"databases": []any{"analytics"}},
+		Previous: &PublishedState{ScopeConfig: map[string]any{
+			"databases":    []any{"analytics"},
+			"tables_allow": []any{"public.orders"},
+		}},
+	})
+	var revoked *ConfirmDiff
+	for i := range card.Diff {
+		if card.Diff[i].Field == "scope.tables_allow" {
+			revoked = &card.Diff[i]
+		}
+	}
+	if revoked == nil {
+		t.Fatalf("a scope key revoked outright must still appear in the diff: %+v", card.Diff)
+	}
+	if revoked.Change != ChangeRemoved || revoked.Before != "public.orders" || revoked.After != "" {
+		t.Fatalf("revoked key diff = %+v, want removal of public.orders", *revoked)
+	}
+}
+
 // --- determinism + snapshot ------------------------------------------------
 
 func TestBuildConfirmCard_IsDeterministic(t *testing.T) {

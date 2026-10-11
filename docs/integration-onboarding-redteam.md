@@ -101,3 +101,8 @@
    在此之前不要对外宣称"回滚不会恢复已撤权限"。
 3. 前端 9 个用例里 `renders the operations the system will enforce` 首轮失败过一次——
    同一路径的 GET/POST 两行渲染出两个 `/pets`，属测试写法问题，已修正为 `getAllByText`。
+4. 实现自查发现一处真实缺陷：`scopeDiff` 只遍历**新配置**的 scope 键，导致"某个 scope
+   键被整体撤销"（旧有新无）在差异里完全消失——收窄虽然不构成风险，但差异必须真实完整，
+   否则审阅者会漏看一次权限回收。已改为遍历两侧键的并集，并补
+   `TestScopeDiff_ReportsARevokedKey`。教训：差异渲染要按**并集**做，只按"新值"遍历会
+   系统性漏掉删除项。
