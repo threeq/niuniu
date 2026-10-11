@@ -1561,6 +1561,24 @@ CREATE TABLE IF NOT EXISTS integration_probe_runs (
 CREATE INDEX IF NOT EXISTS idx_integration_probe_runs_subject
     ON integration_probe_runs(subject_kind, subject_id, created_at DESC);
 
+-- Operable capability descriptions (Epic #726 / #738). One row per integration
+-- source (Provider or DataSource): the two-layer "how to drive this thing"
+-- document an agent reads. The document is a pure function of the CONFIRMED
+-- contract / source metadata, so it is regenerated whenever source_digest no
+-- longer matches the current digest -- that is the anti-drift guarantee. Kept in
+-- its own table rather than a column on external_providers/data_sources so the
+-- description never feeds back into the contract digest.
+CREATE TABLE IF NOT EXISTS integration_capabilities (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    subject_kind  TEXT NOT NULL CHECK (subject_kind IN ('provider','data_source')),
+    subject_id    INTEGER NOT NULL,
+    source_digest TEXT NOT NULL DEFAULT '',
+    doc           TEXT NOT NULL DEFAULT '',
+    created_at    TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at    TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE (subject_kind, subject_id)
+);
+
 -- ============================================================
 -- Integration draft pipeline (Epic #726 / #734): draft -> lint -> impact
 -- confirmation -> publish -> verify/rollback, shared by both onboarding lines

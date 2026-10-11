@@ -299,6 +299,14 @@ export function IntegrationActivityPanel() {
                     >
                       {tone.text}
                     </span>
+                    {item.kind === 'api' && item.oversize ? (
+                      <span
+                        className={`inline-flex items-center rounded border px-1.5 py-0.5 text-[10px] shrink-0 ${TONE_CLASS.destructive}`}
+                        title={t('integrations.activity.oversizeHint')}
+                      >
+                        {t('integrations.activity.oversize')}
+                      </span>
+                    ) : null}
                   </div>
                   <div className="text-xs text-warm-text-muted mt-0.5 truncate">
                     {renderSubtitle(item)}

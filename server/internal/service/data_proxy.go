@@ -375,14 +375,22 @@ func (s *DataProxyService) Query(ctx context.Context, in DataQueryInput) (*datac
 			s.audit(ctx, in, mode, ref, "denied", 0, 0, p.summary)
 			return nil, &DataProxyError{Code: "denied", Message: "confirmation required but no permission backend is configured"}
 		}
-		resp, err := s.perm.Request(ctx, in.WorkspaceID, in.OwnerType, in.OwnerID, in.SessionID, "DataQuery", map[string]any{
+		toolInput := map[string]any{
 			"source":            src.Name,
 			"kind":              src.Kind,
 			"mode":              string(mode),
 			"database":          ref.Database,
 			"objects":           ref.Objects,
 			"statement_summary": p.summary,
-		})
+		}
+		// Value-free data summary of what this write will actually send, so the
+		// confirmation card shows the DATA (field names + size + sensitive-pattern
+		// hits), not only the target — the "允许的操作 ≠ 允许的数据" gap (Epic #726 /
+		// #747). Attached only when the operation carries an egress payload.
+		if payload := egressPayloadOf(op); payload != nil {
+			toolInput["data_summary"] = SummarizeEgressPayload(payload)
+		}
+		resp, err := s.perm.Request(ctx, in.WorkspaceID, in.OwnerType, in.OwnerID, in.SessionID, "DataQuery", toolInput)
 		if err != nil {
 			return nil, fmt.Errorf("permission request: %w", err)
 		}
@@ -454,6 +462,31 @@ type QueryPrecheck struct {
 	Objects              []string `json:"objects,omitempty"`
 	StatementSummary     string   `json:"statement_summary,omitempty"`
 	NextAction           string   `json:"next_action,omitempty"`
+	// DataSummary is the value-free summary of the egress payload (field names +
+	// size + sensitive-pattern hits) the write would send (Epic #726 / #747).
+	// Nil when the operation carries no body. Lets the write preview show the
+	// DATA, not only the target objects.
+	DataSummary *EgressDataSummary `json:"data_summary,omitempty"`
+}
+
+// egressPayloadOf returns the payload a data operation sends to the upstream —
+// the bytes that actually leave the machine — for the value-free data summary
+// on the write-confirmation card. Returns nil when the operation carries no
+// body-shaped payload (a SQL statement is summarized separately as
+// statement_summary, which is already redacted).
+func egressPayloadOf(op dataconn.Operation) any {
+	switch {
+	case len(op.HTTPBody) > 0:
+		return op.HTTPBody
+	case len(op.Document) > 0:
+		return op.Document
+	case len(op.Query) > 0:
+		return op.Query
+	case len(op.Args) > 0:
+		return op.Args
+	default:
+		return nil
+	}
 }
 
 // Precheck is the dry run for run_data_query. It runs the same gate as Query
@@ -488,7 +521,7 @@ func (s *DataProxyService) Precheck(ctx context.Context, in DataQueryInput) (*Qu
 		}
 		return res, nil
 	}
-	return &QueryPrecheck{
+	res := &QueryPrecheck{
 		OK:                   true,
 		InScope:              true,
 		AccessMode:           string(p.mode),
@@ -498,7 +531,12 @@ func (s *DataProxyService) Precheck(ctx context.Context, in DataQueryInput) (*Qu
 		Database:             p.ref.Database,
 		Objects:              p.ref.Objects,
 		StatementSummary:     p.summary,
-	}, nil
+	}
+	if payload := egressPayloadOf(p.op); payload != nil {
+		summary := SummarizeEgressPayload(payload)
+		res.DataSummary = &summary
+	}
+	return res, nil
 }
 
 // precheckNextAction maps a gate rejection code to the concrete next step an

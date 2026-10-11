@@ -49,7 +49,10 @@
       "noBody": "No request body",
       "fieldsNone": "(no fields)",
       "fingerprint": "body sha256 {{hash}}… · {{bytes}} B · fields: {{fields}}",
-      "dataMeta": "{{rows}} rows · {{ms}} ms"
+      "dataMeta": "{{rows}} rows · {{ms}} ms",
+      "oversize": "oversize",
+      "oversizeHint": "The outbound request body exceeded the egress warning threshold.",
+      "oversizeToast": "Large outbound payload to {{provider}} was flagged. Review it in Integration activity."
     },
     "pageTitle": "Integrations",
     "addCredential": "Add credential",
@@ -262,6 +265,28 @@
         "deleteSuccess": "Provider deleted",
         "deleteFailed": "Delete failed: {{error}}"
       }
+    },
+    "capability": {
+      "viewButton": "View capability",
+      "title": "Capability · {{name}}",
+      "description": "Operable description generated automatically from the confirmed contract; read-only, not editable here.",
+      "loading": "Loading…",
+      "loadFailed": "Could not load the capability description.",
+      "kindProvider": "External API",
+      "kindDataSource": "Data source",
+      "operations": "Operations",
+      "readOnly": "read-only",
+      "write": "write/sensitive",
+      "scope": "Usable scope",
+      "scopeKind": "Kind",
+      "scopeDatabases": "Databases",
+      "scopeAllow": "Allowed",
+      "scopeDeny": "Denied",
+      "scopeAccessMode": "Access mode",
+      "examples": "Examples",
+      "limits": "Limits",
+      "agentBlock": "What the agent sees",
+      "agentBlockHint": "This is the exact block injected into the workspace instruction file as a DATA (not instructions) section."
     }
   },
   "page": {

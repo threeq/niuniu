@@ -299,6 +299,12 @@ func (s *Server) proxyPublishProvider(c *gin.Context) {
 	if !res.Published {
 		status = http.StatusConflict
 	}
+	if res.Published {
+		// Onboarding time: generate the operable capability description from the
+		// newly published contract, so it is ready before the agent's first call
+		// (Epic #726 / #738).
+		s.refreshProviderCapability(c, id)
+	}
 	c.JSON(status, gin.H{"data": res})
 }
 
@@ -471,6 +477,15 @@ func (s *Server) proxyGetProviderSchema(c *gin.Context) {
 	// surfaced explicitly rather than left for the agent to derive.
 	readOps, writeOps := contract.SplitOperations()
 
+	// Operable capability description (Epic #726 / #738): the "how to drive this
+	// provider" document, generated from the confirmed contract and refreshed
+	// here if the contract's digest moved. Never authored by a caller. Nil when
+	// the capability service is unwired (partial test servers).
+	var capDoc *service.CapabilityDoc
+	if s.capabilitySvc != nil {
+		capDoc, _ = s.capabilitySvc.EnsureProvider(c.Request.Context(), prov)
+	}
+
 	c.JSON(http.StatusOK, gin.H{
 		"data": gin.H{
 			"id":           prov.ID,
@@ -504,6 +519,13 @@ func (s *Server) proxyGetProviderSchema(c *gin.Context) {
 			// require it. Empty for providers without a structured contract.
 			"read_operations":  readOps,
 			"write_operations": writeOps,
+			// The operable capability description (structured operations +
+			// natural-language usage/examples/limits) an agent drives the
+			// provider with, plus the exact block injected into a workspace's
+			// instruction file. Derived from the confirmed contract; a caller
+			// cannot author it.
+			"capability":             capDoc,
+			"capability_agent_block": service.RenderCapabilityAgentBlock([]*service.CapabilityDoc{capDoc}),
 		},
 	})
 }

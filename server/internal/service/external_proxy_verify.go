@@ -40,6 +40,15 @@ type CallPrecheck struct {
 	Checks     []PrecheckCheck `json:"checks"`
 	Warnings   []string        `json:"warnings,omitempty"`
 	NextAction string          `json:"next_action,omitempty"`
+
+	// DataSummary is the value-free summary of the body this call would send —
+	// byte size, top-level field names, and sensitive-pattern hits (Epic #726 /
+	// #747). It lets the write preview show WHAT data is about to leave, not
+	// only which endpoint it targets. Nil for a bodyless read.
+	DataSummary *EgressDataSummary `json:"data_summary,omitempty"`
+	// EgressVerdict is the egress-policy disposition for this call. Personal
+	// edition returns allow or warn; a team edition (#740) may return block.
+	EgressVerdict *EgressVerdict `json:"egress_verdict,omitempty"`
 }
 
 // ProviderVerifyResult is the outcome of a verify probe or a publish attempt.
@@ -388,6 +397,25 @@ func (s *ExternalProxyService) PrecheckCall(ctx context.Context, in ProxyInput) 
 		res.Warnings = append(res.Warnings,
 			"no contract operation matches this method+path; parameter conformance was not checked")
 	}
+
+	// 6) Egress data summary (#747): a value-free description of the body this
+	// call would send, so the write preview / confirmation card shows the DATA
+	// leaving, not just the endpoint. Attached for any write, or any call that
+	// actually carries a body.
+	summary := SummarizeEgressPayload(in.Body)
+	if isWriteMethod(res.Method) || len(in.Body) > 0 {
+		res.DataSummary = &summary
+	}
+	// The egress-policy verdict is always reported on the dry run so the agent
+	// (and the human behind it) sees the disposition before spending the call.
+	verdict := s.egressPolicyOrDefault().Evaluate(ctx, EgressRequest{
+		UserID:   in.UserID,
+		Provider: in.Provider,
+		Method:   res.Method,
+		Path:     res.Path,
+		Summary:  summary,
+	})
+	res.EgressVerdict = &verdict
 	return res, nil
 }
 

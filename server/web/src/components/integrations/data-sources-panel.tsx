@@ -10,10 +10,12 @@ import {
   Check,
   ChevronsUpDown,
   RefreshCw,
+  BookOpen,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { confirm } from '@/lib/confirm';
 import { cn } from '@/lib/utils';
+import { CapabilityDialog } from './CapabilityDialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
@@ -279,6 +281,7 @@ interface RowProps {
 function DataSourceRow({ source: s, onEdit }: RowProps) {
   const { t, i18n } = useTranslation('data');
   const queryClient = useQueryClient();
+  const [capOpen, setCapOpen] = useState(false);
 
   const verify = useMutation({
     mutationFn: () => verifyDataSource(s.id),
@@ -417,6 +420,15 @@ function DataSourceRow({ source: s, onEdit }: RowProps) {
       </Button>
       <Button
         size="sm"
+        variant="ghost"
+        aria-label={t('settings:integrations.capability.viewButton')}
+        title={t('settings:integrations.capability.viewButton')}
+        onClick={() => setCapOpen(true)}
+      >
+        <BookOpen className="size-4" />
+      </Button>
+      <Button
+        size="sm"
         variant="outline"
         aria-label={t('sources.edit')}
         onClick={onEdit}
@@ -432,6 +444,14 @@ function DataSourceRow({ source: s, onEdit }: RowProps) {
       >
         <Trash2 className="size-4" />
       </Button>
+
+      <CapabilityDialog
+        open={capOpen}
+        onOpenChange={setCapOpen}
+        kind="data_source"
+        target={s.id}
+        title={s.name}
+      />
     </div>
   );
 }

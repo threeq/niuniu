@@ -8,6 +8,12 @@ interface Props {
 export function PermissionInputRenderer({ toolName, input }: Props) {
   const { t } = useTranslation();
   switch (toolName) {
+    // A data-proxy write (run_data_query) is confirmed through this card. Show
+    // the target AND the value-free summary of the data about to be sent —
+    // field names + size + sensitive-pattern hits — so the user approves the
+    // DATA, not just the endpoint (Epic #726 / #747).
+    case 'DataQuery':
+      return <DataQueryPreview input={input} />;
     case 'Bash':
       return (
         <div className="space-y-1">
@@ -61,6 +67,63 @@ export function PermissionInputRenderer({ toolName, input }: Props) {
 
 function truncate(s: string, n: number) {
   return s.length > n ? s.slice(0, n) + '…' : s;
+}
+
+interface EgressSummaryShape {
+  bytes?: number;
+  fields?: string[];
+  sensitive_hits?: { pattern: string; count: number }[];
+}
+
+/** The data-proxy write preview: the target objects plus the value-free data
+ *  summary of the payload this write will send. */
+function DataQueryPreview({ input }: { input: Record<string, unknown> }) {
+  const { t } = useTranslation();
+  const objects = Array.isArray(input.objects) ? (input.objects as string[]) : [];
+  const summary = input.data_summary as EgressSummaryShape | undefined;
+  const target = [input.source, input.kind, input.mode]
+    .map((v) => (v == null ? '' : String(v)))
+    .filter(Boolean)
+    .join(' · ');
+
+  return (
+    <div className="space-y-1">
+      {target ? <p className="text-sm">{target}</p> : null}
+      {objects.length > 0 ? (
+        <p className="text-xs text-muted-foreground">
+          {t('workspaces:permission.card.dataQueryObjects', { objects: objects.join(', ') })}
+        </p>
+      ) : null}
+      {input.statement_summary ? (
+        <pre className="rounded bg-muted px-2 py-1 text-xs font-mono">
+          {String(input.statement_summary)}
+        </pre>
+      ) : null}
+      {summary ? (
+        <div className="rounded border border-border px-2 py-1 text-xs space-y-0.5">
+          <p className="font-medium">{t('workspaces:permission.card.dataSummaryTitle')}</p>
+          <p className="text-muted-foreground">
+            {t('workspaces:permission.card.dataSummarySize', { bytes: summary.bytes ?? 0 })}
+            {' · '}
+            {t('workspaces:permission.card.dataSummaryFields', {
+              fields:
+                (summary.fields ?? []).join(', ') ||
+                t('workspaces:permission.card.dataSummaryFieldsNone'),
+            })}
+          </p>
+          {summary.sensitive_hits && summary.sensitive_hits.length > 0 ? (
+            <p className="text-destructive">
+              {t('workspaces:permission.card.dataSummarySensitive', {
+                patterns: summary.sensitive_hits
+                  .map((h) => `${h.pattern}×${h.count}`)
+                  .join(', '),
+              })}
+            </p>
+          ) : null}
+        </div>
+      ) : null}
+    </div>
+  );
 }
 
 function DiffPreview({ oldStr, newStr }: { oldStr: string; newStr: string }) {

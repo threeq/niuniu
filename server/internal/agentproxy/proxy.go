@@ -223,7 +223,8 @@ type AgentProxy struct {
 	notifyHub         *notify.NotificationHub
 	debouncer         *notify.Debouncer
 	mcpWriter         MCPConfigWriter
-	kbResolver        KBDatasetResolver // optional; nil = no KB direct-read exposure
+	kbResolver        KBDatasetResolver  // optional; nil = no KB direct-read exposure
+	capResolver       CapabilityResolver // optional; nil = no capability-description injection
 	memoryFileWriter  MemoryFileWriter
 	mcpSessions       MCPSessionManager
 	bgDebouncer       *notify.BgTaskDebouncer
@@ -318,11 +319,12 @@ type WorkspaceSession struct {
 	eventBus         *event.Bus
 	notifyHub        *notify.NotificationHub
 	debouncer        *notify.Debouncer
-	isTemporary      bool              // true for temporary workspaces (legacy: task analysis removed)
-	mcpWriter        MCPConfigWriter   // generates .mcp.json for this workspace
-	kbResolver       KBDatasetResolver // resolves bound KB read-only dataset dirs (KB base4)
-	memoryFileWriter MemoryFileWriter  // generates .learnings.generated.md
-	sessionToken     string            // raw MCP session token written into .mcp.json env
+	isTemporary      bool               // true for temporary workspaces (legacy: task analysis removed)
+	mcpWriter        MCPConfigWriter    // generates .mcp.json for this workspace
+	kbResolver       KBDatasetResolver  // resolves bound KB read-only dataset dirs (KB base4)
+	capResolver      CapabilityResolver // resolves bound integration capability sections (#738)
+	memoryFileWriter MemoryFileWriter   // generates .learnings.generated.md
+	sessionToken     string             // raw MCP session token written into .mcp.json env
 
 	mu             sync.Mutex
 	running        bool               // true while a message is being processed
@@ -692,6 +694,7 @@ func (p *AgentProxy) GetOrStartSession(ctx context.Context, workspaceID int64, u
 		isTemporary:       ws.IsTemporary == 1,
 		mcpWriter:         p.mcpWriter,
 		kbResolver:        p.kbResolver,
+		capResolver:       p.capResolver,
 		memoryFileWriter:  p.memoryFileWriter,
 		workspaceAlertSvc: p.workspaceAlertSvc,
 		sessionStateSvc:   p.sessionStateSvc,
@@ -972,13 +975,14 @@ func (p *AgentProxy) RemoveSession(ctx context.Context, workspaceID int64) {
 	p.hub.RemoveWorkspace(workspaceID)
 }
 
-func (p *AgentProxy) GetHub() *SessionHub                      { return p.hub }
-func (p *AgentProxy) Q() *store.Queries                        { return p.q }
-func (p *AgentProxy) SetStatusHook(h StatusTransitioner)       { p.statusHook = h }
-func (p *AgentProxy) SetEventBus(bus *event.Bus)               { p.eventBus = bus }
-func (p *AgentProxy) SetMCPWriter(w MCPConfigWriter)           { p.mcpWriter = w }
-func (p *AgentProxy) SetKBResolver(r KBDatasetResolver)        { p.kbResolver = r }
-func (p *AgentProxy) SetMemoryFileWriter(svc MemoryFileWriter) { p.memoryFileWriter = svc }
+func (p *AgentProxy) GetHub() *SessionHub                        { return p.hub }
+func (p *AgentProxy) Q() *store.Queries                          { return p.q }
+func (p *AgentProxy) SetStatusHook(h StatusTransitioner)         { p.statusHook = h }
+func (p *AgentProxy) SetEventBus(bus *event.Bus)                 { p.eventBus = bus }
+func (p *AgentProxy) SetMCPWriter(w MCPConfigWriter)             { p.mcpWriter = w }
+func (p *AgentProxy) SetKBResolver(r KBDatasetResolver)          { p.kbResolver = r }
+func (p *AgentProxy) SetCapabilityResolver(r CapabilityResolver) { p.capResolver = r }
+func (p *AgentProxy) SetMemoryFileWriter(svc MemoryFileWriter)   { p.memoryFileWriter = svc }
 func (p *AgentProxy) SetNotifyHub(hub *notify.NotificationHub) {
 	p.notifyHub = hub
 	p.debouncer = notify.NewDebouncer(hub, 500*time.Millisecond)
@@ -2318,6 +2322,27 @@ func (s *WorkspaceSession) ensureProcess(ctx context.Context, workDir string) er
 		}
 	}
 
+	// Operable capability descriptions (Epic #726 / #738): tell the agent which
+	// external systems are bound to this workspace's project and how to drive
+	// them (operations/scope, limits, examples), so it can construct its first
+	// call without reading any docs. Written as a DATA-fenced section of the
+	// instruction file; deterministic so the cached prompt prefix stays stable.
+	// Best-effort: any failure logs and the spawn proceeds.
+	if s.capResolver != nil {
+		caps, capErr := s.capResolver.WorkspaceCapabilities(ctx, s.workspaceID)
+		if capErr != nil {
+			slog.Warn("agent: resolve workspace capabilities failed",
+				"workspaceID", s.workspaceID, "error", capErr)
+		}
+		if err := writeCapabilityInstructionBlock(workDir, s.cliType, caps); err != nil {
+			slog.Warn("agent: write capability instruction block failed",
+				"workspaceID", s.workspaceID, "error", err)
+		} else if len(caps) > 0 {
+			slog.Info("agent: injected capability descriptions",
+				"workspaceID", s.workspaceID, "count", len(caps))
+		}
+	}
+
 	// Compute permission-related CLI flags now that the MCP-config decision is
 	// done. Centralized here so there's exactly one place that emits
 	// --permission-mode / --permission-prompt-tool / --allowedTools.
@@ -2686,7 +2711,7 @@ func (s *WorkspaceSession) resetProviderFallbackRetries() {
 // recordActiveProvider resolves the workspace's active provider at spawn time,
 // keeps the in-memory 429-attribution id in sync, persists the provider NAME
 // on the workspace row (per-workspace record of what is actually running),
-// and notifies listeners. Safe to call when no provider resolves (records '').
+// and notifies listeners. Safe to call when no provider resolves (records ”).
 func (s *WorkspaceSession) recordActiveProvider(ctx context.Context) {
 	activeName := ""
 	if p, ok := sceneenv.ActiveProvider(ctx, s.q, s.workspaceID); ok {

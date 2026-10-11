@@ -71,7 +71,7 @@ func extractWriteDisabledMessage(rawErr string) string {
 const callExternalAPIIdempotency = " IDEMPOTENCY (writes): niuniu does NOT de-duplicate calls, so pass an idempotency key in the body/query when the upstream supports one, and READ the current state (GET) before a create/update so you don't duplicate it. If a write's outcome is uncertain — the result reports outcome_unknown (the request may have reached the upstream before the connection broke) — do NOT blindly retry: re-read the resource to see whether it took effect, then act on what you find."
 
 // callExternalAPIDryRun describes the dry_run parameter.
-const callExternalAPIDryRun = "dry_run (optional, default false): validate the call LOCALLY without contacting the upstream — checks provider visibility, the operation/whitelist authorization, that a credential resolves, and that required parameters match the provider's contract. Returns the per-check verdict + next_action. Use it before an expensive or side-effecting call."
+const callExternalAPIDryRun = "dry_run (optional, default false): validate the call LOCALLY without contacting the upstream — checks provider visibility, the operation/whitelist authorization, that a credential resolves, and that required parameters match the provider's contract. Returns the per-check verdict + next_action, plus a value-free data_summary of the body (size, top-level field names, sensitive-pattern hits) and the egress-policy verdict for a write. Use it before an expensive or side-effecting call."
 
 func registerExternalProxyTools(s *server.MCPServer, api *apiClient) {
 	// === call_external_api ===
@@ -154,7 +154,7 @@ func registerExternalProxyTools(s *server.MCPServer, api *apiClient) {
 	// === get_provider_schema ===
 	s.AddTool(
 		mcp.NewTool("get_provider_schema",
-			mcp.WithDescription("Get a provider's structured integration contract: named operations (semantic name, method, path, parameters, read-only vs write, request example, response shape), the auth the proxy injects, a verify_operation probe, capability tags, and a content digest. Legacy providers return an empty-operations contract plus their raw profile text."),
+			mcp.WithDescription("Get a provider's structured integration contract: named operations (semantic name, method, path, parameters, read-only vs write, request example, response shape), the auth the proxy injects, a verify_operation probe, capability tags, and a content digest. Also returns `capability` — an operable \"how to drive this provider\" description (usage + worked call examples + limits) generated from the confirmed contract — and `capability_agent_block`, the exact block injected into a workspace's instruction file. Legacy providers return an empty-operations contract plus their raw profile text."),
 			mcp.WithString("provider", mcp.Description("Provider name"), mcp.Required()),
 		),
 		func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {

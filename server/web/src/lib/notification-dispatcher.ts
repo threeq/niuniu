@@ -67,6 +67,9 @@ const INVALIDATION_MAP: Record<string, QueryKeyMapper> = {
   // Integration-source health (#744): refresh both source lists so the health
   // light reflects the auto-disable / drift / recovery.
   integration_health: () => [['external-providers'], ['data-sources']],
+  // Egress data-governance alert (#747): refresh the activity feed so the
+  // flagged row (and its oversize marker) appears.
+  egress_alert: () => [['integration-activity']],
 };
 
 export type ToastTarget =
@@ -218,6 +221,18 @@ function handleToast(n: Notification) {
     } else {
       toast.error(i18n.t('settings:integrations.health.toastAutoDisabled', { name }));
     }
+    return;
+  }
+
+  // Egress alert (#747): an outbound integration write was flagged (oversize
+  // body or a sensitive-pattern hit). Owner-scoped by the hub, warn-only in the
+  // personal edition — always a warning toast, never a refusal.
+  if (n.topic === 'egress_alert') {
+    const extra = (n.extra as Record<string, unknown>) ?? {};
+    const provider = typeof extra.provider === 'string' ? extra.provider : '';
+    toast.warning(
+      i18n.t('settings:integrations.activity.oversizeToast', { provider }),
+    );
     return;
   }
 
