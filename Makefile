@@ -583,14 +583,16 @@ _personal-prepare-v2:
 	cp desktop-v2/binaries/staging/$(GOOS)-$(GOARCH)/niuniu-mcp$(EXT) desktop-v2/binaries/niuniu-mcp$(EXT); \
 	cp desktop-v2/binaries/staging/$(GOOS)-$(GOARCH)/niuniu-agent$(EXT) desktop-v2/binaries/niuniu-agent$(EXT); \
 	cp desktop-v2/binaries/staging/$(GOOS)-$(GOARCH)/niuniu-video-mcp$(EXT) desktop-v2/binaries/niuniu-video-mcp$(EXT); \
-	echo "staged sidecars: desktop-v2/binaries/niuniu-server$(EXT) (+niuniu-mcp, +niuniu-agent, +niuniu-video-mcp)"; \
+	cp desktop-v2/binaries/staging/$(GOOS)-$(GOARCH)/niuniu-funcbox$(EXT) desktop-v2/binaries/niuniu-funcbox$(EXT); \
+	echo "staged sidecars: desktop-v2/binaries/niuniu-server$(EXT) (+niuniu-mcp, +niuniu-agent, +niuniu-video-mcp, +niuniu-funcbox)"; \
 	TRIPLE="$(V2_TRIPLE)"; \
 	if [ -n "$$TRIPLE" ]; then \
 		cp desktop-v2/binaries/staging/$(GOOS)-$(GOARCH)/niuniu-server$(EXT) desktop-v2/binaries/niuniu-server-$$TRIPLE$(EXT); \
 		cp desktop-v2/binaries/staging/$(GOOS)-$(GOARCH)/niuniu-mcp$(EXT) desktop-v2/binaries/niuniu-mcp-$$TRIPLE$(EXT); \
 		cp desktop-v2/binaries/staging/$(GOOS)-$(GOARCH)/niuniu-agent$(EXT) desktop-v2/binaries/niuniu-agent-$$TRIPLE$(EXT); \
 		cp desktop-v2/binaries/staging/$(GOOS)-$(GOARCH)/niuniu-video-mcp$(EXT) desktop-v2/binaries/niuniu-video-mcp-$$TRIPLE$(EXT); \
-		echo "  + triple name niuniu-server-$$TRIPLE$(EXT) (+niuniu-agent, +niuniu-video-mcp)"; \
+		cp desktop-v2/binaries/staging/$(GOOS)-$(GOARCH)/niuniu-funcbox$(EXT) desktop-v2/binaries/niuniu-funcbox-$$TRIPLE$(EXT); \
+		echo "  + triple name niuniu-server-$$TRIPLE$(EXT) (+niuniu-agent, +niuniu-video-mcp, +niuniu-funcbox)"; \
 	fi
 
 # Internal: build server for target platform, copy to
@@ -629,6 +631,12 @@ _personal-prepare:
 	rm -f desktop-v2/binaries/staging/$(GOOS)-$(GOARCH)/niuniu-mcp$(EXT)
 	rm -f desktop-v2/binaries/staging/$(GOOS)-$(GOARCH)/niuniu-agent$(EXT)
 	rm -f desktop-v2/binaries/staging/$(GOOS)-$(GOARCH)/niuniu-video-mcp$(EXT)
+	rm -f desktop-v2/binaries/staging/$(GOOS)-$(GOARCH)/niuniu-funcbox$(EXT)
+	@# 操作函数沙箱 helper（Epic #726 / #739）：故意不带 $(BUNDLE_CGO)——它是纯 Go
+	@# 程序（goja 不需要 cgo），运行在 OS 围栏里，少一个依赖就少一样逃逸后可触及的
+	@# 东西。服务端按 os.Executable() 旁解析它，所以必须与 server 落在同一目录。
+	cd server && GOOS=$(GOOS) GOARCH=$(GOARCH) go build \
+		-o ../desktop-v2/binaries/staging/$(GOOS)-$(GOARCH)/niuniu-funcbox$(EXT) ./cmd/niuniu-funcbox
 	cd server && $(BUNDLE_CGO) GOOS=$(GOOS) GOARCH=$(GOARCH) go build -ldflags "$(SERVER_LDFLAGS_COMMON) $(BUNDLE_LDFLAGS)" \
 		-o ../desktop-v2/binaries/staging/$(GOOS)-$(GOARCH)/niuniu-server$(EXT) ./cmd/niuniu
 	cd server && $(BUNDLE_CGO) GOOS=$(GOOS) GOARCH=$(GOARCH) go build -ldflags "$(SERVER_LDFLAGS_COMMON) $(BUNDLE_LDFLAGS)" \

@@ -27,11 +27,13 @@ pub struct ServerHandle {
 
 // ─── 二进制定位 ────────────────────────────────────────────────────────────
 
-// 内嵌的 server/mcp/agent/video-mcp sidecar（编译期由 make _personal-prepare-v2
-// staging 到 binaries/，build.rs 探测后开启 have_embedded_sidecars 及两个可选
-// cfg）。单文件分发，对齐 v1 go:embed。include_bytes! 必须是字符串字面量，故按
-// target_os 用 cfg 选不同字面量路径。agent（自研引擎）与 video-mcp（视频创作能力
-// 模块）独立 cfg：任一缺席（老 staging、轻量发行）都不影响两件套的内嵌行为。
+// 内嵌的 server/mcp/agent/video-mcp/funcbox sidecar（编译期由 make
+// _personal-prepare-v2 staging 到 binaries/，build.rs 探测后开启
+// have_embedded_sidecars 及三个可选 cfg）。单文件分发，对齐 v1 go:embed。
+// include_bytes! 必须是字符串字面量，故按 target_os 用 cfg 选不同字面量路径。
+// agent（自研引擎）、video-mcp（视频创作能力模块）与 funcbox（操作函数沙箱
+// helper，Epic #726 / #739）各自独立 cfg：任一缺席（老 staging、轻量发行）都不
+// 影响两件套的内嵌行为。
 #[cfg(all(have_embedded_sidecars, target_os = "windows"))]
 const EMBED_SERVER: &[u8] = include_bytes!("../binaries/niuniu-server.exe");
 #[cfg(all(have_embedded_sidecars, target_os = "windows"))]
@@ -50,6 +52,14 @@ const EMBED_AGENT: &[u8] = include_bytes!("../binaries/niuniu-agent");
 const EMBED_VIDEO_MCP: &[u8] = include_bytes!("../binaries/niuniu-video-mcp.exe");
 #[cfg(all(have_embedded_sidecars, have_embedded_video_mcp, not(target_os = "windows")))]
 const EMBED_VIDEO_MCP: &[u8] = include_bytes!("../binaries/niuniu-video-mcp");
+// niuniu-funcbox：操作函数运行时的沙箱 helper。没有它，打包后的桌面端就没有箱子
+// 可跑函数——服务端按 os.Executable() 旁解析它，所以它必须和 server 落在同一个
+// sidecar 目录里，否则功能在发行包里等于不存在（开发态因二进制就在 server 旁边
+// 而看不出来）。
+#[cfg(all(have_embedded_sidecars, have_embedded_funcbox, target_os = "windows"))]
+const EMBED_FUNCBOX: &[u8] = include_bytes!("../binaries/niuniu-funcbox.exe");
+#[cfg(all(have_embedded_sidecars, have_embedded_funcbox, not(target_os = "windows")))]
+const EMBED_FUNCBOX: &[u8] = include_bytes!("../binaries/niuniu-funcbox");
 
 /// 内嵌 sidecar 的解压目录：~/.niuniu/desktop-v2/sidecars/（绝对、跨构建稳定、
 /// 与 v1 的 user-cache 解压同构）。server 与 mcp / agent / video-mcp 同目录，
@@ -69,7 +79,7 @@ fn embedded_sidecar_dir() -> Result<PathBuf, String> {
     // 本次内嵌必须就位的每一件（名称, 内容）；server 打头，返回值是它的路径。
     // 逐条 push 而非 vec![..]：即便可选件（agent / video-mcp）缺席（cfg 关），
     // 可变绑定也始终被使用，不触发 unused_mut。
-    let mut files: Vec<(&str, &[u8])> = Vec::with_capacity(4);
+    let mut files: Vec<(&str, &[u8])> = Vec::with_capacity(5);
     files.push((server_name, EMBED_SERVER));
     files.push((mcp_name, EMBED_MCP));
     #[cfg(have_embedded_agent)]
@@ -81,6 +91,11 @@ fn embedded_sidecar_dir() -> Result<PathBuf, String> {
     files.push((
         if cfg!(windows) { "niuniu-video-mcp.exe" } else { "niuniu-video-mcp" },
         EMBED_VIDEO_MCP,
+    ));
+    #[cfg(have_embedded_funcbox)]
+    files.push((
+        if cfg!(windows) { "niuniu-funcbox.exe" } else { "niuniu-funcbox" },
+        EMBED_FUNCBOX,
     ));
 
     // already_current：指纹匹配且本次内嵌的每一件都已就位。历史目录（两件套 + 历史

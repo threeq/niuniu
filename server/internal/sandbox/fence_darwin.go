@@ -73,29 +73,35 @@ func seatbeltProfile(helperPath string) string {
 	b.WriteString("(version 1)\n")
 	b.WriteString("(deny default)\n")
 	b.WriteString("(deny network*)\n")
-	// Process: sandbox-exec's own image and the helper's DIRECTORY. A literal
-	// path for the helper is the tighter rule, but it silently stops matching
-	// when the bundle path is reached through a symlink or a versioned app
-	// directory — and a profile that denies the exec makes the box fail to
-	// start at all. The helper ships next to the server in the app's own
-	// sidecar directory, so allowing that directory is both sufficient and
-	// bounded.
+	// Process: sandbox-exec's own image, and the helper BY PATH. The helper is
+	// named both as given and as its symlink-resolved self, because Seatbelt
+	// matches the resolved path and a literal covering only one of the two would
+	// make the box fail to start at all. Resolving here is what buys the
+	// robustness — deliberately NOT a (subpath ...) of the helper's directory,
+	// which would also authorize exec of the sibling niuniu-server binary.
+	pathLiterals := helperPathLiterals(helperPath)
 	b.WriteString("(allow process-exec (literal \"")
 	b.WriteString(sbplEscape(sandboxExecPath))
-	b.WriteString("\") (subpath \"")
-	b.WriteString(sbplEscape(filepath.Dir(helperPath)))
-	b.WriteString("\"))\n")
+	b.WriteString("\")")
+	for _, p := range pathLiterals {
+		b.WriteString(" (literal \"")
+		b.WriteString(sbplEscape(p))
+		b.WriteString("\")")
+	}
+	b.WriteString(")\n")
 	b.WriteString("(allow process-fork)\n")
 	b.WriteString("(allow signal (target self))\n")
 	// The Go runtime queries the CPU count and needs entropy; both are reads.
 	b.WriteString("(allow sysctl-read)\n")
 	b.WriteString("(allow file-read* (literal \"/dev/urandom\") (literal \"/dev/null\"))\n")
 	// Loading the helper's own image and the system dylibs it links against.
-	b.WriteString("(allow file-read* (literal \"")
-	b.WriteString(sbplEscape(helperPath))
-	b.WriteString("\") (subpath \"")
-	b.WriteString(sbplEscape(filepath.Dir(helperPath)))
-	b.WriteString("\") (subpath \"/usr/lib\") (subpath \"/System/Library\"))\n")
+	b.WriteString("(allow file-read*")
+	for _, p := range pathLiterals {
+		b.WriteString(" (literal \"")
+		b.WriteString(sbplEscape(p))
+		b.WriteString("\")")
+	}
+	b.WriteString(" (subpath \"/usr/lib\") (subpath \"/System/Library\"))\n")
 	// Timezone data. A function that formats a local time would otherwise fail
 	// with a permission error that says nothing about timezones — a confusing
 	// failure for a call that is entirely legitimate. Read-only, and the zone
@@ -105,6 +111,17 @@ func seatbeltProfile(helperPath string) string {
 	b.WriteString("(allow file-write-data (literal \"/dev/null\") (literal \"/dev/stdout\") (literal \"/dev/stderr\") (literal \"/dev/fd/1\") (literal \"/dev/fd/2\"))\n")
 	b.WriteString("(allow file-read-metadata)\n")
 	return b.String()
+}
+
+// helperPathLiterals returns the path itself, plus its symlink-resolved form
+// when the two differ. Both are needed: the caller names the path it holds,
+// while Seatbelt matches whatever the kernel resolved.
+func helperPathLiterals(helperPath string) []string {
+	out := []string{helperPath}
+	if resolved, err := filepath.EvalSymlinks(helperPath); err == nil && resolved != helperPath {
+		out = append(out, resolved)
+	}
+	return out
 }
 
 func sbplEscape(s string) string {

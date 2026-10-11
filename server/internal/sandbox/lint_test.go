@@ -201,3 +201,39 @@ func TestFrameRoundTrip(t *testing.T) {
 		t.Fatalf("body did not round-trip: %s", body)
 	}
 }
+
+// A build that ships without the helper must report the fence UNAVAILABLE. The
+// platform probes only run their spawn check when a helper is configured, so
+// without this the host would report a healthy fence and then fail every call
+// with "helper not configured" — the silent downgrade the design forbids.
+func TestSelfCheckFailsClosedWithoutTheHelper(t *testing.T) {
+	prev := HelperPath()
+	t.Cleanup(func() { SetHelperPath(prev) })
+
+	SetHelperPath("")
+	av := SelfCheck(true)
+	if av.Available {
+		t.Fatal("a host with no sandbox helper reported a usable fence")
+	}
+	missing := false
+	for _, c := range av.Components {
+		if c.Name == "sandbox-helper" && c.Required && !c.OK {
+			missing = true
+		}
+	}
+	if !missing {
+		t.Fatalf("the missing helper was not reported as a required failure: %+v", av.Components)
+	}
+	// The refusal has to name the cause, or the UI cannot tell the user what to fix.
+	if !strings.Contains(av.Reason, "sandbox-helper") {
+		t.Fatalf("the verdict does not name the failing component: %q", av.Reason)
+	}
+
+	// And a configured helper restores the verdict.
+	SetHelperPath(prev)
+	if prev != "" {
+		if got := SelfCheck(true); !got.Available {
+			t.Fatalf("the fence did not recover once the helper was back: %s", got.Reason)
+		}
+	}
+}

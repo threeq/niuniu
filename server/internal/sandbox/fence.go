@@ -154,6 +154,20 @@ func SelfCheck(force bool) Availability {
 	}
 	f := currentFence()
 	comps := f.Probe()
+	// A missing helper is a fence failure, not a reason to skip the probe. The
+	// platform probes only add their fenced-spawn check when a helper is
+	// configured, so without this a build that forgot to ship the helper would
+	// report a healthy fence and then fail every call with "helper not
+	// configured" — a silent downgrade of exactly the kind this design exists to
+	// prevent.
+	if HelperPath() == "" {
+		comps = append(comps, ComponentStatus{
+			Name:     "sandbox-helper",
+			Required: true,
+			OK:       false,
+			Detail:   "the niuniu-funcbox helper binary was not found next to the server",
+		})
+	}
 	av := Availability{
 		Platform:   runtime.GOOS + "/" + runtime.GOARCH,
 		Backend:    f.Backend(),
