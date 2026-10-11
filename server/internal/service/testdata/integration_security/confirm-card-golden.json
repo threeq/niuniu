@@ -30,6 +30,13 @@
       "high_risk": true
     }
   ],
+  "verify_probe": {
+    "name": "listPets",
+    "method": "GET",
+    "path": "/pets",
+    "read_only": true,
+    "high_risk": false
+  },
   "scopes": [],
   "diff": [
     {

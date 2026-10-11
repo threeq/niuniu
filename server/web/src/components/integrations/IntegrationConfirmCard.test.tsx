@@ -46,6 +46,31 @@ describe('IntegrationConfirmCard', () => {
     expect(screen.getAllByText('POST')).toHaveLength(1);
   });
 
+  it('shows the post-publish verification probe inside the decision region', () => {
+    const withProbe: ConfirmCardModel = {
+      ...baseModel,
+      verify_probe: {
+        name: 'listPets',
+        method: 'GET',
+        path: '/pets/{petId}',
+        read_only: true,
+        high_risk: false,
+      },
+    };
+    const { container } = render(
+      <IntegrationConfirmCard model={withProbe} onDecide={vi.fn()} />,
+    );
+    const decision = decisionRegion(container);
+    expect(decision.textContent).toContain('/pets/{petId}');
+    // It is egress the user is approving, so it belongs in the decision area.
+    expect(screen.getByText('发布后验证探针（只读）')).toBeInTheDocument();
+  });
+
+  it('omits the probe section when there is none', () => {
+    render(<IntegrationConfirmCard model={baseModel} onDecide={vi.fn()} />);
+    expect(screen.queryByText('发布后验证探针（只读）')).not.toBeInTheDocument();
+  });
+
   it('keeps untrusted prose out of the decision region', () => {
     const { container } = render(
       <IntegrationConfirmCard model={baseModel} onDecide={vi.fn()} />,

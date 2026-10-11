@@ -130,3 +130,21 @@
 
 **验证**（本轮实际执行）：`go vet` 干净 · Go 安全测试含 `TestDecisionPayload_IsIndependentOfAdvisory`
 与 `TestScopeDiff_ReportsARevokedKey` 全绿 · vitest 9/9 · `tsc -b` 0 · eslint 0。
+
+### 第 3 轮 — 消费方就绪对齐（2026-10-11）
+
+对照 #734（消费本组件的 wave 4 子单）的原文要求逐条核对，补上一处**组件能力缺口**：
+
+- #734 要求"**验证探针清单在卡上可见**"。此前卡片模型根本没有承载探针的字段——#734 落地
+  时必须反过来改我的模型，这不符合"供 #734 使用"。
+- 已补齐：`ConfirmCardModel.VerifyProbe`（由契约 `verify_operation` **解析**得到，不凭空
+  发明），渲染在决策区，并**计入 `BehaviorPreview`**——探针同样是发布后真会发出的请求，
+  不列进预演就是"批准的"与"执行的"分叉。
+- 新增 `TestVerifyProbe_ResolvedFromTheContractAndCarriedAsEgress`、
+  `TestVerifyProbe_IsNeverInvented`；golden 快照随之包含 `verify_probe`；组件侧加 2 个用例。
+
+**验证**：Go 全绿（含 2 个新用例）· vitest 11/11 · `tsc -b` 0 · eslint 0 · `i18n:check` OK。
+
+**边界说明**：#734 的其余要求（草稿实体/状态机、lint、发布/验证/回退链路、验证探针的
+实际执行）**不在本轮范围**——本组件的职责只到"把结构化事实渲染成可确认的卡片"。验收第 1
+条"被 #734 实际使用"仍需 wave 4 落地后复核。

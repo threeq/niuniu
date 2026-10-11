@@ -19,6 +19,9 @@
     "write": "Write",
     "highRisk": "High risk"
   },
+  "verifyProbe": {
+    "title": "Post-publish verification probe (read-only)"
+  },
   "scopes": {
     "title": "Data scope",
     "empty": "No data scope granted",

@@ -185,10 +185,14 @@ type ConfirmCardModel struct {
 	Subtitle   string             `json:"subtitle,omitempty"`
 	Origin     UntrustedOrigin    `json:"origin"`
 	Operations []ConfirmOperation `json:"operations"`
-	Scopes     []ConfirmScope     `json:"scopes"`
-	Diff       []ConfirmDiff      `json:"diff"`
-	Risks      []ConfirmRisk      `json:"risks"`
-	Advisory   []QuarantinedChunk `json:"advisory,omitempty"`
+	// VerifyProbe is the read-only probe the system will issue after publish to
+	// verify auth and connectivity. It is egress too, so it belongs in the
+	// decision area and the behaviour preview. Nil when the contract names none.
+	VerifyProbe *ConfirmOperation  `json:"verify_probe,omitempty"`
+	Scopes      []ConfirmScope     `json:"scopes"`
+	Diff        []ConfirmDiff      `json:"diff"`
+	Risks       []ConfirmRisk      `json:"risks"`
+	Advisory    []QuarantinedChunk `json:"advisory,omitempty"`
 }
 
 // BuildConfirmCard renders the confirmation card for a draft. It is
@@ -225,6 +229,7 @@ func BuildConfirmCard(in ConfirmDraftInput) ConfirmCardModel {
 		})
 	}
 	m.Risks = dedupeRisks(m.Risks)
+	m.VerifyProbe = resolveVerifyProbe(in, m.Operations)
 
 	// Flag operations that carry a risk so the UI can badge the row. The
 	// authoritative ack list remains m.Risks.
@@ -244,10 +249,11 @@ func BuildConfirmCard(in ConfirmDraftInput) ConfirmCardModel {
 }
 
 // BehaviorPreview is the egress behaviour a publish will actually produce: the
-// complete list of method+path templates that leave the machine. The sandbox
-// function runtime (#739) derives its preview from this same value, so "what
-// the user approved" and "what runs" cannot diverge. It is a pure function of
-// the decision fields — untrusted text cannot influence it.
+// complete list of method+path templates that leave the machine, including the
+// post-publish verification probe. The sandbox function runtime (#739) derives
+// its preview from this same value, so "what the user approved" and "what runs"
+// cannot diverge. It is a pure function of the decision fields — untrusted text
+// cannot influence it.
 type BehaviorPreview struct {
 	Egress []EgressEntry `json:"egress"`
 }
@@ -259,8 +265,9 @@ type EgressEntry struct {
 	ReadOnly     bool   `json:"read_only"`
 }
 
-// BuildBehaviorPreview derives the egress preview from the decision-area
-// operations alone.
+// BuildBehaviorPreview derives the egress preview from the operations it is
+// given. The slice must contain every operation the integration will execute —
+// the granted operations plus the verify probe — so the preview is complete.
 func BuildBehaviorPreview(ops []ConfirmOperation) BehaviorPreview {
 	p := BehaviorPreview{Egress: []EgressEntry{}}
 	for _, op := range ops {
@@ -273,9 +280,35 @@ func BuildBehaviorPreview(ops []ConfirmOperation) BehaviorPreview {
 	return p
 }
 
-// BehaviorPreview returns this card's egress preview.
+// BehaviorPreview returns this card's egress preview: every granted operation
+// plus the post-publish verification probe.
 func (m ConfirmCardModel) BehaviorPreview() BehaviorPreview {
-	return BuildBehaviorPreview(m.Operations)
+	ops := m.Operations
+	if m.VerifyProbe != nil {
+		ops = append(append([]ConfirmOperation{}, m.Operations...), *m.VerifyProbe)
+	}
+	return BuildBehaviorPreview(ops)
+}
+
+// resolveVerifyProbe finds the operation the contract names in verify_operation.
+// It is resolved from the decision-area operations, so it inherits their
+// structured identity and can never be invented by free text. An unknown name
+// yields no probe (LintContract already rejects that case).
+func resolveVerifyProbe(in ConfirmDraftInput, ops []ConfirmOperation) *ConfirmOperation {
+	if in.Contract == nil {
+		return nil
+	}
+	name := strings.TrimSpace(in.Contract.VerifyOperation)
+	if name == "" {
+		return nil
+	}
+	for i := range ops {
+		if ops[i].Name == name {
+			probe := ops[i]
+			return &probe
+		}
+	}
+	return nil
 }
 
 // AckKeys returns every acknowledgement key the user must tick before the card

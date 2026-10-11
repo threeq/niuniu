@@ -97,6 +97,26 @@ export function IntegrationConfirmCard({ model, onDecide, pending = false }: Pro
             )}
           </section>
 
+          {model.verify_probe && (
+            <section className="space-y-1">
+              <h4 className="text-xs font-medium text-warm-text-muted">
+                {t('verifyProbe.title')}
+              </h4>
+              <div className="flex items-center gap-2 rounded-md border border-warm-border px-2 py-1.5 text-xs">
+                <code className="rounded bg-warm-muted px-1.5 py-0.5 font-medium">
+                  {model.verify_probe.method}
+                </code>
+                <code className="truncate">{model.verify_probe.path}</code>
+                <span className="truncate text-warm-text-muted">
+                  {model.verify_probe.name}
+                </span>
+                <Badge variant="secondary" className="ml-auto shrink-0">
+                  {t('operations.readOnly')}
+                </Badge>
+              </div>
+            </section>
+          )}
+
           <section className="space-y-1">
             <h4 className="text-xs font-medium text-warm-text-muted">
               {t('scopes.title')}

@@ -91,6 +91,9 @@ export interface ConfirmCardModel {
   subtitle?: string;
   origin: UntrustedOrigin;
   operations: ConfirmOperation[];
+  /** The read-only probe issued after publish to verify auth + connectivity.
+   *  It is egress too, so it is part of what the user approves. */
+  verify_probe?: ConfirmOperation;
   scopes: ConfirmScope[];
   diff: ConfirmDiff[];
   risks: ConfirmRisk[];

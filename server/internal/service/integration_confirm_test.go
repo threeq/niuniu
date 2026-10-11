@@ -26,6 +26,7 @@ func canonicalInput() ConfirmDraftInput {
 				{Name: "createPet", Method: "POST", Path: "/pets", ReadOnly: false},
 				{Name: "exportAdmin", Method: "GET", Path: "/admin/export", ReadOnly: true},
 			},
+			VerifyOperation: "listPets",
 		},
 		WriteEnabled: true,
 		DocDeclaredOperations: []OperationKey{
@@ -318,6 +319,55 @@ func TestBuildConfirmCard_GoldenDecisionPayload(t *testing.T) {
 	if !bytes.Equal(bytes.TrimSpace(got), bytes.TrimSpace(want)) {
 		t.Errorf("confirm card drifted from the golden snapshot.\n--- got ---\n%s\n--- want ---\n%s",
 			bytes.TrimSpace(got), bytes.TrimSpace(want))
+	}
+}
+
+// --- verify probe (#734 requirement: the probe list must be visible) --------
+
+func TestVerifyProbe_ResolvedFromTheContractAndCarriedAsEgress(t *testing.T) {
+	card := BuildConfirmCard(canonicalInput())
+	if card.VerifyProbe == nil {
+		t.Fatal("verify_operation named an existing operation, so the probe must resolve")
+	}
+	if card.VerifyProbe.Method != "GET" || card.VerifyProbe.Path != "/pets" {
+		t.Fatalf("probe = %+v, want GET /pets", *card.VerifyProbe)
+	}
+
+	payload, err := DecisionPayload(card)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(payload, []byte(`"verify_probe"`)) {
+		t.Fatal("the probe will be issued after publish, so it must be in the approved bytes")
+	}
+
+	// The probe is real egress: the preview must include it, or the approved
+	// preview and the executed behaviour diverge.
+	preview := card.BehaviorPreview()
+	if len(preview.Egress) != len(card.Operations)+1 {
+		t.Fatalf("preview has %d entries, want %d operations + probe",
+			len(preview.Egress), len(card.Operations))
+	}
+	last := preview.Egress[len(preview.Egress)-1]
+	if last.Method != "GET" || last.PathTemplate != "/pets" || !last.ReadOnly {
+		t.Fatalf("probe missing from egress preview: %+v", last)
+	}
+}
+
+func TestVerifyProbe_IsNeverInvented(t *testing.T) {
+	// A name that matches nothing yields no probe — the card cannot conjure an
+	// egress call that the contract does not define.
+	in := canonicalInput()
+	in.Contract.VerifyOperation = "delete_everything"
+	if got := BuildConfirmCard(in).VerifyProbe; got != nil {
+		t.Fatalf("unknown verify_operation produced a probe: %+v", got)
+	}
+
+	// No contract (data-source line) => no probe.
+	in = canonicalInput()
+	in.Contract = nil
+	if got := BuildConfirmCard(in).VerifyProbe; got != nil {
+		t.Fatalf("probe without a contract: %+v", got)
 	}
 }
 

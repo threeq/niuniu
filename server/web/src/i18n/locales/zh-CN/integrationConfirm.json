@@ -19,6 +19,9 @@
     "write": "写操作",
     "highRisk": "高危"
   },
+  "verifyProbe": {
+    "title": "发布后验证探针（只读）"
+  },
   "scopes": {
     "title": "数据范围",
     "empty": "未授予任何数据范围",
