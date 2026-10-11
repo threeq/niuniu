@@ -138,6 +138,7 @@ const selfCheckTTL = 20 * time.Second
 var (
 	selfCheckMu    sync.Mutex
 	selfCheckCache *Availability
+	override       *Availability
 )
 
 // SelfCheck reports whether operation functions may run on this host. The
@@ -145,6 +146,9 @@ var (
 func SelfCheck(force bool) Availability {
 	selfCheckMu.Lock()
 	defer selfCheckMu.Unlock()
+	if override != nil {
+		return *override
+	}
 	if !force && selfCheckCache != nil && time.Since(selfCheckCache.ProbedAt) < selfCheckTTL {
 		return *selfCheckCache
 	}
@@ -184,4 +188,18 @@ func ResetSelfCheckCache() {
 	selfCheckMu.Lock()
 	selfCheckCache = nil
 	selfCheckMu.Unlock()
+}
+
+// SetAvailabilityOverride forces the self-check verdict, or clears the override
+// with nil.
+//
+// This exists because the fail-closed path is the one path a passing host can
+// never exercise: "the fence is unavailable, so refuse to run" is only
+// observable on a machine whose sandbox does not work. Tests use it to prove
+// the refusal is real rather than assuming it. Never call it outside a test.
+func SetAvailabilityOverride(a *Availability) {
+	selfCheckMu.Lock()
+	override = a
+	selfCheckMu.Unlock()
+	ResetSelfCheckCache()
 }

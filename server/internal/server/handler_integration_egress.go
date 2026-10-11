@@ -69,3 +69,38 @@ func sensitivePatternNames(s service.EgressDataSummary) []string {
 	}
 	return names
 }
+
+// functionAlertNotifier delivers sandbox operation-function anomalies (Epic
+// #726 / #739). Same seam as the egress notifier: the service package stays
+// free of the notify hub.
+//
+// It fires only while the function is inside its first-run observation window.
+// That is deliberate — the window exists so a human reviews what a freshly
+// published, AI-authored function actually does; an anomaly during that window
+// is the signal to go read the request trail.
+type functionAlertNotifier struct {
+	hub      *notify.NotificationHub
+	imbotSvc *service.IMBotService
+}
+
+func (n *functionAlertNotifier) NotifyFunctionAnomaly(ctx context.Context, alert service.FunctionAnomaly) {
+	if n.hub != nil {
+		n.hub.Broadcast(notify.Notification{
+			Topic:  notify.TopicFunctionAnomaly,
+			Action: alert.Status,
+			ID:     alert.FunctionID,
+			Extra: gin.H{
+				"function":   alert.FunctionName,
+				"provider":   alert.ProviderName,
+				"error_code": alert.ErrorCode,
+			},
+			OwnerType: alert.OwnerType,
+			OwnerID:   alert.OwnerID,
+		})
+	}
+	if n.imbotSvc != nil && alert.OwnerType != "" && alert.OwnerID != 0 {
+		n.imbotSvc.NotifyOwnerText(ctx, service.OwnerRef{Type: alert.OwnerType, ID: alert.OwnerID},
+			"[沙箱函数异常] "+alert.ProviderName+" / "+alert.FunctionName+" 在首次运行观察期内出现异常调用（"+
+				alert.Status+"），请查看该函数的观察期请求轨迹。")
+	}
+}

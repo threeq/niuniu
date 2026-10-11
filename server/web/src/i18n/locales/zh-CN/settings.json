@@ -320,7 +320,8 @@
         "observing": "观察期",
         "active": "生效中",
         "disabled": "已停用"
-      }
+      },
+      "anomalyToast": "操作函数 {function}（{provider}）在观察期内出现异常调用——请查看其请求轨迹。"
     }
   },
   "page": {

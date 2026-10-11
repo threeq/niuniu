@@ -70,6 +70,10 @@ const INVALIDATION_MAP: Record<string, QueryKeyMapper> = {
   // Egress data-governance alert (#747): refresh the activity feed so the
   // flagged row (and its oversize marker) appears.
   egress_alert: () => [['integration-activity']],
+  // Sandbox operation-function anomaly (#739): refresh the function list (the
+  // observation counter moved) and the call audit, so the owner lands on the
+  // request trail the alert is telling them to read.
+  function_anomaly: () => [['operation-functions']],
 };
 
 export type ToastTarget =
@@ -232,6 +236,19 @@ function handleToast(n: Notification) {
     const provider = typeof extra.provider === 'string' ? extra.provider : '';
     toast.warning(
       i18n.t('settings:integrations.activity.oversizeToast', { provider }),
+    );
+    return;
+  }
+
+  // Sandbox function anomaly (#739): an AI-authored function misbehaved while
+  // still inside its first-run observation window. Warning, not refusal — the
+  // call was already recorded and the window is what makes it reviewable.
+  if (n.topic === 'function_anomaly') {
+    const extra = (n.extra as Record<string, unknown>) ?? {};
+    const name = typeof extra.function === 'string' ? extra.function : '';
+    const provider = typeof extra.provider === 'string' ? extra.provider : '';
+    toast.warning(
+      i18n.t('settings:integrations.functions.anomalyToast', { function: name, provider }),
     );
     return;
   }

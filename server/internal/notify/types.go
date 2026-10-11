@@ -47,4 +47,12 @@ const (
 	// localized warning toast (Epic #726 / #747). The personal edition only ever
 	// warns — this topic never precedes a refusal.
 	TopicEgressAlert = "egress_alert"
+	// TopicFunctionAnomaly signals an abnormal call by a sandbox operation
+	// function while it is still inside its first-run observation window
+	// (Epic #726 / #739). Action is the call status ("error" / "denied"); ID is
+	// the function id and Extra carries {function, provider, error_code} so the
+	// SPA can point the owner at the request trail it should review. It is the
+	// "异常告警" half of the observation window: the window exists to produce a
+	// full request trail, and a trail nobody is told to read is not a control.
+	TopicFunctionAnomaly = "function_anomaly"
 )

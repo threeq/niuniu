@@ -15,6 +15,8 @@ package service
 import (
 	"context"
 	"database/sql"
+	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -22,6 +24,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/niuniu-dev/niuniu/internal/integration"
@@ -70,30 +73,48 @@ func newFnTestDB(t *testing.T) *sql.DB {
 	return db
 }
 
-// buildFuncbox compiles the sandbox helper and points the runtime at it. The
-// service package has no other reason to build a binary, so it happens here and
-// only here.
+// The helper is built ONCE for the whole test binary. Building it per test
+// into t.TempDir() would delete it when the first test finishes, and every
+// later test would fail for a reason that has nothing to do with what it tests.
+var (
+	e2eFuncboxOnce sync.Once
+	funcboxDir     string
+	funcboxErr     error
+)
+
+func TestMain(m *testing.M) {
+	code := m.Run()
+	if funcboxDir != "" {
+		_ = os.RemoveAll(funcboxDir)
+	}
+	os.Exit(code)
+}
+
 func buildFuncbox(t *testing.T) {
 	t.Helper()
-	if sandbox.HelperPath() != "" {
-		return
+	e2eFuncboxOnce.Do(func() {
+		dir, err := os.MkdirTemp("", "funcbox-e2e")
+		if err != nil {
+			funcboxErr = err
+			return
+		}
+		funcboxDir = dir
+		name := "niuniu-funcbox"
+		if runtime.GOOS == "windows" {
+			name += ".exe"
+		}
+		out := filepath.Join(dir, name)
+		cmd := exec.Command("go", "build", "-o", out, "./cmd/niuniu-funcbox")
+		cmd.Dir = filepath.Join("..", "..")
+		if b, err := cmd.CombinedOutput(); err != nil {
+			funcboxErr = fmt.Errorf("%v (%s)", err, b)
+			return
+		}
+		sandbox.SetHelperPath(out)
+	})
+	if funcboxErr != nil {
+		t.Fatalf("build funcbox: %v", funcboxErr)
 	}
-	dir, err := os.MkdirTemp("", "funcbox-e2e")
-	if err != nil {
-		t.Fatalf("temp dir: %v", err)
-	}
-	t.Cleanup(func() { _ = os.RemoveAll(dir) })
-	name := "niuniu-funcbox"
-	if runtime.GOOS == "windows" {
-		name += ".exe"
-	}
-	out := filepath.Join(dir, name)
-	cmd := exec.Command("go", "build", "-o", out, "./cmd/niuniu-funcbox")
-	cmd.Dir = filepath.Join("..", "..")
-	if b, err := cmd.CombinedOutput(); err != nil {
-		t.Fatalf("build funcbox: %v (%s)", err, b)
-	}
-	sandbox.SetHelperPath(out)
 }
 
 func newFnE2E(t *testing.T) *fnE2E {
@@ -356,5 +377,64 @@ func TestOperationFunctionEndToEnd(t *testing.T) {
 	}
 	if remaining, err := e.functions.ListForProvider(ctx, prov.ID); err != nil || len(remaining) != 0 {
 		t.Fatalf("functions survived their source: %v / %d", err, len(remaining))
+	}
+}
+
+// The fail-closed path: a host whose OS fence is unavailable must REFUSE to run
+// a function. It is the acceptance item "禁止静默降级", and a passing host can
+// never reach it on its own — so the verdict is forced.
+func TestOperationFunctionRefusesToRunWithoutAFence(t *testing.T) {
+	e := newFnE2E(t)
+	fn := e.seedProviderAndFunction(t)
+
+	// Force the fence unavailable, and make sure it comes back either way so a
+	// failure here cannot poison the rest of the package's runs.
+	sandbox.SetAvailabilityOverride(&sandbox.Availability{
+		Platform: "test", Backend: "none", Available: false,
+		Reason: "required fence component unavailable: seccomp",
+		Components: []sandbox.ComponentStatus{
+			{Name: "seccomp", Required: true, OK: false, Detail: "disabled by the host policy"},
+		},
+	})
+	t.Cleanup(func() { sandbox.SetAvailabilityOverride(nil) })
+
+	ctx := context.Background()
+	_, err := e.functions.Invoke(ctx, FunctionInvokeInput{
+		OwnerType: "user", OwnerID: 7, UserID: 7, FunctionID: fn.ID, Caller: CallerAgent,
+	})
+	if err == nil {
+		t.Fatal("a function ran on a host whose OS fence is unavailable")
+	}
+	if !errors.Is(err, ErrFenceUnavailable) {
+		t.Fatalf("the refusal is not reported as a fence problem: %v", err)
+	}
+
+	// The refusal itself is audited: "we declined to run this" is exactly the
+	// record an operator needs, and an unrecorded refusal is a silent downgrade.
+	records, aerr := e.functions.Audit(ctx, "user", 7, 10)
+	if aerr != nil {
+		t.Fatalf("audit: %v", aerr)
+	}
+	found := false
+	for _, rec := range records {
+		if rec.Status == FuncStatusDenied && rec.ErrorCode == sandbox.ErrFenceUnavailable {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("the refusal left no audit row: %#v", records)
+	}
+
+	// The UI surface reports the same verdict, so the degradation is visible.
+	if avail := sandbox.SelfCheck(false); avail.Available {
+		t.Fatal("the self-check reported the fence as available while it was forced down")
+	}
+
+	// Restoring the fence restores the capability.
+	sandbox.SetAvailabilityOverride(nil)
+	if res, ierr := e.functions.Invoke(ctx, FunctionInvokeInput{
+		OwnerType: "user", OwnerID: 7, UserID: 7, FunctionID: fn.ID, Caller: CallerUser,
+	}); ierr != nil || !res.OK {
+		t.Fatalf("the function did not run again after the fence came back: %v / %+v", ierr, res)
 	}
 }

@@ -1573,6 +1573,12 @@ func New(cfg *config.Config, db *sql.DB, frontendFS fs.FS) *Server {
 	// threshold the write side used (the row persists the byte count, the flag
 	// is derived), so the two never disagree.
 	s.integrationAuditSvc.SetEgressPolicy(s.externalProxySvc.EgressPolicy())
+	// Sandbox operation-function anomalies (#739) use the same two channels, so
+	// an abnormal call during a function's first-run observation window reaches
+	// the owner instead of only landing in an audit table.
+	if s.functionSvc != nil {
+		s.functionSvc.SetAlertNotifier(&functionAlertNotifier{hub: s.notifyHub, imbotSvc: s.imbotSvc})
+	}
 	// Inbound (W2): route incoming IM messages into the channel's bound project
 	// via the generalized RouteInProject, deliver to the workspace agent, and
 	// write permission-button decisions back through PermissionService. The

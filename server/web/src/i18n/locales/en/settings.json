@@ -320,7 +320,8 @@
         "observing": "Observing",
         "active": "Active",
         "disabled": "Disabled"
-      }
+      },
+      "anomalyToast": "Operation function {function} on {provider} misbehaved during its observation window — review its request trail."
     }
   },
   "page": {
