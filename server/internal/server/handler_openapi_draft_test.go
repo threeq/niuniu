@@ -47,6 +47,15 @@ func newOpenAPIDraftTestServer(t *testing.T) (*gin.Engine, *service.ExternalProv
 		openapi_url TEXT NOT NULL DEFAULT '',
 		whitelist   TEXT NOT NULL DEFAULT '[]',
 		enabled     INTEGER NOT NULL DEFAULT 1,
+		health_status       TEXT NOT NULL DEFAULT 'unknown',
+		consecutive_failures INTEGER NOT NULL DEFAULT 0,
+		last_probe_at       TIMESTAMP DEFAULT NULL,
+		last_probe_error    TEXT NOT NULL DEFAULT '',
+		auto_disabled_at    TIMESTAMP DEFAULT NULL,
+		probe_interval_seconds INTEGER NOT NULL DEFAULT 86400,
+		upstream_spec_digest TEXT NOT NULL DEFAULT '',
+		contract_drift      INTEGER NOT NULL DEFAULT 0,
+		last_drift_at       TIMESTAMP DEFAULT NULL,
 		created_by  TEXT NOT NULL DEFAULT 'user',
 		created_at  TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
 		updated_at  TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
@@ -86,7 +95,7 @@ func newOpenAPIDraftTestServer(t *testing.T) (*gin.Engine, *service.ExternalProv
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.Use(func(c *gin.Context) { c.Set("auth_user_id", int64(1)) })
-	r.POST("/api/me/external-proxy/providers/:id/openapi-draft", srv.proxyOpenAPIDraft)
+	r.POST("/api/me/external-proxy/providers/:provider/openapi-draft", srv.proxyOpenAPIDraft)
 	// Same handler on an MCP-shaped route, with the workspace resolved from the
 	// session token (as MCPTokenAuth does in production).
 	mcp := gin.New()
@@ -94,7 +103,7 @@ func newOpenAPIDraftTestServer(t *testing.T) (*gin.Engine, *service.ExternalProv
 		c.Set("auth_user_id", int64(1))
 		c.Set("mcp_workspace_id", int64(7))
 	})
-	mcp.POST("/mcp/external-proxy/providers/:id/openapi-draft", srv.proxyOpenAPIDraft)
+	mcp.POST("/mcp/external-proxy/providers/:provider/openapi-draft", srv.proxyOpenAPIDraft)
 	return r, svc, mcp, db
 }
 

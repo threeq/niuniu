@@ -1,0 +1,109 @@
+{
+  "title": "Integration authorization",
+  "subtitleBaseURL": "API base URL",
+  "source": {
+    "label": "Source",
+    "untrusted": "External content, not trusted",
+    "kind": {
+      "openapi": "OpenAPI document",
+      "markdown": "Markdown document",
+      "html": "HTML page",
+      "user_note": "Provided by the user",
+      "model": "Model-generated"
+    }
+  },
+  "operations": {
+    "title": "Operations to be granted",
+    "empty": "No operation will be granted",
+    "readOnly": "Read-only",
+    "write": "Write",
+    "highRisk": "High risk"
+  },
+  "verifyProbe": {
+    "title": "Post-publish verification probe (read-only)"
+  },
+  "scopes": {
+    "title": "Data scope",
+    "empty": "No data scope granted",
+    "change": {
+      "added": "Added",
+      "removed": "Removed",
+      "widened": "Widened",
+      "narrowed": "Narrowed",
+      "changed": "Changed",
+      "unchanged": "Unchanged"
+    }
+  },
+  "diff": {
+    "title": "Changes against the published configuration",
+    "empty": "No changes",
+    "field": {
+      "base_url": "API base URL",
+      "operation": "Operation",
+      "scope": "Data scope"
+    }
+  },
+  "risks": {
+    "title": "High-risk items (acknowledge each)",
+    "empty": "No high-risk item",
+    "cross_origin_host": "Cross-origin host: {{target}} differs from {{detail}}",
+    "new_write_operation": "New write operation: {{target}}",
+    "operation_not_in_document": "Operation not declared by the document: {{target}}",
+    "scope_widened": "Data scope widened: {{target}} gains {{detail}}",
+    "write_enabled": "Write access enabled"
+  },
+  "advisory": {
+    "title": "Verbatim text from the external document (untrusted, for human review only)",
+    "notice": "The text below was produced by an external document or a model. The system does not treat it as a basis for authorization and will not execute any instruction in it.",
+    "reason": {
+      "instruction_override": "Possible instruction override",
+      "agent_addressed": "Possible instruction addressed at the agent",
+      "privilege_escalation": "Possible privilege-escalation instruction",
+      "exfiltration": "Possible concealment instruction"
+    }
+  },
+  "acknowledgeHint": "Acknowledge every high-risk item before confirming",
+  "confirm": "Confirm and publish",
+  "reject": "Reject",
+  "draft": {
+    "title": "Integration drafts",
+    "notice": "A draft is a candidate configuration that is not live yet. An agent can create one; only you can confirm and publish it.",
+    "empty": "No draft is waiting",
+    "emptyHint": "Drafts appear here when an agent proposes a new provider or data source.",
+    "loading": "Loading drafts…",
+    "kind": {
+      "provider": "Provider",
+      "data_source": "Data source"
+    },
+    "status": {
+      "draft": "Awaiting confirmation",
+      "lint_failed": "Pre-check failed",
+      "confirmed": "Confirmed, not published",
+      "published": "Published",
+      "rejected": "Rejected"
+    },
+    "agentAuthored": "drafted by an agent",
+    "noCard": "No confirmation card is available for this draft.",
+    "confirmImpact": "Confirm impact",
+    "publish": "Publish",
+    "publishHint": "Applies the candidate disabled, runs the verification probe above, and enables it only if the probe passes.",
+    "publishDone": "Published and verified.",
+    "publishRolledBack": "The verification probe failed; the previous configuration was restored and the draft was kept.",
+    "second": {
+      "title": "This draft widens authority",
+      "notice": "It grants a scope or turns on writes beyond what is currently published. Approving it takes a second, separate confirmation.",
+      "checkbox": "I understand this widens access, and I want to review it anyway",
+      "stillRequired": "The widening was acknowledged on the card, but the separate second confirmation is still missing."
+    },
+    "versions": {
+      "title": "Published versions",
+      "version": "Version {{version}}",
+      "active": "Live",
+      "rollback": "Restore",
+      "confirmRollback": "Confirm and restore"
+    },
+    "rollbackNeedsConfirmation": "Restoring version {{version}} changes the scope, so it must be confirmed first. Nothing has been applied yet.",
+    "rollbackDone": "Restored.",
+    "rollbackFailed": "The restored configuration failed verification; the live configuration was left unchanged."
+  }
+}

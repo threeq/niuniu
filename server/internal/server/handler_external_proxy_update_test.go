@@ -38,6 +38,15 @@ func newProviderUpdateTestServer(t *testing.T) (*gin.Engine, *service.ExternalPr
 		openapi_url TEXT NOT NULL DEFAULT '',
 		whitelist   TEXT NOT NULL DEFAULT '[]',
 		enabled     INTEGER NOT NULL DEFAULT 1,
+		health_status       TEXT NOT NULL DEFAULT 'unknown',
+		consecutive_failures INTEGER NOT NULL DEFAULT 0,
+		last_probe_at       TIMESTAMP DEFAULT NULL,
+		last_probe_error    TEXT NOT NULL DEFAULT '',
+		auto_disabled_at    TIMESTAMP DEFAULT NULL,
+		probe_interval_seconds INTEGER NOT NULL DEFAULT 86400,
+		upstream_spec_digest TEXT NOT NULL DEFAULT '',
+		contract_drift      INTEGER NOT NULL DEFAULT 0,
+		last_drift_at       TIMESTAMP DEFAULT NULL,
 		created_by  TEXT NOT NULL DEFAULT 'user',
 		created_at  TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
 		updated_at  TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
@@ -51,7 +60,7 @@ func newProviderUpdateTestServer(t *testing.T) (*gin.Engine, *service.ExternalPr
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.Use(func(c *gin.Context) { c.Set("auth_user_id", int64(1)) })
-	r.PUT("/api/me/external-proxy/providers/:id", srv.proxyUpdateProvider)
+	r.PUT("/api/me/external-proxy/providers/:provider", srv.proxyUpdateProvider)
 	return r, svc, db
 }
 

@@ -14,6 +14,7 @@ import type {
   CreateProviderBody,
   UpdateProviderBody,
 } from '@/types/integration';
+import type { ProbeOutcome } from './data-sources-api';
 
 interface ListResp {
   data: { items: ExternalProviderListItem[] };
@@ -77,4 +78,32 @@ export const externalProxyApi = {
         { enabled },
       )
       .then((r) => r.data.enabled),
+
+  // --- Continuous health + contract drift (#744) -------------------------
+
+  /** Run (or re-run) the provider's verify_operation probe immediately. */
+  probeProvider: (id: number): Promise<ProbeOutcome> =>
+    api
+      .post<{ outcome: ProbeOutcome }>(`/me/integration-health/provider/${id}/probe`)
+      .then((r) => r.outcome),
+
+  /** Re-enable a provider after an auto-disable, clearing the failure streak. */
+  reenableProvider: (id: number): Promise<void> =>
+    api
+      .post<{ enabled: boolean }>(`/me/integration-health/provider/${id}/reenable`)
+      .then(() => undefined),
+
+  /** Turn a provider off manually. */
+  disableProvider: (id: number): Promise<void> =>
+    api
+      .post<{ enabled: boolean }>(`/me/integration-health/provider/${id}/disable`)
+      .then(() => undefined),
+
+  /** Acknowledge upstream contract drift, re-baselining the digest. */
+  acknowledgeDrift: (id: number): Promise<void> =>
+    api
+      .post<{ drift: boolean }>(
+        `/me/integration-health/provider/${id}/acknowledge-drift`,
+      )
+      .then(() => undefined),
 };

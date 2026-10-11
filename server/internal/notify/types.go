@@ -34,4 +34,17 @@ const (
 	TopicAskUserPending    = "ask_user_pending"
 	TopicPinned            = "pinned"
 	TopicLocalRunner       = "local_runner"
+	// TopicIntegrationHealth signals a change in an integration source's health
+	// (auto-disabled after repeated probe failures, or upstream contract drift).
+	// Action carries the alert kind ("auto_disabled" / "drift"); ID is the
+	// subject id and Extra carries {subject_kind, name, message} so the SPA can
+	// invalidate the integration lists and show a localized toast (#744).
+	TopicIntegrationHealth = "integration_health"
+	// TopicEgressAlert signals that an outbound integration write tripped the
+	// egress data policy (over-threshold body size, or a sensitive-pattern hit).
+	// Action is "flagged"; ID is the provider id and Extra carries {provider,
+	// method, path, bytes, limit, oversize, patterns} so the SPA can show a
+	// localized warning toast (Epic #726 / #747). The personal edition only ever
+	// warns — this topic never precedes a refusal.
+	TopicEgressAlert = "egress_alert"
 )

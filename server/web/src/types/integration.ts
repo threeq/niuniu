@@ -131,6 +131,20 @@ export interface ExternalProviderListItem {
   /** `'system'` for built-in providers (read-only except for enabled);
    *  `'user'` (or empty) for user-created providers. */
   created_by: string;
+
+  // --- Continuous health + contract drift (#744) -------------------------
+  /** Last probe verdict: unknown | healthy | unhealthy | disabled. */
+  health_status?: 'unknown' | 'healthy' | 'unhealthy' | 'disabled';
+  /** Consecutive probe failures (reset by a successful probe). */
+  consecutive_failures?: number;
+  last_probe_at?: string | null;
+  /** Reason the last probe failed (empty when healthy). */
+  last_probe_error?: string;
+  /** Set when the sweep auto-disabled the provider; cleared on recovery. */
+  auto_disabled_at?: string | null;
+  /** True when the upstream OpenAPI document changed since the last review. */
+  contract_drift?: boolean;
+  last_drift_at?: string | null;
 }
 
 /** Helper: a provider seeded by the server (created_by === 'system'). */
@@ -143,6 +157,12 @@ export interface ExternalProviderDetail extends ExternalProviderListItem {
   auth_prefix: string;
   profile: string;
   whitelist: string;
+  /** Operation-level authorization view (issue #737): names of the provider's
+   *  read-only operations (run without the write toggle) and of its
+   *  write/sensitive operations (require it). Empty for providers without a
+   *  structured contract. */
+  read_operations?: string[];
+  write_operations?: string[];
 }
 
 export interface CreateProviderBody {
@@ -196,6 +216,9 @@ export interface IntegrationActivityItem {
   method?: string;
   path?: string;
   status_code?: number;
+  /** Derived on read: the outbound body exceeded the egress warn threshold, so
+   *  the row is flagged (防批量外泄). Epic #726 / #747. */
+  oversize?: boolean;
 
   // kind === 'data'
   source_id?: number;

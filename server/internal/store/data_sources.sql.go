@@ -178,7 +178,7 @@ func (q *Queries) DeleteDataSourceBinding(ctx context.Context, arg DeleteDataSou
 }
 
 const getDataSource = `-- name: GetDataSource :one
-SELECT id, owner_type, owner_id, user_id, name, kind, config, scope_config, default_access_mode, require_confirm, last_verified_at, created_at, updated_at FROM data_sources WHERE id = ?
+SELECT id, owner_type, owner_id, user_id, name, kind, config, scope_config, default_access_mode, require_confirm, last_verified_at, enabled, health_status, consecutive_failures, last_probe_at, last_probe_error, auto_disabled_at, probe_interval_seconds, created_at, updated_at FROM data_sources WHERE id = ?
 `
 
 func (q *Queries) GetDataSource(ctx context.Context, id int64) (DataSource, error) {
@@ -196,6 +196,13 @@ func (q *Queries) GetDataSource(ctx context.Context, id int64) (DataSource, erro
 		&i.DefaultAccessMode,
 		&i.RequireConfirm,
 		&i.LastVerifiedAt,
+		&i.Enabled,
+		&i.HealthStatus,
+		&i.ConsecutiveFailures,
+		&i.LastProbeAt,
+		&i.LastProbeError,
+		&i.AutoDisabledAt,
+		&i.ProbeIntervalSeconds,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
@@ -349,7 +356,7 @@ func (q *Queries) ListDataSourceNamesByIDs(ctx context.Context, ids []int64) ([]
 }
 
 const listDataSourcesForOwners = `-- name: ListDataSourcesForOwners :many
-SELECT id, owner_type, owner_id, user_id, name, kind, config, scope_config, default_access_mode, require_confirm, last_verified_at, created_at, updated_at FROM data_sources
+SELECT id, owner_type, owner_id, user_id, name, kind, config, scope_config, default_access_mode, require_confirm, last_verified_at, enabled, health_status, consecutive_failures, last_probe_at, last_probe_error, auto_disabled_at, probe_interval_seconds, created_at, updated_at FROM data_sources
 WHERE (owner_type = 'user' AND owner_id = ?)
    OR (owner_type = 'org'  AND owner_id IN (/*SLICE:org_ids*/?))
 ORDER BY created_at DESC
@@ -392,6 +399,13 @@ func (q *Queries) ListDataSourcesForOwners(ctx context.Context, arg ListDataSour
 			&i.DefaultAccessMode,
 			&i.RequireConfirm,
 			&i.LastVerifiedAt,
+			&i.Enabled,
+			&i.HealthStatus,
+			&i.ConsecutiveFailures,
+			&i.LastProbeAt,
+			&i.LastProbeError,
+			&i.AutoDisabledAt,
+			&i.ProbeIntervalSeconds,
 			&i.CreatedAt,
 			&i.UpdatedAt,
 		); err != nil {

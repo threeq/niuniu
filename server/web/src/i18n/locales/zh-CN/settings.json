@@ -1,5 +1,29 @@
 {
   "integrations": {
+    "health": {
+      "toastAutoDisabled": "集成源连续探测失败，已自动停用：{{name}}",
+      "toastDrift": "{{name}} 的上游 API 已变更——建议重新审阅契约",
+      "toastRecovered": "集成源已恢复：{{name}}",
+      "sectionTitle": "健康",
+      "status": {
+        "unknown": "尚未探测",
+        "healthy": "健康",
+        "unhealthy": "探测失败",
+        "disabled": "已停用"
+      },
+      "consecutiveFailures": "连续失败 {{count}} 次",
+      "probeNow": "立即探测",
+      "probeOk": "探测成功",
+      "probeFailed": "探测失败",
+      "reenable": "重新启用",
+      "reenableSuccess": "已重新启用",
+      "driftBadge": "上游已变更",
+      "driftHint": "上游 API 文档自上次审阅后已变更。请重新审阅契约，确认后清除此提示。",
+      "acknowledgeDrift": "已审阅，忽略",
+      "acknowledgeDriftSuccess": "已清除变更提示",
+      "lastProbe": "最近探测",
+      "autoDisabledHint": "连续探测失败后已自动停用。"
+    },
     "activity": {
       "sectionTitle": "集成活动",
       "sectionDescription": "通过集成发起的所有外部 API 调用与数据查询，最新在前。",
@@ -25,7 +49,10 @@
       "noBody": "无请求体",
       "fieldsNone": "（无字段）",
       "fingerprint": "请求体 sha256 {{hash}}… · {{bytes}} B · 字段：{{fields}}",
-      "dataMeta": "{{rows}} 行 · {{ms}} ms"
+      "dataMeta": "{{rows}} 行 · {{ms}} ms",
+      "oversize": "超出阈值",
+      "oversizeHint": "外发请求体超过出口告警阈值。",
+      "oversizeToast": "发往 {{provider}} 的外发数据体超出阈值，已标记，请在「集成活动」中查看。"
     },
     "pageTitle": "集成",
     "addCredential": "添加凭据",
@@ -238,6 +265,28 @@
         "deleteSuccess": "Provider 已删除",
         "deleteFailed": "删除失败：{{error}}"
       }
+    },
+    "capability": {
+      "viewButton": "查看能力说明",
+      "title": "能力说明 · {{name}}",
+      "description": "系统依据已确认契约自动生成的可操作说明；只读，不能在此编辑。",
+      "loading": "加载中…",
+      "loadFailed": "无法加载能力说明。",
+      "kindProvider": "外部 API",
+      "kindDataSource": "数据源",
+      "operations": "可用操作",
+      "readOnly": "只读",
+      "write": "写/敏感",
+      "scope": "可用范围",
+      "scopeKind": "类型",
+      "scopeDatabases": "可用数据库",
+      "scopeAllow": "放行对象",
+      "scopeDeny": "排除对象",
+      "scopeAccessMode": "访问模式",
+      "examples": "示例",
+      "limits": "限制",
+      "agentBlock": "Agent 看到的内容",
+      "agentBlockHint": "以下内容会以“数据（非指令）”分区注入工作空间的指令文件，与实际下发完全一致。"
     }
   },
   "page": {

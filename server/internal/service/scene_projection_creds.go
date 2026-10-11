@@ -17,6 +17,7 @@ package service
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"log/slog"
 	"regexp"
 	"strconv"
@@ -107,11 +108,16 @@ func mapCredFieldValue(field, value string) string {
 // strip it from the MCP names handed to Generate. The union of missing aliases
 // (across all servers) is returned for missing-credential reporting.
 //
+// A placeholder resolved into an http/sse server's header is then proxified
+// (see proxifyCredentialHeaders): the resolved value is discarded and only a
+// loopback pointer token reaches the workspace file, with the real credential
+// re-resolved per request.
+//
 // When extCred is nil (test projectors, or a build without the credential
 // service wired) every placeholder misses, so any server using placeholders is
 // dropped and its aliases reported missing — a safe degrade, never a leak.
 func (p *SceneProjector) resolveProjectionCredentials(
-	ctx context.Context, owner OwnerRef, userID int64, proj *Projection,
+	ctx context.Context, owner OwnerRef, userID, wsID int64, proj *Projection,
 ) (resolved map[string]map[string]any, dropped map[string]bool, missing map[string]bool) {
 	dropped = map[string]bool{}
 	missing = map[string]bool{}
@@ -127,12 +133,32 @@ func (p *SceneProjector) resolveProjectionCredentials(
 	resolved = make(map[string]map[string]any, len(proj.MCPConfigs))
 	for name, cfg := range proj.MCPConfigs {
 		newCfg := deepCopyAnyMap(cfg)
+		// A placeholder in the server's own URL would resolve the secret INTO
+		// the url field, where no header injection can replace it. Fail closed:
+		// drop the server rather than materialize the secret.
+		if rawURL, _ := newCfg["url"].(string); credPlaceholderRe.MatchString(rawURL) {
+			dropped[name] = true
+			for _, a := range credPlaceholderAliases(rawURL) {
+				missing[a] = true
+			}
+			slog.Warn("scene projector: ${cred:} in an MCP server url is not supported; server dropped", "server", name)
+			continue
+		}
+
 		// Resolve placeholders in every credential-bearing sub-map. `env` is used
 		// by stdio MCP servers; `headers` by http/sse MCP servers (e.g. a
 		// knowledge-base MCP whose auth is `Authorization: Bearer ${cred:kb.token}`).
 		// A miss in ANY sub-map drops the whole server — never emit a half-filled
 		// auth (spec §4.2.4).
 		var serverMissing []string
+		// headers keys whose RAW value carried a placeholder: after resolution
+		// these hold the real secret and must be kept out of the workspace file.
+		secretHeaders := map[string]bool{}
+		// Aliases feeding those headers, so a server we refuse to proxify can be
+		// reported as a missing-credential card instead of vanishing silently.
+		var secretAliases []string
+		seenAlias := map[string]bool{}
+		envHasPlaceholder := false
 		for _, sub := range []string{"env", "headers"} {
 			raw, ok := newCfg[sub]
 			if !ok {
@@ -141,6 +167,22 @@ func (p *SceneProjector) resolveProjectionCredentials(
 			m := anyToStringMap(raw)
 			if len(m) == 0 {
 				continue
+			}
+			for k, v := range m {
+				if !credPlaceholderRe.MatchString(v) {
+					continue
+				}
+				if sub == "headers" {
+					secretHeaders[k] = true
+				} else {
+					envHasPlaceholder = true
+				}
+				for _, a := range credPlaceholderAliases(v) {
+					if !seenAlias[a] {
+						seenAlias[a] = true
+						secretAliases = append(secretAliases, a)
+					}
+				}
 			}
 			resolvedMap, miss := resolveCredEnv(m, lookup)
 			if len(miss) > 0 {
@@ -160,9 +202,156 @@ func (p *SceneProjector) resolveProjectionCredentials(
 			}
 			continue
 		}
+		// A resolved secret header MUST leave the file again through the proxy.
+		// If it cannot, drop the server rather than materialize the secret —
+		// same fail-closed discipline as an unresolved placeholder above.
+		if !p.proxifyCredentialHeaders(wsID, name, newCfg, secretHeaders) {
+			dropped[name] = true
+			for _, a := range secretAliases {
+				missing[a] = true
+			}
+			continue
+		}
+		if envHasPlaceholder {
+			slog.Warn("scene projector: stdio MCP server resolves a credential into env; "+
+				"it stays in the workspace config (documented residual risk)", "server", name)
+		}
 		resolved[name] = newCfg
 	}
 	return resolved, dropped, missing
+}
+
+// ResolveProxyTarget re-resolves, at request time, the upstream URL and the
+// credential headers for one projected MCP server — the lookup behind
+// CredProxyService. It reads the CURRENT projection and the CURRENT credential
+// binding, so a changed/removed scene or an unbound credential takes effect on
+// the next request without any revocation step.
+//
+// Only the headers that carried a ${cred:...} placeholder are returned; the
+// upstream is the scene-authored url, never agent input.
+func (p *SceneProjector) ResolveProxyTarget(ctx context.Context, wsID int64, serverName string) (string, map[string]string, error) {
+	ws, err := p.q.GetWorkspace(ctx, wsID)
+	if err != nil {
+		return "", nil, fmt.Errorf("load workspace: %w", err)
+	}
+	proj, err := p.Recompute(ctx, wsID)
+	if err != nil {
+		return "", nil, fmt.Errorf("recompute projection: %w", err)
+	}
+	cfg, ok := proj.MCPConfigs[serverName]
+	if !ok {
+		return "", nil, fmt.Errorf("MCP server %q is not in this workspace's projection", serverName)
+	}
+	upstream, _ := cfg["url"].(string)
+	if upstream == "" || credPlaceholderRe.MatchString(upstream) {
+		return "", nil, fmt.Errorf("MCP server %q has no safe upstream url", serverName)
+	}
+	headers := anyToStringMap(cfg["headers"])
+	owner := OwnerRef{Type: ws.OwnerType, ID: ws.OwnerID}
+	userID := int64(0)
+	if ws.CreatedBy.Valid {
+		userID = ws.CreatedBy.Int64
+	}
+	aliasProvider := map[string]string{}
+	for _, rc := range proj.RequiredCredentials {
+		aliasProvider[rc.Alias] = rc.Provider
+	}
+	lookup := p.credLookup(ctx, owner, userID, aliasProvider)
+
+	out := map[string]string{}
+	for k, v := range headers {
+		if !credPlaceholderRe.MatchString(v) {
+			continue
+		}
+		resolved, miss := resolveCredEnv(map[string]string{k: v}, lookup)
+		if len(miss) > 0 {
+			return "", nil, fmt.Errorf("credential %q is not bound", strings.Join(miss, ", "))
+		}
+		out[k] = resolved[k]
+	}
+	if len(out) == 0 {
+		return "", nil, fmt.Errorf("MCP server %q has no credential header", serverName)
+	}
+	return upstream, out, nil
+}
+
+// credPlaceholderAliases lists the credential aliases referenced by every
+// ${cred:alias.field} placeholder in s (deduped, first-seen order).
+func credPlaceholderAliases(s string) []string {
+	var out []string
+	seen := map[string]bool{}
+	for _, m := range credPlaceholderRe.FindAllStringSubmatch(s, -1) {
+		if !seen[m[1]] {
+			seen[m[1]] = true
+			out = append(out, m[1])
+		}
+	}
+	return out
+}
+
+// proxifyCredentialHeaders replaces an http/sse server's placeholder-derived
+// headers with a loopback credential-proxy URL, so the resolved secret lives
+// only in this process's memory and never in the workspace .mcp.json the agent
+// can read. The named headers are removed from the config; the proxy injects
+// them on egress.
+//
+// Only servers with a `url` are eligible — a stdio server (a `command`) takes
+// its credential through the child process's environment, which has no egress
+// point to intercept. For a stdio server a resolved SECRET HEADER cannot be
+// proxied, so the server is refused (returns false) rather than written out.
+// A secret in `env` is not tracked here; it is reported as residual risk.
+//
+// Returns false when a resolved secret would have to stay in the config.
+func (p *SceneProjector) proxifyCredentialHeaders(wsID int64, name string, cfg map[string]any, secretHeaders map[string]bool) bool {
+	if len(secretHeaders) == 0 {
+		return true
+	}
+	if _, isStdio := cfg["command"].(string); isStdio {
+		slog.Warn("scene projector: ${cred:} header on a stdio MCP server cannot be proxied; server dropped", "server", name)
+		return false
+	}
+	upstream, _ := cfg["url"].(string)
+	if upstream == "" {
+		slog.Warn("scene projector: ${cred:} header on an MCP server with no url cannot be proxied; server dropped", "server", name)
+		return false
+	}
+	if p.credProxy == nil {
+		slog.Warn("scene projector: credential proxy not wired; refusing to write a resolved secret to the workspace config", "server", name)
+		return false
+	}
+	hdrs := anyToStringMap(cfg["headers"])
+	present := false
+	for k := range secretHeaders {
+		if _, ok := hdrs[k]; ok {
+			present = true
+			break
+		}
+	}
+	if !present {
+		return true // the placeholder-bearing keys were already absent
+	}
+	// The minted URL names only the workspace + server; the credential itself is
+	// resolved per request (see CredProxyService.Resolve), so nothing secret
+	// goes into the token OR the file.
+	proxyURL, err := p.credProxy.Issue(wsID, name)
+	if err != nil {
+		slog.Warn("scene projector: credential proxy issue failed", "server", name, "err", err)
+		return false
+	}
+	for k := range secretHeaders {
+		delete(hdrs, k)
+	}
+	if len(hdrs) == 0 {
+		delete(cfg, "headers")
+	} else {
+		keep := make(map[string]any, len(hdrs))
+		for k, v := range hdrs {
+			keep[k] = v
+		}
+		cfg["headers"] = keep
+	}
+	cfg["url"] = proxyURL
+	return true
 }
 
 // SECURITY (spec 2026-06-27 规约3): the materialization channel MUST resolve

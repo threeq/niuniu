@@ -124,6 +124,10 @@ type Server struct {
 	externalProxySvc    *service.ExternalProxyService
 	// Read side of the two integration audit tables (Epic #726 / #728).
 	integrationAuditSvc *service.IntegrationAuditService
+	// Operable capability descriptions (Epic #726 / #738): the "how to drive
+	// this source" document shared by the MCP discovery surface, the SPA
+	// visibility screen, and the workspace context injection.
+	capabilitySvc *service.CapabilityService
 
 	// Data integration (M1): owner-scoped SQL data sources + connector
 	// registry/pool. Parallel to the HTTP external-proxy above; see
@@ -140,6 +144,11 @@ type Server struct {
 	credOnboardingSvc     *service.CredentialOnboardingService
 	credOnboardingHandler *api.CredentialOnboardingHandler
 
+	// Local credential proxy (issue #733): keeps scene-injected MCP credentials
+	// out of the agent-readable workspace config by replacing them with an
+	// opaque loopback pointer token.
+	credProxySvc *service.CredProxyService
+
 	// Data dashboards (M1): saved queries / dashboards / panels.
 	dashboardSvc     *service.DashboardService
 	dashboardHandler *api.DashboardHandler
@@ -153,6 +162,10 @@ type Server struct {
 	// a ConnectorManager of per-channel outbound long connections, and an
 	// event-bus dispatcher pushing outbound notifications.
 	imbotSvc        *service.IMBotService
+	integrationHealthSvc *service.IntegrationHealthService
+	// integrationDraftSvc is the shared draft -> lint -> confirm -> publish ->
+	// verify/rollback pipeline for both onboarding lines (Epic #726 / #734).
+	integrationDraftSvc *service.IntegrationDraftService
 	imbotHandler    *api.IMBotHandler
 	imbotConnMgr    *imbot.ConnectorManager
 	imbotDispatcher *service.IMBotDispatcher
@@ -1376,6 +1389,15 @@ func New(cfg *config.Config, db *sql.DB, frontendFS fs.FS) *Server {
 	}
 	keyring := intgOutcome.Keyring
 	s.intgKeyring = keyring
+	// Local credential proxy (issue #733): scene-injected MCP secrets
+	// (${cred:...} in an http/sse header) are replaced by a loopback pointer
+	// token instead of being written into the agent-readable .mcp.json. Sealed
+	// with the integration keyring so a token survives a restart; the live
+	// credential is resolved per request from the projector.
+	if s.sceneProjector != nil {
+		s.credProxySvc = service.NewCredProxyService(keyring, mcpGen.APIBase, s.sceneProjector.ResolveProxyTarget)
+		s.sceneProjector.SetCredentialProxy(s.credProxySvc)
+	}
 	// Legacy registry (empty — all adapters removed). Kept for
 	// ExternalCredentialService constructor compatibility; Verify now
 	// returns "provider not found" which is acceptable since the new
@@ -1445,6 +1467,29 @@ func New(cfg *config.Config, db *sql.DB, frontendFS fs.FS) *Server {
 	s.dataSourceHandler = api.NewDataSourceHandler(s.dataSourceSvc, s.dataconnPool)
 	s.dataSourceHandler.Authz = s.authzSvc
 
+	// Continuous integration-source health (Epic #726 / #744). The notifier is
+	// wired after imbotSvc is constructed (further below); until then alerts are
+	// station-in only, which is fine because the sweep starts after wiring.
+	s.integrationHealthSvc = service.NewIntegrationHealthService(
+		s.queries, db, providerSvc, proxySvc, s.dataSourceSvc,
+		service.IntegrationHealthConfig{
+			Enabled:          cfg.IntegrationHealth.Enabled,
+			FailureThreshold: int64(cfg.IntegrationHealth.FailureThreshold),
+		},
+	)
+	// Schedule the sweep on the EXISTING scheduler's cron engine (no second
+	// scheduler). Each source is still gated by its own probe_interval_seconds,
+	// so the sweep cadence only controls how often the due-check runs.
+	if cfg.IntegrationHealth.Enabled {
+		s.scheduler.RegisterHealthSweep(cfg.IntegrationHealth.SweepCron, s.integrationHealthSvc.RunSweep)
+	}
+
+	// Integration draft pipeline (Epic #726 / #734): the controlled path from an
+	// AI-authored candidate to a live integration. Constructed after the health
+	// service because publishing flips a target's enabled flag through it.
+	s.integrationDraftSvc = service.NewIntegrationDraftService(
+		s.queries, providerSvc, s.dataSourceSvc, proxySvc, s.integrationHealthSvc)
+
 	// Generic one-time credential links (issue #727). Depends on both encrypted
 	// stores, so it is constructed after them.
 	s.credOnboardingSvc = service.NewCredentialOnboardingService(s.queries, s.extCredSvc, s.dataSourceSvc)
@@ -1454,6 +1499,11 @@ func New(cfg *config.Config, db *sql.DB, frontendFS fs.FS) *Server {
 	// authorization, per-op confirmation via PermissionService) + audit. The
 	// /mcp/data-proxy/query handler and the run_data_query MCP tool drive it.
 	s.dataProxySvc = service.NewDataProxyService(s.dataSourceSvc, s.dataconnRegistry, s.permService, s.queries)
+
+	// Operable capability descriptions (Epic #726 / #738). Depends on the
+	// provider, data-source and project-external-source services it resolves
+	// targets through.
+	s.capabilitySvc = service.NewCapabilityService(s.queries, db, providerSvc, s.dataSourceSvc, s.extSourceSvc)
 
 	// Data dashboards (M1): saved queries / dashboards / panels. PanelData
 	// reuses the data proxy gate, so the dashboard service depends on it.
@@ -1478,6 +1528,12 @@ func New(cfg *config.Config, db *sql.DB, frontendFS fs.FS) *Server {
 	// current bindings; same owner+project visibility gate as kb_search.
 	s.agentProxy.SetKBResolver(service.NewAgentProxyKBResolver(s.kbSvc))
 
+	// Operable capability descriptions (Epic #726 / #738): inject the bound
+	// providers'/data sources' capability sections into the workspace instruction
+	// file at spawn, so the agent knows what it can call and how. Resolved per
+	// spawn so a republished contract is reflected on the next start.
+	s.agentProxy.SetCapabilityResolver(service.NewAgentProxyCapabilityResolver(s.capabilitySvc))
+
 	// Knowledge-base management UI (Epic #496 · #498): REST layer over #497's
 	// KBService + raw-SQL lifecycle/binding columns. Drives the settings panel.
 	s.knowledgeBaseHandler = api.NewKnowledgeBaseHandler(s.kbSvc, db, s.cfg.DataDir)
@@ -1496,6 +1552,15 @@ func New(cfg *config.Config, db *sql.DB, frontendFS fs.FS) *Server {
 		imbot.ChannelWechat:   wechat.New(),
 	}
 	s.imbotSvc = service.NewIMBotService(s.queries, db, keyring, s.authzSvc, imbotAdapters)
+	// Health alerts now reach both channels: station-in hub + IM Bot (#744).
+	s.integrationHealthSvc.SetNotifier(&integrationHealthNotifier{hub: s.notifyHub, imbotSvc: s.imbotSvc})
+	// Egress data-governance alerts (#747) use the same two channels. The
+	// personal edition only ever warns, so this notifier never gates a call.
+	s.externalProxySvc.SetEgressAlertNotifier(&egressAlertNotifier{hub: s.notifyHub, imbotSvc: s.imbotSvc})
+	// The audit READ side flags an over-threshold body using the SAME warn
+	// threshold the write side used (the row persists the byte count, the flag
+	// is derived), so the two never disagree.
+	s.integrationAuditSvc.SetEgressPolicy(s.externalProxySvc.EgressPolicy())
 	// Inbound (W2): route incoming IM messages into the channel's bound project
 	// via the generalized RouteInProject, deliver to the workspace agent, and
 	// write permission-button decisions back through PermissionService. The

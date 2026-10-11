@@ -2,7 +2,6 @@ package server
 
 import (
 	"net/http"
-	"strconv"
 	"strings"
 
 	"github.com/gin-gonic/gin"
@@ -32,9 +31,8 @@ func (s *Server) proxyOpenAPIDraft(c *gin.Context) {
 		return
 	}
 
-	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{"code": "BAD_REQUEST", "message": "invalid provider id"}})
+	id, ok := providerPathID(c)
+	if !ok {
 		return
 	}
 	prov, err := s.externalProviderSvc.GetByID(c.Request.Context(), id)

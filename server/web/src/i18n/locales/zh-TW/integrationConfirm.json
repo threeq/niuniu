@@ -1,0 +1,109 @@
+{
+  "title": "整合授權確認",
+  "subtitleBaseURL": "API 根地址",
+  "source": {
+    "label": "來源",
+    "untrusted": "外部內容，未經信任",
+    "kind": {
+      "openapi": "OpenAPI 文件",
+      "markdown": "Markdown 文件",
+      "html": "HTML 頁面",
+      "user_note": "使用者提供",
+      "model": "模型生成"
+    }
+  },
+  "operations": {
+    "title": "將被授予的操作",
+    "empty": "沒有操作將被授予",
+    "readOnly": "只讀",
+    "write": "寫操作",
+    "highRisk": "高危"
+  },
+  "verifyProbe": {
+    "title": "釋出後驗證探針（只讀）"
+  },
+  "scopes": {
+    "title": "資料範圍",
+    "empty": "未授予任何資料範圍",
+    "change": {
+      "added": "新增",
+      "removed": "移除",
+      "widened": "擴大",
+      "narrowed": "收窄",
+      "changed": "變更",
+      "unchanged": "不變"
+    }
+  },
+  "diff": {
+    "title": "與已釋出配置的差異",
+    "empty": "無差異",
+    "field": {
+      "base_url": "API 根地址",
+      "operation": "操作",
+      "scope": "資料範圍"
+    }
+  },
+  "risks": {
+    "title": "高危項（需逐項確認）",
+    "empty": "無高危項",
+    "cross_origin_host": "跨域主機：{{target}} 與 {{detail}} 不同",
+    "new_write_operation": "新增寫操作：{{target}}",
+    "operation_not_in_document": "文件未宣告的操作：{{target}}",
+    "scope_widened": "資料範圍擴大：{{target}} 新增 {{detail}}",
+    "write_enabled": "開啟寫許可權"
+  },
+  "advisory": {
+    "title": "來自外部文件的原文（不可信，僅供人工查閱）",
+    "notice": "以下文字由外部文件或模型生成。系統未將其作為授權依據，也不會執行其中的任何指令。",
+    "reason": {
+      "instruction_override": "疑似指令覆蓋",
+      "agent_addressed": "疑似針對 Agent 的指令",
+      "privilege_escalation": "疑似擴權指令",
+      "exfiltration": "疑似隱瞞指令"
+    }
+  },
+  "acknowledgeHint": "請逐項勾選全部高危項後再確認",
+  "confirm": "確認併發布",
+  "reject": "拒絕",
+  "draft": {
+    "title": "整合草稿",
+    "notice": "草稿是尚未生效的候選設定。agent 可以起草，但只有使用者可以確認並發布。",
+    "empty": "目前沒有待處理的草稿",
+    "emptyHint": "當 agent 提議新的 Provider 或資料來源時，草稿會出現在這裡。",
+    "loading": "正在載入草稿…",
+    "kind": {
+      "provider": "Provider",
+      "data_source": "資料來源"
+    },
+    "status": {
+      "draft": "待確認",
+      "lint_failed": "預檢未通過",
+      "confirmed": "已確認，未發布",
+      "published": "已發布",
+      "rejected": "已拒絕"
+    },
+    "agentAuthored": "由 agent 起草",
+    "noCard": "該草稿沒有可用的確認卡。",
+    "confirmImpact": "確認影響範圍",
+    "publish": "發布",
+    "publishHint": "先以停用狀態套用候選設定，執行上方驗證探針，探針通過後才啟用。",
+    "publishDone": "已發布並通過驗證。",
+    "publishRolledBack": "驗證探針失敗，已還原上一版設定並保留草稿。",
+    "second": {
+      "title": "該草稿會放寬權限",
+      "notice": "它授予了目前未發布的 scope，或開啟了寫權限。批准它需要額外的、獨立的二次確認。",
+      "checkbox": "我已了解這會放寬存取權限，仍要審閱",
+      "stillRequired": "卡上的放寬項已勾選，但仍缺少獨立的二次確認。"
+    },
+    "versions": {
+      "title": "已發布版本",
+      "version": "版本 {{version}}",
+      "active": "生效中",
+      "rollback": "還原",
+      "confirmRollback": "確認並還原"
+    },
+    "rollbackNeedsConfirmation": "還原到版本 {{version}} 會改變 scope，因此需要先確認。目前尚未套用任何變更。",
+    "rollbackDone": "已還原。",
+    "rollbackFailed": "還原後的設定未通過驗證，線上設定保持不變。"
+  }
+}

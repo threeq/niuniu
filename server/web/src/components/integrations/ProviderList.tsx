@@ -15,6 +15,10 @@ import {
   AlertTriangle,
   Lock,
   ShieldAlert,
+  RefreshCw,
+  RotateCcw,
+  FileWarning,
+  BookOpen,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { confirm } from '@/lib/confirm';
@@ -25,9 +29,14 @@ import {
   useDeleteExternalProvider,
   useUpdateExternalProvider,
   useSetProviderWriteEnabled,
+  useProbeProvider,
+  useReenableProvider,
+  useAcknowledgeProviderDrift,
 } from '@/hooks/useExternalProviders';
 import { Switch } from '@/components/ui/switch';
 import { ProviderDialog } from './ProviderDialog';
+import { CapabilityDialog } from './CapabilityDialog';
+import { HealthLight } from './HealthLight';
 import {
   isSystemProvider,
   type ExternalProviderListItem,
@@ -39,8 +48,12 @@ export function ProviderList() {
   const del = useDeleteExternalProvider();
   const update = useUpdateExternalProvider();
   const setWrite = useSetProviderWriteEnabled();
+  const probe = useProbeProvider();
+  const reenable = useReenableProvider();
+  const ackDrift = useAcknowledgeProviderDrift();
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editing, setEditing] = useState<ExternalProviderListItem | null>(null);
+  const [capFor, setCapFor] = useState<ExternalProviderListItem | null>(null);
 
   const handleAdd = () => {
     setEditing(null);
@@ -100,6 +113,34 @@ export function ProviderList() {
           ),
       },
     );
+  };
+
+  const handleProbe = (p: ExternalProviderListItem) => {
+    probe.mutate(p.id, {
+      onSuccess: (o) => {
+        if (o.status === 'ok' || o.status === 'drift') {
+          toast.success(t('integrations.health.probeOk'));
+        } else {
+          toast.error(`${t('integrations.health.probeFailed')}: ${o.message}`);
+        }
+      },
+      onError: (e) =>
+        toast.error(e instanceof Error ? e.message : String(e)),
+    });
+  };
+
+  const handleReenable = (p: ExternalProviderListItem) => {
+    reenable.mutate(p.id, {
+      onSuccess: () => toast.success(t('integrations.health.reenableSuccess')),
+      onError: (e) => toast.error(e instanceof Error ? e.message : String(e)),
+    });
+  };
+
+  const handleAckDrift = (p: ExternalProviderListItem) => {
+    ackDrift.mutate(p.id, {
+      onSuccess: () => toast.success(t('integrations.health.acknowledgeDriftSuccess')),
+      onError: (e) => toast.error(e instanceof Error ? e.message : String(e)),
+    });
   };
 
   return (
@@ -181,8 +222,67 @@ export function ProviderList() {
                   <div className="text-xs text-warm-text-muted mt-0.5 truncate">
                     {p.api_base_url}
                   </div>
+                  <div className="flex items-center gap-2 flex-wrap mt-1">
+                    <HealthLight
+                      status={p.health_status}
+                      detail={p.last_probe_error || undefined}
+                    />
+                    {(p.consecutive_failures ?? 0) > 0 && (
+                      <span className="text-[10px] text-warm-text-muted">
+                        {t('integrations.health.consecutiveFailures', {
+                          count: p.consecutive_failures,
+                        })}
+                      </span>
+                    )}
+                    {p.contract_drift && (
+                      <Badge
+                        variant="outline"
+                        className="gap-1 border-warning/50 text-warning"
+                        title={t('integrations.health.driftHint')}
+                      >
+                        <FileWarning className="size-3" aria-hidden />
+                        {t('integrations.health.driftBadge')}
+                      </Badge>
+                    )}
+                  </div>
                 </div>
                 <div className="flex flex-col items-end gap-1.5">
+                  {p.contract_drift && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => handleAckDrift(p)}
+                      disabled={ackDrift.isPending}
+                      title={t('integrations.health.driftHint')}
+                    >
+                      {t('integrations.health.acknowledgeDrift')}
+                    </Button>
+                  )}
+                  {!p.enabled && p.auto_disabled_at && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => handleReenable(p)}
+                      disabled={reenable.isPending}
+                      title={t('integrations.health.autoDisabledHint')}
+                    >
+                      <RotateCcw className="size-3 mr-1" aria-hidden />
+                      {t('integrations.health.reenable')}
+                    </Button>
+                  )}
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => handleProbe(p)}
+                    disabled={probe.isPending}
+                    title={t('integrations.health.probeNow')}
+                    aria-label={t('integrations.health.probeNow')}
+                  >
+                    <RefreshCw
+                      className={probe.isPending ? 'size-4 animate-spin' : 'size-4'}
+                      aria-hidden
+                    />
+                  </Button>
                   <label className="flex items-center gap-1.5 text-[10px] text-warm-text-muted cursor-pointer">
                     <span>{t('integrations.providers.enabledShortLabel')}</span>
                     <Switch
@@ -213,6 +313,15 @@ export function ProviderList() {
                     />
                   </label>
                 </div>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  aria-label={t('integrations.capability.viewButton')}
+                  title={t('integrations.capability.viewButton')}
+                  onClick={() => setCapFor(p)}
+                >
+                  <BookOpen className="size-4" />
+                </Button>
                 <Button
                   size="sm"
                   variant="outline"
@@ -247,6 +356,16 @@ export function ProviderList() {
         open={dialogOpen}
         onOpenChange={setDialogOpen}
         editing={editing}
+      />
+
+      <CapabilityDialog
+        open={capFor !== null}
+        onOpenChange={(o) => {
+          if (!o) setCapFor(null);
+        }}
+        kind="provider"
+        target={capFor?.name}
+        title={capFor?.label || capFor?.name || ''}
       />
     </section>
   );

@@ -1,5 +1,29 @@
 {
   "integrations": {
+    "health": {
+      "toastAutoDisabled": "整合源連續探測失敗，已自動停用：{{name}}",
+      "toastDrift": "{{name}} 的上游 API 已變更——建議重新審閱契約",
+      "toastRecovered": "整合源已恢復：{{name}}",
+      "sectionTitle": "健康",
+      "status": {
+        "unknown": "尚未探測",
+        "healthy": "健康",
+        "unhealthy": "探測失敗",
+        "disabled": "已停用"
+      },
+      "consecutiveFailures": "連續失敗 {{count}} 次",
+      "probeNow": "立即探測",
+      "probeOk": "探測成功",
+      "probeFailed": "探測失敗",
+      "reenable": "重新啟用",
+      "reenableSuccess": "已重新啟用",
+      "driftBadge": "上游已變更",
+      "driftHint": "上游 API 文件自上次審閱後已變更。請重新審閱契約，確認後清除此提示。",
+      "acknowledgeDrift": "已審閱，忽略",
+      "acknowledgeDriftSuccess": "已清除變更提示",
+      "lastProbe": "最近探測",
+      "autoDisabledHint": "連續探測失敗後已自動停用。"
+    },
     "activity": {
       "sectionTitle": "整合活動",
       "sectionDescription": "透過整合發起的所有外部 API 呼叫與資料查詢，最新在前。",
@@ -25,7 +49,10 @@
       "noBody": "無請求體",
       "fieldsNone": "（無欄位）",
       "fingerprint": "請求體 sha256 {{hash}}… · {{bytes}} B · 欄位：{{fields}}",
-      "dataMeta": "{{rows}} 行 · {{ms}} ms"
+      "dataMeta": "{{rows}} 行 · {{ms}} ms",
+      "oversize": "超出閾值",
+      "oversizeHint": "外發請求體超過出口告警閾值。",
+      "oversizeToast": "發往 {{provider}} 的外發資料體超出閾值，已標記，請在「整合活動」中查看。"
     },
     "pageTitle": "整合",
     "addCredential": "新增憑據",
@@ -238,6 +265,28 @@
         "deleteSuccess": "Provider 已刪除",
         "deleteFailed": "刪除失敗：{{error}}"
       }
+    },
+    "capability": {
+      "viewButton": "檢視能力說明",
+      "title": "能力說明 · {{name}}",
+      "description": "系統依據已確認契約自動生成的可操作說明；只讀，不能在此編輯。",
+      "loading": "載入中…",
+      "loadFailed": "無法載入能力說明。",
+      "kindProvider": "外部 API",
+      "kindDataSource": "資料來源",
+      "operations": "可用操作",
+      "readOnly": "只讀",
+      "write": "寫/敏感",
+      "scope": "可用範圍",
+      "scopeKind": "型別",
+      "scopeDatabases": "可用資料庫",
+      "scopeAllow": "放行物件",
+      "scopeDeny": "排除物件",
+      "scopeAccessMode": "訪問模式",
+      "examples": "示例",
+      "limits": "限制",
+      "agentBlock": "Agent 看到的內容",
+      "agentBlockHint": "以下內容會以“資料（非指令）”分割槽注入工作空間的指令檔案，與實際下發完全一致。"
     }
   },
   "page": {

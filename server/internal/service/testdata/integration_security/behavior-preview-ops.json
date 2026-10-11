@@ -1,0 +1,5 @@
+[
+  { "name": "list_pets", "method": "GET", "path": "/pets", "read_only": true, "high_risk": false },
+  { "name": "create_pet", "method": "POST", "path": "/pets", "read_only": false, "high_risk": true },
+  { "name": "export", "method": "GET", "path": "/admin/export", "read_only": true, "high_risk": true }
+]

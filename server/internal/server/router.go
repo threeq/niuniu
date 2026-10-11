@@ -53,6 +53,15 @@ func (s *Server) setupRoutes() {
 	s.engine.GET("/api/credential-onboarding/:token", s.credOnboardingHandler.GetCredentialLinkInfo)
 	s.engine.POST("/api/credential-onboarding/:token", s.credOnboardingHandler.SubmitCredentialLink)
 
+	// Local credential proxy (issue #733): the loopback endpoint a projected
+	// MCP server is pointed at instead of carrying the secret itself. The
+	// opaque, expiring path token IS the authorization, so these sit outside
+	// the authenticated groups like the onboarding links above. Both the bare
+	// and the sub-path form are registered: MCP clients POST to the exact
+	// configured url, while a client that treats it as a base url appends.
+	s.engine.Any("/cred-proxy/:token", s.credProxyForward)
+	s.engine.Any("/cred-proxy/:token/*rest", s.credProxyForward)
+
 	// Latest desktop release (proxied from the official website changelog) —
 	// no auth required; only consumed by the personal-mode "check for updates".
 	s.engine.GET("/api/app-update/latest", s.appUpdateHandler.Latest)
@@ -301,9 +310,23 @@ func (s *Server) setupRoutes() {
 		mcpGroup.POST("/external-proxy/call", s.proxyCall)
 		mcpGroup.GET("/external-proxy/providers", s.proxyListProviders)
 		mcpGroup.GET("/external-proxy/providers/:provider/schema", s.proxyGetProviderSchema)
+		// Verify probe (auth + connectivity) and publish-with-verify, so an agent
+		// can onboard a provider end to end (#732).
+		mcpGroup.POST("/external-proxy/providers/:provider/verify", s.proxyVerifyProvider)
+		mcpGroup.POST("/external-proxy/providers/:provider/publish", s.proxyPublishProvider)
 		// openapi-draft — parse the provider's openapi_url into a provider
 		// contract draft + an HTTP data source draft (read-only; grants nothing).
-		mcpGroup.POST("/external-proxy/providers/:id/openapi-draft", s.proxyOpenAPIDraft)
+		mcpGroup.POST("/external-proxy/providers/:provider/openapi-draft", s.proxyOpenAPIDraft)
+
+		// Integration draft pipeline (Epic #726 / #734) — the AGENT surface.
+		// An agent may draft and read; publishing and rolling back are human
+		// authorization actions. Those two routes are registered so the refusal is
+		// a real 403 with a reason, not a bare 404 — but the handler hardcodes the
+		// agent origin, so the service always refuses.
+		mcpGroup.POST("/integration-drafts", s.draftCreateAgent)
+		mcpGroup.GET("/integration-drafts/:id", s.draftGetAgent)
+		mcpGroup.POST("/integration-drafts/:id/publish", s.draftPublishAgent)
+		mcpGroup.POST("/integration-versions/:id/rollback", s.draftRollbackAgent)
 
 		// Data integration proxy — run_data_query / list_data_sources tunnel here.
 		// Three-layer gate + audit lives in DataProxyService.
@@ -312,6 +335,12 @@ func (s *Server) setupRoutes() {
 		// create_data_source — create a source owned by the workspace owner and
 		// auto-bind it to the workspace project (so it is immediately queryable).
 		mcpGroup.POST("/data-proxy/sources", s.dataProxyCreateSource)
+
+		// describe_source (Epic #726 / #738) — the operable capability
+		// description for a provider or data source: how to call it, its
+		// operations/scope, limits, and worked examples. Read-only; the doc is
+		// generated from the confirmed contract, never authored by a caller.
+		mcpGroup.GET("/capabilities/:subject_kind/:ref", s.getCapability)
 
 		// Data dashboards — pin_query / list_dashboards tunnel here. pin_query
 		// injects the current workspace (from the session token) as the saved
@@ -406,17 +435,23 @@ func (s *Server) setupRoutes() {
 		me.GET("/external-proxy/providers", s.proxyListProviders)
 		me.POST("/external-proxy/providers", s.proxyCreateProvider)
 		me.GET("/external-proxy/providers/:provider/schema", s.proxyGetProviderSchema)
-		me.PUT("/external-proxy/providers/:id", s.proxyUpdateProvider)
-		me.DELETE("/external-proxy/providers/:id", s.proxyDeleteProvider)
-		me.PATCH("/external-proxy/providers/:id/write-enabled", s.proxySetWriteEnabled)
+		me.PUT("/external-proxy/providers/:provider", s.proxyUpdateProvider)
+		me.DELETE("/external-proxy/providers/:provider", s.proxyDeleteProvider)
+		me.PATCH("/external-proxy/providers/:provider/write-enabled", s.proxySetWriteEnabled)
+		me.POST("/external-proxy/providers/:provider/verify", s.proxyVerifyProvider)
+		me.POST("/external-proxy/providers/:provider/publish", s.proxyPublishProvider)
 		// Generate integration drafts from the provider's openapi_url (Epic #726
 		// / #731). Read-only: parses an external document into suggested config;
 		// applying a draft is the draft pipeline's job (#734), behind a human
 		// confirmation. ?refresh=true bypasses the short-TTL cache.
-		me.POST("/external-proxy/providers/:id/openapi-draft", s.proxyOpenAPIDraft)
+		me.POST("/external-proxy/providers/:provider/openapi-draft", s.proxyOpenAPIDraft)
 		// Audit read side (Epic #726 / #728): the caller's own external API
 		// calls, newest first.
 		me.GET("/external-proxy/audit", s.proxyAudit)
+		// Operable capability description read surface (Epic #726 / #738): the
+		// user-visible "what does the agent see" entry. Same data as the MCP
+		// describe_source tool.
+		me.GET("/capabilities/:subject_kind/:ref", s.getCapability)
 
 		// Data integration (M1): owner-scoped SQL data sources. CRUD + verify.
 		// Spec: docs/superpowers/specs/2026-06-04-data-integration-and-dashboard-design.md
@@ -432,6 +467,31 @@ func (s *Server) setupRoutes() {
 		// tables merged into one newest-first page with a shared filter set.
 		// This is what the Settings -> Integrations activity view reads.
 		me.GET("/integration-activity", s.integrationActivity)
+
+		// Integration draft pipeline (Epic #726 / #734) — the HUMAN surface.
+		// A draft is a persisted but not-live candidate; confirming it records the
+		// system-rendered impact decision, and publishing applies it disabled,
+		// probes it, and enables it only on success. Rollback restores a published
+		// version (re-confirmed when it changes scope).
+		me.POST("/integration-drafts", s.draftCreate)
+		me.GET("/integration-drafts", s.draftList)
+		me.GET("/integration-drafts/:id", s.draftGet)
+		me.DELETE("/integration-drafts/:id", s.draftDelete)
+		me.POST("/integration-drafts/:id/confirm", s.draftConfirm)
+		me.POST("/integration-drafts/:id/publish", s.draftPublish)
+		me.GET("/integration-versions", s.draftVersions)
+		me.POST("/integration-versions/:id/rollback", s.draftRollback)
+
+		// Continuous integration-source health (Epic #726 / #744): probe now,
+		// recovery (re-enable / disable), contract-drift acknowledge, and the
+		// probe history feed. :kind is "provider" or "data_source". The history
+		// route sits under its own prefix so it does not collide with the
+		// :kind wildcard siblings in gin's route tree.
+		me.POST("/integration-health/:kind/:id/probe", s.integrationHealthProbe)
+		me.POST("/integration-health/:kind/:id/reenable", s.integrationHealthReenable)
+		me.POST("/integration-health/:kind/:id/disable", s.integrationHealthDisable)
+		me.POST("/integration-health/:kind/:id/acknowledge-drift", s.integrationHealthAckDrift)
+		me.GET("/integration-probes", s.integrationHealthRuns)
 
 		// Knowledge bases (Epic #496): owner-scoped corpora — CRUD, async
 		// ingest (local/upload/url), browse + keyword search, retry/mirror.

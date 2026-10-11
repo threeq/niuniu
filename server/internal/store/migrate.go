@@ -567,6 +567,18 @@ func Migrate(db *sql.DB) {
 		slog.Error("MigrateExternalProviders failed", "error", err)
 	}
 
+	// Continuous integration-source health (Epic #726 / #744): health columns
+	// on external_providers + data_sources for pre-existing DBs. The
+	// integration_probe_runs table itself is created by schema.sql
+	// (CREATE TABLE IF NOT EXISTS runs on every startup).
+	MigrateIntegrationHealth(db)
+
+	// Operable capability descriptions (Epic #726 / #738): the
+	// integration_capabilities table for pre-existing DBs.
+	if err := MigrateIntegrationCapabilities(db); err != nil {
+		slog.Error("MigrateIntegrationCapabilities failed", "error", err)
+	}
+
 	// External credential alias + credential_id migration.
 	migrateExternalCredentialAlias(db)
 
@@ -3757,6 +3769,72 @@ func MigrateExternalProviders(db *sql.DB) error {
 	// will pick them up here.
 	addAuditIndexes(db)
 
+	return nil
+}
+
+// MigrateIntegrationHealth adds the continuous-health columns (Epic #726 /
+// #744) to external_providers and data_sources on pre-existing databases.
+// Fresh databases get them from schema.sql; this only backfills upgrades.
+// Idempotent via addColumnIfNotExists. The integration_probe_runs table and
+// its index are NOT created here -- schema.sql's CREATE TABLE/INDEX IF NOT
+// EXISTS handles both fresh and existing databases on every startup.
+func MigrateIntegrationHealth(db *sql.DB) {
+	intCol, tsCol := "INTEGER", "DATETIME"
+	if Driver == "postgres" {
+		intCol, tsCol = "BIGINT", "TIMESTAMPTZ"
+	}
+
+	// external_providers: health + contract-drift state.
+	addColumnIfNotExists(db, "external_providers", "health_status", "TEXT NOT NULL DEFAULT 'unknown'")
+	addColumnIfNotExists(db, "external_providers", "consecutive_failures", intCol+" NOT NULL DEFAULT 0")
+	addColumnIfNotExists(db, "external_providers", "last_probe_at", tsCol+" DEFAULT NULL")
+	addColumnIfNotExists(db, "external_providers", "last_probe_error", "TEXT NOT NULL DEFAULT ''")
+	addColumnIfNotExists(db, "external_providers", "auto_disabled_at", tsCol+" DEFAULT NULL")
+	addColumnIfNotExists(db, "external_providers", "probe_interval_seconds", intCol+" NOT NULL DEFAULT 86400")
+	addColumnIfNotExists(db, "external_providers", "upstream_spec_digest", "TEXT NOT NULL DEFAULT ''")
+	addColumnIfNotExists(db, "external_providers", "contract_drift", intCol+" NOT NULL DEFAULT 0")
+	addColumnIfNotExists(db, "external_providers", "last_drift_at", tsCol+" DEFAULT NULL")
+
+	// data_sources: health state. enabled defaults to 1 so pre-existing
+	// sources keep working exactly as before the upgrade.
+	addColumnIfNotExists(db, "data_sources", "enabled", intCol+" NOT NULL DEFAULT 1")
+	addColumnIfNotExists(db, "data_sources", "health_status", "TEXT NOT NULL DEFAULT 'unknown'")
+	addColumnIfNotExists(db, "data_sources", "consecutive_failures", intCol+" NOT NULL DEFAULT 0")
+	addColumnIfNotExists(db, "data_sources", "last_probe_at", tsCol+" DEFAULT NULL")
+	addColumnIfNotExists(db, "data_sources", "last_probe_error", "TEXT NOT NULL DEFAULT ''")
+	addColumnIfNotExists(db, "data_sources", "auto_disabled_at", tsCol+" DEFAULT NULL")
+	addColumnIfNotExists(db, "data_sources", "probe_interval_seconds", intCol+" NOT NULL DEFAULT 86400")
+}
+
+// MigrateIntegrationCapabilities creates the integration_capabilities table
+// (Epic #726 / #738) on pre-existing databases. Fresh databases get it from
+// schema.sql / schema_postgres.sql; this only backfills upgrades. Idempotent via
+// a schema_migrations marker, matching MigrateExternalProviders.
+func MigrateIntegrationCapabilities(db *sql.DB) error {
+	w := Wrap(db)
+	ctx := context.Background()
+
+	idCol, intCol, tsCol := "INTEGER PRIMARY KEY AUTOINCREMENT", "INTEGER", "DATETIME"
+	if Driver == "postgres" {
+		idCol, intCol, tsCol = "BIGSERIAL PRIMARY KEY", "BIGINT", "TIMESTAMPTZ"
+	}
+
+	if migrationApplied(w, "integration_capabilities_v1") {
+		return nil
+	}
+	if _, err := w.ExecContext(ctx, `CREATE TABLE IF NOT EXISTS integration_capabilities (
+		id `+idCol+`,
+		subject_kind TEXT NOT NULL CHECK (subject_kind IN ('provider','data_source')),
+		subject_id `+intCol+` NOT NULL,
+		source_digest TEXT NOT NULL DEFAULT '',
+		doc TEXT NOT NULL DEFAULT '',
+		created_at `+tsCol+` NOT NULL DEFAULT CURRENT_TIMESTAMP,
+		updated_at `+tsCol+` NOT NULL DEFAULT CURRENT_TIMESTAMP,
+		UNIQUE (subject_kind, subject_id)
+	)`); err != nil {
+		return fmt.Errorf("create integration_capabilities: %w", err)
+	}
+	markMigration(w, "integration_capabilities_v1")
 	return nil
 }
 

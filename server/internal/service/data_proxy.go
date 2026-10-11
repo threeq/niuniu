@@ -241,10 +241,32 @@ func buildOperation(kind dataconn.SourceKind, in DataQueryInput, cc dataconn.Con
 	return op, nil
 }
 
-// Query runs the full gate and returns the normalized ResultSet. See the
-// package doc for the ordered steps. Errors are either *DataProxyError (gate
-// rejection) or a plain error (classify failure -> 400, exec failure -> 5xx).
-func (s *DataProxyService) Query(ctx context.Context, in DataQueryInput) (*dataconn.ResultSet, error) {
+// queryPlan is the resolved gate state for one data query: everything the gate
+// decides BEFORE execution. Query and Precheck (dry run) share it, so a dry run
+// exercises exactly the same policy as a real call.
+type queryPlan struct {
+	in         DataQueryInput
+	src        *DataSourceDTO
+	scope      scopeConfig
+	kind       dataconn.SourceKind
+	cc         dataconn.ConnConfig
+	conn       dataconn.Connector
+	op         dataconn.Operation
+	mode       dataconn.AccessMode
+	ref        dataconn.ResourceRef
+	summary    string
+	classified bool // Classify succeeded (mode/ref are meaningful)
+	scopeOK    bool // the data-scope check passed
+}
+
+// planQuery runs gate steps 0-4 — resolve relative-time tokens, load the source
+// (owner-filtered) + decrypted ConnConfig, build the per-kind Operation,
+// Classify (read/write + touched objects), read/write separation, and data
+// scope. A gate rejection (steps 3-4) is returned as a *DataProxyError with the
+// partial plan (so the caller can audit it); the plan is non-nil for every
+// *DataProxyError return, and nil only for a plain pre-classify failure
+// (source load / decrypt).
+func (s *DataProxyService) planQuery(ctx context.Context, in DataQueryInput) (*queryPlan, error) {
 	// 0) Resolve relative-time tokens ({{now}}, {{now-10m}}, ...) to concrete
 	// epoch-ms values. A LIVE saved panel re-runs its operation verbatim on every
 	// open; without this a window authored as {"gte": "{{now-10m}}"} would either
@@ -259,25 +281,36 @@ func (s *DataProxyService) Query(ctx context.Context, in DataQueryInput) (*datac
 	if err != nil {
 		return nil, err
 	}
-	cc, err := s.sources.LoadConnConfig(ctx, in.SourceID, in.UserID, in.OrgIDs)
+	// A disabled source (turned off by the user, or auto-disabled by the health
+	// sweep after repeated probe failures, #744) refuses queries outright so a
+	// dead upstream surfaces as a clear, actionable error instead of a hang.
+	if src.Enabled == 0 {
+		return nil, &DataProxyError{
+			Code:    "disabled",
+			Message: fmt.Sprintf("data source %q is disabled; re-enable it in Settings -> Integrations to query again", src.Name),
+		}
+	}
+	cc, err := s.sources.LoadConnConfig(ctx, src.ID, in.UserID, in.OrgIDs)
 	if err != nil {
 		return nil, err
 	}
-	scope := parseScopeConfig(src.ScopeConfig)
+	kind := dataconn.SourceKind(src.Kind)
+	p := &queryPlan{in: in, src: src, scope: parseScopeConfig(src.ScopeConfig), kind: kind, cc: cc}
 
 	// 2) Build the connector Operation for the source's kind family (statement
 	// XOR the kind's structured fields; shape violations -> invalid_input) and
 	// Classify (read/write + touched objects). A classify failure is a client
 	// error (bad statement / stacked / unrecognized).
-	kind := dataconn.SourceKind(src.Kind)
 	op, err := buildOperation(kind, in, cc)
 	if err != nil {
-		return nil, err
+		return p, err
 	}
+	p.op = op
 	conn, err := s.registry.Get(kind)
 	if err != nil {
-		return nil, &DataProxyError{Code: "unsupported", Message: err.Error()}
+		return p, &DataProxyError{Code: "unsupported", Message: err.Error()}
 	}
+	p.conn = conn
 	mode, ref, err := conn.Classify(op)
 	if err != nil {
 		// A classify failure is never a 5xx: policy refusals (deny list /
@@ -288,25 +321,26 @@ func (s *DataProxyService) Query(ctx context.Context, in DataQueryInput) (*datac
 		if errors.Is(err, dataconn.ErrDeniedByPolicy) || errors.Is(err, dataconn.ErrUnsupported) {
 			code = "denied"
 		}
-		return nil, &DataProxyError{Code: code, Message: err.Error()}
+		return p, &DataProxyError{Code: code, Message: err.Error()}
 	}
 	// Classify leaves ref.Database from op.Database (source default db).
 	if ref.Database == "" {
 		ref.Database = cc.Database
 	}
+	p.mode, p.ref, p.classified = mode, ref, true
 
 	// The redacted per-protocol summary feeds the permission card and the
 	// audit row — including the audit rows for gate rejections below, so it is
 	// computed before the gates (spec 5.5 / W1 §2.4).
-	summary := summarizeOperation(kind, op)
+	p.summary = summarizeOperation(kind, op)
 
 	// deny records the rejected attempt in the audit trail (status = the gate
 	// code) and returns the gate error. A denied out-of-scope/write attempt is
 	// exactly the signal a security review wants to see; only operations that
 	// fail classification (no mode/ref to record) skip the trail.
-	deny := func(code, message string) (*dataconn.ResultSet, error) {
-		s.audit(ctx, in, mode, ref, code, 0, 0, summary)
-		return nil, &DataProxyError{Code: code, Message: message}
+	deny := func(code, message string) (*queryPlan, error) {
+		s.audit(ctx, in, mode, ref, code, 0, 0, p.summary)
+		return p, &DataProxyError{Code: code, Message: message}
 	}
 
 	// 3) Read/write separation.
@@ -315,25 +349,48 @@ func (s *DataProxyService) Query(ctx context.Context, in DataQueryInput) (*datac
 	}
 
 	// 4) Data scope (section 5.3) — strict; out-of-scope is rejected outright.
-	if reason := checkScope(kind, scope, ref); reason != "" {
+	if reason := checkScope(kind, p.scope, ref); reason != "" {
 		return deny("scope_denied", fmt.Sprintf("query out of allowed data scope (%s); adjust the source scope in settings", reason))
 	}
+	p.scopeOK = true
+	return p, nil
+}
+
+// Query runs the full gate and returns the normalized ResultSet. See the
+// package doc for the ordered steps. Errors are either *DataProxyError (gate
+// rejection) or a plain error (classify failure -> 400, exec failure -> 5xx).
+func (s *DataProxyService) Query(ctx context.Context, in DataQueryInput) (*dataconn.ResultSet, error) {
+	p, err := s.planQuery(ctx, in)
+	if err != nil {
+		return nil, err
+	}
+	in = p.in
+	src, op, mode, ref := p.src, p.op, p.mode, p.ref
 
 	// 5) Per-op confirmation (section 5.2): a write is ALWAYS confirmed — no
 	// require_confirm value disables this (the removed "never" was identical to
 	// "writes_only"). require_confirm=="always" extends it to reads too.
 	if mode == dataconn.ModeWrite || src.RequireConfirm == "always" {
 		if s.perm == nil {
-			return deny("denied", "confirmation required but no permission backend is configured")
+			s.audit(ctx, in, mode, ref, "denied", 0, 0, p.summary)
+			return nil, &DataProxyError{Code: "denied", Message: "confirmation required but no permission backend is configured"}
 		}
-		resp, err := s.perm.Request(ctx, in.WorkspaceID, in.OwnerType, in.OwnerID, in.SessionID, "DataQuery", map[string]any{
+		toolInput := map[string]any{
 			"source":            src.Name,
 			"kind":              src.Kind,
 			"mode":              string(mode),
 			"database":          ref.Database,
 			"objects":           ref.Objects,
-			"statement_summary": summary,
-		})
+			"statement_summary": p.summary,
+		}
+		// Value-free data summary of what this write will actually send, so the
+		// confirmation card shows the DATA (field names + size + sensitive-pattern
+		// hits), not only the target — the "允许的操作 ≠ 允许的数据" gap (Epic #726 /
+		// #747). Attached only when the operation carries an egress payload.
+		if payload := egressPayloadOf(op); payload != nil {
+			toolInput["data_summary"] = SummarizeEgressPayload(payload)
+		}
+		resp, err := s.perm.Request(ctx, in.WorkspaceID, in.OwnerType, in.OwnerID, in.SessionID, "DataQuery", toolInput)
 		if err != nil {
 			return nil, fmt.Errorf("permission request: %w", err)
 		}
@@ -342,7 +399,8 @@ func (s *DataProxyService) Query(ctx context.Context, in DataQueryInput) (*datac
 			if msg == "" {
 				msg = "data query was not approved"
 			}
-			return deny("denied", msg)
+			s.audit(ctx, in, mode, ref, "denied", 0, 0, p.summary)
+			return nil, &DataProxyError{Code: "denied", Message: msg}
 		}
 	}
 
@@ -351,12 +409,13 @@ func (s *DataProxyService) Query(ctx context.Context, in DataQueryInput) (*datac
 	// forward and rewrites cc.Host/Port to the loopback endpoint; a tunnel
 	// failure is surfaced as a connection error (like any Execute failure) so it
 	// is audited with status "err" below.
+	cc := p.cc
 	start := time.Now()
 	tcc, cleanup, execErr := dataconn.OpenTunnel(ctx, cc)
 	var rs *dataconn.ResultSet
 	if execErr == nil {
 		defer cleanup()
-		rs, execErr = conn.Execute(ctx, tcc, op)
+		rs, execErr = p.conn.Execute(ctx, tcc, op)
 	}
 	durationMS := time.Since(start).Milliseconds()
 
@@ -368,7 +427,7 @@ func (s *DataProxyService) Query(ctx context.Context, in DataQueryInput) (*datac
 	} else if rs != nil {
 		rows = int64(len(rs.Rows))
 	}
-	s.audit(ctx, in, mode, ref, status, rows, durationMS, summary)
+	s.audit(ctx, in, mode, ref, status, rows, durationMS, p.summary)
 
 	if execErr != nil {
 		return nil, fmt.Errorf("execute query: %w", execErr)
@@ -382,6 +441,120 @@ func (s *DataProxyService) Query(ctx context.Context, in DataQueryInput) (*datac
 		rs.QueriedAt = &now
 	}
 	return rs, nil
+}
+
+// QueryPrecheck is the dry_run verdict for run_data_query: it reports whether
+// the operation would be allowed, whether it reads or writes, and whether a
+// confirmation card would fire — WITHOUT running the query. Gate rejections are
+// reported in-band (Rejected + Code + Reason) rather than as an error, so the
+// agent gets a self-check even for a call that would be refused.
+type QueryPrecheck struct {
+	OK                   bool     `json:"ok"`
+	Rejected             bool     `json:"rejected"`
+	Code                 string   `json:"code,omitempty"`
+	Reason               string   `json:"reason,omitempty"`
+	InScope              bool     `json:"in_scope"`
+	AccessMode           string   `json:"access_mode"`
+	RequiresConfirmation bool     `json:"requires_confirmation"`
+	Source               string   `json:"source"`
+	Kind                 string   `json:"kind"`
+	Database             string   `json:"database,omitempty"`
+	Objects              []string `json:"objects,omitempty"`
+	StatementSummary     string   `json:"statement_summary,omitempty"`
+	NextAction           string   `json:"next_action,omitempty"`
+	// DataSummary is the value-free summary of the egress payload (field names +
+	// size + sensitive-pattern hits) the write would send (Epic #726 / #747).
+	// Nil when the operation carries no body. Lets the write preview show the
+	// DATA, not only the target objects.
+	DataSummary *EgressDataSummary `json:"data_summary,omitempty"`
+}
+
+// egressPayloadOf returns the payload a data operation sends to the upstream —
+// the bytes that actually leave the machine — for the value-free data summary
+// on the write-confirmation card. Returns nil when the operation carries no
+// body-shaped payload (a SQL statement is summarized separately as
+// statement_summary, which is already redacted).
+func egressPayloadOf(op dataconn.Operation) any {
+	switch {
+	case len(op.HTTPBody) > 0:
+		return op.HTTPBody
+	case len(op.Document) > 0:
+		return op.Document
+	case len(op.Query) > 0:
+		return op.Query
+	case len(op.Args) > 0:
+		return op.Args
+	default:
+		return nil
+	}
+}
+
+// Precheck is the dry run for run_data_query. It runs the same gate as Query
+// (source resolution, operation build, classify, read/write separation, data
+// scope) but never confirms, never opens a connection, and never executes — so
+// it is safe to call before spending a query. Returns an error only for an
+// infrastructure failure (e.g. the source cannot be loaded).
+func (s *DataProxyService) Precheck(ctx context.Context, in DataQueryInput) (*QueryPrecheck, error) {
+	p, err := s.planQuery(ctx, in)
+	if err != nil {
+		pe, ok := IsDataProxyError(err)
+		if !ok {
+			return nil, err
+		}
+		res := &QueryPrecheck{
+			OK:       false,
+			Rejected: true,
+			Code:     pe.Code,
+			Reason:   pe.Message,
+			Kind:     string(p.kind),
+			NextAction: precheckNextAction(pe.Code),
+		}
+		if p.src != nil {
+			res.Source = p.src.Name
+		}
+		if p.classified {
+			res.AccessMode = string(p.mode)
+			res.InScope = p.scopeOK
+			res.Database = p.ref.Database
+			res.Objects = p.ref.Objects
+			res.StatementSummary = p.summary
+		}
+		return res, nil
+	}
+	res := &QueryPrecheck{
+		OK:                   true,
+		InScope:              true,
+		AccessMode:           string(p.mode),
+		RequiresConfirmation: p.mode == dataconn.ModeWrite || p.src.RequireConfirm == "always",
+		Source:               p.src.Name,
+		Kind:                 string(p.kind),
+		Database:             p.ref.Database,
+		Objects:              p.ref.Objects,
+		StatementSummary:     p.summary,
+	}
+	if payload := egressPayloadOf(p.op); payload != nil {
+		summary := SummarizeEgressPayload(payload)
+		res.DataSummary = &summary
+	}
+	return res, nil
+}
+
+// precheckNextAction maps a gate rejection code to the concrete next step an
+// agent should take to make the query succeed.
+func precheckNextAction(code string) string {
+	switch code {
+	case "write_disabled":
+		return "the source is read-only; issue a read, or ask the user to set the source's default_access_mode to readwrite"
+	case "scope_denied":
+		return "the operation touches objects outside the source's allowed data scope; narrow the query or ask the user to widen scope_config"
+	case "invalid_input":
+		return "fix the operation shape for this source kind (see list_data_sources / the run_data_query description)"
+	case "unsupported":
+		return "this source kind is not supported"
+	case "denied":
+		return "the operation was refused by the connector's policy"
+	}
+	return "adjust the query and retry"
 }
 
 // audit writes one data_source_audit row. Objects are JSON-encoded; the summary

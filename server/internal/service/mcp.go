@@ -655,6 +655,109 @@ func kbDenyPath(root string) string {
 	return "/" + p + "/**"
 }
 
+// credDenyManifest is the sidecar (under .claude/) recording exactly which
+// permissions.deny entries SetWorkspaceCredPathDeny owns, so recomputation
+// never disturbs a user-authored rule. Same discipline as kbReadonlyManifest.
+const credDenyManifest = ".niuniu-cred-deny.json"
+
+// credDenyTools are the file tools denied on a credential-material directory.
+// Read is the one that matters (a secret the agent can read is a secret in the
+// model's context); Edit/Write are denied for symmetry with the KB guard.
+var credDenyTools = []string{"Read", "Edit", "Write"}
+
+// SetWorkspaceCredPathDeny denies the file tools on credential-material
+// directories (OwnerRef.CredMaterialDir children) so the workspace agent cannot
+// read a materialized credential file by its absolute path. Manifests its own
+// entries and recomputes them, preserving every user-authored deny rule.
+//
+// This is a Claude-tool-level guard, not OS isolation: an arbitrary subprocess
+// the agent runs can still read the file. See the threat-model doc.
+func (g *MCPConfigGenerator) SetWorkspaceCredPathDeny(wsPath string, dirs []string) error {
+	g.settingsMu.Lock()
+	defer g.settingsMu.Unlock()
+
+	claudeDir := filepath.Join(wsPath, ".claude")
+	settingsPath := filepath.Join(claudeDir, "settings.json")
+	manifestPath := filepath.Join(claudeDir, credDenyManifest)
+
+	var want []string
+	seen := map[string]struct{}{}
+	for _, d := range dirs {
+		norm := kbDenyPath(d)
+		if norm == "" {
+			continue
+		}
+		for _, tool := range credDenyTools {
+			rule := tool + "(" + norm + ")"
+			if _, dup := seen[rule]; dup {
+				continue
+			}
+			seen[rule] = struct{}{}
+			want = append(want, rule)
+		}
+	}
+
+	var prior []string
+	if data, err := os.ReadFile(manifestPath); err == nil {
+		_ = json.Unmarshal(data, &prior)
+	}
+
+	existing, readErr := os.ReadFile(settingsPath)
+	fileExists := readErr == nil
+	if readErr != nil && !os.IsNotExist(readErr) {
+		return fmt.Errorf("read settings.json: %w", readErr)
+	}
+	if len(want) == 0 && len(prior) == 0 && !fileExists {
+		return nil // nothing to manage, no file to touch
+	}
+
+	root := map[string]any{}
+	if fileExists {
+		if err := json.Unmarshal(existing, &root); err != nil {
+			return fmt.Errorf("parse settings.json: %w", err)
+		}
+		if root == nil {
+			root = map[string]any{}
+		}
+	}
+	perms, _ := root["permissions"].(map[string]any)
+	if perms == nil {
+		perms = map[string]any{}
+	}
+	perms["deny"] = mergeManagedList(perms["deny"], prior, want)
+	if v, _ := perms["deny"].([]any); len(v) == 0 {
+		delete(perms, "deny")
+	}
+	if len(perms) == 0 {
+		delete(root, "permissions")
+	} else {
+		root["permissions"] = perms
+	}
+	data, err := json.MarshalIndent(root, "", "  ")
+	if err != nil {
+		return fmt.Errorf("marshal settings.json: %w", err)
+	}
+	if err := os.MkdirAll(claudeDir, 0o755); err != nil {
+		return fmt.Errorf("create .claude dir: %w", err)
+	}
+	if !(fileExists && string(existing) == string(data)) {
+		if err := os.WriteFile(settingsPath, data, 0o644); err != nil {
+			return fmt.Errorf("write settings.json: %w", err)
+		}
+	}
+	if len(want) == 0 {
+		if err := os.Remove(manifestPath); err != nil && !os.IsNotExist(err) {
+			return fmt.Errorf("remove cred-deny manifest: %w", err)
+		}
+		return nil
+	}
+	mdata, err := json.MarshalIndent(want, "", "  ")
+	if err != nil {
+		return fmt.Errorf("marshal cred-deny manifest: %w", err)
+	}
+	return os.WriteFile(manifestPath, mdata, 0o644)
+}
+
 // mergeManagedHook ensures the niuniu-managed hook for an event (optionally
 // scoped to a matcher) is present and points at wantCmd. sub is the niuniu-mcp
 // subcommand the hook invokes (worktree-create / worktree-remove / read-hook),
@@ -1415,6 +1518,11 @@ func (g *MCPConfigGenerator) resolveAPIBase() string {
 	port := g.detectActualPort()
 	return fmt.Sprintf("http://127.0.0.1:%d", port)
 }
+
+// APIBase exposes the loopback base URL workspace MCP clients use to reach this
+// server. Late-bound (it reads the live port from the lockfile), so callers that
+// need a URL at request time should hold the function, not its result.
+func (g *MCPConfigGenerator) APIBase() string { return g.resolveAPIBase() }
 
 // buildNiuniuArgs assembles the niuniu-mcp CLI args for a workspace, shared by
 // the .mcp.json generator (Claude) and the goose MCP-client session.
