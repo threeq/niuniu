@@ -109,7 +109,7 @@
     "requireConfirmLabel": "操作確認策略",
     "confirmAlways": "每次都確認",
     "confirmWritesOnly": "僅寫操作確認",
-    "confirmNever": "從不確認",
+    "requireConfirmHint": "寫操作始終需要確認；此策略僅決定讀操作是否也需要確認。",
     "cancel": "取消",
     "save": "儲存",
     "saving": "儲存中…",

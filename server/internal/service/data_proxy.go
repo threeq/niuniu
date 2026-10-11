@@ -15,10 +15,12 @@
 //     collections / ES indices — W1 PoC conclusions §2-3); any out-of-scope
 //     or unknown object is rejected (scope_denied) WITHOUT a confirmation
 //     chance (M1 is strict).
-//  5. per-op confirmation (section 5.2): writes, and any source with
-//     require_confirm=="always", route through PermissionService.Request
-//     (the same chat permission card Claude tool calls use); a non-allow
-//     decision is rejected (denied).
+//  5. per-op confirmation (section 5.2): writes ALWAYS route through
+//     PermissionService.Request (the same chat permission card Claude tool
+//     calls use) — no require_confirm value can turn write confirmation off;
+//     require_confirm=="always" additionally confirms reads. A non-allow
+//     decision is rejected (denied). (The legacy "never" value behaved the
+//     same as "writes_only" and was removed; see normalizeRequireConfirm.)
 //  6. inject server-controlled constraints (database/row-limit/timeout) and
 //     execute on the connector (read-only tx + row/time caps live in dataconn).
 //  7. audit (CreateDataSourceAudit) with a redacted+truncated summary.
@@ -317,7 +319,9 @@ func (s *DataProxyService) Query(ctx context.Context, in DataQueryInput) (*datac
 		return deny("scope_denied", fmt.Sprintf("query out of allowed data scope (%s); adjust the source scope in settings", reason))
 	}
 
-	// 5) Per-op confirmation (section 5.2): writes, or require_confirm=="always".
+	// 5) Per-op confirmation (section 5.2): a write is ALWAYS confirmed — no
+	// require_confirm value disables this (the removed "never" was identical to
+	// "writes_only"). require_confirm=="always" extends it to reads too.
 	if mode == dataconn.ModeWrite || src.RequireConfirm == "always" {
 		if s.perm == nil {
 			return deny("denied", "confirmation required but no permission backend is configured")

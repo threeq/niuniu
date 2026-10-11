@@ -664,3 +664,37 @@ func TestDataProxyDeniedAudit(t *testing.T) {
 		t.Fatalf("denied attempts not audited: %v", counts)
 	}
 }
+
+// TestDataProxyWritesAlwaysConfirmed locks the safety default that write
+// confirmation cannot be turned off: a write against a readwrite source is
+// routed through the permission backend even under the least-strict
+// require_confirm value ("writes_only"). This is exactly why the old "never"
+// option was removed — it was behaviourally identical to "writes_only".
+func TestDataProxyWritesAlwaysConfirmed(t *testing.T) {
+	reg := dataconn.NewRegistry()
+	reg.Register(dataconn.KindMySQL, &classifyReal{kind: dataconn.KindMySQL, real: dataconn.NewMySQLConnector()})
+	loader := &fakeSourceLoader{
+		dto: &service.DataSourceDTO{
+			ID: 1, Name: "analytics", Kind: "mysql",
+			ScopeConfig:       map[string]any{"tables_allow": []any{"orders"}},
+			DefaultAccessMode: "readwrite", RequireConfirm: "writes_only",
+		},
+		cc: dataconn.ConnConfig{Kind: dataconn.KindMySQL, Database: "analytics"},
+	}
+	perm := &fakePermission{resp: service.AllowResp{Behavior: "allow"}}
+	svc := service.NewDataProxyServiceWithSeams(loader, reg, perm, nil)
+
+	_, err := svc.Query(context.Background(), service.DataQueryInput{
+		WorkspaceID: 1, OwnerType: "user", OwnerID: 7, UserID: 7, SessionID: "s",
+		SourceID: 1, Statement: "DELETE FROM orders",
+	})
+	if err != nil {
+		t.Fatalf("confirmed write should pass: %v", err)
+	}
+	if perm.called != 1 {
+		t.Fatalf("a write must always be confirmed even under require_confirm=writes_only, called=%d", perm.called)
+	}
+	if perm.lastIn["mode"] != "write" {
+		t.Fatalf("permission card mode should be write, got %v", perm.lastIn["mode"])
+	}
+}

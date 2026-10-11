@@ -1532,6 +1532,8 @@ CREATE TABLE IF NOT EXISTS data_sources (
     config              TEXT NOT NULL DEFAULT '{}',
     scope_config        TEXT NOT NULL DEFAULT '{}',
     default_access_mode TEXT NOT NULL DEFAULT 'read' CHECK (default_access_mode IN ('read','readwrite')),
+    -- 'never' is a deprecated legacy value (behaved as 'writes_only'); kept here
+    -- so pre-existing rows stay valid, but the service normalizes it on read+write.
     require_confirm     TEXT NOT NULL DEFAULT 'writes_only' CHECK (require_confirm IN ('always','writes_only','never')),
     last_verified_at    TIMESTAMP DEFAULT NULL,
     created_at          TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,

@@ -109,7 +109,7 @@
     "requireConfirmLabel": "Confirmation policy",
     "confirmAlways": "Always confirm",
     "confirmWritesOnly": "Confirm writes only",
-    "confirmNever": "Never confirm",
+    "requireConfirmHint": "Writes always require confirmation. This policy only controls whether reads are confirmed too.",
     "cancel": "Cancel",
     "save": "Save",
     "saving": "Saving…",

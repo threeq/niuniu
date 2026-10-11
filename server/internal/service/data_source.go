@@ -118,13 +118,26 @@ func normalizeAccessMode(m string) string {
 	return "read"
 }
 
+// normalizeRequireConfirm canonicalizes the per-source confirmation policy.
+//
+// A data source's WRITES always require an explicit user confirmation — that is
+// a non-negotiable safety default enforced by DataProxyService.Query (a write
+// whose confirmation is not approved is denied). This field therefore only
+// controls whether READS are confirmed too:
+//
+//   - "writes_only" (default): reads run silently, writes are confirmed;
+//   - "always": reads and writes are both confirmed.
+//
+// The earlier "never" value was a misnomer — it behaved identically to
+// "writes_only", because write confirmation is unconditional and cannot be
+// turned off — so it was removed as an option. Legacy rows (or old clients)
+// still sending "never", and any other unknown/blank value, normalize to
+// "writes_only" here, which preserves their previous behaviour.
 func normalizeRequireConfirm(c string) string {
-	switch c {
-	case "always", "never", "writes_only":
-		return c
-	default:
-		return "writes_only"
+	if c == "always" {
+		return "always"
 	}
+	return "writes_only"
 }
 
 // Create validates the kind (M1: mysql/postgres only), encrypts the config,
@@ -873,8 +886,10 @@ func (s *DataSourceService) rowToRedactedDTO(row store.DataSource) DataSourceDTO
 		Config:            redacted,
 		ScopeConfig:       parseJSONObject(row.ScopeConfig),
 		DefaultAccessMode: row.DefaultAccessMode,
-		RequireConfirm:    row.RequireConfirm,
-		LastVerifiedAt:    row.LastVerifiedAt,
+		// Normalize on read too: a legacy row stored before "never" was removed
+		// would otherwise surface as "never" and mismatch the DTO/TS contract.
+		RequireConfirm: normalizeRequireConfirm(row.RequireConfirm),
+		LastVerifiedAt: row.LastVerifiedAt,
 	}
 }
 
