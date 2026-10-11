@@ -86,9 +86,23 @@ VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
 
 -- name: ListIntegrationProbeRuns :many
 -- subject_id = 0 means "any subject of this kind".
+--
+-- Owner scoping (IDOR guard): probe-run messages can quote a raw driver error
+-- (host/port/user), so a data-source run is only visible to the caller's own
+-- accessible owner set. Provider runs carry no owner (providers are global);
+-- they stay readable by any authenticated caller, matching the provider list
+-- endpoint's visibility. Org membership is derived here from org_members --
+-- the same source Authz.Accessible reads -- so the caller cannot widen the set
+-- by supplying ids.
 SELECT * FROM integration_probe_runs
 WHERE subject_kind = sqlc.arg(subject_kind)
   AND (CAST(sqlc.arg(subject_id) AS BIGINT) = 0 OR subject_id = sqlc.arg(subject_id))
+  AND (
+    subject_kind = 'provider'
+    OR (owner_type = 'user' AND owner_id = sqlc.arg(user_id))
+    OR (owner_type = 'org'  AND owner_id IN (
+          SELECT org_id FROM org_members WHERE user_id = sqlc.arg(user_id)))
+  )
 ORDER BY id DESC
 LIMIT sqlc.arg(lim);
 

@@ -687,14 +687,20 @@ func (s *IntegrationHealthService) AcknowledgeDrift(ctx context.Context, provide
 	})
 }
 
-// ListProbeRuns returns recent probe history (subjectID 0 = any of that kind).
-func (s *IntegrationHealthService) ListProbeRuns(ctx context.Context, subjectKind string, subjectID, limit int64) ([]store.IntegrationProbeRun, error) {
+// ListProbeRuns returns recent probe history (subjectID 0 = any of that kind),
+// scoped to the caller's accessible owner set. Data-source runs can quote a raw
+// driver error, so they are only returned for the caller's own owner or an org
+// they belong to (membership derived in SQL from org_members, so the caller
+// cannot widen the set); provider runs are global (providers have no owner) and
+// stay visible to any authenticated caller, like the provider list.
+func (s *IntegrationHealthService) ListProbeRuns(ctx context.Context, subjectKind string, subjectID, userID, limit int64) ([]store.IntegrationProbeRun, error) {
 	if limit <= 0 || limit > 200 {
 		limit = 50
 	}
 	return s.q.ListIntegrationProbeRuns(ctx, store.ListIntegrationProbeRunsParams{
 		SubjectKind: subjectKind,
 		SubjectID:   subjectID,
+		UserID:      userID,
 		Lim:         limit,
 	})
 }

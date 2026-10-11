@@ -158,7 +158,7 @@ func TestHealthSweep_DataSourceAutoDisableAndRecover(t *testing.T) {
 	}
 
 	// Probe history is recorded (the audit trail).
-	runs, err := health.ListProbeRuns(ctx, service.ProbeSubjectDataSource, id, 10)
+	runs, err := health.ListProbeRuns(ctx, service.ProbeSubjectDataSource, id, uid, 10)
 	if err != nil {
 		t.Fatalf("list runs: %v", err)
 	}
@@ -167,6 +167,16 @@ func TestHealthSweep_DataSourceAutoDisableAndRecover(t *testing.T) {
 	}
 	if runs[0].Status != service.ProbeStatusOK {
 		t.Fatalf("newest run should be ok, got %s", runs[0].Status)
+	}
+
+	// IDOR guard: another user must not see this source's probe history (the
+	// run messages can quote a raw driver error with host/port/user).
+	other, err := health.ListProbeRuns(ctx, service.ProbeSubjectDataSource, id, env.UserB, 10)
+	if err != nil {
+		t.Fatalf("list runs as other user: %v", err)
+	}
+	if len(other) != 0 {
+		t.Fatalf("probe history leaked to another user: %d runs", len(other))
 	}
 }
 

@@ -104,19 +104,39 @@ const listIntegrationProbeRuns = `-- name: ListIntegrationProbeRuns :many
 SELECT id, subject_kind, subject_id, owner_type, owner_id, status, message, latency_ms, contract_digest, upstream_digest, drift, consecutive_failures, auto_disabled, created_at FROM integration_probe_runs
 WHERE subject_kind = ?1
   AND (CAST(?2 AS BIGINT) = 0 OR subject_id = ?2)
+  AND (
+    subject_kind = 'provider'
+    OR (owner_type = 'user' AND owner_id = ?3)
+    OR (owner_type = 'org'  AND owner_id IN (
+          SELECT org_id FROM org_members WHERE user_id = ?3))
+  )
 ORDER BY id DESC
-LIMIT ?3
+LIMIT ?4
 `
 
 type ListIntegrationProbeRunsParams struct {
 	SubjectKind string `json:"subject_kind"`
 	SubjectID   int64  `json:"subject_id"`
+	UserID      int64  `json:"user_id"`
 	Lim         int64  `json:"lim"`
 }
 
 // subject_id = 0 means "any subject of this kind".
+//
+// Owner scoping (IDOR guard): probe-run messages can quote a raw driver error
+// (host/port/user), so a data-source run is only visible to the caller's own
+// accessible owner set. Provider runs carry no owner (providers are global);
+// they stay readable by any authenticated caller, matching the provider list
+// endpoint's visibility. Org membership is derived here from org_members --
+// the same source Authz.Accessible reads -- so the caller cannot widen the set
+// by supplying ids.
 func (q *Queries) ListIntegrationProbeRuns(ctx context.Context, arg ListIntegrationProbeRunsParams) ([]IntegrationProbeRun, error) {
-	rows, err := q.db.QueryContext(ctx, listIntegrationProbeRuns, arg.SubjectKind, arg.SubjectID, arg.Lim)
+	rows, err := q.db.QueryContext(ctx, listIntegrationProbeRuns,
+		arg.SubjectKind,
+		arg.SubjectID,
+		arg.UserID,
+		arg.Lim,
+	)
 	if err != nil {
 		return nil, err
 	}
