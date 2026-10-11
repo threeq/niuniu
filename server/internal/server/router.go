@@ -386,6 +386,16 @@ func (s *Server) setupRoutes() {
 		orgs.GET("/:id/integration-approvals/:req_id", s.approvalHandler.Get)
 		orgs.POST("/:id/integration-approvals/:req_id/decision", s.approvalHandler.Decide)
 		orgs.DELETE("/:id/integration-approvals/:req_id", s.approvalHandler.Cancel)
+
+		// Cross-user integration audit view (team edition, issue #743):
+		// "who called what, when, with which of the org's credentials, and how
+		// did it end", merged with the approval decisions #741 wrote to the org
+		// audit log. Admin-only -- the service gate answers 403 for a plain
+		// member -- and the /orgs group itself is license-gated, so a personal
+		// build has no such view at all. Read-only by construction: there is
+		// deliberately no mutating route for audit records.
+		orgs.GET("/:id/integration-activity", s.orgIntegrationActivity)
+		orgs.GET("/:id/integration-activity/export", s.orgIntegrationActivityExport)
 	}
 
 	// Me routes
@@ -424,6 +434,9 @@ func (s *Server) setupRoutes() {
 		me.PUT("/external-proxy/providers/:id", s.proxyUpdateProvider)
 		me.DELETE("/external-proxy/providers/:id", s.proxyDeleteProvider)
 		me.PATCH("/external-proxy/providers/:id/write-enabled", s.proxySetWriteEnabled)
+		// Audit read side (Epic #726 / #728): the caller's own external API
+		// calls, newest first.
+		me.GET("/external-proxy/audit", s.proxyAudit)
 
 		// Data integration (M1): owner-scoped SQL data sources. CRUD + verify.
 		// Spec: docs/superpowers/specs/2026-06-04-data-integration-and-dashboard-design.md
@@ -432,6 +445,13 @@ func (s *Server) setupRoutes() {
 		me.PATCH("/data-sources/:id", s.dataSourceHandler.Update)
 		me.DELETE("/data-sources/:id", s.dataSourceHandler.Delete)
 		me.POST("/data-sources/:id/verify", s.dataSourceHandler.Verify)
+		// Audit read side (Epic #726 / #728): the caller's own data queries.
+		me.GET("/data-sources/audit", s.dataSourceAudit)
+
+		// Unified integration activity feed (Epic #726 / #728): both audit
+		// tables merged into one newest-first page with a shared filter set.
+		// This is what the Settings -> Integrations activity view reads.
+		me.GET("/integration-activity", s.integrationActivity)
 
 		// Knowledge bases (Epic #496): owner-scoped corpora — CRUD, async
 		// ingest (local/upload/url), browse + keyword search, retry/mirror.

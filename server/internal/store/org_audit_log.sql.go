@@ -38,6 +38,134 @@ func (q *Queries) AppendOrgAudit(ctx context.Context, arg AppendOrgAuditParams) 
 	return err
 }
 
+const countOrgApprovalAudit = `-- name: CountOrgApprovalAudit :one
+SELECT COUNT(*) AS n
+FROM org_audit_log o
+LEFT JOIN integration_approval_requests r ON r.id = o.target_id
+WHERE o.org_id = ?1
+  AND o.target_type = 'integration_approval'
+  AND (CAST(?2 AS BIGINT) = 0 OR o.actor_user_id = ?2)
+  AND (CAST(?3 AS BIGINT) = 0 OR r.project_id = ?3)
+  AND (CAST(?4 AS TEXT) = ''
+       OR (?4 = 'ok' AND o.action = 'integration.approval.approved')
+       OR (?4 = 'error'
+           AND o.action IN ('integration.approval.denied',
+                            'integration.approval.cancelled',
+                            'integration.approval.invalidated'))
+       OR (?4 = 'pending' AND o.action = 'integration.approval.escalated'))
+  AND o.created_at >= COALESCE(?5, o.created_at)
+  AND o.created_at <= COALESCE(?6, o.created_at)
+`
+
+type CountOrgApprovalAuditParams struct {
+	OrgID     int64        `json:"org_id"`
+	MemberID  int64        `json:"member_id"`
+	ProjectID int64        `json:"project_id"`
+	Outcome   string       `json:"outcome"`
+	FromTs    sql.NullTime `json:"from_ts"`
+	ToTs      sql.NullTime `json:"to_ts"`
+}
+
+func (q *Queries) CountOrgApprovalAudit(ctx context.Context, arg CountOrgApprovalAuditParams) (int64, error) {
+	row := q.db.QueryRowContext(ctx, countOrgApprovalAudit,
+		arg.OrgID,
+		arg.MemberID,
+		arg.ProjectID,
+		arg.Outcome,
+		arg.FromTs,
+		arg.ToTs,
+	)
+	var n int64
+	err := row.Scan(&n)
+	return n, err
+}
+
+const listOrgApprovalAudit = `-- name: ListOrgApprovalAudit :many
+SELECT o.id, o.org_id, o.actor_user_id, o.actor_label, o.action, o.target_type,
+       o.target_id, o.payload, o.created_at
+FROM org_audit_log o
+LEFT JOIN integration_approval_requests r ON r.id = o.target_id
+WHERE o.org_id = ?1
+  AND o.target_type = 'integration_approval'
+  AND (CAST(?2 AS BIGINT) = 0 OR o.actor_user_id = ?2)
+  AND (CAST(?3 AS BIGINT) = 0 OR r.project_id = ?3)
+  AND (CAST(?4 AS TEXT) = ''
+       OR (?4 = 'ok' AND o.action = 'integration.approval.approved')
+       OR (?4 = 'error'
+           AND o.action IN ('integration.approval.denied',
+                            'integration.approval.cancelled',
+                            'integration.approval.invalidated'))
+       OR (?4 = 'pending' AND o.action = 'integration.approval.escalated'))
+  AND o.created_at >= COALESCE(?5, o.created_at)
+  AND o.created_at <= COALESCE(?6, o.created_at)
+ORDER BY o.created_at DESC, o.id DESC
+LIMIT ?8 OFFSET ?7
+`
+
+type ListOrgApprovalAuditParams struct {
+	OrgID     int64        `json:"org_id"`
+	MemberID  int64        `json:"member_id"`
+	ProjectID int64        `json:"project_id"`
+	Outcome   string       `json:"outcome"`
+	FromTs    sql.NullTime `json:"from_ts"`
+	ToTs      sql.NullTime `json:"to_ts"`
+	Off       int64        `json:"off"`
+	Lim       int64        `json:"lim"`
+}
+
+// Approval decisions for one org (#743), read from the org audit trail that
+// #741 writes with target_type = 'integration_approval'. This -- not the
+// integration_approval_requests queue -- is the tamper-proof record of "who
+// approved what, when": org_audit_log is append-only, while the queue's status
+// legitimately changes as requests are decided, escalated or invalidated.
+// member_id filters on the ACTOR (approver / canceler / escalator); 0 = any.
+// outcome maps the decision: 'ok' = approved, 'error' = denied/cancelled/
+// invalidated, 'pending' = escalated and still awaiting a decision.
+// project_id is resolved through the request the decision was made on: the
+// audit row records target_id, and the request carries the project (nullable
+// for org-level requests, which a project filter therefore excludes).
+func (q *Queries) ListOrgApprovalAudit(ctx context.Context, arg ListOrgApprovalAuditParams) ([]OrgAuditLog, error) {
+	rows, err := q.db.QueryContext(ctx, listOrgApprovalAudit,
+		arg.OrgID,
+		arg.MemberID,
+		arg.ProjectID,
+		arg.Outcome,
+		arg.FromTs,
+		arg.ToTs,
+		arg.Off,
+		arg.Lim,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []OrgAuditLog{}
+	for rows.Next() {
+		var i OrgAuditLog
+		if err := rows.Scan(
+			&i.ID,
+			&i.OrgID,
+			&i.ActorUserID,
+			&i.ActorLabel,
+			&i.Action,
+			&i.TargetType,
+			&i.TargetID,
+			&i.Payload,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listOrgAudit = `-- name: ListOrgAudit :many
 SELECT id, org_id, actor_user_id, actor_label, "action", target_type, target_id, payload, created_at FROM org_audit_log
 WHERE org_id = ?

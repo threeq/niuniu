@@ -330,13 +330,17 @@ type EnvProvider struct {
 }
 
 type ExternalApiAudit struct {
-	ID         int64     `json:"id"`
-	UserID     int64     `json:"user_id"`
-	ProviderID int64     `json:"provider_id"`
-	Method     string    `json:"method"`
-	Path       string    `json:"path"`
-	StatusCode int64     `json:"status_code"`
-	CreatedAt  time.Time `json:"created_at"`
+	ID           int64     `json:"id"`
+	UserID       int64     `json:"user_id"`
+	ProviderID   int64     `json:"provider_id"`
+	CredentialID int64     `json:"credential_id"`
+	Method       string    `json:"method"`
+	Path         string    `json:"path"`
+	StatusCode   int64     `json:"status_code"`
+	BodySha256   string    `json:"body_sha256"`
+	BodyBytes    int64     `json:"body_bytes"`
+	BodyFields   string    `json:"body_fields"`
+	CreatedAt    time.Time `json:"created_at"`
 }
 
 type ExternalApiWritePref struct {

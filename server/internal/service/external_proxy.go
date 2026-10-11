@@ -19,6 +19,7 @@ package service
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"database/sql"
 	"encoding/base64"
 	"encoding/json"
@@ -201,10 +202,12 @@ func (s *ExternalProxyService) Call(ctx context.Context, in ProxyInput) (*ProxyO
 		fullURL += "?" + q.Encode()
 	}
 
-	// 5. Build request
+	// 5. Build request. The marshaled bytes are kept so the audit step can
+	// fingerprint exactly what was sent (not a re-marshal that could differ).
 	var bodyReader io.Reader
+	var bodyBytes []byte
 	if in.Body != nil {
-		bodyBytes, err := json.Marshal(in.Body)
+		bodyBytes, err = json.Marshal(in.Body)
 		if err != nil {
 			return nil, fmt.Errorf("marshal body: %w", err)
 		}
@@ -277,14 +280,28 @@ func (s *ExternalProxyService) Call(ctx context.Context, in ProxyInput) (*ProxyO
 		return nil, fmt.Errorf("response body exceeds 10 MB limit")
 	}
 
-	// 8. Record audit
+	// 8. Record audit. The body fingerprint (hash + size + top-level field
+	// names, never values) is what lets the activity view answer "what shape of
+	// data left this machine" without the audit table itself becoming a
+	// secondary copy of the payload. See Epic #726 / #747.
+	//
+	// credential_id records WHICH credential authenticated the call. The
+	// provider is a global definition; the credential is the owned one, so this
+	// is what lets the team-edition view (#743) attribute a call to "one of the
+	// organization's credentials" -- or to the member's own -- exactly, rather
+	// than inferring it from a (user, provider) pair that may match several.
 	statusCode := int64(resp.StatusCode)
+	fp := fingerprintBody(bodyBytes)
 	if err := s.q.CreateAuditLog(ctx, store.CreateAuditLogParams{
-		UserID:     in.UserID,
-		ProviderID: prov.ID,
-		Method:     strings.ToUpper(in.Method),
-		Path:       in.Path,
-		StatusCode: statusCode,
+		UserID:       in.UserID,
+		ProviderID:   prov.ID,
+		CredentialID: cred.ID,
+		Method:       strings.ToUpper(in.Method),
+		Path:         in.Path,
+		StatusCode:   statusCode,
+		BodySha256:   fp.sha256,
+		BodyBytes:    fp.bytes,
+		BodyFields:   fp.fields,
 	}); err != nil {
 		slog.Warn("external proxy audit log write failed", "error", err)
 	}
@@ -756,5 +773,56 @@ func sortStrings(s []string) {
 		for j := i; j > 0 && s[j-1] > s[j]; j-- {
 			s[j-1], s[j] = s[j], s[j-1]
 		}
+	}
+}
+
+// maxAuditBodyFields bounds the recorded field-name list so a pathological body
+// (thousands of top-level keys) cannot bloat the audit table. When the list is
+// truncated, "..." is appended as the last element so the reader can tell.
+const maxAuditBodyFields = 100
+
+// bodyFingerprint is a value-free summary of an outbound request body: the
+// SHA-256 of the exact bytes sent, the byte length, and the sorted top-level
+// field NAMES. Values are never persisted — this is the difference between
+// "we can prove what shape of data left" and "the audit table is now a second
+// copy of the payload". Consumed by the external_api_audit read view
+// (Epic #726 / #728 / #747).
+type bodyFingerprint struct {
+	sha256 string // lowercase hex; "" when there was no body
+	bytes  int64
+	fields string // JSON array of top-level field names, e.g. ["body","title"]
+}
+
+// fingerprintBody summarizes raw (the marshaled request body). A nil/empty body
+// yields the zero fingerprint with an empty field list, so reads and bodyless
+// writes stay distinguishable from a real fingerprint.
+func fingerprintBody(raw []byte) bodyFingerprint {
+	if len(raw) == 0 {
+		return bodyFingerprint{fields: "[]"}
+	}
+	sum := sha256.Sum256(raw)
+	fields := []string{}
+	// Body is always a JSON object at the top level (ProxyInput.Body is a map),
+	// but stay tolerant: a non-object body records no field names rather than
+	// failing the audit write.
+	var obj map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &obj); err == nil {
+		fields = make([]string, 0, len(obj))
+		for k := range obj {
+			fields = append(fields, k)
+		}
+		sortStrings(fields)
+		if len(fields) > maxAuditBodyFields {
+			fields = append(fields[:maxAuditBodyFields], "...")
+		}
+	}
+	encoded, err := json.Marshal(fields)
+	if err != nil {
+		encoded = []byte("[]")
+	}
+	return bodyFingerprint{
+		sha256: fmt.Sprintf("%x", sum),
+		bytes:  int64(len(raw)),
+		fields: string(encoded),
 	}
 }

@@ -2,6 +2,7 @@ import { useTranslation } from 'react-i18next';
 import { CredentialList } from '@/components/integrations/CredentialList';
 import { ProviderList } from '@/components/integrations/ProviderList';
 import { DataSourcesPanel } from '@/components/integrations/data-sources-panel';
+import { IntegrationActivityPanel } from '@/components/integrations/IntegrationActivityPanel';
 
 // Two boards on this page:
 //   1. Providers   — "where can I connect, with what auth scheme, and what
@@ -14,6 +15,10 @@ import { DataSourcesPanel } from '@/components/integrations/data-sources-panel';
 // and the toast surfaced "Unexpected token '<'". Write toggle moved to
 // the matching ProviderList row (external_api_write_prefs is keyed by
 // provider_id, so per-row is the correct shape).
+//
+// IntegrationActivityPanel (Epic #726 / #728) is the read side of the two
+// audit tables: they were write-only, so "which agent called what, and when"
+// had no answer anywhere in the product. It shows the caller's own feed.
 export function IntegrationsPage() {
   const { t } = useTranslation('settings');
   return (
@@ -22,6 +27,7 @@ export function IntegrationsPage() {
       <ProviderList />
       <CredentialList />
       <DataSourcesPanel />
+      <IntegrationActivityPanel />
     </div>
   );
 }

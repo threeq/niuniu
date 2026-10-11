@@ -162,3 +162,69 @@ export interface UpdateProviderBody {
   openapi_url?: string;
   enabled?: boolean;
 }
+
+// --- Integration activity feed (Epic #726 / #728) ---------------------------
+//
+// The read side of the two integration audit tables. `kind` discriminates the
+// two row shapes: 'api' rows carry the external-proxy fields (method/path/
+// status_code + the outbound body fingerprint), 'data' rows carry the data-query
+// fields (source/access_mode/statement_summary/...). Kind-specific fields are
+// absent rather than null on the other kind.
+
+export type ActivityKind = 'api' | 'data';
+
+/** Value-free summary of an outbound request body: hash + size + field NAMES.
+ *  Values are never persisted, so this can be shown without leaking a payload. */
+export interface BodyFingerprint {
+  /** Lowercase hex SHA-256 of the exact bytes sent; empty when there was no body. */
+  body_sha256?: string;
+  body_bytes?: number;
+  /** Top-level JSON field names (no values), sorted. */
+  body_fields?: string[];
+}
+
+export interface IntegrationActivityItem {
+  id: number;
+  kind: ActivityKind;
+  user_id: number;
+  /** RFC3339 timestamp. */
+  created_at: string;
+
+  // kind === 'api'
+  provider_id?: number;
+  provider_name?: string;
+  method?: string;
+  path?: string;
+  status_code?: number;
+
+  // kind === 'data'
+  source_id?: number;
+  source_name?: string;
+  access_mode?: string;
+  database_name?: string;
+  objects?: string[];
+  statement_summary?: string;
+  status?: string;
+  rows?: number;
+  duration_ms?: number;
+}
+
+export type IntegrationActivityItemWithFingerprint = IntegrationActivityItem &
+  BodyFingerprint;
+
+export interface IntegrationActivityFilters {
+  kind?: ActivityKind;
+  provider_id?: number;
+  source_id?: number;
+  /** RFC3339 lower bound (inclusive). */
+  from?: string;
+  /** RFC3339 upper bound (inclusive). */
+  to?: string;
+}
+
+export interface IntegrationActivityPage {
+  items: IntegrationActivityItemWithFingerprint[];
+  total: number;
+  limit: number;
+  offset: number;
+}
