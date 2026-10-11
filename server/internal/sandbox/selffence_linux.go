@@ -152,17 +152,17 @@ func seccompDetail() string {
 	return "a syscall filter denies sockets, process creation, ptrace, module and namespace operations"
 }
 
-// seccompDenied is the syscall denylist. Everything not listed stays allowed so
+// seccompDeniedCommon is the arch-independent denylist. Everything not listed
+// stays allowed so
 // the Go runtime's scheduler, GC and allocator keep working; the denylist
 // covers capabilities the box has no legitimate use for.
-var seccompDenied = []uintptr{
+var seccompDeniedCommon = []uintptr{
 	unix.SYS_SOCKET, unix.SYS_SOCKETPAIR, unix.SYS_CONNECT, unix.SYS_BIND,
 	unix.SYS_LISTEN, unix.SYS_ACCEPT, unix.SYS_ACCEPT4,
 	unix.SYS_SENDTO, unix.SYS_RECVFROM, unix.SYS_SENDMSG, unix.SYS_RECVMSG,
 	unix.SYS_SENDMMSG, unix.SYS_RECVMMSG, unix.SYS_SHUTDOWN,
 	unix.SYS_GETSOCKOPT, unix.SYS_SETSOCKOPT, unix.SYS_GETSOCKNAME, unix.SYS_GETPEERNAME,
 	unix.SYS_EXECVE, unix.SYS_EXECVEAT,
-	unix.SYS_FORK, unix.SYS_VFORK,
 	unix.SYS_PTRACE, unix.SYS_PROCESS_VM_READV, unix.SYS_PROCESS_VM_WRITEV,
 	unix.SYS_MOUNT, unix.SYS_UMOUNT2, unix.SYS_PIVOT_ROOT, unix.SYS_CHROOT,
 	unix.SYS_UNSHARE, unix.SYS_SETNS, unix.SYS_MOUNT_SETATTR,
@@ -207,9 +207,15 @@ func applySeccomp() error {
 	return nil
 }
 
+// seccompDenied is the full denylist for this build: the arch-independent set
+// plus whatever only exists on this architecture (seccompDeniedArchList).
+func seccompDenied() []uintptr {
+	return append(append([]uintptr{}, seccompDeniedCommon...), seccompDeniedArchList()...)
+}
+
 // buildSeccompProgram assembles the BPF program described in seccompDenied.
 func buildSeccompProgram(auditArch uint32) sockFprog {
-	filters := make([]sockFilter, 0, 4+2*len(seccompDenied)+1)
+	filters := make([]sockFilter, 0, 4+2*len(seccompDenied())+1)
 	// Reject any other architecture outright: a filter written for x86_64
 	// syscall numbers means nothing for a 32-bit compat call, and letting one
 	// through would hand back the syscalls just denied.
@@ -219,7 +225,7 @@ func buildSeccompProgram(auditArch uint32) sockFprog {
 		sockFilter{Code: bpfRET | bpfK, K: seccompRetKillProcess},
 		sockFilter{Code: bpfLD | bpfW | bpfABS, K: 0}, // syscall nr
 	)
-	for _, nr := range seccompDenied {
+	for _, nr := range seccompDenied() {
 		filters = append(filters,
 			sockFilter{Code: bpfJMP | bpfJEQ | bpfK, Jt: 0, Jf: 1, K: uint32(nr)},
 			sockFilter{Code: bpfRET | bpfK, K: seccompRetErrno | uint32(unix.EPERM)},
