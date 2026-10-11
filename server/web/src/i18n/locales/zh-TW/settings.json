@@ -262,6 +262,28 @@
         "deleteSuccess": "Provider 已刪除",
         "deleteFailed": "刪除失敗：{{error}}"
       }
+    },
+    "capability": {
+      "viewButton": "檢視能力說明",
+      "title": "能力說明 · {{name}}",
+      "description": "系統依據已確認契約自動生成的可操作說明；只讀，不能在此編輯。",
+      "loading": "載入中…",
+      "loadFailed": "無法載入能力說明。",
+      "kindProvider": "外部 API",
+      "kindDataSource": "資料來源",
+      "operations": "可用操作",
+      "readOnly": "只讀",
+      "write": "寫/敏感",
+      "scope": "可用範圍",
+      "scopeKind": "型別",
+      "scopeDatabases": "可用資料庫",
+      "scopeAllow": "放行物件",
+      "scopeDeny": "排除物件",
+      "scopeAccessMode": "訪問模式",
+      "examples": "示例",
+      "limits": "限制",
+      "agentBlock": "Agent 看到的內容",
+      "agentBlockHint": "以下內容會以“資料（非指令）”分割槽注入工作空間的指令檔案，與實際下發完全一致。"
     }
   },
   "page": {

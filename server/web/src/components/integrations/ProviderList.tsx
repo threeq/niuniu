@@ -18,6 +18,7 @@ import {
   RefreshCw,
   RotateCcw,
   FileWarning,
+  BookOpen,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { confirm } from '@/lib/confirm';
@@ -34,6 +35,7 @@ import {
 } from '@/hooks/useExternalProviders';
 import { Switch } from '@/components/ui/switch';
 import { ProviderDialog } from './ProviderDialog';
+import { CapabilityDialog } from './CapabilityDialog';
 import { HealthLight } from './HealthLight';
 import {
   isSystemProvider,
@@ -51,6 +53,7 @@ export function ProviderList() {
   const ackDrift = useAcknowledgeProviderDrift();
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editing, setEditing] = useState<ExternalProviderListItem | null>(null);
+  const [capFor, setCapFor] = useState<ExternalProviderListItem | null>(null);
 
   const handleAdd = () => {
     setEditing(null);
@@ -312,6 +315,15 @@ export function ProviderList() {
                 </div>
                 <Button
                   size="sm"
+                  variant="ghost"
+                  aria-label={t('integrations.capability.viewButton')}
+                  title={t('integrations.capability.viewButton')}
+                  onClick={() => setCapFor(p)}
+                >
+                  <BookOpen className="size-4" />
+                </Button>
+                <Button
+                  size="sm"
                   variant="outline"
                   aria-label={t('integrations.providers.editButton')}
                   onClick={() => handleEdit(p)}
@@ -344,6 +356,16 @@ export function ProviderList() {
         open={dialogOpen}
         onOpenChange={setDialogOpen}
         editing={editing}
+      />
+
+      <CapabilityDialog
+        open={capFor !== null}
+        onOpenChange={(o) => {
+          if (!o) setCapFor(null);
+        }}
+        kind="provider"
+        target={capFor?.name}
+        title={capFor?.label || capFor?.name || ''}
       />
     </section>
   );

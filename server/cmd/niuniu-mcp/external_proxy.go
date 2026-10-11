@@ -154,7 +154,7 @@ func registerExternalProxyTools(s *server.MCPServer, api *apiClient) {
 	// === get_provider_schema ===
 	s.AddTool(
 		mcp.NewTool("get_provider_schema",
-			mcp.WithDescription("Get a provider's structured integration contract: named operations (semantic name, method, path, parameters, read-only vs write, request example, response shape), the auth the proxy injects, a verify_operation probe, capability tags, and a content digest. Legacy providers return an empty-operations contract plus their raw profile text."),
+			mcp.WithDescription("Get a provider's structured integration contract: named operations (semantic name, method, path, parameters, read-only vs write, request example, response shape), the auth the proxy injects, a verify_operation probe, capability tags, and a content digest. Also returns `capability` — an operable \"how to drive this provider\" description (usage + worked call examples + limits) generated from the confirmed contract — and `capability_agent_block`, the exact block injected into a workspace's instruction file. Legacy providers return an empty-operations contract plus their raw profile text."),
 			mcp.WithString("provider", mcp.Description("Provider name"), mcp.Required()),
 		),
 		func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {

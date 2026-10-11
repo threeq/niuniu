@@ -326,6 +326,12 @@ func (s *Server) setupRoutes() {
 		// auto-bind it to the workspace project (so it is immediately queryable).
 		mcpGroup.POST("/data-proxy/sources", s.dataProxyCreateSource)
 
+		// describe_source (Epic #726 / #738) — the operable capability
+		// description for a provider or data source: how to call it, its
+		// operations/scope, limits, and worked examples. Read-only; the doc is
+		// generated from the confirmed contract, never authored by a caller.
+		mcpGroup.GET("/capabilities/:subject_kind/:ref", s.getCapability)
+
 		// Data dashboards — pin_query / list_dashboards tunnel here. pin_query
 		// injects the current workspace (from the session token) as the saved
 		// query's origin workspace_id; the agent never passes it.
@@ -432,6 +438,10 @@ func (s *Server) setupRoutes() {
 		// Audit read side (Epic #726 / #728): the caller's own external API
 		// calls, newest first.
 		me.GET("/external-proxy/audit", s.proxyAudit)
+		// Operable capability description read surface (Epic #726 / #738): the
+		// user-visible "what does the agent see" entry. Same data as the MCP
+		// describe_source tool.
+		me.GET("/capabilities/:subject_kind/:ref", s.getCapability)
 
 		// Data integration (M1): owner-scoped SQL data sources. CRUD + verify.
 		// Spec: docs/superpowers/specs/2026-06-04-data-integration-and-dashboard-design.md
