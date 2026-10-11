@@ -53,6 +53,15 @@ func (s *Server) setupRoutes() {
 	s.engine.GET("/api/credential-onboarding/:token", s.credOnboardingHandler.GetCredentialLinkInfo)
 	s.engine.POST("/api/credential-onboarding/:token", s.credOnboardingHandler.SubmitCredentialLink)
 
+	// Local credential proxy (issue #733): the loopback endpoint a projected
+	// MCP server is pointed at instead of carrying the secret itself. The
+	// opaque, expiring path token IS the authorization, so these sit outside
+	// the authenticated groups like the onboarding links above. Both the bare
+	// and the sub-path form are registered: MCP clients POST to the exact
+	// configured url, while a client that treats it as a base url appends.
+	s.engine.Any("/cred-proxy/:token", s.credProxyForward)
+	s.engine.Any("/cred-proxy/:token/*rest", s.credProxyForward)
+
 	// Latest desktop release (proxied from the official website changelog) —
 	// no auth required; only consumed by the personal-mode "check for updates".
 	s.engine.GET("/api/app-update/latest", s.appUpdateHandler.Latest)
@@ -305,6 +314,9 @@ func (s *Server) setupRoutes() {
 		// can onboard a provider end to end (#732).
 		mcpGroup.POST("/external-proxy/providers/:provider/verify", s.proxyVerifyProvider)
 		mcpGroup.POST("/external-proxy/providers/:id/publish", s.proxyPublishProvider)
+		// openapi-draft — parse the provider's openapi_url into a provider
+		// contract draft + an HTTP data source draft (read-only; grants nothing).
+		mcpGroup.POST("/external-proxy/providers/:id/openapi-draft", s.proxyOpenAPIDraft)
 
 		// Data integration proxy — run_data_query / list_data_sources tunnel here.
 		// Three-layer gate + audit lives in DataProxyService.
@@ -412,6 +424,11 @@ func (s *Server) setupRoutes() {
 		me.PATCH("/external-proxy/providers/:id/write-enabled", s.proxySetWriteEnabled)
 		me.POST("/external-proxy/providers/:provider/verify", s.proxyVerifyProvider)
 		me.POST("/external-proxy/providers/:id/publish", s.proxyPublishProvider)
+		// Generate integration drafts from the provider's openapi_url (Epic #726
+		// / #731). Read-only: parses an external document into suggested config;
+		// applying a draft is the draft pipeline's job (#734), behind a human
+		// confirmation. ?refresh=true bypasses the short-TTL cache.
+		me.POST("/external-proxy/providers/:id/openapi-draft", s.proxyOpenAPIDraft)
 		// Audit read side (Epic #726 / #728): the caller's own external API
 		// calls, newest first.
 		me.GET("/external-proxy/audit", s.proxyAudit)
@@ -430,6 +447,17 @@ func (s *Server) setupRoutes() {
 		// tables merged into one newest-first page with a shared filter set.
 		// This is what the Settings -> Integrations activity view reads.
 		me.GET("/integration-activity", s.integrationActivity)
+
+		// Continuous integration-source health (Epic #726 / #744): probe now,
+		// recovery (re-enable / disable), contract-drift acknowledge, and the
+		// probe history feed. :kind is "provider" or "data_source". The history
+		// route sits under its own prefix so it does not collide with the
+		// :kind wildcard siblings in gin's route tree.
+		me.POST("/integration-health/:kind/:id/probe", s.integrationHealthProbe)
+		me.POST("/integration-health/:kind/:id/reenable", s.integrationHealthReenable)
+		me.POST("/integration-health/:kind/:id/disable", s.integrationHealthDisable)
+		me.POST("/integration-health/:kind/:id/acknowledge-drift", s.integrationHealthAckDrift)
+		me.GET("/integration-probes", s.integrationHealthRuns)
 
 		// Knowledge bases (Epic #496): owner-scoped corpora — CRUD, async
 		// ingest (local/upload/url), browse + keyword search, retry/mirror.

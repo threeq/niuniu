@@ -64,3 +64,19 @@ func (o OwnerRef) DatasetsPath(dataDir string, kbID int64) string {
 func (o OwnerRef) KBIndexPath(dataDir string) string {
 	return filepath.Join(o.Root(dataDir), "kb_index.db")
 }
+
+// CredMaterialDir is where per-workspace materialized credential files live
+// (~/.niuniu/{owner}/cred-material). It sits deliberately OUTSIDE the
+// workspace directory: the agent can read its own workspace, so credential
+// material a third-party process needs as a file (e.g. the office-mail
+// mcp-email-server TOML) must not be materialized there.
+func (o OwnerRef) CredMaterialDir(dataDir string) string {
+	return filepath.Join(o.Root(dataDir), "cred-material")
+}
+
+// CredMaterialPath resolves one materialized credential file for a workspace.
+// `name` is a fixed file name chosen by the caller (never agent input), so no
+// traversal is possible.
+func (o OwnerRef) CredMaterialPath(dataDir string, workspaceID int64, name string) string {
+	return filepath.Join(o.CredMaterialDir(dataDir), "workspaces", strconv.FormatInt(workspaceID, 10), name)
+}

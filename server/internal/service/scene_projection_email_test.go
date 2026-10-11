@@ -215,13 +215,13 @@ func TestApplyEmailIntegration_MultiAccountDifferentDomains(t *testing.T) {
 
 	projector := NewSceneProjector(db, dataDir, &MCPConfigGenerator{}, nil, nil, cred)
 	proj := emailScene()
-	resolved, dropped, _ := projector.resolveProjectionCredentials(ctx, owner, 1, proj)
+	resolved, dropped, _ := projector.resolveProjectionCredentials(ctx, owner, 1, ws.ID, proj)
 	missing := projector.applyEmailIntegration(ctx, owner, 1, ws.ID, wsDir, proj, resolved, dropped)
 	require.Empty(t, missing)
 
 	// CONFIG_PATH injected, pointing at the per-workspace TOML.
 	cfgPath := resolved[emailMCPServerName]["env"].(map[string]any)["MCP_EMAIL_SERVER_CONFIG_PATH"].(string)
-	assert.Equal(t, filepath.Join(wsDir, emailConfigSubdir, "config.toml"), cfgPath)
+	assert.Equal(t, owner.CredMaterialPath(dataDir, ws.ID, emailConfigName), cfgPath)
 
 	b, err := os.ReadFile(cfgPath)
 	require.NoError(t, err)
@@ -252,7 +252,7 @@ func TestApplyEmailIntegration_WriteEnabledAddsOutgoing(t *testing.T) {
 
 	projector := NewSceneProjector(db, dataDir, &MCPConfigGenerator{}, nil, nil, cred)
 	proj := emailScene()
-	resolved, dropped, _ := projector.resolveProjectionCredentials(ctx, owner, 1, proj)
+	resolved, dropped, _ := projector.resolveProjectionCredentials(ctx, owner, 1, ws.ID, proj)
 	projector.applyEmailIntegration(ctx, owner, 1, ws.ID, wsDir, proj, resolved, dropped)
 
 	cfgPath := resolved[emailMCPServerName]["env"].(map[string]any)["MCP_EMAIL_SERVER_CONFIG_PATH"].(string)
@@ -289,10 +289,15 @@ func TestReprojectImapWorkspaces_RefreshesConfig(t *testing.T) {
 	_, err = svc.Attach(ctx, ws.ID, scene.ID, nil)
 	require.NoError(t, err)
 
-	cfgPath := filepath.Join(wsDir, emailConfigSubdir, "config.toml")
+	cfgPath := owner.CredMaterialPath(dataDir, ws.ID, emailConfigName)
 	b, err := os.ReadFile(cfgPath)
 	require.NoError(t, err)
 	assert.Contains(t, string(b), `host = "imap.work.com"`)
+	// The plaintext TOML must not be materialized inside the agent-readable
+	// workspace (neither at the current nor the legacy location).
+	assert.NotContains(t, cfgPath, wsDir)
+	_, statErr := os.Stat(filepath.Join(wsDir, emailLegacyConfigSubdir, "config.toml"))
+	assert.True(t, os.IsNotExist(statErr), "no plaintext config.toml left inside the workspace")
 
 	// Change the mailbox host, then re-project (what the credential change hook does).
 	creds, err := cred.List(ctx, "user", 1, 1)
@@ -328,7 +333,7 @@ func TestApplyEmailIntegration_OnlyProjectBoundMailboxes(t *testing.T) {
 
 	projector := NewSceneProjector(db, dataDir, &MCPConfigGenerator{}, nil, nil, cred)
 	proj := emailScene()
-	resolved, dropped, _ := projector.resolveProjectionCredentials(ctx, owner, 1, proj)
+	resolved, dropped, _ := projector.resolveProjectionCredentials(ctx, owner, 1, ws.ID, proj)
 	projector.applyEmailIntegration(ctx, owner, 1, ws.ID, wsDir, proj, resolved, dropped)
 	cfgPath := resolved[emailMCPServerName]["env"].(map[string]any)["MCP_EMAIL_SERVER_CONFIG_PATH"].(string)
 	s, _ := os.ReadFile(cfgPath)
@@ -362,7 +367,7 @@ func TestReprojectImapWorkspacesForUser_AppliesWriteToggle(t *testing.T) {
 	_, err = svc.Attach(ctx, ws.ID, scene.ID, nil)
 	require.NoError(t, err)
 
-	cfgPath := filepath.Join(wsDir, emailConfigSubdir, "config.toml")
+	cfgPath := owner.CredMaterialPath(dataDir, ws.ID, emailConfigName)
 	b, err := os.ReadFile(cfgPath)
 	require.NoError(t, err)
 	assert.NotContains(t, string(b), "outgoing =", "read-only before write granted")
@@ -408,7 +413,7 @@ func TestCollectEmailAccounts_ScopedToCreatorBindings(t *testing.T) {
 
 	projector := NewSceneProjector(db, dataDir, &MCPConfigGenerator{}, nil, nil, cred)
 	proj := emailScene()
-	resolved, dropped, _ := projector.resolveProjectionCredentials(ctx, owner, 1, proj)
+	resolved, dropped, _ := projector.resolveProjectionCredentials(ctx, owner, 1, ws.ID, proj)
 	projector.applyEmailIntegration(ctx, owner, 1, ws.ID, wsDir, proj, resolved, dropped)
 	cfgPath := resolved[emailMCPServerName]["env"].(map[string]any)["MCP_EMAIL_SERVER_CONFIG_PATH"].(string)
 	s, _ := os.ReadFile(cfgPath)
@@ -438,7 +443,7 @@ func TestApplyEmailIntegration_AutohostForcesReadOnly(t *testing.T) {
 
 	projector := NewSceneProjector(db, dataDir, &MCPConfigGenerator{}, nil, nil, cred)
 	proj := emailScene()
-	resolved, dropped, _ := projector.resolveProjectionCredentials(ctx, owner, 1, proj)
+	resolved, dropped, _ := projector.resolveProjectionCredentials(ctx, owner, 1, ws.ID, proj)
 	projector.applyEmailIntegration(ctx, owner, 1, ws.ID, wsDir, proj, resolved, dropped)
 
 	cfgPath := resolved[emailMCPServerName]["env"].(map[string]any)["MCP_EMAIL_SERVER_CONFIG_PATH"].(string)
@@ -463,7 +468,7 @@ func TestApplyEmailIntegration_NoCredDropsServer(t *testing.T) {
 	cred := newImapCredSvc(t, db) // none bound
 	projector := NewSceneProjector(db, dataDir, &MCPConfigGenerator{}, nil, nil, cred)
 	proj := emailScene()
-	resolved, dropped, _ := projector.resolveProjectionCredentials(ctx, owner, 1, proj)
+	resolved, dropped, _ := projector.resolveProjectionCredentials(ctx, owner, 1, ws.ID, proj)
 	missing := projector.applyEmailIntegration(ctx, owner, 1, ws.ID, wsDir, proj, resolved, dropped)
 
 	assert.True(t, missing["mailbox"])

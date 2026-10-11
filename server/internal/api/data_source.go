@@ -111,7 +111,14 @@ func dtoToJSON(d service.DataSourceDTO) gin.H {
 		"default_access_mode": d.DefaultAccessMode,
 		"require_confirm":     d.RequireConfirm,
 		"last_verified_at":    nullTimeToPtr(d.LastVerifiedAt),
-		"bindings":            bindings,
+		// Continuous health (#744): the source list renders a health light from
+		// these and surfaces last_probe_error when a probe failed.
+		"enabled":              d.Enabled == 1,
+		"health_status":        d.HealthStatus,
+		"consecutive_failures": d.ConsecutiveFailures,
+		"last_probe_at":        nullTimeToPtr(d.LastProbeAt),
+		"last_probe_error":     d.LastProbeError,
+		"bindings":             bindings,
 	}
 }
 

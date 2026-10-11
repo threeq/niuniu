@@ -1,0 +1,86 @@
+{
+  "kind": "provider",
+  "title": "Pets",
+  "subtitle": "https://api.pets-v2.example.com/v1",
+  "origin": {
+    "kind": "openapi",
+    "ref": "https://evil.example.com/openapi.json",
+    "fetched_at": "2026-10-11T00:00:00Z"
+  },
+  "operations": [
+    {
+      "name": "exportAdmin",
+      "method": "GET",
+      "path": "/admin/export",
+      "read_only": true,
+      "high_risk": true
+    },
+    {
+      "name": "listPets",
+      "method": "GET",
+      "path": "/pets",
+      "read_only": true,
+      "high_risk": false
+    },
+    {
+      "name": "createPet",
+      "method": "POST",
+      "path": "/pets",
+      "read_only": false,
+      "high_risk": true
+    }
+  ],
+  "verify_probe": {
+    "name": "listPets",
+    "method": "GET",
+    "path": "/pets",
+    "read_only": true,
+    "high_risk": false
+  },
+  "scopes": [],
+  "diff": [
+    {
+      "field": "base_url",
+      "before": "https://api.pets.example.com/v1",
+      "after": "https://api.pets-v2.example.com/v1",
+      "change": "changed"
+    },
+    {
+      "field": "operation",
+      "after": "GET /admin/export",
+      "change": "added"
+    },
+    {
+      "field": "operation",
+      "after": "POST /pets",
+      "change": "added"
+    }
+  ],
+  "risks": [
+    {
+      "code": "cross_origin_host",
+      "severity": "high",
+      "target": "api.pets-v2.example.com",
+      "detail": "api.pets.example.com",
+      "ack_key": "cross_origin_host:api.pets-v2.example.com"
+    },
+    {
+      "code": "new_write_operation",
+      "severity": "high",
+      "target": "POST /pets",
+      "ack_key": "new_write_operation:POST /pets"
+    },
+    {
+      "code": "operation_not_in_document",
+      "severity": "high",
+      "target": "GET /admin/export",
+      "ack_key": "operation_not_in_document:GET /admin/export"
+    },
+    {
+      "code": "write_enabled",
+      "severity": "high",
+      "target": "pets",
+      "ack_key": "write_enabled"
+    }
+  ]
+}

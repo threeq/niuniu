@@ -337,12 +337,35 @@ func (s *ExternalProxyService) PrecheckCall(ctx context.Context, in ProxyInput) 
 	add("provider_exists", true, prov.Name)
 	add("provider_enabled", prov.Enabled, enabledDetail(prov.Enabled))
 
-	// 2) Whitelist / write gate (same predicate the proxy enforces).
-	writeEnabled := s.writeEnabledFor(ctx, in.UserID, prov.ID)
-	allowed := s.gateAllows(writeEnabled, prov.Whitelist, in.Method, in.Path)
-	add("whitelist", allowed, whitelistDetail(allowed, writeEnabled, in.Method, in.Path))
+	// 2) Resolve the target operation. A call is addressed either by a contract
+	// operation name (#737) or by an explicit method+path pair. Resolving first
+	// lets the whitelist + parameter checks run against the SAME method/path the
+	// proxy will actually use.
+	contract := prov.Contract()
+	var op *ContractOperation
+	if in.Operation != "" {
+		o, ok := contract.OperationByName(in.Operation)
+		if !ok {
+			add("operation_exists", false, fmt.Sprintf("no contract operation named %q", in.Operation))
+			res.NextAction = "call get_provider_schema to list the provider's operations"
+			return res, nil
+		}
+		op = o
+		add("operation_exists", true, in.Operation)
+		res.Operation = op.Name
+		res.Method = strings.ToUpper(strings.TrimSpace(op.Method))
+		res.Path = op.Path
+	} else if o, ok := contract.MatchOperation(in.Method, in.Path); ok {
+		op = o
+		res.Operation = op.Name
+	}
 
-	// 3) Credential resolves (existence only — no upstream call).
+	// 3) Whitelist / write gate (same predicate the proxy falls back to).
+	writeEnabled := s.writeEnabledFor(ctx, in.UserID, prov.ID)
+	allowed := s.gateAllows(writeEnabled, prov.Whitelist, res.Method, res.Path)
+	add("whitelist", allowed, whitelistDetail(allowed, writeEnabled, res.Method, res.Path))
+
+	// 4) Credential resolves (existence only — no upstream call).
 	if _, cerr := s.resolveCredential(ctx, in); cerr != nil {
 		add("credential", false, cerr.Error())
 		if res.NextAction == "" {
@@ -352,12 +375,10 @@ func (s *ExternalProxyService) PrecheckCall(ctx context.Context, in ProxyInput) 
 		add("credential", true, "credential resolved")
 	}
 
-	// 4) Parameters conform to the contract (best effort — an unmatched
+	// 5) Parameters conform to the contract (best effort — an unmatched
 	// operation is a warning, not a failure, since a contract need not list
 	// every path).
-	contract := prov.Contract()
-	if op := matchOperation(contract, in.Method, in.Path); op != nil {
-		res.Operation = op.Name
+	if op != nil {
 		missing := missingRequiredParams(op, in.Query, in.Body)
 		add("contract_parameters", len(missing) == 0, missingDetail(missing))
 		if len(missing) > 0 && res.NextAction == "" {
@@ -368,6 +389,19 @@ func (s *ExternalProxyService) PrecheckCall(ctx context.Context, in ProxyInput) 
 			"no contract operation matches this method+path; parameter conformance was not checked")
 	}
 	return res, nil
+}
+
+// findOperationByName resolves a contract operation by its semantic name.
+func findOperationByName(c *ProviderContract, name string) *ContractOperation {
+	if c == nil {
+		return nil
+	}
+	for i := range c.Operations {
+		if c.Operations[i].Name == name {
+			return &c.Operations[i]
+		}
+	}
+	return nil
 }
 
 func enabledDetail(enabled bool) string {
@@ -389,43 +423,6 @@ func missingDetail(missing []string) string {
 		return "all required parameters present"
 	}
 	return "missing required parameters: " + strings.Join(missing, ", ")
-}
-
-// matchOperation finds the contract operation matching a concrete method+path,
-// treating {placeholder} path segments as single-segment wildcards.
-func matchOperation(c *ProviderContract, method, path string) *ContractOperation {
-	if c == nil {
-		return nil
-	}
-	m := strings.ToUpper(strings.TrimSpace(method))
-	p := strings.Trim(path, "/")
-	for i := range c.Operations {
-		op := &c.Operations[i]
-		if strings.ToUpper(strings.TrimSpace(op.Method)) != m {
-			continue
-		}
-		if pathTemplateMatches(op.Path, p) {
-			return op
-		}
-	}
-	return nil
-}
-
-func pathTemplateMatches(tmpl, actual string) bool {
-	ts := strings.Split(strings.Trim(tmpl, "/"), "/")
-	as := strings.Split(actual, "/")
-	if len(ts) != len(as) {
-		return false
-	}
-	for i := range ts {
-		if strings.HasPrefix(ts[i], "{") && strings.HasSuffix(ts[i], "}") {
-			continue
-		}
-		if ts[i] != as[i] {
-			return false
-		}
-	}
-	return true
 }
 
 // missingRequiredParams lists declared-required query/body parameters the call

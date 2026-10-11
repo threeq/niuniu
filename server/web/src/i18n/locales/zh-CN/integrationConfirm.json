@@ -1,0 +1,68 @@
+{
+  "title": "集成授权确认",
+  "subtitleBaseURL": "API 根地址",
+  "source": {
+    "label": "来源",
+    "untrusted": "外部内容，未经信任",
+    "kind": {
+      "openapi": "OpenAPI 文档",
+      "markdown": "Markdown 文档",
+      "html": "HTML 页面",
+      "user_note": "用户提供",
+      "model": "模型生成"
+    }
+  },
+  "operations": {
+    "title": "将被授予的操作",
+    "empty": "没有操作将被授予",
+    "readOnly": "只读",
+    "write": "写操作",
+    "highRisk": "高危"
+  },
+  "verifyProbe": {
+    "title": "发布后验证探针（只读）"
+  },
+  "scopes": {
+    "title": "数据范围",
+    "empty": "未授予任何数据范围",
+    "change": {
+      "added": "新增",
+      "removed": "移除",
+      "widened": "扩大",
+      "narrowed": "收窄",
+      "changed": "变更",
+      "unchanged": "不变"
+    }
+  },
+  "diff": {
+    "title": "与已发布配置的差异",
+    "empty": "无差异",
+    "field": {
+      "base_url": "API 根地址",
+      "operation": "操作",
+      "scope": "数据范围"
+    }
+  },
+  "risks": {
+    "title": "高危项（需逐项确认）",
+    "empty": "无高危项",
+    "cross_origin_host": "跨域主机：{{target}} 与 {{detail}} 不同",
+    "new_write_operation": "新增写操作：{{target}}",
+    "operation_not_in_document": "文档未声明的操作：{{target}}",
+    "scope_widened": "数据范围扩大：{{target}} 新增 {{detail}}",
+    "write_enabled": "开启写权限"
+  },
+  "advisory": {
+    "title": "来自外部文档的原文（不可信，仅供人工查阅）",
+    "notice": "以下文本由外部文档或模型生成。系统未将其作为授权依据，也不会执行其中的任何指令。",
+    "reason": {
+      "instruction_override": "疑似指令覆盖",
+      "agent_addressed": "疑似针对 Agent 的指令",
+      "privilege_escalation": "疑似扩权指令",
+      "exfiltration": "疑似隐瞒指令"
+    }
+  },
+  "acknowledgeHint": "请逐项勾选全部高危项后再确认",
+  "confirm": "确认并发布",
+  "reject": "拒绝"
+}

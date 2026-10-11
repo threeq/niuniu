@@ -1,5 +1,29 @@
 {
   "integrations": {
+    "health": {
+      "toastAutoDisabled": "集成源连续探测失败，已自动停用：{{name}}",
+      "toastDrift": "{{name}} 的上游 API 已变更——建议重新审阅契约",
+      "toastRecovered": "集成源已恢复：{{name}}",
+      "sectionTitle": "健康",
+      "status": {
+        "unknown": "尚未探测",
+        "healthy": "健康",
+        "unhealthy": "探测失败",
+        "disabled": "已停用"
+      },
+      "consecutiveFailures": "连续失败 {{count}} 次",
+      "probeNow": "立即探测",
+      "probeOk": "探测成功",
+      "probeFailed": "探测失败",
+      "reenable": "重新启用",
+      "reenableSuccess": "已重新启用",
+      "driftBadge": "上游已变更",
+      "driftHint": "上游 API 文档自上次审阅后已变更。请重新审阅契约，确认后清除此提示。",
+      "acknowledgeDrift": "已审阅，忽略",
+      "acknowledgeDriftSuccess": "已清除变更提示",
+      "lastProbe": "最近探测",
+      "autoDisabledHint": "连续探测失败后已自动停用。"
+    },
     "activity": {
       "sectionTitle": "集成活动",
       "sectionDescription": "通过集成发起的所有外部 API 调用与数据查询，最新在前。",

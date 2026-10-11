@@ -44,6 +44,10 @@ var kbAllowLocalSources = false
 // single process-wide value (not a per-service field) is the right shape.
 func SetKBAllowLocalSources(allow bool) { kbAllowLocalSources = allow }
 
+// KBAllowLocalSources reports the current gate value. Exposed so callers (and
+// tests in other packages) can save and restore it around a temporary override.
+func KBAllowLocalSources() bool { return kbAllowLocalSources }
+
 // ipBlocked reports whether an IP is in a range a tenant must not be able to
 // reach via a server-side fetch (loopback, RFC1918/ULA private, link-local incl.
 // the cloud-metadata 169.254.0.0/16, CGNAT 100.64/10, unspecified, multicast).

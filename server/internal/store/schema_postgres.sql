@@ -1482,6 +1482,20 @@ CREATE TABLE IF NOT EXISTS external_providers (
     openapi_url TEXT NOT NULL DEFAULT '',
     whitelist   TEXT NOT NULL DEFAULT '',
     enabled     INTEGER NOT NULL DEFAULT 1,
+    -- Continuous health (Epic #726 / #744): the same health columns as
+    -- data_sources, plus contract-drift state. upstream_spec_digest is the
+    -- sha256 of the upstream OpenAPI document as last reviewed;
+    -- contract_drift flips to 1 when a probe fetches a document whose digest
+    -- differs, until the user re-reviews (acknowledge) and re-baselines it.
+    health_status       TEXT NOT NULL DEFAULT 'unknown',
+    consecutive_failures BIGINT NOT NULL DEFAULT 0,
+    last_probe_at       TIMESTAMP DEFAULT NULL,
+    last_probe_error    TEXT NOT NULL DEFAULT '',
+    auto_disabled_at    TIMESTAMP DEFAULT NULL,
+    probe_interval_seconds BIGINT NOT NULL DEFAULT 86400,
+    upstream_spec_digest TEXT NOT NULL DEFAULT '',
+    contract_drift      BIGINT NOT NULL DEFAULT 0,
+    last_drift_at       TIMESTAMP DEFAULT NULL,
     created_by  TEXT NOT NULL DEFAULT 'user',
     created_at  TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at  TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
@@ -1516,6 +1530,31 @@ CREATE TABLE IF NOT EXISTS external_api_write_prefs (
     PRIMARY KEY (user_id, provider_id)
 );
 
+-- Continuous health probe runs (Epic #726 / #744).
+-- One row per probe of an integration source (Provider or DataSource), the
+-- health analog of schedule_runs. Lives in its own table rather than
+-- schedule_runs because that table's schedule_id/workspace_id are NOT NULL and
+-- foreign-keyed to workspace_schedules -- integration sources are owner-scoped
+-- or global, not per-workspace (workspace <-> schedule is 1:1 by design).
+CREATE TABLE IF NOT EXISTS integration_probe_runs (
+    id                   BIGSERIAL PRIMARY KEY,
+    subject_kind         TEXT NOT NULL CHECK (subject_kind IN ('provider','data_source')),
+    subject_id           BIGINT NOT NULL,
+    owner_type           TEXT NOT NULL DEFAULT 'user',
+    owner_id             BIGINT NOT NULL DEFAULT 0,
+    status               TEXT NOT NULL CHECK (status IN ('ok','failed','drift','skipped')),
+    message              TEXT NOT NULL DEFAULT '',
+    latency_ms           BIGINT NOT NULL DEFAULT 0,
+    contract_digest      TEXT NOT NULL DEFAULT '',
+    upstream_digest      TEXT NOT NULL DEFAULT '',
+    drift                BIGINT NOT NULL DEFAULT 0,
+    consecutive_failures BIGINT NOT NULL DEFAULT 0,
+    auto_disabled        BIGINT NOT NULL DEFAULT 0,
+    created_at           TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_integration_probe_runs_subject
+    ON integration_probe_runs(subject_kind, subject_id, created_at DESC);
+
 -- ============================================================
 -- Data integration: external data sources (SQL/Redis/CK/Mongo).
 -- Spec: docs/superpowers/specs/2026-06-04-data-integration-and-dashboard-design.md
@@ -1536,6 +1575,19 @@ CREATE TABLE IF NOT EXISTS data_sources (
     -- so pre-existing rows stay valid, but the service normalizes it on read+write.
     require_confirm     TEXT NOT NULL DEFAULT 'writes_only' CHECK (require_confirm IN ('always','writes_only','never')),
     last_verified_at    TIMESTAMP DEFAULT NULL,
+    -- Continuous health (Epic #726 / #744). enabled=0 means the source is
+    -- switched off -- by the user or automatically once consecutive_failures
+    -- reached the configured threshold. health_status is the last probe
+    -- verdict: unknown | healthy | unhealthy | disabled. Deliberately not
+    -- CHECK-constrained so the migration-added column is byte-identical
+    -- between fresh and upgraded databases.
+    enabled             INTEGER NOT NULL DEFAULT 1,
+    health_status       TEXT NOT NULL DEFAULT 'unknown',
+    consecutive_failures BIGINT NOT NULL DEFAULT 0,
+    last_probe_at       TIMESTAMP DEFAULT NULL,
+    last_probe_error    TEXT NOT NULL DEFAULT '',
+    auto_disabled_at    TIMESTAMP DEFAULT NULL,
+    probe_interval_seconds BIGINT NOT NULL DEFAULT 86400,
     created_at          TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at          TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     UNIQUE(owner_type, owner_id, name)

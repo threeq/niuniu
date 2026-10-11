@@ -229,6 +229,14 @@ type fakeSourceLoader struct {
 }
 
 func (l *fakeSourceLoader) Get(ctx context.Context, id, userID int64, orgIDs []int64) (*service.DataSourceDTO, error) {
+	// The proxy refuses a disabled source (#744). These fakes model an
+	// operational source, so default them to enabled unless a test says
+	// otherwise.
+	if l.dto.Enabled == 0 {
+		d := *l.dto
+		d.Enabled = 1
+		return &d, nil
+	}
 	return l.dto, nil
 }
 func (l *fakeSourceLoader) LoadConnConfig(ctx context.Context, id, userID int64, orgIDs []int64) (dataconn.ConnConfig, error) {
