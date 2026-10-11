@@ -520,3 +520,76 @@ func TestDataSourceUpdateMergesSecrets(t *testing.T) {
 		t.Fatalf("blank-password merge failed: %+v", cc)
 	}
 }
+
+// TestDataSourceRequireConfirmNormalization locks the require_confirm policy
+// contract: only "always" and "writes_only" are meaningful (a write is always
+// confirmed regardless — see TestDataProxyWritesAlwaysConfirmed), so every
+// other value — the removed legacy "never", blanks, and unknown garbage from
+// old clients — normalizes to "writes_only". Legacy rows are covered too: a
+// value forced directly into the column must read back as "writes_only" rather
+// than surfacing outside the DTO/TS contract.
+func TestDataSourceRequireConfirmNormalization(t *testing.T) {
+	svc, env := newTestDataSourceService(t)
+	ctx := context.Background()
+	uid := env.UserA
+
+	cases := []struct{ in, want string }{
+		{"always", "always"},
+		{"writes_only", "writes_only"},
+		{"never", "writes_only"}, // removed legacy value
+		{"", "writes_only"},      // blank -> default
+		{"bogus", "writes_only"}, // unknown -> default
+	}
+	for i, c := range cases {
+		id, err := svc.Create(ctx, service.CreateDataSourceInput{
+			OwnerType: "user", OwnerID: uid, UserID: uid,
+			Name: "rc-" + strconv.Itoa(i), Kind: "mysql",
+			Config:            map[string]any{"host": "h"},
+			DefaultAccessMode: "read", RequireConfirm: c.in,
+		})
+		if err != nil {
+			t.Fatalf("Create(require_confirm=%q): %v", c.in, err)
+		}
+		got, err := svc.Get(ctx, id, uid, nil)
+		if err != nil {
+			t.Fatalf("Get: %v", err)
+		}
+		if got.RequireConfirm != c.want {
+			t.Fatalf("Create require_confirm=%q -> %q, want %q", c.in, got.RequireConfirm, c.want)
+		}
+	}
+
+	// The Update path normalizes identically.
+	id, err := svc.Create(ctx, service.CreateDataSourceInput{
+		OwnerType: "user", OwnerID: uid, UserID: uid, Name: "rc-upd", Kind: "mysql",
+		Config: map[string]any{"host": "h"}, DefaultAccessMode: "read", RequireConfirm: "always",
+	})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	if err := svc.Update(ctx, id, uid, nil, service.UpdateDataSourceInput{
+		Name: "rc-upd", ScopeConfig: map[string]any{},
+		DefaultAccessMode: "read", RequireConfirm: "never",
+	}); err != nil {
+		t.Fatalf("Update: %v", err)
+	}
+	if got, err := svc.Get(ctx, id, uid, nil); err != nil || got.RequireConfirm != "writes_only" {
+		t.Fatalf("Update require_confirm=never -> %+v, err=%v; want writes_only", got, err)
+	}
+
+	// Existing-data compatibility: a row still holding the legacy "never" value
+	// (written by an older binary) reads back as "writes_only".
+	legacyID, err := svc.Create(ctx, service.CreateDataSourceInput{
+		OwnerType: "user", OwnerID: uid, UserID: uid, Name: "rc-legacy", Kind: "mysql",
+		Config: map[string]any{"host": "h"}, DefaultAccessMode: "read", RequireConfirm: "writes_only",
+	})
+	if err != nil {
+		t.Fatalf("Create legacy: %v", err)
+	}
+	if _, err := env.DB.Exec(`UPDATE data_sources SET require_confirm='never' WHERE id=?`, legacyID); err != nil {
+		t.Fatalf("force legacy value: %v", err)
+	}
+	if got, err := svc.Get(ctx, legacyID, uid, nil); err != nil || got.RequireConfirm != "writes_only" {
+		t.Fatalf("legacy require_confirm=never must read back as writes_only: %+v, err=%v", got, err)
+	}
+}

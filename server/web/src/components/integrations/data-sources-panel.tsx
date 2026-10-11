@@ -1296,8 +1296,10 @@ function DataSourceForm({ editing, onClose }: FormProps) {
               <option value="writes_only">
                 {t('sources.confirmWritesOnly')}
               </option>
-              <option value="never">{t('sources.confirmNever')}</option>
             </select>
+            <p className="text-xs text-warm-text-muted">
+              {t('sources.requireConfirmHint')}
+            </p>
           </div>
         </div>
 

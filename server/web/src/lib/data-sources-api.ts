@@ -8,7 +8,12 @@ import { api } from '@/lib/api'
 import type { DataSourceKind } from '@/types/data'
 
 export type AccessMode = 'read' | 'readwrite'
-export type RequireConfirm = 'always' | 'writes_only' | 'never'
+/**
+ * Per-source confirmation policy. Writes ALWAYS require user confirmation —
+ * this only controls whether reads are confirmed too. ("never" was removed: it
+ * behaved identically to "writes_only"; legacy values normalize server-side.)
+ */
+export type RequireConfirm = 'always' | 'writes_only'
 
 export type SSHAuthMethod = 'password' | 'private_key'
 
