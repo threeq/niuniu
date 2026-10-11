@@ -15,6 +15,7 @@ package service
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -150,7 +151,22 @@ func newFnE2E(t *testing.T) *fnE2E {
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"orders":[{"id":"42"}],"path":"` + r.URL.Path + `"}`))
+		if r.URL.Path == "/oauth/token" {
+			var body map[string]any
+			_ = json.NewDecoder(r.Body).Decode(&body)
+			if body["grant"] != "grant-1" {
+				w.WriteHeader(http.StatusBadRequest)
+				_, _ = w.Write([]byte(`{"error":"the caller's input did not reach step 1"}`))
+				return
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"token":"tok-123"}`))
+			return
+		}
+		// Echo the token the caller threaded through, so the test can prove the
+		// value from step 1 actually reached step 2.
+		_, _ = w.Write([]byte(`{"orders":[{"id":"42"}],"path":"` + r.URL.Path +
+			`","seen_token":"` + r.URL.Query().Get("token") + `"}`))
 	}))
 	t.Cleanup(upstream.Close)
 
@@ -176,6 +192,8 @@ func (e *fnE2E) seedProviderAndFunction(t *testing.T) FunctionView {
 				Provider: "E2E Orders",
 				BaseURL:  e.upstream.URL,
 				Operations: []ContractOperation{
+					{Name: "exchangeToken", Method: "POST", Path: "/oauth/token", ReadOnly: true,
+						ResponseShape: `{"token":"tok-123"}`},
 					{Name: "listOrders", Method: "GET", Path: "/orders", ReadOnly: true,
 						// Declaring the response shape is what lets the rehearsal
 						// hand the function a realistic body instead of a null the
@@ -191,12 +209,20 @@ func (e *fnE2E) seedProviderAndFunction(t *testing.T) FunctionView {
 				Description: "Fetch the order list",
 				Idempotent:  true,
 				Enabled:     true,
+				// The scenario the whole feature exists for: two calls where the
+				// second needs a value the first produced.
 				Code: `function main(input) {
-					const res = http_request({operation: "listOrders"});
-					if (!res.ok) { return {ok: false, error: res.error}; }
-					return {ok: true, count: res.body.orders.length, path: res.body.path};
+					const tok = http_request({operation: "exchangeToken", body: {grant: input.grant}});
+					if (!tok.ok) { return {ok: false, step: "token", error: tok.error}; }
+					const orders = http_request({operation: "listOrders", query: {token: tok.body.token}});
+					if (!orders.ok) { return {ok: false, step: "orders", error: orders.error}; }
+					return {ok: true, count: orders.body.orders.length, path: orders.body.path,
+					        token: orders.body.seen_token, steps: 2};
 				}`,
-				Egress: []sandbox.EgressOp{{Operation: "listOrders", ReadOnly: true}},
+				Egress: []sandbox.EgressOp{
+					{Operation: "exchangeToken", ReadOnly: true},
+					{Operation: "listOrders", ReadOnly: true},
+				},
 			}},
 		},
 	})
@@ -293,6 +319,7 @@ func TestOperationFunctionEndToEnd(t *testing.T) {
 	res, err := e.functions.Invoke(ctx, FunctionInvokeInput{
 		OwnerType: "user", OwnerID: 7, UserID: 7,
 		FunctionID: fn.ID, Caller: CallerAgent,
+		Input:          map[string]any{"grant": "grant-1"},
 		IdempotencyKey: "e2e-1",
 	})
 	if err != nil {
@@ -308,8 +335,19 @@ func TestOperationFunctionEndToEnd(t *testing.T) {
 	if out["path"] != "/orders" {
 		t.Fatalf("the host did not resolve the operation to its path: %#v", res.Output)
 	}
-	if res.EgressCalls != 1 || len(res.EgressOps) != 1 || res.EgressOps[0] != "listOrders" {
+	// Both steps, in order — the trail is what an operator reads during the
+	// observation window, so its ORDER is part of the record.
+	if res.EgressCalls != 2 || len(res.EgressOps) != 2 ||
+		res.EgressOps[0] != "exchangeToken" || res.EgressOps[1] != "listOrders" {
 		t.Fatalf("the egress trail is wrong: %#v", res.EgressOps)
+	}
+	// The value produced by step 1 reached step 2: this is the whole point of
+	// the feature, and a single-call test cannot observe it.
+	if out["token"] != "tok-123" {
+		t.Fatalf("the token from the first call did not reach the second: %#v", res.Output)
+	}
+	if out["steps"] != float64(2) {
+		t.Fatalf("the function did not complete both steps: %#v", res.Output)
 	}
 	if !res.Observation {
 		t.Fatal("the first call was not recorded as part of the observation window")
@@ -340,6 +378,7 @@ func TestOperationFunctionEndToEnd(t *testing.T) {
 	replay, err := e.functions.Invoke(ctx, FunctionInvokeInput{
 		OwnerType: "user", OwnerID: 7, UserID: 7,
 		FunctionID: fn.ID, Caller: CallerAgent, IdempotencyKey: "e2e-1",
+		Input: map[string]any{"grant": "grant-1"},
 	})
 	if err != nil {
 		t.Fatalf("replay: %v", err)

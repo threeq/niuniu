@@ -137,13 +137,21 @@ func Run(ctx context.Context, req RunRequest) *RunResult {
 		stderrDone <- buf.String()
 	}()
 
+	input := req.Input
+	if input == nil {
+		// `input` is always an object inside the box. Handing the function a
+		// null instead would turn `input.id` into a TypeError for a call that
+		// simply passed no arguments — a confusing failure that says nothing
+		// about the function's logic.
+		input = map[string]any{}
+	}
 	if err := WriteFrame(proc.Stdin(), InvokeMessage{
 		Kind:    KindInvoke,
 		Name:    spec.Name,
 		Runtime: spec.Runtime,
 		Code:    spec.Code,
 		Entry:   spec.Entry,
-		Input:   req.Input,
+		Input:   input,
 		Limits:  lim,
 	}); err != nil {
 		res.Error = &BoxError{Code: ErrSpawnFailed, Message: "the box did not accept its invocation: " + err.Error()}
