@@ -96,6 +96,21 @@ func TestStaticStrategy_MatchesLegacyInjection(t *testing.T) {
 	}
 }
 
+// TestAuthStrategyFactory pins the registry contract: every canonical name
+// resolves, and an unknown name reports ok=false so the proxy degrades to the
+// static path instead of failing closed on a working credential.
+func TestAuthStrategyFactory(t *testing.T) {
+	cache := newOAuthTokenCache()
+	for _, name := range []string{"static", "bearer", "query_param", "oauth2_refresh", "hmac", "sigv4", "mtls"} {
+		if _, ok := authStrategyFactory(name, cache); !ok {
+			t.Errorf("authStrategyFactory(%q) reported unknown", name)
+		}
+	}
+	if _, ok := authStrategyFactory("quantum-entanglement", cache); ok {
+		t.Error("an unknown strategy name must report ok=false so the caller can fall back")
+	}
+}
+
 func TestNormalizeStrategyName(t *testing.T) {
 	cases := map[string]string{
 		"":               strategyStatic,
@@ -552,6 +567,61 @@ func TestOAuth2_StaticAccessTokenPassthrough(t *testing.T) {
 	}
 	if got := req.Header.Get("Authorization"); got != "Bearer ya29.pasted" {
 		t.Fatalf("Authorization: got %q", got)
+	}
+}
+
+// TestOAuth2_TokenErrorDoesNotLeakResponseBody guards the credential-context
+// rule: a token endpoint's error text reaches the agent, so the raw response
+// body (which a hostile endpoint could use to echo the client_secret back) must
+// never be included — only the RFC 6749 error code.
+func TestOAuth2_TokenErrorDoesNotLeakResponseBody(t *testing.T) {
+	const secret = "rt-super-secret-xyz"
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte(`{"error":"invalid_grant","error_description":"refresh_token ` + secret + ` rejected"}`))
+	}))
+	defer srv.Close()
+
+	u, _ := url.Parse("https://api.example.com/")
+	req := &AuthRequest{
+		Method: "GET", URL: u, Header: http.Header{},
+		Provider: &ProviderDef{AuthHeader: "Authorization"},
+		Config: map[string]any{
+			"token_url":     srv.URL,
+			"client_id":     "c",
+			"client_secret": secret,
+			"refresh_token": secret,
+		},
+		Client: srv.Client(), CredKey: "leak",
+	}
+	_, err := (&oauth2AuthStrategy{cache: newOAuthTokenCache()}).Apply(context.Background(), req)
+	if err == nil {
+		t.Fatal("expected an error from the failing token endpoint")
+	}
+	if strings.Contains(err.Error(), secret) {
+		t.Fatalf("token endpoint response body leaked into the agent-visible error: %v", err)
+	}
+	if !strings.Contains(err.Error(), "invalid_grant") {
+		t.Fatalf("the RFC error code should still be surfaced, got: %v", err)
+	}
+}
+
+// TestOAuth2_NilClientRejected locks the SSRF posture: the token request must
+// never fall back to an unguarded default client.
+func TestOAuth2_NilClientRejected(t *testing.T) {
+	u, _ := url.Parse("https://api.example.com/")
+	req := &AuthRequest{
+		Method: "GET", URL: u, Header: http.Header{},
+		Provider: &ProviderDef{AuthHeader: "Authorization"},
+		Config: map[string]any{
+			"token_url": "https://auth.example.com/token",
+			"client_id": "c", "client_secret": "s", "refresh_token": "r",
+		},
+		Client: nil, CredKey: "noclient",
+	}
+	_, err := (&oauth2AuthStrategy{cache: newOAuthTokenCache()}).Apply(context.Background(), req)
+	if !isAuthStrategyErr(err) {
+		t.Fatalf("a nil client must fail closed with AuthStrategyError, got %v", err)
 	}
 }
 

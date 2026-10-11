@@ -59,7 +59,7 @@ func (s *Server) proxyCall(c *gin.Context) {
 	}
 	if req.Method != "" {
 		switch strings.ToUpper(req.Method) {
-		case "GET", "POST", "PUT", "PATCH", "DELETE", "HEAD":
+		case "GET", "POST", "PUT", "PATCH", "DELETE":
 		default:
 			c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{"code": "BAD_REQUEST", "message": "unsupported HTTP method: " + req.Method}})
 			return

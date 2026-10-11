@@ -365,9 +365,17 @@ func (o *oauth2AuthStrategy) exchange(ctx context.Context, req *AuthRequest, tok
 		httpReq.SetBasicAuth(url.QueryEscape(clientID), url.QueryEscape(clientSecret))
 	}
 
+	// The token endpoint is an externally-supplied URL, so the request MUST go
+	// through the proxy's SSRF-guarded client (which rejects loopback/private/
+	// link-local/cloud-metadata and pins the resolved IP to defeat DNS
+	// rebinding; it honours the personal edition's local-source allowance).
+	// Never fall back to an unguarded default client — a nil client is a wiring
+	// bug, and silently using http.DefaultClient would open the SSRF hole this
+	// path is meant to be behind.
 	client := req.Client
 	if client == nil {
-		client = http.DefaultClient
+		return "", 0, &AuthStrategyError{Strategy: "oauth2_refresh",
+			Message: "no SSRF-guarded client available for the token request"}
 	}
 	resp, err := client.Do(httpReq)
 	if err != nil {
@@ -388,16 +396,17 @@ func (o *oauth2AuthStrategy) exchange(ctx context.Context, req *AuthRequest, tok
 	}
 	_ = json.Unmarshal(raw, &parsed)
 	if resp.StatusCode >= 400 || parsed.AccessToken == "" {
-		detail := parsed.Error
-		if parsed.ErrorDesc != "" {
-			detail += " (" + parsed.ErrorDesc + ")"
-		}
+		// Report ONLY the RFC 6749 `error` code — never the raw response body
+		// or `error_description`. A hostile or misconfigured token endpoint
+		// could echo the client_secret/refresh_token back in its error text,
+		// and this message reaches the agent, which must never see a
+		// credential. The error code alone is enough to act on.
+		detail := strings.TrimSpace(parsed.Error)
 		if detail == "" {
-			detail = truncateForError(string(raw))
+			detail = "no error code in response"
 		}
-
 		return "", 0, &AuthStrategyError{Strategy: "oauth2_refresh",
-			Message: fmt.Sprintf("token endpoint returned %d: %s", resp.StatusCode, detail)}
+			Message: fmt.Sprintf("token endpoint returned %d (%s)", resp.StatusCode, detail)}
 	}
 	ttl := coerceSeconds(parsed.ExpiresIn)
 	if ttl <= 0 {
@@ -440,10 +449,6 @@ func coerceSeconds(v any) time.Duration {
 		}
 	}
 	return 0
-}
-
-func truncateForError(s string) string {
-	return truncate(s, 200)
 }
 
 // oauthTokenCache caches access tokens per credential. A single fetch mutex
@@ -711,10 +716,16 @@ func sigV4Sign(req *AuthRequest, accessKey, secretKey, sessionToken, region, ser
 	signature := hex.EncodeToString(hmacSHA256(signingKey, stringToSign))
 
 	req.Header.Set("X-Amz-Date", amzDate)
-	req.Header.Set("X-Amz-Content-Sha256", payloadHash)
 	if sessionToken != "" {
 		req.Header.Set("X-Amz-Security-Token", sessionToken)
 	}
+	// NB: no unsigned `x-amz-content-sha256`. AWS requires every `x-amz-*`
+	// header present on the request to be covered by SignedHeaders, so sending
+	// it unsigned invites SignatureDoesNotMatch. The payload is still committed
+	// by the signature via HashedPayload in the canonical request, and omitting
+	// the header is exactly what the AWS test-suite `get-vanilla` vector does
+	// (our known-answer test). S3, which mandates a signed payload header, is
+	// out of scope here.
 	req.Header.Set("Authorization", fmt.Sprintf(
 		"AWS4-HMAC-SHA256 Credential=%s/%s, SignedHeaders=%s, Signature=%s",
 		accessKey, credentialScope, signedHeaders, signature))

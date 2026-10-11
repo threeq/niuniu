@@ -291,7 +291,11 @@ func (s *ExternalProxyService) Call(ctx context.Context, in ProxyInput) (*ProxyO
 	if err != nil {
 		return nil, asProxyAuthError(in.Provider, strategyName, err)
 	}
-	if resp.StatusCode == http.StatusUnauthorized && canRefreshStrategy(strategyName) {
+	// A forced refresh can only help when there is a token endpoint to refresh
+	// against; a pasted static access token has nothing to re-mint, so the
+	// retry would just repeat the same failing request.
+	if resp.StatusCode == http.StatusUnauthorized && canRefreshStrategy(strategyName) &&
+		strings.TrimSpace(strFromCfg(cred.Config, "token_url")) != "" {
 		s.oauthCache.invalidate(credKey)
 		if resp2, body2, outcome2, err2 := doAttempt(true); err2 == nil {
 			resp, respBody, outcome = resp2, body2, outcome2

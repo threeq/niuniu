@@ -432,13 +432,6 @@ func (i ContractIssue) String() string {
 
 // --- operation resolution (operation-level authorization, issue #737) ------
 
-// HasOperations reports whether the contract declares any named operation.
-// Only such contracts are governed by operation-level authorization; a
-// contract with none falls back to the legacy method+path whitelist.
-func (c *ProviderContract) HasOperations() bool {
-	return c != nil && len(c.Operations) > 0
-}
-
 // OperationByName returns the operation with the given semantic name. Names
 // are matched case-insensitively so an agent's casing never causes a spurious
 // "unknown operation".
