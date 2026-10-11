@@ -216,6 +216,9 @@ export interface IntegrationActivityItem {
   method?: string;
   path?: string;
   status_code?: number;
+  /** Derived on read: the outbound body exceeded the egress warn threshold, so
+   *  the row is flagged (防批量外泄). Epic #726 / #747. */
+  oversize?: boolean;
 
   // kind === 'data'
   source_id?: number;

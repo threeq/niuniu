@@ -1530,6 +1530,13 @@ func New(cfg *config.Config, db *sql.DB, frontendFS fs.FS) *Server {
 	s.imbotSvc = service.NewIMBotService(s.queries, db, keyring, s.authzSvc, imbotAdapters)
 	// Health alerts now reach both channels: station-in hub + IM Bot (#744).
 	s.integrationHealthSvc.SetNotifier(&integrationHealthNotifier{hub: s.notifyHub, imbotSvc: s.imbotSvc})
+	// Egress data-governance alerts (#747) use the same two channels. The
+	// personal edition only ever warns, so this notifier never gates a call.
+	s.externalProxySvc.SetEgressAlertNotifier(&egressAlertNotifier{hub: s.notifyHub, imbotSvc: s.imbotSvc})
+	// The audit READ side flags an over-threshold body using the SAME warn
+	// threshold the write side used (the row persists the byte count, the flag
+	// is derived), so the two never disagree.
+	s.integrationAuditSvc.SetEgressPolicy(s.externalProxySvc.EgressPolicy())
 	// Inbound (W2): route incoming IM messages into the channel's bound project
 	// via the generalized RouteInProject, deliver to the workspace agent, and
 	// write permission-button decisions back through PermissionService. The

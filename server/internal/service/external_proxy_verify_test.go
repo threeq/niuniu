@@ -117,6 +117,34 @@ func TestPrecheckCallDoesNotTouchUpstream(t *testing.T) {
 	require.Equal(t, int32(1), atomic.LoadInt32(e.hits))
 }
 
+// The dry run reports a value-free data summary of the body a write would send
+// (Epic #726 / #747), so the write preview shows the DATA — field names + size +
+// sensitive-pattern hits — not just the endpoint. Never touches the upstream.
+func TestPrecheckCallReportsEgressDataSummary(t *testing.T) {
+	e := newVerifyEnv(t, http.StatusOK)
+	prov := e.seedProvider(t, "drysummary", probeContract, true)
+	ctx := context.Background()
+	require.NoError(t, e.provSvc.SetWritePref(ctx, e.userID, prov.ID, true))
+
+	pre, err := e.svc.PrecheckCall(ctx, service.ProxyInput{
+		UserID: e.userID, Provider: "drysummary", Method: "POST", Path: "/items",
+		Body: map[string]any{"title": "hi", "password": "p@ss"},
+	})
+	require.NoError(t, err)
+	require.NotNil(t, pre.DataSummary, "a write preview must carry a data summary")
+	require.Equal(t, []string{"password", "title"}, pre.DataSummary.Fields)
+	require.True(t, pre.DataSummary.HasSensitive(), "the password key must be flagged")
+	require.NotNil(t, pre.EgressVerdict)
+	require.Equal(t, int32(0), atomic.LoadInt32(e.hits), "the summary is derived locally")
+
+	// A bodyless read carries no summary (nothing to describe).
+	pre, err = e.svc.PrecheckCall(ctx, service.ProxyInput{
+		UserID: e.userID, Provider: "drysummary", Method: "GET", Path: "/items",
+	})
+	require.NoError(t, err)
+	require.Nil(t, pre.DataSummary)
+}
+
 // A successful publish runs the probe and enables the provider.
 func TestPublishProviderSuccessEnables(t *testing.T) {
 	e := newVerifyEnv(t, http.StatusOK)

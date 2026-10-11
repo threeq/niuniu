@@ -49,7 +49,10 @@
       "noBody": "No request body",
       "fieldsNone": "(no fields)",
       "fingerprint": "body sha256 {{hash}}… · {{bytes}} B · fields: {{fields}}",
-      "dataMeta": "{{rows}} rows · {{ms}} ms"
+      "dataMeta": "{{rows}} rows · {{ms}} ms",
+      "oversize": "oversize",
+      "oversizeHint": "The outbound request body exceeded the egress warning threshold.",
+      "oversizeToast": "Large outbound payload to {{provider}} was flagged. Review it in Integration activity."
     },
     "pageTitle": "Integrations",
     "addCredential": "Add credential",

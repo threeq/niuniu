@@ -93,6 +93,15 @@ type ExternalProxyService struct {
 	// refresh token is exchanged once and reused until it nears expiry (issue
 	// #737). Service-scoped (not a package singleton) so tests stay isolated.
 	oauthCache *oauthTokenCache
+
+	// egressPolicy judges the DATA leaving through a write (size, sensitive
+	// patterns) — the "what" half of egress governance, orthogonal to the
+	// whitelist's "which call" half (Epic #726 / #747). Defaults to the
+	// personal-edition warn-only policy; a team edition replaces it (#740).
+	egressPolicy EgressPolicy
+	// egressNotifier delivers a non-allow verdict to the owner. Nil drops
+	// alerts (tests that do not exercise alerting).
+	egressNotifier EgressAlertNotifier
 }
 
 // NewExternalProxyService wires the proxy with its dependencies.
@@ -107,9 +116,64 @@ func NewExternalProxyService(q *store.Queries, rawDB *sql.DB, providerSvc *Exter
 		// user-supplied api_base_url can't reach loopback/private/link-local/
 		// cloud-metadata (169.254.169.254) addresses, and DNS rebinding + proxy
 		// bypass are closed. Redirect hops re-dial through the same hook.
-		client:     NewSSRFGuardedClient(30*time.Second, 30*time.Second),
-		oauthCache: newOAuthTokenCache(),
+		client:       NewSSRFGuardedClient(30*time.Second, 30*time.Second),
+		oauthCache:   newOAuthTokenCache(),
+		egressPolicy: DefaultEgressPolicy{},
 	}
+}
+
+// SetEgressPolicy replaces the egress-data policy (team edition, #740). A nil
+// policy restores the personal-edition warn-only default.
+func (s *ExternalProxyService) SetEgressPolicy(p EgressPolicy) {
+	if p == nil {
+		p = DefaultEgressPolicy{}
+	}
+	s.egressPolicy = p
+}
+
+// SetEgressAlertNotifier wires the owner-scoped alert sink.
+func (s *ExternalProxyService) SetEgressAlertNotifier(n EgressAlertNotifier) { s.egressNotifier = n }
+
+// EgressPolicy returns the configured policy (never nil). The audit read side
+// reuses it so the two views agree on the warn threshold.
+func (s *ExternalProxyService) EgressPolicy() EgressPolicy { return s.egressPolicyOrDefault() }
+
+// egressPolicyOrDefault returns the configured policy, or the warn-only default.
+func (s *ExternalProxyService) egressPolicyOrDefault() EgressPolicy {
+	if s.egressPolicy == nil {
+		return DefaultEgressPolicy{}
+	}
+	return s.egressPolicy
+}
+
+// raiseEgressAlert notifies the owner (and, in the team edition, the org) that
+// an outbound body tripped the egress policy. Best-effort: it must never change
+// the call outcome (the personal edition only ever warns here).
+func (s *ExternalProxyService) raiseEgressAlert(ctx context.Context, in ProxyInput, providerID int64, method, path string, summary EgressDataSummary, verdict EgressVerdict) {
+	if s.egressNotifier == nil {
+		return
+	}
+	ownerType, ownerID := "user", in.UserID
+	if in.WorkspaceID > 0 {
+		// An in-workspace agent call is owned by the workspace's owner, which may
+		// be an org; resolve it so the alert reaches the right audience.
+		if ws, err := s.q.GetWorkspace(ctx, in.WorkspaceID); err == nil {
+			if ws.OwnerType != "" && ws.OwnerID != 0 {
+				ownerType, ownerID = ws.OwnerType, ws.OwnerID
+			}
+		}
+	}
+	s.egressNotifier.NotifyEgressAlert(ctx, EgressAlert{
+		OwnerType:  ownerType,
+		OwnerID:    ownerID,
+		UserID:     in.UserID,
+		Provider:   in.Provider,
+		ProviderID: providerID,
+		Method:     method,
+		Path:       path,
+		Summary:    summary,
+		Verdict:    verdict,
+	})
 }
 
 // ProxyInput is the request to call_external_api.
@@ -243,6 +307,31 @@ func (s *ExternalProxyService) Call(ctx context.Context, in ProxyInput) (*ProxyO
 		if err != nil {
 			return nil, fmt.Errorf("marshal body: %w", err)
 		}
+	}
+
+	// 6.5 Egress data governance (#747): summarize the body value-free and ask
+	// the policy. This runs at the single egress point — after authorization,
+	// before anything leaves the machine — so a team-edition policy that BLOCKS
+	// is enforced no matter which path produced the call. The personal edition
+	// ships a warn-only policy: it never blocks, only flags and notifies.
+	summary := SummarizeEgressBody(bodyBytes)
+	egressVerdict := s.egressPolicyOrDefault().Evaluate(ctx, EgressRequest{
+		UserID:     in.UserID,
+		Provider:   in.Provider,
+		ProviderID: prov.ID,
+		Method:     method,
+		Path:       path,
+		Summary:    summary,
+	})
+	if egressVerdict.Decision == EgressBlock {
+		return nil, &ProxyError{
+			Code:     "egress_blocked",
+			Message:  fmt.Sprintf("The %s %s request to %s was refused by the organization's egress policy: %s", method, path, in.Provider, strings.Join(egressVerdict.Reasons, "; ")),
+			Provider: in.Provider,
+		}
+	}
+	if egressVerdict.Decision != EgressAllow {
+		s.raiseEgressAlert(ctx, in, prov.ID, method, path, summary, egressVerdict)
 	}
 
 	// 7. Resolve the auth strategy. An unknown strategy name degrades to the

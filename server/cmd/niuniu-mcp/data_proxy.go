@@ -20,7 +20,7 @@ import (
 // dataQueryDryRun + dataQueryIdempotency are appended to the run_data_query
 // description: dry_run is the execute-before self-check, and the idempotency
 // note is the discipline for side-effecting (write) operations.
-const dataQueryDryRun = "\n\nDRY RUN: pass dry_run=true to check a query WITHOUT running it — returns whether it is in scope, whether it reads or writes, and whether a write confirmation would fire. Use it before an expensive or side-effecting query."
+const dataQueryDryRun = "\n\nDRY RUN: pass dry_run=true to check a query WITHOUT running it — returns whether it is in scope, whether it reads or writes, whether a write confirmation would fire, and (for a write that carries a payload) a value-free data_summary of what would be sent (size, top-level field names, sensitive-pattern hits). Use it before an expensive or side-effecting query."
 
 const dataQueryIdempotency = "\n\nIDEMPOTENCY (writes): a write always requires confirmation and is never de-duplicated by niuniu, so make create/update operations re-runnable (upsert on a natural key) where the source supports it, and READ the current state first. If a write's result is uncertain (a timeout / no response), do NOT replay it — re-read to see whether it took effect, then act on what you find."
 
