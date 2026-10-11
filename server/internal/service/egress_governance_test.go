@@ -12,6 +12,7 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 )
@@ -127,6 +128,34 @@ func TestSummarizeEgressBody_CountsRepeatedMatches(t *testing.T) {
 	}
 	if len(h.Where) != 3 {
 		t.Errorf("where = %v, want 3 locators", h.Where)
+	}
+}
+
+// A sensitive value must be caught wherever it sits — a scanner that truncates
+// values, stops after a node budget, or only looks at JSON would miss these.
+// They are the bypasses a "shortcut" tripwire would ship with.
+func TestSummarizeEgressBody_DetectsBeyondPrefixAndNodeCaps(t *testing.T) {
+	// 1) Secret appended well past a benign prefix inside one string value.
+	raw := mustJSONBytes(t, map[string]any{
+		"note": strings.Repeat("a", 8192) + " alice@example.com",
+	})
+	if !hasHit(SummarizeEgressBody(raw), "email") {
+		t.Error("value pattern past a long prefix was not detected")
+	}
+
+	// 2) Secret-shaped key buried after many sibling nodes.
+	big := map[string]any{}
+	for i := 0; i < 30000; i++ {
+		big[fmt.Sprintf("k%05d", i)] = "x"
+	}
+	big["token"] = "abcd"
+	if !hasHit(SummarizeEgressBody(mustJSONBytes(t, big)), "credential") {
+		t.Error("key pattern past many nodes was not detected")
+	}
+
+	// 3) A body that is not JSON is still content-scanned (as raw text).
+	if !hasHit(SummarizeEgressBody([]byte("email=bob@example.com&x=1")), "email") {
+		t.Error("non-JSON body was not content-scanned")
 	}
 }
 

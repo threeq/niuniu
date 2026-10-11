@@ -37,18 +37,11 @@ import (
 // through EgressPolicy (issue #740).
 const DefaultEgressWarnBytes int64 = 1 << 20 // 1 MiB
 
-// maxEgressScanNodes bounds the sensitive-pattern walk so a pathological body
-// (a huge or deeply nested payload) cannot turn a policy check into a CPU sink.
-const maxEgressScanNodes = 20000
-
 // maxSensitiveWhere caps how many field paths a single hit records, so the
-// summary stays a summary.
+// summary stays a summary. This bounds REPORTING only — never detection: the
+// walk always visits every node and every value, so a sensitive value can
+// never hide behind a count/path cap.
 const maxSensitiveWhere = 5
-
-// maxSensitiveValueScan bounds how much of one string value is pattern-matched
-// (patterns of interest — a card number, a private-key header — sit near the
-// start of a value; scanning megabytes of prose buys nothing).
-const maxSensitiveValueScan = 4096
 
 // EgressSensitiveHit is one sensitive-pattern category that matched in an
 // outbound body. It records the category, how many times it matched, and up to
@@ -125,6 +118,12 @@ var sensitiveRules = []sensitiveRule{
 
 // SummarizeEgressBody builds a value-free summary of raw (the marshaled request
 // body). A nil/empty body yields a zero summary with an empty field list.
+//
+// Detection is COMPLETE — every node and every string value is scanned, and a
+// non-JSON body is scanned as raw text — because a tripwire that skips part of
+// the payload is not a tripwire. Only the reported locator list is capped
+// (maxSensitiveWhere). The patterns are RE2 (linear time, no backtracking), so
+// a full scan is O(body size), never a CPU sink.
 func SummarizeEgressBody(raw []byte) EgressDataSummary {
 	s := EgressDataSummary{Bytes: int64(len(raw)), Fields: []string{}}
 	if len(raw) == 0 {
@@ -132,15 +131,17 @@ func SummarizeEgressBody(raw []byte) EgressDataSummary {
 	}
 	s.Fields, s.FieldsTruncated = topLevelFieldNames(raw)
 
+	hits := map[string]*EgressSensitiveHit{}
 	var v any
 	if err := json.Unmarshal(raw, &v); err != nil {
-		// A non-JSON body (should not happen — bodies are marshaled from maps,
-		// but stay tolerant) still reports its size.
-		return s
+		// Not JSON (a form-encoded or plain-text payload, or a body too deeply
+		// nested for the decoder). Content detection still runs over the raw
+		// bytes — there are no key names to match, so only the value patterns
+		// apply — so a secret cannot slip through merely by not being JSON.
+		scanSensitiveString(string(raw), "", hits)
+	} else {
+		scanSensitiveValue(v, "", hits)
 	}
-	budget := maxEgressScanNodes
-	hits := map[string]*EgressSensitiveHit{}
-	scanSensitiveValue(v, "", hits, &budget)
 	s.SensitiveHits = sortedSensitiveHits(hits)
 	return s
 }
@@ -181,13 +182,9 @@ func topLevelFieldNames(raw []byte) (fields []string, truncated bool) {
 
 // scanSensitiveValue walks a decoded JSON value, accumulating per-category
 // hits. `path` is the dotted key path used only as a human-readable locator —
-// no value is recorded. budget bounds total node visits.
-func scanSensitiveValue(node any, path string, hits map[string]*EgressSensitiveHit, budget *int) {
-	if *budget <= 0 {
-		return
-	}
-	*budget--
-
+// no value is recorded. Every node is visited (no node budget), so detection
+// cannot be skipped by burying the payload.
+func scanSensitiveValue(node any, path string, hits map[string]*EgressSensitiveHit) {
 	switch v := node.(type) {
 	case map[string]any:
 		for k, child := range v {
@@ -201,23 +198,25 @@ func scanSensitiveValue(node any, path string, hits map[string]*EgressSensitiveH
 					recordSensitiveHit(hits, r, childPath)
 				}
 			}
-			scanSensitiveValue(child, childPath, hits, budget)
+			scanSensitiveValue(child, childPath, hits)
 		}
 	case []any:
 		for i, child := range v {
 			// Index is a locator only; it is not a key name, so no keyRe runs here.
-			scanSensitiveValue(child, fmt.Sprintf("%s[%d]", path, i), hits, budget)
+			scanSensitiveValue(child, fmt.Sprintf("%s[%d]", path, i), hits)
 		}
 	case string:
-		scanned := v
-		if len(scanned) > maxSensitiveValueScan {
-			scanned = scanned[:maxSensitiveValueScan]
-		}
-		for i := range sensitiveRules {
-			r := &sensitiveRules[i]
-			if r.valRe != nil && r.valRe.MatchString(scanned) {
-				recordSensitiveHit(hits, r, path)
-			}
+		scanSensitiveString(v, path, hits)
+	}
+}
+
+// scanSensitiveString runs every value rule over s in full — no prefix
+// truncation, so a secret appended past any fixed offset is still caught.
+func scanSensitiveString(s, path string, hits map[string]*EgressSensitiveHit) {
+	for i := range sensitiveRules {
+		r := &sensitiveRules[i]
+		if r.valRe != nil && r.valRe.MatchString(s) {
+			recordSensitiveHit(hits, r, path)
 		}
 	}
 }
