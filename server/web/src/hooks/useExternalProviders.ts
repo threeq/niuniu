@@ -61,3 +61,32 @@ export function useSetProviderWriteEnabled() {
     onSuccess: () => qc.invalidateQueries({ queryKey: KEY }),
   });
 }
+
+// --- Continuous health + contract drift (#744) ------------------------------
+
+/** Run a provider's health probe now and refresh the list. */
+export function useProbeProvider() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: number) => externalProxyApi.probeProvider(id),
+    onSuccess: () => qc.invalidateQueries({ queryKey: KEY }),
+  });
+}
+
+/** Re-enable a provider after an auto-disable, clearing the failure streak. */
+export function useReenableProvider() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: number) => externalProxyApi.reenableProvider(id),
+    onSuccess: () => qc.invalidateQueries({ queryKey: KEY }),
+  });
+}
+
+/** Acknowledge upstream contract drift (re-baseline the digest). */
+export function useAcknowledgeProviderDrift() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: number) => externalProxyApi.acknowledgeDrift(id),
+    onSuccess: () => qc.invalidateQueries({ queryKey: KEY }),
+  });
+}

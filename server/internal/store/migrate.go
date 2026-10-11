@@ -567,6 +567,12 @@ func Migrate(db *sql.DB) {
 		slog.Error("MigrateExternalProviders failed", "error", err)
 	}
 
+	// Continuous integration-source health (Epic #726 / #744): health columns
+	// on external_providers + data_sources for pre-existing DBs. The
+	// integration_probe_runs table itself is created by schema.sql
+	// (CREATE TABLE IF NOT EXISTS runs on every startup).
+	MigrateIntegrationHealth(db)
+
 	// External credential alias + credential_id migration.
 	migrateExternalCredentialAlias(db)
 
@@ -3758,6 +3764,40 @@ func MigrateExternalProviders(db *sql.DB) error {
 	addAuditIndexes(db)
 
 	return nil
+}
+
+// MigrateIntegrationHealth adds the continuous-health columns (Epic #726 /
+// #744) to external_providers and data_sources on pre-existing databases.
+// Fresh databases get them from schema.sql; this only backfills upgrades.
+// Idempotent via addColumnIfNotExists. The integration_probe_runs table and
+// its index are NOT created here -- schema.sql's CREATE TABLE/INDEX IF NOT
+// EXISTS handles both fresh and existing databases on every startup.
+func MigrateIntegrationHealth(db *sql.DB) {
+	intCol, tsCol := "INTEGER", "DATETIME"
+	if Driver == "postgres" {
+		intCol, tsCol = "BIGINT", "TIMESTAMPTZ"
+	}
+
+	// external_providers: health + contract-drift state.
+	addColumnIfNotExists(db, "external_providers", "health_status", "TEXT NOT NULL DEFAULT 'unknown'")
+	addColumnIfNotExists(db, "external_providers", "consecutive_failures", intCol+" NOT NULL DEFAULT 0")
+	addColumnIfNotExists(db, "external_providers", "last_probe_at", tsCol+" DEFAULT NULL")
+	addColumnIfNotExists(db, "external_providers", "last_probe_error", "TEXT NOT NULL DEFAULT ''")
+	addColumnIfNotExists(db, "external_providers", "auto_disabled_at", tsCol+" DEFAULT NULL")
+	addColumnIfNotExists(db, "external_providers", "probe_interval_seconds", intCol+" NOT NULL DEFAULT 86400")
+	addColumnIfNotExists(db, "external_providers", "upstream_spec_digest", "TEXT NOT NULL DEFAULT ''")
+	addColumnIfNotExists(db, "external_providers", "contract_drift", intCol+" NOT NULL DEFAULT 0")
+	addColumnIfNotExists(db, "external_providers", "last_drift_at", tsCol+" DEFAULT NULL")
+
+	// data_sources: health state. enabled defaults to 1 so pre-existing
+	// sources keep working exactly as before the upgrade.
+	addColumnIfNotExists(db, "data_sources", "enabled", intCol+" NOT NULL DEFAULT 1")
+	addColumnIfNotExists(db, "data_sources", "health_status", "TEXT NOT NULL DEFAULT 'unknown'")
+	addColumnIfNotExists(db, "data_sources", "consecutive_failures", intCol+" NOT NULL DEFAULT 0")
+	addColumnIfNotExists(db, "data_sources", "last_probe_at", tsCol+" DEFAULT NULL")
+	addColumnIfNotExists(db, "data_sources", "last_probe_error", "TEXT NOT NULL DEFAULT ''")
+	addColumnIfNotExists(db, "data_sources", "auto_disabled_at", tsCol+" DEFAULT NULL")
+	addColumnIfNotExists(db, "data_sources", "probe_interval_seconds", intCol+" NOT NULL DEFAULT 86400")
 }
 
 // migrateHarnessSpecsTypedColumns adds typed config columns to harness_specs

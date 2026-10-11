@@ -9,6 +9,7 @@ import {
   Plug,
   Check,
   ChevronsUpDown,
+  RefreshCw,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { confirm } from '@/lib/confirm';
@@ -44,12 +45,15 @@ import {
   updateDataSource,
   removeDataSource,
   verifyDataSource,
+  probeDataSource,
+  reenableDataSource,
   type DataSource,
   type CreateDataSourceBody,
   type ScopeConfig,
   type DataSourceBinding,
   type SSHAuthMethod,
 } from '@/lib/data-sources-api';
+import { HealthLight } from './HealthLight';
 import {
   Select,
   SelectContent,
@@ -302,6 +306,33 @@ function DataSourceRow({ source: s, onEdit }: RowProps) {
       queryClient.invalidateQueries({ queryKey: ['data-sources'] }),
   });
 
+  // Continuous health (#744): an explicit probe now, and the recovery path for
+  // an auto-disabled source.
+  const probe = useMutation({
+    mutationFn: () => probeDataSource(s.id),
+    onSuccess: (o) => {
+      if (o.status === 'ok' || o.status === 'drift') {
+        toast.success(t('settings:integrations.health.probeOk'));
+      } else {
+        toast.error(
+          `${t('settings:integrations.health.probeFailed')}: ${o.message}`,
+        );
+      }
+      queryClient.invalidateQueries({ queryKey: ['data-sources'] });
+    },
+    onError: (e) =>
+      toast.error(e instanceof Error ? e.message : String(e)),
+  });
+
+  const reenable = useMutation({
+    mutationFn: () => reenableDataSource(s.id),
+    onSuccess: () => {
+      toast.success(t('settings:integrations.health.reenableSuccess'));
+      queryClient.invalidateQueries({ queryKey: ['data-sources'] });
+    },
+    onError: (e) => toast.error(e instanceof Error ? e.message : String(e)),
+  });
+
   const handleDelete = async () => {
     if (!(await confirm(t('sources.deleteConfirm', { name: s.name })))) return;
     del.mutate();
@@ -337,6 +368,19 @@ function DataSourceRow({ source: s, onEdit }: RowProps) {
           {' · '}
           {verifiedLabel}
         </div>
+        <div className="flex items-center gap-2 flex-wrap mt-1">
+          <HealthLight
+            status={s.health_status}
+            detail={s.last_probe_error || undefined}
+          />
+          {(s.consecutive_failures ?? 0) > 0 && (
+            <span className="text-[10px] text-warm-text-muted">
+              {t('settings:integrations.health.consecutiveFailures', {
+                count: s.consecutive_failures,
+              })}
+            </span>
+          )}
+        </div>
       </div>
       <Button
         size="sm"
@@ -346,6 +390,30 @@ function DataSourceRow({ source: s, onEdit }: RowProps) {
       >
         <Plug className="size-4 mr-1" />
         {verify.isPending ? t('sources.verifying') : t('sources.verify')}
+      </Button>
+      {!s.enabled && (
+        <Button
+          size="sm"
+          variant="outline"
+          disabled={reenable.isPending}
+          onClick={() => reenable.mutate()}
+          title={t('settings:integrations.health.autoDisabledHint')}
+        >
+          {t('settings:integrations.health.reenable')}
+        </Button>
+      )}
+      <Button
+        size="sm"
+        variant="ghost"
+        disabled={probe.isPending}
+        onClick={() => probe.mutate()}
+        aria-label={t('settings:integrations.health.probeNow')}
+        title={t('settings:integrations.health.probeNow')}
+      >
+        <RefreshCw
+          className={probe.isPending ? 'size-4 animate-spin' : 'size-4'}
+          aria-hidden
+        />
       </Button>
       <Button
         size="sm"

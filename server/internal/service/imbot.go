@@ -883,6 +883,26 @@ func (s *IMBotService) ListActiveChatsByOwner(ctx context.Context, owner OwnerRe
 	return out, nil
 }
 
+// NotifyOwnerText pushes a plain-text alert to every active chat bound to the
+// owner -- e.g. an integration-source health alert (#744: source auto-disabled
+// or upstream contract drifted). Best-effort by design: a missing channel, an
+// unpaired chat, or a push failure is logged and skipped, never returned, so a
+// notification problem can never break the caller's probe sweep.
+func (s *IMBotService) NotifyOwnerText(ctx context.Context, owner OwnerRef, text string) {
+	chats, err := s.ListActiveChatsByOwner(ctx, owner)
+	if err != nil {
+		slog.Warn("imbot: list active chats for owner notify failed", "owner_type", owner.Type, "owner_id", owner.ID, "error", err)
+		return
+	}
+	for _, chat := range chats {
+		_, channel, err := s.chatWithChannel(ctx, chat.ID)
+		if err != nil {
+			continue
+		}
+		s.pushText(ctx, channel, chat.ChatExtID, "", text)
+	}
+}
+
 // ListPendingChatsByOwners aggregates pending chats across several owners; see
 // ListBotsByOwners for why this loops rather than expanding an IN (...) clause.
 func (s *IMBotService) ListPendingChatsByOwners(ctx context.Context, owners []OwnerRef) ([]IMBotChatDTO, error) {

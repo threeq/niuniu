@@ -259,7 +259,16 @@ func (s *DataProxyService) Query(ctx context.Context, in DataQueryInput) (*datac
 	if err != nil {
 		return nil, err
 	}
-	cc, err := s.sources.LoadConnConfig(ctx, in.SourceID, in.UserID, in.OrgIDs)
+	// A disabled source (turned off by the user, or auto-disabled by the health
+	// sweep after repeated probe failures, #744) refuses queries outright so a
+	// dead upstream surfaces as a clear, actionable error instead of a hang.
+	if src.Enabled == 0 {
+		return nil, &DataProxyError{
+			Code:    "disabled",
+			Message: fmt.Sprintf("data source %q is disabled; re-enable it in Settings -> Integrations to query again", src.Name),
+		}
+	}
+	cc, err := s.sources.LoadConnConfig(ctx, src.ID, in.UserID, in.OrgIDs)
 	if err != nil {
 		return nil, err
 	}

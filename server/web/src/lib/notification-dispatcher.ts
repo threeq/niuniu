@@ -64,6 +64,9 @@ const INVALIDATION_MAP: Record<string, QueryKeyMapper> = {
   queue: (n) => [['workspace', String(n.id), 'queue']],
   pinned: (n) => [['pinned-messages', String(n.id)]],
   workspace_bg_task: () => [['workspaces']],
+  // Integration-source health (#744): refresh both source lists so the health
+  // light reflects the auto-disable / drift / recovery.
+  integration_health: () => [['external-providers'], ['data-sources']],
 };
 
 export type ToastTarget =
@@ -203,6 +206,21 @@ function shouldAlert(n: Notification): boolean {
 }
 
 function handleToast(n: Notification) {
+  // Integration-source health (#744) is owner-scoped by the hub, not gated by
+  // the workspace alertScope contract, so it toasts independently.
+  if (n.topic === 'integration_health') {
+    const extra = (n.extra as Record<string, unknown>) ?? {};
+    const name = typeof extra.name === 'string' ? extra.name : '';
+    if (n.action === 'recovered') {
+      toast.success(i18n.t('settings:integrations.health.toastRecovered', { name }));
+    } else if (n.action === 'drift') {
+      toast.warning(i18n.t('settings:integrations.health.toastDrift', { name }));
+    } else {
+      toast.error(i18n.t('settings:integrations.health.toastAutoDisabled', { name }));
+    }
+    return;
+  }
+
   if (n.topic !== 'workspace') return;
   if (!shouldAlert(n)) return;     // ← single gate; covers all workspace events
 

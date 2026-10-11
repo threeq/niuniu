@@ -1,5 +1,29 @@
 {
   "integrations": {
+    "health": {
+      "toastAutoDisabled": "整合源連續探測失敗，已自動停用：{{name}}",
+      "toastDrift": "{{name}} 的上游 API 已變更——建議重新審閱契約",
+      "toastRecovered": "整合源已恢復：{{name}}",
+      "sectionTitle": "健康",
+      "status": {
+        "unknown": "尚未探測",
+        "healthy": "健康",
+        "unhealthy": "探測失敗",
+        "disabled": "已停用"
+      },
+      "consecutiveFailures": "連續失敗 {{count}} 次",
+      "probeNow": "立即探測",
+      "probeOk": "探測成功",
+      "probeFailed": "探測失敗",
+      "reenable": "重新啟用",
+      "reenableSuccess": "已重新啟用",
+      "driftBadge": "上游已變更",
+      "driftHint": "上游 API 文件自上次審閱後已變更。請重新審閱契約，確認後清除此提示。",
+      "acknowledgeDrift": "已審閱，忽略",
+      "acknowledgeDriftSuccess": "已清除變更提示",
+      "lastProbe": "最近探測",
+      "autoDisabledHint": "連續探測失敗後已自動停用。"
+    },
     "activity": {
       "sectionTitle": "整合活動",
       "sectionDescription": "透過整合發起的所有外部 API 呼叫與資料查詢，最新在前。",

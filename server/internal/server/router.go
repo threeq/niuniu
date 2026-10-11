@@ -433,6 +433,17 @@ func (s *Server) setupRoutes() {
 		// This is what the Settings -> Integrations activity view reads.
 		me.GET("/integration-activity", s.integrationActivity)
 
+		// Continuous integration-source health (Epic #726 / #744): probe now,
+		// recovery (re-enable / disable), contract-drift acknowledge, and the
+		// probe history feed. :kind is "provider" or "data_source". The history
+		// route sits under its own prefix so it does not collide with the
+		// :kind wildcard siblings in gin's route tree.
+		me.POST("/integration-health/:kind/:id/probe", s.integrationHealthProbe)
+		me.POST("/integration-health/:kind/:id/reenable", s.integrationHealthReenable)
+		me.POST("/integration-health/:kind/:id/disable", s.integrationHealthDisable)
+		me.POST("/integration-health/:kind/:id/acknowledge-drift", s.integrationHealthAckDrift)
+		me.GET("/integration-probes", s.integrationHealthRuns)
+
 		// Knowledge bases (Epic #496): owner-scoped corpora — CRUD, async
 		// ingest (local/upload/url), browse + keyword search, retry/mirror.
 		me.GET("/knowledge-bases", s.knowledgeBaseHandler.List)

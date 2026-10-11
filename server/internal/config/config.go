@@ -54,6 +54,7 @@ type Config struct {
 	Auth              AuthConfig              `mapstructure:"auth"`
 	AgentRegistry     AgentRegistryConfig     `mapstructure:"agent_registry"`
 	Harness           HarnessConfig           `mapstructure:"harness"`
+	IntegrationHealth IntegrationHealthConfig `mapstructure:"integration_health"`
 	Editor            EditorConfig            `mapstructure:"editor"`
 	Upgrade           UpgradeConfig           `mapstructure:"upgrade"`
 	ImageOptimization ImageOptimizationConfig `mapstructure:"image_optimization"`
@@ -110,6 +111,25 @@ type ImageOptimizationConfig struct {
 
 type HarnessConfig struct {
 	Enabled bool `mapstructure:"enabled"`
+}
+
+// IntegrationHealthConfig configures the continuous integration-source health
+// sweep (Epic #726 / #744): a periodic probe of every Provider and DataSource
+// that records health, watches the upstream contract for drift, and disables a
+// source after FailureThreshold consecutive failures.
+//
+// Env overrides: NIUNIU_INTEGRATION_HEALTH_ENABLED /
+// NIUNIU_INTEGRATION_HEALTH_FAILURE_THRESHOLD /
+// NIUNIU_INTEGRATION_HEALTH_SWEEP_CRON.
+type IntegrationHealthConfig struct {
+	Enabled bool `mapstructure:"enabled"`
+	// FailureThreshold is the number of consecutive probe failures that
+	// auto-disables a source (and fires a notification).
+	FailureThreshold int `mapstructure:"failure_threshold"`
+	// SweepCron drives the sweep on the shared scheduler. Each source is still
+	// gated by its own probe_interval_seconds, so this only controls how often
+	// the due-check runs. Empty disables scheduling (manual probes still work).
+	SweepCron string `mapstructure:"sweep_cron"`
 }
 
 type EditorConfig struct {
@@ -447,6 +467,12 @@ func Load() (*Config, error) {
 		},
 	})
 	viper.SetDefault("harness.enabled", true)
+	// Continuous integration-source health (#744): hourly sweep, per-source
+	// interval (default daily) decides what is actually probed, disable after 3
+	// consecutive failures.
+	viper.SetDefault("integration_health.enabled", true)
+	viper.SetDefault("integration_health.failure_threshold", 3)
+	viper.SetDefault("integration_health.sweep_cron", "0 * * * *")
 	viper.SetDefault("editor.vscode_mode", "local")
 	viper.SetDefault("editor.vscode_remote_url", "")
 	viper.SetDefault("image_optimization.enabled", true)

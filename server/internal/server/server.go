@@ -153,6 +153,7 @@ type Server struct {
 	// a ConnectorManager of per-channel outbound long connections, and an
 	// event-bus dispatcher pushing outbound notifications.
 	imbotSvc        *service.IMBotService
+	integrationHealthSvc *service.IntegrationHealthService
 	imbotHandler    *api.IMBotHandler
 	imbotConnMgr    *imbot.ConnectorManager
 	imbotDispatcher *service.IMBotDispatcher
@@ -1445,6 +1446,23 @@ func New(cfg *config.Config, db *sql.DB, frontendFS fs.FS) *Server {
 	s.dataSourceHandler = api.NewDataSourceHandler(s.dataSourceSvc, s.dataconnPool)
 	s.dataSourceHandler.Authz = s.authzSvc
 
+	// Continuous integration-source health (Epic #726 / #744). The notifier is
+	// wired after imbotSvc is constructed (further below); until then alerts are
+	// station-in only, which is fine because the sweep starts after wiring.
+	s.integrationHealthSvc = service.NewIntegrationHealthService(
+		s.queries, db, providerSvc, proxySvc, s.dataSourceSvc,
+		service.IntegrationHealthConfig{
+			Enabled:          cfg.IntegrationHealth.Enabled,
+			FailureThreshold: int64(cfg.IntegrationHealth.FailureThreshold),
+		},
+	)
+	// Schedule the sweep on the EXISTING scheduler's cron engine (no second
+	// scheduler). Each source is still gated by its own probe_interval_seconds,
+	// so the sweep cadence only controls how often the due-check runs.
+	if cfg.IntegrationHealth.Enabled {
+		s.scheduler.RegisterHealthSweep(cfg.IntegrationHealth.SweepCron, s.integrationHealthSvc.RunSweep)
+	}
+
 	// Generic one-time credential links (issue #727). Depends on both encrypted
 	// stores, so it is constructed after them.
 	s.credOnboardingSvc = service.NewCredentialOnboardingService(s.queries, s.extCredSvc, s.dataSourceSvc)
@@ -1496,6 +1514,8 @@ func New(cfg *config.Config, db *sql.DB, frontendFS fs.FS) *Server {
 		imbot.ChannelWechat:   wechat.New(),
 	}
 	s.imbotSvc = service.NewIMBotService(s.queries, db, keyring, s.authzSvc, imbotAdapters)
+	// Health alerts now reach both channels: station-in hub + IM Bot (#744).
+	s.integrationHealthSvc.SetNotifier(&integrationHealthNotifier{hub: s.notifyHub, imbotSvc: s.imbotSvc})
 	// Inbound (W2): route incoming IM messages into the channel's bound project
 	// via the generalized RouteInProject, deliver to the workspace agent, and
 	// write permission-button decisions back through PermissionService. The
