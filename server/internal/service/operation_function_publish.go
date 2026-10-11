@@ -83,7 +83,8 @@ const maxFunctionsPerDraft = 16
 // a mock upstream. The rehearsal and lint fields on the way out are the
 // system's, whatever the caller sent in.
 func (s *OperationFunctionService) PrepareFunctionDrafts(
-	ctx context.Context, providerName string, in []FunctionDraftPayload, byUser int64,
+	ctx context.Context, providerName string, contract *ProviderContract,
+	in []FunctionDraftPayload, byUser int64,
 ) ([]FunctionDraftPayload, []FunctionDraftLint, error) {
 	if len(in) > maxFunctionsPerDraft {
 		return nil, nil, fmt.Errorf("%w: a draft may carry at most %d functions (got %d)",
@@ -150,6 +151,7 @@ func (s *OperationFunctionService) PrepareFunctionDrafts(
 
 		report := s.Rehearse(ctx, RehearseRequest{
 			ProviderName: providerName,
+			Contract:     contract,
 			Spec:         normalized,
 			Input:        prepared.SampleInput,
 		})

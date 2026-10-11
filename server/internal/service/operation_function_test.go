@@ -195,7 +195,7 @@ func TestPrepareFunctionDraftsCapsTheBatch(t *testing.T) {
 	for i := range fns {
 		fns[i] = FunctionDraftPayload{Name: "f", Code: "function main() {}"}
 	}
-	if _, _, err := svc.PrepareFunctionDrafts(context.Background(), "p", fns, 1); err == nil {
+	if _, _, err := svc.PrepareFunctionDrafts(context.Background(), "p", nil, fns, 1); err == nil {
 		t.Fatal("an over-long function list was accepted")
 	}
 }
@@ -205,7 +205,7 @@ func TestPrepareFunctionDraftsCapsTheBatch(t *testing.T) {
 // of failing the whole draft.
 func TestPrepareFunctionDraftsReportsInvalidBodiesAsBlocking(t *testing.T) {
 	svc := &OperationFunctionService{}
-	prepared, lints, err := svc.PrepareFunctionDrafts(context.Background(), "p", []FunctionDraftPayload{
+	prepared, lints, err := svc.PrepareFunctionDrafts(context.Background(), "p", nil, []FunctionDraftPayload{
 		{Name: "noEgress", Code: "function main() { return 1; }"},
 	}, 1)
 	if err != nil {
@@ -221,7 +221,7 @@ func TestPrepareFunctionDraftsReportsInvalidBodiesAsBlocking(t *testing.T) {
 
 func TestPrepareFunctionDraftsRejectsDuplicateNames(t *testing.T) {
 	svc := &OperationFunctionService{}
-	_, _, err := svc.PrepareFunctionDrafts(context.Background(), "p", []FunctionDraftPayload{
+	_, _, err := svc.PrepareFunctionDrafts(context.Background(), "p", nil, []FunctionDraftPayload{
 		{Name: "same", Code: "function main() {}"},
 		{Name: "same", Code: "function main() {}"},
 	}, 1)

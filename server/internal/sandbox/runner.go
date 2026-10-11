@@ -106,6 +106,12 @@ func Run(ctx context.Context, req RunRequest) *RunResult {
 		}
 	}
 	res := &RunResult{FenceBackend: avail.Backend, FenceComponents: avail.Components}
+	// Take a reading while the box is definitely alive. On Linux the only
+	// per-process figure available is a LIVE RSS read — the box exits within
+	// milliseconds of returning its result, so sampling afterwards reports 0
+	// and the audit row would claim the call used no memory. The ticker below
+	// refines this for runs long enough to be sampled again.
+	res.PeakMemoryBytes = sampleMemory(proc)
 	// "执行完即销毁": the box never survives the call, on any path out of here.
 	defer func() {
 		if err := proc.Kill(); err != nil && !errors.Is(err, io.EOF) {
@@ -158,7 +164,12 @@ func Run(ctx context.Context, req RunRequest) *RunResult {
 
 	finish := func() {
 		res.DurationMS = time.Since(started).Milliseconds()
-		res.PeakMemoryBytes = sampleMemory(proc)
+		// Sample before Wait: once the box is reaped, /proc entry (Linux) is
+		// gone and the reading is 0. The ticker below keeps the running
+		// maximum, so this only needs to contribute the final sample.
+		if used := sampleMemory(proc); used > res.PeakMemoryBytes {
+			res.PeakMemoryBytes = used
+		}
 		if err := proc.Wait(); err != nil {
 			var ee *exitError
 			if errors.As(err, &ee) {
@@ -184,7 +195,15 @@ func Run(ctx context.Context, req RunRequest) *RunResult {
 			return res
 
 		case <-mem.C:
-			if used := sampleMemory(proc); used > 0 && used > lim.MemoryBytes() {
+			used := sampleMemory(proc)
+			// The sample also feeds the reported peak. On Linux the only
+			// per-process figure available is a live RSS reading, so a peak
+			// taken after exit would always be 0 — the audit row would record
+			// "no memory used" for every call.
+			if used > res.PeakMemoryBytes {
+				res.PeakMemoryBytes = used
+			}
+			if used > 0 && used > lim.MemoryBytes() {
 				res.Killed = true
 				_ = proc.Kill()
 				res.Error = &BoxError{Code: ErrMemoryLimit,

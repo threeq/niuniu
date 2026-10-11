@@ -297,7 +297,7 @@ func (s *IntegrationDraftService) CreateDraft(ctx context.Context, in CreateDraf
 		// be the system's own, or a draft could show benign behaviour and ship
 		// something else.
 		if len(in.Provider.Functions) > 0 && s.functions != nil {
-			prepared, flints, err := s.functions.PrepareFunctionDrafts(ctx, name, in.Provider.Functions, in.CreatedBy)
+			prepared, flints, err := s.functions.PrepareFunctionDrafts(ctx, name, in.Provider.Contract, in.Provider.Functions, in.CreatedBy)
 			if err != nil {
 				return nil, err
 			}
@@ -510,15 +510,15 @@ func confirmFunctions(fns []FunctionDraftPayload, providerName string) []Confirm
 	out := make([]ConfirmFunction, 0, len(fns))
 	for _, f := range fns {
 		cf := ConfirmFunction{
-			Name:       f.Name,
-			ToolName:   sandbox.ToolName(providerName, f.Name),
-			Runtime:    f.Runtime,
-			Code:       f.Code,
-			CodeHash:   f.CodeHash,
-			Idempotent: f.Idempotent,
-			Enabled:    f.Enabled,
-			Lint:       f.Lint,
-			IsNew:      f.ExistingID == 0,
+			Name:         f.Name,
+			ToolName:     sandbox.ToolName(providerName, f.Name),
+			Runtime:      f.Runtime,
+			Code:         f.Code,
+			CodeHash:     f.CodeHash,
+			Idempotent:   f.Idempotent,
+			Enabled:      f.Enabled,
+			Lint:         f.Lint,
+			IsNew:        f.ExistingID == 0,
 			PreviousHash: f.PreviousHash,
 		}
 		for _, e := range f.Egress {

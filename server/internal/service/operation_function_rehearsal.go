@@ -81,8 +81,19 @@ func (r RehearsalReport) Deterministic() RehearsalReport {
 
 // RehearseRequest runs one behaviour rehearsal.
 type RehearseRequest struct {
+	// ProviderName is used only when Contract is nil: it resolves the LIVE
+	// provider's contract, for rehearsing a function against an integration that
+	// already exists.
 	ProviderName string
-	Spec         sandbox.Spec
+	// Contract is the contract to rehearse against. A draft MUST pass its own
+	// candidate contract: resolvable against the live provider only works when
+	// the provider is already published, and the most natural onboarding — one
+	// draft that introduces a source AND its fallback function — has no live
+	// provider at all. Rehearsing against the candidate is also simply more
+	// correct: the function ships with the contract being published, not with
+	// whatever is live today.
+	Contract *ProviderContract
+	Spec     sandbox.Spec
 	// Input is the typical invocation the rehearsal uses. A draft supplies it
 	// from the operation samples; without one the function is run with an empty
 	// input, which still reveals the call sequence whenever the code does not
@@ -91,26 +102,36 @@ type RehearseRequest struct {
 }
 
 // Rehearse executes the function against a mock upstream. It never touches the
-// network: the mock resolves operations from the provider contract and answers
-// with a synthesised body.
+// network: the mock resolves operations from the contract and answers with a
+// synthesised body.
 func (s *OperationFunctionService) Rehearse(ctx context.Context, req RehearseRequest) *RehearsalReport {
 	report := &RehearsalReport{MockOnly: true, DeclaredOps: declaredOpKeys(req.Spec)}
-	if !report.MockOnly {
+	contract := req.Contract
+	if contract == nil {
+		prov, err := s.providers.GetByName(ctx, req.ProviderName)
+		if err != nil {
+			report.Error = fmt.Sprintf("provider %q not found: %v", req.ProviderName, err)
+			report.ErrorCode = "provider_not_found"
+			report.Manifest = "The rehearsal could not run: the provider is not configured."
+			return report
+		}
+		contract = prov.Contract()
+	}
+	if contract == nil {
+		report.Error = "the draft carries no contract to rehearse against"
+		report.ErrorCode = "contract_missing"
+		report.Manifest = "The rehearsal could not run: no contract was supplied."
 		return report
 	}
-	prov, err := s.providers.GetByName(ctx, req.ProviderName)
-	if err != nil {
-		report.Error = fmt.Sprintf("provider %q not found: %v", req.ProviderName, err)
-		report.ErrorCode = "provider_not_found"
-		report.Manifest = "The rehearsal could not run: the provider is not configured."
-		return report
-	}
-	contract := prov.Contract()
 
 	var steps []RehearsalStep
 	var observed []string
 	mock := func(_ context.Context, m *sandbox.HTTPRequestMessage) *sandbox.HTTPResponseMessage {
-		observed = append(observed, m.Operation)
+		// Record the observation in the SAME key space as DeclaredOps
+		// (EgressOp.Key). Comparing a bare operation name against a
+		// "operation:<name>" key made every function look like it had reached
+		// something undeclared, which blocked every publish.
+		observed = append(observed, sandbox.EgressOp{Operation: m.Operation}.Key())
 		step := RehearsalStep{
 			Seq:         len(steps) + 1,
 			Operation:   m.Operation,
@@ -226,6 +247,12 @@ func renderManifest(r *RehearsalReport) string {
 // synthesizeFromShape produces a plausible response body from a contract's
 // declared response shape, so the function's data handling is exercised rather
 // than short-circuited by a null.
+//
+// A contract's response_shape is a compact HINT, usually written as JSON (e.g.
+// `{"orders":[{"id":"1"}]}`). Parsing it is what makes the rehearsal useful: a
+// function that reads res.body.orders must be handed an object, not the hint
+// text, or the rehearsal fails for a reason that has nothing to do with the
+// function's behaviour in production.
 func synthesizeFromShape(shape any) any {
 	switch v := shape.(type) {
 	case nil:
@@ -242,10 +269,17 @@ func synthesizeFromShape(shape any) any {
 		}
 		return []any{synthesizeFromShape(v[0])}
 	case string:
-		if v == "" {
-			return "sample"
+		trimmed := strings.TrimSpace(v)
+		if trimmed == "" {
+			return map[string]any{"ok": true}
 		}
-		return v
+		var parsed any
+		if json.Unmarshal([]byte(trimmed), &parsed) == nil {
+			return parsed
+		}
+		// A prose hint cannot be indexed into, but the call still needs a body
+		// the function can survive.
+		return map[string]any{"ok": true}
 	default:
 		return v
 	}
