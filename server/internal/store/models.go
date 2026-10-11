@@ -188,6 +188,8 @@ type CredentialOnboardingToken struct {
 	TokenHash  string       `json:"token_hash"`
 	ProjectID  int64        `json:"project_id"`
 	IssuedBy   int64        `json:"issued_by"`
+	OwnerType  string       `json:"owner_type"`
+	OwnerID    int64        `json:"owner_id"`
 	Kind       string       `json:"kind"`
 	Title      string       `json:"title"`
 	FieldsJson string       `json:"fields_json"`
@@ -195,6 +197,15 @@ type CredentialOnboardingToken struct {
 	ExpiresAt  time.Time    `json:"expires_at"`
 	UsedAt     sql.NullTime `json:"used_at"`
 	CreatedAt  time.Time    `json:"created_at"`
+}
+
+type CredentialUsageGrant struct {
+	ID           int64     `json:"id"`
+	CredentialID int64     `json:"credential_id"`
+	ScopeType    string    `json:"scope_type"`
+	ScopeID      int64     `json:"scope_id"`
+	GrantedBy    int64     `json:"granted_by"`
+	CreatedAt    time.Time `json:"created_at"`
 }
 
 type Dashboard struct {

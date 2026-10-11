@@ -82,17 +82,20 @@ type ExternalProxyService struct {
 	providerSvc *ExternalProviderService
 	credSvc     *ExternalCredentialService
 	authz       *Authz
+	policy      *CredentialUsagePolicyService
 	client      *http.Client
 }
 
-// NewExternalProxyService wires the proxy with its dependencies.
-func NewExternalProxyService(q *store.Queries, rawDB *sql.DB, providerSvc *ExternalProviderService, credSvc *ExternalCredentialService, authz *Authz) *ExternalProxyService {
+// NewExternalProxyService wires the proxy with its dependencies. policy may be
+// nil in personal-only test wiring (personal credentials are policy-exempt).
+func NewExternalProxyService(q *store.Queries, rawDB *sql.DB, providerSvc *ExternalProviderService, credSvc *ExternalCredentialService, authz *Authz, policy *CredentialUsagePolicyService) *ExternalProxyService {
 	return &ExternalProxyService{
 		q:           q,
 		db:          store.Wrap(rawDB),
 		providerSvc: providerSvc,
 		credSvc:     credSvc,
 		authz:       authz,
+		policy:      policy,
 		// SSRF guard: reuse the KB downloader's validating dialer so a
 		// user-supplied api_base_url can't reach loopback/private/link-local/
 		// cloud-metadata (169.254.169.254) addresses, and DNS rebinding + proxy
@@ -402,6 +405,24 @@ func (s *ExternalProxyService) resolveCredential(ctx context.Context, in ProxyIn
 		if cred.Provider != integration.ProviderName(in.Provider) {
 			return nil, ErrCredentialProviderMismatch
 		}
+		// Usage policy (issue #742): an ORG credential may only be used in
+		// scopes its owner granted. Enforced here, at the API/代理 boundary —
+		// revoking a grant immediately stops in-flight project/workspace use,
+		// independent of any UI. Personal credentials are exempt.
+		if s.policy != nil && cred.OwnerType == "org" {
+			allowed, perr := s.policy.IsAllowed(ctx, cred.ID, projectID, in.WorkspaceID)
+			if perr != nil {
+				return nil, perr
+			}
+			if !allowed {
+				return nil, &ProxyError{
+					Code:     "credential_not_authorized",
+					Message:  fmt.Sprintf("org credential %q is not authorized for this project/workspace; ask an org admin to grant usage", cred.Alias),
+					Provider: in.Provider,
+				}
+			}
+			s.auditOrgCredentialUse(ctx, cred, in, projectID)
+		}
 		return cred, nil
 	}
 	// SPA fallback: caller's own credential.
@@ -413,6 +434,36 @@ func (s *ExternalProxyService) resolveCredential(ctx context.Context, in ProxyIn
 		return nil, fmt.Errorf("no credential configured for %s", in.Provider)
 	}
 	return s.credSvc.GetByID(ctx, creds[0].ID, "user", in.UserID, in.UserID)
+}
+
+// auditOrgCredentialUse appends an org-scoped audit row each time an ORG
+// credential is used through the proxy, so the org admin's audit view (#743)
+// can answer "who used which org credential, on what, when" (issue #742
+// acceptance: the request->approve->submit->use chain is auditable). Best
+// effort: a logging failure must never break an otherwise-authorized call.
+func (s *ExternalProxyService) auditOrgCredentialUse(ctx context.Context, cred *ExternalCredentialDecoded, in ProxyInput, projectID int64) {
+	payload, err := json.Marshal(map[string]any{
+		"credential_id": cred.ID,
+		"alias":         cred.Alias,
+		"provider":      string(cred.Provider),
+		"project_id":    projectID,
+		"workspace_id":  in.WorkspaceID,
+		"method":        strings.ToUpper(in.Method),
+		"path":          in.Path,
+	})
+	if err != nil {
+		return
+	}
+	if err := s.q.AppendOrgAudit(ctx, store.AppendOrgAuditParams{
+		OrgID:       cred.OwnerID,
+		ActorUserID: sql.NullInt64{Int64: in.UserID, Valid: in.UserID != 0},
+		Action:      "integration.credential.used",
+		TargetType:  "external_provider_credential",
+		TargetID:    cred.ID,
+		Payload:     string(payload),
+	}); err != nil {
+		slog.Warn("org credential usage audit write failed", "credential_id", cred.ID, "error", err)
+	}
 }
 
 // gateAllows is the single permission predicate. Pure function so it can

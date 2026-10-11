@@ -1880,6 +1880,12 @@ CREATE TABLE IF NOT EXISTS credential_onboarding_tokens (
     token_hash  TEXT NOT NULL UNIQUE,
     project_id  INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
     issued_by   INTEGER NOT NULL DEFAULT 0,
+    -- Team-edition owner binding (issue #742): the owner the completed
+    -- credential/source will belong to, captured at issue time. A submission
+    -- whose project no longer resolves to this owner is rejected (cross-owner
+    -- submit / takeover). Empty for legacy rows (resolved from the project).
+    owner_type  TEXT NOT NULL DEFAULT '',
+    owner_id    INTEGER NOT NULL DEFAULT 0,
     kind        TEXT NOT NULL CHECK (kind IN ('provider_credential','data_source')),
     title       TEXT NOT NULL DEFAULT '',
     fields_json TEXT NOT NULL DEFAULT '[]',
@@ -1888,3 +1894,22 @@ CREATE TABLE IF NOT EXISTS credential_onboarding_tokens (
     used_at     TIMESTAMP,
     created_at  TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
+
+-- credential_usage_grants: team-edition usage policy for ORG-owned provider
+-- credentials (issue #742). An org credential is usable only in the explicitly
+-- granted scopes (default minimal: no grants => no project may bind or use it).
+-- Personal (user-owned) credentials ignore this table entirely. scope_type
+-- 'project' authorizes the whole project (and therefore its 1:1 workspaces);
+-- 'workspace' authorizes a single workspace. cascade removes grants with the
+-- credential.
+CREATE TABLE IF NOT EXISTS credential_usage_grants (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    credential_id INTEGER NOT NULL REFERENCES external_provider_credentials(id) ON DELETE CASCADE,
+    scope_type    TEXT NOT NULL CHECK (scope_type IN ('project','workspace')),
+    scope_id      INTEGER NOT NULL,
+    granted_by    INTEGER NOT NULL DEFAULT 0,
+    created_at    TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(credential_id, scope_type, scope_id)
+);
+CREATE INDEX IF NOT EXISTS idx_credential_usage_grants_cred ON credential_usage_grants(credential_id);
+CREATE INDEX IF NOT EXISTS idx_credential_usage_grants_scope ON credential_usage_grants(scope_type, scope_id);

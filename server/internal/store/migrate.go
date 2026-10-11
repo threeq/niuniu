@@ -30,6 +30,13 @@ func Migrate(db *sql.DB) {
 	// (team-edition member lifecycle, issue #741). Retrofit for existing DBs.
 	addColumnIfNotExists(db, "im_bot_onboarding_tokens", "issued_by_user_id", fk+" DEFAULT NULL REFERENCES users(id) ON DELETE CASCADE")
 
+	// credential_onboarding_tokens.owner_type/owner_id: bind a one-time
+	// credential link to the target owner (team-edition semantics, issue #742).
+	// Captured at issue time; a submit whose project owner drifted is rejected.
+	// Retrofit for existing DBs (legacy rows keep '' -> resolved from project).
+	addColumnIfNotExists(db, "credential_onboarding_tokens", "owner_type", "TEXT NOT NULL DEFAULT ''")
+	addColumnIfNotExists(db, "credential_onboarding_tokens", "owner_id", fk+" NOT NULL DEFAULT 0")
+
 	// Add harness_run_id column to agent_messages if missing (existing databases).
 	addColumnIfNotExists(db, "agent_messages", "harness_run_id", fk+" DEFAULT NULL")
 

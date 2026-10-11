@@ -112,6 +112,7 @@ type Server struct {
 	intgKeyring          *crypto.Keyring
 	extCredSvc           *service.ExternalCredentialService
 	extCredHandler       *api.ExternalCredentialHandler
+	credUsagePolicySvc   *service.CredentialUsagePolicyService
 	extSourceSvc         *service.ExternalSourceService
 	extSourceHandler     *api.ExternalSourceHandler
 	gitRemoteCredSvc     *service.GitRemoteCredentialService
@@ -1414,7 +1415,11 @@ func New(cfg *config.Config, db *sql.DB, frontendFS fs.FS) *Server {
 	// proxy architecture does not need pre-flight credential checks.
 	intgRegistry := integration.NewRegistry()
 	s.extCredSvc = service.NewExternalCredentialService(s.queries, db, keyring, intgRegistry)
-	s.extCredHandler = api.NewExternalCredentialHandler(s.extCredSvc, authz)
+	// Org-credential usage policy (issue #742): "which projects/workspaces may
+	// use this org credential", enforced at the service layer. Personal
+	// credentials are exempt, so single-user behavior is unchanged.
+	s.credUsagePolicySvc = service.NewCredentialUsagePolicyService(s.queries, db, s.extCredSvc, authz)
+	s.extCredHandler = api.NewExternalCredentialHandler(s.extCredSvc, authz, s.credUsagePolicySvc)
 	// Back-fill the scene projector's credential service so scene MCP env
 	// ${cred:alias.field} placeholders resolve to the owner+user decrypted value.
 	if s.sceneProjector != nil {
@@ -1430,7 +1435,7 @@ func New(cfg *config.Config, db *sql.DB, frontendFS fs.FS) *Server {
 	// through the external-proxy service. Browse() on the service still
 	// exists but is no longer routed — adapters were removed when the
 	// proxy architecture replaced them.
-	s.extSourceSvc = service.NewExternalSourceService(s.queries, db, s.extCredSvc, intgRegistry, authz)
+	s.extSourceSvc = service.NewExternalSourceService(s.queries, db, s.extCredSvc, intgRegistry, authz, s.credUsagePolicySvc)
 	s.extSourceHandler = api.NewExternalSourceHandler(s.extSourceSvc, authz)
 
 	// Per-user git remote SSH credentials (v5 Phase 2 sub-phase A).
@@ -1455,7 +1460,7 @@ func New(cfg *config.Config, db *sql.DB, frontendFS fs.FS) *Server {
 	if err := providerSvc.DemoteDeprecatedSystemProviders(context.Background()); err != nil {
 		slog.Warn("demote deprecated system providers", "err", err)
 	}
-	proxySvc := service.NewExternalProxyService(s.queries, db, providerSvc, s.extCredSvc, authz)
+	proxySvc := service.NewExternalProxyService(s.queries, db, providerSvc, s.extCredSvc, authz, s.credUsagePolicySvc)
 	s.externalProviderSvc = providerSvc
 	s.externalProxySvc = proxySvc
 	// Reproject the user's office-mail workspaces when they toggle imap write-
@@ -1554,6 +1559,7 @@ func New(cfg *config.Config, db *sql.DB, frontendFS fs.FS) *Server {
 		Projects:    s.projectMemberSvc,
 		Credentials: s.extCredSvc,
 		Onboarding:  s.imbotSvc,
+		CredLinks:   s.credOnboardingSvc,
 	})
 	s.approvalHandler = api.NewIntegrationApprovalHandler(s.integrationApprovalSvc, s.projectMemberSvc, s.authzSvc)
 	// Escalate pending approvals that outlive their deadline so a stale card

@@ -140,6 +140,15 @@ func (h *ExternalSourceHandler) Add(c *gin.Context) {
 			})
 			return
 		}
+		// Team-edition usage policy (issue #742): an org credential may only be
+		// bound into a project an org admin granted it to.
+		if errors.Is(err, service.ErrCredentialNotGranted) {
+			c.JSON(http.StatusForbidden, gin.H{
+				"error":      err.Error(),
+				"error_kind": "credential_not_authorized",
+			})
+			return
+		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}

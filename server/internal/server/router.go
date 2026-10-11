@@ -401,15 +401,20 @@ func (s *Server) setupRoutes() {
 		// (blocked-needs-human / waiting-user-input / abandoned) across accessible owners.
 		me.GET("/attention-issues", s.kanbanHandler.ListAttentionIssues)
 
-		// External provider credentials (caller-scoped). v1 is personal-
-		// owner only; org-scoped credentials wait until the SPA exposes
-		// an org-context switcher (see ExternalCredentialHandler.resolveCallerOwner).
+		// External provider credentials. Personal credentials are caller-scoped;
+		// org-owned credentials are managed by org admins (?owner_type=org for
+		// listing, CanManageOrg for mutate, usage-grants for the policy layer).
 		me.GET("/external-credentials", s.extCredHandler.List)
 		me.POST("/external-credentials", s.extCredHandler.Create)
 		me.DELETE("/external-credentials/:id", s.extCredHandler.Delete)
 		me.PATCH("/external-credentials/:id", s.extCredHandler.Patch)
 		me.GET("/external-credentials/:id/usages", s.extCredHandler.Usages)
 		me.POST("/external-credentials/:id/verify-imap", s.extCredHandler.VerifyImap)
+		// Org-credential usage policy (issue #742): which projects/workspaces may
+		// use an org credential. Org-admin only for grant/revoke; members may read.
+		me.GET("/external-credentials/:id/usage-grants", s.extCredHandler.ListUsageGrants)
+		me.POST("/external-credentials/:id/usage-grants", s.extCredHandler.GrantUsage)
+		me.DELETE("/external-credentials/:id/usage-grants", s.extCredHandler.RevokeUsage)
 
 		// External API proxy — generic HTTP pass-through for AI-driven external API calls.
 		me.POST("/external-proxy/call", s.proxyCall)

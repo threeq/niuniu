@@ -24,6 +24,10 @@ type IntegrationMemberRevoker struct {
 	Projects    *ProjectMemberService
 	Credentials *ExternalCredentialService
 	Onboarding  *IMBotService
+	// CredLinks reclaims pending GENERIC credential-onboarding links (provider
+	// credentials / data sources, issue #727) the member minted in the org
+	// (issue #742). Distinct from the IM-Bot-specific Onboarding above.
+	CredLinks *CredentialOnboardingService
 }
 
 // RevokeMemberIntegrationArtifacts invalidates every integration artifact the
@@ -47,6 +51,11 @@ func (r *IntegrationMemberRevoker) RevokeMemberIntegrationArtifacts(ctx context.
 	}
 	if r.Onboarding != nil {
 		if _, err := r.Onboarding.RevokeUnusedOnboardingTokensByIssuerInOrg(ctx, orgID, userID); err != nil {
+			errs = append(errs, err)
+		}
+	}
+	if r.CredLinks != nil {
+		if _, err := r.CredLinks.RevokeUnusedOnboardingTokensByIssuerInOrg(ctx, orgID, userID); err != nil {
 			errs = append(errs, err)
 		}
 	}

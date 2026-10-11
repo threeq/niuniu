@@ -152,7 +152,7 @@ func buildSourceSvc(t *testing.T, env *niutest.IsolationEnv, prov integration.Pr
 	}
 	authz := service.NewAuthz(env.Queries(), env.DB)
 	creds := service.NewExternalCredentialService(env.Queries(), env.DB, kr, reg)
-	svc := service.NewExternalSourceService(env.Queries(), env.DB, creds, reg, authz)
+	svc := service.NewExternalSourceService(env.Queries(), env.DB, creds, reg, authz, nil)
 	return svc, creds, authz
 }
 
