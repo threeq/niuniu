@@ -47,6 +47,12 @@ const (
 // ErrKeyNotFound reports that a KeyStore holds no key.
 var ErrKeyNotFound = errors.New("crypto: master key not present")
 
+// ErrKeyCorrupt reports that a KeyStore holds an entry that is present but
+// unusable. Unlike a missing key or an unavailable backend, this is fatal:
+// silently replacing a damaged key would make every existing ciphertext
+// undecryptable without saying so.
+var ErrKeyCorrupt = errors.New("crypto: stored master key is corrupt")
+
 // KeyStore is a persistent single-key store.
 type KeyStore interface {
 	// Get returns the stored key, or ErrKeyNotFound when absent. Any other
@@ -146,6 +152,9 @@ func LoadOrMigrate(kc KeyStore, legacyPath string) (*Outcome, error) {
 		return out, nil
 	case errors.Is(err, ErrKeyNotFound):
 		return seedKeychain(kc, file)
+	case errors.Is(err, ErrKeyCorrupt):
+		return nil, fmt.Errorf("%w — refusing to generate a fresh key, which would strand every existing integration credential; "+
+			"repair or remove the keychain entry and restart", err)
 	default:
 		return degradeToFile(file, err)
 	}
@@ -264,10 +273,10 @@ func (s KeychainStore) Get() ([]byte, error) {
 	}
 	key, err := base64.StdEncoding.DecodeString(enc)
 	if err != nil {
-		return nil, fmt.Errorf("keyring entry is not base64: %w", err)
+		return nil, fmt.Errorf("%w: keyring entry is not base64", ErrKeyCorrupt)
 	}
 	if len(key) != keyLen {
-		return nil, fmt.Errorf("keyring key has wrong length: %d bytes", len(key))
+		return nil, fmt.Errorf("%w: keyring key has wrong length: %d bytes", ErrKeyCorrupt, len(key))
 	}
 	return key, nil
 }

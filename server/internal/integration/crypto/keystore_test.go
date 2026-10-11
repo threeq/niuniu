@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -234,6 +235,20 @@ func TestDegradeOnDroppedKeychainWrite(t *testing.T) {
 	}
 	if _, err := os.Stat(secretPath); err != nil {
 		t.Fatalf("legacy file must survive a failed migration: %v", err)
+	}
+}
+
+// TestCorruptKeychainEntryIsFatal: a present-but-unusable keychain entry must
+// fail loudly rather than start with a fresh key (which would strand data).
+func TestCorruptKeychainEntryIsFatal(t *testing.T) {
+	dir := t.TempDir()
+	fake := &fakeKeyStore{err: fmt.Errorf("%w: not base64", ErrKeyCorrupt)}
+
+	if _, err := LoadOrMigrate(fake, filepath.Join(dir, "integration_secret")); !errors.Is(err, ErrKeyCorrupt) {
+		t.Fatalf("want ErrKeyCorrupt, got %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "integration_secret")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatal("a corrupt keychain entry must not silently create a plaintext file")
 	}
 }
 
