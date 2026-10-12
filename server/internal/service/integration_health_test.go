@@ -219,7 +219,7 @@ func TestHealthSweep_ProviderDriftDetectedAndAcknowledged(t *testing.T) {
 	credSvc := service.NewExternalCredentialService(env.Queries(), env.DB, kr, credReg)
 	provSvc := service.NewExternalProviderService(env.Queries(), env.DB)
 	authz := service.NewAuthz(env.Queries(), env.DB)
-	proxySvc := service.NewExternalProxyService(env.Queries(), env.DB, provSvc, credSvc, authz)
+	proxySvc := service.NewExternalProxyService(env.Queries(), env.DB, provSvc, credSvc, authz, nil)
 	proxySvc.SetClientForTest(srv.Client()) // httptest listens on loopback
 
 	uid := env.UserA

@@ -287,6 +287,42 @@
       "limits": "Limits",
       "agentBlock": "What the agent sees",
       "agentBlockHint": "This is the exact block injected into the workspace instruction file as a DATA (not instructions) section."
+    },
+    "functions": {
+      "title": "Operation functions (sandbox runtime)",
+      "empty": "No operation functions have been published. When the declarative path cannot express an integration, have the AI draft a function and publish it after reviewing it on the confirmation card.",
+      "runSelfTest": "Run isolation self-test",
+      "denied": "Denied",
+      "allowed": "NOT denied",
+      "idempotent": "Replay-safe",
+      "toggleEnabled": "Enable or disable this function",
+      "details": "Details",
+      "observing": "First-run observation: {{calls}}/{{limit}} calls, with every outbound request recorded",
+      "run": "Run now",
+      "runInputLabel": "Input arguments passed to the function (JSON)",
+      "versions": "Versions and rollback",
+      "activeVersion": "live",
+      "rollback": "Roll back to this version",
+      "rollbackWidens": "This rollback changes which operations the function may reach; confirm to re-grant it",
+      "confirmRollback": "Confirm rollback and re-grant",
+      "observationTrail": "Observation request trail",
+      "noObservation": "No calls during the observation window yet.",
+      "audit": "Call audit",
+      "noAudit": "No calls recorded yet.",
+      "fenceOk": "OS fence is in force ({{backend}})",
+      "fenceDegraded": "OS fence is in force, but a hardening layer is missing ({{backend}})",
+      "fenceUnavailable": "OS fence unavailable: this host refuses to run operation functions",
+      "fenceEnforced": "enforced",
+      "fenceHardeningOnly": "hardening only — missing weakens but does not block",
+      "refresh": "Refresh",
+      "close": "Close",
+      "delete": "Delete",
+      "status": {
+        "observing": "Observing",
+        "active": "Active",
+        "disabled": "Disabled"
+      },
+      "anomalyToast": "Operation function {function} on {provider} misbehaved during its observation window — review its request trail."
     }
   },
   "page": {

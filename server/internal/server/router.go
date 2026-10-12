@@ -328,6 +328,14 @@ func (s *Server) setupRoutes() {
 		mcpGroup.POST("/integration-drafts/:id/publish", s.draftPublishAgent)
 		mcpGroup.POST("/integration-versions/:id/rollback", s.draftRollbackAgent)
 
+		// Sandbox operation functions (Epic #726 / #739) — the AGENT surface.
+		// An agent may discover published functions and CALL them; publishing,
+		// enabling, deleting and rolling back are all human authorization
+		// actions and have no agent route at all.
+		mcpGroup.GET("/operation-functions", s.mcpFunctionList)
+		mcpGroup.POST("/operation-functions/call", s.mcpFunctionCall)
+		mcpGroup.GET("/operation-functions/fence", s.mcpFunctionFence)
+
 		// Data integration proxy — run_data_query / list_data_sources tunnel here.
 		// Three-layer gate + audit lives in DataProxyService.
 		mcpGroup.POST("/data-proxy/query", s.dataProxyQuery)
@@ -409,6 +417,25 @@ func (s *Server) setupRoutes() {
 		orgs.DELETE("/:id/members/:user_id", s.orgHandler.RemoveMember)
 		orgs.POST("/:id/transfer-ownership", s.orgHandler.TransferOwnership)
 		orgs.GET("/:id/audit-log", s.orgHandler.ListAuditLog)
+
+		// Integration authorization approvals (team edition, issue #741). The
+		// service enforces the action→role matrix; these routes are the
+		// authoritative gate (the SPA hide is convenience only).
+		orgs.POST("/:id/integration-approvals", s.approvalHandler.Submit)
+		orgs.GET("/:id/integration-approvals", s.approvalHandler.ListByOrg)
+		orgs.GET("/:id/integration-approvals/:req_id", s.approvalHandler.Get)
+		orgs.POST("/:id/integration-approvals/:req_id/decision", s.approvalHandler.Decide)
+		orgs.DELETE("/:id/integration-approvals/:req_id", s.approvalHandler.Cancel)
+
+		// Cross-user integration audit view (team edition, issue #743):
+		// "who called what, when, with which of the org's credentials, and how
+		// did it end", merged with the approval decisions #741 wrote to the org
+		// audit log. Admin-only -- the service gate answers 403 for a plain
+		// member -- and the /orgs group itself is license-gated, so a personal
+		// build has no such view at all. Read-only by construction: there is
+		// deliberately no mutating route for audit records.
+		orgs.GET("/:id/integration-activity", s.orgIntegrationActivity)
+		orgs.GET("/:id/integration-activity/export", s.orgIntegrationActivityExport)
 	}
 
 	// Me routes
@@ -416,19 +443,28 @@ func (s *Server) setupRoutes() {
 	{
 		me.GET("/orgs", s.meHandler.ListOrgs)
 
+		// Pending integration approvals this caller is entitled to decide
+		// (role-matched, never their own). Empty outside team edition.
+		me.GET("/integration-approvals", s.approvalHandler.ListMine)
+
 		// "需要我处理的" view (spec §19): issues in a terminal needs-human exec_status
 		// (blocked-needs-human / waiting-user-input / abandoned) across accessible owners.
 		me.GET("/attention-issues", s.kanbanHandler.ListAttentionIssues)
 
-		// External provider credentials (caller-scoped). v1 is personal-
-		// owner only; org-scoped credentials wait until the SPA exposes
-		// an org-context switcher (see ExternalCredentialHandler.resolveCallerOwner).
+		// External provider credentials. Personal credentials are caller-scoped;
+		// org-owned credentials are managed by org admins (?owner_type=org for
+		// listing, CanManageOrg for mutate, usage-grants for the policy layer).
 		me.GET("/external-credentials", s.extCredHandler.List)
 		me.POST("/external-credentials", s.extCredHandler.Create)
 		me.DELETE("/external-credentials/:id", s.extCredHandler.Delete)
 		me.PATCH("/external-credentials/:id", s.extCredHandler.Patch)
 		me.GET("/external-credentials/:id/usages", s.extCredHandler.Usages)
 		me.POST("/external-credentials/:id/verify-imap", s.extCredHandler.VerifyImap)
+		// Org-credential usage policy (issue #742): which projects/workspaces may
+		// use an org credential. Org-admin only for grant/revoke; members may read.
+		me.GET("/external-credentials/:id/usage-grants", s.extCredHandler.ListUsageGrants)
+		me.POST("/external-credentials/:id/usage-grants", s.extCredHandler.GrantUsage)
+		me.DELETE("/external-credentials/:id/usage-grants", s.extCredHandler.RevokeUsage)
 
 		// External API proxy — generic HTTP pass-through for AI-driven external API calls.
 		me.POST("/external-proxy/call", s.proxyCall)
@@ -481,6 +517,24 @@ func (s *Server) setupRoutes() {
 		me.POST("/integration-drafts/:id/publish", s.draftPublish)
 		me.GET("/integration-versions", s.draftVersions)
 		me.POST("/integration-versions/:id/rollback", s.draftRollback)
+
+		// Sandbox operation functions (Epic #726 / #739) — the HUMAN surface.
+		// Listing, running by hand, enabling/disabling, deleting, the rollback
+		// chain, the first-run observation trail, and the OS-fence self-check
+		// (including the live isolation acceptance). Publication is NOT here:
+		// it rides the provider draft pipeline above, where the confirmation
+		// card lives.
+		me.GET("/operation-functions", s.functionList)
+		me.GET("/operation-functions/audit", s.functionAudit)
+		me.GET("/operation-functions/sandbox", s.functionSandbox)
+		me.POST("/operation-functions/sandbox/selftest", s.functionSandboxSelfTest)
+		me.POST("/operation-functions/rehearse", s.functionRehearse)
+		me.PUT("/operation-functions/:id/enabled", s.functionSetEnabled)
+		me.DELETE("/operation-functions/:id", s.functionDelete)
+		me.POST("/operation-functions/:id/invoke", s.functionInvoke)
+		me.GET("/operation-functions/:id/versions", s.functionVersions)
+		me.POST("/operation-functions/:id/rollback", s.functionRollback)
+		me.GET("/operation-functions/:id/observation", s.functionObservation)
 
 		// Continuous integration-source health (Epic #726 / #744): probe now,
 		// recovery (re-enable / disable), contract-drift acknowledge, and the
@@ -608,6 +662,13 @@ func (s *Server) setupRoutes() {
 		// Assignable users (Task 11): owner-resolved member list for the
 		// issue-detail assignee picker.
 		projects.GET("/:id/assignable-users", s.projectHandler.ListAssignableUsers)
+
+		// Project-level role (project admin) management — team edition only.
+		// Granting requires org admin; on a personal project the service rejects
+		// the mutation (no delegation outside an org).
+		projects.GET("/:id/members", s.approvalHandler.ListProjectMembers)
+		projects.POST("/:id/members", s.approvalHandler.GrantProjectMember)
+		projects.DELETE("/:id/members/:user_id", s.approvalHandler.RevokeProjectMember)
 
 		// External-source bindings (project ↔ GitHub repo / TAPD workspace / Jira).
 		// Browse / import are no longer exposed — AI handles those through MCP

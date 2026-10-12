@@ -119,5 +119,88 @@
       "noResults": "未找到用户。已是本组织成员的用户不会出现在这里。",
       "showing": "显示前 {{shown}} 条,共 {{total}} 条匹配,请输入更多关键字缩小范围。"
     }
+  },
+  "approvals": {
+    "tab": "集成审批",
+    "hint": "集成授权动作（草稿确认 / 放宽 scope / 开启写权限 / 发布）须由具备相应角色的成员批准；发起人不能自批。",
+    "noPermission": "仅组织所有者和管理员可查看集成审批。",
+    "loading": "加载中…",
+    "empty": "暂无待审批的集成授权申请。",
+    "decideFailed": "审批失败：{{error}}",
+    "escalated": "已升级 ×{{count}}",
+    "actions": {
+      "draft_confirm": "确认草稿影响范围",
+      "scope_relax": "放宽 scope",
+      "enable_write": "开启写权限",
+      "publish": "发布"
+    },
+    "role": {
+      "project_admin": "项目管理员",
+      "admin": "管理员",
+      "owner": "所有者"
+    },
+    "requiredRole": "需要{{role}}权限",
+    "requestedBy": "发起人：{{user}}",
+    "unknownUser": "用户 #{{id}}",
+    "expiresAt": "过期时间 {{time}}",
+    "diff": "变更内容",
+    "notePlaceholder": "备注（可选）",
+    "approve": "批准",
+    "deny": "拒绝",
+    "selfDecide": "您是发起人，不能批准自己的申请。",
+    "notPermitted": "您的角色无权批准此项。"
+  },
+  "activity": {
+    "tab": "集成活动",
+    "hint": "组织内成员使用集成时的审计记录：谁、何时、用了哪份凭证、调了什么、结果如何。审批决定同样留痕。记录只增不改、不可删，可导出留档。",
+    "noPermission": "仅组织所有者和管理员可查看跨用户审计。",
+    "loading": "加载中…",
+    "empty": "当前筛选条件下没有集成活动。",
+    "loadFailed": "加载失败：{{error}}",
+    "export": "导出 CSV",
+    "exporting": "导出中…",
+    "exportFailed": "导出失败：{{error}}",
+    "exportDone": "已导出 {{count}} 条记录",
+    "filters": {
+      "kind": "类型",
+      "kindAll": "全部类型",
+      "member": "成员",
+      "memberAll": "全部成员",
+      "project": "项目",
+      "projectAll": "全部项目",
+      "credentialScope": "凭证归属",
+      "credentialScopeAll": "全部凭证",
+      "outcome": "结果",
+      "outcomeAll": "全部结果",
+      "from": "开始日期",
+      "to": "结束日期",
+      "clear": "清除筛选"
+    },
+    "kinds": {
+      "api": "外部 API",
+      "data": "数据查询",
+      "approval": "审批"
+    },
+    "outcomes": {
+      "ok": "成功",
+      "error": "失败",
+      "pending": "待处理"
+    },
+    "scope": {
+      "org": "组织凭证",
+      "personal": "个人凭证"
+    },
+    "fingerprint": "载荷指纹",
+    "fingerprintDetail": "SHA-256 {{sha}} · {{bytes}} 字节 · 顶层字段：{{fields}}",
+    "fingerprintNone": "无请求体",
+    "rows": "{{count}} 行",
+    "duration": "{{ms}} ms",
+    "requestedBy": "申请人：{{user}}",
+    "unknownUser": "用户 #{{id}}",
+    "page": "共 {{total}} 条",
+    "prev": "上一页",
+    "next": "下一页",
+    "selfAction": "本人",
+    "auditNote": "导出行为本身也会记入组织审计日志。"
   }
 }

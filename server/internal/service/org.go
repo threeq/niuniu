@@ -73,10 +73,18 @@ type OrgService struct {
 	agentMgr   agentStopper  // may be nil; wired after construction via SetAgentManager
 	notifyHub  orgNotifyHub  // may be nil; wired after construction via SetNotifyHub
 	sseHub     userDisconnector // may be nil; wired after construction via SetSSEHub
+	revoker    MemberIntegrationRevoker // may be nil; wired via SetMemberIntegrationRevoker
 }
 
 func NewOrgService(q *store.Queries, db *sql.DB, authz *Authz) *OrgService {
 	return &OrgService{q: q, db: store.Wrap(db), authz: authz}
+}
+
+// SetMemberIntegrationRevoker wires the reclaim hook so RemoveMember can
+// invalidate a departing member's integration artifacts (pending approvals,
+// project-admin grants, credentials, unused credential links).
+func (s *OrgService) SetMemberIntegrationRevoker(r MemberIntegrationRevoker) {
+	s.revoker = r
 }
 
 // SetAgentManager wires in the AgentManager so RemoveMember can terminate
@@ -514,6 +522,17 @@ func (s *OrgService) RemoveMember(ctx context.Context, callerUserID int64, calle
 	// Close the removed user's active SSE streams.
 	if s.sseHub != nil {
 		s.sseHub.DisconnectUser(targetUserID)
+	}
+
+	// Reclaim the removed member's integration-side state: pending approvals
+	// they raised, project-admin grants, org credentials they created, and
+	// unused credential-submission links they minted. Best-effort — removal has
+	// already committed.
+	if s.revoker != nil {
+		if err := s.revoker.RevokeMemberIntegrationArtifacts(ctx, orgID, targetUserID); err != nil {
+			slog.Warn("RemoveMember: integration revoke failed",
+				"org_id", orgID, "user_id", targetUserID, "err", err)
+		}
 	}
 
 	return nil

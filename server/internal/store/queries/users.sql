@@ -24,6 +24,15 @@ FROM users WHERE id = ?;
 SELECT id, username, display_name, role, created_at, updated_at
 FROM users ORDER BY created_at;
 
+-- name: ListUserNamesByIDs :many
+-- id -> (username, display_name) map for the attribution column of the
+-- team-edition audit feed (#743). Deliberately narrow: never selects password
+-- hashes, roles or MFA state, so an org-wide feed cannot widen into a user
+-- directory dump.
+SELECT id, username, display_name FROM users
+WHERE id IN (sqlc.slice('ids'))
+ORDER BY id;
+
 -- name: UpdateUser :exec
 UPDATE users SET display_name = ?, role = ?, updated_at = CURRENT_TIMESTAMP
 WHERE id = ?;

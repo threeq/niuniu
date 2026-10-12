@@ -25,6 +25,18 @@ func Migrate(db *sql.DB) {
 	// dropped in Phase 7 (drop_legacy_phase7_v1). On existing DBs that still
 	// have it, the column persists until MigrateDropLegacyPhase7 runs.
 
+	// im_bot_onboarding_tokens.issued_by_user_id: records who issued a one-time
+	// credential link so a removed member's unused links can be invalidated
+	// (team-edition member lifecycle, issue #741). Retrofit for existing DBs.
+	addColumnIfNotExists(db, "im_bot_onboarding_tokens", "issued_by_user_id", fk+" DEFAULT NULL REFERENCES users(id) ON DELETE CASCADE")
+
+	// credential_onboarding_tokens.owner_type/owner_id: bind a one-time
+	// credential link to the target owner (team-edition semantics, issue #742).
+	// Captured at issue time; a submit whose project owner drifted is rejected.
+	// Retrofit for existing DBs (legacy rows keep '' -> resolved from project).
+	addColumnIfNotExists(db, "credential_onboarding_tokens", "owner_type", "TEXT NOT NULL DEFAULT ''")
+	addColumnIfNotExists(db, "credential_onboarding_tokens", "owner_id", fk+" NOT NULL DEFAULT 0")
+
 	// Add harness_run_id column to agent_messages if missing (existing databases).
 	addColumnIfNotExists(db, "agent_messages", "harness_run_id", fk+" DEFAULT NULL")
 
@@ -3763,6 +3775,13 @@ func MigrateExternalProviders(db *sql.DB) error {
 	addColumnIfNotExists(db, "external_api_audit", "body_sha256", "TEXT NOT NULL DEFAULT ''")
 	addColumnIfNotExists(db, "external_api_audit", "body_bytes", intCol+" NOT NULL DEFAULT 0")
 	addColumnIfNotExists(db, "external_api_audit", "body_fields", "TEXT NOT NULL DEFAULT '[]'")
+
+	// Credential attribution on the proxy audit (#743). Rows written before
+	// this column existed keep credential_id = 0 and are reported as
+	// "unattributed" by the team-edition audit view rather than being guessed
+	// at. No index: the org feed joins this column to
+	// external_provider_credentials by primary key, not by scan.
+	addColumnIfNotExists(db, "external_api_audit", "credential_id", intCol+" NOT NULL DEFAULT 0")
 
 	// Add audit indexes regardless — fresh installs need them, and
 	// existing DBs that ran the migration before indexes were added

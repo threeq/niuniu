@@ -1086,6 +1086,56 @@ CREATE TABLE IF NOT EXISTS org_audit_log (
 CREATE INDEX IF NOT EXISTS idx_org_audit_org_time
     ON org_audit_log(org_id, created_at DESC);
 
+-- Project-level role (project admin). Org roles (owner/admin/member) live in
+-- org_members; this adds a project-scoped delegation so a project's integration
+-- actions can be approved by that project's admins without requiring an
+-- org-wide admin. The project owner is implicit and need not be listed.
+CREATE TABLE IF NOT EXISTS project_members (
+    project_id BIGINT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    user_id    BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    role       TEXT NOT NULL DEFAULT 'project_admin'
+                 CHECK (role IN ('project_admin')),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    PRIMARY KEY (project_id, user_id)
+);
+CREATE INDEX IF NOT EXISTS idx_project_members_user ON project_members(user_id);
+
+-- Team-edition integration authorization approvals. A member's request to run a
+-- privileged integration action (draft confirm / relax scope / enable write /
+-- publish) is parked here as 'pending' and routed to members holding the
+-- required role (never the requester). Decisions are written to org_audit_log.
+-- Removing a member invalidates the rows they requested.
+CREATE TABLE IF NOT EXISTS integration_approval_requests (
+    id               BIGSERIAL PRIMARY KEY,
+    owner_type       TEXT NOT NULL DEFAULT 'org' CHECK (owner_type IN ('user','org')),
+    owner_id         BIGINT NOT NULL,
+    project_id       BIGINT REFERENCES projects(id) ON DELETE SET NULL,
+    action           TEXT NOT NULL CHECK (action IN ('draft_confirm','scope_relax','enable_write','publish')),
+    subject_type     TEXT NOT NULL DEFAULT '',
+    subject_id       BIGINT NOT NULL DEFAULT 0,
+    subject_label    TEXT NOT NULL DEFAULT '',
+    diff             TEXT NOT NULL DEFAULT '',
+    summary          TEXT NOT NULL DEFAULT '',
+    requested_by     BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    required_role    TEXT NOT NULL CHECK (required_role IN ('project_admin','admin','owner')),
+    status           TEXT NOT NULL CHECK (status IN ('pending','approved','denied','expired','cancelled','invalidated')),
+    decided_by       BIGINT REFERENCES users(id) ON DELETE SET NULL,
+    decided_at       TIMESTAMPTZ,
+    decision_note    TEXT NOT NULL DEFAULT '',
+    escalation_count INTEGER NOT NULL DEFAULT 0,
+    escalated_at     TIMESTAMPTZ,
+    expires_at       TIMESTAMPTZ NOT NULL,
+    created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at       TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_iar_owner_status
+    ON integration_approval_requests(owner_type, owner_id, status);
+CREATE INDEX IF NOT EXISTS idx_iar_requester_status
+    ON integration_approval_requests(requested_by, status);
+CREATE INDEX IF NOT EXISTS idx_iar_pending_expires
+    ON integration_approval_requests(expires_at) WHERE status='pending';
+
 CREATE TABLE IF NOT EXISTS mcp_session_tokens (
     id           BIGSERIAL PRIMARY KEY,
     workspace_id BIGINT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
@@ -1508,16 +1558,17 @@ CREATE TABLE IF NOT EXISTS external_providers (
 -- never persisted -- the fingerprint answers "what shape left this machine"
 -- without leaking the payload (Epic #726 / #747). Empty for reads.
 CREATE TABLE IF NOT EXISTS external_api_audit (
-    id          BIGSERIAL PRIMARY KEY,
-    user_id     BIGINT NOT NULL,
-    provider_id BIGINT NOT NULL,
-    method      TEXT NOT NULL,
-    path        TEXT NOT NULL,
-    status_code INTEGER NOT NULL DEFAULT 0,
-    body_sha256 TEXT NOT NULL DEFAULT '',
-    body_bytes  BIGINT NOT NULL DEFAULT 0,
-    body_fields TEXT NOT NULL DEFAULT '[]',
-    created_at  TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+    id            BIGSERIAL PRIMARY KEY,
+    user_id       BIGINT NOT NULL,
+    provider_id   BIGINT NOT NULL,
+    credential_id BIGINT NOT NULL DEFAULT 0,
+    method        TEXT NOT NULL,
+    path          TEXT NOT NULL,
+    status_code   INTEGER NOT NULL DEFAULT 0,
+    body_sha256   TEXT NOT NULL DEFAULT '',
+    body_bytes    BIGINT NOT NULL DEFAULT 0,
+    body_fields   TEXT NOT NULL DEFAULT '[]',
+    created_at    TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
 -- Per-user, per-provider write toggle for external API proxy.
@@ -1932,6 +1983,7 @@ CREATE TABLE IF NOT EXISTS im_bot_onboarding_tokens (
     platform        TEXT NOT NULL CHECK (platform IN ('lark','dingtalk','telegram','wework','wechat')),
     channel_name    TEXT NOT NULL DEFAULT '',
     connection_mode TEXT NOT NULL DEFAULT 'stream' CHECK (connection_mode IN ('stream','webhook')),
+    issued_by_user_id BIGINT REFERENCES users(id) ON DELETE CASCADE,
     expires_at      TIMESTAMP NOT NULL,
     used_at         TIMESTAMP,
     created_at      TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
@@ -1949,6 +2001,12 @@ CREATE TABLE IF NOT EXISTS credential_onboarding_tokens (
     token_hash  TEXT NOT NULL UNIQUE,
     project_id  BIGINT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
     issued_by   BIGINT NOT NULL DEFAULT 0,
+    -- Team-edition owner binding (issue #742): the owner the completed
+    -- credential/source will belong to, captured at issue time. A submission
+    -- whose project no longer resolves to this owner is rejected (cross-owner
+    -- submit / takeover). Empty for legacy rows (resolved from the project).
+    owner_type  TEXT NOT NULL DEFAULT '',
+    owner_id    BIGINT NOT NULL DEFAULT 0,
     kind        TEXT NOT NULL CHECK (kind IN ('provider_credential','data_source')),
     title       TEXT NOT NULL DEFAULT '',
     fields_json TEXT NOT NULL DEFAULT '[]',
@@ -1957,3 +2015,123 @@ CREATE TABLE IF NOT EXISTS credential_onboarding_tokens (
     used_at     TIMESTAMP,
     created_at  TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
+
+-- ============================================================
+-- Sandbox operation functions (Epic #726 / #739). Postgres twin of the
+-- SQLite definitions in schema.sql -- keep the two in step.
+-- ============================================================
+CREATE TABLE IF NOT EXISTS integration_functions (
+    id                BIGSERIAL PRIMARY KEY,
+    owner_type        TEXT NOT NULL DEFAULT 'user' CHECK (owner_type IN ('user','org')),
+    owner_id          BIGINT NOT NULL DEFAULT 0,
+    provider_id       BIGINT NOT NULL,
+    provider_name     TEXT NOT NULL,
+    name              TEXT NOT NULL,
+    description       TEXT NOT NULL DEFAULT '',
+    runtime           TEXT NOT NULL DEFAULT 'goja',
+    code              TEXT NOT NULL,
+    code_hash         TEXT NOT NULL DEFAULT '',
+    entry             TEXT NOT NULL DEFAULT 'main',
+    limits_json       TEXT NOT NULL DEFAULT '{}',
+    egress_json       TEXT NOT NULL DEFAULT '[]',
+    idempotent        BIGINT NOT NULL DEFAULT 0,
+    enabled           BIGINT NOT NULL DEFAULT 1,
+    version           BIGINT NOT NULL DEFAULT 1,
+    status            TEXT NOT NULL DEFAULT 'observing'
+                      CHECK (status IN ('observing','active','disabled')),
+    observation_calls BIGINT NOT NULL DEFAULT 0,
+    observation_limit BIGINT NOT NULL DEFAULT 20,
+    observation_until TIMESTAMPTZ DEFAULT NULL,
+    created_by        BIGINT NOT NULL DEFAULT 0,
+    created_at        TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at        TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE (provider_id, name)
+);
+CREATE INDEX IF NOT EXISTS idx_integration_functions_provider
+    ON integration_functions(provider_id, name);
+CREATE INDEX IF NOT EXISTS idx_integration_functions_owner
+    ON integration_functions(owner_type, owner_id, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS integration_function_versions (
+    id              BIGSERIAL PRIMARY KEY,
+    function_id     BIGINT NOT NULL,
+    owner_type      TEXT NOT NULL DEFAULT 'user' CHECK (owner_type IN ('user','org')),
+    owner_id        BIGINT NOT NULL DEFAULT 0,
+    provider_id     BIGINT NOT NULL,
+    name            TEXT NOT NULL,
+    version         BIGINT NOT NULL DEFAULT 1,
+    code            TEXT NOT NULL,
+    code_hash       TEXT NOT NULL DEFAULT '',
+    egress_json     TEXT NOT NULL DEFAULT '[]',
+    limits_json     TEXT NOT NULL DEFAULT '{}',
+    idempotent      BIGINT NOT NULL DEFAULT 0,
+    scope_json      TEXT NOT NULL DEFAULT '{}',
+    active          BIGINT NOT NULL DEFAULT 1,
+    published_by    BIGINT NOT NULL DEFAULT 0,
+    source_draft_id BIGINT NOT NULL DEFAULT 0,
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_integration_function_versions_fn
+    ON integration_function_versions(function_id, version DESC);
+
+CREATE TABLE IF NOT EXISTS function_call_audit (
+    id                BIGSERIAL PRIMARY KEY,
+    owner_type        TEXT NOT NULL DEFAULT 'user',
+    owner_id          BIGINT NOT NULL DEFAULT 0,
+    user_id           BIGINT NOT NULL DEFAULT 0,
+    function_id       BIGINT NOT NULL,
+    provider_id       BIGINT NOT NULL,
+    function_name     TEXT NOT NULL DEFAULT '',
+    provider_name     TEXT NOT NULL DEFAULT '',
+    workspace_id      BIGINT NOT NULL DEFAULT 0,
+    caller            TEXT NOT NULL DEFAULT '',
+    status            TEXT NOT NULL,
+    error_code        TEXT NOT NULL DEFAULT '',
+    error_message     TEXT NOT NULL DEFAULT '',
+    duration_ms       BIGINT NOT NULL DEFAULT 0,
+    egress_calls      BIGINT NOT NULL DEFAULT 0,
+    egress_ops        TEXT NOT NULL DEFAULT '[]',
+    input_sha256      TEXT NOT NULL DEFAULT '',
+    input_bytes       BIGINT NOT NULL DEFAULT 0,
+    output_bytes      BIGINT NOT NULL DEFAULT 0,
+    peak_memory_bytes BIGINT NOT NULL DEFAULT 0,
+    idempotency_key   TEXT NOT NULL DEFAULT '',
+    replayed          BIGINT NOT NULL DEFAULT 0,
+    observation       BIGINT NOT NULL DEFAULT 0,
+    fence_backend     TEXT NOT NULL DEFAULT '',
+    code_hash         TEXT NOT NULL DEFAULT '',
+    created_at        TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_function_call_audit_function
+    ON function_call_audit(function_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_function_call_audit_owner
+    ON function_call_audit(owner_type, owner_id, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS function_idempotency (
+    id            BIGSERIAL PRIMARY KEY,
+    function_id   BIGINT NOT NULL,
+    idem_key      TEXT NOT NULL,
+    call_audit_id BIGINT NOT NULL DEFAULT 0,
+    status        TEXT NOT NULL DEFAULT '',
+    output_json   TEXT NOT NULL DEFAULT '',
+    created_at    TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE (function_id, idem_key)
+);
+-- credential_usage_grants: team-edition usage policy for ORG-owned provider
+-- credentials (issue #742). An org credential is usable only in the explicitly
+-- granted scopes (default minimal: no grants => no project may bind or use it).
+-- Personal (user-owned) credentials ignore this table entirely. scope_type
+-- 'project' authorizes the whole project (and therefore its 1:1 workspaces);
+-- 'workspace' authorizes a single workspace. cascade removes grants with the
+-- credential.
+CREATE TABLE IF NOT EXISTS credential_usage_grants (
+    id            BIGSERIAL PRIMARY KEY,
+    credential_id BIGINT NOT NULL REFERENCES external_provider_credentials(id) ON DELETE CASCADE,
+    scope_type    TEXT NOT NULL CHECK (scope_type IN ('project','workspace')),
+    scope_id      BIGINT NOT NULL,
+    granted_by    BIGINT NOT NULL DEFAULT 0,
+    created_at    TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(credential_id, scope_type, scope_id)
+);
+CREATE INDEX IF NOT EXISTS idx_credential_usage_grants_cred ON credential_usage_grants(credential_id);
+CREATE INDEX IF NOT EXISTS idx_credential_usage_grants_scope ON credential_usage_grants(scope_type, scope_id);

@@ -22,21 +22,25 @@ import (
 // upstream-tracker bindings. Construction takes the raw *sql.DB so callers
 // don't need to know about *store.DB; the wrap happens inside.
 type ExternalSourceService struct {
-	q     *store.Queries
-	db    *store.DB
-	creds *ExternalCredentialService
-	reg   *integration.Registry
-	authz *Authz
+	q      *store.Queries
+	db     *store.DB
+	creds  *ExternalCredentialService
+	reg    *integration.Registry
+	authz  *Authz
+	policy *CredentialUsagePolicyService
 }
 
-// NewExternalSourceService wires the dependencies.
-func NewExternalSourceService(q *store.Queries, rawDB *sql.DB, creds *ExternalCredentialService, reg *integration.Registry, authz *Authz) *ExternalSourceService {
+// NewExternalSourceService wires the dependencies. policy may be nil in
+// personal-only test wiring, in which case org-usage enforcement is skipped
+// (personal credentials are exempt from the policy layer anyway).
+func NewExternalSourceService(q *store.Queries, rawDB *sql.DB, creds *ExternalCredentialService, reg *integration.Registry, authz *Authz, policy *CredentialUsagePolicyService) *ExternalSourceService {
 	return &ExternalSourceService{
-		q:     q,
-		db:    store.Wrap(rawDB),
-		creds: creds,
-		reg:   reg,
-		authz: authz,
+		q:      q,
+		db:     store.Wrap(rawDB),
+		creds:  creds,
+		reg:    reg,
+		authz:  authz,
+		policy: policy,
 	}
 }
 
@@ -88,6 +92,17 @@ func (s *ExternalSourceService) Add(ctx context.Context, projectID int64, provid
 		// passed CanAccessProject (=> member of that org).
 		if !(projOwner.Type == "org" && projOwner.ID == meta.OwnerID) {
 			return nil, ErrCredentialNotBindable
+		}
+		// Usage policy (issue #742): an org credential is usable only where an
+		// org admin explicitly granted it. Default-minimal — no grant, no bind.
+		if s.policy != nil {
+			allowed, err := s.policy.IsProjectAuthorized(ctx, credentialID, projectID)
+			if err != nil {
+				return nil, fmt.Errorf("usage policy check: %w", err)
+			}
+			if !allowed {
+				return nil, ErrCredentialNotGranted
+			}
 		}
 	default:
 		return nil, ErrCredentialNotBindable

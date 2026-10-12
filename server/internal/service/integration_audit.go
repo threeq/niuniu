@@ -1,15 +1,19 @@
-// Integration activity feed — the read side of the two integration audit
-// tables (external_api_audit, data_source_audit). Both were write-only before
-// Epic #726 / #728: an agent could call an external API or run a data query and
-// nothing in the product could answer "which agent called what, and when".
+// Integration activity feed — the read side of the integration audit tables
+// (external_api_audit, data_source_audit, function_call_audit). The first two
+// were write-only before Epic #726 / #728: an agent could call an external API
+// or run a data query and nothing in the product could answer "which agent
+// called what, and when". The third arrived with the sandbox function runtime
+// (#739): a function reaches the outside world through the SAME proxy egress,
+// so leaving it out of the feed would hide credential-bearing calls from the
+// very surface that exists to show them.
 //
-// The two tables have different columns, so the feed is merged in Go rather
-// than in SQL: each table is queried independently with its own filters and a
-// (offset+limit) window, the two windows are merged newest-first, and the
-// requested page is sliced out of the result. Fetching offset+limit from each
-// side is sufficient — the merged top-N is always contained in the union of
-// the two per-table top-Ns — and keeps every query a plain single-table SELECT
-// that both SQLite and PostgreSQL can plan.
+// The tables have different columns, so the feed is merged in Go rather than in
+// SQL: each table is queried independently with its own filters and an
+// (offset+limit) window, the windows are merged newest-first, and the requested
+// page is sliced out of the result. Fetching offset+limit from each side is
+// sufficient — the merged top-N is always contained in the union of the
+// per-table top-Ns — and keeps every query a plain single-table SELECT that
+// both SQLite and PostgreSQL can plan.
 package service
 
 import (
@@ -34,11 +38,12 @@ func nullTime(t *time.Time) sql.NullTime {
 
 // Kinds in the unified feed. They double as the wire values of `kind`.
 const (
-	ActivityKindAPI  = "api"  // one external_api_audit row
-	ActivityKindData = "data" // one data_source_audit row
+	ActivityKindAPI      = "api"      // one external_api_audit row
+	ActivityKindData     = "data"     // one data_source_audit row
+	ActivityKindFunction = "function" // one function_call_audit row (a sandbox function run)
 )
 
-// ErrBadActivityKind is returned for a kind value outside {api, data, ""}.
+// ErrBadActivityKind is returned for a kind value outside {api, data, function, ""}.
 var ErrBadActivityKind = errors.New("invalid activity kind")
 
 // Page bounds. The cap keeps the read path (and the SPA table) bounded no
@@ -53,13 +58,15 @@ const (
 //
 // Kind selects which audit table(s) to read ("" = both).
 //
-// ProviderID / SourceID narrow the feed to ONE integration: since a provider
-// only ever produces API rows and a data source only ever produces data rows,
-// setting either also narrows Kind to that side. That is what makes a single
-// "source" picker in the settings UI behave the way a user expects.
+// ProviderID / SourceID narrow the feed to ONE integration. A data source only
+// ever produces data rows, so SourceID removes the other sides; a provider
+// produces BOTH api rows and function rows (a sandbox function calls the
+// provider's operations), so ProviderID keeps both — narrowing to a provider
+// and then not seeing its functions would hide exactly the egress a reviewer is
+// looking for.
 type IntegrationActivityInput struct {
 	UserID     int64
-	Kind       string // "", ActivityKindAPI, ActivityKindData
+	Kind       string // "", ActivityKindAPI, ActivityKindData, ActivityKindFunction
 	ProviderID int64  // > 0 narrows to API calls of that provider
 	SourceID   int64  // > 0 narrows to data queries of that source
 	From       time.Time
@@ -93,6 +100,19 @@ type IntegrationActivityItem struct {
 	// if the threshold changes. Epic #726 / #747.
 	Oversize bool `json:"oversize,omitempty"`
 
+	// kind == "function" (a sandbox operation function run, Epic #726 / #739).
+	// Such a row names the PROVIDER it ran against, so ProviderID/ProviderName
+	// above are populated for this kind too.
+	FunctionID   *int64   `json:"function_id,omitempty"`
+	FunctionName string   `json:"function_name,omitempty"`
+	Caller       string   `json:"caller,omitempty"`
+	ErrorCode    string   `json:"error_code,omitempty"`
+	EgressCalls  *int64   `json:"egress_calls,omitempty"`
+	EgressOps    []string `json:"egress_ops,omitempty"`
+	CodeHash     string   `json:"code_hash,omitempty"`
+	Observation  bool     `json:"observation,omitempty"`
+	Replayed     bool     `json:"replayed,omitempty"`
+
 	// kind == "data"
 	SourceID         *int64   `json:"source_id,omitempty"`
 	SourceName       string   `json:"source_name,omitempty"`
@@ -106,8 +126,8 @@ type IntegrationActivityItem struct {
 }
 
 // IntegrationActivityPage is the wire shape of one page of the feed. Total is
-// the number of rows matching the filters across BOTH tables (before paging),
-// so the SPA can render "showing X of Y".
+// the number of rows matching the filters across every table the request reads
+// (before paging), so the SPA can render "showing X of Y".
 type IntegrationActivityPage struct {
 	Items  []IntegrationActivityItem `json:"items"`
 	Total  int64                     `json:"total"`
@@ -115,7 +135,7 @@ type IntegrationActivityPage struct {
 	Offset int64                     `json:"offset"`
 }
 
-// IntegrationAuditService reads the two integration audit tables.
+// IntegrationAuditService reads the integration audit tables.
 type IntegrationAuditService struct {
 	q *store.Queries
 	// policy supplies the egress warn threshold used to flag an over-threshold
@@ -142,10 +162,15 @@ func (s *IntegrationAuditService) SetEgressPolicy(p EgressPolicy) {
 //
 // The feed is scoped to in.UserID: audit rows are written with the calling
 // user's id, so this is "my calls", never another user's. A cross-user /
-// org-wide view is deliberately NOT built here — that is the team-edition
-// concern tracked separately (#743).
+// org-wide view is deliberately NOT built here — the team edition reuses this
+// reader with a different user scope (#743), which is exactly why the third
+// table had to be added HERE rather than in a team-only path: a team admin
+// auditing "who used which credential" would otherwise not see function calls,
+// even though a function's calls carry the same credential through the same
+// proxy.
 func (s *IntegrationAuditService) ListActivity(ctx context.Context, in IntegrationActivityInput) (*IntegrationActivityPage, error) {
-	if in.Kind != "" && in.Kind != ActivityKindAPI && in.Kind != ActivityKindData {
+	if in.Kind != "" && in.Kind != ActivityKindAPI && in.Kind != ActivityKindData &&
+		in.Kind != ActivityKindFunction {
 		return nil, ErrBadActivityKind
 	}
 
@@ -162,17 +187,20 @@ func (s *IntegrationAuditService) ListActivity(ctx context.Context, in Integrati
 	}
 
 	// Which tables this request reads. Kind picks the sides; an id filter can
-	// only ever match rows on its own side (a provider emits no data rows, a
-	// data source emits no api rows), so it can only ever remove a side — never
-	// force one back on over an explicit Kind. That keeps kind=data plus a
-	// provider filter empty rather than silently returning api rows.
+	// only ever remove a side — never force one back on over an explicit Kind —
+	// so kind=data plus a provider filter stays empty rather than silently
+	// returning api rows.
 	wantAPI := in.Kind == "" || in.Kind == ActivityKindAPI
 	wantData := in.Kind == "" || in.Kind == ActivityKindData
+	wantFunction := in.Kind == "" || in.Kind == ActivityKindFunction
+	// A function row carries its provider's id, so a provider filter keeps both
+	// of that provider's sides. A data source has no functions.
 	if in.ProviderID > 0 {
 		wantData = false
 	}
 	if in.SourceID > 0 {
 		wantAPI = false
+		wantFunction = false
 	}
 
 	// The merged page [offset, offset+limit) is always contained in the union
@@ -247,6 +275,33 @@ func (s *IntegrationAuditService) ListActivity(ctx context.Context, in Integrati
 		total += n
 		for _, r := range rows {
 			items = append(items, dataActivityItem(r))
+		}
+	}
+
+	if wantFunction {
+		rows, err := s.q.ListFunctionCallAuditByUser(ctx, store.ListFunctionCallAuditByUserParams{
+			UserID:     in.UserID,
+			ProviderID: in.ProviderID,
+			FromTs:     nullTime(fromTS),
+			ToTs:       nullTime(toTS),
+			Off:        0,
+			Lim:        window,
+		})
+		if err != nil {
+			return nil, err
+		}
+		n, err := s.q.CountFunctionCallAuditByUser(ctx, store.CountFunctionCallAuditByUserParams{
+			UserID:     in.UserID,
+			ProviderID: in.ProviderID,
+			FromTs:     nullTime(fromTS),
+			ToTs:       nullTime(toTS),
+		})
+		if err != nil {
+			return nil, err
+		}
+		total += n
+		for _, r := range rows {
+			items = append(items, functionActivityItem(r))
 		}
 	}
 
@@ -349,6 +404,34 @@ func apiActivityItem(r store.ExternalApiAudit) IntegrationActivityItem {
 	var fields []string
 	if err := json.Unmarshal([]byte(r.BodyFields), &fields); err == nil && len(fields) > 0 {
 		it.BodyFields = fields
+	}
+	return it
+}
+
+// functionActivityItem maps one sandbox-function call. Status and DurationMs
+// are shared with the data kind: for both they mean "how did this call end".
+func functionActivityItem(r store.FunctionCallAudit) IntegrationActivityItem {
+	fid, pid, calls, ms := r.FunctionID, r.ProviderID, r.EgressCalls, r.DurationMs
+	it := IntegrationActivityItem{
+		ID:           r.ID,
+		Kind:         ActivityKindFunction,
+		UserID:       r.UserID,
+		CreatedAt:    r.CreatedAt,
+		ProviderID:   &pid,
+		FunctionID:   &fid,
+		FunctionName: r.FunctionName,
+		Caller:       r.Caller,
+		Status:       r.Status,
+		ErrorCode:    r.ErrorCode,
+		EgressCalls:  &calls,
+		DurationMs:   &ms,
+		CodeHash:     r.CodeHash,
+		Observation:  r.Observation != 0,
+		Replayed:     r.Replayed != 0,
+	}
+	var ops []string
+	if err := json.Unmarshal([]byte(r.EgressOps), &ops); err == nil && len(ops) > 0 {
+		it.EgressOps = ops
 	}
 	return it
 }

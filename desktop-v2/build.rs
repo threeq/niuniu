@@ -5,24 +5,27 @@
 // 运行时跳过重复解压。无 staging（纯 cargo check / dev 无 sidecar）时 cfg 不开启，
 // 回退到运行时文件查找。
 //
-// 四件套：server / mcp / agent（牛牛自研引擎）/ video-mcp（视频创作能力模块）。
-// 后两者各自独立门控（have_embedded_agent / have_embedded_video_mcp）——任一缺席
-// （老 staging、轻量发行）都不影响两件套的内嵌行为，也不互相影响；在场时参与指纹，
-// 二进制一变运行时就重新解压。
+// 五件套：server / mcp / agent（牛牛自研引擎）/ video-mcp（视频创作能力模块）/
+// funcbox（操作函数沙箱 helper，Epic #726 / #739）。
+// 后三者各自独立门控（have_embedded_agent / have_embedded_video_mcp /
+// have_embedded_funcbox）——任一缺席（老 staging、轻量发行）都不影响两件套的内嵌
+// 行为，也不互相影响；在场时参与指纹，二进制一变运行时就重新解压。
 fn main() {
     // 本脚本自己声明的自定义 cfg 名（Cargo.toml 的 check-cfg 列表未必列全），
     // 避免 unexpected_cfgs 警告。
     println!("cargo:rustc-check-cfg=cfg(have_embedded_agent)");
     println!("cargo:rustc-check-cfg=cfg(have_embedded_video_mcp)");
+    println!("cargo:rustc-check-cfg=cfg(have_embedded_funcbox)");
 
     tauri_build::build();
 
-    let (server, mcp, agent, video_mcp) = if cfg!(target_os = "windows") {
+    let (server, mcp, agent, video_mcp, funcbox) = if cfg!(target_os = "windows") {
         (
             "binaries/niuniu-server.exe",
             "binaries/niuniu-mcp.exe",
             "binaries/niuniu-agent.exe",
             "binaries/niuniu-video-mcp.exe",
+            "binaries/niuniu-funcbox.exe",
         )
     } else {
         (
@@ -30,12 +33,13 @@ fn main() {
             "binaries/niuniu-mcp",
             "binaries/niuniu-agent",
             "binaries/niuniu-video-mcp",
+            "binaries/niuniu-funcbox",
         )
     };
     // 四件各自独立跟踪：更新任何一件都重跑本脚本。只跟踪已存在的路径 —— 对不
     // 存在的路径打 rerun-if-changed 会让 cargo 每次构建都重跑。无文件可跟踪时
     // 退回 cargo 默认的「包内任何文件变化即重跑」，新落地一件也会被看见。
-    for p in [server, mcp, agent, video_mcp] {
+    for p in [server, mcp, agent, video_mcp, funcbox] {
         if std::path::Path::new(p).exists() {
             println!("cargo:rerun-if-changed={p}");
         }
@@ -57,6 +61,14 @@ fn main() {
     if video_present {
         println!("cargo:rustc-cfg=have_embedded_video_mcp");
     }
+    // The sandbox helper rides the same optional-sidecar pattern. It matters
+    // more than the others that it actually ships: without it the server has no
+    // box to run a function in, so the whole feature would be dead in a
+    // packaged desktop build (a dev run finds it next to the server).
+    let funcbox_present = std::path::Path::new(funcbox).exists();
+    if funcbox_present {
+        println!("cargo:rustc-cfg=have_embedded_funcbox");
+    }
 
     if std::path::Path::new(server).exists() && std::path::Path::new(mcp).exists() {
         println!("cargo:rustc-cfg=have_embedded_sidecars");
@@ -65,6 +77,7 @@ fn main() {
             mcp,
             agent_present.then_some(agent),
             video_present.then_some(video_mcp),
+            funcbox_present.then_some(funcbox),
         );
         println!("cargo:rustc-env=EMBEDDED_SIDE_FP={fp}");
     }
@@ -72,9 +85,16 @@ fn main() {
 
 /// 廉价指纹：各文件长度 + 各自首尾 64KB 的 FNV-1a。无需读完整数百 MB，构建期毫秒级。
 /// 用于运行时判断解压出的 sidecar 是否已是当前内嵌版本（匹配则跳过解压）。
-/// 可选件在场时按 agent → video_mcp 的顺序追加「长度-哈希」：任一内容一变指纹即变，
-/// 运行时会重新解压全部内嵌件；两件套构建保持历史四段格式，老用户目录的 .fp 仍能命中。
-fn fingerprint(server: &str, mcp: &str, agent: Option<&str>, video_mcp: Option<&str>) -> String {
+/// 可选件在场时按 agent → video_mcp → funcbox 的顺序追加「长度-哈希」：任一内容一变
+/// 指纹即变，运行时会重新解压全部内嵌件；两件套构建保持历史四段格式，老用户目录的
+/// .fp 仍能命中。
+fn fingerprint(
+    server: &str,
+    mcp: &str,
+    agent: Option<&str>,
+    video_mcp: Option<&str>,
+    funcbox: Option<&str>,
+) -> String {
     let (sl, sh) = sample(server);
     let (ml, mh) = sample(mcp);
     let mut fp = format!("{sl}-{ml}-{sh:016x}-{mh:016x}");
@@ -85,6 +105,10 @@ fn fingerprint(server: &str, mcp: &str, agent: Option<&str>, video_mcp: Option<&
     if let Some(v) = video_mcp {
         let (vl, vh) = sample(v);
         fp.push_str(&format!("-{vl}-{vh:016x}"));
+    }
+    if let Some(f) = funcbox {
+        let (fl, fh) = sample(f);
+        fp.push_str(&format!("-{fl}-{fh:016x}"));
     }
     fp
 }

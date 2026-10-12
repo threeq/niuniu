@@ -287,6 +287,42 @@
       "limits": "限制",
       "agentBlock": "Agent 看到的內容",
       "agentBlockHint": "以下內容會以“資料（非指令）”分割槽注入工作空間的指令檔案，與實際下發完全一致。"
+    },
+    "functions": {
+      "title": "操作函式（沙箱執行環境）",
+      "empty": "還沒有發佈操作函式。當宣告式表達不了某個對接時，可讓 AI 起草一個函式，經你在草稿確認卡上審核後發佈。",
+      "runSelfTest": "執行隔離自我檢查",
+      "denied": "已被拒絕",
+      "allowed": "未被拒絕",
+      "idempotent": "可重放",
+      "toggleEnabled": "啟用/停用該函式",
+      "details": "詳情",
+      "observing": "首次執行觀察期：{{calls}}/{{limit}} 次呼叫，期間的每次出網都已被記錄",
+      "run": "手動執行",
+      "runInputLabel": "傳給函式的 input 參數（JSON）",
+      "versions": "版本與回滾",
+      "activeVersion": "目前",
+      "rollback": "回滾到此版本",
+      "rollbackWidens": "該回滾會改變函式可達的操作範圍，需要你再次確認",
+      "confirmRollback": "確認回滾並重新授權",
+      "observationTrail": "觀察期請求軌跡",
+      "noObservation": "觀察期內還沒有呼叫。",
+      "audit": "呼叫稽核",
+      "noAudit": "還沒有呼叫記錄。",
+      "fenceOk": "作業系統圍欄已生效（{{backend}}）",
+      "fenceDegraded": "作業系統圍欄已生效，但缺少一層加固（{{backend}}）",
+      "fenceUnavailable": "作業系統圍欄不可用：本機拒絕執行操作函式",
+      "fenceEnforced": "已強制",
+      "fenceHardeningOnly": "僅加固項，缺失會降低強度但不阻斷執行",
+      "refresh": "重新整理",
+      "close": "關閉",
+      "delete": "刪除",
+      "status": {
+        "observing": "觀察期",
+        "active": "生效中",
+        "disabled": "已停用"
+      },
+      "anomalyToast": "操作函式 {function}（{provider}）在觀察期內出現異常呼叫——請檢視其請求軌跡。"
     }
   },
   "page": {

@@ -72,3 +72,36 @@ jobs:
           workspaces: desktop-v2
       - name: cargo check
         run: cd desktop-v2 && cargo check --locked
+
+  # The sandbox fence for operation functions (#739) is OS-specific — Windows
+  # AppContainer + Job Object, macOS seatbelt, Linux user namespaces + Landlock
+  # + seccomp. Cross-compiling proves none of it: the escape attempts have to be
+  # refused by a REAL kernel of each platform, so they run here rather than only
+  # on whichever machine a developer happens to use. macOS in particular relies
+  # on sandbox-exec, which Apple deprecates, so this job is what turns "still
+  # works on macOS 15+" from an assumption into a measurement.
+  sandbox-fence:
+    name: sandbox fence (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: server/go.mod
+          cache-dependency-path: server/go.sum
+
+      # -v matters: TestFenceDeniesReadSocketAndSpawn prints one line per escape
+      # attempt with the OS's own refusal message, and TestSelfCheckReportsComponents
+      # prints the per-component fence status, so a red run says WHICH part of
+      # the fence failed instead of only that something did. A missing or
+      # ineffective fence makes these tests FAIL, never skip.
+      - name: Sandbox & operation-function tests
+        run: |
+          cd server
+          go test -count=1 -timeout 20m -v \
+            -run 'TestOperationFunction|TestFenceDenies|TestSelfCheck|TestRunFunction|TestRunaway|TestEgressBudget|TestBoxCrash|TestRunnerRecovers|TestSpawnRefused|TestURLIsNotExpressible|TestUndeclaredOperation|TestClassifyProbes|TestProbesMark|TestVerdict|TestDegradedFence|TestNamespaces' \
+            ./internal/sandbox/ ./internal/service/ ./cmd/niuniu-funcbox/

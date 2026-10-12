@@ -59,7 +59,7 @@ func newProxyTestEnv(t *testing.T) *proxyTestEnv {
 	credSvc := service.NewExternalCredentialService(env.Queries(), env.DB, kr, reg)
 	provSvc := service.NewExternalProviderService(env.Queries(), env.DB)
 	authz := service.NewAuthz(env.Queries(), env.DB)
-	svc := service.NewExternalProxyService(env.Queries(), env.DB, provSvc, credSvc, authz)
+	svc := service.NewExternalProxyService(env.Queries(), env.DB, provSvc, credSvc, authz, nil)
 
 	ctx := context.Background()
 	userA := env.UserA

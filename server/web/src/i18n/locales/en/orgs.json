@@ -119,5 +119,88 @@
       "noResults": "No users found. Existing members of this organization are excluded.",
       "showing": "Showing the first {{shown}} of {{total}} matches; type more keywords to narrow the search."
     }
+  },
+  "approvals": {
+    "tab": "Approvals",
+    "hint": "Integration authorization actions (confirm draft scope / relax scope / enable write / publish) must be approved by a member holding the required role. The requester cannot approve their own request.",
+    "noPermission": "Only organization owners and admins can view integration approvals.",
+    "loading": "Loading…",
+    "empty": "No pending integration approvals.",
+    "decideFailed": "Decision failed: {{error}}",
+    "escalated": "Escalated ×{{count}}",
+    "actions": {
+      "draft_confirm": "Confirm draft scope",
+      "scope_relax": "Relax scope",
+      "enable_write": "Enable write access",
+      "publish": "Publish"
+    },
+    "role": {
+      "project_admin": "project admin",
+      "admin": "admin",
+      "owner": "owner"
+    },
+    "requiredRole": "Requires {{role}}",
+    "requestedBy": "Requested by {{user}}",
+    "unknownUser": "user #{{id}}",
+    "expiresAt": "Expires {{time}}",
+    "diff": "Proposed change",
+    "notePlaceholder": "Note (optional)",
+    "approve": "Approve",
+    "deny": "Deny",
+    "selfDecide": "You are the requester and cannot approve your own request.",
+    "notPermitted": "Your role cannot approve this action."
+  },
+  "activity": {
+    "tab": "Integration activity",
+    "hint": "Audit record of members' integration use: who, when, with which credential, what they called, and how it ended. Approval decisions are recorded here too. Records are append-only — never edited or deleted — and can be exported for archival.",
+    "noPermission": "Only organization owners and admins can view cross-user audit.",
+    "loading": "Loading…",
+    "empty": "No integration activity matches these filters.",
+    "loadFailed": "Failed to load: {{error}}",
+    "export": "Export CSV",
+    "exporting": "Exporting…",
+    "exportFailed": "Export failed: {{error}}",
+    "exportDone": "Exported {{count}} records",
+    "filters": {
+      "kind": "Type",
+      "kindAll": "All types",
+      "member": "Member",
+      "memberAll": "All members",
+      "project": "Project",
+      "projectAll": "All projects",
+      "credentialScope": "Credential",
+      "credentialScopeAll": "All credentials",
+      "outcome": "Result",
+      "outcomeAll": "All results",
+      "from": "From",
+      "to": "To",
+      "clear": "Clear filters"
+    },
+    "kinds": {
+      "api": "External API",
+      "data": "Data query",
+      "approval": "Approval"
+    },
+    "outcomes": {
+      "ok": "Succeeded",
+      "error": "Failed",
+      "pending": "Pending"
+    },
+    "scope": {
+      "org": "Org credential",
+      "personal": "Personal credential"
+    },
+    "fingerprint": "Payload fingerprint",
+    "fingerprintDetail": "SHA-256 {{sha}} · {{bytes}} bytes · top-level fields: {{fields}}",
+    "fingerprintNone": "No request body",
+    "rows": "{{count}} rows",
+    "duration": "{{ms}} ms",
+    "requestedBy": "Requested by {{user}}",
+    "unknownUser": "User #{{id}}",
+    "page": "{{total}} records",
+    "prev": "Previous",
+    "next": "Next",
+    "selfAction": "Self",
+    "auditNote": "The export itself is written to the organization audit log."
   }
 }

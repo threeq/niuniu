@@ -50,7 +50,9 @@
     "new_write_operation": "New write operation: {{target}}",
     "operation_not_in_document": "Operation not declared by the document: {{target}}",
     "scope_widened": "Data scope widened: {{target}} gains {{detail}}",
-    "write_enabled": "Write access enabled"
+    "write_enabled": "Write access enabled",
+    "function_unrehearsed": "Publishing a function with no behaviour rehearsal: its egress was never previewed",
+    "function_undeclared_operation": "A function's rehearsal called {detail} without declaring it"
   },
   "advisory": {
     "title": "Verbatim text from the external document (untrusted, for human review only)",
@@ -105,5 +107,17 @@
     "rollbackNeedsConfirmation": "Restoring version {{version}} changes the scope, so it must be confirmed first. Nothing has been applied yet.",
     "rollbackDone": "Restored.",
     "rollbackFailed": "The restored configuration failed verification; the live configuration was left unchanged."
+  },
+  "functions": {
+    "title": "Operation functions (sandboxed)",
+    "isNew": "new",
+    "changed": "changed",
+    "idempotent": "replay-safe",
+    "notIdempotent": "not replay-safe",
+    "reach": "may call:",
+    "noRehearsal": "No behaviour rehearsal was produced — this function's egress was never previewed.",
+    "undeclared": "During rehearsal it called {ops} without declaring it.",
+    "lintLine": "line {line}: {message}",
+    "code": "Show the code"
   }
 }

@@ -36,24 +36,13 @@ func nullTimeToPtr(nt sql.NullTime) *time.Time {
 // thin pass-through over the service: validation (provider/token shape) lives
 // here; encryption / persistence / provider dispatch lives in the service.
 type ExternalCredentialHandler struct {
-	svc   *service.ExternalCredentialService
-	authz *service.Authz
+	svc    *service.ExternalCredentialService
+	authz  *service.Authz
+	policy *service.CredentialUsagePolicyService
 }
 
-func NewExternalCredentialHandler(svc *service.ExternalCredentialService, authz *service.Authz) *ExternalCredentialHandler {
-	return &ExternalCredentialHandler{svc: svc, authz: authz}
-}
-
-// resolveCallerOwner reads the caller's user_id from the gin context
-// (set by auth.IdentityResolver as "auth_user_id") and returns it as
-// the owner triple (owner_type='user', owner_id=user_id, user_id).
-func (h *ExternalCredentialHandler) resolveCallerOwner(c *gin.Context) (ownerType string, ownerID, userID int64, ok bool) {
-	uid := c.GetInt64("auth_user_id")
-	if uid <= 0 {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthenticated"})
-		return "", 0, 0, false
-	}
-	return "user", uid, uid, true
+func NewExternalCredentialHandler(svc *service.ExternalCredentialService, authz *service.Authz, policy *service.CredentialUsagePolicyService) *ExternalCredentialHandler {
+	return &ExternalCredentialHandler{svc: svc, authz: authz, policy: policy}
 }
 
 // List returns metadata for every credential the caller has configured
@@ -287,15 +276,16 @@ type patchBody struct {
 // service calls (Rename, UpdateConfig); preserves the legacy 1-call-per
 // -field error mapping.
 func (h *ExternalCredentialHandler) Patch(c *gin.Context) {
-	ot, oid, uid, ok := h.resolveCallerOwner(c)
-	if !ok {
-		return
-	}
 	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil || id <= 0 {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "bad credential id"})
 		return
 	}
+	meta, ok := h.resolveWritableCredentialOwner(c, id)
+	if !ok {
+		return
+	}
+	ot, oid, uid := meta.OwnerType, meta.OwnerID, meta.UserID
 	var b patchBody
 	if err := c.ShouldBindJSON(&b); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -354,16 +344,16 @@ func (h *ExternalCredentialHandler) Patch(c *gin.Context) {
 // §11). 200 {ok:true} on success; 422 {error_kind:"auth"} on credential
 // rejection; 502 on connect/IO failure; 404 when not found.
 func (h *ExternalCredentialHandler) VerifyImap(c *gin.Context) {
-	ot, oid, uid, ok := h.resolveCallerOwner(c)
-	if !ok {
-		return
-	}
 	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil || id <= 0 {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "bad credential id"})
 		return
 	}
-	if err := h.svc.VerifyImapByID(c.Request.Context(), id, ot, oid, uid); err != nil {
+	meta, ok := h.requireCredentialRead(c, id)
+	if !ok {
+		return
+	}
+	if err := h.svc.VerifyImapByID(c.Request.Context(), id, meta.OwnerType, meta.OwnerID, meta.UserID); err != nil {
 		if errors.Is(err, service.ErrNoCredential) {
 			c.JSON(http.StatusNotFound, gin.H{"error": "credential not found"})
 			return
@@ -385,18 +375,81 @@ func (h *ExternalCredentialHandler) VerifyImap(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"ok": true})
 }
 
-// Usages returns the list of project_external_sources rows that
-// reference this credential — the same shape the 409 Delete-in-use
-// response carries. Lets the SPA show "this credential is used by N
-// project(s)" inline + a "remove binding" affordance per row.
-func (h *ExternalCredentialHandler) Usages(c *gin.Context) {
-	_, _, _, ok := h.resolveCallerOwner(c)
-	if !ok {
-		return
+// resolveWritableCredentialOwner loads a credential's identity and checks the
+// caller may MUTATE it (rename / rotate / revoke): personal requires the owner;
+// org requires an org admin (issue #742: org rotation/revocation). It returns
+// the credential's own (owner_type, owner_id, user_id) triple — the row is
+// addressed by its actual owner, not a spoofable query param.
+func (h *ExternalCredentialHandler) resolveWritableCredentialOwner(c *gin.Context, id int64) (service.CredentialMeta, bool) {
+	uid := c.GetInt64("auth_user_id")
+	if uid <= 0 {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthenticated"})
+		return service.CredentialMeta{}, false
 	}
+	meta, err := h.svc.GetMetaByID(c.Request.Context(), id)
+	if err != nil {
+		if errors.Is(err, service.ErrNoCredential) {
+			c.JSON(http.StatusNotFound, gin.H{"error": "credential not found"})
+			return service.CredentialMeta{}, false
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return service.CredentialMeta{}, false
+	}
+	switch meta.OwnerType {
+	case "user":
+		if meta.OwnerID != uid {
+			c.JSON(http.StatusForbidden, gin.H{"error": "forbidden"})
+			return service.CredentialMeta{}, false
+		}
+	case "org":
+		if err := h.authz.CanManageOrg(c.Request.Context(), uid, meta.OwnerID); err != nil {
+			c.JSON(http.StatusForbidden, gin.H{"error": "forbidden: org admin required"})
+			return service.CredentialMeta{}, false
+		}
+	default:
+		c.JSON(http.StatusForbidden, gin.H{"error": "forbidden"})
+		return service.CredentialMeta{}, false
+	}
+	return *meta, true
+}
+
+// requireCredentialRead loads a credential's identity and checks the caller may
+// read its owner (personal: must be the owner; org: any member). Writes the
+// error response and returns ok=false when the caller is not allowed.
+func (h *ExternalCredentialHandler) requireCredentialRead(c *gin.Context, id int64) (service.CredentialMeta, bool) {
+	uid := c.GetInt64("auth_user_id")
+	if uid <= 0 {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthenticated"})
+		return service.CredentialMeta{}, false
+	}
+	meta, err := h.svc.GetMetaByID(c.Request.Context(), id)
+	if err != nil {
+		if errors.Is(err, service.ErrNoCredential) {
+			c.JSON(http.StatusNotFound, gin.H{"error": "credential not found"})
+			return service.CredentialMeta{}, false
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return service.CredentialMeta{}, false
+	}
+	if err := h.authz.EnsureOwnerReadable(c.Request.Context(), uid, service.OwnerRef{Type: meta.OwnerType, ID: meta.OwnerID}); err != nil {
+		c.JSON(http.StatusForbidden, gin.H{"error": "forbidden"})
+		return service.CredentialMeta{}, false
+	}
+	return *meta, true
+}
+
+// Usages returns the list of project_external_sources rows that reference this
+// credential (the impact surface for rotate/revoke, issue #742) and, for org
+// credentials, the usage grants currently authorizing it. Access is checked
+// against the credential's owner — a member cannot probe another owner's id.
+func (h *ExternalCredentialHandler) Usages(c *gin.Context) {
 	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil || id <= 0 {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "bad credential id"})
+		return
+	}
+	meta, ok := h.requireCredentialRead(c, id)
+	if !ok {
 		return
 	}
 	sources, err := h.svc.ListUsages(c.Request.Context(), id)
@@ -414,22 +467,135 @@ func (h *ExternalCredentialHandler) Usages(c *gin.Context) {
 			"source_key":   s.SourceKey,
 		}
 	}
-	c.JSON(http.StatusOK, gin.H{"items": items})
+	resp := gin.H{
+		"items":       items,
+		"owner_type":  meta.OwnerType,
+		"owner_id":    meta.OwnerID,
+		"usage_count": len(items),
+	}
+	// Org credentials additionally expose the authorizing scope grants so the
+	// admin sees BOTH "who is configured to use it" (bindings) and "who is
+	// allowed to" (grants) before rotating or revoking.
+	if meta.OwnerType == "org" && h.policy != nil {
+		grants, gerr := h.policy.ListGrants(c.Request.Context(), c.GetInt64("auth_user_id"), id)
+		if gerr == nil {
+			resp["grants"] = grantsToJSON(grants)
+		}
+	}
+	c.JSON(http.StatusOK, resp)
 }
 
-// Delete removes a credential by id. If the credential is in use by any
-// project external sources, returns 409 with the in_use_by list.
-func (h *ExternalCredentialHandler) Delete(c *gin.Context) {
-	ot, oid, uid, ok := h.resolveCallerOwner(c)
-	if !ok {
-		return
+// grantUsageBody is the POST body for a usage grant.
+type grantUsageBody struct {
+	ScopeType string `json:"scope_type" binding:"required"`
+	ScopeID   int64  `json:"scope_id" binding:"required"`
+}
+
+// grantsToJSON maps grants into the wire shape.
+func grantsToJSON(grants []service.CredentialUsageGrant) []gin.H {
+	out := make([]gin.H, len(grants))
+	for i, g := range grants {
+		out[i] = gin.H{
+			"id":            g.ID,
+			"credential_id": g.CredentialID,
+			"scope_type":    g.ScopeType,
+			"scope_id":      g.ScopeID,
+			"granted_by":    g.GrantedBy,
+			"created_at":    g.CreatedAt,
+		}
 	}
+	return out
+}
+
+// ListUsageGrants returns the usage policy of an ORG credential.
+func (h *ExternalCredentialHandler) ListUsageGrants(c *gin.Context) {
 	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil || id <= 0 {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "bad credential id"})
 		return
 	}
-	if err := h.svc.DeleteByID(c.Request.Context(), id, ot, oid, uid); err != nil {
+	if _, ok := h.requireCredentialRead(c, id); !ok {
+		return
+	}
+	grants, err := h.policy.ListGrants(c.Request.Context(), c.GetInt64("auth_user_id"), id)
+	if err != nil {
+		writeGrantError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"items": grantsToJSON(grants)})
+}
+
+// GrantUsage authorizes an org credential for a project or workspace. Requires
+// org-admin; the scope must belong to the credential's owner.
+func (h *ExternalCredentialHandler) GrantUsage(c *gin.Context) {
+	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil || id <= 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "bad credential id"})
+		return
+	}
+	var b grantUsageBody
+	if err := c.ShouldBindJSON(&b); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	if err := h.policy.Grant(c.Request.Context(), c.GetInt64("auth_user_id"), id, b.ScopeType, b.ScopeID); err != nil {
+		writeGrantError(c, err)
+		return
+	}
+	c.Status(http.StatusNoContent)
+}
+
+// RevokeUsage removes a usage grant (scope passed as query params).
+func (h *ExternalCredentialHandler) RevokeUsage(c *gin.Context) {
+	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil || id <= 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "bad credential id"})
+		return
+	}
+	scopeType := c.Query("scope_type")
+	scopeID, err := strconv.ParseInt(c.Query("scope_id"), 10, 64)
+	if err != nil || scopeID <= 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "bad scope_id"})
+		return
+	}
+	if err := h.policy.Revoke(c.Request.Context(), c.GetInt64("auth_user_id"), id, scopeType, scopeID); err != nil {
+		writeGrantError(c, err)
+		return
+	}
+	c.Status(http.StatusNoContent)
+}
+
+// writeGrantError maps usage-policy sentinels onto HTTP statuses.
+func writeGrantError(c *gin.Context, err error) {
+	switch {
+	case errors.Is(err, service.ErrNoCredential):
+		c.JSON(http.StatusNotFound, gin.H{"error": "credential not found"})
+	case errors.Is(err, service.ErrForbidden):
+		c.JSON(http.StatusForbidden, gin.H{"error": "forbidden: org admin required"})
+	case errors.Is(err, service.ErrGrantPersonalCredential):
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+	case errors.Is(err, service.ErrGrantScopeNotOwned), errors.Is(err, service.ErrGrantScopeInvalid):
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+	case errors.Is(err, service.ErrNotFound):
+		c.JSON(http.StatusNotFound, gin.H{"error": "scope not found"})
+	default:
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+	}
+}
+
+// Delete removes a credential by id. If the credential is in use by any
+// project external sources, returns 409 with the in_use_by list.
+func (h *ExternalCredentialHandler) Delete(c *gin.Context) {
+	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil || id <= 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "bad credential id"})
+		return
+	}
+	meta, ok := h.resolveWritableCredentialOwner(c, id)
+	if !ok {
+		return
+	}
+	if err := h.svc.DeleteByID(c.Request.Context(), id, meta.OwnerType, meta.OwnerID, meta.UserID); err != nil {
 		var inUse *service.ErrCredentialInUse
 		if errors.As(err, &inUse) {
 			sources := make([]gin.H, len(inUse.Sources))
