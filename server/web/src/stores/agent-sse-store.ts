@@ -1,5 +1,10 @@
 import { create } from 'zustand';
-import { getAccessToken } from '@/stores/auth-store';
+import {
+  getAccessToken,
+  isAccessTokenNearExpiry,
+  logoutAndRedirect,
+  refreshAccessToken,
+} from '@/stores/auth-store';
 import {
   usePermissionStore,
   type PermissionSSEEvent,
@@ -38,6 +43,13 @@ interface AgentSSEState {
   intentionalClose: boolean;
   // Callbacks to invoke on reconnect
   onReconnectCallbacks: Set<() => void>;
+  // Consecutive onerror count without an intervening onopen. EventSource hides
+  // the HTTP status code, so "the same token keeps failing" is the only
+  // server-rejection signal available — at 3 the reconnect path tries a token
+  // refresh even when the local exp claim still looks valid (e.g. the server
+  // rotated its JWT signing key). Lives in the store (not a module let) so a
+  // store reset clears it together with the rest of the state.
+  consecutiveErrors: number;
 
   /** Initialize SSE connection with given workspace IDs */
   connect: (workspaceIds: string[]) => void;
@@ -76,6 +88,7 @@ export const useAgentSSEStore = create<AgentSSEState>((set, get) => ({
   reconnectTimer: null,
   intentionalClose: false,
   onReconnectCallbacks: new Set<() => void>(),
+  consecutiveErrors: 0,
 
   connect(workspaceIds) {
     const state = get();
@@ -108,6 +121,9 @@ export const useAgentSSEStore = create<AgentSSEState>((set, get) => ({
     const es = new EventSource(url);
 
     es.onopen = () => {
+      if (get().consecutiveErrors > 0) {
+        set({ consecutiveErrors: 0 });
+      }
       console.info('[SSE] CONNECTED', { windowId, workspaces: workspaceIds, since: lastTs || 'initial' });
       if (lastTs > 0) {
         // This is a reconnect, not initial connect
@@ -119,14 +135,31 @@ export const useAgentSSEStore = create<AgentSSEState>((set, get) => ({
       const currentEs = get().es;
       if (currentEs !== es || get().intentionalClose) return;
 
-      set({ es: null });
+      set({ es: null, consecutiveErrors: get().consecutiveErrors + 1 });
       // Auto-reconnect with all current workspaces
       setTimeout(() => {
         const ws = Array.from(get().subscribedWorkspaces);
-        if (ws.length > 0 && !get().intentionalClose) {
+        if (ws.length === 0 || get().intentionalClose) return;
+        void (async () => {
+          // Token recovery: the JWT is past exp, or the same token has kept
+          // failing (EventSource hides the status code). Refresh first so an
+          // expired-session loop cannot spin forever; a failed refresh means
+          // the session is unrecoverable — bounce to login like apiFetch does.
+          // Personal edition runs tokenless: the triple-fail branch must not fire
+          // without a token, or a server blip would loop logout->/login->reload.
+          if (
+            getAccessToken() &&
+            (isAccessTokenNearExpiry(0) || get().consecutiveErrors >= 3)
+          ) {
+            const newToken = await refreshAccessToken();
+            if (!newToken) {
+              logoutAndRedirect();
+              return;
+            }
+          }
           console.info('[SSE] reconnecting...', { workspaces: ws });
           get().connect(ws);
-        }
+        })();
       }, 2000);
     };
 

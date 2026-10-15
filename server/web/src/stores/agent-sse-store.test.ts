@@ -35,6 +35,7 @@ function resetStore() {
     reconnectTimer: null,
     intentionalClose: false,
     onReconnectCallbacks: new Set(),
+    consecutiveErrors: 0,
   });
 }
 

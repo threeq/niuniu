@@ -1,5 +1,10 @@
 import { create } from 'zustand';
-import { getAccessToken } from '@/stores/auth-store';
+import {
+  getAccessToken,
+  isAccessTokenNearExpiry,
+  logoutAndRedirect,
+  refreshAccessToken,
+} from '@/stores/auth-store';
 import { useOrgStore } from '@/stores/org-store';
 import type { Notification } from '@/lib/notification-dispatcher';
 
@@ -30,6 +35,15 @@ interface NotificationWSState {
    * an answer in workspace X" without subscribing to that workspace's SSE.
    */
   askUserPendingByWorkspace: Record<number, Set<number>>;
+  /**
+   * Consecutive closes without an intervening open. WebSocket callbacks hide
+   * the HTTP status code, so "the same token keeps failing" is the only
+   * server-rejection signal available — at 3 the reconnect path tries a token
+   * refresh even when the local exp claim still looks valid (e.g. the server
+   * rotated its JWT signing key). Lives in the store (not a module let) so a
+   * store reset clears it together with the rest of the state.
+   */
+  consecutiveErrors: number;
   connect: () => void;
   disconnect: () => void;
 }
@@ -70,6 +84,7 @@ export const useNotificationWSStore = create<NotificationWSState>((set, get) => 
     reconnectCount: 0,
     permissionPendingByWorkspace: {},
     askUserPendingByWorkspace: {},
+    consecutiveErrors: 0,
 
     connect() {
       const state = get();
@@ -84,6 +99,9 @@ export const useNotificationWSStore = create<NotificationWSState>((set, get) => 
       const ws = new WebSocket(url);
 
       ws.onopen = () => {
+        if (get().consecutiveErrors > 0) {
+          set({ consecutiveErrors: 0 });
+        }
         set({ connected: true });
         resetHeartbeat();
         backoffResetTimer = setTimeout(() => { backoffMs = 1000; }, 15_000);
@@ -149,7 +167,30 @@ export const useNotificationWSStore = create<NotificationWSState>((set, get) => 
         clearTimers();
         set({ ws: null, connected: false });
         if (!intentionalClose) {
-          set((s) => ({ reconnectCount: s.reconnectCount + 1 }));
+          set((s) => ({
+            reconnectCount: s.reconnectCount + 1,
+            consecutiveErrors: s.consecutiveErrors + 1,
+          }));
+          // Token recovery — same gate as the agent SSE store: refresh when
+          // the JWT is expired or the same token keeps failing; a failed
+          // refresh is an unrecoverable session, so stop the backoff loop and
+          // bounce to login instead of retrying forever.
+          // Personal edition runs tokenless: the triple-fail branch must not fire
+          // without a token, or a server blip would loop logout->/login->reload.
+          if (
+            getAccessToken() &&
+            (isAccessTokenNearExpiry(0) || get().consecutiveErrors >= 3)
+          ) {
+            void (async () => {
+              const newToken = await refreshAccessToken();
+              if (!newToken) {
+                logoutAndRedirect();
+                return;
+              }
+              scheduleReconnect();
+            })();
+            return;
+          }
           scheduleReconnect();
         }
       };
