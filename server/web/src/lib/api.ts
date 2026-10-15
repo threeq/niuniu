@@ -2,8 +2,8 @@ import { toast } from 'sonner'
 import i18n from '@/i18n'
 import {
   getAccessToken,
+  logoutAndRedirect,
   refreshAccessToken,
-  useAuthStore,
   isAccessTokenNearExpiry,
 } from '@/stores/auth-store'
 import type {
@@ -206,8 +206,7 @@ export async function apiFetch<T>(
     // looping until the user manually clears localStorage.
     if (response.status === 401) {
       if (token) {
-        useAuthStore.getState().logout();
-        window.location.href = '/login';
+        logoutAndRedirect();
       }
       throw new ApiError(401, 'Session expired', {});
     }

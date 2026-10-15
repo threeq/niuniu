@@ -174,3 +174,14 @@ async function doRefresh(): Promise<string | null> {
     return null;
   }
 }
+
+/**
+ * Unrecoverable-session teardown shared by every auth consumer: clear the
+ * persisted credentials and bounce to /login. Callers: apiFetch (REST 401
+ * after a failed refresh) and the SSE/WS reconnect loops (their refresh
+ * attempt failed). Idempotent — logout() is a no-op when already logged out.
+ */
+export function logoutAndRedirect(): void {
+  useAuthStore.getState().logout();
+  window.location.href = '/login';
+}
