@@ -150,4 +150,30 @@ describe('agent-sse-store token recovery', () => {
     await vi.advanceTimersByTimeAsync(2000);
     expect(refreshAccessToken).not.toHaveBeenCalled();
   });
+
+  // Personal edition runs with auth disabled and no token at all. A server
+  // blip must keep plain-reconnecting: with no token there is nothing to
+  // refresh, and firing the triple-fail branch would logout() (refreshToken
+  // is null) and loop /login -> /workspaces -> reload forever.
+  it('tokenless (personal edition): 3 consecutive errors reconnect without any refresh or logout', async () => {
+    mockedAuth.token = null;
+    mockedAuth.expired = false;
+    mockedAuth.refreshResult = null;
+
+    useAgentSSEStore.getState().addWorkspace('254');
+    await vi.advanceTimersByTimeAsync(300);
+
+    MockEventSource.instances[0].emitError();
+    await vi.advanceTimersByTimeAsync(2000);
+    MockEventSource.instances[1].emitError();
+    await vi.advanceTimersByTimeAsync(2000);
+    MockEventSource.instances[2].emitError();
+    await vi.advanceTimersByTimeAsync(2000);
+
+    expect(refreshAccessToken).not.toHaveBeenCalled();
+    expect(logoutAndRedirect).not.toHaveBeenCalled();
+    // The triple-fail branch is skipped entirely — reconnect proceeds as usual.
+    expect(MockEventSource.instances).toHaveLength(4);
+    expect(MockEventSource.instances[3].url).not.toContain('token=');
+  });
 });

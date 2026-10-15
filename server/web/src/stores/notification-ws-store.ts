@@ -175,7 +175,12 @@ export const useNotificationWSStore = create<NotificationWSState>((set, get) => 
           // the JWT is expired or the same token keeps failing; a failed
           // refresh is an unrecoverable session, so stop the backoff loop and
           // bounce to login instead of retrying forever.
-          if (isAccessTokenNearExpiry(0) || get().consecutiveErrors >= 3) {
+          // Personal edition runs tokenless: the triple-fail branch must not fire
+          // without a token, or a server blip would loop logout->/login->reload.
+          if (
+            getAccessToken() &&
+            (isAccessTokenNearExpiry(0) || get().consecutiveErrors >= 3)
+          ) {
             void (async () => {
               const newToken = await refreshAccessToken();
               if (!newToken) {

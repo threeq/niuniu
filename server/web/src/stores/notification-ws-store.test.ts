@@ -122,7 +122,9 @@ describe('notification-ws-store token recovery', () => {
     mockedAuth.token = 'tok-2';
 
     useNotificationWSStore.getState().connect();
-    // Backoff: 1s, 2s, 4s — advance generously between closes.
+    // backoffMs is a module-level closure that doubles per reconnect and is
+    // never reset between tests (only a 15s-after-open timer resets it), so
+    // the effective delays here are 2s, 4s, 8s — advance generously.
     MockWebSocket.instances[0].emitClose();
     await vi.advanceTimersByTimeAsync(2000);
     MockWebSocket.instances[1].emitClose();
@@ -132,5 +134,34 @@ describe('notification-ws-store token recovery', () => {
     MockWebSocket.instances[2].emitClose();
     await vi.advanceTimersByTimeAsync(8000);
     expect(refreshAccessToken).toHaveBeenCalledTimes(1);
+  });
+
+  // Personal edition runs with auth disabled and no token at all. A server
+  // blip must keep plain-reconnecting: with no token there is nothing to
+  // refresh, and firing the triple-fail branch would logout() (refreshToken
+  // is null) and loop /login -> /workspaces -> reload forever.
+  it('tokenless (personal edition): 3 consecutive closes reconnect without any refresh or logout', async () => {
+    mockedAuth.token = null;
+    mockedAuth.expired = false;
+    mockedAuth.refreshResult = null;
+
+    useNotificationWSStore.getState().connect();
+
+    // backoffMs is a module-level closure that doubles per reconnect and is
+    // never reset between tests (no open fires to schedule the reset), so the
+    // effective delays depend on test order — capped by MAX_BACKOFF at 30s.
+    // Advancing 60s per close always reaches the next reconnect.
+    MockWebSocket.instances[0].emitClose();
+    await vi.advanceTimersByTimeAsync(60_000);
+    MockWebSocket.instances[1].emitClose();
+    await vi.advanceTimersByTimeAsync(60_000);
+    MockWebSocket.instances[2].emitClose();
+    await vi.advanceTimersByTimeAsync(60_000);
+
+    expect(refreshAccessToken).not.toHaveBeenCalled();
+    expect(logoutAndRedirect).not.toHaveBeenCalled();
+    // The triple-fail branch is skipped entirely — reconnect proceeds as usual.
+    expect(MockWebSocket.instances).toHaveLength(4);
+    expect(MockWebSocket.instances[3].url).not.toContain('token=');
   });
 });

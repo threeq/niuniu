@@ -145,7 +145,12 @@ export const useAgentSSEStore = create<AgentSSEState>((set, get) => ({
           // failing (EventSource hides the status code). Refresh first so an
           // expired-session loop cannot spin forever; a failed refresh means
           // the session is unrecoverable — bounce to login like apiFetch does.
-          if (isAccessTokenNearExpiry(0) || get().consecutiveErrors >= 3) {
+          // Personal edition runs tokenless: the triple-fail branch must not fire
+          // without a token, or a server blip would loop logout->/login->reload.
+          if (
+            getAccessToken() &&
+            (isAccessTokenNearExpiry(0) || get().consecutiveErrors >= 3)
+          ) {
             const newToken = await refreshAccessToken();
             if (!newToken) {
               logoutAndRedirect();
