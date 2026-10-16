@@ -1108,6 +1108,19 @@ type WorkspaceSchedule struct {
 	UpdatedAt      time.Time    `json:"updated_at"`
 }
 
+type WorkspaceShare struct {
+	ID           int64        `json:"id"`
+	WorkspaceID  int64        `json:"workspace_id"`
+	TokenHash    string       `json:"token_hash"`
+	PasswordHash string       `json:"password_hash"`
+	ExpiresAt    time.Time    `json:"expires_at"`
+	CreatedBy    int64        `json:"created_by"`
+	RevokedAt    sql.NullTime `json:"revoked_at"`
+	LastAccessAt sql.NullTime `json:"last_access_at"`
+	AllowChat    int64        `json:"allow_chat"`
+	CreatedAt    time.Time    `json:"created_at"`
+}
+
 type WorkspaceStartQueue struct {
 	ID         int64        `json:"id"`
 	OwnerType  string       `json:"owner_type"`

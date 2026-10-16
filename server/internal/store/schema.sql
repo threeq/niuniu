@@ -1816,3 +1816,29 @@ CREATE TABLE IF NOT EXISTS im_bot_onboarding_tokens (
     used_at         TIMESTAMP,
     created_at      TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
+
+-- ============================================================
+-- Workspace shares (UI: "分享" / workspace share). Team-edition feature
+-- (license.FeatureWorkspaceShare): a read-only, password-protected,
+-- time-limited external link to a workspace's chat conversation at
+-- /share/ws/:token. Only the HASH of the public URL token is stored - the raw
+-- token exists solely in the share link handed to the viewer. Password is a
+-- bcrypt hash. expires_at is mandatory (a share must always expire);
+-- revoked_at marks an early manual revoke.
+-- ============================================================
+CREATE TABLE IF NOT EXISTS workspace_shares (
+    id             INTEGER PRIMARY KEY AUTOINCREMENT,
+    workspace_id   INTEGER NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+    token_hash     TEXT NOT NULL UNIQUE,
+    password_hash  TEXT NOT NULL,
+    expires_at     TIMESTAMP NOT NULL,
+    created_by     INTEGER NOT NULL REFERENCES users(id),
+    revoked_at     TIMESTAMP,
+    last_access_at TIMESTAMP,
+    -- allow_chat: viewer may send chat messages to the workspace agent. DEFAULT 0
+    -- (read-only) -- an anonymous external viewer driving the agent is strictly
+    -- opt-in per share.
+    allow_chat     INTEGER NOT NULL DEFAULT 0,
+    created_at     TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_workspace_shares_workspace ON workspace_shares(workspace_id);

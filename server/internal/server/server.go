@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"crypto/sha256"
 	"database/sql"
 	"fmt"
 	"io/fs"
@@ -210,6 +211,9 @@ type Server struct {
 	gitIdentityHandler      *api.GitIdentityHandler
 	serverSettingsSvc       *service.ServerSettingsService
 	adminSettingsHandler    *api.AdminSettingsHandler
+	workspaceShareSvc       *service.WorkspaceShareService
+	workspaceShareHandler   *api.WorkspaceShareHandler
+	sharePublicHandler      *api.SharePublicHandler
 	licenseSvc              license.Gate
 	licenseHandler          *api.LicenseHandler
 	consentSvc              *consent.Service
@@ -1196,6 +1200,13 @@ func New(cfg *config.Config, db *sql.DB, frontendFS fs.FS) *Server {
 	s.adminSettingsHandler = api.NewAdminSettingsHandler(s.serverSettingsSvc, orchGuard)
 	s.licenseHandler = api.NewLicenseHandler(s.licenseSvc)
 	s.consentHandler = api.NewConsentHandler(s.consentSvc)
+
+	// 工作空间分享（团队版 feature；个人版被 NopGate 关死）。unlock cookie 的
+	// HMAC 密钥从 authSecret 派生（server 级已有随机源，无需另存）。
+	secret := sha256.Sum256([]byte("niuniu-share-unlock:" + authSecret))
+	s.workspaceShareSvc = service.NewWorkspaceShareService(s.queries, s.serverSettingsSvc, secret[:])
+	s.workspaceShareHandler = api.NewWorkspaceShareHandler(s.workspaceShareSvc, authz)
+	s.sharePublicHandler = api.NewSharePublicHandler(s.workspaceShareSvc, s.queries, s.agentProxy)
 
 	// Events handler (eventBus already initialized above)
 	s.eventsHandler = api.NewEventsHandler(s.eventBus)

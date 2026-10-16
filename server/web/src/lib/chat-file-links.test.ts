@@ -21,6 +21,14 @@ describe('looksLikeFilePath', () => {
     'IMG_20260101.JPG',
     'assets/logo.svg',
     'out.csv:42',
+    'go.work',
+    'Makefile',
+    'deploy/Dockerfile',
+    // CJK filenames（中文文件名是 agent 输出的常态）
+    'docs/架构设计决策.md',
+    '架构设计决策.md',
+    'src/工具/utils.ts',
+    '设计图.png:12',
   ];
   for (const c of valid) {
     it(`accepts ${c}`, () => {
@@ -40,6 +48,12 @@ describe('looksLikeFilePath', () => {
     'some-random-word',
     'app.doesnotexist',
     'foo.ts bar.ts', // space → not a single candidate
+    // prose uses lowercase; only the capitalized conventional names are files
+    'makefile',
+    'dockerfile',
+    // CJK prose without a known extension stays a word, not a path
+    '新增功能',
+    '架构设计决策',
   ];
   for (const c of invalid) {
     it(`rejects ${c}`, () => {
@@ -96,6 +110,29 @@ describe('matchFileRefs', () => {
     const refs = matchFileRefs('file C:\\work\\demo\\main.py saved');
     expect(refs).toHaveLength(1);
     expect(refs[0].raw).toBe('C:\\work\\demo\\main.py');
+  });
+
+  it('finds go.work and bare conventional build files', () => {
+    const refs = matchFileRefs('go.work 与 Makefile 都在根目录');
+    expect(refs.map((r) => r.raw)).toEqual(['go.work', 'Makefile']);
+  });
+
+  it('does not linkify lowercase prose mentions of build files', () => {
+    expect(matchFileRefs('this project has a makefile and a dockerfile')).toHaveLength(0);
+  });
+
+  it('finds CJK filenames surrounded by CJK prose and brackets', () => {
+    const refs = matchFileRefs('【新增 docs/架构设计决策.md 】');
+    expect(refs).toHaveLength(1);
+    expect(refs[0].raw).toBe('docs/架构设计决策.md');
+  });
+
+  it('finds a bare CJK filename and a CJK path with :line suffix', () => {
+    expect(matchFileRefs('详见 设计图.png，再看 src/工具/utils.ts:12')).toHaveLength(2);
+    const refs = matchFileRefs('src/工具/utils.ts:12');
+    expect(refs[0].raw).toBe('src/工具/utils.ts:12');
+    expect(refs[0].path).toBe('src/工具/utils.ts');
+    expect(refs[0].line).toBe(12);
   });
 });
 

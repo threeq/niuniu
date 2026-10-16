@@ -246,7 +246,8 @@
     "imbot": "IM 機器人",
     "harness": "工程規範",
     "about": "關於",
-    "providerUsage": "用量統計"
+    "providerUsage": "用量統計",
+    "share": "分享"
   },
   "capability": {
     "title": "能力配置",
@@ -1313,5 +1314,14 @@
       "clearedManually": "（手動解除）",
       "empty": "所選區間內沒有限流記錄"
     }
+  },
+  "share": {
+    "title": "工作空間分享",
+    "description": "配置分享連結的訪問域名（僅團隊版）。生成的分享連結形如 <域名>/share/ws/<token>。",
+    "baseUrlLabel": "訪問域名",
+    "baseUrlPlaceholder": "https://share.example.com",
+    "baseUrlHint": "留空時使用當前服務的訪問地址。填寫主機名或完整 http(s) 地址。",
+    "saveFailed": "儲存失敗",
+    "saved": "已儲存"
   }
 }

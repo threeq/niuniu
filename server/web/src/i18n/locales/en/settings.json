@@ -246,7 +246,8 @@
     "imbot": "IM bots",
     "harness": "Engineering Standards",
     "about": "About",
-    "providerUsage": "Usage stats"
+    "providerUsage": "Usage stats",
+    "share": "Share"
   },
   "capability": {
     "title": "Capability Configuration",
@@ -1313,5 +1314,14 @@
       "clearedManually": "(cleared manually)",
       "empty": "No rate limits in the selected range"
     }
+  },
+  "share": {
+    "title": "Workspace sharing",
+    "description": "Configure the access domain for share links (team edition). Links look like <domain>/share/ws/<token>.",
+    "baseUrlLabel": "Access domain",
+    "baseUrlPlaceholder": "https://share.example.com",
+    "baseUrlHint": "Leave empty to use the current server address. Accepts a hostname or a full http(s) URL.",
+    "saveFailed": "Save failed",
+    "saved": "Saved"
   }
 }
