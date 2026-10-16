@@ -1134,5 +1134,41 @@
   "gate": {
     "blocked": "底线闸未通过，已阻止完成",
     "blockedWith": "底线闸未通过：{{name}}（{{reason}}）"
+  },
+  "share": {
+    "toolbarButton": "分享",
+    "title": "分享工作空间",
+    "description": "创建一个带密码和时效的只读链接，外部成员可在浏览器中查看此工作空间的会话内容。",
+    "passwordLabel": "访问密码",
+    "generatePassword": "重新生成密码",
+    "expiryLabel": "有效期",
+    "expiryHint": "到期后链接自动失效，最长 30 天。",
+    "expiry": {
+      "1h": "1 小时",
+      "24h": "24 小时",
+      "72h": "3 天",
+      "7d": "7 天",
+      "30d": "30 天"
+    },
+    "create": "创建分享链接",
+    "createFailed": "创建分享失败",
+    "linkLabel": "分享链接",
+    "copyLink": "复制链接",
+    "copyPassword": "复制密码",
+    "copyFailed": "复制失败",
+    "createdOnce": "链接和密码请立即保存：关闭后无法再次查看链接（密码可重新创建分享）。",
+    "activeList": "进行中的分享",
+    "revoke": "撤销",
+    "revokeFailed": "撤销失败",
+    "expiresAt": "到期时间：{{time}}",
+    "notFound": "分享不存在或已过期",
+    "loadError": "加载失败，请重试",
+    "passwordPromptTitle": "此分享受密码保护",
+    "passwordPromptHint": "输入分享密码以查看会话内容",
+    "passwordPlaceholder": "访问密码",
+    "wrongPassword": "密码错误",
+    "unlock": "解锁查看",
+    "readOnly": "只读分享",
+    "empty": "暂无会话内容"
   }
 }

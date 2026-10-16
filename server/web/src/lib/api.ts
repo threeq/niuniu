@@ -71,6 +71,8 @@ import type {
   SkillActionResult,
   MfaPolicy,
   WorkspaceFileHit,
+  WorkspaceShare,
+  WorkspaceShareCreateResponse,
   ContentSearchResponse,
   ContentSearchOptions,
   CapabilityModuleListResponse,
@@ -714,6 +716,19 @@ export const api = {
       `/workspaces/${workspaceId}/resolve-file`,
       { params: { ref }, suppressError: true },
     ),
+
+  // Workspace shares（团队版）— 时效+密码的只读外链管理。
+  createWorkspaceShare: (workspaceId: string, password: string, expiresAt: string) =>
+    api.post<WorkspaceShareCreateResponse>(`/workspaces/${workspaceId}/shares`, {
+      password,
+      expiresAt,
+    }),
+
+  listWorkspaceShares: (workspaceId: string) =>
+    api.get<{ shares: WorkspaceShare[] }>(`/workspaces/${workspaceId}/shares`),
+
+  revokeWorkspaceShare: (workspaceId: string, shareId: number) =>
+    api.delete<void>(`/workspaces/${workspaceId}/shares/${shareId}`),
 
   // File-CONTENT (grep) search. Errors are surfaced to the caller rather than
   // swallowed: a failed content search must not look like "no matches".

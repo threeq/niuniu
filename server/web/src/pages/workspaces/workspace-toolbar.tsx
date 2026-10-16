@@ -1,11 +1,13 @@
-import { useMemo } from 'react';
-import { FolderTree, GitCompareArrows, CircleDot, Archive, Sparkles, Pin, Presentation, Clapperboard, Loader2, Library, Search } from 'lucide-react';
+import { useMemo, useState } from 'react';
+import { FolderTree, GitCompareArrows, CircleDot, Archive, Sparkles, Pin, Presentation, Clapperboard, Loader2, Library, Search, Share2 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { cn } from '@/lib/utils';
 import { useWorkspacePanelStore, type PanelId } from '@/stores/workspace-panel-store';
+import { useConfigStore } from '@/stores/config-store';
 import { Button } from '@/components/ui/button';
 import { useExtractMemory, useExtractStatus } from '@/lib/hooks/use-memory';
 import { WorkspaceDataButton } from './panels/workspace-data-drawer';
+import { WorkspaceShareDialog } from '@/components/dialogs/workspace-share-dialog';
 import type { Workspace } from '@/types/api';
 
 interface WorkspaceToolbarProps {
@@ -32,6 +34,8 @@ const allPanelButtons: { id: PanelId; icon: React.ComponentType<{ className?: st
 export function WorkspaceToolbar({ workspace, onOpenSearch }: WorkspaceToolbarProps) {
   const { t } = useTranslation('workspaces');
   const { togglePanel, isPanelOpen } = useWorkspacePanelStore();
+  const personalMode = useConfigStore((s) => s.personalMode);
+  const [shareOpen, setShareOpen] = useState(false);
   const workspaceId = Number(workspace.id);
   const extractMemory = useExtractMemory();
   const extractStatus = useExtractStatus(workspaceId);
@@ -153,8 +157,30 @@ export function WorkspaceToolbar({ workspace, onOpenSearch }: WorkspaceToolbarPr
             )}
             <span className="hidden sm:inline">{t('toolbar.extractLearnings')}</span>
           </Button>
+
+          {/* 分享（团队版专属）：个人版（personalMode）不渲染。 */}
+          {!personalMode && (
+            <Button
+              variant="ghost"
+              onClick={() => setShareOpen(true)}
+              aria-label={t('share.toolbarButton')}
+              title={t('share.toolbarButton')}
+              className={cn(toolbarBtn, 'text-warm-text-muted')}
+            >
+              <Share2 className="w-3.5 h-3.5" aria-hidden="true" />
+              <span className="hidden sm:inline">{t('share.toolbarButton')}</span>
+            </Button>
+          )}
         </div>
       </div>
+
+      {!personalMode && (
+        <WorkspaceShareDialog
+          open={shareOpen}
+          onOpenChange={setShareOpen}
+          workspaceId={workspace.id}
+        />
+      )}
     </div>
   );
 }

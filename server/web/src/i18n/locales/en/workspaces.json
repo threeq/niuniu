@@ -1134,5 +1134,41 @@
   "gate": {
     "blocked": "Floor gate blocked completion",
     "blockedWith": "Floor gate blocked: {{name}} ({{reason}})"
+  },
+  "share": {
+    "toolbarButton": "Share",
+    "title": "Share workspace",
+    "description": "Create a password-protected, time-limited read-only link so external viewers can follow this workspace conversation in a browser.",
+    "passwordLabel": "Access password",
+    "generatePassword": "Regenerate password",
+    "expiryLabel": "Expires in",
+    "expiryHint": "The link stops working after expiry, at most 30 days.",
+    "expiry": {
+      "1h": "1 hour",
+      "24h": "24 hours",
+      "72h": "3 days",
+      "7d": "7 days",
+      "30d": "30 days"
+    },
+    "create": "Create share link",
+    "createFailed": "Failed to create share",
+    "linkLabel": "Share link",
+    "copyLink": "Copy link",
+    "copyPassword": "Copy password",
+    "copyFailed": "Copy failed",
+    "createdOnce": "Save the link and password now — the link cannot be viewed again after closing (create a new share to reset it).",
+    "activeList": "Active shares",
+    "revoke": "Revoke",
+    "revokeFailed": "Failed to revoke",
+    "expiresAt": "Expires: {{time}}",
+    "notFound": "This share does not exist or has expired",
+    "loadError": "Failed to load. Please retry.",
+    "passwordPromptTitle": "This share is password protected",
+    "passwordPromptHint": "Enter the share password to view the conversation",
+    "passwordPlaceholder": "Access password",
+    "wrongPassword": "Wrong password",
+    "unlock": "Unlock",
+    "readOnly": "Read-only share",
+    "empty": "No conversation content yet"
   }
 }

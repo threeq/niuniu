@@ -30,6 +30,7 @@ function lazyNamed<M, K extends keyof M>(loader: () => Promise<M>, name: K): M[K
 }
 
 const ImBotOnboardingPage = lazyNamed(() => import('./pages/imbot/onboarding'), 'ImBotOnboardingPage');
+const WorkspaceSharePage = lazyNamed(() => import('./pages/share/workspace-share-page'), 'WorkspaceSharePage');
 
 const WorkspacePage = lazyNamed(() => import('./pages/workspaces/workspace-page'), 'WorkspacePage');
 const WorkspacesOverview = lazyNamed(() => import('./pages/workspaces/workspaces-overview'), 'WorkspacesOverview');
@@ -76,6 +77,17 @@ const imbotOnboardingRoute = createRoute({
   component: () => {
     const { token } = imbotOnboardingRoute.useParams();
     return <ImBotOnboardingPage token={token} />;
+  },
+});
+
+// 工作空间分享公开页（团队版）——与 imbot onboarding 同类：挂在 rootRoute 上、
+// 无 requireAuth，凭 token+密码+解锁 cookie 访问。
+const workspaceShareRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/share/ws/$token',
+  component: () => {
+    const { token } = workspaceShareRoute.useParams();
+    return <WorkspaceSharePage token={token} />;
   },
 });
 
@@ -357,6 +369,7 @@ const dashboardDetailRoute = createRoute({
 const routeTree = rootRoute.addChildren([
   loginRoute,
   imbotOnboardingRoute,
+  workspaceShareRoute,
   layoutRoute.addChildren([
     indexRoute,
     workspacesRoute,

@@ -65,6 +65,20 @@ func (s *ServerSettingsService) GetInt(ctx context.Context, key string, def int)
 	return n
 }
 
+// GetString returns the raw string value for key, or def when unset/empty.
+// Honors the 5s LRU cache.
+func (s *ServerSettingsService) GetString(ctx context.Context, key, def string) string {
+	v, ok := s.getCached(key)
+	if !ok {
+		v = s.loadFromDB(ctx, key)
+		s.putCache(key, v)
+	}
+	if v == "" {
+		return def
+	}
+	return v
+}
+
 // Put writes the value through and invalidates the cache for that key.
 func (s *ServerSettingsService) Put(ctx context.Context, key, value string, updatedBy int64) error {
 	err := s.q.UpsertServerSetting(ctx, store.UpsertServerSettingParams{

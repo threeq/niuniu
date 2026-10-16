@@ -51,6 +51,21 @@ func (s *Server) setupRoutes() {
 	// no auth required; only consumed by the personal-mode "check for updates".
 	s.engine.GET("/api/app-update/latest", s.appUpdateHandler.Latest)
 
+	// Workspace share public access (团队版 feature)：/share/ws/<token> 页面背后的
+	// JSON 端点。未登录，凭 token+密码+短时解锁 cookie 访问。feature 关闭时整组
+	// 403（个人版 NopGate 恒关）。unlock 端点有独立限流（爆破密码的唯一切入口）。
+	sharePub := s.engine.Group("/share/api/ws")
+	sharePub.Use(apipkg.LicenseFeatureGate(func(f string) bool {
+		return s.licenseSvc.FeatureEnabled(f)
+	}, license.FeatureWorkspaceShare))
+	{
+		sharePub.GET("/:token/info", s.sharePublicHandler.Info)
+		sharePub.POST("/:token/unlock",
+			auth.RateLimitMiddleware(0.2, 8),
+			s.sharePublicHandler.Unlock)
+		sharePub.GET("/:token/messages", s.sharePublicHandler.Messages)
+	}
+
 	// Auth routes — no auth required, rate limited
 	authGroup := s.engine.Group("/api/auth")
 	{
@@ -769,6 +784,18 @@ func (s *Server) setupRoutes() {
 		workspaces.GET("/:id/resolve-file", s.fileTreeHandler.ResolveFile)
 		// Content (grep) search — the other half of the unified search panel
 		workspaces.GET("/:id/search/content", s.fileTreeHandler.SearchContent)
+
+		// Workspace shares (团队版，license.FeatureWorkspaceShare)：管理端 CRUD。
+		// 禁用 feature 时整组 403（个人版 NopGate 恒关）。
+		wsShares := workspaces.Group("/:id/shares")
+		wsShares.Use(apipkg.LicenseFeatureGate(func(f string) bool {
+			return s.licenseSvc.FeatureEnabled(f)
+		}, license.FeatureWorkspaceShare))
+		{
+			wsShares.POST("", s.workspaceShareHandler.Create)
+			wsShares.GET("", s.workspaceShareHandler.List)
+			wsShares.DELETE("/:shareId", s.workspaceShareHandler.Revoke)
+		}
 
 		// Queue routes
 		workspaces.GET("/:id/queue", s.queueHandler.List)

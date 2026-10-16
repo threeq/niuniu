@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"net/url"
 	"strconv"
 
 	"github.com/gin-gonic/gin"
@@ -22,10 +23,20 @@ type QueueDrainer interface {
 // adminSettingSpec describes a whitelisted, admin-mutable server setting. The
 // whitelist is intentional: any key not present here is rejected as 404 so
 // arbitrary key/value injection through the admin endpoint is impossible.
+// Kind selects how GET reads the value back (int settings go through GetInt
+// with the spec default; string settings through GetString).
 type adminSettingSpec struct {
 	Validate func(string) error
 	Default  string
+	Kind     adminSettingKind
 }
+
+type adminSettingKind int
+
+const (
+	adminSettingInt adminSettingKind = iota
+	adminSettingString
+)
 
 // adminSettingKeys is the whitelist of admin-settable server keys. New keys
 // must be added here explicitly together with their validator.
@@ -56,6 +67,39 @@ var adminSettingKeys = map[string]adminSettingSpec{
 		},
 		Default: "80",
 	},
+	// Workspace share access domain (团队版)：share links are built as
+	// <base>/share/ws/<token>. Empty = unconfigured (frontend prefixes origin).
+	// Accepts a bare host ("share.example.com") or a full origin with scheme
+	// ("https://share.example.com"), optional port and optional sub-path; no
+	// query/fragment/userinfo.
+	"share.base_url": {
+		Validate: validateShareBaseURL,
+		Default:  "",
+		Kind:     adminSettingString,
+	},
+}
+
+// validateShareBaseURL checks the share access domain. Empty is allowed
+// (= unconfigured). Otherwise it must parse as a URL with a host, http(s)
+// scheme (or none), and no query/fragment/userinfo.
+func validateShareBaseURL(v string) error {
+	if v == "" {
+		return nil
+	}
+	u, err := url.Parse(v)
+	if err != nil {
+		return errors.New("must be a valid URL")
+	}
+	if u.Scheme != "" && u.Scheme != "http" && u.Scheme != "https" {
+		return errors.New("scheme must be http or https")
+	}
+	if u.Host == "" {
+		return errors.New("host is required")
+	}
+	if u.RawQuery != "" || u.Fragment != "" || u.User != nil {
+		return errors.New("query, fragment and userinfo are not allowed")
+	}
+	return nil
 }
 
 // nonNegativeInt validates a whitelisted setting that must parse as an integer >= 0.
@@ -95,6 +139,11 @@ func (h *AdminSettingsHandler) GetSetting(c *gin.Context) {
 	spec, ok := adminSettingKeys[key]
 	if !ok {
 		NotFound(c, "SETTING")
+		return
+	}
+	if spec.Kind == adminSettingString {
+		v := h.svc.GetString(c.Request.Context(), key, spec.Default)
+		c.JSON(http.StatusOK, adminSettingResponse{Key: key, Value: v})
 		return
 	}
 	defInt, _ := strconv.Atoi(spec.Default)
