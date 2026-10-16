@@ -64,6 +64,11 @@ func (s *Server) setupRoutes() {
 			auth.RateLimitMiddleware(0.2, 8),
 			s.sharePublicHandler.Unlock)
 		sharePub.GET("/:token/messages", s.sharePublicHandler.Messages)
+		// 公开对话：分享 allowChat + 解锁 cookie 双重门在 handler 内；
+		// 独立限流防刷 agent（消耗真实 token）。
+		sharePub.POST("/:token/chat",
+			auth.RateLimitMiddleware(0.1, 5),
+			s.sharePublicHandler.Chat)
 	}
 
 	// Auth routes — no auth required, rate limited
@@ -794,6 +799,7 @@ func (s *Server) setupRoutes() {
 		{
 			wsShares.POST("", s.workspaceShareHandler.Create)
 			wsShares.GET("", s.workspaceShareHandler.List)
+			wsShares.PATCH("/:shareId", s.workspaceShareHandler.Patch)
 			wsShares.DELETE("/:shareId", s.workspaceShareHandler.Revoke)
 		}
 

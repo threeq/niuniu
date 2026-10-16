@@ -11,9 +11,9 @@ import (
 )
 
 const createWorkspaceShare = `-- name: CreateWorkspaceShare :one
-INSERT INTO workspace_shares (workspace_id, token_hash, password_hash, expires_at, created_by)
-VALUES (?, ?, ?, ?, ?)
-RETURNING id, workspace_id, token_hash, password_hash, expires_at, created_by, revoked_at, last_access_at, created_at
+INSERT INTO workspace_shares (workspace_id, token_hash, password_hash, expires_at, created_by, allow_chat)
+VALUES (?, ?, ?, ?, ?, ?)
+RETURNING id, workspace_id, token_hash, password_hash, expires_at, created_by, revoked_at, last_access_at, allow_chat, created_at
 `
 
 type CreateWorkspaceShareParams struct {
@@ -22,6 +22,7 @@ type CreateWorkspaceShareParams struct {
 	PasswordHash string    `json:"password_hash"`
 	ExpiresAt    time.Time `json:"expires_at"`
 	CreatedBy    int64     `json:"created_by"`
+	AllowChat    int64     `json:"allow_chat"`
 }
 
 func (q *Queries) CreateWorkspaceShare(ctx context.Context, arg CreateWorkspaceShareParams) (WorkspaceShare, error) {
@@ -31,6 +32,7 @@ func (q *Queries) CreateWorkspaceShare(ctx context.Context, arg CreateWorkspaceS
 		arg.PasswordHash,
 		arg.ExpiresAt,
 		arg.CreatedBy,
+		arg.AllowChat,
 	)
 	var i WorkspaceShare
 	err := row.Scan(
@@ -42,6 +44,7 @@ func (q *Queries) CreateWorkspaceShare(ctx context.Context, arg CreateWorkspaceS
 		&i.CreatedBy,
 		&i.RevokedAt,
 		&i.LastAccessAt,
+		&i.AllowChat,
 		&i.CreatedAt,
 	)
 	return i, err
@@ -60,7 +63,7 @@ func (q *Queries) DeleteExpiredWorkspaceShares(ctx context.Context, expiresAt ti
 }
 
 const getWorkspaceShare = `-- name: GetWorkspaceShare :one
-SELECT id, workspace_id, token_hash, password_hash, expires_at, created_by, revoked_at, last_access_at, created_at FROM workspace_shares
+SELECT id, workspace_id, token_hash, password_hash, expires_at, created_by, revoked_at, last_access_at, allow_chat, created_at FROM workspace_shares
 WHERE id = ? AND workspace_id = ?
 `
 
@@ -81,13 +84,14 @@ func (q *Queries) GetWorkspaceShare(ctx context.Context, arg GetWorkspaceSharePa
 		&i.CreatedBy,
 		&i.RevokedAt,
 		&i.LastAccessAt,
+		&i.AllowChat,
 		&i.CreatedAt,
 	)
 	return i, err
 }
 
 const getWorkspaceShareByTokenHash = `-- name: GetWorkspaceShareByTokenHash :one
-SELECT id, workspace_id, token_hash, password_hash, expires_at, created_by, revoked_at, last_access_at, created_at FROM workspace_shares
+SELECT id, workspace_id, token_hash, password_hash, expires_at, created_by, revoked_at, last_access_at, allow_chat, created_at FROM workspace_shares
 WHERE token_hash = ?
 `
 
@@ -103,13 +107,14 @@ func (q *Queries) GetWorkspaceShareByTokenHash(ctx context.Context, tokenHash st
 		&i.CreatedBy,
 		&i.RevokedAt,
 		&i.LastAccessAt,
+		&i.AllowChat,
 		&i.CreatedAt,
 	)
 	return i, err
 }
 
 const listWorkspaceSharesByWorkspace = `-- name: ListWorkspaceSharesByWorkspace :many
-SELECT id, workspace_id, token_hash, password_hash, expires_at, created_by, revoked_at, last_access_at, created_at FROM workspace_shares
+SELECT id, workspace_id, token_hash, password_hash, expires_at, created_by, revoked_at, last_access_at, allow_chat, created_at FROM workspace_shares
 WHERE workspace_id = ?
 ORDER BY created_at DESC, id DESC
 `
@@ -132,6 +137,7 @@ func (q *Queries) ListWorkspaceSharesByWorkspace(ctx context.Context, workspaceI
 			&i.CreatedBy,
 			&i.RevokedAt,
 			&i.LastAccessAt,
+			&i.AllowChat,
 			&i.CreatedAt,
 		); err != nil {
 			return nil, err
@@ -171,5 +177,22 @@ WHERE id = ?
 
 func (q *Queries) TouchWorkspaceShareAccess(ctx context.Context, id int64) error {
 	_, err := q.db.ExecContext(ctx, touchWorkspaceShareAccess, id)
+	return err
+}
+
+const updateWorkspaceShareAllowChat = `-- name: UpdateWorkspaceShareAllowChat :exec
+UPDATE workspace_shares
+SET allow_chat = ?
+WHERE id = ? AND workspace_id = ?
+`
+
+type UpdateWorkspaceShareAllowChatParams struct {
+	AllowChat   int64 `json:"allow_chat"`
+	ID          int64 `json:"id"`
+	WorkspaceID int64 `json:"workspace_id"`
+}
+
+func (q *Queries) UpdateWorkspaceShareAllowChat(ctx context.Context, arg UpdateWorkspaceShareAllowChatParams) error {
+	_, err := q.db.ExecContext(ctx, updateWorkspaceShareAllowChat, arg.AllowChat, arg.ID, arg.WorkspaceID)
 	return err
 }

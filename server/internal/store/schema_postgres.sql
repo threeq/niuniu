@@ -1826,6 +1826,10 @@ CREATE TABLE IF NOT EXISTS workspace_shares (
     created_by     BIGINT NOT NULL REFERENCES users(id),
     revoked_at     TIMESTAMP,
     last_access_at TIMESTAMP,
+    -- allow_chat: viewer may send chat messages to the workspace agent. DEFAULT 0
+    -- (read-only) -- an anonymous external viewer driving the agent is strictly
+    -- opt-in per share.
+    allow_chat     INTEGER NOT NULL DEFAULT 0,
     created_at     TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 CREATE INDEX IF NOT EXISTS idx_workspace_shares_workspace ON workspace_shares(workspace_id);

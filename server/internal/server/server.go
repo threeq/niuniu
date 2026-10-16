@@ -1206,7 +1206,7 @@ func New(cfg *config.Config, db *sql.DB, frontendFS fs.FS) *Server {
 	secret := sha256.Sum256([]byte("niuniu-share-unlock:" + authSecret))
 	s.workspaceShareSvc = service.NewWorkspaceShareService(s.queries, s.serverSettingsSvc, secret[:])
 	s.workspaceShareHandler = api.NewWorkspaceShareHandler(s.workspaceShareSvc, authz)
-	s.sharePublicHandler = api.NewSharePublicHandler(s.workspaceShareSvc, s.queries)
+	s.sharePublicHandler = api.NewSharePublicHandler(s.workspaceShareSvc, s.queries, s.agentProxy)
 
 	// Events handler (eventBus already initialized above)
 	s.eventsHandler = api.NewEventsHandler(s.eventBus)

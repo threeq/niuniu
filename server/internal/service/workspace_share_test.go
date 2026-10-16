@@ -32,7 +32,7 @@ func TestWorkspaceShare_CreateAndAccess(t *testing.T) {
 	wsID := newShareTestWorkspace(t, env, "ws-share-1")
 
 	expires := time.Now().UTC().Add(24 * time.Hour)
-	info, err := svc.Create(ctx, wsID, env.UserA, "pass1234", expires)
+	info, err := svc.Create(ctx, wsID, env.UserA, "pass1234", expires, false)
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
@@ -76,7 +76,7 @@ func TestWorkspaceShare_ExpiryAndRevoke(t *testing.T) {
 	ctx := context.Background()
 	wsID := newShareTestWorkspace(t, env, "ws-share-2")
 
-	info, err := svc.Create(ctx, wsID, env.UserA, "pass1234", time.Now().UTC().Add(time.Hour))
+	info, err := svc.Create(ctx, wsID, env.UserA, "pass1234", time.Now().UTC().Add(time.Hour), false)
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
@@ -90,7 +90,7 @@ func TestWorkspaceShare_ExpiryAndRevoke(t *testing.T) {
 	}
 
 	// 过期后不可访问（新分享，直接把时钟推过 expires_at）
-	info2, err := svc.Create(ctx, wsID, env.UserA, "pass1234", time.Now().UTC().Add(time.Hour))
+	info2, err := svc.Create(ctx, wsID, env.UserA, "pass1234", time.Now().UTC().Add(time.Hour), false)
 	if err != nil {
 		t.Fatalf("Create 2: %v", err)
 	}
@@ -107,14 +107,14 @@ func TestWorkspaceShare_CreateValidation(t *testing.T) {
 	wsID := newShareTestWorkspace(t, env, "ws-share-3")
 
 	// 密码太短
-	if _, err := svc.Create(ctx, wsID, env.UserA, "abc", time.Now().UTC().Add(time.Hour)); err == nil {
+	if _, err := svc.Create(ctx, wsID, env.UserA, "abc", time.Now().UTC().Add(time.Hour), false); err == nil {
 		t.Fatal("short password should be rejected")
 	}
 	// 过去时间 / 超过 30 天
-	if _, err := svc.Create(ctx, wsID, env.UserA, "pass1234", time.Now().UTC().Add(-time.Hour)); err == nil {
+	if _, err := svc.Create(ctx, wsID, env.UserA, "pass1234", time.Now().UTC().Add(-time.Hour), false); err == nil {
 		t.Fatal("past expiry should be rejected")
 	}
-	if _, err := svc.Create(ctx, wsID, env.UserA, "pass1234", time.Now().UTC().Add(31*24*time.Hour)); err == nil {
+	if _, err := svc.Create(ctx, wsID, env.UserA, "pass1234", time.Now().UTC().Add(31*24*time.Hour), false); err == nil {
 		t.Fatal(">30d expiry should be rejected")
 	}
 }
@@ -125,7 +125,7 @@ func TestWorkspaceShare_UnlockCookie(t *testing.T) {
 	ctx := context.Background()
 	wsID := newShareTestWorkspace(t, env, "ws-share-4")
 
-	info, err := svcA.Create(ctx, wsID, env.UserA, "pass1234", time.Now().UTC().Add(time.Hour))
+	info, err := svcA.Create(ctx, wsID, env.UserA, "pass1234", time.Now().UTC().Add(time.Hour), false)
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
@@ -163,32 +163,103 @@ func TestWorkspaceShare_ListSweepsExpired(t *testing.T) {
 	ctx := context.Background()
 	wsID := newShareTestWorkspace(t, env, "ws-share-5")
 
-	// grace 内的过期分享仍在列表（expires_at 相对注入时钟计算）
+	// expires_at 相对注入时钟计算
 	base := *(*times)[0]
-	if _, err := svc.Create(ctx, wsID, env.UserA, "pass1234", base.Add(time.Hour)); err != nil {
+	if _, err := svc.Create(ctx, wsID, env.UserA, "pass1234", base.Add(time.Hour), false); err != nil {
 		t.Fatalf("Create 1: %v", err)
 	}
-	if _, err := svc.Create(ctx, wsID, env.UserA, "pass1234", base.Add(2*time.Hour)); err != nil {
+	if _, err := svc.Create(ctx, wsID, env.UserA, "pass1234", base.Add(2*time.Hour), false); err != nil {
 		t.Fatalf("Create 2: %v", err)
 	}
-	// 推进 25h：第一条过期 1h（grace 24h 内，仍在列表），第二条未过期
-	*(*times)[0] = base.Add(25 * time.Hour)
+	// 推进 1.5h：第一条过期 0.5h，第二条未过期
+	*(*times)[0] = base.Add(90 * time.Minute)
 	shares, err := svc.List(ctx, wsID)
 	if err != nil {
 		t.Fatalf("List: %v", err)
 	}
-	if len(shares) != 2 {
-		t.Fatalf("expected 2 shares within grace, got %d", len(shares))
-	}
-	// 再推进 0.5h（累计 +25.5h）：第一条过期 24.5h（超 grace，被清理），
-	// 第二条过期 23.5h（grace 内，保留）
-	*(*times)[0] = base.Add(25*time.Hour + 30*time.Minute)
-	shares, err = svc.List(ctx, wsID)
-	if err != nil {
-		t.Fatalf("List 2: %v", err)
-	}
 	if len(shares) != 1 {
-		t.Fatalf("expected 1 share after sweep, got %d", len(shares))
+		t.Fatalf("expected 1 share (expired one physically deleted), got %d", len(shares))
+	}
+	if shares[0].ExpiresAt.Sub(base) != 2*time.Hour {
+		t.Fatalf("surviving share should be the 2h one, got %+v", shares[0])
+	}
+
+	// 过期行被物理删除：直接查表确认行数
+	var n int
+	if err := env.DB.QueryRow(`SELECT COUNT(*) FROM workspace_shares`).Scan(&n); err != nil {
+		t.Fatal(err)
+	}
+	if n != 1 {
+		t.Fatalf("expired share row must be physically deleted, count=%d", n)
+	}
+}
+
+func TestWorkspaceShare_ResolveExpiredDeletes(t *testing.T) {
+	env := niutest.NewIsolationEnv(t)
+	svc, times := newShareSvc(t, env)
+	ctx := context.Background()
+	wsID := newShareTestWorkspace(t, env, "ws-share-6")
+
+	base := *(*times)[0]
+	info, err := svc.Create(ctx, wsID, env.UserA, "pass1234", base.Add(time.Hour), false)
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	// 推过 expires_at 后访问：404 且行被物理删除（密码哈希不残留）
+	*(*times)[0] = base.Add(2 * time.Hour)
+	if _, err := svc.ResolveActive(ctx, info.RawToken); !errors.Is(err, service.ErrShareUnavailable) {
+		t.Fatalf("expired token err = %v, want ErrShareUnavailable", err)
+	}
+	var n int
+	if err := env.DB.QueryRow(`SELECT COUNT(*) FROM workspace_shares WHERE id = ?`, info.Share.ID).Scan(&n); err != nil {
+		t.Fatal(err)
+	}
+	if n != 0 {
+		t.Fatalf("expired share row must be gone after ResolveActive, count=%d", n)
+	}
+}
+
+func TestWorkspaceShare_AllowChatToggle(t *testing.T) {
+	env := niutest.NewIsolationEnv(t)
+	svc, _ := newShareSvc(t, env)
+	ctx := context.Background()
+	wsID := newShareTestWorkspace(t, env, "ws-share-7")
+
+	// 默认只读
+	info, err := svc.Create(ctx, wsID, env.UserA, "pass1234", time.Now().UTC().Add(time.Hour), false)
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	if info.Share.AllowChat != 0 {
+		t.Fatalf("allow_chat must default to 0, got %d", info.Share.AllowChat)
+	}
+	resolved, err := svc.ResolveActive(ctx, info.RawToken)
+	if err != nil {
+		t.Fatalf("ResolveActive: %v", err)
+	}
+	if resolved.CanChat() {
+		t.Fatal("default share must not CanChat")
+	}
+
+	// 开启后 CanChat
+	if err := svc.SetAllowChat(ctx, wsID, info.Share.ID, true); err != nil {
+		t.Fatalf("SetAllowChat: %v", err)
+	}
+	resolved, err = svc.ResolveActive(ctx, info.RawToken)
+	if err != nil {
+		t.Fatalf("ResolveActive 2: %v", err)
+	}
+	if !resolved.CanChat() {
+		t.Fatal("share with allow_chat=1 must CanChat")
+	}
+
+	// 关闭
+	if err := svc.SetAllowChat(ctx, wsID, info.Share.ID, false); err != nil {
+		t.Fatalf("SetAllowChat 2: %v", err)
+	}
+	resolved, _ = svc.ResolveActive(ctx, info.RawToken)
+	if resolved.CanChat() {
+		t.Fatal("share with allow_chat=0 must not CanChat")
 	}
 }
 

@@ -1,7 +1,7 @@
 import { useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
-import { Eye, KeyRound, Loader2, Lock, RefreshCw } from 'lucide-react';
+import { Eye, KeyRound, Loader2, Lock, RefreshCw, SendHorizonal } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { MarkdownMessage } from '@/components/shared/markdown-message';
@@ -32,9 +32,13 @@ interface WorkspaceSharePageProps {
 
 export function WorkspaceSharePage({ token }: WorkspaceSharePageProps) {
   const { t } = useTranslation('workspaces');
+  const qc = useQueryClient();
   const [password, setPassword] = useState('');
   const [unlocking, setUnlocking] = useState(false);
   const [unlockError, setUnlockError] = useState(false);
+  const [chatDraft, setChatDraft] = useState('');
+  const [sending, setSending] = useState(false);
+  const [sendError, setSendError] = useState(false);
 
   const base = `/share/api/ws/${encodeURIComponent(token)}`;
 
@@ -153,7 +157,30 @@ export function WorkspaceSharePage({ token }: WorkspaceSharePageProps) {
     );
   }
 
-  // 已解锁：只读会话视图
+  const handleSendChat = async (e?: React.FormEvent) => {
+    e?.preventDefault();
+    const content = chatDraft.trim();
+    if (!content || sending) return;
+    setSending(true);
+    setSendError(false);
+    const res = await shareFetch<{ status: string }>(`${base}/chat`, {
+      method: 'POST',
+      body: JSON.stringify({ content }),
+    });
+    setSending(false);
+    if (res.ok) {
+      setChatDraft('');
+      // 立即拉一次会话（自己的消息先出现），回复靠 15s 轮询。
+      void qc.invalidateQueries({ queryKey: ['share-messages', token] });
+    } else if (res.status === 403 || res.status === 404) {
+      // 权限被收回或分享被撤销 —— 刷新 meta 让 UI 回到正确状态。
+      void qc.invalidateQueries({ queryKey: ['share-meta', token] });
+    } else {
+      setSendError(true);
+    }
+  };
+
+  // 已解锁：会话视图（分享允许对话时底部带输入框，默认只读）
   const messages = messagesQuery.data?.messages ?? [];
   return (
     <ShareShell>
@@ -164,7 +191,7 @@ export function WorkspaceSharePage({ token }: WorkspaceSharePageProps) {
         </div>
         <span className="flex items-center gap-1 shrink-0 text-xs text-warm-text-muted">
           <Eye className="size-3.5" aria-hidden="true" />
-          {t('share.readOnly')}
+          {meta?.allowChat ? t('share.chatEnabled') : t('share.readOnly')}
         </span>
       </div>
       <div className="flex-1 overflow-y-auto px-4 py-3 space-y-3 min-w-0">
@@ -186,6 +213,21 @@ export function WorkspaceSharePage({ token }: WorkspaceSharePageProps) {
           ),
         )}
       </div>
+      {meta?.allowChat && (
+        <form onSubmit={handleSendChat} className="border-t border-warm-border px-4 py-3 flex items-center gap-2 shrink-0">
+          <Input
+            value={chatDraft}
+            onChange={(e) => setChatDraft(e.target.value)}
+            placeholder={t('share.chatPlaceholder')}
+            maxLength={4000}
+            className="text-sm"
+          />
+          <Button type="submit" size="icon" disabled={!chatDraft.trim() || sending} aria-label={t('share.chatSend')}>
+            {sending ? <Loader2 className="size-4 animate-spin" aria-hidden="true" /> : <SendHorizonal className="size-4" aria-hidden="true" />}
+          </Button>
+          {sendError && <span className="text-xs text-destructive shrink-0">{t('share.chatSendFailed')}</span>}
+        </form>
+      )}
     </ShareShell>
   );
 }

@@ -1,7 +1,12 @@
 -- name: CreateWorkspaceShare :one
-INSERT INTO workspace_shares (workspace_id, token_hash, password_hash, expires_at, created_by)
-VALUES (?, ?, ?, ?, ?)
+INSERT INTO workspace_shares (workspace_id, token_hash, password_hash, expires_at, created_by, allow_chat)
+VALUES (?, ?, ?, ?, ?, ?)
 RETURNING *;
+
+-- name: UpdateWorkspaceShareAllowChat :exec
+UPDATE workspace_shares
+SET allow_chat = ?
+WHERE id = ? AND workspace_id = ?;
 
 -- name: ListWorkspaceSharesByWorkspace :many
 SELECT * FROM workspace_shares

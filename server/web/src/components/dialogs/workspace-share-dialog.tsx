@@ -12,6 +12,7 @@ import {
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Checkbox } from '@/components/ui/checkbox';
 import {
   Select,
   SelectContent,
@@ -59,6 +60,7 @@ export function WorkspaceShareDialog({ open, onOpenChange, workspaceId }: Worksp
 
   const [password, setPassword] = useState(() => generatePassword());
   const [expiryHours, setExpiryHours] = useState(24 * 7);
+  const [allowChat, setAllowChat] = useState(false);
   // 创建成功的一次性展示态：链接 + 密码（token 不再可取回）。
   const [created, setCreated] = useState<{ url: string; password: string } | null>(null);
   const [copiedField, setCopiedField] = useState<'url' | 'password' | null>(null);
@@ -72,7 +74,7 @@ export function WorkspaceShareDialog({ open, onOpenChange, workspaceId }: Worksp
   const createMutation = useMutation({
     mutationFn: async () => {
       const expiresAt = new Date(Date.now() + expiryHours * 3600_000).toISOString();
-      return api.createWorkspaceShare(workspaceId, password, expiresAt);
+      return api.createWorkspaceShare(workspaceId, password, expiresAt, allowChat);
     },
     onSuccess: (res) => {
       const url = res.url
@@ -82,6 +84,17 @@ export function WorkspaceShareDialog({ open, onOpenChange, workspaceId }: Worksp
     },
     onError: () => {
       toast.error(t('share.createFailed'));
+    },
+  });
+
+  const allowChatMutation = useMutation({
+    mutationFn: ({ shareId, value }: { shareId: number; value: boolean }) =>
+      api.patchWorkspaceShare(workspaceId, shareId, value),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['workspace-shares', workspaceId] });
+    },
+    onError: () => {
+      toast.error(t('share.allowChatUpdateFailed'));
     },
   });
 
@@ -208,6 +221,19 @@ export function WorkspaceShareDialog({ open, onOpenChange, workspaceId }: Worksp
               <p className="text-xs text-warm-text-muted">{t('share.expiryHint')}</p>
             </div>
 
+            <label className="flex items-start gap-2 cursor-pointer">
+              <Checkbox
+                checked={allowChat}
+                onCheckedChange={(v) => setAllowChat(v === true)}
+                className="mt-0.5"
+                aria-label={t('share.allowChatLabel')}
+              />
+              <span className="text-xs">
+                <span className="font-medium text-warm-text">{t('share.allowChatLabel')}</span>
+                <span className="block text-warm-text-muted">{t('share.allowChatHint')}</span>
+              </span>
+            </label>
+
             <Button
               className="w-full"
               disabled={createMutation.isPending || password.trim().length < 4}
@@ -225,14 +251,27 @@ export function WorkspaceShareDialog({ open, onOpenChange, workspaceId }: Worksp
             <ul className="space-y-1.5 max-h-40 overflow-y-auto">
               {activeShares.map((s: WorkspaceShare) => (
                 <li key={s.id} className="flex items-center justify-between gap-2 text-xs">
-                  <span className="flex items-center gap-1.5 text-warm-text">
+                  <span className="flex items-center gap-1.5 text-warm-text min-w-0">
                     <Link2 className="size-3 text-warm-text-muted shrink-0" aria-hidden="true" />
-                    {t('share.expiresAt', { time: formatDateTime(s.expiresAt) })}
+                    <span className="truncate">{t('share.expiresAt', { time: formatDateTime(s.expiresAt) })}</span>
+                    <label
+                      className="flex items-center gap-1 shrink-0 cursor-pointer text-warm-text-muted"
+                      title={t('share.allowChatHint')}
+                    >
+                      <Checkbox
+                        checked={s.allowChat}
+                        disabled={allowChatMutation.isPending}
+                        onCheckedChange={(v) => allowChatMutation.mutate({ shareId: s.id, value: v === true })}
+                        className="size-3"
+                        aria-label={t('share.allowChatLabel')}
+                      />
+                      {t('share.allowChatShort')}
+                    </label>
                   </span>
                   <Button
                     variant="ghost"
                     size="sm"
-                    className="h-6 px-1.5 text-destructive hover:text-destructive"
+                    className="h-6 px-1.5 text-destructive hover:text-destructive shrink-0"
                     disabled={revokeMutation.isPending}
                     aria-label={t('share.revoke')}
                     title={t('share.revoke')}

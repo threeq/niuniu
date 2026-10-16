@@ -67,9 +67,20 @@ const (
 	MaxLifetime       = 30 * 24 * time.Hour
 	MinLifetime       = time.Minute
 	unlockCookieTTL   = time.Hour
-	expiredListGrace  = 24 * time.Hour // 已过期分享在列表里保留多久供主人查看
 	unlockSecretBytes = 32
+	// MaxSharedChatLen 是公开对话单条消息的长度上限。
+	MaxSharedChatLen = 4000
 )
+
+// CanChat 报告该分享是否允许观看者对话。
+func (r ResolvedShare) CanChat() bool { return r.Share.AllowChat == 1 }
+
+func boolToInt64(b bool) int64 {
+	if b {
+		return 1
+	}
+	return 0
+}
 
 // GenerateUnlockSecret 生成服务端 HMAC 密钥（server.go 启动时调用；持久化
 // 与否则由调用方决定——personal 版进程内生成即可，重启后旧 cookie 失效，
@@ -94,8 +105,9 @@ type ShareInfo struct {
 }
 
 // Create 生成新分享。password 明文进、bcrypt 出；expiresAt 必须落在
-// [now+MinLifetime, now+MaxLifetime]。
-func (s *WorkspaceShareService) Create(ctx context.Context, workspaceID, createdBy int64, password string, expiresAt time.Time) (ShareInfo, error) {
+// [now+MinLifetime, now+MaxLifetime]。allowChat 默认 false（只读），开启后
+// 解锁的观看者可以向工作空间 agent 发消息。
+func (s *WorkspaceShareService) Create(ctx context.Context, workspaceID, createdBy int64, password string, expiresAt time.Time, allowChat bool) (ShareInfo, error) {
 	if len(password) < MinPasswordLen {
 		return ShareInfo{}, fmt.Errorf("password must be at least %d characters", MinPasswordLen)
 	}
@@ -122,6 +134,7 @@ func (s *WorkspaceShareService) Create(ctx context.Context, workspaceID, created
 		PasswordHash: string(hash),
 		ExpiresAt:    expiresAt,
 		CreatedBy:    createdBy,
+		AllowChat:    boolToInt64(allowChat),
 	})
 	if err != nil {
 		return ShareInfo{}, err
@@ -135,13 +148,29 @@ func (s *WorkspaceShareService) Create(ctx context.Context, workspaceID, created
 }
 
 // List 返回工作空间的分享列表（含最近过期未清理的），并顺带做一次惰性
-// 清理：把过期超过 grace 的行物理删掉，避免表无限增长。
+// 清理：把已过期的行物理删掉（含密码哈希——过期即清除，不保留任何分享
+// 凭据残留），避免表无限增长。
 func (s *WorkspaceShareService) List(ctx context.Context, workspaceID int64) ([]store.WorkspaceShare, error) {
-	if err := s.q.DeleteExpiredWorkspaceShares(ctx, s.now().UTC().Add(-expiredListGrace)); err != nil {
-		// 清理失败不影响列表可用性。
+	s.SweepExpired(ctx)
+	return s.q.ListWorkspaceSharesByWorkspace(ctx, workspaceID)
+}
+
+// SweepExpired 物理删除所有已过期的分享行。全表一刀切（按 expires_at 截止），
+// 与具体工作空间无关——List 与公开访问路径都会顺手触发，保证过期行不残留。
+func (s *WorkspaceShareService) SweepExpired(ctx context.Context) {
+	if err := s.q.DeleteExpiredWorkspaceShares(ctx, s.now().UTC()); err != nil {
+		// 清理失败不影响主流程可用性。
 		_ = err
 	}
-	return s.q.ListWorkspaceSharesByWorkspace(ctx, workspaceID)
+}
+
+// SetAllowChat 切换分享的是否可对话标记。
+func (s *WorkspaceShareService) SetAllowChat(ctx context.Context, workspaceID, shareID int64, allowChat bool) error {
+	return s.q.UpdateWorkspaceShareAllowChat(ctx, store.UpdateWorkspaceShareAllowChatParams{
+		AllowChat:   boolToInt64(allowChat),
+		ID:          shareID,
+		WorkspaceID: workspaceID,
+	})
 }
 
 // Revoke 撤销（软删）。目标不存在/已撤销时幂等成功——撤销语义只要求之后
@@ -154,11 +183,15 @@ func (s *WorkspaceShareService) Revoke(ctx context.Context, workspaceID, shareID
 }
 
 // ResolvedShare 是 ResolveActive 的结果：分享行 + 工作空间展示信息。
+// WorkspacePath 仅供服务端转发消息（Deliver）使用——公开响应体由 handler
+// 手工构建，绝不直接序列化本结构。
 type ResolvedShare struct {
-	Share         store.WorkspaceShare
-	WorkspaceID   int64
-	WorkspaceName string
-	IssueTitle    string // 工作空间绑定 issue 的标题；未绑定为空
+	Share             store.WorkspaceShare
+	WorkspaceID       int64
+	WorkspaceName     string
+	WorkspacePath     string
+	WorkspaceArchived bool
+	IssueTitle        string // 工作空间绑定 issue 的标题；未绑定为空
 }
 
 // ResolveActive 校验 token 对应的分享处于可访问状态（存在、未撤销、未过期），
@@ -175,6 +208,11 @@ func (s *WorkspaceShareService) ResolveActive(ctx context.Context, rawToken stri
 		return ResolvedShare{}, err
 	}
 	if share.RevokedAt.Valid || !s.now().UTC().Before(share.ExpiresAt) {
+		// 已过期：物理删除（含密码哈希）。顺手全表清一遍，让无人再访问的
+		// 过期行也在这次触达时清掉。撤销行保留（列表可展示已撤销状态）。
+		if !s.now().UTC().Before(share.ExpiresAt) {
+			s.SweepExpired(ctx)
+		}
 		return ResolvedShare{}, ErrShareUnavailable
 	}
 	ws, err := s.q.GetWorkspace(ctx, share.WorkspaceID)
@@ -182,9 +220,11 @@ func (s *WorkspaceShareService) ResolveActive(ctx context.Context, rawToken stri
 		return ResolvedShare{}, ErrShareUnavailable
 	}
 	resolved := ResolvedShare{
-		Share:       share,
-		WorkspaceID: ws.ID,
-		WorkspaceName: ws.Name,
+		Share:             share,
+		WorkspaceID:       ws.ID,
+		WorkspaceName:     ws.Name,
+		WorkspacePath:     ws.Path,
+		WorkspaceArchived: ws.IsArchived == 1,
 	}
 	// 工作空间 1:1 绑定 issue 时带出标题，给分享页做上下文头。
 	if ws.IssueID.Valid && ws.IssueID.Int64 > 0 {

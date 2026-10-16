@@ -30,6 +30,7 @@ type shareResponse struct {
 	WorkspaceID int64     `json:"workspaceId"`
 	ExpiresAt  time.Time  `json:"expiresAt"`
 	RevokedAt  *time.Time `json:"revokedAt,omitempty"`
+	AllowChat  bool       `json:"allowChat"`
 	CreatedBy  int64      `json:"createdBy"`
 	LastAccessAt *time.Time `json:"lastAccessAt,omitempty"`
 	CreatedAt  time.Time  `json:"createdAt"`
@@ -40,6 +41,8 @@ type createShareReq struct {
 	Password string `json:"password" binding:"required"`
 	// ExpiresAt RFC3339。必填：分享必须有时效。
 	ExpiresAt time.Time `json:"expiresAt" binding:"required"`
+	// AllowChat 可选：解锁的观看者可向工作空间 agent 发消息。默认 false。
+	AllowChat bool `json:"allowChat"`
 }
 
 func toShareResponse(s service.ShareInfo) shareResponse {
@@ -47,6 +50,7 @@ func toShareResponse(s service.ShareInfo) shareResponse {
 		ID:          s.Share.ID,
 		WorkspaceID: s.Share.WorkspaceID,
 		ExpiresAt:   s.Share.ExpiresAt,
+		AllowChat:   s.Share.AllowChat == 1,
 		CreatedBy:   s.Share.CreatedBy,
 		CreatedAt:   s.Share.CreatedAt,
 	}
@@ -83,7 +87,7 @@ func (h *WorkspaceShareHandler) Create(c *gin.Context) {
 		return
 	}
 
-	info, err := h.svc.Create(c.Request.Context(), workspaceID, userID, req.Password, req.ExpiresAt)
+	info, err := h.svc.Create(c.Request.Context(), workspaceID, userID, req.Password, req.ExpiresAt, req.AllowChat)
 	if err != nil {
 		BadRequest(c, err.Error())
 		return
@@ -144,6 +148,44 @@ func (h *WorkspaceShareHandler) Revoke(c *gin.Context) {
 			NotFound(c, "SHARE")
 			return
 		}
+		InternalError(c, err)
+		return
+	}
+	c.Status(http.StatusNoContent)
+}
+
+type patchShareReq struct {
+	// AllowChat 切换观看者是否可以向工作空间 agent 发消息。
+	AllowChat *bool `json:"allowChat" binding:"required"`
+}
+
+// Patch — PATCH /workspaces/:id/shares/:shareId
+//
+// 目前只有 allowChat 一个可变字段。幂等：重复设置同值无副作用。
+func (h *WorkspaceShareHandler) Patch(c *gin.Context) {
+	workspaceID, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		BadRequest(c, "invalid workspace ID")
+		return
+	}
+	shareID, err := strconv.ParseInt(c.Param("shareId"), 10, 64)
+	if err != nil {
+		BadRequest(c, "invalid share ID")
+		return
+	}
+	userID := c.GetInt64("auth_user_id")
+	if _, aerr := h.Authz.CanAccessWorkspace(c.Request.Context(), userID, workspaceID); aerr != nil {
+		writeAuthzError(c, aerr)
+		return
+	}
+
+	var req patchShareReq
+	if err := c.ShouldBindJSON(&req); err != nil || req.AllowChat == nil {
+		BadRequest(c, "allowChat is required")
+		return
+	}
+
+	if err := h.svc.SetAllowChat(c.Request.Context(), workspaceID, shareID, *req.AllowChat); err != nil {
 		InternalError(c, err)
 		return
 	}

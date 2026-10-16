@@ -1984,6 +1984,8 @@ export interface WorkspaceShare {
   workspaceId: number
   expiresAt: string
   revokedAt?: string | null
+  /** 观看者可否向工作空间 agent 发消息（默认 false）。 */
+  allowChat: boolean
   createdBy: number
   lastAccessAt?: string | null
   createdAt: string
@@ -2005,6 +2007,7 @@ export interface WorkspaceShareMeta {
   expiresAt: string
   passwordRequired: boolean
   unlocked: boolean
+  allowChat: boolean
   name?: string
   issueTitle?: string
 }

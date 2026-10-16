@@ -1169,6 +1169,14 @@
     "wrongPassword": "Wrong password",
     "unlock": "Unlock",
     "readOnly": "Read-only share",
-    "empty": "No conversation content yet"
+    "empty": "No conversation content yet",
+    "allowChatLabel": "Allow conversation",
+    "allowChatShort": "Chat",
+    "allowChatHint": "Unlocked viewers can send messages to this workspace's AI assistant (consumes real quota, off by default).",
+    "allowChatUpdateFailed": "Failed to update chat permission",
+    "chatEnabled": "Conversational share",
+    "chatPlaceholder": "Type a message to this workspace's AI assistant…",
+    "chatSend": "Send",
+    "chatSendFailed": "Send failed. Please retry."
   }
 }

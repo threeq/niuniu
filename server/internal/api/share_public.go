@@ -1,8 +1,10 @@
 package api
 
 import (
+	"context"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 
@@ -10,21 +12,30 @@ import (
 	"github.com/niuniu-dev/niuniu/internal/store"
 )
 
-// SharePublicHandler 是 /share 外链的公开访问面（未登录）。三个端点：
+// ShareChatSender 是公开对话对 agentproxy 的依赖切缝（*agentproxy.AgentProxy
+// 天然满足）。接口化让 handler 测试可以注入假实现，不必起真 proxy。
+type ShareChatSender interface {
+	PrepareUserSend(ctx context.Context, workspaceID int64)
+	Deliver(ctx context.Context, workspaceID int64, workDir, content, attachments string) (queued bool, queueID int64, err error)
+}
+
+// SharePublicHandler 是 /share 外链的公开访问面（未登录）。端点：
 //
 //	GET  /share/api/ws/:token/info     元信息（是否需要密码等，不含内容）
 //	POST /share/api/ws/:token/unlock   密码解锁 → 发短时 HMAC cookie
-//	GET  /share/api/ws/:token/messages 解锁后的只读聊天内容（支持 ?after= 增量）
+//	GET  /share/api/ws/:token/messages 解锁后的聊天内容（只读文本行）
+//	POST /share/api/ws/:token/chat     解锁+allowChat 时向工作空间 agent 发消息
 //
 // token 不存在/已撤销/已过期统一 404 SHARE_NOT_FOUND（不区分原因，防枚举）。
 // feature 门（团队版）在 router 层挂 LicenseFeatureGate。
 type SharePublicHandler struct {
-	svc *service.WorkspaceShareService
-	q   *store.Queries
+	svc    *service.WorkspaceShareService
+	q      *store.Queries
+	sender ShareChatSender // 对话通道；nil 时 chat 端点恒 503
 }
 
-func NewSharePublicHandler(svc *service.WorkspaceShareService, q *store.Queries) *SharePublicHandler {
-	return &SharePublicHandler{svc: svc, q: q}
+func NewSharePublicHandler(svc *service.WorkspaceShareService, q *store.Queries, sender ShareChatSender) *SharePublicHandler {
+	return &SharePublicHandler{svc: svc, q: q, sender: sender}
 }
 
 // shareCookieName 是解锁 cookie 名。Path=/ 使得 SPA 页面与 /share/api 同源
@@ -48,11 +59,13 @@ func (h *SharePublicHandler) resolveForPublic(c *gin.Context) (service.ResolvedS
 
 // shareMetaResponse 是 info/unlock 的响应形状。unlocked 告诉前端是否还需要
 // 弹密码框；name/issueTitle 只在已解锁时下发，未解锁时保持空（不给匿名
-// 探测工作空间名的口子）。
+// 探测工作空间名的口子）。allowChat 是分享的静态标记（与是否解锁无关——
+// 前端只在解锁后用它渲染输入框）。
 type shareMetaResponse struct {
 	ExpiresAt    string `json:"expiresAt"`
 	PasswordRequired bool  `json:"passwordRequired"`
 	Unlocked     bool   `json:"unlocked"`
+	AllowChat    bool   `json:"allowChat"`
 	Name         string `json:"name,omitempty"`
 	IssueTitle   string `json:"issueTitle,omitempty"`
 }
@@ -62,6 +75,7 @@ func (h *SharePublicHandler) metaResponse(c *gin.Context, resolved service.Resol
 		ExpiresAt:        resolved.Share.ExpiresAt.UTC().Format(timeRFC3339),
 		PasswordRequired: true,
 		Unlocked:         h.isUnlocked(c, resolved),
+		AllowChat:        resolved.CanChat(),
 	}
 	if resp.Unlocked {
 		resp.Name = resolved.WorkspaceName
@@ -205,6 +219,67 @@ func (h *SharePublicHandler) Messages(c *gin.Context) {
 		})
 	}
 	c.JSON(http.StatusOK, gin.H{"messages": out, "hasMore": hasMore})
+}
+
+type shareChatReq struct {
+	Content string `json:"content" binding:"required"`
+}
+
+// Chat — POST /share/api/ws/:token/chat
+//
+// 允许对话（share.allow_chat）时，解锁的观看者可向工作空间 agent 发一条
+// 消息。门依次是：分享可用 → 已解锁 → allowChat → 工作空间未归档 → 内容
+// 非空且不超长。匿名发送刻意不调 SetSessionUser（不把 NULL 身份盖到团队
+// 工作空间的 current_session_user_id 上）。
+func (h *SharePublicHandler) Chat(c *gin.Context) {
+	resolved, ok := h.resolveForPublic(c)
+	if !ok {
+		return
+	}
+	if !h.isUnlocked(c, resolved) {
+		RespondError(c, http.StatusUnauthorized, "SHARE_LOCKED", "password required")
+		return
+	}
+	if !resolved.CanChat() {
+		RespondError(c, http.StatusForbidden, "SHARE_CHAT_DISABLED", "chat is not enabled for this share")
+		return
+	}
+	if resolved.WorkspaceArchived {
+		RespondError(c, http.StatusForbidden, "WORKSPACE_ARCHIVED", "archived workspaces do not accept messages")
+		return
+	}
+	if h.sender == nil {
+		RespondError(c, http.StatusServiceUnavailable, "SHARE_CHAT_UNAVAILABLE", "chat backend unavailable")
+		return
+	}
+
+	var req shareChatReq
+	if err := c.ShouldBindJSON(&req); err != nil {
+		BadRequest(c, "content is required")
+		return
+	}
+	content := strings.TrimSpace(req.Content)
+	if content == "" {
+		BadRequest(c, "content is required")
+		return
+	}
+	if len(content) > service.MaxSharedChatLen {
+		BadRequest(c, "content too long")
+		return
+	}
+
+	ctx := c.Request.Context()
+	h.sender.PrepareUserSend(ctx, resolved.WorkspaceID)
+	queued, queueID, err := h.sender.Deliver(ctx, resolved.WorkspaceID, resolved.WorkspacePath, content, "")
+	if err != nil {
+		InternalError(c, err)
+		return
+	}
+	if queued {
+		c.JSON(http.StatusAccepted, gin.H{"status": "queued", "queueId": queueID})
+		return
+	}
+	c.JSON(http.StatusAccepted, gin.H{"status": "accepted"})
 }
 
 // timeRFC3339 统一公开端点的时间格式。

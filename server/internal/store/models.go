@@ -1117,6 +1117,7 @@ type WorkspaceShare struct {
 	CreatedBy    int64        `json:"created_by"`
 	RevokedAt    sql.NullTime `json:"revoked_at"`
 	LastAccessAt sql.NullTime `json:"last_access_at"`
+	AllowChat    int64        `json:"allow_chat"`
 	CreatedAt    time.Time    `json:"created_at"`
 }
 

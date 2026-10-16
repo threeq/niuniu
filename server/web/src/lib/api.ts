@@ -718,14 +718,18 @@ export const api = {
     ),
 
   // Workspace shares（团队版）— 时效+密码的只读外链管理。
-  createWorkspaceShare: (workspaceId: string, password: string, expiresAt: string) =>
+  createWorkspaceShare: (workspaceId: string, password: string, expiresAt: string, allowChat: boolean) =>
     api.post<WorkspaceShareCreateResponse>(`/workspaces/${workspaceId}/shares`, {
       password,
       expiresAt,
+      allowChat,
     }),
 
   listWorkspaceShares: (workspaceId: string) =>
     api.get<{ shares: WorkspaceShare[] }>(`/workspaces/${workspaceId}/shares`),
+
+  patchWorkspaceShare: (workspaceId: string, shareId: number, allowChat: boolean) =>
+    api.patch<void>(`/workspaces/${workspaceId}/shares/${shareId}`, { allowChat }),
 
   revokeWorkspaceShare: (workspaceId: string, shareId: number) =>
     api.delete<void>(`/workspaces/${workspaceId}/shares/${shareId}`),

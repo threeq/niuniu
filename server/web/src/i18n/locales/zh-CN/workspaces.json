@@ -1169,6 +1169,14 @@
     "wrongPassword": "密码错误",
     "unlock": "解锁查看",
     "readOnly": "只读分享",
-    "empty": "暂无会话内容"
+    "empty": "暂无会话内容",
+    "allowChatLabel": "允许对话",
+    "allowChatShort": "可对话",
+    "allowChatHint": "解锁的观看者可以向此工作空间的 AI 助手发送消息（消耗真实额度，默认关闭）。",
+    "allowChatUpdateFailed": "更新对话权限失败",
+    "chatEnabled": "可对话分享",
+    "chatPlaceholder": "输入消息，与该工作空间的 AI 助手对话…",
+    "chatSend": "发送",
+    "chatSendFailed": "发送失败，请重试"
   }
 }
