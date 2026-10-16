@@ -89,14 +89,22 @@ func (h *FileTreeHandler) ResolveFile(c *gin.Context) {
 	}
 
 	// Rung 3: ref names a repo itself ("niuniu-main/server/…") — re-anchor the
-	// remainder under that repo's worktree root.
+	// remainder under that repo's worktree root. Also accepts a repo-name
+	// PREFIX as the first segment: agents write "niuniu/server/…" (the git
+	// repo's name) while the worktree dir is "niuniu-main" (repo-branch). Each
+	// candidate is FS-checked, so trying the sorted prefix matches is safe.
 	if slash := strings.Index(ref, "/"); slash > 0 {
 		first, rest := ref[:slash], ref[slash+1:]
-		if containsString(repos, first) && rest != "" && !hasDotDotSegment(rest) {
-			cand := ".worktrees/" + first + "/" + rest
-			if isWorkspaceFile(filepath.Join(ws.Path, filepath.FromSlash(cand))) {
-				respondResolved(c, cand, "repo-prefixed", nil)
-				return
+		if rest != "" && !hasDotDotSegment(rest) {
+			for _, repo := range repos {
+				if repo != first && !strings.HasPrefix(repo, first) {
+					continue
+				}
+				cand := ".worktrees/" + repo + "/" + rest
+				if isWorkspaceFile(filepath.Join(ws.Path, filepath.FromSlash(cand))) {
+					respondResolved(c, cand, "repo-prefixed", nil)
+					return
+				}
 			}
 		}
 	}
@@ -218,15 +226,6 @@ func workspaceRepoNames(wsPath string) []string {
 	}
 	sort.Strings(names)
 	return names
-}
-
-func containsString(list []string, s string) bool {
-	for _, v := range list {
-		if v == s {
-			return true
-		}
-	}
-	return false
 }
 
 // sortFileEntryCandidates orders by fewest segments, then alphabetical — the

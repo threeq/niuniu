@@ -34,7 +34,7 @@ const KNOWN_EXTENSIONS = new Set([
   // Code
   'ts', 'tsx', 'js', 'jsx', 'mjs', 'cjs', 'go', 'py', 'rs', 'rb', 'php',
   // Go workspace files: go.mod / go.sum are ubiquitous in Go repo output.
-  'mod', 'sum',
+  'mod', 'sum', 'work',
   'java', 'kt', 'kts', 'swift', 'scala', 'c', 'h', 'cc', 'cpp', 'hpp', 'cs',
   'm', 'mm', 'vue', 'svelte', 'astro', 'dart', 'lua', 'pl', 'ex', 'exs',
   'zig', 'nim', 'hs', 'erl', 'clj', 'groovy', 'gradle',
@@ -116,11 +116,17 @@ function looksLikeDomain(candidate: string): boolean {
   return (tlds as unknown as string[]).includes(tld);
 }
 
+/** Conventional capitalized filenames with no extension. Case-SENSITIVE on
+ *  purpose: prose says "the makefile", the file is `Makefile` — requiring the
+ *  capital keeps ordinary words from becoming links. */
+const KNOWN_BASENAMES = new Set(['Makefile', 'Dockerfile', 'Jenkinsfile']);
+
 /** The last dot starts the extension. Dotfiles (`.env`, `.gitignore`) carry
- *  the name itself after the dot, which the known-set check handles. */
+ *  the name itself after the dot, which the known-set check handles. Bare
+ *  conventional build files (`Makefile`) match the exact-name set instead. */
 function knownExtension(segment: string): boolean {
   const dot = segment.lastIndexOf('.');
-  if (dot === -1) return false;
+  if (dot === -1) return KNOWN_BASENAMES.has(segment);
   const ext = segment.slice(dot + 1).toLowerCase();
   return ext.length > 0 && KNOWN_EXTENSIONS.has(ext);
 }

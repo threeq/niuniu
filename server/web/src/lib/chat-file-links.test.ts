@@ -21,6 +21,9 @@ describe('looksLikeFilePath', () => {
     'IMG_20260101.JPG',
     'assets/logo.svg',
     'out.csv:42',
+    'go.work',
+    'Makefile',
+    'deploy/Dockerfile',
   ];
   for (const c of valid) {
     it(`accepts ${c}`, () => {
@@ -40,6 +43,9 @@ describe('looksLikeFilePath', () => {
     'some-random-word',
     'app.doesnotexist',
     'foo.ts bar.ts', // space → not a single candidate
+    // prose uses lowercase; only the capitalized conventional names are files
+    'makefile',
+    'dockerfile',
   ];
   for (const c of invalid) {
     it(`rejects ${c}`, () => {
@@ -96,6 +102,15 @@ describe('matchFileRefs', () => {
     const refs = matchFileRefs('file C:\\work\\demo\\main.py saved');
     expect(refs).toHaveLength(1);
     expect(refs[0].raw).toBe('C:\\work\\demo\\main.py');
+  });
+
+  it('finds go.work and bare conventional build files', () => {
+    const refs = matchFileRefs('go.work 与 Makefile 都在根目录');
+    expect(refs.map((r) => r.raw)).toEqual(['go.work', 'Makefile']);
+  });
+
+  it('does not linkify lowercase prose mentions of build files', () => {
+    expect(matchFileRefs('this project has a makefile and a dockerfile')).toHaveLength(0);
   });
 });
 
