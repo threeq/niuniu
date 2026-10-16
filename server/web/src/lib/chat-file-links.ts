@@ -56,10 +56,28 @@ const KNOWN_EXTENSIONS = new Set([
   'excalidraw',
 ]);
 
-/** Characters allowed inside one path segment. Excludes whitespace, quotes,
- *  brackets, punctuation and CJK — a path containing any of those stops the
- *  candidate at the boundary instead. */
-const SEGMENT = '[A-Za-z0-9_\\-.@+]+';
+/** Characters allowed inside one path segment. ASCII path chars plus CJK
+ *  ideographs/kana/Hangul (escaped ranges below: Ext A, URO, compat
+ *  ideographs, kana, Hangul syllables) — agents reference CJK-named files
+ *  constantly and a pure-ASCII class made those unrecognizable. CJK
+ *  punctuation (U+3000-U+303F and the fullwidth block: fullwidth comma,
+ *  period, brackets, quotes) stays EXCLUDED so sentence punctuation and
+ *  brackets still terminate a candidate; the known-extension gate keeps
+ *  ordinary CJK words from becoming links. */
+const CJK_RANGES: [number, number][] = [
+  [0x3400, 0x4dbf], // CJK Extension A
+  [0x4e00, 0x9fff], // CJK Unified Ideographs
+  [0xf900, 0xfaff], // CJK Compatibility Ideographs
+  [0x3040, 0x30ff], // Hiragana + Katakana
+  [0xac00, 0xd7a3], // Hangul syllables
+];
+const SEGMENT =
+  '[A-Za-z0-9_\\-.@+' +
+  CJK_RANGES.map(
+    ([lo, hi]) =>
+      `\\u${lo.toString(16).padStart(4, '0')}-\\u${hi.toString(16).padStart(4, '0')}`,
+  ).join('') +
+  ']+';
 const PATH_CANDIDATE = new RegExp(
   // Optional Windows drive prefix ("C:") and optional leading separator,
   // then segments joined by `/` or `\`.
