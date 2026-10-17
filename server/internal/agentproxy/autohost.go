@@ -37,12 +37,12 @@ const autohostMinResumeDelay = 15 * time.Second
 // autohostDefaultBudget bounds consecutive auto-continues per user-initiated
 // chain. Tunable via NIUNIU_AUTOHOST_BUDGET env (workspace-level). Set 0 to
 // disable auto-continue while keeping bypassPermissions behavior.
-const autohostDefaultBudget = 12
+const autohostDefaultBudget = 36
 
 // autohostDefaultErrorBudget bounds consecutive auto-recovery attempts per
 // error streak. Tunable via NIUNIU_AUTOHOST_ERROR_BUDGET. Set 0 to disable
 // error recovery — agent will stop on the first error.
-const autohostDefaultErrorBudget = 3
+const autohostDefaultErrorBudget = 9
 
 // autohostContinuePrompt is the message the watchdog injects when the queue
 // is empty AND no completion condition is configured. Phrased to (a) push the
