@@ -164,6 +164,13 @@ type RateLimitScheduler interface {
 	// must not double-fire a continue prompt against a queue the user already
 	// drained. Best-effort; idempotent (no pending schedule → no-op).
 	CancelAutoResume(ctx context.Context, workspaceID int64)
+
+	// HasArmedAutoResume reports whether the autohost bg-wait promise is
+	// actually backed by a live resume (an autohost-wait one-shot schedule
+	// that is unfired, enabled, and still in the future). The GC consults it
+	// to detect a dead autohostScheduledWait promise — one whose timer was
+	// consumed or lost — before it strands the workspace "running" forever.
+	HasArmedAutoResume(ctx context.Context, workspaceID int64) bool
 }
 
 // SessionStateRecorder snapshots workspace git state when a session goes
@@ -4564,17 +4571,46 @@ func (p *AgentProxy) gcSessionInflight(s *WorkspaceSession, now time.Time) {
 		s.emitBgTaskNotify()
 	}
 
-	// An expired wakeup whose deferred finalize held the workspace "running":
-	// honor the resume promise now. Only when no live loop exists — a running
-	// SendLoop owns the lifecycle (its own dequeue drains the queue).
-	if !expiredWakeup {
-		return
-	}
+	// Reconcile the deferred-finalize promises. Two things can hold this
+	// workspace "running" with the loop gone: an expired wakeup that was just
+	// swept (its resume promise is GC-backed — handled below), and the autohost
+	// bg-wait flag (autohostScheduledWait), which holds BOTH finalize
+	// (finalizeSendLoopTurn) and the Enqueue gate closed on the promise that a
+	// scheduler resume will re-enter SendLoop. That promise can die — its
+	// one-shot timer is consumed by a busy-skip, lost to a restart, or never
+	// registered — and nothing else ever re-checked it, stranding the
+	// workspace "running" with every message stuck queued forever. Verify the
+	// promise; when dead, clear the flag and honor the deferred finalize.
 	s.mu.Lock()
 	live := s.running
+	waiting := s.autohostScheduledWait
 	s.mu.Unlock()
+	if !expiredWakeup && !waiting {
+		return
+	}
 	if live {
 		return
+	}
+	if waiting {
+		armed := false
+		if s.parent != nil {
+			s.parent.mu.RLock()
+			sched := s.parent.rateLimitSched
+			s.parent.mu.RUnlock()
+			if sched != nil && sched.HasArmedAutoResume(ctx, s.workspaceID) {
+				armed = true
+			}
+		}
+		if armed {
+			// A live resume owns re-entry; keep waiting.
+			return
+		}
+		s.mu.Lock()
+		s.autohostScheduledWait = false
+		s.mu.Unlock()
+		waiting = false
+		slog.Warn("agentproxy: dead autohost wait promise — cleared flag, reconciling stuck workspace",
+			"workspace_id", s.workspaceID)
 	}
 	if s.PendingCount(ctx) > 0 {
 		// Queued messages exist: pop the first and hand it to a fresh SendLoop
@@ -4582,20 +4618,26 @@ func (p *AgentProxy) gcSessionInflight(s *WorkspaceSession, now time.Time) {
 		// loop starts on this message and its own dequeue drains the rest.
 		content, attach := s.dequeue(ctx)
 		if content != "" {
-			slog.Info("agentproxy: expired wakeup — resuming loop to drain queue",
+			slog.Info("agentproxy: expired wakeup / dead wait — resuming loop to drain queue",
 				"workspace_id", s.workspaceID, "remaining", s.PendingCount(ctx))
 			go s.SendLoop(ctx, s.workDir, content, attach)
+			return
 		}
-		return
+		// Dequeue failed — fall through: finalizing beats stranding on a
+		// silent no-op (the queued item stays for the next loop to drain).
 	}
 	// Queue empty: nothing will ever re-enter, so run the finalize tail the
 	// deferred finalize skipped — flip agent_status / kanban out of "running".
-	// autohostScheduledWait is re-checked: the autohost paced resume owns that
-	// lifecycle and will re-enter on its own schedule.
+	if s.hasPendingFutureWakeup() {
+		return
+	}
+	// Re-check liveness: between the check above and here, the armed resume
+	// (or a concurrent dispatcher) may have started a loop — it now owns the
+	// lifecycle and its own finalize.
 	s.mu.Lock()
-	waiting := s.autohostScheduledWait
+	live = s.running
 	s.mu.Unlock()
-	if waiting || s.hasPendingFutureWakeup() {
+	if live {
 		return
 	}
 	slog.Info("agentproxy: expired wakeup — finalizing stale 'running' workspace",

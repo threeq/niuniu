@@ -717,7 +717,16 @@ func (s *Scheduler) OnAutohostWait(_ context.Context, workspaceID int64, runAtUn
 	// Idempotency + housekeeping: at most one unfired autohost-wait schedule per
 	// workspace; prune already-fired ones. Best-effort — on list failure fall
 	// through and create.
+	//
+	// An unfired row whose RunAt is ALREADY PAST is not "pending": its one-shot
+	// timer was consumed (e.g. trigger skipped while the session was busy, or
+	// the process restarted) and it can never fire again. Treating it as
+	// pending used to return fake success, leaving the caller's
+	// autohostScheduledWait flag backed by NO resume — the workspace then sat
+	// "running" with every message stuck queued, forever. Retire such rows and
+	// arm a fresh resume below.
 	var staleFired []int64
+	var stalePastDue []int64
 	if existing, err := s.q.ListSchedules(ctx, workspaceID); err != nil {
 		log.Warn("scheduler: OnAutohostWait list schedules failed", "err", err)
 	} else {
@@ -729,12 +738,13 @@ func (s *Scheduler) OnAutohostWait(_ context.Context, workspaceID int64, runAtUn
 				staleFired = append(staleFired, e.ID)
 				continue
 			}
-			if e.Enabled == 1 {
-				// A resume is already pending — that's success from the caller's
+			if e.Enabled == 1 && e.RunAt.Valid && e.RunAt.Time.After(time.Now().Add(-30*time.Second)) {
+				// A live resume is pending — that's success from the caller's
 				// perspective (the workspace will be re-entered).
 				log.Info("scheduler: autohost-wait schedule already pending; skipping", "scheduleID", e.ID)
 				return true
 			}
+			stalePastDue = append(stalePastDue, e.ID)
 		}
 	}
 
@@ -760,13 +770,20 @@ func (s *Scheduler) OnAutohostWait(_ context.Context, workspaceID int64, runAtUn
 			log.Warn("scheduler: OnAutohostWait prune stale schedule failed", "scheduleID", id, "err", err)
 		}
 	}
+	for _, id := range stalePastDue {
+		// The timer is gone either way; Unregister is a safe no-op then.
+		s.Unregister(id)
+		if err := s.q.DeleteSchedule(ctx, id); err != nil {
+			log.Warn("scheduler: OnAutohostWait retire past-due schedule failed", "scheduleID", id, "err", err)
+		}
+	}
 
 	s.emitBgTaskNotify(ctx, workspaceID)
 	if s.notifyHub != nil {
 		s.notifyHub.Broadcast(notify.Notification{Topic: notify.TopicSchedule, Action: "changed", ID: workspaceID})
 	}
 	log.Info("scheduler: autohost-wait resume scheduled", "scheduleID", sched.ID, "runAt", runAt,
-		"prunedFired", len(staleFired))
+		"prunedFired", len(staleFired), "retiredPastDue", len(stalePastDue))
 	return true
 }
 
@@ -809,6 +826,38 @@ func (s *Scheduler) CancelAutoResume(_ context.Context, workspaceID int64) {
 		s.notifyHub.Broadcast(notify.Notification{Topic: notify.TopicSchedule, Action: "changed", ID: workspaceID})
 	}
 	log.Info("scheduler: cancelled pending auto-resume schedules on user takeover", "cancelled", cancelled)
+}
+
+// HasArmedAutoResume implements agentproxy.RateLimitScheduler. It reports
+// whether the workspace's autohost bg-wait promise is actually backed by a
+// live resume: an autohost-wait one-shot schedule that is unfired, enabled,
+// and still in the future. A past-due unfired row is NOT armed — its timer was
+// consumed (skipped trigger / restart) and it can never re-enter the
+// workspace. The agentproxy GC consults this to detect a dead
+// autohostScheduledWait promise before it strands the workspace "running"
+// forever. Best-effort: on list failure report unarmed so the GC's healing
+// path can run (a false negative costs a spurious finalize; a false positive
+// costs a permanent strand).
+func (s *Scheduler) HasArmedAutoResume(_ context.Context, workspaceID int64) bool {
+	ctx := context.Background()
+	existing, err := s.q.ListSchedules(ctx, workspaceID)
+	if err != nil {
+		slog.Warn("scheduler: HasArmedAutoResume list schedules failed", "workspaceID", workspaceID, "err", err)
+		return false
+	}
+	for _, e := range existing {
+		if e.Name != autohostWaitScheduleName || e.ScheduleType != "once" {
+			continue
+		}
+		if e.FiredAt.Valid || e.Enabled != 1 || !e.RunAt.Valid {
+			continue
+		}
+		// Small past skew is tolerated: the timer may be mid-trigger right now.
+		if e.RunAt.Time.After(time.Now().Add(-30 * time.Second)) {
+			return true
+		}
+	}
+	return false
 }
 
 // --- #243 autonomous discovery helpers ---
