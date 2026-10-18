@@ -80,14 +80,21 @@ export function ContentViewerPanel({ workspaceId, target }: ContentViewerPanelPr
   const refresh = useCallback(() => setRefreshTick((n) => n + 1), []);
 
   const path = 'path' in target ? target.path : '';
-  const title = target.kind === 'file' ? target.title ?? baseName(path) : baseName(path);
+  // The header shows the full workspace-relative path: a bare file name is
+  // ambiguous — different directories hold same-named files. The directory
+  // part renders dimmed and ellipsizes first, so the file name survives
+  // tight widths.
+  const dirEnd = path.lastIndexOf('/');
+  const dirPart = dirEnd >= 0 ? path.slice(0, dirEnd + 1) : '';
+  const filePart = dirEnd >= 0 ? path.slice(dirEnd + 1) : path;
 
   return (
     <div className="flex h-full min-w-0 flex-col bg-card">
       {/* Header: path/title + per-kind actions + close */}
       <div className="flex h-8 shrink-0 items-center gap-2 border-b border-border px-3">
-        <span className="min-w-0 flex-1 truncate font-mono text-xs text-foreground" title={path}>
-          {title}
+        <span className="flex min-w-0 flex-1 items-center font-mono text-xs" title={path}>
+          {dirPart && <span className="min-w-0 truncate text-muted-foreground">{dirPart}</span>}
+          <span className="shrink-0 text-foreground">{filePart}</span>
         </span>
         {/* Files and diagrams (excalidraw/drawio) can be submitted as an
             artifact or downloaded straight from the viewer header. */}

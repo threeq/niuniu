@@ -79,6 +79,28 @@ beforeEach(() => {
   );
 });
 
+describe('ContentViewerPanel header', () => {
+  it('shows the full file path, not just the file name', async () => {
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={qc}>
+        <ContentViewerPanel
+          workspaceId="w1"
+          target={{ kind: 'file', path: '.worktrees/acme/.github/workflows/release.yml' }}
+        />
+      </QueryClientProvider>,
+    );
+
+    // A bare file name is ambiguous — different dirs hold same-named files —
+    // so the header must render the full workspace-relative path.
+    expect(
+      screen.getByTitle('.worktrees/acme/.github/workflows/release.yml'),
+    ).toBeInTheDocument();
+    expect(screen.getByText('release.yml')).toBeInTheDocument();
+    expect(screen.getByText('.worktrees/acme/.github/workflows/')).toBeInTheDocument();
+  });
+});
+
 describe('CodeView preview tab (diff-opened files)', () => {
   it('offers Preview for a markdown file and renders it on click', async () => {
     const user = userEvent.setup();
