@@ -577,6 +577,12 @@ func Migrate(db *sql.DB) {
 	// credential_id) before this rebuild mirrors the current schema. Idempotent.
 	migrateExternalProviderDropProviderCheck(db)
 
+	// external_api_write_prefs: re-scope the write toggle from per-user to
+	// per-OWNER ('user' personal space / 'org'). The MCP proxy reads it as the
+	// WORKSPACE's owner, so an org grant governs every member's agent running
+	// in that org's workspaces. Legacy rows become ('user', user_id) grants.
+	migrateAPIWritePrefsOwnerScope(db)
+
 	// Scene-based MCP/plugin management (M1) — schema additions live in
 	// schema.sql / schema_postgres.sql; these migrations cover existing DBs.
 	addScenesTables(db)
@@ -2315,6 +2321,103 @@ func migrateExternalProviderDropProviderCheckSQLite(db *sql.DB) {
 			FROM external_write_prefs`,
 		nil,
 	)
+}
+
+// migrateAPIWritePrefsOwnerScope re-scopes external_api_write_prefs from
+// per-user to per-OWNER ('user' personal space / 'org'). The MCP proxy reads
+// the toggle as the WORKSPACE's owner (see resolveMCPIdentity consumers), so
+// an org-row grant governs every member's agent running in that org's
+// workspaces; legacy per-user rows migrate to ('user', user_id) grants.
+//
+// SQLite: rebuilds the table (owner_type column + new PK), copying legacy rows
+// with owner_type='user'. PostgreSQL: ADD COLUMN + RENAME + PK swap.
+// Idempotent on both drivers: skips when owner_type already exists.
+func migrateAPIWritePrefsOwnerScope(db *sql.DB) {
+	if Driver == "postgres" {
+		migrateAPIWritePrefsOwnerScopePostgres(db)
+		return
+	}
+	migrateAPIWritePrefsOwnerScopeSQLite(db)
+}
+
+func migrateAPIWritePrefsOwnerScopeSQLite(db *sql.DB) {
+	var ddl string
+	if err := db.QueryRow(
+		`SELECT sql FROM sqlite_master WHERE type='table' AND name='external_api_write_prefs'`).Scan(&ddl); err != nil {
+		return // table absent — fresh DBs get the new shape from schema.sql
+	}
+	if strings.Contains(ddl, "owner_type") {
+		return // already migrated
+	}
+
+	if _, err := db.Exec(`PRAGMA foreign_keys = OFF`); err != nil {
+		slog.Warn("api-write-prefs owner-scope sqlite: disable FK failed", "error", err)
+		return
+	}
+	defer db.Exec(`PRAGMA foreign_keys = ON`) //nolint:errcheck
+
+	tx, err := db.Begin()
+	if err != nil {
+		slog.Warn("api-write-prefs owner-scope sqlite: begin tx failed", "error", err)
+		return
+	}
+	stmts := []string{
+		`CREATE TABLE external_api_write_prefs_new (
+			owner_type  TEXT NOT NULL DEFAULT 'user',
+			owner_id    INTEGER NOT NULL,
+			provider_id INTEGER NOT NULL REFERENCES external_providers(id) ON DELETE CASCADE,
+			enabled     INTEGER NOT NULL DEFAULT 0,
+			PRIMARY KEY (owner_type, owner_id, provider_id)
+		)`,
+		`INSERT INTO external_api_write_prefs_new (owner_type, owner_id, provider_id, enabled)
+			SELECT 'user', user_id, provider_id, enabled FROM external_api_write_prefs`,
+		`DROP TABLE external_api_write_prefs`,
+		`ALTER TABLE external_api_write_prefs_new RENAME TO external_api_write_prefs`,
+	}
+	for _, s := range stmts {
+		if _, err := tx.Exec(s); err != nil {
+			_ = tx.Rollback()
+			slog.Warn("api-write-prefs owner-scope sqlite: step failed", "error", err)
+			return
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		slog.Warn("api-write-prefs owner-scope sqlite: commit failed", "error", err)
+	}
+}
+
+func migrateAPIWritePrefsOwnerScopePostgres(db *sql.DB) {
+	var n int
+	if err := db.QueryRow(`
+		SELECT COUNT(*) FROM information_schema.columns
+		WHERE table_name = 'external_api_write_prefs' AND column_name = 'owner_type'`).Scan(&n); err != nil {
+		slog.Warn("api-write-prefs owner-scope pg: column probe failed", "error", err)
+		return
+	}
+	if n > 0 {
+		return // already migrated
+	}
+	tx, err := db.Begin()
+	if err != nil {
+		slog.Warn("api-write-prefs owner-scope pg: begin tx failed", "error", err)
+		return
+	}
+	stmts := []string{
+		`ALTER TABLE external_api_write_prefs ADD COLUMN owner_type TEXT NOT NULL DEFAULT 'user'`,
+		`ALTER TABLE external_api_write_prefs RENAME COLUMN user_id TO owner_id`,
+		`ALTER TABLE external_api_write_prefs DROP CONSTRAINT external_api_write_prefs_pkey`,
+		`ALTER TABLE external_api_write_prefs ADD PRIMARY KEY (owner_type, owner_id, provider_id)`,
+	}
+	for _, s := range stmts {
+		if _, err := tx.Exec(s); err != nil {
+			_ = tx.Rollback()
+			slog.Warn("api-write-prefs owner-scope pg: step failed", "error", err)
+			return
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		slog.Warn("api-write-prefs owner-scope pg: commit failed", "error", err)
+	}
 }
 
 // reconcileWorkspacesFKsSQLite rebuilds the workspaces table on SQLite when

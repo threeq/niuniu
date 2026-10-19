@@ -1504,14 +1504,18 @@ CREATE TABLE IF NOT EXISTS external_api_audit (
     created_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
--- Per-user, per-provider write toggle for external API proxy.
+-- Per-OWNER, per-provider write toggle for external API proxy. The owner is
+-- the workspace's owner scope ('user' personal space or 'org'), NOT the
+-- browser user who flipped the toggle — an org grant governs every member's
+-- agent running in that org's workspaces.
 -- Distinct from external_write_prefs (which governs github/jira/tapd
 -- credential-based integrations).
 CREATE TABLE IF NOT EXISTS external_api_write_prefs (
-    user_id     INTEGER NOT NULL,
+    owner_type  TEXT NOT NULL DEFAULT 'user',
+    owner_id    INTEGER NOT NULL,
     provider_id INTEGER NOT NULL REFERENCES external_providers(id) ON DELETE CASCADE,
     enabled     INTEGER NOT NULL DEFAULT 0,
-    PRIMARY KEY (user_id, provider_id)
+    PRIMARY KEY (owner_type, owner_id, provider_id)
 );
 
 -- ============================================================

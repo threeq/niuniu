@@ -1,5 +1,8 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { externalProxyApi } from '@/lib/external-proxy-api';
+import {
+  externalProxyApi,
+  type WriteOwnerScope,
+} from '@/lib/external-proxy-api';
 import type {
   CreateProviderBody,
   UpdateProviderBody,
@@ -8,11 +11,13 @@ import type {
 const KEY = ['external-providers'] as const;
 const SCHEMA_KEY = (name: string) =>
   ['external-providers', 'schema', name] as const;
+const ownerKey = (owner?: WriteOwnerScope) =>
+  owner && owner.id > 0 ? ([owner.type, owner.id] as const) : ([] as const);
 
-export function useExternalProviders() {
+export function useExternalProviders(owner?: WriteOwnerScope) {
   return useQuery({
-    queryKey: KEY,
-    queryFn: externalProxyApi.listProviders,
+    queryKey: [KEY, ownerKey(owner)],
+    queryFn: () => externalProxyApi.listProviders(owner),
   });
 }
 
@@ -56,8 +61,13 @@ export function useDeleteExternalProvider() {
 export function useSetProviderWriteEnabled() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (args: { id: number; enabled: boolean }) =>
-      externalProxyApi.setWriteEnabled(args.id, args.enabled),
+    mutationFn: (args: {
+      id: number;
+      enabled: boolean;
+      owner?: WriteOwnerScope;
+    }) => externalProxyApi.setWriteEnabled(args.id, args.enabled, args.owner),
+    // Invalidate every scope's list — the sidebar badge and other viewers may
+    // render a different scope than the one just toggled.
     onSuccess: () => qc.invalidateQueries({ queryKey: KEY }),
   });
 }

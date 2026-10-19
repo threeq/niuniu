@@ -39,9 +39,24 @@ interface WriteEnabledResp {
   data: { ok: boolean; enabled: boolean };
 }
 
+/** Owner scope the write-permission toggle is read/written under. The proxy
+ *  gates non-GET calls by the WORKSPACE's owner, so org members manage the
+ *  org scope here; defaults to the caller's personal owner when omitted. */
+export interface WriteOwnerScope {
+  type: 'user' | 'org';
+  id: number;
+}
+
+const ownerQuery = (owner?: WriteOwnerScope) =>
+  owner && owner.id > 0
+    ? `?owner_type=${encodeURIComponent(owner.type)}&owner_id=${owner.id}`
+    : '';
+
 export const externalProxyApi = {
-  listProviders: (): Promise<ExternalProviderListItem[]> =>
-    api.get<ListResp>('/me/external-proxy/providers').then((r) => r.data.items),
+  listProviders: (owner?: WriteOwnerScope): Promise<ExternalProviderListItem[]> =>
+    api
+      .get<ListResp>(`/me/external-proxy/providers${ownerQuery(owner)}`)
+      .then((r) => r.data.items),
 
   getProviderSchema: (name: string): Promise<ExternalProviderDetail> =>
     api
@@ -68,13 +83,23 @@ export const externalProxyApi = {
       .delete<DeleteResp>(`/me/external-proxy/providers/${id}`)
       .then(() => undefined),
 
-  // Per-(user, provider) write gate. Default off; the proxy rejects every
-  // non-GET call against the provider until this is flipped true.
-  setWriteEnabled: (id: number, enabled: boolean): Promise<boolean> =>
+  // Per-(owner, provider) write gate. Default off; the proxy rejects every
+  // non-GET call against the provider (scoped to the workspace's owner) until
+  // this is flipped true.
+  setWriteEnabled: (
+    id: number,
+    enabled: boolean,
+    owner?: WriteOwnerScope,
+  ): Promise<boolean> =>
     api
       .patch<WriteEnabledResp>(
         `/me/external-proxy/providers/${id}/write-enabled`,
-        { enabled },
+        {
+          enabled,
+          ...(owner && owner.id > 0
+            ? { owner_type: owner.type, owner_id: owner.id }
+            : {}),
+        },
       )
       .then((r) => r.data.enabled),
 };

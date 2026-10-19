@@ -315,9 +315,10 @@ type ExternalApiAudit struct {
 }
 
 type ExternalApiWritePref struct {
-	UserID     int64 `json:"user_id"`
-	ProviderID int64 `json:"provider_id"`
-	Enabled    int64 `json:"enabled"`
+	OwnerType  string `json:"owner_type"`
+	OwnerID    int64  `json:"owner_id"`
+	ProviderID int64  `json:"provider_id"`
+	Enabled    int64  `json:"enabled"`
 }
 
 type ExternalProvider struct {
