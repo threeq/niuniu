@@ -1409,12 +1409,13 @@ func New(cfg *config.Config, db *sql.DB, frontendFS fs.FS) *Server {
 	proxySvc := service.NewExternalProxyService(s.queries, db, providerSvc, s.extCredSvc, authz)
 	s.externalProviderSvc = providerSvc
 	s.externalProxySvc = proxySvc
-	// Reproject the user's office-mail workspaces when they toggle imap write-
-	// permission, so config.toml (outgoing/SMTP) + permissions.deny refresh to
-	// the new state (otherwise the toggle never reaches the materialized files
-	// and sending stays disabled until an unrelated reprojection).
+	// Reproject the owner's office-mail workspaces when the imap write-
+	// permission toggle changes, so config.toml (outgoing/SMTP) +
+	// permissions.deny refresh to the new state (otherwise the toggle never
+	// reaches the materialized files and sending stays disabled until an
+	// unrelated reprojection).
 	if s.sceneProjector != nil {
-		providerSvc.SetImapWritePrefChangeHook(s.sceneProjector.ReprojectImapWorkspacesForUser)
+		providerSvc.SetImapWritePrefChangeHook(s.sceneProjector.ReprojectImapWorkspacesForOwner)
 	}
 
 	// Data integration (M1): SQL data sources. Connectors are stateless

@@ -125,8 +125,9 @@ func TestSetWorkspaceManagedDeny_MergePreserves(t *testing.T) {
 	assert.Contains(t, deny, "Bash(rm -rf:*)")
 }
 
-// grantImapWrite enables imap write-permission for a user through the real UI
-// path: seed the imap system provider, then SetWritePref (external_api_write_prefs).
+// grantImapWrite enables imap write-permission for an owner through the real
+// UI path: seed the imap system provider, then SetWritePref
+// (external_api_write_prefs, owner-scoped).
 func grantImapWrite(t *testing.T, db *sql.DB, userID int64) {
 	t.Helper()
 	prov := NewExternalProviderService(store.New(db), db)
@@ -134,7 +135,7 @@ func grantImapWrite(t *testing.T, db *sql.DB, userID int64) {
 	require.NoError(t, err)
 	imap, err := prov.GetByName(context.Background(), "imap")
 	require.NoError(t, err)
-	require.NoError(t, prov.SetWritePref(context.Background(), userID, imap.ID, true))
+	require.NoError(t, prov.SetWritePref(context.Background(), "user", userID, imap.ID, true))
 }
 
 // bindImapCred creates an imap credential for user 1 and returns its id.
@@ -336,11 +337,11 @@ func TestApplyEmailIntegration_OnlyProjectBoundMailboxes(t *testing.T) {
 	assert.NotContains(t, string(s), `host = "imap.163.com"`, "unbound user mailbox excluded")
 }
 
-// TestReprojectImapWorkspacesForUser_AppliesWriteToggle verifies that enabling
+// TestReprojectImapWorkspacesForOwner_AppliesWriteToggle verifies that enabling
 // imap write-permission and reprojecting (what the SetWritePref hook does)
 // refreshes the materialized config.toml (adds outgoing/SMTP) and drops the
 // send_email deny — i.e. the toggle actually reaches the agent's files.
-func TestReprojectImapWorkspacesForUser_AppliesWriteToggle(t *testing.T) {
+func TestReprojectImapWorkspacesForOwner_AppliesWriteToggle(t *testing.T) {
 	ctx := context.Background()
 	db := setupSceneTestDB(t)
 	dataDir := t.TempDir()
@@ -367,10 +368,10 @@ func TestReprojectImapWorkspacesForUser_AppliesWriteToggle(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotContains(t, string(b), "outgoing =", "read-only before write granted")
 
-	// Grant write via the real Settings path, then reproject for the user (what
-	// the imap write-pref change hook triggers).
+	// Grant write via the real Settings path, then reproject for the owner
+	// (what the imap write-pref change hook triggers).
 	grantImapWrite(t, db, 1)
-	projector.ReprojectImapWorkspacesForUser(ctx, 1)
+	projector.ReprojectImapWorkspacesForOwner(ctx, "user", 1)
 
 	b2, err := os.ReadFile(cfgPath)
 	require.NoError(t, err)

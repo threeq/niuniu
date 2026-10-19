@@ -150,18 +150,24 @@ func (s *ExternalProxyService) Call(ctx context.Context, in ProxyInput) (*ProxyO
 		return nil, fmt.Errorf("provider %q is disabled", in.Provider)
 	}
 
-	// 2. Single per-user gate: write_enabled ON bypasses everything;
+	// 2. Single per-OWNER gate: write_enabled ON bypasses everything;
 	// write_enabled OFF falls back to the provider's curated whitelist
-	// (usually GET *), so reads keep working without any opt-in. Failing
-	// closed on DB errors (missing-row is the normal first-time case) but
-	// logging the unexpected ones so operators can spot a broken store.
+	// (usually GET *), so reads keep working without any opt-in. The scope is
+	// the WORKSPACE's owner ('user' personal space / 'org') — NOT the calling
+	// user — so an org-level grant governs every member's agent running in
+	// that org's workspaces, matching how the Settings toggle presents it.
+	// SPA direct calls (no workspace) scope to the caller's personal owner.
+	// Failing closed on DB errors (missing-row is the normal first-time case)
+	// but logging the unexpected ones so operators can spot a broken store.
+	ownerType, ownerID := s.writePrefScope(ctx, in)
 	prefs, err := s.q.GetAPIWritePrefs(ctx, store.GetAPIWritePrefsParams{
-		UserID:     in.UserID,
+		OwnerType:  ownerType,
+		OwnerID:    ownerID,
 		ProviderID: prov.ID,
 	})
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		slog.Warn("external proxy write-prefs lookup failed; defaulting to write_enabled=false",
-			"provider", in.Provider, "user_id", in.UserID, "error", err)
+			"provider", in.Provider, "owner_type", ownerType, "owner_id", ownerID, "error", err)
 	}
 	writeEnabled := err == nil && prefs.Enabled == 1
 	if !s.gateAllows(writeEnabled, prov.Whitelist, in.Method, in.Path) {
@@ -413,6 +419,21 @@ func (s *ExternalProxyService) resolveCredential(ctx context.Context, in ProxyIn
 		return nil, fmt.Errorf("no credential configured for %s", in.Provider)
 	}
 	return s.credSvc.GetByID(ctx, creds[0].ID, "user", in.UserID, in.UserID)
+}
+
+// writePrefScope resolves the owner scope the write toggle is read under.
+// In-workspace MCP agents (WorkspaceID>0) use the workspace's owner — the
+// same grant the Settings toggle writes for that personal space / org. SPA
+// direct calls (WorkspaceID==0, settings self-test) scope to the caller's
+// personal owner. On workspace lookup failure the caller's personal owner is
+// used, which fails closed (no prefs row → whitelist-only).
+func (s *ExternalProxyService) writePrefScope(ctx context.Context, in ProxyInput) (string, int64) {
+	if in.WorkspaceID > 0 {
+		if ws, err := s.q.GetWorkspace(ctx, in.WorkspaceID); err == nil && ws.OwnerType != "" && ws.OwnerID > 0 {
+			return ws.OwnerType, ws.OwnerID
+		}
+	}
+	return "user", in.UserID
 }
 
 // gateAllows is the single permission predicate. Pure function so it can
