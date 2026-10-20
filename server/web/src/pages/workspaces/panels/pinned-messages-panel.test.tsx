@@ -12,6 +12,14 @@ vi.mock('@/lib/scroll-to-chat-message', () => ({
   scrollToChatMessage: vi.fn(() => true),
 }));
 
+vi.mock('@/lib/copy-to-clipboard', () => ({
+  copyTextToClipboard: vi.fn(),
+}));
+
+vi.mock('sonner', () => ({
+  toast: { success: vi.fn(), error: vi.fn(), info: vi.fn() },
+}));
+
 import { PinnedMessagesPanel } from './pinned-messages-panel';
 import {
   listPinnedMessages,
@@ -19,6 +27,8 @@ import {
   type PinnedMessage,
 } from '@/lib/pinned-messages-api';
 import { scrollToChatMessage } from '@/lib/scroll-to-chat-message';
+import { copyTextToClipboard } from '@/lib/copy-to-clipboard';
+import { toast } from 'sonner';
 
 function withQuery(ui: React.ReactNode) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -70,11 +80,28 @@ describe('PinnedMessagesPanel', () => {
     vi.mocked(deletePinnedMessage).mockResolvedValue();
     render(withQuery(<PinnedMessagesPanel workspaceId="42" />));
     await screen.findByText('remove me');
-    // The unpin button is the only button whose accessible action is delete;
-    // it sits as a sibling of the row button. Grab all buttons and click the
-    // last (the X) — the row button is first.
+    // The unpin button is the last action button of the row (after the copy
+    // button the row itself). Grab all buttons and click the last (the X).
     const buttons = screen.getAllByRole('button');
     fireEvent.click(buttons[buttons.length - 1]);
     await waitFor(() => expect(deletePinnedMessage).toHaveBeenCalledWith('42', 7));
+  });
+
+  it('copies the message content and toasts on success', async () => {
+    vi.mocked(listPinnedMessages).mockResolvedValue([pin({ preview: 'copy me' })]);
+    vi.mocked(copyTextToClipboard).mockResolvedValue(true);
+    render(withQuery(<PinnedMessagesPanel workspaceId="42" />));
+    // aria-labels are real i18n strings (zh-CN resources load in tests).
+    fireEvent.click(await screen.findByRole('button', { name: /复制消息内容/ }));
+    await waitFor(() => expect(copyTextToClipboard).toHaveBeenCalledWith('copy me'));
+    await waitFor(() => expect(toast.success).toHaveBeenCalledWith('已复制消息内容'));
+  });
+
+  it('toasts an error when the copy fails', async () => {
+    vi.mocked(listPinnedMessages).mockResolvedValue([pin({ preview: 'copy me' })]);
+    vi.mocked(copyTextToClipboard).mockResolvedValue(false);
+    render(withQuery(<PinnedMessagesPanel workspaceId="42" />));
+    fireEvent.click(await screen.findByRole('button', { name: /复制消息内容/ }));
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith('复制失败'));
   });
 });

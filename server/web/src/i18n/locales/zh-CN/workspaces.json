@@ -914,6 +914,9 @@
     "empty": "还没有钉住的消息。把鼠标移到消息上，点 Pin 图标即可钉住。",
     "noPreview": "（无预览）",
     "locate": "定位到该消息",
+    "copy": "复制消息内容",
+    "copyDone": "已复制消息内容",
+    "copyFailed": "复制失败",
     "unpin": "取消钉住",
     "unpinFailed": "取消钉住失败",
     "notLoaded": "该消息尚未加载，向上滚动以加载更早的消息。"

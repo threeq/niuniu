@@ -1,5 +1,5 @@
 import { useCallback } from 'react';
-import { Pin, X, User, Bot, Settings2 } from 'lucide-react';
+import { Pin, X, Copy, User, Bot, Settings2 } from 'lucide-react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
@@ -10,6 +10,7 @@ import {
   type PinnedMessage,
 } from '@/lib/pinned-messages-api';
 import { scrollToChatMessage } from '@/lib/scroll-to-chat-message';
+import { copyTextToClipboard } from '@/lib/copy-to-clipboard';
 
 interface PinnedMessagesPanelProps {
   workspaceId: string;
@@ -43,6 +44,16 @@ export function PinnedMessagesPanel({ workspaceId }: PinnedMessagesPanelProps) {
       if (!scrollToChatMessage(pin.message_id)) {
         toast.info(t('pinnedPanel.notLoaded'));
       }
+    },
+    [t],
+  );
+
+  const handleCopy = useCallback(
+    (pin: PinnedMessage) => {
+      copyTextToClipboard(pin.preview).then((ok) => {
+        if (ok) toast.success(t('pinnedPanel.copyDone'));
+        else toast.error(t('pinnedPanel.copyFailed'));
+      });
     },
     [t],
   );
@@ -87,7 +98,7 @@ export function PinnedMessagesPanel({ workspaceId }: PinnedMessagesPanelProps) {
                   onClick={() => handleLocate(pin)}
                   title={t('pinnedPanel.locate')}
                   className={cn(
-                    'w-full text-left px-3 py-2 pr-8 flex items-start gap-2',
+                    'w-full text-left px-3 py-2 pr-14 flex items-start gap-2',
                     'hover:bg-accent transition-colors',
                   )}
                 >
@@ -101,19 +112,37 @@ export function PinnedMessagesPanel({ workspaceId }: PinnedMessagesPanelProps) {
                     </span>
                   </span>
                 </button>
-                <button
-                  type="button"
-                  onClick={() => handleUnpin(pin)}
-                  aria-label={t('pinnedPanel.unpin')}
-                  title={t('pinnedPanel.unpin')}
+                <div
                   className={cn(
-                    'absolute top-1.5 right-1.5 rounded p-1 transition-opacity',
-                    'text-warm-text-muted hover:bg-warm-border hover:text-warm-text',
-                    'opacity-0 group-hover/pin:opacity-100 focus:opacity-100',
+                    'absolute top-1.5 right-1.5 flex items-center gap-0.5 transition-opacity',
+                    'opacity-0 group-hover/pin:opacity-100 focus-within:opacity-100',
                   )}
                 >
-                  <X className="size-3.5" aria-hidden="true" />
-                </button>
+                  <button
+                    type="button"
+                    onClick={() => handleCopy(pin)}
+                    aria-label={t('pinnedPanel.copy')}
+                    title={t('pinnedPanel.copy')}
+                    className={cn(
+                      'rounded p-1',
+                      'text-warm-text-muted hover:bg-warm-border hover:text-warm-text',
+                    )}
+                  >
+                    <Copy className="size-3.5" aria-hidden="true" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleUnpin(pin)}
+                    aria-label={t('pinnedPanel.unpin')}
+                    title={t('pinnedPanel.unpin')}
+                    className={cn(
+                      'rounded p-1',
+                      'text-warm-text-muted hover:bg-warm-border hover:text-warm-text',
+                    )}
+                  >
+                    <X className="size-3.5" aria-hidden="true" />
+                  </button>
+                </div>
               </li>
             ))}
           </ul>
