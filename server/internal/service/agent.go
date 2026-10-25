@@ -55,7 +55,8 @@ type AgentManager struct {
 	mcpWriter     MCPConfigWriter
 	perm          *PermissionService
 	askUser       *AskUserService
-	gitIdentity *GitIdentityService
+	gitIdentity   *GitIdentityService
+	gitRemoteCred *GitRemoteCredentialService
 }
 
 func (m *AgentManager) SetMCPWriter(w MCPConfigWriter) {
@@ -88,6 +89,35 @@ func (m *AgentManager) SetAskUserService(svc *AskUserService) {
 // behavior). Spec: docs/superpowers/specs/2026-05-19-per-user-git-identity-design.md
 func (m *AgentManager) SetGitIdentityService(svc *GitIdentityService) {
 	m.gitIdentity = svc
+}
+
+// SetGitRemoteCredentialService wires the per-user git remote credential
+// store so PTY spawns can materialize the user's SSH keys and inject
+// GIT_SSH_COMMAND — in-workspace `git push/pull/fetch` then authenticate as
+// the user without any interactive prompt. Optional; when nil (or the user
+// has no SSH credentials) git behaves as before.
+func (m *AgentManager) SetGitRemoteCredentialService(svc *GitRemoteCredentialService) {
+	m.gitRemoteCred = svc
+}
+
+// gitSSHEnv materializes the user's SSH keys and returns the
+// GIT_SSH_COMMAND env entry (empty slice when nothing applies: service
+// unwired, no session user, no SSH credentials, or materialize disabled).
+// Best-effort — failures log and yield no env rather than blocking spawn.
+func (m *AgentManager) gitSSHEnv(ctx context.Context, userID int64) []string {
+	if m.gitRemoteCred == nil || userID <= 0 {
+		return nil
+	}
+	cfgPath, err := m.gitRemoteCred.MaterializeUserSSHKeys(ctx, userID)
+	if err != nil {
+		slog.Warn("agent: materialize ssh keys failed; spawning without GIT_SSH_COMMAND",
+			"userID", userID, "err", err)
+		return nil
+	}
+	if cfgPath == "" {
+		return nil
+	}
+	return []string{"GIT_SSH_COMMAND=ssh -F " + cfgPath + " -o StrictHostKeyChecking=accept-new"}
 }
 
 func NewAgentManager(q *store.Queries, cfg *config.AgentConfig) *AgentManager {
@@ -297,6 +327,12 @@ func (m *AgentManager) Start(ctx context.Context, workspaceID int64, workDir, in
 			}
 		}
 	}
+
+	// Per-user git remote credentials: materialize SSH keys + inject
+	// GIT_SSH_COMMAND so Claude's in-workspace `git push/pull/fetch`
+	// authenticate as the session user (token-kind credentials apply to
+	// clone-time URL injection, not here). Optional / nil-safe.
+	envSlice = append(envSlice, m.gitSSHEnv(ctx, userID)...)
 
 	// Create PTY process with workDir as cwd and workspace env vars
 	proc, err := terminal.NewPTYProcess(command, args, workDir, envSlice)
@@ -589,6 +625,12 @@ func (m *AgentManager) StartTerminal(ctx context.Context, workspaceID int64) (*t
 					"workspaceID", workspaceID, "userID", uid, "err", err)
 			}
 		}
+	}
+	// Per-user git remote credentials (same scope as the identity above: the
+	// workspace's session user) — manual `git push/pull` in the terminal
+	// authenticates with the user's stored SSH keys. Optional / nil-safe.
+	if ws.CurrentSessionUserID.Valid && ws.CurrentSessionUserID.Int64 > 0 {
+		ptyEnv = append(ptyEnv, m.gitSSHEnv(ctx, ws.CurrentSessionUserID.Int64)...)
 	}
 
 	// Create PTY process with workspace as cwd

@@ -583,6 +583,11 @@ func Migrate(db *sql.DB) {
 	// in that org's workspaces. Legacy rows become ('user', user_id) grants.
 	migrateAPIWritePrefsOwnerScope(db)
 
+	// git_remote_credentials: credential kind ('ssh' private key | 'token'
+	// secret for HTTPS remotes). Existing rows are SSH keys — the column
+	// default covers them.
+	addColumnIfNotExists(db, "git_remote_credentials", "kind", "TEXT NOT NULL DEFAULT 'ssh'")
+
 	// Scene-based MCP/plugin management (M1) — schema additions live in
 	// schema.sql / schema_postgres.sql; these migrations cover existing DBs.
 	addScenesTables(db)

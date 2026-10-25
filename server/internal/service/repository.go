@@ -81,6 +81,10 @@ type RepositoryService struct {
 	// gitIdentity resolves per-(user, repository) commit signatures. Optional /
 	// nil-safe; when unset, commits use ambient repo/global git config.
 	gitIdentity *GitIdentityService
+	// gitRemoteCred resolves per-user git remote credentials (token / SSH
+	// key) for authenticated clones. Optional / nil-safe; when unset, clones
+	// run bare (public remotes only).
+	gitRemoteCred *GitRemoteCredentialService
 }
 
 func NewRepositoryService(q *store.Queries, db *sql.DB, authz *Authz, dataDir string) *RepositoryService {
@@ -89,6 +93,12 @@ func NewRepositoryService(q *store.Queries, db *sql.DB, authz *Authz, dataDir st
 
 // SetGitIdentityService wires the commit-signature resolver. Wired once at boot.
 func (s *RepositoryService) SetGitIdentityService(gi *GitIdentityService) { s.gitIdentity = gi }
+
+// SetGitRemoteCredentialService wires the clone-credential resolver. Wired
+// once at boot.
+func (s *RepositoryService) SetGitRemoteCredentialService(g *GitRemoteCredentialService) {
+	s.gitRemoteCred = g
+}
 
 func (s *RepositoryService) List(ctx context.Context) ([]store.Repository, error) {
 	return s.q.ListRepositories(ctx)
@@ -130,12 +140,18 @@ type CreateRepositoryInput struct {
 	RemoteURL string // If set, clone this URL into ~/git-repos/<name> first
 	OwnerType string
 	OwnerID   int64
+	// UserID is the caller's identity, used to resolve their stored git
+	// remote credentials for the clone (token / SSH key). 0 = anonymous.
+	UserID int64
 }
 
 // cloneRepository clones remoteURL into a staging directory under dataDir/repositories/staging/<name>
 // and returns the cloned path. The caller is responsible for moving it to the final OwnerRef path.
 // ctx is forwarded to git so the process is killed if the request is cancelled.
-func (s *RepositoryService) cloneRepository(ctx context.Context, remoteURL, name string) (string, error) {
+// The caller's stored git remote credential (if any) authenticates the clone:
+// a token is injected into the HTTPS URL (and stripped back out of the
+// cloned origin), an SSH key drives GIT_SSH_COMMAND.
+func (s *RepositoryService) cloneRepository(ctx context.Context, remoteURL, name string, userID int64) (string, error) {
 	// Use a staging area under dataDir when available, falling back to ~/git-repos.
 	var stagingBase string
 	if s.dataDir != "" {
@@ -164,7 +180,13 @@ func (s *RepositoryService) cloneRepository(ctx context.Context, remoteURL, name
 		return "", fmt.Errorf("destination already exists: %s", name)
 	}
 
-	cmd := exec.CommandContext(ctx, "git", "clone", remoteURL, destPath)
+	cloneURL, env, cleanup := s.prepareCloneAuth(ctx, userID, remoteURL)
+	defer cleanup()
+
+	cmd := exec.CommandContext(ctx, "git", "clone", cloneURL, destPath)
+	if len(env) > 0 {
+		cmd.Env = append(os.Environ(), env...)
+	}
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		msg := strings.TrimSpace(string(out))
@@ -173,7 +195,58 @@ func (s *RepositoryService) cloneRepository(ctx context.Context, remoteURL, name
 		}
 		return "", fmt.Errorf("git clone failed: %s", msg)
 	}
+	// A token-carrying clone URL lands verbatim in the cloned origin remote —
+	// restore the clean URL so the secret doesn't persist in .git/config.
+	if cloneURL != remoteURL {
+		_ = exec.CommandContext(ctx, "git", "-C", destPath, "remote", "set-url", "origin", remoteURL).Run()
+	}
 	return destPath, nil
+}
+
+// prepareCloneAuth resolves the caller's stored credential for the remote's
+// host and returns the clone URL + extra env to use. Both are no-ops when
+// no credential applies (bare clone — public remotes keep working unchanged):
+// a 'token' kind rewrites the HTTPS URL with the secret (never persisted —
+// the caller restores the clean origin afterwards); an 'ssh' kind
+// materializes the key to a temp file and points GIT_SSH_COMMAND at it.
+func (s *RepositoryService) prepareCloneAuth(ctx context.Context, userID int64, remoteURL string) (cloneURL string, env []string, cleanup func()) {
+	cloneURL = remoteURL
+	cleanup = func() {}
+	if s.gitRemoteCred == nil || userID <= 0 {
+		return
+	}
+	cred, err := s.gitRemoteCred.ResolveForRemote(ctx, userID, remoteURL)
+	if err != nil || cred == nil {
+		return
+	}
+	switch {
+	case cred.Kind == CredentialKindToken && !IsSSHRemote(remoteURL):
+		cloneURL = InjectURLSecret(remoteURL, cred.Username, cred.Secret)
+		if cloneURL == remoteURL {
+			slog.Warn("repo clone: token inject failed (unexpected URL shape); cloning bare",
+				"remote", remoteURL)
+			cloneURL = remoteURL
+		}
+	case cred.Kind == CredentialKindSSH && IsSSHRemote(remoteURL):
+		keyDir, mkErr := os.MkdirTemp("", "niuniu-git-key-")
+		if mkErr != nil {
+			slog.Warn("repo clone: temp key dir failed; cloning bare", "err", mkErr)
+			return
+		}
+		keyPath := filepath.Join(keyDir, "id.key")
+		if wErr := os.WriteFile(keyPath, []byte(cred.Secret+"\n"), 0o600); wErr != nil {
+			os.RemoveAll(keyDir)
+			slog.Warn("repo clone: key write failed; cloning bare", "err", wErr)
+			return
+		}
+		env = append(env, "GIT_SSH_COMMAND=ssh -i "+keyPath+" -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new")
+		cleanup = func() { os.RemoveAll(keyDir) }
+	default:
+		// Credential kind doesn't match the remote transport (e.g. an SSH
+		// key for an HTTPS remote) — a bare clone fails with the same
+		// auth error it would have had, which is the honest outcome.
+	}
+	return
 }
 
 // Create registers (and optionally clones / auto-inits) a repository. The
@@ -198,7 +271,7 @@ func (s *RepositoryService) Create(ctx context.Context, input CreateRepositoryIn
 			return store.Repository{}, nil, fmt.Errorf("REPO_NAME_EXISTS: repository with name '%s' already exists", name)
 		}
 
-		clonedPath, err := s.cloneRepository(ctx, input.RemoteURL, name)
+		clonedPath, err := s.cloneRepository(ctx, input.RemoteURL, name, input.UserID)
 		if err != nil {
 			return store.Repository{}, nil, fmt.Errorf("CLONE_FAILED: %s", err.Error())
 		}

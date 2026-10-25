@@ -7,6 +7,13 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
+import {
   Dialog,
   DialogContent,
   DialogDescription,
@@ -30,6 +37,7 @@ interface GitRemoteCredential {
   id: number
   host: string
   username: string
+  kind: string
   public_key: string
   fingerprint: string
   last_used_at?: string
@@ -96,6 +104,7 @@ export function GitCredentialsSettings() {
               <tr>
                 <th className="text-left py-2 px-3 font-medium">{t('gitCredentials.col.host')}</th>
                 <th className="text-left py-2 px-3 font-medium">{t('gitCredentials.col.username')}</th>
+                <th className="text-left py-2 px-3 font-medium">{t('gitCredentials.col.kind')}</th>
                 <th className="text-left py-2 px-3 font-medium">{t('gitCredentials.col.fingerprint')}</th>
                 <th className="py-2 px-3 w-12"></th>
               </tr>
@@ -103,19 +112,26 @@ export function GitCredentialsSettings() {
             <tbody>
               {isLoading && (
                 <tr>
-                  <td colSpan={4} className="py-3 px-3 text-muted-foreground">{t('gitCredentials.loading')}</td>
+                  <td colSpan={5} className="py-3 px-3 text-muted-foreground">{t('gitCredentials.loading')}</td>
                 </tr>
               )}
               {!isLoading && data?.items?.length === 0 && (
                 <tr>
-                  <td colSpan={4} className="py-3 px-3 text-muted-foreground">{t('gitCredentials.empty')}</td>
+                  <td colSpan={5} className="py-3 px-3 text-muted-foreground">{t('gitCredentials.empty')}</td>
                 </tr>
               )}
               {data?.items?.map((cred) => (
                 <tr key={cred.id} className="border-t border-border">
                   <td className="py-2 px-3 font-mono text-xs">{cred.host}</td>
                   <td className="py-2 px-3 font-mono text-xs">{cred.username}</td>
-                  <td className="py-2 px-3 font-mono text-xs text-muted-foreground">{cred.fingerprint}</td>
+                  <td className="py-2 px-3 text-xs">
+                    {cred.kind === 'token'
+                      ? t('gitCredentials.kind.token')
+                      : t('gitCredentials.kind.ssh')}
+                  </td>
+                  <td className="py-2 px-3 font-mono text-xs text-muted-foreground">
+                    {cred.kind === 'token' ? '••••••••' : cred.fingerprint}
+                  </td>
                   <td className="py-2 px-3 text-right">
                     <Button
                       size="sm"
@@ -177,6 +193,7 @@ function AddGitCredentialDialog({ open, onOpenChange, onCreated }: AddDialogProp
   const { t } = useTranslation('settings')
   const [host, setHost] = useState('')
   const [username, setUsername] = useState('git')
+  const [kind, setKind] = useState<'ssh' | 'token'>('ssh')
   const [privateKey, setPrivateKey] = useState('')
 
   const createMutation = useMutation({
@@ -184,12 +201,14 @@ function AddGitCredentialDialog({ open, onOpenChange, onCreated }: AddDialogProp
       api.post<GitRemoteCredential>('/me/git-remote-credentials', {
         host: host.trim(),
         username: username.trim() || 'git',
+        kind,
         private_key: privateKey,
       }),
     onSuccess: () => {
       toast.success(t('gitCredentials.created'))
       setHost('')
       setUsername('git')
+      setKind('ssh')
       setPrivateKey('')
       onOpenChange(false)
       onCreated()
@@ -204,6 +223,7 @@ function AddGitCredentialDialog({ open, onOpenChange, onCreated }: AddDialogProp
         ERR_INVALID_PRIVATE_KEY: 'gitCredentials.errInvalidPrivateKey',
         ERR_PASSPHRASE_REQUIRED: 'gitCredentials.errPassphraseRequired',
         ERR_INVALID_HOST: 'gitCredentials.errInvalidHost',
+        ERR_INVALID_KIND: 'gitCredentials.errInvalidKind',
         ERR_HOST_CONFLICT: 'gitCredentials.errHostConflict',
       }
       if (messageKey[code]) {
@@ -227,6 +247,21 @@ function AddGitCredentialDialog({ open, onOpenChange, onCreated }: AddDialogProp
 
         <div className="space-y-4 py-2">
           <div className="space-y-2">
+            <label htmlFor="add-cred-kind" className="text-sm text-muted-foreground">
+              {t('gitCredentials.col.kind')}
+            </label>
+            <Select value={kind} onValueChange={(v) => setKind(v as 'ssh' | 'token')}>
+              <SelectTrigger id="add-cred-kind">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="ssh">{t('gitCredentials.kind.ssh')}</SelectItem>
+                <SelectItem value="token">{t('gitCredentials.kind.token')}</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="space-y-2">
             <label htmlFor="add-cred-host" className="text-sm text-muted-foreground">
               {t('gitCredentials.field.host')}
             </label>
@@ -248,7 +283,7 @@ function AddGitCredentialDialog({ open, onOpenChange, onCreated }: AddDialogProp
               id="add-cred-username"
               value={username}
               onChange={(e) => setUsername(e.target.value)}
-              placeholder="git"
+              placeholder={kind === 'token' ? 'cnb' : 'git'}
               disabled={createMutation.isPending}
             />
             <p className="text-xs text-muted-foreground/70">{t('gitCredentials.field.usernameHint')}</p>
@@ -256,18 +291,36 @@ function AddGitCredentialDialog({ open, onOpenChange, onCreated }: AddDialogProp
 
           <div className="space-y-2">
             <label htmlFor="add-cred-key" className="text-sm text-muted-foreground">
-              {t('gitCredentials.field.privateKey')}
+              {kind === 'token'
+                ? t('gitCredentials.field.secret')
+                : t('gitCredentials.field.privateKey')}
             </label>
-            <Textarea
-              id="add-cred-key"
-              value={privateKey}
-              onChange={(e) => setPrivateKey(e.target.value)}
-              placeholder="-----BEGIN OPENSSH PRIVATE KEY-----&#10;..."
-              rows={8}
-              disabled={createMutation.isPending}
-              className="font-mono text-xs"
-            />
-            <p className="text-xs text-muted-foreground/70">{t('gitCredentials.field.privateKeyHint')}</p>
+            {kind === 'token' ? (
+              <Input
+                id="add-cred-key"
+                type="password"
+                value={privateKey}
+                onChange={(e) => setPrivateKey(e.target.value)}
+                placeholder="cnb_xxx / ghp_xxx"
+                disabled={createMutation.isPending}
+                className="font-mono text-xs"
+              />
+            ) : (
+              <Textarea
+                id="add-cred-key"
+                value={privateKey}
+                onChange={(e) => setPrivateKey(e.target.value)}
+                placeholder="-----BEGIN OPENSSH PRIVATE KEY-----&#10;..."
+                rows={8}
+                disabled={createMutation.isPending}
+                className="font-mono text-xs"
+              />
+            )}
+            <p className="text-xs text-muted-foreground/70">
+              {kind === 'token'
+                ? t('gitCredentials.field.secretHint')
+                : t('gitCredentials.field.privateKeyHint')}
+            </p>
           </div>
         </div>
 
