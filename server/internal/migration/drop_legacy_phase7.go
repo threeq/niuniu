@@ -276,18 +276,29 @@ func migrateDropLegacyPhase7Postgres(ctx context.Context, db *store.DB, raw *sql
 		}
 	}
 
-	// Step 3: Drop FK columns (PG supports DROP COLUMN IF EXISTS).
-	pgColDrops := []string{
-		`ALTER TABLE harness_runs DROP COLUMN IF EXISTS harness_id`,
-		`ALTER TABLE harness_runs DROP COLUMN IF EXISTS current_phase_id`,
-		`ALTER TABLE harness_runs DROP COLUMN IF EXISTS current_phase_name`,
-		`ALTER TABLE blackboard_entries DROP COLUMN IF EXISTS phase_id`,
-		`ALTER TABLE workspaces DROP COLUMN IF EXISTS team_id`,
-		`ALTER TABLE workspaces DROP COLUMN IF EXISTS harness_id`,
+	// Step 3: Drop FK columns (PG supports DROP COLUMN IF EXISTS, but that
+	// guard does NOT cover a missing TABLE: on a fresh-install database the
+	// legacy tables were never created, and the bare ALTER fails with 42P01,
+	// crashing first boot (main.go exits on any migration error). Guard each
+	// statement on table existence, mirroring Steps 1-2.
+	pgColDrops := []struct{ table, stmt string }{
+		{"harness_runs", `ALTER TABLE harness_runs DROP COLUMN IF EXISTS harness_id`},
+		{"harness_runs", `ALTER TABLE harness_runs DROP COLUMN IF EXISTS current_phase_id`},
+		{"harness_runs", `ALTER TABLE harness_runs DROP COLUMN IF EXISTS current_phase_name`},
+		{"blackboard_entries", `ALTER TABLE blackboard_entries DROP COLUMN IF EXISTS phase_id`},
+		{"workspaces", `ALTER TABLE workspaces DROP COLUMN IF EXISTS team_id`},
+		{"workspaces", `ALTER TABLE workspaces DROP COLUMN IF EXISTS harness_id`},
 	}
-	for _, stmt := range pgColDrops {
-		if _, err := raw.ExecContext(ctx, stmt); err != nil {
-			return fmt.Errorf("pg drop column (%s): %w", stmt[:40], err)
+	for _, d := range pgColDrops {
+		exists, err := tableExistsP7(raw, d.table)
+		if err != nil {
+			return fmt.Errorf("check %s existence (pg): %w", d.table, err)
+		}
+		if !exists {
+			continue
+		}
+		if _, err := raw.ExecContext(ctx, d.stmt); err != nil {
+			return fmt.Errorf("pg drop column (%s): %w", d.stmt[:40], err)
 		}
 	}
 
