@@ -1395,11 +1395,14 @@ func New(cfg *config.Config, db *sql.DB, frontendFS fs.FS) *Server {
 	s.extSourceSvc = service.NewExternalSourceService(s.queries, db, s.extCredSvc, intgRegistry, authz)
 	s.extSourceHandler = api.NewExternalSourceHandler(s.extSourceSvc, authz)
 
-	// Per-user git remote SSH credentials (v5 Phase 2 sub-phase A).
-	// Spec: docs/superpowers/specs/2026-05-19-per-user-git-identity-design.md
-	// Storage + management only here; PTY GIT_SSH_COMMAND materialization
-	// (sub-phase B) lands in a follow-up.
+	// Per-user git remote credentials (v5 Phase 2): SSH keys materialize for
+	// PTY GIT_SSH_COMMAND injection; token kind authenticates server-side
+	// clones. Consumed by AgentManager (PTY spawn) and RepositoryService
+	// (staging clone) — wired here so both see the same store.
 	s.gitRemoteCredSvc = service.NewGitRemoteCredentialService(db, keyring)
+	s.gitRemoteCredSvc.SetMaterializeDir(filepath.Join(s.cfg.DataDir, "git-ssh"))
+	s.agentMgr.SetGitRemoteCredentialService(s.gitRemoteCredSvc)
+	s.repositorySvc.SetGitRemoteCredentialService(s.gitRemoteCredSvc)
 	s.gitRemoteCredHandler = api.NewGitRemoteCredentialHandler(s.gitRemoteCredSvc)
 
 	// External API proxy — generic, schema-driven replacement for all

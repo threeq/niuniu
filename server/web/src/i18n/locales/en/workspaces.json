@@ -914,6 +914,9 @@
     "empty": "No pinned messages yet. Hover a message and click the pin icon to bookmark it.",
     "noPreview": "(no preview)",
     "locate": "Jump to message",
+    "copy": "Copy message content",
+    "copyDone": "Message content copied",
+    "copyFailed": "Failed to copy",
     "unpin": "Unpin",
     "unpinFailed": "Failed to unpin",
     "notLoaded": "This message isn't loaded yet — scroll up to load older messages."
