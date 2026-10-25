@@ -1233,6 +1233,7 @@ CREATE TABLE IF NOT EXISTS git_remote_credentials (
     user_id      BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     host         TEXT NOT NULL,
     username     TEXT NOT NULL DEFAULT 'git',
+    kind         TEXT NOT NULL DEFAULT 'ssh',
     encrypted    TEXT NOT NULL,
     public_key   TEXT NOT NULL,
     fingerprint  TEXT NOT NULL,

@@ -25,6 +25,7 @@ type gitRemoteCredentialDTO struct {
 	ID          int64   `json:"id"`
 	Host        string  `json:"host"`
 	Username    string  `json:"username"`
+	Kind        string  `json:"kind"`
 	PublicKey   string  `json:"public_key"`
 	Fingerprint string  `json:"fingerprint"`
 	LastUsedAt  *string `json:"last_used_at,omitempty"`
@@ -37,6 +38,7 @@ func dtoOf(c service.GitRemoteCredential) gitRemoteCredentialDTO {
 		ID:          c.ID,
 		Host:        c.Host,
 		Username:    c.Username,
+		Kind:        c.Kind,
 		PublicKey:   c.PublicKey,
 		Fingerprint: c.Fingerprint,
 		CreatedAt:   c.CreatedAt.UTC().Format("2006-01-02T15:04:05Z"),
@@ -73,11 +75,12 @@ func (h *GitRemoteCredentialHandler) List(c *gin.Context) {
 type gitRemoteCredentialCreateRequest struct {
 	Host       string `json:"host" binding:"required"`
 	Username   string `json:"username"`
+	Kind       string `json:"kind"`
 	PrivateKey string `json:"private_key" binding:"required"`
 }
 
-// Create accepts a private key, derives + stores. Maps service errors
-// to stable HTTP error codes.
+// Create accepts an SSH private key or a token secret, encrypts + stores.
+// Maps service errors to stable HTTP error codes.
 func (h *GitRemoteCredentialHandler) Create(c *gin.Context) {
 	uid, ok := callerID(c)
 	if !ok {
@@ -97,6 +100,7 @@ func (h *GitRemoteCredentialHandler) Create(c *gin.Context) {
 		UserID:     uid,
 		Host:       req.Host,
 		Username:   req.Username,
+		Kind:       req.Kind,
 		PrivateKey: req.PrivateKey,
 	})
 	if err != nil {
@@ -115,6 +119,11 @@ func (h *GitRemoteCredentialHandler) Create(c *gin.Context) {
 			c.JSON(http.StatusBadRequest, gin.H{
 				"error": gin.H{"code": "ERR_INVALID_HOST",
 					"message": "host must be a single token without whitespace or shell metacharacters"},
+			})
+		case errors.Is(err, service.ErrInvalidCredentialKind):
+			c.JSON(http.StatusBadRequest, gin.H{
+				"error": gin.H{"code": "ERR_INVALID_KIND",
+					"message": "kind must be 'ssh' or 'token'"},
 			})
 		case errors.Is(err, service.ErrHostConflict):
 			c.JSON(http.StatusConflict, gin.H{

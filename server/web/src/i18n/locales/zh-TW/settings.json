@@ -421,15 +421,15 @@
     "perRepoNote": "想為某個倉庫單獨配置作者名/郵箱？請開啟該倉庫的「設定」tab 設定倉庫級別的覆蓋（例如：公司倉庫用工作郵箱，其它用個人郵箱）。"
   },
   "gitCredentials": {
-    "title": "Git 遠端憑證（SSH）",
-    "description": "為每個倉庫 host 上傳 SSH 私鑰；Claude 在 workspace 裡 push / pull / clone 時會自動使用對應 host 的 key 完成鑑權。私鑰在資料庫中以 AES-GCM 加密儲存，僅在 PTY 啟動時臨時物化到 per-PTY 目錄。",
-    "hostHint": "每個 host 一把金鑰。支援萬用字元（如 \"*\"）作為 catch-all 配置。",
+    "title": "Git 遠端憑證",
+    "description": "為每個倉庫 host 配置 SSH 私鑰或存取權杖：新增倉庫克隆、以及在 workspace 裡 push / pull 時自動使用對應 host 的憑證完成鑑權。金鑰在資料庫中以 AES-GCM 加密儲存。",
+    "hostHint": "每個 host 一把憑證。支援萬用字元（如 \"*\"）作為 catch-all 配置。",
     "add": "新增憑證",
-    "addTitle": "新增 SSH 憑證",
-    "addDescription": "貼上 OpenSSH 格式的未加密私鑰。niuniu 會自動推算並儲存對應的公鑰 + 指紋供你後續核對。",
+    "addTitle": "新增 Git 遠端憑證",
+    "addDescription": "SSH 私鑰用於 git@ 位址；存取權杖用於 https:// 位址（新增倉庫克隆與 workspace 內推拉都會自動使用）。",
     "loadFailed": "無法載入憑證。",
     "loading": "載入中…",
-    "empty": "暫無 SSH 憑證。",
+    "empty": "暫無 Git 遠端憑證。",
     "saved": "已儲存。",
     "save": "儲存",
     "saving": "儲存中…",
@@ -439,26 +439,34 @@
     "createFailed": "新增失敗：{{detail}}",
     "deleted": "已刪除。",
     "deleteFailed": "刪除失敗：{{detail}}",
-    "deleteTitle": "刪除 SSH 憑證",
-    "deleteConfirm": "確認要刪除 {{host}} 的 SSH 金鑰？在你重新新增之前，使用該 host 的 workspace 將無法完成 {{host}} 的鑑權。",
+    "deleteTitle": "刪除 Git 遠端憑證",
+    "deleteConfirm": "確認要刪除 {{host}} 的憑證？在你重新新增之前，使用該 host 的 workspace 將無法完成 {{host}} 的鑑權。",
     "deleteAria": "刪除 {{host}} 的憑證",
+    "kind": {
+      "ssh": "SSH 私鑰",
+      "token": "存取權杖"
+    },
     "col": {
       "host": "Host",
       "username": "使用者",
+      "kind": "類型",
       "fingerprint": "指紋"
     },
     "field": {
       "host": "Host",
-      "hostHint": "例如 github.com、gitlab.com、gitea.example.com",
+      "hostHint": "例如 github.com、cnb.cool、gitea.example.com（不帶 https:// 前綴；帶協定的會自動歸一化）",
       "username": "使用者名稱",
-      "usernameHint": "幾乎都是 \"git\"；只有自建 SSH 服務用了不同登入名時才需要改。",
+      "usernameHint": "SSH 憑證幾乎都是 \"git\"；HTTPS 權杖按平台填寫（如 cnb.cool 填 cnb）。",
       "privateKey": "私鑰（PEM）",
-      "privateKeyHint": "貼上未加密的私鑰。帶密碼的私鑰不支援——請先在本地解密。"
+      "privateKeyHint": "貼上未加密的私鑰。帶密碼的私鑰不支援——請先在本地解密。",
+      "secret": "存取權杖",
+      "secretHint": "平台的存取權杖（access token）。僅用於 https:// 位址的克隆與推拉鑑權，不會寫入遠端 URL 持久化。"
     },
-    "securityNote": "私鑰在資料庫中使用 AES-GCM + integration master secret 加密；永遠不會返回給前端、不會寫入 .git/config，只在 session 啟動時物化到 /tmp/<per-PTY-dir>/id_<host>（0600 許可權，PTY 退出時清理）。",
+    "securityNote": "憑證在資料庫中使用 AES-GCM + integration master secret 加密；永遠不會返回給前端。SSH 私鑰在 session 啟動時物化到資料目錄（0600，僅目錄屬主可讀）；權杖只在克隆/推拉時臨時注入，不寫入 .git/config。",
     "errInvalidPrivateKey": "貼上的內容無法識別為有效的 SSH 私鑰。",
     "errPassphraseRequired": "不支援帶密碼的私鑰。請先在本地解密。",
     "errInvalidHost": "Host 必須是一個不含空格 / shell 元字元的單一 token。",
+    "errInvalidKind": "憑證類型無效。",
     "errHostConflict": "你已經為這個 host 配置了憑證。請先刪除已有的再新增新的。"
   },
   "security": {

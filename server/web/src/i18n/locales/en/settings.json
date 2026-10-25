@@ -421,15 +421,15 @@
     "perRepoNote": "Different identity for a specific repository? Open that repository's Settings tab to set a per-repo override (e.g. Alice's company email for the company repo, personal email elsewhere)."
   },
   "gitCredentials": {
-    "title": "Git Remote Credentials (SSH)",
-    "description": "Upload per-host SSH private keys so Claude (and you) can push / pull / clone in workspaces. Treat as the OS keychain equivalent — keys are AES-GCM encrypted at rest, only materialized into a per-PTY temp dir when a session needs them.",
-    "hostHint": "One key per host. Wildcards (e.g. \"*\") are allowed for catch-all configurations.",
+    "title": "Git Remote Credentials",
+    "description": "Configure an SSH private key or an access token per repository host: new-repository clones and in-workspace push / pull authenticate with the matching host's credential automatically. Secrets are AES-GCM encrypted at rest.",
+    "hostHint": "One credential per host. Wildcards (e.g. \"*\") are allowed for catch-all configurations.",
     "add": "Add credential",
-    "addTitle": "Add SSH credential",
-    "addDescription": "Paste an unencrypted OpenSSH private key. niuniu derives and stores the matching public key + fingerprint so you can verify it later.",
+    "addTitle": "Add Git remote credential",
+    "addDescription": "SSH private keys authenticate git@ remotes; access tokens authenticate https:// remotes (used by new-repository clones and in-workspace push / pull).",
     "loadFailed": "Could not load credentials.",
     "loading": "Loading...",
-    "empty": "No SSH credentials yet.",
+    "empty": "No Git remote credentials yet.",
     "saved": "Saved.",
     "save": "Save",
     "saving": "Saving...",
@@ -439,26 +439,34 @@
     "createFailed": "Could not add credential: {{detail}}",
     "deleted": "Credential deleted.",
     "deleteFailed": "Could not delete credential: {{detail}}",
-    "deleteTitle": "Delete SSH credential",
-    "deleteConfirm": "Delete the SSH key for {{host}}? Workspaces using it will fail to authenticate against {{host}} until you add a new key.",
+    "deleteTitle": "Delete Git remote credential",
+    "deleteConfirm": "Delete the credential for {{host}}? Workspaces using it will fail to authenticate against {{host}} until you add a new one.",
     "deleteAria": "Delete credential for {{host}}",
+    "kind": {
+      "ssh": "SSH private key",
+      "token": "Access token"
+    },
     "col": {
       "host": "Host",
       "username": "User",
+      "kind": "Kind",
       "fingerprint": "Fingerprint"
     },
     "field": {
       "host": "Host",
-      "hostHint": "e.g. github.com, gitlab.com, gitea.example.com",
+      "hostHint": "e.g. github.com, cnb.cool, gitea.example.com (no https:// prefix — scheme prefixes are normalized automatically)",
       "username": "Username",
-      "usernameHint": "Almost always \"git\" — only change for self-hosted setups that use a different SSH login.",
+      "usernameHint": "SSH credentials almost always use \"git\"; for HTTPS tokens use the platform's login (e.g. cnb for cnb.cool).",
       "privateKey": "Private key (PEM)",
-      "privateKeyHint": "Paste the unencrypted private key. Passphrase-protected keys are not supported; decrypt locally first."
+      "privateKeyHint": "Paste the unencrypted private key. Passphrase-protected keys are not supported; decrypt locally first.",
+      "secret": "Access token",
+      "secretHint": "The platform's access token. Used only to authenticate https:// clones and push / pull — never persisted into a remote URL."
     },
-    "securityNote": "Private keys are AES-GCM encrypted at rest with the integration master secret. They are never returned to clients, never written to .git/config, and only materialized to /tmp/<per-PTY-dir>/id_<host> at session start (0600 perms, removed on PTY exit).",
+    "securityNote": "Credentials are AES-GCM encrypted at rest with the integration master secret and never returned to clients. SSH keys are materialized into the data directory at session start (0600, owner-only); tokens are injected transiently at clone / push time and never written into .git/config.",
     "errInvalidPrivateKey": "The pasted key could not be parsed as an SSH private key.",
     "errPassphraseRequired": "Passphrase-protected keys are not supported. Decrypt the key locally first.",
     "errInvalidHost": "Host must be a single token without whitespace or shell metacharacters.",
+    "errInvalidKind": "Invalid credential kind.",
     "errHostConflict": "You already have a credential for this host. Delete the existing one first."
   },
   "security": {
