@@ -27,6 +27,11 @@ type ParsedEvent struct {
 
 	ToolResults []ToolResultBlock
 
+	// Images carries agent-produced images (codex imagegen / image-view
+	// items). The session layer materializes them into workspace files and
+	// surfaces them as assistant messages with image attachments.
+	Images []ImageBlock
+
 	StreamEventType string
 	BlockIndex      int
 	BlockType       string
@@ -87,6 +92,16 @@ type ToolResultBlock struct {
 	ToolUseId string
 	Content   string
 	IsError   bool
+}
+
+// ImageBlock is one agent-produced image. Exactly one of Data (raw base64,
+// no data: prefix) or Path (an existing file path inside the workspace) is
+// set; Caption is free text (codex's revised_prompt) shown alongside.
+type ImageBlock struct {
+	Data     string
+	MimeType string
+	Path     string
+	Caption  string
 }
 
 // --- Claude stream-json internal types (moved from agentproxy/parser.go) ---

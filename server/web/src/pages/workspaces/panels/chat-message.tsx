@@ -453,6 +453,16 @@ export function ChatMessage({ event, cliType, showAgentLabel, toolResults, works
               {formatTime(event.createdAt) && <span className="text-muted-foreground">{formatTime(event.createdAt)}</span>}
             </div>
           )}
+          {/* Agent-produced images (codex imagegen) arrive as attachments on
+              the assistant message; AttachmentPreview renders inline previews
+              with the lightbox. */}
+          {event.attachments && event.attachments.length > 0 && (
+            <div className="flex flex-wrap gap-2 mb-2">
+              {event.attachments.map((a) => (
+                <AttachmentPreview key={a.path} attachment={a} workspaceId={workspaceId} />
+              ))}
+            </div>
+          )}
           <AssistantContent
             content={event.content}
             workspaceId={workspaceId}

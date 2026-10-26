@@ -328,10 +328,12 @@ func isTerminalCodexNotification(method string) bool {
 }
 
 // codexMaxLineBytes caps one stdout JSONL line. codex embeds whole tool
-// outputs in single notifications (base64 images from imagegen easily reach
-// multiple MB); lines over the cap are DROPPED with a warning, never fatal —
-// losing one oversized item beats killing the stream.
-const codexMaxLineBytes = 8 << 20
+// outputs in single notifications — an imagegen result alone is the full
+// base64 image (~4/3 of the binary size), and prompts/screenshots ride in
+// the same lines. 32MB keeps every legitimate image tool output parseable;
+// lines over the cap are DROPPED with a warning, never fatal — losing one
+// oversized item beats killing the stream.
+const codexMaxLineBytes = 32 << 20
 
 // errCodexLineOversize reports a line dropped for exceeding codexMaxLineBytes.
 // The stream stays usable: the reader has already drained through the newline.
