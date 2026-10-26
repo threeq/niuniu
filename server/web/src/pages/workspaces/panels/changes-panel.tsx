@@ -521,8 +521,8 @@ function LocalToolbar({
             className={cn(
               'flex cursor-pointer items-center gap-1 rounded-full px-1.5 py-px text-[11px] font-medium transition-opacity hover:opacity-80',
               unresolvedCount > 0
-                ? 'bg-warning/15 text-warning-foreground'
-                : 'bg-success/15 text-success-foreground',
+                ? 'bg-warning/15 text-warning'
+                : 'bg-success/15 text-success',
               hideResolved && 'opacity-50',
             )}
           >
@@ -540,14 +540,15 @@ function LocalToolbar({
         {pendingCount > 0 && (
           <Button
             type="button"
+            variant="outline"
             size="sm"
-            className="h-7 gap-1 px-2.5"
+            className="h-6 gap-1 rounded-full px-2 text-[11px] font-medium text-muted-foreground hover:text-foreground"
             onClick={onSendAll}
             disabled={sendingAll}
             title={t('panels.changes.comments.sendQueue', { count: pendingCount })}
             aria-label={t('panels.changes.comments.sendQueue', { count: pendingCount })}
           >
-            <Send className="h-3.5 w-3.5" />
+            <Send className="h-3 w-3" />
             <span className="tabular-nums">{pendingCount}</span>
           </Button>
         )}
@@ -666,7 +667,7 @@ export function ChangesPanel({ workspaceId }: ChangesPanelProps) {
     <div className="flex items-center justify-center py-8 text-xs text-muted-foreground">
       {t(
         hideResolved
-          ? 'panels.changes.commentsOnlyEmpty'
+          ? 'panels.changes.comments.commentsOnlyEmpty'
           : 'panels.changes.searchNoMatch',
       )}
     </div>
