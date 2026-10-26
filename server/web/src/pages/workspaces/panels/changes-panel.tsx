@@ -252,6 +252,7 @@ function RepoSection({
   selectedFile,
   onSelectFile,
   search = '',
+  commentOnly = false,
 }: {
   workspaceId: string;
   repo: RepoDiffGroup;
@@ -259,6 +260,8 @@ function RepoSection({
   onSelectFile: (key: string) => void;
   /** Case-insensitive path filter (from the file-list search box). */
   search?: string;
+  /** Review-focus mode: keep only files carrying review comments. */
+  commentOnly?: boolean;
 }) {
   const { t } = useTranslation('workspaces');
   const fileCount = repo.files.length;
@@ -268,13 +271,19 @@ function RepoSection({
 
   const q = search.trim().toLowerCase();
   const visibleFiles = useMemo(
-    () => (q ? repo.files.filter((f) => f.path.toLowerCase().includes(q)) : repo.files),
-    [repo.files, q],
+    () =>
+      repo.files.filter(
+        (f) =>
+          (!commentOnly || f.totalCommentCount > 0) &&
+          (!q || f.path.toLowerCase().includes(q)),
+      ),
+    [repo.files, q, commentOnly],
   );
   const tree = useMemo(() => buildFileTree(visibleFiles), [visibleFiles]);
 
-  // While searching, hide repos with no matching files and force-expand the rest.
-  if (q && visibleFiles.length === 0) return null;
+  // While searching or review-focusing, hide repos with no matching files and
+  // force-expand the rest.
+  if ((q || commentOnly) && visibleFiles.length === 0) return null;
   const expanded = q ? true : !collapsed;
 
   return (
@@ -604,8 +613,17 @@ export function ChangesPanel({ workspaceId }: ChangesPanelProps) {
   const showSearch = totalFiles > 0;
   const activeSearch = showSearch ? fileSearch : '';
   const fileQuery = activeSearch.trim().toLowerCase();
+  // Review focus (the "resolved N/M" chip): filter the tree to files carrying
+  // review comments AND hide resolved threads in the viewer.
   const hasMatches =
-    !fileQuery || repos.some((r) => r.files.some((f) => f.path.toLowerCase().includes(fileQuery)));
+    (!fileQuery && !hideResolved) ||
+    repos.some((r) =>
+      r.files.some(
+        (f) =>
+          (!hideResolved || f.totalCommentCount > 0) &&
+          (!fileQuery || f.path.toLowerCase().includes(fileQuery)),
+      ),
+    );
 
   const searchBox = (
     <div className="shrink-0 border-b border-border p-2">
@@ -644,7 +662,11 @@ export function ChangesPanel({ workspaceId }: ChangesPanelProps) {
     </div>
   ) : !hasMatches ? (
     <div className="flex items-center justify-center py-8 text-xs text-muted-foreground">
-      {t('panels.changes.searchNoMatch')}
+      {t(
+        hideResolved
+          ? 'panels.changes.commentsOnlyEmpty'
+          : 'panels.changes.searchNoMatch',
+      )}
     </div>
   ) : (
     repos.map((repo) => (
@@ -655,6 +677,7 @@ export function ChangesPanel({ workspaceId }: ChangesPanelProps) {
         selectedFile={selectedFile}
         onSelectFile={handleSelectFile}
         search={activeSearch}
+        commentOnly={hideResolved}
       />
     ))
   );
