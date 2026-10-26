@@ -541,12 +541,14 @@ function LocalToolbar({
           <Button
             type="button"
             size="sm"
-            className="h-7 gap-1.5"
+            className="h-7 gap-1 px-2.5"
             onClick={onSendAll}
             disabled={sendingAll}
+            title={t('panels.changes.comments.sendQueue', { count: pendingCount })}
+            aria-label={t('panels.changes.comments.sendQueue', { count: pendingCount })}
           >
             <Send className="h-3.5 w-3.5" />
-            {t('panels.changes.comments.sendQueue', { count: pendingCount })}
+            <span className="tabular-nums">{pendingCount}</span>
           </Button>
         )}
       </span>
