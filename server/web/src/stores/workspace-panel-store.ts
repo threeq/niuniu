@@ -63,6 +63,13 @@ interface WorkspacePanelState {
   changesFileSearch: Record<string, string>;
   setChangesFileSearch: (workspaceId: string, query: string) => void;
 
+  // Review-comments display filter per workspace: when true, resolved comments
+  // are hidden in the content viewer so only open review items remain visible.
+  // Toggled by the "resolved N/M" chip on the Changes panel toolbar; stored here
+  // so the toolbar and the viewer stay in sync across remounts.
+  hideResolvedComments: Record<string, boolean>;
+  setHideResolvedComments: (workspaceId: string, hidden: boolean) => void;
+
   sidebarWidth: number;
   setSidebarWidth: (width: number) => void;
 
@@ -156,6 +163,12 @@ export const useWorkspacePanelStore = create<WorkspacePanelState>()(
       setChangesFileSearch: (workspaceId, query) =>
         set((state) => ({
           changesFileSearch: { ...state.changesFileSearch, [workspaceId]: query },
+        })),
+
+      hideResolvedComments: {},
+      setHideResolvedComments: (workspaceId, hidden) =>
+        set((state) => ({
+          hideResolvedComments: { ...state.hideResolvedComments, [workspaceId]: hidden },
         })),
 
       sidebarWidth: 300,
