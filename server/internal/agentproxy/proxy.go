@@ -351,6 +351,13 @@ type WorkspaceSession struct {
 	// JSON-RPC.
 	codexApp      *codexAppServerClient
 	codexThreadID string
+	// codexSpawnMu serializes ensureCodexAppServer's spawn. The alive check and
+	// the store of the new client are far apart (spawn does JSON-RPC initialize
+	// + thread resume, none of it under procMu), so two concurrent entries can
+	// both pass the check and start TWO app-servers — the second's thread
+	// resume then collides with the first's writer lock. Held across the whole
+	// check→spawn→store span.
+	codexSpawnMu sync.Mutex
 
 	// ompBackend is the reusable agentbackend.Backend driving omp workspaces
 	// (RPC over `omp --mode rpc`). Lazily created on the first omp turn; owned
@@ -3873,6 +3880,10 @@ func (s *WorkspaceSession) killProcess() {
 	}
 	s.procMu.Unlock()
 	if codexApp != nil {
+		// Flag the death as deliberate BEFORE closing: the app-server's event
+		// loop reads this on process exit to keep an intentional kill from
+		// surfacing as "exited unexpectedly" in the chat.
+		codexApp.killRequested.Store(true)
 		_ = codexApp.Close()
 		slog.Info("agent: codex app-server killed", "workspaceID", s.workspaceID)
 	}

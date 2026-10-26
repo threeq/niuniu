@@ -8,8 +8,11 @@ import (
 	"io"
 	"log/slog"
 	"os/exec"
+	"runtime"
 	"sync"
 	"sync/atomic"
+	"syscall"
+	"time"
 )
 
 // codexAppServerClient is a small JSONL client for
@@ -35,6 +38,14 @@ type codexAppServerClient struct {
 	pending   map[int64]chan codexAppServerResponse
 	events    chan codexAppServerNotification
 	done      chan struct{}
+
+	// killRequested marks a death niuniu itself decided on (killProcess — user
+	// Stop, idle reaper, turn watchdog, session removal) as opposed to a real
+	// crash. The session's event loop checks it on process exit: a deliberate
+	// kill must not surface "exited unexpectedly" to the chat nor log an ERROR
+	// — that mislabeled every idle reaping as a system failure. Set before
+	// Close(); read by the event loop goroutine.
+	killRequested atomic.Bool
 }
 
 // codexEventsBuffer is the notification buffer between the app-server reader
@@ -209,16 +220,41 @@ func (c *codexAppServerClient) StderrTail(n int) string {
 	return c.stderrBuf.String()
 }
 
+// codexAppServerGracePeriod bounds how long Close() waits after SIGTERM before
+// escalating to the context kill. Var so tests can shrink it.
+var codexAppServerGracePeriod = 3 * time.Second
+
+// Close tears the app-server down. Escalation order matters: codex removes its
+// <CODEX_HOME>/thread-writer-locks/<thread-id>.lock ONLY on a clean exit — a
+// hard SIGKILL leaks the lock and wedges every later thread/resume of that
+// session ("thread already has an active writer"). So: stdin EOF (peer hung
+// up) + SIGTERM first, and only if the process is still alive after the grace
+// period, the context kill (SIGKILL). Windows has no signals to speak of —
+// straight to the context kill there.
 func (c *codexAppServerClient) Close() error {
 	c.closeOnce.Do(func() {
-		c.cancel()
 		_ = c.stdin.Close()
+		c.gracefulStop()
 	})
 	<-c.done
 	c.waitOnce.Do(func() {
 		c.waitErr = c.cmd.Wait()
 	})
 	return c.waitErr
+}
+
+func (c *codexAppServerClient) gracefulStop() {
+	if runtime.GOOS == "windows" || c.cmd.Process == nil {
+		c.cancel()
+		return
+	}
+	_ = c.cmd.Process.Signal(syscall.SIGTERM)
+	select {
+	case <-c.done:
+		// Exited within the grace window — the clean path.
+	case <-time.After(codexAppServerGracePeriod):
+		c.cancel()
+	}
 }
 
 func (c *codexAppServerClient) call(ctx context.Context, method string, params any, out any) error {

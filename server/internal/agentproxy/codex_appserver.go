@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -78,6 +79,14 @@ func (s *WorkspaceSession) runCodexAppServerTurn(ctx context.Context, workDir, c
 }
 
 func (s *WorkspaceSession) ensureCodexAppServer(ctx context.Context, workDir string, runtime codexAppServerRuntime) error {
+	// Serialize the whole check→spawn→store span. The alive check and the store
+	// of the new client are far apart (spawn does JSON-RPC initialize + thread
+	// resume, none of it under procMu), so two concurrent entries could both
+	// pass the check and start TWO app-servers — the second's thread resume
+	// then collides with the first process's writer lock.
+	s.codexSpawnMu.Lock()
+	defer s.codexSpawnMu.Unlock()
+
 	s.procMu.Lock()
 	if s.alive && s.codexApp != nil && s.codexThreadID != "" {
 		s.procMu.Unlock()
@@ -102,7 +111,7 @@ func (s *WorkspaceSession) ensureCodexAppServer(ctx context.Context, workDir str
 
 	var started codexAppServerThreadStartResponse
 	if sessionID != "" {
-		started, err = app.ResumeThread(ctx, codexAppServerThreadResumeParams{
+		resumeParams := codexAppServerThreadResumeParams{
 			ThreadID:       sessionID,
 			Cwd:            workDir,
 			Model:          runtime.model,
@@ -110,7 +119,19 @@ func (s *WorkspaceSession) ensureCodexAppServer(ctx context.Context, workDir str
 			ApprovalPolicy: runtime.approvalPolicy,
 			RuntimeRoots:   runtime.runtimeRoots,
 			ExcludeTurns:   true,
-		})
+		}
+		started, err = app.ResumeThread(ctx, resumeParams)
+		if err != nil && isCodexThreadLockConflict(err) {
+			// A SIGKILLed app-server (idle reaper / watchdog / server restart)
+			// leaks <CODEX_HOME>/thread-writer-locks/<thread-id>.lock and codex
+			// has no lock takeover, so every later resume of that thread fails
+			// forever. This spawn's predecessor is already dead (killProcess
+			// waits out Close, crashes were observed by the event loop), so the
+			// lock is stale — remove it and retry once before giving up the
+			// thread's history and starting fresh.
+			removeStaleCodexThreadLock(runtime.env, sessionID)
+			started, err = app.ResumeThread(ctx, resumeParams)
+		}
 		if err != nil {
 			slog.Warn("codex app-server: resume failed; starting fresh thread",
 				"workspaceID", s.workspaceID, "threadID", sessionID, "err", err)
@@ -232,6 +253,17 @@ func (s *WorkspaceSession) codexAppServerEventLoop(ctx context.Context, app *cod
 		AgentStatus: sql.NullString{String: "idle", Valid: true},
 		ID:          s.workspaceID,
 	})
+
+	// Deliberate kills (user Stop / idle reaper / turn watchdog, all funneling
+	// through killProcess) are not failures: the stderr remnants are shutdown
+	// diagnostics, and treating them as errors made every idle reaping log an
+	// ERROR and flash "exited unexpectedly" in the chat right after a routine
+	// reap. Keep the plumbing cleanup above; skip the failure surface below.
+	if app.killRequested.Load() {
+		slog.Info("codex app-server stopped intentionally", "workspace_id", s.workspaceID)
+		s.emitBgTaskNotify()
+		return
+	}
 
 	// The REAL reason lives on stderr (bad flag / broken config / auth error
 	// all print there — stdout carries only the JSON protocol). Log it and
@@ -503,6 +535,57 @@ func (s *WorkspaceSession) buildCodexAppServerRuntime(ctx context.Context, workD
 		}
 	}
 	return out, nil
+}
+
+// isCodexThreadLockConflict reports whether err is codex refusing to open a
+// thread because its persistence writer lock is taken: "thread-store conflict:
+// thread already has an active writer", or the EEXIST variant "failed to
+// create thread writer lock directory ... (os error 17)". The lock is
+// existence-based and OUTLIVES its holder — a SIGKILLed app-server leaves it
+// on disk and codex has no takeover, so on this server the lock is almost
+// always stale.
+func isCodexThreadLockConflict(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := err.Error()
+	return strings.Contains(msg, "active writer") ||
+		strings.Contains(msg, "thread writer lock") ||
+		strings.Contains(msg, "thread-store conflict")
+}
+
+// codexHomeFromEnv extracts CODEX_HOME from the child env slice, falling back
+// to the default ~/.codex codex uses when the var is unset.
+func codexHomeFromEnv(env []string) string {
+	for _, kv := range env {
+		if v, ok := strings.CutPrefix(kv, "CODEX_HOME="); ok && v != "" {
+			return v
+		}
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return ""
+	}
+	return filepath.Join(home, ".codex")
+}
+
+// removeStaleCodexThreadLock deletes the writer lock codex leaves behind when
+// an app-server dies without cleaning up. Removing a LIVE writer's lock would
+// invite a second writer onto the same thread, so this is only called right
+// after the lock blocked a fresh spawn whose predecessor is known dead.
+func removeStaleCodexThreadLock(env []string, threadID string) {
+	if threadID == "" {
+		return
+	}
+	home := codexHomeFromEnv(env)
+	if home == "" {
+		return
+	}
+	lockPath := filepath.Join(home, "thread-writer-locks", threadID+".lock")
+	if err := os.Remove(lockPath); err == nil {
+		slog.Warn("codex app-server: removed stale thread-writer lock",
+			"path", lockPath, "threadID", threadID)
+	}
 }
 
 func codexAppendRuntimeRoot(roots []string, path string) []string {
