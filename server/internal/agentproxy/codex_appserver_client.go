@@ -131,6 +131,7 @@ func startCodexAppServerClient(ctx context.Context, command string, configArgs, 
 	argv := append(append([]string{}, configArgs...), "app-server", "--listen", "stdio://")
 	cmdCtx, cancel := context.WithCancel(ctx)
 	cmd := exec.CommandContext(cmdCtx, command, argv...)
+	cmd.SysProcAttr = codexAppServerSysProcAttr()
 	if len(env) > 0 {
 		cmd.Env = env
 	}
