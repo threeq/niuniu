@@ -435,7 +435,8 @@ function useFileCommentActions(workspaceId: string, repo: string, relPath: strin
   };
 }
 
-/** The "send N queued comments to agent" button; renders nothing when empty. */
+/** The "send N queued comments to agent" button; renders nothing when empty.
+ *  Compact: icon + count, full label in the tooltip/aria-label. */
 function SendQueueButton({
   pendingCount,
   sending,
@@ -447,10 +448,19 @@ function SendQueueButton({
 }) {
   const { t } = useTranslation('workspaces');
   if (pendingCount === 0) return null;
+  const label = t('panels.changes.comments.sendQueue', { count: pendingCount });
   return (
-    <Button type="button" size="sm" className="h-7 gap-1.5" onClick={onClick} disabled={sending}>
+    <Button
+      type="button"
+      size="sm"
+      className="h-7 gap-1 px-2.5"
+      onClick={onClick}
+      disabled={sending}
+      title={label}
+      aria-label={label}
+    >
       <Send className="h-3.5 w-3.5" />
-      {t('panels.changes.comments.sendQueue', { count: pendingCount })}
+      <span className="tabular-nums">{pendingCount}</span>
     </Button>
   );
 }
