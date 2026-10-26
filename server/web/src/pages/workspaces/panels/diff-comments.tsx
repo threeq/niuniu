@@ -62,9 +62,9 @@ function Badge({
   title?: string;
 }) {
   const tones = {
-    warning: 'bg-warning/15 text-warning-foreground',
-    success: 'bg-success/15 text-success-foreground',
-    info: 'bg-info/15 text-info-foreground',
+    warning: 'bg-warning/15 text-warning',
+    success: 'bg-success/15 text-success',
+    info: 'bg-info/15 text-info',
     muted: 'bg-muted text-muted-foreground',
     destructive: 'bg-destructive/15 text-destructive',
   } as const;

@@ -521,8 +521,8 @@ function LocalToolbar({
             className={cn(
               'flex cursor-pointer items-center gap-1 rounded-full px-1.5 py-px text-[11px] font-medium transition-opacity hover:opacity-80',
               unresolvedCount > 0
-                ? 'bg-warning/15 text-warning-foreground'
-                : 'bg-success/15 text-success-foreground',
+                ? 'bg-warning/15 text-warning'
+                : 'bg-success/15 text-success',
               hideResolved && 'opacity-50',
             )}
           >
@@ -667,7 +667,7 @@ export function ChangesPanel({ workspaceId }: ChangesPanelProps) {
     <div className="flex items-center justify-center py-8 text-xs text-muted-foreground">
       {t(
         hideResolved
-          ? 'panels.changes.commentsOnlyEmpty'
+          ? 'panels.changes.comments.commentsOnlyEmpty'
           : 'panels.changes.searchNoMatch',
       )}
     </div>
