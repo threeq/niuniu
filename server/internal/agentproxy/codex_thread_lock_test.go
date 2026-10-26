@@ -1,12 +1,15 @@
 package agentproxy
 
 import (
+	"bufio"
 	"context"
 	"errors"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 	"time"
 )
@@ -160,5 +163,63 @@ func TestCodexAppServerClient_CloseStopsGracefullyOnPOSIX(t *testing.T) {
 	}
 	if elapsed := time.Since(start); elapsed > 1500*time.Millisecond {
 		t.Fatalf("Close took %s — SIGTERM should end the process immediately, not wait out the %s grace window", elapsed, codexAppServerGracePeriod)
+	}
+}
+
+// TestReadLineCapped_OversizeLineIsDrainedAndDropped: a line over the cap must
+// be reported (and fully drained through its newline) WITHOUT losing the next
+// line — the dropped item is shed-able traffic, the stream is not.
+func TestReadLineCapped_OversizeLineIsDrainedAndDropped(t *testing.T) {
+	big := strings.Repeat("x", 3<<20) // 3MB, cap 1MB
+	input := `{"junk":"` + big + `"}` + "\n" + `{"method":"thread/started"}` + "\n"
+	r := bufio.NewReaderSize(strings.NewReader(input), 64*1024)
+
+	if _, err := readLineCapped(r, 1<<20); !errors.Is(err, errCodexLineOversize) {
+		t.Fatalf("first read err=%v want errCodexLineOversize", err)
+	}
+	line, err := readLineCapped(r, 1<<20)
+	if err != nil {
+		t.Fatalf("second read err=%v", err)
+	}
+	if string(line) != `{"method":"thread/started"}`+"\n" {
+		t.Fatalf("next line lost after oversize drop: %q", line)
+	}
+	if _, err := readLineCapped(r, 1<<20); !errors.Is(err, io.EOF) {
+		t.Fatalf("final err=%v want io.EOF", err)
+	}
+}
+
+// TestCodexAppServerClient_ReadLoopSurvivesOversizedLine is the regression for
+// the team-edition crash loop: codex's base64 image tool outputs arrive as
+// single stdout lines larger than the old 1MB scanner cap. The scanner aborted
+// ("token too long"), readLoop returned SILENTLY, and the event loop declared
+// the still-alive process dead — leaving the live process holding its
+// thread-writer flock, so every later thread/resume failed with "already has
+// an active writer" and the workspace looped spawn→conflict→fresh-thread
+// forever. The stream must survive an oversized line: only the line is shed.
+func TestCodexAppServerClient_ReadLoopSurvivesOversizedLine(t *testing.T) {
+	c := &codexAppServerClient{
+		pending: map[int64]chan codexAppServerResponse{},
+		events:  make(chan codexAppServerNotification, 8),
+		done:    make(chan struct{}),
+	}
+	oversize := `{"method":"item/completed","params":{"junk":"` + strings.Repeat("A", 3<<20) + `"}}`
+	input := oversize + "\n" + `{"method":"thread/started","params":{"thread":{"id":"t-9"}}}` + "\n"
+
+	go c.readLoop(strings.NewReader(input))
+
+	deadline := time.After(3 * time.Second)
+	for {
+		select {
+		case ev, ok := <-c.events:
+			if !ok {
+				t.Fatal("events closed before thread/started — oversized line killed the stream")
+			}
+			if ev.Method == "thread/started" {
+				return // stream survived the oversized line — contract holds
+			}
+		case <-deadline:
+			t.Fatal("thread/started never delivered after an oversized line")
+		}
 	}
 }
