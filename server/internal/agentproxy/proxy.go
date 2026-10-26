@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"database/sql"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -351,6 +352,13 @@ type WorkspaceSession struct {
 	// JSON-RPC.
 	codexApp      *codexAppServerClient
 	codexThreadID string
+	// codexSpawnMu serializes ensureCodexAppServer's spawn. The alive check and
+	// the store of the new client are far apart (spawn does JSON-RPC initialize
+	// + thread resume, none of it under procMu), so two concurrent entries can
+	// both pass the check and start TWO app-servers — the second's thread
+	// resume then collides with the first's writer lock. Held across the whole
+	// check→spawn→store span.
+	codexSpawnMu sync.Mutex
 
 	// ompBackend is the reusable agentbackend.Backend driving omp workspaces
 	// (RPC over `omp --mode rpc`). Lazily created on the first omp turn; owned
@@ -2844,6 +2852,12 @@ func (s *WorkspaceSession) handleEvent(ctx context.Context, ev ParsedEvent, msgI
 	// agentID attributes events from this turn to the session's top-level
 	// workspace_agents row.
 	agentID := s.resolveAgentID(ev.ParentToolUseId)
+	// Agent-produced images (codex imagegen / image-view items) materialize
+	// into workspace files and go out as assistant attachment messages.
+	if len(ev.Images) > 0 {
+		s.emitAgentImages(ctx, ev, msgId, agentID)
+		return
+	}
 	switch ev.Type {
 	case "system":
 		if ev.Subtype == "init" && ev.SessionID != "" {
@@ -2880,6 +2894,8 @@ func (s *WorkspaceSession) handleEvent(ctx context.Context, ev ParsedEvent, msgI
 		} else if ev.Subtype == "api_retry" {
 			sysEv := NewOutputEvent(EventSystemInfo, fmt.Sprintf("API retry #%d: %s", ev.RetryAttempt, ev.RetryError), msgId, "system", s.workspaceID)
 			s.hub.Broadcast(s.workspaceID, sysEv)
+		} else if ev.Subtype == "image_generation_failed" {
+			s.hub.Broadcast(s.workspaceID, NewOutputEvent(EventSystemInfo, ev.Result, msgId, "system", s.workspaceID))
 		}
 
 	case "stream_event":
@@ -3873,6 +3889,10 @@ func (s *WorkspaceSession) killProcess() {
 	}
 	s.procMu.Unlock()
 	if codexApp != nil {
+		// Flag the death as deliberate BEFORE closing: the app-server's event
+		// loop reads this on process exit to keep an intentional kill from
+		// surfacing as "exited unexpectedly" in the chat.
+		codexApp.killRequested.Store(true)
 		_ = codexApp.Close()
 		slog.Info("agent: codex app-server killed", "workspaceID", s.workspaceID)
 	}
@@ -4066,6 +4086,141 @@ func (s *WorkspaceSession) emitActivity(agentID int64, ev OutputEvent) {
 }
 
 // persistAndBroadcast saves an OutputEvent to the database and broadcasts it.
+// chatAttachment mirrors the SPA's ChatAttachment (web/src/types/api.ts) so
+// agent messages can carry image attachments rendered by AttachmentPreview.
+type chatAttachment struct {
+	Path     string `json:"path"`
+	Type     string `json:"type"` // "upload" | "ref"
+	Name     string `json:"name"`
+	MimeType string `json:"mimeType,omitempty"`
+	Size     int64  `json:"size,omitempty"`
+}
+
+// agentImageDir is where agent-produced images land inside the workspace
+// (workspace-root-relative, matching ChatAttachment.path semantics). The
+// workspace root is a plain niuniu-managed directory — not a git repo — so a
+// dotdir keeps the images out of the way while staying fetchable through the
+// workspace file endpoint.
+const agentImageDir = ".niuniu-images"
+
+// emitAgentImages materializes agent-produced images (codex imagegen /
+// image-view items) into workspace files and surfaces them as ONE assistant
+// message with image attachments — rendered inline by AttachmentPreview.
+func (s *WorkspaceSession) emitAgentImages(ctx context.Context, ev ParsedEvent, msgId string, agentID int64) {
+	s.mu.Lock()
+	workDir := s.workDir
+	s.mu.Unlock()
+
+	atts := make([]chatAttachment, 0, len(ev.Images))
+	captions := make([]string, 0, len(ev.Images))
+	for i, img := range ev.Images {
+		att, cap, err := s.materializeAgentImage(workDir, img, i)
+		if err != nil {
+			slog.Warn("agent image: materialize failed", "workspaceID", s.workspaceID, "err", err)
+			continue
+		}
+		if att == nil {
+			continue
+		}
+		atts = append(atts, *att)
+		if cap != "" {
+			captions = append(captions, cap)
+		}
+	}
+	if len(atts) == 0 {
+		return
+	}
+	attJSON, err := json.Marshal(atts)
+	if err != nil {
+		slog.Warn("agent image: marshal attachments", "workspaceID", s.workspaceID, "err", err)
+		return
+	}
+	content := strings.Join(captions, "\n\n")
+	if content == "" {
+		content = "Generated image"
+	}
+	out := NewOutputEvent(EventText, content, msgId, "assistant", s.workspaceID)
+	out.Attachments = string(attJSON)
+	textMsgID := fmt.Sprintf("%s-img-%d", msgId, time.Now().UnixNano())
+	s.persistEventWithID(ctx, textMsgID, out, agentID)
+	s.hub.Broadcast(s.workspaceID, out)
+}
+
+// materializeAgentImage turns one ImageBlock into a chat attachment: inline
+// base64 is decoded and written under agentImageDir; path references are
+// re-based onto the workspace root (absolute paths outside it are rejected).
+func (s *WorkspaceSession) materializeAgentImage(workDir string, img adapter.ImageBlock, idx int) (*chatAttachment, string, error) {
+	if img.Path != "" {
+		rel := workspaceRelativePath(workDir, img.Path)
+		if rel == "" {
+			return nil, "", fmt.Errorf("image path outside workspace: %s", img.Path)
+		}
+		return &chatAttachment{
+			Path: rel,
+			Type: "ref",
+			Name: filepath.Base(rel),
+		}, img.Caption, nil
+	}
+	if img.Data == "" {
+		return nil, "", nil
+	}
+	raw, err := base64.StdEncoding.DecodeString(img.Data)
+	if err != nil {
+		return nil, "", fmt.Errorf("decode image: %w", err)
+	}
+	dir := filepath.Join(workDir, agentImageDir)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return nil, "", err
+	}
+	name := fmt.Sprintf("codex-%d-%d%s", time.Now().UnixMilli(), idx, imageExtFor(img.MimeType))
+	full := filepath.Join(dir, name)
+	if err := os.WriteFile(full, raw, 0o600); err != nil {
+		return nil, "", err
+	}
+	rel := filepath.ToSlash(filepath.Join(agentImageDir, name))
+	return &chatAttachment{
+		Path:     rel,
+		Type:     "upload",
+		Name:     name,
+		MimeType: img.MimeType,
+		Size:     int64(len(raw)),
+	}, img.Caption, nil
+}
+
+// workspaceRelativePath converts an agent-reported image path into a
+// workspace-root-relative slash path; "" when the path is absolute outside
+// workDir (not renderable through the workspace file endpoint).
+func workspaceRelativePath(workDir, p string) string {
+	p = strings.TrimPrefix(p, "file://")
+	if p == "" {
+		return ""
+	}
+	if !filepath.IsAbs(p) {
+		return filepath.ToSlash(filepath.Clean(p))
+	}
+	if workDir == "" {
+		return ""
+	}
+	rel, err := filepath.Rel(workDir, p)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return ""
+	}
+	return filepath.ToSlash(rel)
+}
+
+func imageExtFor(mime string) string {
+	switch mime {
+	case "image/jpeg":
+		return ".jpg"
+	case "image/gif":
+		return ".gif"
+	case "image/webp":
+		return ".webp"
+	default:
+		return ".png"
+	}
+}
+
 // agentID attributes the message to a workspace_agent (0 = unknown, stored as NULL).
 func (s *WorkspaceSession) persistAndBroadcast(ctx context.Context, ev OutputEvent, agentID int64) {
 	s.persistEvent(ctx, ev, agentID)

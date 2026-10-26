@@ -372,7 +372,15 @@ function useFileCommentActions(workspaceId: string, repo: string, relPath: strin
   const { t } = useTranslation('workspaces');
   const { comments, queueComment, sendComment, sendAllPending, setResolved } =
     useWorkspaceComments(workspaceId);
-  const fileComments = comments.filter((c) => c.repo === repo && c.file_path === relPath);
+  // The Changes-panel "resolved N/M" chip hides resolved comments here, so the
+  // threads left in the viewer (diff lines, file view, outdated banner) are the
+  // open ones. Counts on the toolbar/tree keep reading the full list upstream.
+  const hideResolved = useWorkspacePanelStore(
+    (s) => s.hideResolvedComments?.[workspaceId] ?? false,
+  );
+  const fileComments = comments
+    .filter((c) => c.repo === repo && c.file_path === relPath)
+    .filter((c) => !hideResolved || !c.resolved);
   const pendingCount = fileComments.filter(isPending).length;
   const [sendingAll, setSendingAll] = useState(false);
 
