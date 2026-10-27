@@ -36,8 +36,8 @@ func TestSuggestGoalCondition_InvalidIssueID(t *testing.T) {
 func TestSuggestGoalCondition_CLIUnavailable(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
-	prev := agentproxy.SetClaudeCLIAvailableForTest(false)
-	defer agentproxy.SetClaudeCLIAvailableForTest(prev)
+	prev := agentproxy.SetNiuniuAgentAvailableForTest(false)
+	defer agentproxy.SetNiuniuAgentAvailableForTest(prev)
 
 	h := &KanbanHandler{} // svc nil; if 503 short-circuit fails we'll panic
 	r := gin.New()

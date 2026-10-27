@@ -18,6 +18,35 @@ var cliAvailable atomic.Bool
 // ClaudeCLIAvailable returns the cached probe result.
 func ClaudeCLIAvailable() bool { return cliAvailable.Load() }
 
+// niuniuAgentAvailable backs the one-shot suggestion helpers (AI suggest /
+// classify / column-op), which run on niuniu-agent - niuniu's own binary, so
+// hosts without a claude login (or without claude at all) keep working.
+var niuniuAgentAvailable atomic.Bool
+
+// NiuniuAgentAvailable returns the cached probe result.
+func NiuniuAgentAvailable() bool { return niuniuAgentAvailable.Load() }
+
+// SetNiuniuAgentAvailableForTest forces the cached probe value, returning the
+// previous value so callers can defer-restore.
+func SetNiuniuAgentAvailableForTest(v bool) bool { return niuniuAgentAvailable.Swap(v) }
+
+// ProbeNiuniuAgentCLI checks the niuniu-agent binary resolves on PATH. No flag
+// matrix here (unlike claude): the binary ships with niuniu itself, so presence
+// is the whole contract.
+func ProbeNiuniuAgentCLI() {
+	_, err := exec.LookPath("niuniu-agent")
+	ok := err == nil
+	prev := niuniuAgentAvailable.Load()
+	niuniuAgentAvailable.Store(ok)
+	if prev != ok {
+		if ok {
+			slog.Info("niuniu-agent CLI probe passed")
+		} else {
+			slog.Warn("niuniu-agent CLI probe failed; one-shot suggestion helpers disabled until next probe", "reason", err.Error())
+		}
+	}
+}
+
 // SetClaudeCLIAvailableForTest forces the cached probe value, returning the
 // previous value so callers can defer-restore. Intended only for tests that
 // need to drive the 503 / CLI_UNAVAILABLE branch without invoking the real

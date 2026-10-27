@@ -80,7 +80,7 @@ func RunOneShotStructured(parentCtx context.Context, req OneShotRequest, dst any
 			return err
 		}
 		return ParseOneShotOutput(out, dst)
-	case adapter.TypeCodex, adapter.TypeQwen, adapter.TypeOmp, adapter.TypeGoose, adapter.TypeCursor:
+	case adapter.TypeCodex, adapter.TypeQwen, adapter.TypeOmp, adapter.TypeGoose, adapter.TypeCursor, adapter.TypeNiuniuAgent:
 		out, err := runGenericOneShot(parentCtx, t, req)
 		if err != nil {
 			return err

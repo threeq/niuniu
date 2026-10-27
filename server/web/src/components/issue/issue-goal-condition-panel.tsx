@@ -128,6 +128,11 @@ export function IssueGoalConditionPanel({ issueId, initialCondition, onSave }: P
         msg = t('goalCondition.suggestCliUnavailable')
       } else if (e instanceof ApiError && e.status === 429) {
         msg = t('goalCondition.suggestRateLimited')
+      } else if (e instanceof ApiError && e.message) {
+        // The 502 body carries the REAL spawn failure (auth expired, model
+        // error, ...) — surfacing it here is what makes this diagnosable; a
+        // bare localized "failed" toast hid an expired-OAuth root cause.
+        msg = `${t('goalCondition.suggestFailed')}: ${e.message}`
       } else {
         msg = t('goalCondition.suggestFailed')
       }
