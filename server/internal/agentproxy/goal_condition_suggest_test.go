@@ -731,15 +731,15 @@ func TestSuggestPromptTemplate_TreatsTitleAndDescriptionEqually(t *testing.T) {
 }
 
 func TestSuggestGoalCondition_CLIUnavailable(t *testing.T) {
-	prev := cliAvailable.Load()
-	cliAvailable.Store(false)
-	defer cliAvailable.Store(prev)
+	prev := niuniuAgentAvailable.Load()
+	niuniuAgentAvailable.Store(false)
+	defer niuniuAgentAvailable.Store(prev)
 
 	_, err := SuggestGoalCondition(context.Background(), "title", "description", "")
 	if err == nil {
 		t.Fatal("expected error when CLI unavailable")
 	}
-	if !strings.Contains(err.Error(), "claude CLI not available") {
+	if !strings.Contains(err.Error(), "niuniu-agent CLI not available") {
 		t.Fatalf("unexpected error message: %v", err)
 	}
 }

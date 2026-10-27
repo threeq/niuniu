@@ -79,6 +79,14 @@ func RunOneShotCLI(ctx context.Context, prompt, jsonSchema, configDir string) ([
 	return runOneShotCLIWithEnv(ctx, prompt, jsonSchema, configDir, nil)
 }
 
+// RunOneShotCLIWithEnv is RunOneShotCLI plus caller-supplied env entries
+// (e.g. a project-bound provider's ANTHROPIC_* credentials). extraEnv is
+// layered AFTER the host env and the marked one-shot preset, so a project's
+// provider wins over both.
+func RunOneShotCLIWithEnv(ctx context.Context, prompt, jsonSchema, configDir string, extraEnv []string) ([]byte, error) {
+	return runOneShotCLIWithEnv(ctx, prompt, jsonSchema, configDir, extraEnv)
+}
+
 // runOneShotCLIWithEnv is RunOneShotCLI plus caller-supplied env entries layered
 // on top of the host env and the marked one-shot preset. It backs callers that
 // run on behalf of a specific workspace/project and must use THAT context's

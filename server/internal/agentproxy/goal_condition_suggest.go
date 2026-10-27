@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"strings"
 	"unicode/utf8"
+
+	"github.com/niuniu-dev/niuniu/internal/agentproxy/adapter"
 )
 
 // suggestPromptTemplate asks haiku to draft a single-line completion criterion
@@ -53,16 +55,34 @@ const (
 // as CLAUDE_CONFIG_DIR so the subprocess uses the same auth workspace agents
 // use. Empty = fall back to the CLI's native ~/.claude credentials.
 func SuggestGoalCondition(parentCtx context.Context, title, description, configDir string) (string, error) {
-	if !ClaudeCLIAvailable() {
-		return "", errors.New("claude CLI not available")
+	return SuggestGoalConditionWithEnv(parentCtx, title, description, configDir, nil)
+}
+
+// SuggestGoalConditionWithEnv is SuggestGoalCondition plus caller-supplied
+// subprocess env — the ISSUE's project default provider credentials, expanded
+// by the service layer. extraEnv wins over the marked one-shot preset and the
+// host env, so a project with a bound provider works even when the host's
+// native ~/.claude OAuth has expired.
+func SuggestGoalConditionWithEnv(parentCtx context.Context, title, description, configDir string, extraEnv []string) (string, error) {
+	if !NiuniuAgentAvailable() {
+		return "", errors.New("niuniu-agent CLI not available")
 	}
 	safeTitle, safeDesc := sanitizeSuggestInputs(title, description)
 	prompt := fmt.Sprintf(suggestPromptTemplate, safeTitle, safeDesc)
-	out, err := RunOneShotCLI(parentCtx, prompt, suggestJSONSchema, configDir)
+	var dst struct {
+		Suggestion string `json:"suggestion"`
+	}
+	// niuniu-agent has no --json-schema; the prompt embeds the schema and
+	// ParseOneShotOutput recovers the JSON object from the plain-text reply.
+	err := RunOneShotStructured(parentCtx, OneShotRequest{
+		Prompt:  prompt,
+		CLIType: string(adapter.TypeNiuniuAgent),
+		Env:     extraEnv,
+	}, &dst)
 	if err != nil {
 		return "", err
 	}
-	return parseSuggestOutput(out)
+	return finalizeSuggestion(dst.Suggestion)
 }
 
 // sanitizeSuggestInputs escapes data-tag delimiters that would let injected
@@ -191,16 +211,29 @@ Now emit the JSON object and NOTHING else:
 // SuggestGoalCondition but with the classify schema, returning the actionable
 // verdict + goal_condition.
 func ClassifyIssueForKickoff(parentCtx context.Context, title, description, configDir string) (IssueAssessment, error) {
-	if !ClaudeCLIAvailable() {
-		return IssueAssessment{}, errors.New("claude CLI not available")
+	if !NiuniuAgentAvailable() {
+		return IssueAssessment{}, errors.New("niuniu-agent CLI not available")
 	}
 	safeTitle, safeDesc := sanitizeSuggestInputs(title, description)
 	prompt := fmt.Sprintf(classifyPromptTemplate, safeTitle, safeDesc)
-	out, err := RunOneShotCLI(parentCtx, prompt, classifyJSONSchema, configDir)
+	var dst struct {
+		Actionable bool   `json:"actionable"`
+		Reason     string `json:"reason"`
+		Suggestion string `json:"suggestion"`
+	}
+	// configDir is a claude-era parameter: niuniu-agent scopes credentials via
+	// its provider env, so it is accepted but no longer injected.
+	err := RunOneShotStructured(parentCtx, OneShotRequest{
+		Prompt:  prompt,
+		CLIType: string(adapter.TypeNiuniuAgent),
+	}, &dst)
 	if err != nil {
 		return IssueAssessment{}, err
 	}
-	return parseClassifyOutput(out)
+	if !dst.Actionable && dst.Reason == "" && dst.Suggestion == "" {
+		return IssueAssessment{}, errors.New("empty classify result")
+	}
+	return finalizeAssessment(dst.Actionable, dst.Reason, dst.Suggestion), nil
 }
 
 // parseClassifyOutput extracts {actionable, reason, suggestion} using the

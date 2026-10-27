@@ -1,6 +1,7 @@
 package agentproxy
 
 import (
+	"github.com/niuniu-dev/niuniu/internal/agentproxy/adapter"
 	"context"
 	"errors"
 	"fmt"
@@ -70,8 +71,8 @@ func SuggestColumnOpFields(
 	currentOpInstruction, currentWhenToUse string,
 	configDir string,
 ) (ColumnOpResult, error) {
-	if !ClaudeCLIAvailable() {
-		return ColumnOpResult{}, errors.New("claude CLI not available")
+	if !NiuniuAgentAvailable() {
+		return ColumnOpResult{}, errors.New("niuniu-agent CLI not available")
 	}
 
 	specsNote := ""
@@ -92,14 +93,14 @@ func SuggestColumnOpFields(
 		prompt = fmt.Sprintf(columnOpGeneratePrompt, truncateRunes(columnName, 100), specsNote)
 	}
 
-	out, err := RunOneShotCLI(parentCtx, prompt, columnOpJSONSchema, configDir)
-	if err != nil {
-		return ColumnOpResult{}, err
-	}
-
 	var result ColumnOpResult
-	if err := ParseOneShotOutput(out, &result); err != nil {
-		return ColumnOpResult{}, fmt.Errorf("column op parse failed: %w", err)
+	// niuniu-agent one-shot: the prompt embeds the schema; the structured
+	// runner decodes the JSON object from the plain-text reply.
+	if err := RunOneShotStructured(parentCtx, OneShotRequest{
+		Prompt:  prompt,
+		CLIType: string(adapter.TypeNiuniuAgent),
+	}, &result); err != nil {
+		return ColumnOpResult{}, err
 	}
 	return result, nil
 }

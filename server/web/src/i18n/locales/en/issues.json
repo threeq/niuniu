@@ -39,7 +39,7 @@
     "suggesting": "Generating…",
     "unsaved": "Unsaved",
     "suggestFailed": "Failed to generate suggestion, please try again",
-    "suggestCliUnavailable": "claude CLI not available; AI suggestion disabled",
+    "suggestCliUnavailable": "niuniu-agent not available; AI suggestion disabled",
     "suggestRateLimited": "Too many AI suggest requests; please wait a moment"
   }
 }
