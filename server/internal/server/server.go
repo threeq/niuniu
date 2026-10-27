@@ -571,6 +571,10 @@ func New(cfg *config.Config, db *sql.DB, frontendFS fs.FS) *Server {
 	// the one-shot suggestion/generation helpers (goal_condition / column_op /
 	// prompt-gen) and the /health probe.
 	go agentproxy.ProbeClaudeCLI(context.Background())
+	// Point the one-shot helpers at the SAME niuniu-agent the interactive
+	// paths use (config command, else sidecar/install discovery - never a
+	// bare PATH lookup that misses the desktop sidecar directory).
+	agentproxy.SetNiuniuAgentConfiguredCommand(s.cfg.Agent.NiuniuAgentCli.Command)
 	go agentproxy.ProbeNiuniuAgentCLI()
 	s.agentProxy.SetStatusHook(s.agentMgr) // wire workspace status transitions
 	s.agentProxy.SetMCPSessionService(s.mcpSessions)
