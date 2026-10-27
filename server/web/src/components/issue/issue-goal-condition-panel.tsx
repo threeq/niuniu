@@ -132,7 +132,7 @@ export function IssueGoalConditionPanel({ issueId, initialCondition, onSave }: P
         // The 502 body carries the REAL spawn failure (auth expired, model
         // error, ...) — surfacing it here is what makes this diagnosable; a
         // bare localized "failed" toast hid an expired-OAuth root cause.
-        msg = `${t('goalCondition.suggestFailed')}：${e.message}`
+        msg = `${t('goalCondition.suggestFailed')}: ${e.message}`
       } else {
         msg = t('goalCondition.suggestFailed')
       }
