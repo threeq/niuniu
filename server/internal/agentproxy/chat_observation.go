@@ -193,7 +193,12 @@ func oneShotArgv(t adapter.Type, command string) (string, []string) {
 		return command, []string{"-p", "--trust"}
 	case adapter.TypeNiuniuAgent:
 		if command == "" {
-			command = "niuniu-agent"
+			// Resolve like the interactive path (config / sidecar / install
+			// dir); only if that finds nothing do we let PATH decide.
+			command = NiuniuAgentBinary()
+			if command == "" {
+				command = "niuniu-agent"
+			}
 		}
 		// `-p -` is niuniu-agent's one-shot mode reading the prompt from stdin;
 		// plain text output (the final answer only). No -y here: a pure
