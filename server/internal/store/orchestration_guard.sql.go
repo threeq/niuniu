@@ -14,6 +14,7 @@ const countActiveWorkspacesForOwner = `-- name: CountActiveWorkspacesForOwner :o
 SELECT COUNT(*)
 FROM workspaces
 WHERE owner_type = ? AND owner_id = ? AND is_archived = 0 AND status <> 'completed'
+  AND (status IN ('created', 'running') OR agent_status = 'running')
 `
 
 type CountActiveWorkspacesForOwnerParams struct {
