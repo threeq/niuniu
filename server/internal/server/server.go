@@ -934,6 +934,11 @@ func New(cfg *config.Config, db *sql.DB, frontendFS fs.FS) *Server {
 	_ = s.serverSettingsSvc.SeedIfAbsent(seedCtx, service.KeyOrchWarnPct, strconv.Itoa(defWarnPct))
 	orchGuard.SetSettings(orchSettings)
 	orchGuard.SetStarter(s.epicExecSvc)
+	// Safety-net drain: completion events start queued workspaces immediately,
+	// but an entry enqueued when nothing was left to complete (all agents
+	// already finished) had no later event to revisit it and stayed queued
+	// forever. The sweep re-checks every owner on an interval.
+	orchGuard.StartQueueSweeper(context.Background(), service.DefaultQueueSweepInterval)
 	s.epicExecSvc.SetGuard(orchGuard)
 	s.kanbanSvc.SetMaxBatchIssues(s.cfg.Orchestration.MaxBatchIssues)
 	s.kanbanSvc.SetOrchestrationSettings(orchSettings)

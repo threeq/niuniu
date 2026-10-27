@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"sync"
+	"time"
 
 	"github.com/niuniu-dev/niuniu/internal/store"
 )
@@ -247,6 +248,37 @@ func (g *OrchestrationGuard) enqueueOnce(ctx context.Context, ownerType string, 
 		return 0, fmt.Errorf("queue position: %w", err)
 	}
 	return int(pos), nil
+}
+
+// DefaultQueueSweepInterval is how often the guard re-checks every owner's start
+// queue as a safety net. Completion events drain immediately; this sweep only
+// catches entries that were enqueued when nothing was left to complete (all
+// agents already finished), which otherwise sat queued forever because no later
+// event would ever revisit them.
+const DefaultQueueSweepInterval = 30 * time.Second
+
+// StartQueueSweeper runs a periodic reconciliation drain for the lifetime of ctx.
+// Safe to call once at server start; a nil guard or an unwired starter makes it
+// a no-op. Interval <= 0 selects DefaultQueueSweepInterval.
+func (g *OrchestrationGuard) StartQueueSweeper(ctx context.Context, interval time.Duration) {
+	if g == nil || g.starter == nil {
+		return
+	}
+	if interval <= 0 {
+		interval = DefaultQueueSweepInterval
+	}
+	go func() {
+		t := time.NewTicker(interval)
+		defer t.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-t.C:
+				g.DrainAllQueuedOwners(ctx)
+			}
+		}
+	}()
 }
 
 // DrainAllQueuedOwners drains the start queue for every owner that currently has
