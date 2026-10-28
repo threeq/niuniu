@@ -155,7 +155,7 @@ export function SettingsPage({ children, orgsActive = false }: SettingsPageProps
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-warm-canvas">
-      <div className="shrink-0 border-b border-warm-border bg-warm-surface px-6 py-5 lg:px-8">
+      <div className="shrink-0 border-b border-warm-border bg-warm-surface px-4 py-4 sm:px-6 sm:py-5 lg:px-8">
         <div>
           <h1 className="text-2xl font-semibold text-warm-text">{t('page.title')}</h1>
           <p className="mt-1 text-sm text-warm-text-muted">{t('page.description')}</p>

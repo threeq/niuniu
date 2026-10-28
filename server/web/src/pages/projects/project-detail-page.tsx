@@ -58,12 +58,12 @@ export function ProjectDetailPage({
       {/* Tab navigation — fixed 40px chrome row (matches the workspace header
           height). On the 看板 tab, the board toolbar portals into the right-hand
           slot so tabs + toolbar share this single row instead of stacking. */}
-      <div className="h-10 shrink-0 border-b border-warm-border bg-warm-muted px-4 flex items-center gap-1">
+      <div className="flex h-10 shrink-0 items-center gap-1 overflow-x-auto border-b border-warm-border bg-warm-muted px-2 sm:px-4 md:overflow-visible">
         {(['kanban', 'memory', 'settings'] as const).map((tab) => (
           <button
             key={tab}
             onClick={() => setActiveTab(tab)}
-            className={`h-full flex items-center px-3 text-sm font-medium border-b-2 -mb-px transition-colors shrink-0 ${
+            className={`h-full flex items-center px-2 text-sm font-medium border-b-2 -mb-px transition-colors shrink-0 sm:px-3 ${
               activeTab === tab
                 ? 'border-b-info text-info'
                 : 'border-b-transparent text-muted-foreground hover:text-foreground'

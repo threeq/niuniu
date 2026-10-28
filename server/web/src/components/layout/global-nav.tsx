@@ -1,5 +1,6 @@
+import { useState } from 'react';
 import { Link, useNavigate, useRouterState } from '@tanstack/react-router';
-import { Bell, Bot, LogOut, Settings, Zap } from 'lucide-react';
+import { Bell, Bot, LogOut, Menu, Settings, Zap } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useQuery } from '@tanstack/react-query';
 import { cn } from '@/lib/utils';
@@ -10,6 +11,8 @@ import { useAuthStore } from '@/stores/auth-store';
 import { useConfigStore } from '@/stores/config-store';
 import { usePermissionPendingTotal } from '@/stores/notification-ws-store';
 import { listDashboards } from '@/lib/dashboards-api';
+import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
+import { Button } from '@/components/ui/button';
 import { ThemeToggle } from './theme-toggle';
 
 const navLinks = [
@@ -31,6 +34,7 @@ export function GlobalNav() {
   const { user, isAuthenticated, logout } = useAuthStore();
   const navigate = useNavigate();
   const pendingPermTotal = usePermissionPendingTotal();
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   // The "数据看板" entry only appears once the user has pinned at least one
   // chart (i.e. has >=1 dashboard). The query is invalidated on pin, so the
@@ -79,8 +83,20 @@ export function GlobalNav() {
         : 'bg-emerald-500 text-white dark:bg-emerald-400 dark:text-neutral-950';
 
   return (
-    <header className="h-10 border-b bg-background flex items-center justify-between px-4 shrink-0">
-      <div className="flex items-center gap-6 min-w-0 flex-1">
+    <header className="flex h-10 shrink-0 items-center justify-between border-b bg-background px-2 sm:px-4">
+      <div className="flex min-w-0 flex-1 items-center gap-2 md:gap-6">
+        {/* Mobile: the inline nav is replaced by a slide-over menu so the
+            header stays usable on phone widths. */}
+        <Button
+          variant="ghost"
+          size="icon"
+          onClick={() => setMobileMenuOpen(true)}
+          className="h-10 w-10 shrink-0 md:hidden"
+          aria-label={t('actions.menu')}
+          title={t('actions.menu')}
+        >
+          <Menu className="h-5 w-5" />
+        </Button>
         {/* tabIndex=-1: programmatically focusable only — the IME caret fix
             parks focus here on window reactivation (see lib/ime-caret-fix.ts). */}
         <div id={IME_BRAND_FOCUS_ID} tabIndex={-1} className="flex items-center gap-2 outline-none shrink-0">
@@ -97,7 +113,7 @@ export function GlobalNav() {
             corner count/permission badges that poke -top-1 / -bottom-1 out of
             each link. The vertical padding gives them room inside the scroll
             box; the matching negative margin keeps the header height unchanged. */}
-        <nav className="flex items-center gap-1 min-w-0 overflow-x-auto py-1.5 -my-1.5">
+        <nav className="hidden min-w-0 items-center gap-1 overflow-x-auto py-1.5 -my-1.5 md:flex">
           {navLinks.map(({ to, labelKey }) => {
             const isActive = currentPath === to || currentPath.startsWith(to + '/');
             const showBadge = to === '/workspaces' && activeCount > 0;
@@ -161,7 +177,7 @@ export function GlobalNav() {
           <button
             type="button"
             onClick={() => { void openAIWindow(); }}
-            className="flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-medium text-info hover:bg-info/10 transition-colors"
+            className="hidden items-center gap-1 rounded-md px-2.5 py-1 text-xs font-medium text-info transition-colors hover:bg-info/10 sm:flex"
             title={t('menu.aiHub')}
           >
             <Bot className="w-3.5 h-3.5" />
@@ -171,14 +187,14 @@ export function GlobalNav() {
         <Link
           to="/schedules"
           className={cn(
-            'flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-medium transition-colors',
+            'flex items-center gap-1 rounded-md px-1.5 py-1 text-xs font-medium transition-colors sm:px-2.5',
             currentPath === '/schedules'
               ? 'bg-info/15 text-info'
               : 'text-info hover:bg-info/10'
           )}
         >
           <Zap className="w-3.5 h-3.5" />
-          {t('actions.autoAi')}
+          <span className="hidden sm:inline">{t('actions.autoAi')}</span>
         </Link>
         <ThemeToggle />
         <Link
@@ -207,6 +223,93 @@ export function GlobalNav() {
           </>
         )}
       </div>
+
+      {/* Mobile navigation sheet. Only reachable from the <md hamburger. */}
+      <Sheet open={mobileMenuOpen} onOpenChange={setMobileMenuOpen}>
+        <SheetContent side="left" className="w-4/5 max-w-xs gap-0 p-0">
+          <SheetHeader className="border-b border-warm-border px-4 py-3 text-left">
+            <SheetTitle className="flex items-center gap-2 text-sm font-semibold text-foreground">
+              <img src="/favicon.svg" alt="" aria-hidden className="h-5 w-5 dark:hidden" />
+              <img src="/favicon-dark.svg" alt="" aria-hidden className="hidden h-5 w-5 dark:block" />
+              {t('brand.name')}
+            </SheetTitle>
+          </SheetHeader>
+          <nav className="flex flex-col gap-0.5 p-2">
+            {navLinks.map(({ to, labelKey }) => {
+              const isActive = currentPath === to || currentPath.startsWith(to + '/');
+              return (
+                <Link
+                  key={to}
+                  to={to}
+                  onClick={() => setMobileMenuOpen(false)}
+                  className={cn(
+                    'flex h-10 items-center justify-between rounded-md px-3 text-sm font-medium transition-colors',
+                    isActive
+                      ? 'bg-accent text-foreground'
+                      : 'text-muted-foreground hover:bg-accent hover:text-foreground'
+                  )}
+                >
+                  <span className="truncate">{t(labelKey)}</span>
+                  {to === '/workspaces' && activeCount > 0 && (
+                    <span className={cn('ml-2 min-w-4 rounded-full px-1 text-center text-[10px] font-semibold tabular-nums', badgeClass)}>
+                      {activeCount}
+                    </span>
+                  )}
+                  {to === '/workspaces' && pendingPermTotal > 0 && (
+                    <span className="ml-1 flex items-center gap-0.5 rounded-full bg-amber-500 px-1 text-[10px] font-semibold text-neutral-950 dark:bg-amber-400 dark:text-neutral-950">
+                      <Bell className="h-2.5 w-2.5" />
+                      {pendingPermTotal}
+                    </span>
+                  )}
+                </Link>
+              );
+            })}
+            {showDashboards && (
+              <Link
+                to="/dashboards"
+                onClick={() => setMobileMenuOpen(false)}
+                className={cn(
+                  'flex h-10 items-center rounded-md px-3 text-sm font-medium transition-colors',
+                  currentPath === '/dashboards' || currentPath.startsWith('/dashboards/')
+                    ? 'bg-accent text-foreground'
+                    : 'text-muted-foreground hover:bg-accent hover:text-foreground',
+                )}
+              >
+                {tDash('nav.dashboards')}
+              </Link>
+            )}
+
+            <div className="my-2 h-px bg-border" />
+
+            <Link
+              to="/schedules"
+              onClick={() => setMobileMenuOpen(false)}
+              className={cn(
+                'flex h-10 items-center gap-2 rounded-md px-3 text-sm font-medium transition-colors',
+                currentPath === '/schedules'
+                  ? 'bg-info/15 text-info'
+                  : 'text-info hover:bg-info/10'
+              )}
+            >
+              <Zap className="h-4 w-4" />
+              {t('actions.autoAi')}
+            </Link>
+            {configLoaded && personalMode && (
+              <Button
+                variant="ghost"
+                onClick={() => {
+                  setMobileMenuOpen(false);
+                  void openAIWindow();
+                }}
+                className="h-10 justify-start gap-2 px-3 text-sm font-medium text-info hover:bg-info/10"
+              >
+                <Bot className="h-4 w-4" />
+                {t('menu.aiHub')}
+              </Button>
+            )}
+          </nav>
+        </SheetContent>
+      </Sheet>
     </header>
   );
 }

@@ -55,7 +55,7 @@ export function WorkspaceToolbar({ workspace, onOpenSearch }: WorkspaceToolbarPr
   return (
     <div
       className={cn(
-        'h-10 border-b border-warm-border bg-warm-muted flex items-center justify-between px-3 shrink-0',
+        'flex h-10 shrink-0 items-center justify-between gap-2 overflow-x-auto border-b border-warm-border bg-warm-muted px-2 sm:px-3',
         workspace.is_archived === 1 && 'border-l-2 border-l-warning/60',
       )}
     >

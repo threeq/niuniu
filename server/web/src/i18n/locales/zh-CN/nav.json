@@ -13,6 +13,7 @@
     "aiHub": "AI 直达"
   },
   "actions": {
+    "menu": "菜单",
     "autoAi": "自动AI",
     "settings": "设置",
     "logout": "退出登录"

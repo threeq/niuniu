@@ -255,6 +255,7 @@
     "data": "图表",
     "panels": {
       "chat": "对话",
+      "terminal": "终端",
       "files": "文件",
       "changes": "变更",
       "issue": "问题",
