@@ -726,6 +726,36 @@ func (h *RepositoryHandler) CommitAll(c *gin.Context) {
 	c.Status(http.StatusOK)
 }
 
+// Pull pulls and merges remote changes into the repository checkout.
+// @Summary      Pull repository
+// @Tags         Repositories
+// @Param        id   path      string  true  "Repository ID"
+// @Success      200
+// @Failure      500  {object}  Error
+// @Router       /repositories/{id}/pull [post]
+func (h *RepositoryHandler) Pull(c *gin.Context) {
+	if err := h.svc.Pull(c.Request.Context(), c.Param("id")); err != nil {
+		InternalError(c, err)
+		return
+	}
+	c.Status(http.StatusOK)
+}
+
+// Push pushes the repository checkout to its upstream remote.
+// @Summary      Push repository
+// @Tags         Repositories
+// @Param        id   path      string  true  "Repository ID"
+// @Success      200
+// @Failure      500  {object}  Error
+// @Router       /repositories/{id}/push [post]
+func (h *RepositoryHandler) Push(c *gin.Context) {
+	if err := h.svc.Push(c.Request.Context(), c.Param("id")); err != nil {
+		InternalError(c, err)
+		return
+	}
+	c.Status(http.StatusOK)
+}
+
 // DiscardAll discards all changes
 // @Summary      Discard all changes
 // @Tags         Repositories
