@@ -51,7 +51,7 @@
     "operation_not_in_document": "文件未宣告的操作：{{target}}",
     "scope_widened": "資料範圍擴大：{{target}} 新增 {{detail}}",
     "write_enabled": "開啟寫許可權",
-    "function_unrehearsed": "該函式沒有行為預演就發佈：它的出網從未被預覽過",
+    "function_unrehearsed": "該函式沒有行為預演就釋出：它的出網從未被預覽過",
     "function_undeclared_operation": "該函式在預演中呼叫了未宣告的 {detail}"
   },
   "advisory": {
@@ -69,8 +69,8 @@
   "reject": "拒絕",
   "draft": {
     "title": "整合草稿",
-    "notice": "草稿是尚未生效的候選設定。agent 可以起草，但只有使用者可以確認並發布。",
-    "empty": "目前沒有待處理的草稿",
+    "notice": "草稿是尚未生效的候選配置。agent 可以起草，但只有使用者可以確認併發布。",
+    "empty": "當前沒有待處理的草稿",
     "emptyHint": "當 agent 提議新的 Provider 或資料來源時，草稿會出現在這裡。",
     "loading": "正在載入草稿…",
     "kind": {
@@ -79,34 +79,34 @@
     },
     "status": {
       "draft": "待確認",
-      "lint_failed": "預檢未通過",
-      "confirmed": "已確認，未發布",
-      "published": "已發布",
+      "lint_failed": "預檢未透過",
+      "confirmed": "已確認，未釋出",
+      "published": "已釋出",
       "rejected": "已拒絕"
     },
     "agentAuthored": "由 agent 起草",
     "noCard": "該草稿沒有可用的確認卡。",
     "confirmImpact": "確認影響範圍",
-    "publish": "發布",
-    "publishHint": "先以停用狀態套用候選設定，執行上方驗證探針，探針通過後才啟用。",
-    "publishDone": "已發布並通過驗證。",
-    "publishRolledBack": "驗證探針失敗，已還原上一版設定並保留草稿。",
+    "publish": "釋出",
+    "publishHint": "先以停用狀態應用候選配置，執行上方驗證探針，探針透過後才啟用。",
+    "publishDone": "已釋出並透過驗證。",
+    "publishRolledBack": "驗證探針失敗，已恢復上一版配置並保留草稿。",
     "second": {
-      "title": "該草稿會放寬權限",
-      "notice": "它授予了目前未發布的 scope，或開啟了寫權限。批准它需要額外的、獨立的二次確認。",
-      "checkbox": "我已了解這會放寬存取權限，仍要審閱",
-      "stillRequired": "卡上的放寬項已勾選，但仍缺少獨立的二次確認。"
+      "title": "該草稿會放寬許可權",
+      "notice": "它授予了當前未釋出的 scope，或開啟了寫許可權。批准它需要額外的、單獨的二次確認。",
+      "checkbox": "我已瞭解這會放寬訪問許可權，仍要審閱",
+      "stillRequired": "卡上的放寬項已勾選，但仍缺少單獨的二次確認。"
     },
     "versions": {
-      "title": "已發布版本",
+      "title": "已釋出版本",
       "version": "版本 {{version}}",
       "active": "生效中",
-      "rollback": "還原",
-      "confirmRollback": "確認並還原"
+      "rollback": "回退",
+      "confirmRollback": "確認並回退"
     },
-    "rollbackNeedsConfirmation": "還原到版本 {{version}} 會改變 scope，因此需要先確認。目前尚未套用任何變更。",
-    "rollbackDone": "已還原。",
-    "rollbackFailed": "還原後的設定未通過驗證，線上設定保持不變。"
+    "rollbackNeedsConfirmation": "回退到版本 {{version}} 會改變 scope，因此需要先確認。目前尚未應用任何改動。",
+    "rollbackDone": "已回退。",
+    "rollbackFailed": "回退後的配置未透過驗證，線上配置保持不變。"
   },
   "functions": {
     "title": "操作函式（沙箱）",

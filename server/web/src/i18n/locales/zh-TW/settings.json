@@ -1,15 +1,15 @@
 {
   "integrations": {
-    "pageDescription": "接入外部系統：讓 Agent 起草，你確認後發布；也可手動設定 Provider 與資料來源。",
+    "pageDescription": "接入外部系統：讓 Agent 起草，你確認後釋出；也可手動配置 Provider 與資料來源。",
     "guide": {
       "title": "如何接入",
-      "step1": "在對話裡讓 Agent 接入某個系統——它會讀取介面文件並產生一份草稿。",
-      "step2": "到「接入草稿」核對影響範圍，確認並發布。",
-      "step3": "資料型系統在「資料來源」設定；憑證優先以一次性安全連結填寫，不會進入對話。",
-      "manual": "也可以手動點「新增 Provider」直接設定。"
+      "step1": "在對話裡讓 Agent 接入某個系統——它會讀取介面文件並生成一份草稿。",
+      "step2": "到「接入草稿」核對影響範圍，確認併發布。",
+      "step3": "資料型系統在「資料來源」配置；憑據優先用一次性安全連結填寫，不會進入對話。",
+      "manual": "也可以手動點「新增 Provider」直接配置。"
     },
     "sections": {
-      "providers": "Provider 與憑證",
+      "providers": "Provider 與憑據",
       "dataSources": "資料來源",
       "drafts": "接入草稿",
       "activity": "整合活動",
@@ -70,7 +70,7 @@
       "egressNone": "（無出口呼叫）",
       "oversize": "超出閾值",
       "oversizeHint": "外發請求體超過出口告警閾值。",
-      "oversizeToast": "發往 {{provider}} 的外發資料體超出閾值，已標記，請在「整合活動」中查看。"
+      "oversizeToast": "發往 {{provider}} 的外發資料體超出閾值，已標記，請在「整合活動」中檢視。"
     },
     "pageTitle": "整合",
     "addCredential": "新增憑據",
@@ -309,9 +309,9 @@
       "agentBlockHint": "以下內容會以“資料（非指令）”分割槽注入工作空間的指令檔案，與實際下發完全一致。"
     },
     "functions": {
-      "title": "操作函式（沙箱執行環境）",
-      "empty": "還沒有發佈操作函式。當宣告式表達不了某個對接時，可讓 AI 起草一個函式，經你在草稿確認卡上審核後發佈。",
-      "runSelfTest": "執行隔離自我檢查",
+      "title": "操作函式（沙箱執行時）",
+      "empty": "還沒有釋出操作函式。當宣告式表達不了某個對接時，可讓 AI 起草一個函式，經你在草稿確認卡上稽覈後釋出。",
+      "runSelfTest": "執行隔離自檢",
       "denied": "已被拒絕",
       "allowed": "未被拒絕",
       "idempotent": "可重放",
@@ -319,15 +319,15 @@
       "details": "詳情",
       "observing": "首次執行觀察期：{{calls}}/{{limit}} 次呼叫，期間的每次出網都已被記錄",
       "run": "手動執行",
-      "runInputLabel": "傳給函式的 input 參數（JSON）",
+      "runInputLabel": "傳給函式的 input 引數（JSON）",
       "versions": "版本與回滾",
-      "activeVersion": "目前",
+      "activeVersion": "當前",
       "rollback": "回滾到此版本",
       "rollbackWidens": "該回滾會改變函式可達的操作範圍，需要你再次確認",
       "confirmRollback": "確認回滾並重新授權",
       "observationTrail": "觀察期請求軌跡",
       "noObservation": "觀察期內還沒有呼叫。",
-      "audit": "呼叫稽核",
+      "audit": "呼叫審計",
       "noAudit": "還沒有呼叫記錄。",
       "fenceOk": "作業系統圍欄已生效（{{backend}}）",
       "fenceDegraded": "作業系統圍欄已生效，但缺少一層加固（{{backend}}）",
