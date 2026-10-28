@@ -17,6 +17,7 @@ import type { ExternalCredential, ProviderName } from '@/types/integration';
 import type { OwnerRef } from '@/types/org';
 import { integrationApi } from '@/lib/integration-api';
 import { useExternalCredentials } from '@/hooks/useExternalCredentials';
+import { useExternalProviders } from '@/hooks/useExternalProviders';
 import { useAddSource } from '@/hooks/useExternalSources';
 
 interface Props {
@@ -51,6 +52,10 @@ export function AddSourceDialog({
       integrationApi.listCredentials(undefined, { type: 'org', id: orgOwnerId }),
     enabled: open && orgOwnerId > 0,
   });
+
+  // Provider records carry the display label for every provider, including
+  // user-defined ones created through the integration onboarding flow.
+  const { data: providers = [] } = useExternalProviders();
 
   const addSource = useAddSource(projectId);
 
@@ -119,11 +124,12 @@ export function AddSourceDialog({
     }
   };
 
-  const providerLabel = (p: ProviderName) => {
-    if (p === 'github') return 'GitHub';
-    if (p === 'jira') return 'Jira';
-    return 'TAPD';
-  };
+  // Resolve the label from the provider record. The old fallback returned
+  // 'TAPD' for anything that was not github/jira, so a credential belonging to
+  // a user-created provider (e.g. dida365) rendered as "default (TAPD)" — the
+  // new source looked like it had never been created.
+  const providerLabel = (p: ProviderName) =>
+    providers.find((provider) => provider.name === p)?.label || p;
 
   const sourceKeyLabel =
     provider === 'github'

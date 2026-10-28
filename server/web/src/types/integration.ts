@@ -6,7 +6,10 @@
 // credential dialog UI only exposes github/tapd; jira can still appear
 // in write-permission prefs and identity mappings.
 
-export type ProviderName = 'github' | 'jira' | 'tapd' | 'imap';
+/** Built-in providers get autocomplete; the backend also accepts any
+ *  user-defined provider name (`external_providers.name`), so arbitrary strings
+ *  must stay assignable — a credential/source for a custom provider is valid. */
+export type ProviderName = 'github' | 'jira' | 'tapd' | 'imap' | (string & {});
 
 export interface ExternalCredential {
   id: number;
