@@ -238,8 +238,9 @@ function RepoBranchesTab({ repoId, repoName }: { repoId: string; repoName: strin
   const [commitMessage, setCommitMessage] = useState('');
   const [isCommitting, setIsCommitting] = useState(false);
   const [isDiscarding, setIsDiscarding] = useState(false);
-  const [isPulling, setIsPulling] = useState(false);
-  const [isPushing, setIsPushing] = useState(false);
+  // Per-branch in-flight marker: branch -> operation. Each row shows a pulsing
+  // icon only while its own pull/push runs, so other rows stay clickable.
+  const [branchOp, setBranchOp] = useState<Record<string, 'pull' | 'push'>>({});
 
   const { data: branchTree, refetch: refetchTree } = useQuery<BranchTree>({
     queryKey: ['repository', repoId, 'branch-tree'],
@@ -389,33 +390,25 @@ function RepoBranchesTab({ repoId, repoName }: { repoId: string; repoName: strin
     }
   };
 
-  const handlePull = async () => {
-    setIsPulling(true);
+  const runBranchOp = async (branch: string, op: 'pull' | 'push') => {
+    setBranchOp((prev) => ({ ...prev, [branch]: op }));
     try {
-      await api.post(`/repositories/${repoId}/pull`, {});
+      await api.post(`/repositories/${repoId}/${op}`, { branch });
       refetchTree();
       refetchStatus();
       queryClient.invalidateQueries({ queryKey: ['repository', repoId, 'graph'] });
-      toast.success(t('detail.branches.pullSuccess'));
+      toast.success(
+        t(op === 'pull' ? 'detail.branches.pullSuccess' : 'detail.branches.pushSuccess', { branch })
+      );
     } catch (err) {
-      toast.error(`${t('detail.branches.pullFailed')}: ${err instanceof Error ? err.message : String(err)}`);
+      const label = t(op === 'pull' ? 'detail.branches.pullFailed' : 'detail.branches.pushFailed');
+      toast.error(`${label}: ${err instanceof Error ? err.message : String(err)}`);
     } finally {
-      setIsPulling(false);
-    }
-  };
-
-  const handlePush = async () => {
-    setIsPushing(true);
-    try {
-      await api.post(`/repositories/${repoId}/push`, {});
-      refetchTree();
-      refetchStatus();
-      queryClient.invalidateQueries({ queryKey: ['repository', repoId, 'graph'] });
-      toast.success(t('detail.branches.pushSuccess'));
-    } catch (err) {
-      toast.error(`${t('detail.branches.pushFailed')}: ${err instanceof Error ? err.message : String(err)}`);
-    } finally {
-      setIsPushing(false);
+      setBranchOp((prev) => {
+        const next = { ...prev };
+        delete next[branch];
+        return next;
+      });
     }
   };
 
@@ -456,22 +449,6 @@ function RepoBranchesTab({ repoId, repoName }: { repoId: string; repoName: strin
                 className="w-full bg-[#313244] text-[#cdd6f4] text-xs rounded pl-6 pr-2 py-1.5 border border-[#45475a] focus:border-[#89b4fa] focus:outline-none placeholder-[#6c7086]"
               />
             </div>
-            <button
-              onClick={handlePull}
-              disabled={isPulling}
-              className="p-1.5 rounded hover:bg-[#313244] text-[#6c7086] hover:text-[#cdd6f4] disabled:opacity-50"
-              title={t('detail.branches.pull')}
-            >
-              <ArrowDownToLine className={cn('w-3.5 h-3.5', isPulling && 'animate-pulse')} />
-            </button>
-            <button
-              onClick={handlePush}
-              disabled={isPushing}
-              className="p-1.5 rounded hover:bg-[#313244] text-[#6c7086] hover:text-[#cdd6f4] disabled:opacity-50"
-              title={t('detail.branches.push')}
-            >
-              <ArrowUpFromLine className={cn('w-3.5 h-3.5', isPushing && 'animate-pulse')} />
-            </button>
             <button
               onClick={() => setShowCreate(!showCreate)}
               className="p-1.5 rounded hover:bg-[#313244] text-[#6c7086] hover:text-[#cdd6f4]"
@@ -616,6 +593,25 @@ function RepoBranchesTab({ repoId, repoName }: { repoId: string; repoName: strin
                 {branch === currentBranch && (
                   <span className="text-[10px] text-[#6c7086]">*</span>
                 )}
+                {/* Per-branch pull/push: hover the row to reveal. */}
+                <span className="hidden group-hover:flex items-center gap-0.5 shrink-0">
+                  <button
+                    onClick={(e) => { e.stopPropagation(); void runBranchOp(branch, 'pull'); }}
+                    disabled={!!branchOp[branch]}
+                    className="text-[#89b4fa] hover:text-[#74c7ec] disabled:opacity-50"
+                    title={t('detail.branches.pull')}
+                  >
+                    <ArrowDownToLine className={cn('w-3 h-3', branchOp[branch] === 'pull' && 'animate-pulse')} />
+                  </button>
+                  <button
+                    onClick={(e) => { e.stopPropagation(); void runBranchOp(branch, 'push'); }}
+                    disabled={!!branchOp[branch]}
+                    className="text-[#a6e3a1] hover:text-[#94e2d5] disabled:opacity-50"
+                    title={t('detail.branches.push')}
+                  >
+                    <ArrowUpFromLine className={cn('w-3 h-3', branchOp[branch] === 'push' && 'animate-pulse')} />
+                  </button>
+                </span>
                 {branch !== currentBranch && (
                   <button
                     onClick={(e) => { e.stopPropagation(); handleDeleteBranch(branch); }}
