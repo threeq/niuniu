@@ -734,6 +734,9 @@ func (h *RepositoryHandler) CommitAll(c *gin.Context) {
 // @Failure      500  {object}  Error
 // @Router       /repositories/{id}/pull [post]
 func (h *RepositoryHandler) Pull(c *gin.Context) {
+	if !h.authorizeRepo(c) {
+		return
+	}
 	if err := h.svc.Pull(c.Request.Context(), c.Param("id")); err != nil {
 		InternalError(c, err)
 		return
@@ -749,11 +752,34 @@ func (h *RepositoryHandler) Pull(c *gin.Context) {
 // @Failure      500  {object}  Error
 // @Router       /repositories/{id}/push [post]
 func (h *RepositoryHandler) Push(c *gin.Context) {
+	if !h.authorizeRepo(c) {
+		return
+	}
 	if err := h.svc.Push(c.Request.Context(), c.Param("id")); err != nil {
 		InternalError(c, err)
 		return
 	}
 	c.Status(http.StatusOK)
+}
+
+// authorizeRepo enforces per-repository access for handlers that act on an
+// existing repository. Returns false after writing the error response. Mirrors
+// the inline guard used by Get/GetDetail: no-op when auth is off (personal
+// edition leaves auth_user_id at 0) or when no Authz is wired.
+func (h *RepositoryHandler) authorizeRepo(c *gin.Context) bool {
+	userID := c.GetInt64("auth_user_id")
+	if userID <= 0 || h.Authz == nil {
+		return true
+	}
+	repoID, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		return true // malformed ids fall through to the service's own error
+	}
+	if _, aerr := h.Authz.CanAccessRepository(c.Request.Context(), userID, repoID); aerr != nil {
+		writeAuthzError(c, aerr)
+		return false
+	}
+	return true
 }
 
 // DiscardAll discards all changes
