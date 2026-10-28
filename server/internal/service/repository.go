@@ -1267,6 +1267,26 @@ func (s *RepositoryService) CommitAll(ctx context.Context, id, message string, u
 	return git.CommitAs(ctx, path, ident, message, true)
 }
 
+// Pull fetches and merges remote changes into the repository's own checkout.
+// Used by the repository page's branch panel; workspace worktrees have their
+// own pull path via GitOpsService.
+func (s *RepositoryService) Pull(ctx context.Context, id string) error {
+	path, err := s.GetPath(ctx, id)
+	if err != nil {
+		return err
+	}
+	return git.Pull(path)
+}
+
+// Push pushes the repository's own checkout to its upstream remote.
+func (s *RepositoryService) Push(ctx context.Context, id string) error {
+	path, err := s.GetPath(ctx, id)
+	if err != nil {
+		return err
+	}
+	return git.Push(path)
+}
+
 // DiscardAll discards all changes in the repository.
 func (s *RepositoryService) DiscardAll(ctx context.Context, id string) error {
 	path, err := s.GetPath(ctx, id)

@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
-import { RefreshCw, Settings, GitBranch, FileText, File, Folder, GitBranchIcon, FolderGit2, Save, Terminal as TerminalIcon, ChevronDown, ChevronRight, ChevronLeft, Search, Globe, Monitor, Plus, Undo2, Check, AlertCircle, GitCommitHorizontal } from 'lucide-react';
+import { RefreshCw, Settings, GitBranch, FileText, File, Folder, GitBranchIcon, FolderGit2, Save, Terminal as TerminalIcon, ChevronDown, ChevronRight, ChevronLeft, Search, Globe, Monitor, Plus, Undo2, Check, AlertCircle, GitCommitHorizontal, ArrowDownToLine, ArrowUpFromLine } from 'lucide-react';
 import { VSCodeIcon } from '@/components/ui/vscode-icon';
 import { useParams } from '@tanstack/react-router';
 import i18n from '@/i18n';
@@ -238,6 +238,8 @@ function RepoBranchesTab({ repoId, repoName }: { repoId: string; repoName: strin
   const [commitMessage, setCommitMessage] = useState('');
   const [isCommitting, setIsCommitting] = useState(false);
   const [isDiscarding, setIsDiscarding] = useState(false);
+  const [isPulling, setIsPulling] = useState(false);
+  const [isPushing, setIsPushing] = useState(false);
 
   const { data: branchTree, refetch: refetchTree } = useQuery<BranchTree>({
     queryKey: ['repository', repoId, 'branch-tree'],
@@ -387,6 +389,36 @@ function RepoBranchesTab({ repoId, repoName }: { repoId: string; repoName: strin
     }
   };
 
+  const handlePull = async () => {
+    setIsPulling(true);
+    try {
+      await api.post(`/repositories/${repoId}/pull`, {});
+      refetchTree();
+      refetchStatus();
+      queryClient.invalidateQueries({ queryKey: ['repository', repoId, 'graph'] });
+      toast.success(t('detail.branches.pullSuccess'));
+    } catch (err) {
+      toast.error(`${t('detail.branches.pullFailed')}: ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      setIsPulling(false);
+    }
+  };
+
+  const handlePush = async () => {
+    setIsPushing(true);
+    try {
+      await api.post(`/repositories/${repoId}/push`, {});
+      refetchTree();
+      refetchStatus();
+      queryClient.invalidateQueries({ queryKey: ['repository', repoId, 'graph'] });
+      toast.success(t('detail.branches.pushSuccess'));
+    } catch (err) {
+      toast.error(`${t('detail.branches.pushFailed')}: ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      setIsPushing(false);
+    }
+  };
+
   const handleDeleteBranch = async (name: string) => {
     if (!(await confirm(t('detail.branches.confirmDeleteBranch', { name })))) return;
     try {
@@ -424,6 +456,22 @@ function RepoBranchesTab({ repoId, repoName }: { repoId: string; repoName: strin
                 className="w-full bg-[#313244] text-[#cdd6f4] text-xs rounded pl-6 pr-2 py-1.5 border border-[#45475a] focus:border-[#89b4fa] focus:outline-none placeholder-[#6c7086]"
               />
             </div>
+            <button
+              onClick={handlePull}
+              disabled={isPulling}
+              className="p-1.5 rounded hover:bg-[#313244] text-[#6c7086] hover:text-[#cdd6f4] disabled:opacity-50"
+              title={t('detail.branches.pull')}
+            >
+              <ArrowDownToLine className={cn('w-3.5 h-3.5', isPulling && 'animate-pulse')} />
+            </button>
+            <button
+              onClick={handlePush}
+              disabled={isPushing}
+              className="p-1.5 rounded hover:bg-[#313244] text-[#6c7086] hover:text-[#cdd6f4] disabled:opacity-50"
+              title={t('detail.branches.push')}
+            >
+              <ArrowUpFromLine className={cn('w-3.5 h-3.5', isPushing && 'animate-pulse')} />
+            </button>
             <button
               onClick={() => setShowCreate(!showCreate)}
               className="p-1.5 rounded hover:bg-[#313244] text-[#6c7086] hover:text-[#cdd6f4]"
