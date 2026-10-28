@@ -1,5 +1,20 @@
 {
   "integrations": {
+    "pageDescription": "接入外部系統：讓 Agent 起草，你確認後發布；也可手動設定 Provider 與資料來源。",
+    "guide": {
+      "title": "如何接入",
+      "step1": "在對話裡讓 Agent 接入某個系統——它會讀取介面文件並產生一份草稿。",
+      "step2": "到「接入草稿」核對影響範圍，確認並發布。",
+      "step3": "資料型系統在「資料來源」設定；憑證優先以一次性安全連結填寫，不會進入對話。",
+      "manual": "也可以手動點「新增 Provider」直接設定。"
+    },
+    "sections": {
+      "providers": "Provider 與憑證",
+      "dataSources": "資料來源",
+      "drafts": "接入草稿",
+      "activity": "整合活動",
+      "functions": "操作函式"
+    },
     "health": {
       "toastAutoDisabled": "整合源連續探測失敗，已自動停用：{{name}}",
       "toastDrift": "{{name}} 的上游 API 已變更——建議重新審閱契約",

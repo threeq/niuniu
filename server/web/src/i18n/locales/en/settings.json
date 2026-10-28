@@ -1,5 +1,20 @@
 {
   "integrations": {
+    "pageDescription": "Connect external systems: let the agent draft, then confirm and publish — or configure providers and data sources by hand.",
+    "guide": {
+      "title": "How to connect",
+      "step1": "Ask the agent in chat to connect a system — it reads the API docs and produces a draft.",
+      "step2": "Review the impact under Drafts, then confirm and publish.",
+      "step3": "For data systems, configure a data source; enter secrets through the one-time secure link so they never enter the conversation.",
+      "manual": "You can also configure everything by hand with “Add provider”."
+    },
+    "sections": {
+      "providers": "Providers & credentials",
+      "dataSources": "Data sources",
+      "drafts": "Drafts",
+      "activity": "Activity",
+      "functions": "Functions"
+    },
     "health": {
       "toastAutoDisabled": "Integration source disabled after repeated failures: {{name}}",
       "toastDrift": "Upstream API changed for {{name}} — review the contract",

@@ -1,5 +1,20 @@
 {
   "integrations": {
+    "pageDescription": "接入外部系统：让 Agent 起草，你确认后发布；也可手动配置 Provider 与数据源。",
+    "guide": {
+      "title": "如何接入",
+      "step1": "在对话里让 Agent 接入某个系统——它会读取接口文档并生成一份草稿。",
+      "step2": "到「接入草稿」核对影响范围，确认并发布。",
+      "step3": "数据型系统在「数据源」配置；凭据优先用一次性安全链接填写，不会进入对话。",
+      "manual": "也可以手动点「添加 Provider」直接配置。"
+    },
+    "sections": {
+      "providers": "Provider 与凭据",
+      "dataSources": "数据源",
+      "drafts": "接入草稿",
+      "activity": "集成活动",
+      "functions": "操作函数"
+    },
     "health": {
       "toastAutoDisabled": "集成源连续探测失败，已自动停用：{{name}}",
       "toastDrift": "{{name}} 的上游 API 已变更——建议重新审阅契约",
