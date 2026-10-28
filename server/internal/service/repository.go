@@ -1271,20 +1271,92 @@ func (s *RepositoryService) CommitAll(ctx context.Context, id, message string, u
 // Used by the repository page's branch panel; workspace worktrees have their
 // own pull path via GitOpsService.
 func (s *RepositoryService) Pull(ctx context.Context, id string) error {
-	path, err := s.GetPath(ctx, id)
+	repo, err := s.getForRemoteOp(ctx, id)
 	if err != nil {
 		return err
 	}
-	return git.Pull(path)
+	if err := guardRemoteEgress(ctx, repo.GitRemote.String); err != nil {
+		return err
+	}
+	return git.Pull(repo.Path)
 }
 
 // Push pushes the repository's own checkout to its upstream remote.
 func (s *RepositoryService) Push(ctx context.Context, id string) error {
-	path, err := s.GetPath(ctx, id)
+	repo, err := s.getForRemoteOp(ctx, id)
 	if err != nil {
 		return err
 	}
-	return git.Push(path)
+	if err := guardRemoteEgress(ctx, repo.GitRemote.String); err != nil {
+		return err
+	}
+	return git.Push(repo.Path)
+}
+
+// getForRemoteOp loads a repository row for a pull/push.
+func (s *RepositoryService) getForRemoteOp(ctx context.Context, id string) (store.Repository, error) {
+	repoID, err := s.parseRepoID(id)
+	if err != nil {
+		return store.Repository{}, err
+	}
+	return s.q.GetRepository(ctx, repoID)
+}
+
+// guardRemoteEgress is a best-effort SSRF pre-check for server-side git pulls
+// and pushes: the remote URL is stored data, but on the hosted edition a
+// tenant-supplied remote must not reach loopback / RFC1918 / link-local /
+// cloud-metadata services or read server files via file://. Personal edition
+// opts out through the same edition flag that gates KB downloads
+// (KBAllowLocalSources = true there), so local-first usage is unchanged.
+// git dials on its own, so this validates DNS up front rather than pinning the
+// connection (rebinding remains possible; it raises the bar, not a full fix).
+func guardRemoteEgress(ctx context.Context, gitRemote string) error {
+	remote := strings.TrimSpace(gitRemote)
+	if remote == "" {
+		return nil // no recorded remote; git itself will report "no upstream"
+	}
+	if KBAllowLocalSources() {
+		return nil
+	}
+	if strings.HasPrefix(remote, "file://") {
+		return fmt.Errorf("file:// remotes are not allowed on this edition")
+	}
+	host := remoteHost(remote)
+	if host == "" {
+		return nil // scp-less local path: git will handle it, no network egress
+	}
+	if err := validateRemoteHost(ctx, host); err != nil {
+		return fmt.Errorf("remote host blocked: %w", err)
+	}
+	return nil
+}
+
+// remoteHost extracts the network host from a git remote in URL or SCP-like
+// (git@host:path) form. Returns "" for local paths and unparseable values.
+func remoteHost(raw string) string {
+	if strings.Contains(raw, "://") {
+		u, err := url.Parse(raw)
+		if err != nil {
+			return ""
+		}
+		if u.Scheme == "file" {
+			return ""
+		}
+		return u.Hostname()
+	}
+	if at := strings.LastIndex(raw, "@"); at >= 0 {
+		rest := raw[at+1:]
+		if colon := strings.Index(rest, ":"); colon > 0 {
+			return rest[:colon]
+		}
+		return ""
+	}
+	// SCP-like host:path without a user part. Exclude Windows drive letters
+	// (colon at index 1) and anything where a path separator precedes the colon.
+	if colon := strings.Index(raw, ":"); colon > 1 && !strings.ContainsAny(raw[:colon], `/\`) {
+		return raw[:colon]
+	}
+	return ""
 }
 
 // DiscardAll discards all changes in the repository.
