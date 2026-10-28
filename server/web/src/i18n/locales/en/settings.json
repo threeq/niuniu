@@ -379,7 +379,8 @@
     "harness": "Engineering Standards",
     "about": "About",
     "providerUsage": "Usage stats",
-    "share": "Share"
+    "share": "Share",
+    "workspaceCleanup": "Workspace cleanup"
   },
   "capability": {
     "title": "Capability Configuration",
@@ -520,6 +521,17 @@
     "warnRatio": "Near-budget warning at",
     "warnRatioHint": "Fraction of the budget at which the orchestrator is flagged to confirm before fanning out further.",
     "saveAll": "Save all",
+    "saved": "Saved",
+    "saveFailed": "Save failed: {{message}}"
+  },
+  "workspaceCleanup": {
+    "title": "Workspace cleanup",
+    "description": "The server sweeps workspaces once an hour. A workspace whose last activity is older than the expiry window is deleted together with its linked issue. Running workspaces and workspaces with uncommitted changes are always kept.",
+    "expireDays": "Expiry window (days)",
+    "expireDaysHint": "0 disables automatic cleanup. Changes apply on the next hourly sweep — no restart needed.",
+    "enabledHint": "Workspaces idle for more than {{days}} days will be deleted.",
+    "disabledHint": "Automatic cleanup is off.",
+    "save": "Save",
     "saved": "Saved",
     "saveFailed": "Save failed: {{message}}"
   },

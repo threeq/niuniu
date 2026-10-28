@@ -379,7 +379,8 @@
     "harness": "工程規範",
     "about": "關於",
     "providerUsage": "用量統計",
-    "share": "分享"
+    "share": "分享",
+    "workspaceCleanup": "工作空間清理"
   },
   "capability": {
     "title": "能力配置",
@@ -520,6 +521,17 @@
     "warnRatio": "接近預算預警閾值",
     "warnRatioHint": "達到預算的該比例時，提示編排器在繼續 fan-out 前確認。",
     "saveAll": "儲存全部",
+    "saved": "已儲存",
+    "saveFailed": "儲存失敗：{{message}}"
+  },
+  "workspaceCleanup": {
+    "title": "工作空間清理",
+    "description": "伺服器每小時掃描一次。最後活躍時間超過過期時長的工作空間會被自動刪除，並連同關聯的 issue 一併刪除；正在執行或存在未提交改動的工作空間會被保留。",
+    "expireDays": "過期時長（天）",
+    "expireDaysHint": "設為 0 表示關閉自動清理。修改後在下一次每小時掃描時生效，無需重啟。",
+    "enabledHint": "超過 {{days}} 天未活躍的工作空間將被刪除。",
+    "disabledHint": "自動清理已關閉。",
+    "save": "儲存",
     "saved": "已儲存",
     "saveFailed": "儲存失敗：{{message}}"
   },

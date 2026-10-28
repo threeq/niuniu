@@ -19,6 +19,7 @@ import {
   ShieldCheck,
   SlidersHorizontal,
   Sparkles,
+  Trash2,
   UserCog,
   Variable,
   Workflow,
@@ -42,6 +43,7 @@ import { SystemDepsSettings } from './system-deps-settings'
 import { UsersSettings } from './users-settings'
 import { IntegrationsPage } from './integrations'
 import { OrchestrationSettings } from './orchestration-settings'
+import { WorkspaceCleanupSettings } from './workspace-cleanup-settings'
 import { ShareSettings } from './share-settings'
 import { ProjectBlueprintsSettings } from './project-blueprints-settings'
 import { ImBotSettings } from './imbot-settings'
@@ -51,7 +53,7 @@ import { useAuthStore } from '@/stores/auth-store'
 import { useConfigStore } from '@/stores/config-store'
 import { useLicenseStore } from '@/stores/license-store'
 
-type SettingsTab = 'general' | 'users' | 'security' | 'env' | 'providers' | 'capability' | 'provider-usage' | 'git-identity' | 'mobile-access' | 'system-deps' | 'skills' | 'integrations' | 'license' | 'orchestration' | 'share' | 'blueprints' | 'imbot' | 'harness' | 'about' | 'claude'
+type SettingsTab = 'general' | 'users' | 'security' | 'env' | 'providers' | 'capability' | 'provider-usage' | 'git-identity' | 'mobile-access' | 'system-deps' | 'skills' | 'integrations' | 'license' | 'orchestration' | 'share' | 'blueprints' | 'imbot' | 'harness' | 'workspace-cleanup' | 'about' | 'claude'
 
 interface TabVisibilityCtx {
   authEnabled: boolean
@@ -81,6 +83,7 @@ const tabs: { id: SettingsTab; labelKey: string; icon?: LucideIcon; visible?: (c
   { id: 'blueprints', labelKey: 'tabs.blueprints', icon: Boxes },
   { id: 'imbot', labelKey: 'tabs.imbot', icon: Bot },
   { id: 'harness', labelKey: 'tabs.harness', icon: ClipboardCheck },
+  { id: 'workspace-cleanup', labelKey: 'tabs.workspaceCleanup', icon: Trash2 },
   { id: 'about', labelKey: 'tabs.about', icon: Info },
 ]
 
@@ -88,7 +91,7 @@ const navGroups: { id: string; labelKey: string; tabIds: SettingsTab[] }[] = [
   { id: 'personal', labelKey: 'groups.personal', tabIds: ['general', 'security'] },
   { id: 'team', labelKey: 'groups.team', tabIds: ['users'] },
   { id: 'agents', labelKey: 'groups.agents', tabIds: ['claude', 'skills', 'integrations', 'orchestration', 'share', 'blueprints', 'imbot', 'harness'] },
-  { id: 'system', labelKey: 'groups.system', tabIds: ['system-deps', 'env', 'providers', 'capability', 'provider-usage', 'git-identity', 'license', 'about'] },
+  { id: 'system', labelKey: 'groups.system', tabIds: ['system-deps', 'env', 'providers', 'capability', 'provider-usage', 'git-identity', 'workspace-cleanup', 'license', 'about'] },
 ]
 
 // Map legacy ?tab values to their current home so old bookmarks/links don't
@@ -262,6 +265,7 @@ export function SettingsPage({ children, orgsActive = false }: SettingsPageProps
                 {activeTab === 'blueprints' && <ProjectBlueprintsSettings />}
                 {activeTab === 'imbot' && <ImBotSettings />}
                 {activeTab === 'harness' && <HarnessSettings />}
+                {activeTab === 'workspace-cleanup' && <WorkspaceCleanupSettings />}
                 {activeTab === 'about' && <AboutSettings />}
               </>
             )}
