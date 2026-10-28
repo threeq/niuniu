@@ -5,24 +5,43 @@ import (
 	"database/sql"
 	"log/slog"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/niuniu-dev/niuniu/internal/store"
 )
 
-// workspace_cleanup.go implements a per-project workspace auto-cleanup policy.
+// KeyWorkspaceExpireDays is the server-settings key holding the global workspace
+// expiry window in days. Every workspace whose last activity is older than this
+// is removed (together with its linked issue) by the hourly sweeper. 0 (the
+// default) disables the global pass; per-project policies remain independent.
+const KeyWorkspaceExpireDays = "workspace.expire_days"
+
+// sweepExpiredConcurrency bounds how many workspaces the expiry pass tears down
+// at once. Teardown involves git worktree removal and recursive directory
+// deletion, both disk-heavy; a small cap keeps the hourly sweep from saturating
+// the machine while still draining a large backlog faster than one at a time.
+const sweepExpiredConcurrency = 2
+
+// workspace_cleanup.go implements workspace auto-cleanup in two independent
+// forms, both driven by the same hourly background sweeper:
 //
-// A project can opt in (default OFF) to have an hourly background sweeper remove
-// workspaces — together with their linked issue — that are no longer useful:
-// those whose issue is either已完成 (completed) or未开始 (not started) AND that
-// have had no activity for at least N days. This is a GC-style maintenance pass
-// that operates ON workspaces from the outside; it never runs anything inside a
-// workspace, so it does not conflict with the "no global workspace-executed
-// sweep" rule in docs/architecture/workspace-model.md.
+//  1. A global expiry window (server setting workspace.expire_days): every
+//     workspace whose last activity is older than N days is removed together
+//     with its linked issue. Disabled when N = 0 (default).
+//  2. A per-project policy: a project can opt in (default OFF) to have
+//     workspaces removed only when their issue is已完成 (completed) or未开始
+//     (not started) AND they have had no activity for at least N days.
+//
+// This is a GC-style maintenance pass that operates ON workspaces from the
+// outside; it never runs anything inside a workspace, so it does not conflict
+// with the "no global workspace-executed sweep" rule in
+// docs/architecture/workspace-model.md.
 //
 // The design mirrors the per-project memory-maintenance scheduler
-// (memory_orchestrator.go): the config lives as columns on the projects table,
-// and an hourly ticker re-reads each active project's policy fresh every cycle.
+// (memory_orchestrator.go): the sweeper re-reads its configuration fresh every
+// cycle (the global window from server settings, each project's policy from the
+// projects table).
 
 // Cleanup status categories. These are the closed set stored (comma-separated) in
 // projects.cleanup_statuses.
@@ -82,15 +101,25 @@ type WorkspaceCleanupService struct {
 	// workspaces are skipped so auto-cleanup never destroys unsaved work.
 	hasChanges func(ctx context.Context, workspaceID int64) (bool, error)
 
+	// expireDays reads the global expiry window (server setting). nil disables
+	// the global pass entirely.
+	expireDays func(ctx context.Context) int
+
 	// now is overridable in tests.
 	now func() time.Time
 }
 
 // NewWorkspaceCleanupService wires the cleanup service against the real
 // workspace and kanban services. Either may be nil in tests, in which case the
-// corresponding destructive step is skipped.
-func NewWorkspaceCleanupService(q *store.Queries, db *sql.DB, ws *WorkspaceService, kb *KanbanService) *WorkspaceCleanupService {
+// corresponding destructive step is skipped. settings is optional and only
+// feeds the global expiry window; nil keeps the global pass off.
+func NewWorkspaceCleanupService(q *store.Queries, db *sql.DB, ws *WorkspaceService, kb *KanbanService, settings *ServerSettingsService) *WorkspaceCleanupService {
 	s := &WorkspaceCleanupService{q: q, db: db, now: time.Now}
+	if settings != nil {
+		s.expireDays = func(ctx context.Context) int {
+			return settings.GetInt(ctx, KeyWorkspaceExpireDays, 0)
+		}
+	}
 	if ws != nil {
 		s.deleteWorkspace = ws.Delete
 		s.hasChanges = func(ctx context.Context, id int64) (bool, error) {
@@ -301,6 +330,156 @@ func (s *WorkspaceCleanupService) cleanupOne(ctx context.Context, cand cleanupCa
 	return nil
 }
 
+// CleanupCategoryExpired labels workspaces removed by the global expiry pass so
+// logs distinguish them from per-project policy categories.
+const CleanupCategoryExpired = "expired"
+
+// ExpireResult summarizes one global expiry pass.
+type ExpireResult struct {
+	Scanned        int     `json:"scanned"`
+	Deleted        []int64 `json:"deleted"`
+	SkippedChanges int     `json:"skipped_changes"`
+	Errors         int     `json:"errors"`
+}
+
+// SweepExpired removes every live workspace whose last activity is older than
+// expireDays, together with its linked issue. Unlike the per-project policy it
+// has no issue-status filter: the expiry window alone decides. Two safety nets
+// still apply — a workspace whose agent/session is running is kept, and so is
+// one with uncommitted changes.
+//
+// Teardown runs on a bounded worker pool (sweepExpiredConcurrency) so a large
+// backlog cannot saturate disk/CPU in one burst.
+func (s *WorkspaceCleanupService) SweepExpired(ctx context.Context, expireDays int) (ExpireResult, error) {
+	res := ExpireResult{Deleted: []int64{}}
+	if expireDays <= 0 {
+		return res, nil
+	}
+	rows, err := s.q.ListWorkspacesForExpiry(ctx)
+	if err != nil {
+		return res, err
+	}
+	res.Scanned = len(rows)
+
+	cutoff := s.now().AddDate(0, 0, -expireDays)
+	candidates := make([]cleanupCandidate, 0, len(rows))
+	for _, row := range rows {
+		if isRunning(row.AgentStatus) || isRunning(row.SessionStatus) {
+			continue
+		}
+		last := row.UpdatedAt
+		if row.LastActivityAt.Valid {
+			last = row.LastActivityAt.Time
+		}
+		if !last.Before(cutoff) {
+			continue
+		}
+		candidates = append(candidates, cleanupCandidate{
+			WorkspaceID:  row.WorkspaceID,
+			IssueID:      row.IssueID,
+			Category:     CleanupCategoryExpired,
+			LastActivity: last,
+		})
+	}
+	if len(candidates) == 0 {
+		return res, nil
+	}
+
+	var (
+		mu            sync.Mutex
+		issueMu       sync.Mutex
+		deleted       = make([]int64, 0, len(candidates))
+		claimedIssues = map[int64]bool{}
+		skipped       int
+		errorsCt      int
+	)
+	// claimIssue dedupes linked-issue deletion: two stale workspaces of the same
+	// issue race here, and only the first one actually deletes the issue.
+	claimIssue := func(id int64) bool {
+		issueMu.Lock()
+		defer issueMu.Unlock()
+		if claimedIssues[id] {
+			return false
+		}
+		claimedIssues[id] = true
+		return true
+	}
+	process := func(cand cleanupCandidate) {
+		if s.hasChanges != nil {
+			changed, err := s.hasChanges(ctx, cand.WorkspaceID)
+			if err != nil {
+				mu.Lock()
+				errorsCt++
+				mu.Unlock()
+				slog.Warn("workspace expiry: change check failed", "workspaceID", cand.WorkspaceID, "error", err)
+				return
+			}
+			if changed {
+				mu.Lock()
+				skipped++
+				mu.Unlock()
+				return
+			}
+		}
+		if s.deleteWorkspace != nil {
+			if err := s.deleteWorkspace(ctx, cand.WorkspaceID); err != nil {
+				mu.Lock()
+				errorsCt++
+				mu.Unlock()
+				slog.Warn("workspace expiry: delete failed", "workspaceID", cand.WorkspaceID, "issueID", cand.IssueID, "error", err)
+				return
+			}
+		}
+		if del := s.deleteIssue; del != nil && cand.IssueID != 0 && claimIssue(cand.IssueID) {
+			if err := del(ctx, cand.IssueID); err != nil {
+				mu.Lock()
+				errorsCt++
+				mu.Unlock()
+				slog.Warn("workspace expiry: issue delete failed", "workspaceID", cand.WorkspaceID, "issueID", cand.IssueID, "error", err)
+				return
+			}
+		}
+		mu.Lock()
+		deleted = append(deleted, cand.WorkspaceID)
+		mu.Unlock()
+	}
+
+	workers := sweepExpiredConcurrency
+	if workers > len(candidates) {
+		workers = len(candidates)
+	}
+	jobs := make(chan cleanupCandidate)
+	var wg sync.WaitGroup
+	for i := 0; i < workers; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for cand := range jobs {
+				process(cand)
+			}
+		}()
+	}
+feed:
+	for _, cand := range candidates {
+		select {
+		case <-ctx.Done():
+			break feed
+		case jobs <- cand:
+		}
+	}
+	close(jobs)
+	wg.Wait()
+
+	res.Deleted = deleted
+	res.SkippedChanges = skipped
+	res.Errors = errorsCt
+	if len(res.Deleted) > 0 {
+		slog.Info("workspace expiry: swept expired workspaces",
+			"deleted", len(res.Deleted), "scanned", res.Scanned, "expireDays", expireDays)
+	}
+	return res, nil
+}
+
 // StartCleanupScheduler launches a background goroutine that, once an hour, sweeps
 // every active project whose cleanup policy is enabled (policy re-read fresh each
 // cycle). Returns immediately; stops when ctx is done.
@@ -327,6 +506,15 @@ func (s *WorkspaceCleanupService) runDueCleanup(ctx context.Context) {
 			slog.Error("workspace cleanup scheduler panicked", "recover", r)
 		}
 	}()
+	// Global expiry pass, independent of per-project policies: delete every
+	// workspace idle past the server-configured window (0 = disabled).
+	if s.expireDays != nil {
+		if days := s.expireDays(ctx); days > 0 {
+			if _, err := s.SweepExpired(ctx, days); err != nil {
+				slog.Warn("workspace expiry: sweep failed", "error", err)
+			}
+		}
+	}
 	projects, err := s.q.ListProjects(ctx, "active")
 	if err != nil {
 		slog.Warn("workspace cleanup: list projects failed", "error", err)

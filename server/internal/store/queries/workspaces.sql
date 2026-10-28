@@ -65,6 +65,25 @@ WHERE c.project_id = ?
   AND w.is_archived = 0
   AND w.status <> 'deleting';
 
+-- name: ListWorkspacesForExpiry :many
+-- All live (non-archived, non-temporary, not mid-delete) workspaces with the
+-- last-activity signal, for the global workspace expiry sweeper. There is no
+-- time predicate here: the service compares timestamps in Go so the same query
+-- behaves identically on SQLite and PostgreSQL. issue_id is 0 when the
+-- workspace has no linked issue.
+SELECT
+    w.id                                     AS workspace_id,
+    CAST(COALESCE(w.issue_id, 0) AS BIGINT)  AS issue_id,
+    w.agent_status                           AS agent_status,
+    w.session_status                         AS session_status,
+    w.updated_at                             AS updated_at,
+    st.last_activity_at                      AS last_activity_at
+FROM workspaces w
+LEFT JOIN workspace_stats st ON st.workspace_id = w.id
+WHERE w.is_archived = 0
+  AND w.is_temporary = 0
+  AND w.status <> 'deleting';
+
 -- name: ListProjectPlansWithWorkspace :many
 -- One row per project issue that has a backing workspace, paired with its primary
 -- workspace id (non-archived newest, else archived newest), in a single statement.

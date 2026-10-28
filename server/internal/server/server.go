@@ -885,10 +885,12 @@ func New(cfg *config.Config, db *sql.DB, frontendFS fs.FS) *Server {
 	s.memoryHandler = api.NewMemoryHandler(s.memorySvc, authz, db, s.notifyHub)
 	s.agentProxy.SetMemoryFileWriter(s.memorySvc)
 
-	// Per-project workspace auto-cleanup: an hourly sweeper deletes completed /
-	// not-started workspaces (and their issue) idle past the project's retention
-	// window. OFF by default (projects.cleanup_enabled=0); opt in via settings.
-	s.cleanupSvc = service.NewWorkspaceCleanupService(s.queries, db, s.workspaceSvc, s.kanbanSvc)
+	// Workspace auto-cleanup: an hourly sweeper runs (a) the global expiry pass
+	// for every workspace idle past the server setting workspace.expire_days
+	// (0 = off) and (b) per-project policies that delete completed / not-started
+	// workspaces idle past the project's retention window (projects.cleanup_enabled,
+	// OFF by default). Both delete the linked issue along with the workspace.
+	s.cleanupSvc = service.NewWorkspaceCleanupService(s.queries, db, s.workspaceSvc, s.kanbanSvc, s.serverSettingsSvc)
 	s.cleanupHandler = api.NewWorkspaceCleanupHandler(s.cleanupSvc, authz)
 	// Per-project 底线 command: the single build/test command that must exit 0
 	// before an issue may complete. Empty by default (no floor).

@@ -729,6 +729,65 @@ func (q *Queries) ListWorkspaces(ctx context.Context) ([]Workspace, error) {
 	return items, nil
 }
 
+const listWorkspacesForExpiry = `-- name: ListWorkspacesForExpiry :many
+SELECT
+    w.id                                     AS workspace_id,
+    CAST(COALESCE(w.issue_id, 0) AS BIGINT)  AS issue_id,
+    w.agent_status                           AS agent_status,
+    w.session_status                         AS session_status,
+    w.updated_at                             AS updated_at,
+    st.last_activity_at                      AS last_activity_at
+FROM workspaces w
+LEFT JOIN workspace_stats st ON st.workspace_id = w.id
+WHERE w.is_archived = 0
+  AND w.is_temporary = 0
+  AND w.status <> 'deleting'
+`
+
+type ListWorkspacesForExpiryRow struct {
+	WorkspaceID    int64          `json:"workspace_id"`
+	IssueID        int64          `json:"issue_id"`
+	AgentStatus    sql.NullString `json:"agent_status"`
+	SessionStatus  sql.NullString `json:"session_status"`
+	UpdatedAt      time.Time      `json:"updated_at"`
+	LastActivityAt sql.NullTime   `json:"last_activity_at"`
+}
+
+// All live (non-archived, non-temporary, not mid-delete) workspaces with the
+// last-activity signal, for the global workspace expiry sweeper. There is no
+// time predicate here: the service compares timestamps in Go so the same query
+// behaves identically on SQLite and PostgreSQL. issue_id is 0 when the
+// workspace has no linked issue.
+func (q *Queries) ListWorkspacesForExpiry(ctx context.Context) ([]ListWorkspacesForExpiryRow, error) {
+	rows, err := q.db.QueryContext(ctx, listWorkspacesForExpiry)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListWorkspacesForExpiryRow{}
+	for rows.Next() {
+		var i ListWorkspacesForExpiryRow
+		if err := rows.Scan(
+			&i.WorkspaceID,
+			&i.IssueID,
+			&i.AgentStatus,
+			&i.SessionStatus,
+			&i.UpdatedAt,
+			&i.LastActivityAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const markWorkspaceDeleting = `-- name: MarkWorkspaceDeleting :execrows
 UPDATE workspaces SET status = 'deleting', updated_at = CURRENT_TIMESTAMP
 WHERE id = ? AND status != 'deleting'

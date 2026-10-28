@@ -77,6 +77,13 @@ var adminSettingKeys = map[string]adminSettingSpec{
 		Default:  "",
 		Kind:     adminSettingString,
 	},
+	// Global workspace expiry window in days. The hourly sweeper deletes any
+	// workspace (and its linked issue) whose last activity is older than this.
+	// 0 = disabled (default). Applied on the next sweep, no restart needed.
+	service.KeyWorkspaceExpireDays: {
+		Validate: nonNegativeInt,
+		Default:  "0",
+	},
 }
 
 // validateShareBaseURL checks the share access domain. Empty is allowed
