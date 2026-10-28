@@ -57,7 +57,7 @@ export function WorkspaceDataButton({
       <Sheet open={open} onOpenChange={setOpen}>
         <SheetContent
           side="right"
-          className="w-[460px] overflow-y-auto sm:w-[560px]"
+          className="w-full overflow-y-auto sm:w-[560px]"
         >
           <SheetHeader>
             <SheetTitle>{t('dataDrawer.title')}</SheetTitle>

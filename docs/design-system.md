@@ -357,7 +357,9 @@ mono:  ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace
 
 走 Tailwind 默认（`sm 640` / `md 768` / `lg 1024` / `xl 1280` / `2xl 1536`）。**禁止自定义断点**。
 
-桌面优先（`server/web/`）；移动优先逻辑放 `mobile/`（RN）。
+`server/web/` 以桌面为主，但**必须在手机宽度（<768px）可用**：布局用 `md:` 断点降级，
+导航与侧栏可改为抽屉，面板/内容查看器可整屏切换；重度开发界面（终端、Diff 查看器）
+只保证可进入、可滚动、可返回，不做手机端重排。原生移动优先逻辑仍放 `mobile/`（RN）。
 
 ### 6.3 滚动
 

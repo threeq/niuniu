@@ -217,7 +217,7 @@ export function FileHistorySidebar({
   });
 
   return (
-    <div className="flex h-full min-h-0 w-72 shrink-0 flex-col border-l border-border bg-card">
+    <div className="flex h-64 min-h-0 w-full shrink-0 flex-col border-t border-border bg-card md:h-full md:w-72 md:border-l md:border-t-0">
       <div className="flex shrink-0 items-center gap-2 border-b border-border px-3 py-1.5">
         <GitCommitHorizontal className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
         <span className="text-xs font-medium">{t('detail.files.historyTab')}</span>

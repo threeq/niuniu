@@ -408,9 +408,9 @@ function RepoBranchesTab({ repoId, repoName }: { repoId: string; repoName: strin
   };
 
   return (
-    <div className="h-full flex bg-[#1e1e2e]">
+    <div className="flex h-full flex-col bg-[#1e1e2e] md:flex-row">
       {/* Left: Branch tree sidebar */}
-      <div className="w-52 shrink-0 border-r border-[#313244] flex flex-col bg-[#181825]">
+      <div className="flex max-h-40 w-full shrink-0 flex-col border-b border-[#313244] bg-[#181825] md:max-h-none md:w-52 md:border-b-0 md:border-r">
         {/* Search + Add */}
         <div className="p-2 border-b border-[#313244]">
           <div className="flex items-center gap-1">
@@ -608,7 +608,7 @@ function RepoBranchesTab({ repoId, repoName }: { repoId: string; repoName: strin
       </div>
 
       {/* Center: git graph, or the selected commit file's line-level diff */}
-      <div className="flex-1 min-w-0 flex flex-col">
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col">
         {showCommitDiff ? (
           <CommitFileDiffPane
             repoName={repoName}
@@ -756,7 +756,7 @@ function RepoBranchesTab({ repoId, repoName }: { repoId: string; repoName: strin
 
       {/* Right: Commit detail panel */}
       {selectedCommit && commitDetail && (
-        <div className="w-72 shrink-0 border-l border-[#313244] bg-[#181825] flex flex-col overflow-hidden">
+        <div className="flex h-64 w-full shrink-0 flex-col overflow-hidden border-t border-[#313244] bg-[#181825] md:h-auto md:w-72 md:border-l md:border-t-0">
           {/* Files changed. Each row opens that file's line-level diff in the
               center pane — the detail sidebar is far too narrow to hold a diff,
               and the graph is the thing the reader is done with once they have
@@ -988,8 +988,8 @@ function RepoFilesTab({ repoId }: { repoId: string }) {
   };
 
   return (
-    <div className="h-full flex">
-      <div className="w-1/3 border-r bg-card flex flex-col min-h-0">
+    <div className="flex h-full flex-col md:flex-row">
+      <div className="flex h-48 min-h-0 w-full shrink-0 flex-col border-b bg-card md:h-auto md:w-1/3 md:border-b-0 md:border-r">
         <RepoSearchBox
           value={searchInput}
           onChange={setSearchInput}

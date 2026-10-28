@@ -63,7 +63,7 @@ export function ScheduleHistoryDrawer({ open, onOpenChange, schedule }: Schedule
 
   return (
     <Sheet open={open} onOpenChange={handleOpenChange}>
-      <SheetContent side="right" className="w-[400px] sm:w-[450px] overflow-y-auto">
+      <SheetContent side="right" className="w-full overflow-y-auto sm:w-[450px]">
         <SheetHeader>
           <SheetTitle className="text-base">
             {schedule?.name || (schedule?.schedule_type === 'cron' ? schedule.cron_expr : t('history.onceTitle'))}
