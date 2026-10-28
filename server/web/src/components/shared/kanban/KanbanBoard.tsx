@@ -28,6 +28,7 @@ import { EmptyState } from '@/components/shared/empty-state';
 import { Plus, Columns3, ListTodo } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { api, labels as labelsApi } from '@/lib/api';
+import { useIsMobile } from '@/hooks/use-media-query';
 import { mergeWorkspaceGitStatus, sidebarGitPath } from '@/lib/hooks/use-workspaces';
 import type { Project, Issue, Workspace, WorkspaceStatus, WorkspaceGitStatus } from '@/types/api';
 import { KanbanIssueDetailPanel } from './KanbanIssueDetailPanel';
@@ -75,6 +76,10 @@ export function KanbanBoard({ project, filteredIssuesByColumn: filteredIssuesByC
   // When the project detail page provides a header slot, the toolbar is portaled
   // into the tab row (single merged 40px header). Otherwise it renders inline.
   const headerSlot = useContext(KanbanHeaderSlotContext);
+  // On phones the tab row has no space for the toolbar, so keep it on its own
+  // wrapping row instead of merging it into the tabs.
+  const isMobile = useIsMobile();
+  const mergeIntoHeader = !!headerSlot && !isMobile;
   const [activeIssue, setActiveIssue] = useState<Issue | null>(null);
   const [overId, setOverId] = useState<string | null>(null);
   const [selectedIssueId, setSelectedIssueId] = useState<number | null>(null);
@@ -576,7 +581,7 @@ export function KanbanBoard({ project, filteredIssuesByColumn: filteredIssuesByC
     >
       <div className="flex h-full">
         <div className="flex-1 flex flex-col min-w-0">
-          {headerSlot ? (
+          {mergeIntoHeader ? (
             // Merged into the tab row: right-aligned controls with a divider
             // separating them from the 看板/记忆/设置 tabs.
             createPortal(
@@ -595,7 +600,7 @@ export function KanbanBoard({ project, filteredIssuesByColumn: filteredIssuesByC
 
           {/* Kanban columns */}
           <div className="flex-1 overflow-x-auto overflow-y-hidden bg-warm-canvas">
-            <div className="flex gap-4 h-full p-4 min-w-full">
+            <div className="flex h-full min-w-full gap-3 p-2 sm:gap-4 sm:p-4">
               {columns.map((column, index) => (
                 <ColumnContainer
                   key={column.id}

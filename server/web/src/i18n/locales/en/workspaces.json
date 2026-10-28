@@ -255,6 +255,7 @@
     "data": "Charts",
     "panels": {
       "chat": "Chat",
+      "terminal": "Terminal",
       "files": "Files",
       "changes": "Changes",
       "issue": "Issue",

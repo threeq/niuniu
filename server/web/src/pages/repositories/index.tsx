@@ -78,7 +78,7 @@ export function RepositoryDetailPage() {
         </div>
         <div className="flex items-center gap-2">
           {stats && (
-            <div className="flex items-center gap-4 mr-2 text-xs text-muted-foreground">
+            <div className="mr-2 hidden items-center gap-4 text-xs text-muted-foreground sm:flex">
               <span>{stats.total_commits} {t('detail.header.commitsSuffix')}</span>
               <span>{stats.total_branches} {t('detail.header.branchesSuffix')}</span>
               <span>{stats.total_contributors} {t('detail.header.contributorsSuffix')}</span>
@@ -97,7 +97,7 @@ export function RepositoryDetailPage() {
       </div>
 
       {/* Tab Navigation */}
-      <div className="flex items-center gap-1 px-4 bg-card border-b">
+      <div className="flex items-center gap-1 overflow-x-auto bg-card border-b px-2 sm:px-4">
         {tabs.map((tab) => (
           <button
             key={tab.id}

@@ -13,6 +13,7 @@
     "aiHub": "AI Hub"
   },
   "actions": {
+    "menu": "Menu",
     "autoAi": "Auto AI",
     "settings": "Settings",
     "logout": "Log out"

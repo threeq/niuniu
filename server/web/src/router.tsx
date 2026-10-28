@@ -159,7 +159,9 @@ const workspacesOverviewRoute = createRoute({
   path: '/workspaces/overview',
   component: () => (
     <div className="flex h-full">
-      <WorkspaceSidebar />
+      <div className="hidden h-full md:flex">
+        <WorkspaceSidebar />
+      </div>
       <WorkspacesOverview />
     </div>
   ),

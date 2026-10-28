@@ -1,13 +1,15 @@
 import { useState, useEffect } from 'react';
 import { Link, useParams, useNavigate, useSearch } from '@tanstack/react-router';
 import { useTranslation } from 'react-i18next';
-import { Plus, Search, Eye, EyeOff } from 'lucide-react';
+import { Eye, EyeOff, PanelLeftOpen, Plus, Search } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useProjectsWithStats } from '@/lib/hooks/use-projects';
 import { useOwnerGrouping } from '@/lib/hooks/use-owner-grouping';
 import { useAppStore } from '@/stores/app';
 import { NewProjectDialog } from '@/components/dialogs/new-project-dialog';
 import { OwnerGroupSection } from '@/components/shared/owner-group-section';
+import { Sheet, SheetContent, SheetTitle } from '@/components/ui/sheet';
+import { Button } from '@/components/ui/button';
 import { ProjectDetailPage } from './project-detail-page';
 import type { Project } from '@/types/api';
 
@@ -115,6 +117,7 @@ export function ProjectLayout() {
   const { lastOpenedProject, setLastOpenedProject } = useAppStore();
   const [search, setSearch] = useState('');
   const [newProjectOpen, setNewProjectOpen] = useState(false);
+  const [mobileListOpen, setMobileListOpen] = useState(false);
   const navigate = useNavigate();
 
   // Filter by search, then order alphabetically by name (dictionary order).
@@ -128,6 +131,7 @@ export function ProjectLayout() {
 
   const params = useParams({ strict: false });
   const selectedProjectId = (params as Record<string, string | undefined>).id;
+  const selectedProject = (projects ?? []).find((p) => String(p.id) === selectedProjectId);
 
   // Deep link from elsewhere in the app (?tab=settings&section=board). The tab bar
   // lives in ProjectDetailPage, which is mounted here rather than by the route, so
@@ -184,6 +188,7 @@ export function ProjectLayout() {
         <Link
           to="/projects/$id"
           params={{ id: String(project.id) }}
+          onClick={() => setMobileListOpen(false)}
           className={cn(
             'block border-l-[3px] px-2.5 py-2 rounded-r-md transition-colors duration-150',
             isActive
@@ -225,10 +230,10 @@ export function ProjectLayout() {
     );
   };
 
-  return (
-    <div className="flex h-full">
-      {/* Left sidebar - Project list */}
-      <aside className="w-64 border-r border-warm-border bg-warm-muted flex flex-col h-full">
+  // Project rail content — shared by the desktop sidebar and the mobile
+  // slide-over so both stay in sync.
+  const sidebarContent = (
+    <>
         {/* Header — fixed 40px so it lines up exactly with the right-hand tab
             bar (project-detail-page) and the workspace header; both are h-10. */}
         <div className="flex h-10 shrink-0 items-center justify-between px-3 border-b border-warm-border">
@@ -299,18 +304,54 @@ export function ProjectLayout() {
             )
           )}
         </div>
+    </>
+  );
+
+  return (
+    <div className="flex h-full">
+      {/* Left sidebar - Project list (desktop) */}
+      <aside className="hidden w-64 shrink-0 flex-col border-r border-warm-border bg-warm-muted md:flex">
+        {sidebarContent}
       </aside>
 
       {/* Right content - Project detail */}
-      <div className="flex-1 min-w-0 flex flex-col">
-        {selectedProjectId ? (
-          <ProjectDetailPage
-            key={selectedProjectId}
-            projectId={selectedProjectId}
-            initialTab={initialTab}
-            initialSettingsSection={deepLink.section}
-          />
-        ) : isLoading ? (
+      <div className="flex min-w-0 flex-1 flex-col">
+        {/* Mobile: pick a project from a slide-over instead of a fixed rail. */}
+        <div className="flex h-10 shrink-0 items-center gap-2 border-b border-warm-border bg-warm-muted px-2 md:hidden">
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={() => setMobileListOpen(true)}
+            className="h-8 w-8 shrink-0"
+            aria-label={t('title')}
+            title={t('title')}
+          >
+            <PanelLeftOpen className="h-4 w-4" />
+          </Button>
+          <span className="min-w-0 flex-1 truncate text-sm font-medium text-warm-text">
+            {selectedProject?.name ?? t('title')}
+          </span>
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={() => setNewProjectOpen(true)}
+            className="h-8 w-8 shrink-0"
+            aria-label={t('detail.newProject')}
+            title={t('detail.newProject')}
+          >
+            <Plus className="h-4 w-4" />
+          </Button>
+        </div>
+
+        <div className="min-h-0 flex-1">
+          {selectedProjectId ? (
+            <ProjectDetailPage
+              key={selectedProjectId}
+              projectId={selectedProjectId}
+              initialTab={initialTab}
+              initialSettingsSection={deepLink.section}
+            />
+          ) : isLoading ? (
           <div className="flex items-center justify-center h-full text-muted-foreground text-sm">
             {t('common:actions.loading')}
           </div>
@@ -326,7 +367,18 @@ export function ProjectLayout() {
             </button>
           </div>
         ) : null}
+        </div>
       </div>
+
+      {/* Mobile project switcher */}
+      <Sheet open={mobileListOpen} onOpenChange={setMobileListOpen}>
+        <SheetContent side="left" className="w-4/5 max-w-xs gap-0 p-0">
+          <SheetTitle className="sr-only">{t('title')}</SheetTitle>
+          <div className="flex h-full flex-col overflow-hidden bg-warm-muted">
+            {sidebarContent}
+          </div>
+        </SheetContent>
+      </Sheet>
 
       <NewProjectDialog open={newProjectOpen} onOpenChange={setNewProjectOpen} />
     </div>

@@ -26,7 +26,7 @@ export function RootLayout() {
   useReloadShortcut();
 
   return (
-    <div className="h-screen flex flex-col">
+    <div className="flex h-dvh flex-col overflow-hidden">
       <LicenseBanner />
       <GlobalNav />
       <div className="flex-1 min-h-0 overflow-hidden">

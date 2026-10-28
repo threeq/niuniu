@@ -6,6 +6,7 @@ import { useWorkspaces } from '@/lib/hooks/use-workspaces';
 import { useAppStore } from '@/stores/app';
 import { useAuthStore } from '@/stores/auth-store';
 import { useWorkspacePanelStore } from '@/stores/workspace-panel-store';
+import { useIsMobile } from '@/hooks/use-media-query';
 import { WorkspaceSidebar } from './workspace-sidebar';
 import { NewWorkspaceDialog } from '@/components/dialogs/new-workspace-dialog';
 import { OwnerFilter } from '@/components/shared/owner-filter';
@@ -37,6 +38,7 @@ export function WorkspaceListPage() {
   const userId = currentUser?.id ?? 0;
   const [ownerFilter, setOwnerFilter] = useState<OwnerRef[] | 'all'>('all');
   const isSidebarOpen = useWorkspacePanelStore((s) => s.isSidebarOpen);
+  const isMobile = useIsMobile();
 
   useEffect(() => {
     if (isLoading || !workspaces) return;
@@ -60,7 +62,7 @@ export function WorkspaceListPage() {
   if (isLoading) {
     return (
       <div className="flex h-full">
-        {isSidebarOpen ? <WorkspaceSidebar /> : <SidebarExpandButton />}
+        {!isMobile && (isSidebarOpen ? <WorkspaceSidebar /> : <SidebarExpandButton />)}
         <div className="flex-1 flex items-center justify-center text-muted-foreground text-sm">
           {t('common:actions.loading')}
         </div>
@@ -72,7 +74,7 @@ export function WorkspaceListPage() {
   if (workspaces && workspaces.length > 0) {
     return (
       <div className="flex h-full">
-        {isSidebarOpen ? <WorkspaceSidebar /> : <SidebarExpandButton />}
+        {!isMobile && (isSidebarOpen ? <WorkspaceSidebar /> : <SidebarExpandButton />)}
         <div className="flex-1" />
       </div>
     );
@@ -81,7 +83,7 @@ export function WorkspaceListPage() {
   // Empty state
   return (
     <div className="flex h-full">
-      {isSidebarOpen ? <WorkspaceSidebar /> : <SidebarExpandButton />}
+      {!isMobile && (isSidebarOpen ? <WorkspaceSidebar /> : <SidebarExpandButton />)}
       <div className="flex-1 flex flex-col items-center justify-center gap-3 text-muted-foreground">
         <OwnerFilter value={ownerFilter} onChange={setOwnerFilter} userId={userId} />
         <p className="text-sm">{t('list.empty')}</p>

@@ -2,8 +2,10 @@ import React, { useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Group, Panel, Separator } from 'react-resizable-panels';
 import { useTranslation } from 'react-i18next';
-import { PanelLeftOpen } from 'lucide-react';
+import { ChevronLeft, PanelLeftOpen } from 'lucide-react';
 import { api } from '@/lib/api';
+import { Button } from '@/components/ui/button';
+import { useIsMobile } from '@/hooks/use-media-query';
 import type { Workspace, Issue } from '@/types/api';
 import { useWorkspacePanelStore, type PanelId } from '@/stores/workspace-panel-store';
 import { useAgentSSEStore } from '@/stores/agent-sse-store';
@@ -64,7 +66,8 @@ function PanelContent({ panelId, workspaceId, workspace, isArchived }: { panelId
 
 export function WorkspacePage({ workspaceId }: WorkspacePageProps) {
   const { t } = useTranslation('workspaces');
-  const { openPanels, isSidebarOpen, toggleSidebar } = useWorkspacePanelStore();
+  const { openPanels, isSidebarOpen, toggleSidebar, togglePanel } = useWorkspacePanelStore();
+  const isMobile = useIsMobile();
   const contentViewer = useWorkspacePanelStore((s) => s.contentViewer[workspaceId] ?? null);
   // Unified search (file names + contents). Lives on the page, not the toolbar,
   // so the Ctrl/Cmd+Shift+F and Ctrl/Cmd+P shortcuts work anywhere in the page.
@@ -143,22 +146,27 @@ export function WorkspacePage({ workspaceId }: WorkspacePageProps) {
   const viewer = isArchived ? null : contentViewer;
   const hasViewer = !!viewer;
   const hasSide = sidePanels.length > 0;
+  // Phones show one surface at a time; the most recently opened side panel wins.
+  const activeSidePanel = sidePanels.length > 0 ? sidePanels[sidePanels.length - 1] : null;
 
   return (
     <div className="flex h-full">
-      {isSidebarOpen ? (
-        <WorkspaceSidebar />
-      ) : (
-        <button
-          type="button"
-          onClick={toggleSidebar}
-          aria-label={t('sidebar.collapse.expand')}
-          title={t('sidebar.collapse.expand')}
-          className="self-start mt-2 ml-1 p-1 rounded text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
-        >
-          <PanelLeftOpen className="w-4 h-4" />
-        </button>
-      )}
+      {/* On phones the workspace list is reachable from the global menu, so the
+          fixed rail is hidden to give the chat the full width. */}
+      {!isMobile &&
+        (isSidebarOpen ? (
+          <WorkspaceSidebar />
+        ) : (
+          <button
+            type="button"
+            onClick={toggleSidebar}
+            aria-label={t('sidebar.collapse.expand')}
+            title={t('sidebar.collapse.expand')}
+            className="self-start mt-2 ml-1 p-1 rounded text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
+          >
+            <PanelLeftOpen className="w-4 h-4" />
+          </button>
+        ))}
 
       <div className="flex flex-col flex-1 min-w-0">
         <WorkspaceToolbar workspace={workspace} onOpenSearch={() => setSearchOpen(true)} />
@@ -181,7 +189,41 @@ export function WorkspacePage({ workspaceId }: WorkspacePageProps) {
 
         <div className="flex flex-1 min-h-0">
           <div className="flex-1 min-w-0">
-            {!hasViewer && !hasSide ? (
+            {isMobile ? (
+              // Phones cannot host a multi-column IDE: show one surface at a
+              // time, with a back bar returning to the chat.
+              viewer ? (
+                <ContentViewerPanel workspaceId={workspaceId} target={viewer} />
+              ) : activeSidePanel ? (
+                <div className="flex h-full flex-col">
+                  <div className="flex h-10 shrink-0 items-center gap-1 border-b border-warm-border bg-warm-muted px-2">
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-8 w-8"
+                      onClick={() => togglePanel(activeSidePanel)}
+                      aria-label={t('common:actions.back')}
+                      title={t('common:actions.back')}
+                    >
+                      <ChevronLeft className="h-4 w-4" aria-hidden="true" />
+                    </Button>
+                    <span className="truncate text-sm font-medium text-warm-text">
+                      {t(`toolbar.panels.${activeSidePanel}`)}
+                    </span>
+                  </div>
+                  <div className="min-h-0 flex-1">
+                    <PanelContent
+                      panelId={activeSidePanel}
+                      workspaceId={workspaceId}
+                      workspace={workspace}
+                      isArchived={isArchived}
+                    />
+                  </div>
+                </div>
+              ) : (
+                <ChatPanel key={workspaceId} workspace={workspace} readOnly={isArchived} />
+              )
+            ) : !hasViewer && !hasSide ? (
               <ChatPanel key={workspaceId} workspace={workspace} readOnly={isArchived} />
             ) : (
               // Stable per-panel `id`s are required so react-resizable-panels
@@ -250,7 +292,7 @@ export function WorkspacePage({ workspaceId }: WorkspacePageProps) {
             )}
           </div>
 
-          {!isArchived && <WorkspaceQuickActions workspace={workspace} />}
+          {!isArchived && !isMobile && <WorkspaceQuickActions workspace={workspace} />}
         </div>
 
         {/* #526·子A: per-workspace local executor entry. Desktop-remote only. */}
