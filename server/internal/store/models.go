@@ -351,9 +351,10 @@ type ExternalApiAudit struct {
 }
 
 type ExternalApiWritePref struct {
-	UserID     int64 `json:"user_id"`
-	ProviderID int64 `json:"provider_id"`
-	Enabled    int64 `json:"enabled"`
+	OwnerType  string `json:"owner_type"`
+	OwnerID    int64  `json:"owner_id"`
+	ProviderID int64  `json:"provider_id"`
+	Enabled    int64  `json:"enabled"`
 }
 
 type ExternalProvider struct {
@@ -1337,6 +1338,19 @@ type WorkspaceSchedule struct {
 	ActionKind     string       `json:"action_kind"`
 	CreatedAt      time.Time    `json:"created_at"`
 	UpdatedAt      time.Time    `json:"updated_at"`
+}
+
+type WorkspaceShare struct {
+	ID           int64        `json:"id"`
+	WorkspaceID  int64        `json:"workspace_id"`
+	TokenHash    string       `json:"token_hash"`
+	PasswordHash string       `json:"password_hash"`
+	ExpiresAt    time.Time    `json:"expires_at"`
+	CreatedBy    int64        `json:"created_by"`
+	RevokedAt    sql.NullTime `json:"revoked_at"`
+	LastAccessAt sql.NullTime `json:"last_access_at"`
+	AllowChat    int64        `json:"allow_chat"`
+	CreatedAt    time.Time    `json:"created_at"`
 }
 
 type WorkspaceStartQueue struct {

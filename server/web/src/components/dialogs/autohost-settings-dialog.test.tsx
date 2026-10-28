@@ -38,9 +38,9 @@ it('falls back to defaults when env is empty', async () => {
   render(<AutohostSettingsDialog open workspaceId="42" onOpenChange={() => {}} />);
 
   await waitFor(() => {
-    expect((screen.getByLabelText(/续跑次数/) as HTMLInputElement).value).toBe('12');
+    expect((screen.getByLabelText(/续跑次数/) as HTMLInputElement).value).toBe('36');
   });
-  expect((screen.getByLabelText(/错误重试次数/) as HTMLInputElement).value).toBe('3');
+  expect((screen.getByLabelText(/错误重试次数/) as HTMLInputElement).value).toBe('9');
 });
 
 it('saves trimmed prompts and normalized budgets, then closes', async () => {
@@ -78,8 +78,8 @@ it('rejects non-integer budget input and falls back to defaults on save', async 
 
   await waitFor(() => screen.getByLabelText(/续跑次数/));
 
-  // -5 fails the /^\d+$/ test → falls back to default '12'.
-  // "abc" likewise → '3' for error budget.
+  // -5 fails the /^\d+$/ test → falls back to default '36'.
+  // "abc" likewise → '9' for error budget.
   fireEvent.change(screen.getByLabelText(/续跑次数/), { target: { value: '-5' } });
   fireEvent.change(screen.getByLabelText(/错误重试次数/), { target: { value: 'abc' } });
   fireEvent.click(screen.getByRole('button', { name: /保存/ }));
@@ -89,8 +89,8 @@ it('rejects non-integer budget input and falls back to defaults on save', async 
       '/workspaces/42/env',
       expect.objectContaining({
         env: expect.objectContaining({
-          NIUNIU_AUTOHOST_BUDGET: '12',
-          NIUNIU_AUTOHOST_ERROR_BUDGET: '3',
+          NIUNIU_AUTOHOST_BUDGET: '36',
+          NIUNIU_AUTOHOST_ERROR_BUDGET: '9',
         }),
       })
     )

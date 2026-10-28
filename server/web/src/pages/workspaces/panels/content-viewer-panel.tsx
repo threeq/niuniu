@@ -80,14 +80,21 @@ export function ContentViewerPanel({ workspaceId, target }: ContentViewerPanelPr
   const refresh = useCallback(() => setRefreshTick((n) => n + 1), []);
 
   const path = 'path' in target ? target.path : '';
-  const title = target.kind === 'file' ? target.title ?? baseName(path) : baseName(path);
+  // The header shows the full workspace-relative path: a bare file name is
+  // ambiguous — different directories hold same-named files. The directory
+  // part renders dimmed and ellipsizes first, so the file name survives
+  // tight widths.
+  const dirEnd = path.lastIndexOf('/');
+  const dirPart = dirEnd >= 0 ? path.slice(0, dirEnd + 1) : '';
+  const filePart = dirEnd >= 0 ? path.slice(dirEnd + 1) : path;
 
   return (
     <div className="flex h-full min-w-0 flex-col bg-card">
       {/* Header: path/title + per-kind actions + close */}
       <div className="flex h-8 shrink-0 items-center gap-2 border-b border-border px-3">
-        <span className="min-w-0 flex-1 truncate font-mono text-xs text-foreground" title={path}>
-          {title}
+        <span className="flex min-w-0 flex-1 items-center font-mono text-xs" title={path}>
+          {dirPart && <span className="min-w-0 truncate text-muted-foreground">{dirPart}</span>}
+          <span className="shrink-0 text-foreground">{filePart}</span>
         </span>
         {/* Files and diagrams (excalidraw/drawio) can be submitted as an
             artifact or downloaded straight from the viewer header. */}
@@ -365,7 +372,15 @@ function useFileCommentActions(workspaceId: string, repo: string, relPath: strin
   const { t } = useTranslation('workspaces');
   const { comments, queueComment, sendComment, sendAllPending, setResolved } =
     useWorkspaceComments(workspaceId);
-  const fileComments = comments.filter((c) => c.repo === repo && c.file_path === relPath);
+  // The Changes-panel "resolved N/M" chip hides resolved comments here, so the
+  // threads left in the viewer (diff lines, file view, outdated banner) are the
+  // open ones. Counts on the toolbar/tree keep reading the full list upstream.
+  const hideResolved = useWorkspacePanelStore(
+    (s) => s.hideResolvedComments?.[workspaceId] ?? false,
+  );
+  const fileComments = comments
+    .filter((c) => c.repo === repo && c.file_path === relPath)
+    .filter((c) => !hideResolved || !c.resolved);
   const pendingCount = fileComments.filter(isPending).length;
   const [sendingAll, setSendingAll] = useState(false);
 
@@ -420,7 +435,8 @@ function useFileCommentActions(workspaceId: string, repo: string, relPath: strin
   };
 }
 
-/** The "send N queued comments to agent" button; renders nothing when empty. */
+/** The "send N queued comments to agent" button; renders nothing when empty.
+ *  Compact: icon + count, full label in the tooltip/aria-label. */
 function SendQueueButton({
   pendingCount,
   sending,
@@ -432,10 +448,20 @@ function SendQueueButton({
 }) {
   const { t } = useTranslation('workspaces');
   if (pendingCount === 0) return null;
+  const label = t('panels.changes.comments.sendQueue', { count: pendingCount });
   return (
-    <Button type="button" size="sm" className="h-7 gap-1.5" onClick={onClick} disabled={sending}>
-      <Send className="h-3.5 w-3.5" />
-      {t('panels.changes.comments.sendQueue', { count: pendingCount })}
+    <Button
+      type="button"
+      variant="outline"
+      size="sm"
+      className="h-6 gap-1 rounded-full px-2 text-[11px] font-medium text-muted-foreground hover:text-foreground"
+      onClick={onClick}
+      disabled={sending}
+      title={label}
+      aria-label={label}
+    >
+      <Send className="h-3 w-3" />
+      <span className="tabular-nums">{pendingCount}</span>
     </Button>
   );
 }

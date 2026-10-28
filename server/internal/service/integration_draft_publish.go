@@ -166,8 +166,9 @@ func (s *IntegrationDraftService) PublishDraft(ctx context.Context, in PublishDr
 	if row.Kind == DraftKindProvider {
 		var p ProviderDraftPayload
 		_ = json.Unmarshal([]byte(row.Payload), &p)
-		// The write gate is a per-user grant; set it to exactly what was approved.
-		if err := s.providers.SetWritePref(ctx, in.ByUser, applied.targetID, p.WriteEnabled); err != nil {
+		// The write gate is an OWNER-scoped grant; set it to exactly what was
+		// approved, for the owner the draft belongs to.
+		if err := s.providers.SetWritePref(ctx, row.OwnerType, row.OwnerID, applied.targetID, p.WriteEnabled); err != nil {
 			return nil, err
 		}
 	}
@@ -386,7 +387,7 @@ func (s *IntegrationDraftService) snapshot(ctx context.Context, row store.Integr
 			Whitelist:  prov.Whitelist,
 			OpenAPIURL: prov.OpenAPIURL,
 		}
-		if prefs, err := s.providers.ListWritePrefs(ctx, byUser); err == nil {
+		if prefs, err := s.providers.ListWritePrefs(ctx, row.OwnerType, row.OwnerID); err == nil {
 			p.WriteEnabled = prefs[prov.ID]
 		}
 		// The live functions belong to the snapshot too. A publish writes the

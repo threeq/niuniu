@@ -1978,6 +1978,48 @@ export interface WorkspaceFileHit {
   isDir: boolean
 }
 
+/** 工作空间分享（团队版）：一条只读外链。token/密码永不出现在此结构里。 */
+export interface WorkspaceShare {
+  id: number
+  workspaceId: number
+  expiresAt: string
+  revokedAt?: string | null
+  /** 观看者可否向工作空间 agent 发消息（默认 false）。 */
+  allowChat: boolean
+  createdBy: number
+  lastAccessAt?: string | null
+  createdAt: string
+}
+
+/** 创建分享的响应：raw token 只在此刻返回一次。 */
+export interface WorkspaceShareCreateResponse {
+  share: WorkspaceShare
+  /** /share/ws/<token> 的 token 部分（URL-safe）。 */
+  token: string
+  /** /share/ws/<token> 相对路径。 */
+  path: string
+  /** 配置了分享域名时的完整外链；为空时前端用 origin+path。 */
+  url: string
+}
+
+/** 公开分享元信息（/share/api/ws/:token/info|unlock）。 */
+export interface WorkspaceShareMeta {
+  expiresAt: string
+  passwordRequired: boolean
+  unlocked: boolean
+  allowChat: boolean
+  name?: string
+  issueTitle?: string
+}
+
+/** 公开分享聊天消息（只含 user/assistant 文本行）。 */
+export interface WorkspaceShareMessage {
+  id: string
+  role: 'user' | 'assistant'
+  content: string
+  createdAt: string
+}
+
 /** One matching line, with the surrounding context lines the backend returned. */
 export interface ContentSearchMatch {
   line: number

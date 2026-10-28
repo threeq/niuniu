@@ -259,7 +259,20 @@ func (a *employeeAnalyzer) resolveAgentContext(ctx context.Context, scope Employ
 // serve this CLI's protocol, or on any lookup error: the caller then keeps its
 // previous behavior (host / global one-shot preset credentials).
 func (a *employeeAnalyzer) projectProviderEnv(ctx context.Context, projectID int64, cliType string) []string {
-	proj, err := a.q.GetProject(ctx, projectID)
+	return projectProviderEnvQ(ctx, a.q, projectID, cliType)
+}
+
+// ProjectProviderEnv expands a project's own provider binding
+// (projects.env_provider_group / env_provider_id) into subprocess env for
+// one-shot claude calls made OUTSIDE any workspace (issue AI-suggest,
+// column-op suggest). Exported for the API handlers.
+func (s *KanbanService) ProjectProviderEnv(ctx context.Context, projectID int64, cliType string) []string {
+	return projectProviderEnvQ(ctx, s.q, projectID, cliType)
+}
+
+// projectProviderEnvQ is the shared expansion; see projectProviderEnv above.
+func projectProviderEnvQ(ctx context.Context, q *store.Queries, projectID int64, cliType string) []string {
+	proj, err := q.GetProject(ctx, projectID)
 	if err != nil {
 		return nil
 	}
@@ -278,7 +291,7 @@ func (a *employeeAnalyzer) projectProviderEnv(ctx context.Context, projectID int
 	} else {
 		params.OwnerID = proj.OwnerID
 	}
-	providers, err := a.q.ListEnvProvidersForOwners(ctx, params)
+	providers, err := q.ListEnvProvidersForOwners(ctx, params)
 	if err != nil {
 		return nil
 	}
@@ -297,7 +310,7 @@ func (a *employeeAnalyzer) projectProviderEnv(ctx context.Context, projectID int
 	} else {
 		accParams.OwnerID = proj.OwnerID
 	}
-	accounts, _ := a.q.ListEnvAccountsForOwners(ctx, accParams)
+	accounts, _ := q.ListEnvAccountsForOwners(ctx, accParams)
 
 	out := make([]string, 0, 8)
 	for k, v := range sceneenv.ExpandProvider(chosen, cliType, accounts, false /*preserveRef*/) {

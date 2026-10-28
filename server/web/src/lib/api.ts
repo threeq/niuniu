@@ -2,8 +2,8 @@ import { toast } from 'sonner'
 import i18n from '@/i18n'
 import {
   getAccessToken,
+  logoutAndRedirect,
   refreshAccessToken,
-  useAuthStore,
   isAccessTokenNearExpiry,
 } from '@/stores/auth-store'
 import type {
@@ -71,6 +71,8 @@ import type {
   SkillActionResult,
   MfaPolicy,
   WorkspaceFileHit,
+  WorkspaceShare,
+  WorkspaceShareCreateResponse,
   ContentSearchResponse,
   ContentSearchOptions,
   CapabilityModuleListResponse,
@@ -206,8 +208,7 @@ export async function apiFetch<T>(
     // looping until the user manually clears localStorage.
     if (response.status === 401) {
       if (token) {
-        useAuthStore.getState().logout();
-        window.location.href = '/login';
+        logoutAndRedirect();
       }
       throw new ApiError(401, 'Session expired', {});
     }
@@ -715,6 +716,23 @@ export const api = {
       `/workspaces/${workspaceId}/resolve-file`,
       { params: { ref }, suppressError: true },
     ),
+
+  // Workspace shares（团队版）— 时效+密码的只读外链管理。
+  createWorkspaceShare: (workspaceId: string, password: string, expiresAt: string, allowChat: boolean) =>
+    api.post<WorkspaceShareCreateResponse>(`/workspaces/${workspaceId}/shares`, {
+      password,
+      expiresAt,
+      allowChat,
+    }),
+
+  listWorkspaceShares: (workspaceId: string) =>
+    api.get<{ shares: WorkspaceShare[] }>(`/workspaces/${workspaceId}/shares`),
+
+  patchWorkspaceShare: (workspaceId: string, shareId: number, allowChat: boolean) =>
+    api.patch<void>(`/workspaces/${workspaceId}/shares/${shareId}`, { allowChat }),
+
+  revokeWorkspaceShare: (workspaceId: string, shareId: number) =>
+    api.delete<void>(`/workspaces/${workspaceId}/shares/${shareId}`),
 
   // File-CONTENT (grep) search. Errors are surfaced to the caller rather than
   // swallowed: a failed content search must not look like "no matches".

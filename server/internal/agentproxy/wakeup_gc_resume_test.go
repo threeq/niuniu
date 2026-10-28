@@ -112,3 +112,102 @@ func TestGCLeavesLiveLoopAlone(t *testing.T) {
 		t.Fatalf("status hook must not fire while a live loop owns the workspace, got %v", hook.events)
 	}
 }
+
+// fakeWaitSched is a RateLimitScheduler stub whose HasArmedAutoResume is
+// switchable, so tests can model "a live resume backs the wait flag" vs "the
+// promise is dead".
+type fakeWaitSched struct{ armed bool }
+
+func (f *fakeWaitSched) OnRateLimited(ctx context.Context, workspaceID int64, resetsAtUnix int64) {}
+func (f *fakeWaitSched) OnAutohostWait(ctx context.Context, workspaceID int64, runAtUnix int64, message string) bool {
+	return true
+}
+func (f *fakeWaitSched) CancelAutoResume(ctx context.Context, workspaceID int64) {}
+func (f *fakeWaitSched) HasArmedAutoResume(ctx context.Context, workspaceID int64) bool {
+	return f.armed
+}
+
+// Regression (长任务卡「运行中」): scheduleBgWaitResume sets autohostScheduledWait
+// and promises a scheduler resume will re-enter SendLoop. When that promise
+// dies (its one-shot timer was consumed by a busy-skip, lost to a restart, or
+// never registered), the flag keeps finalize deferred (badge stuck 运行中) and
+// the Enqueue gate closed (every message stuck in 排队) FOREVER — nothing else
+// re-checks it. The GC must verify the promise and, when dead, clear the flag
+// and run the finalize tail the deferred finalize skipped.
+func TestGCClearsDeadAutohostWaitPromiseAndFinalizes(t *testing.T) {
+	f := newWakeupGCSession(t)
+	s := f.WorkspaceSession
+	hook := f.hook
+
+	s.mu.Lock()
+	s.autohostScheduledWait = true
+	s.mu.Unlock()
+
+	// parent without a rateLimitSched → no armed resume can exist. No live
+	// loop, empty queue, nothing in inflight — exactly the stranded shape.
+	p := &AgentProxy{sessions: map[int64]*WorkspaceSession{s.workspaceID: s}, hub: s.hub}
+	s.parent = p
+	p.gcSessionInflight(s, time.Now())
+
+	if len(hook.events) != 1 || hook.events[0] != "done" {
+		t.Fatalf("status hook events = %v, want exactly [done] — a dead wait promise must not hold the workspace running", hook.events)
+	}
+	s.mu.Lock()
+	waiting := s.autohostScheduledWait
+	s.mu.Unlock()
+	if waiting {
+		t.Fatal("dead promise: autohostScheduledWait must be cleared")
+	}
+}
+
+// Same dead promise, but the user queued a message meanwhile: clearing the
+// flag must also unstick the queue — the GC drains the first message into a
+// fresh SendLoop instead of finalizing over a non-empty queue.
+func TestGCDeadPromiseDrainsQueue(t *testing.T) {
+	f := newWakeupGCSession(t)
+	s := f.WorkspaceSession
+	hook := f.hook
+	ctx := context.Background()
+
+	s.mu.Lock()
+	s.autohostScheduledWait = true
+	s.mu.Unlock()
+	if _, _, err := s.Enqueue(ctx, "继续做后面的任务", ""); err != nil {
+		t.Fatalf("enqueue: %v", err)
+	}
+
+	p := &AgentProxy{sessions: map[int64]*WorkspaceSession{s.workspaceID: s}, hub: s.hub}
+	s.parent = p
+	p.gcSessionInflight(s, time.Now())
+
+	if got := s.PendingCount(ctx); got != 0 {
+		t.Fatalf("queued message must be taken over once the dead promise is cleared, %d still pending", got)
+	}
+	if len(hook.events) != 0 {
+		t.Fatalf("must resume into a loop, not finalize, when the queue has work — got %v", hook.events)
+	}
+}
+
+// The happy-path guard: when a live resume IS armed behind the wait flag, the
+// GC must keep deferring to it (the workspace legitimately stays running).
+func TestGCArmedAutohostWaitStaysRunning(t *testing.T) {
+	f := newWakeupGCSession(t)
+	s := f.WorkspaceSession
+	hook := f.hook
+
+	s.mu.Lock()
+	s.autohostScheduledWait = true
+	s.mu.Unlock()
+
+	p := &AgentProxy{
+		sessions:       map[int64]*WorkspaceSession{s.workspaceID: s},
+		hub:            s.hub,
+		rateLimitSched: &fakeWaitSched{armed: true},
+	}
+	s.parent = p
+	p.gcSessionInflight(s, time.Now())
+
+	if len(hook.events) != 0 {
+		t.Fatalf("an armed resume owns re-entry — GC must not finalize, got %v", hook.events)
+	}
+}

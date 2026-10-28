@@ -125,7 +125,7 @@ func TestPrecheckCallReportsEgressDataSummary(t *testing.T) {
 	e := newVerifyEnv(t, http.StatusOK)
 	prov := e.seedProvider(t, "drysummary", probeContract, true)
 	ctx := context.Background()
-	require.NoError(t, e.provSvc.SetWritePref(ctx, e.userID, prov.ID, true))
+	require.NoError(t, e.provSvc.SetWritePref(ctx, "user", e.userID, prov.ID, true))
 
 	pre, err := e.svc.PrecheckCall(ctx, service.ProxyInput{
 		UserID: e.userID, Provider: "drysummary", Method: "POST", Path: "/items",

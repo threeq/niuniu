@@ -58,9 +58,9 @@ func (h *PromptGenHandler) SuggestColumnOp(c *gin.Context) {
 		return
 	}
 
-	if !agentproxy.ClaudeCLIAvailable() {
+	if !agentproxy.NiuniuAgentAvailable() {
 		c.AbortWithStatusJSON(http.StatusServiceUnavailable, gin.H{
-			"error": gin.H{"code": "CLI_UNAVAILABLE", "message": "claude CLI not available"},
+			"error": gin.H{"code": "CLI_UNAVAILABLE", "message": "niuniu-agent CLI not available"},
 		})
 		return
 	}
@@ -79,9 +79,9 @@ func (h *PromptGenHandler) SuggestColumnOp(c *gin.Context) {
 		configDir,
 	)
 	if err != nil {
-		if !agentproxy.ClaudeCLIAvailable() {
+		if !agentproxy.NiuniuAgentAvailable() {
 			c.AbortWithStatusJSON(http.StatusServiceUnavailable, gin.H{
-				"error": gin.H{"code": "CLI_UNAVAILABLE", "message": "claude CLI not available"},
+				"error": gin.H{"code": "CLI_UNAVAILABLE", "message": "niuniu-agent CLI not available"},
 			})
 			return
 		}

@@ -269,10 +269,11 @@ export function ChatPanel({ workspace, readOnly }: ChatPanelProps) {
               }
             }
             // Queue-dequeued / scheduler / harness user echoes have no
-            // optimistic bubble to reconcile against. Parse attachments from
-            // the SSE event so the preview renders alongside the message.
+            // optimistic bubble to reconcile against; assistant image messages
+            // (codex imagegen) carry attachments the same way. Parse from the
+            // SSE event so previews render alongside either.
             let echoAttachments: ChatAttachment[] | undefined;
-            if (msg.role === 'user' && msg.attachments) {
+            if (msg.attachments) {
               try { echoAttachments = JSON.parse(msg.attachments); } catch { /* ignore */ }
             }
             return [

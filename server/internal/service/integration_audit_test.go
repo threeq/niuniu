@@ -309,7 +309,7 @@ func TestExternalProxy_AuditStoresBodyFingerprintNotBody(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create provider: %v", err)
 	}
-	if err := provSvc.SetWritePref(ctx, env.UserA, prov.ID, true); err != nil {
+	if err := provSvc.SetWritePref(ctx, "user", env.UserA, prov.ID, true); err != nil {
 		t.Fatalf("enable writes: %v", err)
 	}
 	if _, err := credSvc.Create(ctx, service.ExternalCredentialUpsertInput{

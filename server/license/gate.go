@@ -10,6 +10,10 @@ const (
 	// FeatureOrg 是多租户组织（organizations / org_members / org 作用域资源）。
 	// 开源个人版返回 false（单用户）；企业版返回 true。
 	FeatureOrg = "org"
+	// FeatureWorkspaceShare 是工作空间分享（/share/ws/:token，时效+密码的只读
+	// 会话外链）。开源个人版返回 false（本地单机无对外分享场景）；企业版按
+	// license 开启。
+	FeatureWorkspaceShare = "workspace_share"
 )
 
 // Gate 是核心装配依赖的"许可证契约"（接缝）。
@@ -52,6 +56,8 @@ func (NopGate) FeatureEnabled(feature string) bool {
 	switch feature {
 	case FeatureOrg:
 		return false // 开源个人版：多租户组织禁用，单用户免费
+	case FeatureWorkspaceShare:
+		return false // 开源个人版：工作空间分享禁用（团队版能力）
 	default:
 		return true // 其余功能（Tier 2/3 预留）默认可用
 	}

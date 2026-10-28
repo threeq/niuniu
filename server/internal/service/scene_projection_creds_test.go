@@ -194,7 +194,11 @@ func TestResolveProjectionCredentials_ProxiesHTTPHeaders(t *testing.T) {
 	claims, err := proxy.openToken(token)
 	require.NoError(t, err)
 	assert.Equal(t, "kb", claims.ServerName)
-	assert.NotContains(t, token, "kb", "even the server name is sealed, not readable")
+	// The claims are sealed (AEAD), not merely encoded — assert the property
+	// that actually matters: no plaintext secret leaks into the token. A
+	// substring check on the short server name would be meaningless here: the
+	// token is base64 ciphertext, so any 2-character string appears by chance.
+	assert.NotContains(t, token, "sk-kb-secret-123", "no plaintext secret in the token")
 
 	// The rendered config JSON must not contain the plaintext secret anywhere.
 	raw, err := json.Marshal(resolved["kb"])

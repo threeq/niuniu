@@ -257,12 +257,27 @@ func (s *ExternalProxyService) Call(ctx context.Context, in ProxyInput) (*ProxyO
 		return nil, fmt.Errorf("provider %q is disabled", in.Provider)
 	}
 
-	// 2. Single per-user write gate: write_enabled ON authorizes everything;
-	// write_enabled OFF authorizes read-only contract operations plus the
-	// provider's curated whitelist (usually GET *). Failing closed on DB errors
-	// (missing-row is the normal first-time case) but logging the unexpected
-	// ones so operators can spot a broken store.
-	writeEnabled := s.writeEnabledFor(ctx, in.UserID, prov.ID)
+	// 2. Single per-OWNER gate: write_enabled ON bypasses everything;
+	// write_enabled OFF falls back to read-only contract operations plus the
+	// provider's curated whitelist (usually GET *), so reads keep working
+	// without any opt-in. The scope is the WORKSPACE's owner ('user' personal
+	// space / 'org') — NOT the calling user — so an org-level grant governs
+	// every member's agent running in that org's workspaces, matching how the
+	// Settings toggle presents it. SPA direct calls (no workspace) scope to the
+	// caller's personal owner. Failing closed on DB errors (missing-row is the
+	// normal first-time case) but logging the unexpected ones so operators can
+	// spot a broken store.
+	ownerType, ownerID := s.writePrefScope(ctx, in)
+	prefs, err := s.q.GetAPIWritePrefs(ctx, store.GetAPIWritePrefsParams{
+		OwnerType:  ownerType,
+		OwnerID:    ownerID,
+		ProviderID: prov.ID,
+	})
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		slog.Warn("external proxy write-prefs lookup failed; defaulting to write_enabled=false",
+			"provider", in.Provider, "owner_type", ownerType, "owner_id", ownerID, "error", err)
+	}
+	writeEnabled := err == nil && prefs.Enabled == 1
 
 	// 3. Resolve the target operation and authorize it at egress. This is the
 	// operation-level authorization (issue #737): a contract operation is the
@@ -790,18 +805,19 @@ func (s *ExternalProxyService) resolveCredential(ctx context.Context, in ProxyIn
 	return s.credSvc.GetByID(ctx, creds[0].ID, "user", in.UserID, in.UserID)
 }
 
-// writeEnabledFor resolves the per-user "Allow writes" toggle for a provider.
-// Missing row is the normal first-time case (=> false, fail closed); any other
-// DB error is logged and also treated as false so a broken store can never
-// silently open writes.
-func (s *ExternalProxyService) writeEnabledFor(ctx context.Context, userID, providerID int64) bool {
+// writeEnabledFor resolves the owner-scoped "Allow writes" toggle for a
+// provider. Missing row is the normal first-time case (=> false, fail closed);
+// any other DB error is logged and also treated as false so a broken store can
+// never silently open writes.
+func (s *ExternalProxyService) writeEnabledFor(ctx context.Context, ownerType string, ownerID, providerID int64) bool {
 	prefs, err := s.q.GetAPIWritePrefs(ctx, store.GetAPIWritePrefsParams{
-		UserID:     userID,
+		OwnerType:  ownerType,
+		OwnerID:    ownerID,
 		ProviderID: providerID,
 	})
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		slog.Warn("external proxy write-prefs lookup failed; defaulting to write_enabled=false",
-			"provider_id", providerID, "user_id", userID, "error", err)
+			"provider_id", providerID, "owner_type", ownerType, "owner_id", ownerID, "error", err)
 	}
 	return err == nil && prefs.Enabled == 1
 }
@@ -838,6 +854,21 @@ func (s *ExternalProxyService) auditOrgCredentialUse(ctx context.Context, cred *
 	}); err != nil {
 		slog.Warn("org credential usage audit write failed", "credential_id", cred.ID, "error", err)
 	}
+}
+
+// writePrefScope resolves the owner scope the write toggle is read under.
+// In-workspace MCP agents (WorkspaceID>0) use the workspace's owner — the
+// same grant the Settings toggle writes for that personal space / org. SPA
+// direct calls (WorkspaceID==0, settings self-test) scope to the caller's
+// personal owner. On workspace lookup failure the caller's personal owner is
+// used, which fails closed (no prefs row → whitelist-only).
+func (s *ExternalProxyService) writePrefScope(ctx context.Context, in ProxyInput) (string, int64) {
+	if in.WorkspaceID > 0 {
+		if ws, err := s.q.GetWorkspace(ctx, in.WorkspaceID); err == nil && ws.OwnerType != "" && ws.OwnerID > 0 {
+			return ws.OwnerType, ws.OwnerID
+		}
+	}
+	return "user", in.UserID
 }
 
 // gateAllows is the single permission predicate. Pure function so it can

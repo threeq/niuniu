@@ -224,7 +224,9 @@
       "writeEnabledHint": "關閉：只允許預設安全集合的介面（通常是隻讀 GET）。開啟：AI 可以呼叫任意 method / 任意 path，請確認完全信任此 Provider 再開。",
       "writeEnabledOn": "已開啟 {{name}} 的完全訪問許可權",
       "writeEnabledOff": "已關閉 {{name}} 的完全訪問，僅保留預設安全集合",
-      "writeWarning": "預設只放行各 Provider 的安全集合（通常是 GET 只讀）。開啟「允許寫入」後，AI 對該 Provider 擁有任意 method / 任意 path 的完整呼叫權，請按 Provider 單獨評估再開。",
+      "writeWarning": "預設只放行各 Provider 的安全集合（通常是 GET 只讀）。開啟「允許寫入」後，AI 對該 Provider 擁有任意 method / 任意 path 的完整呼叫權，請按 Provider 單獨評估再開。授權按歸屬生效：個人空間只作用於個人工作空間的 AI，組織授權對該組織下所有成員的工作空間 AI 生效。",
+      "writeScopeLabel": "寫入授權歸屬",
+      "writeScopePersonal": "個人空間",
       "empty": "尚未配置 Provider。點選下方按鈕新增。",
       "loading": "載入中…",
       "addButton": "新增 Provider",
@@ -361,7 +363,8 @@
     "imbot": "IM 機器人",
     "harness": "工程規範",
     "about": "關於",
-    "providerUsage": "用量統計"
+    "providerUsage": "用量統計",
+    "share": "分享"
   },
   "capability": {
     "title": "能力配置",
@@ -533,15 +536,15 @@
     "perRepoNote": "想為某個倉庫單獨配置作者名/郵箱？請開啟該倉庫的「設定」tab 設定倉庫級別的覆蓋（例如：公司倉庫用工作郵箱，其它用個人郵箱）。"
   },
   "gitCredentials": {
-    "title": "Git 遠端憑證（SSH）",
-    "description": "為每個倉庫 host 上傳 SSH 私鑰；Claude 在 workspace 裡 push / pull / clone 時會自動使用對應 host 的 key 完成鑑權。私鑰在資料庫中以 AES-GCM 加密儲存，僅在 PTY 啟動時臨時物化到 per-PTY 目錄。",
-    "hostHint": "每個 host 一把金鑰。支援萬用字元（如 \"*\"）作為 catch-all 配置。",
+    "title": "Git 遠端憑證",
+    "description": "為每個倉庫 host 配置 SSH 私鑰或訪問令牌：新建倉庫克隆、以及在 workspace 裡 push / pull 時自動使用對應 host 的憑證完成鑑權。金鑰在資料庫中以 AES-GCM 加密儲存。",
+    "hostHint": "每個 host 一把憑證。支援萬用字元（如 \"*\"）作為 catch-all 配置。",
     "add": "新增憑證",
-    "addTitle": "新增 SSH 憑證",
-    "addDescription": "貼上 OpenSSH 格式的未加密私鑰。niuniu 會自動推算並儲存對應的公鑰 + 指紋供你後續核對。",
+    "addTitle": "新增 Git 遠端憑證",
+    "addDescription": "SSH 私鑰用於 git@ 地址；訪問令牌用於 https:// 地址（新建倉庫克隆與 workspace 內推拉都會自動使用）。",
     "loadFailed": "無法載入憑證。",
     "loading": "載入中…",
-    "empty": "暫無 SSH 憑證。",
+    "empty": "暫無 Git 遠端憑證。",
     "saved": "已儲存。",
     "save": "儲存",
     "saving": "儲存中…",
@@ -551,26 +554,34 @@
     "createFailed": "新增失敗：{{detail}}",
     "deleted": "已刪除。",
     "deleteFailed": "刪除失敗：{{detail}}",
-    "deleteTitle": "刪除 SSH 憑證",
-    "deleteConfirm": "確認要刪除 {{host}} 的 SSH 金鑰？在你重新新增之前，使用該 host 的 workspace 將無法完成 {{host}} 的鑑權。",
+    "deleteTitle": "刪除 Git 遠端憑證",
+    "deleteConfirm": "確認要刪除 {{host}} 的憑證？在你重新新增之前，使用該 host 的 workspace 將無法完成 {{host}} 的鑑權。",
     "deleteAria": "刪除 {{host}} 的憑證",
+    "kind": {
+      "ssh": "SSH 私鑰",
+      "token": "訪問令牌"
+    },
     "col": {
       "host": "Host",
       "username": "使用者",
+      "kind": "型別",
       "fingerprint": "指紋"
     },
     "field": {
       "host": "Host",
-      "hostHint": "例如 github.com、gitlab.com、gitea.example.com",
+      "hostHint": "例如 github.com、cnb.cool、gitea.example.com（不帶 https:// 字首；帶協議的會自動歸一化）",
       "username": "使用者名稱",
-      "usernameHint": "幾乎都是 \"git\"；只有自建 SSH 服務用了不同登入名時才需要改。",
+      "usernameHint": "SSH 憑證幾乎都是 \"git\"；HTTPS 令牌按平臺填寫（如 cnb.cool 填 cnb）。",
       "privateKey": "私鑰（PEM）",
-      "privateKeyHint": "貼上未加密的私鑰。帶密碼的私鑰不支援——請先在本地解密。"
+      "privateKeyHint": "貼上未加密的私鑰。帶密碼的私鑰不支援——請先在本地解密。",
+      "secret": "訪問令牌",
+      "secretHint": "平臺的訪問令牌（access token）。僅用於 https:// 地址的克隆與推拉鑑權，不會寫入遠端 URL 持久化。"
     },
-    "securityNote": "私鑰在資料庫中使用 AES-GCM + integration master secret 加密；永遠不會返回給前端、不會寫入 .git/config，只在 session 啟動時物化到 /tmp/<per-PTY-dir>/id_<host>（0600 許可權，PTY 退出時清理）。",
+    "securityNote": "憑證在資料庫中使用 AES-GCM + integration master secret 加密；永遠不會返回給前端。SSH 私鑰在會話啟動時物化到資料目錄（0600，僅目錄屬主可讀）；令牌只在克隆/推拉時臨時注入，不寫入 .git/config。",
     "errInvalidPrivateKey": "貼上的內容無法識別為有效的 SSH 私鑰。",
     "errPassphraseRequired": "不支援帶密碼的私鑰。請先在本地解密。",
     "errInvalidHost": "Host 必須是一個不含空格 / shell 元字元的單一 token。",
+    "errInvalidKind": "憑證型別無效。",
     "errHostConflict": "你已經為這個 host 配置了憑證。請先刪除已有的再新增新的。"
   },
   "security": {
@@ -1428,5 +1439,14 @@
       "clearedManually": "（手動解除）",
       "empty": "所選區間內沒有限流記錄"
     }
+  },
+  "share": {
+    "title": "工作空間分享",
+    "description": "配置分享連結的訪問域名（僅團隊版）。生成的分享連結形如 <域名>/share/ws/<token>。",
+    "baseUrlLabel": "訪問域名",
+    "baseUrlPlaceholder": "https://share.example.com",
+    "baseUrlHint": "留空時使用當前服務的訪問地址。填寫主機名或完整 http(s) 地址。",
+    "saveFailed": "儲存失敗",
+    "saved": "已儲存"
   }
 }

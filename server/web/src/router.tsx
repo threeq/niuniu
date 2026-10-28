@@ -30,6 +30,7 @@ function lazyNamed<M, K extends keyof M>(loader: () => Promise<M>, name: K): M[K
 }
 
 const ImBotOnboardingPage = lazyNamed(() => import('./pages/imbot/onboarding'), 'ImBotOnboardingPage');
+const WorkspaceSharePage = lazyNamed(() => import('./pages/share/workspace-share-page'), 'WorkspaceSharePage');
 
 const CredentialOnboardingPage = lazyNamed(
   () => import('./pages/credential/onboarding'),
@@ -92,6 +93,17 @@ const credentialOnboardingRoute = createRoute({
   component: () => {
     const { token } = credentialOnboardingRoute.useParams();
     return <CredentialOnboardingPage token={token} />;
+  },
+});
+
+// 工作空间分享公开页（团队版）——与 imbot onboarding 同类：挂在 rootRoute 上、
+// 无 requireAuth，凭 token+密码+解锁 cookie 访问。
+const workspaceShareRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/share/ws/$token',
+  component: () => {
+    const { token } = workspaceShareRoute.useParams();
+    return <WorkspaceSharePage token={token} />;
   },
 });
 
@@ -374,6 +386,7 @@ const routeTree = rootRoute.addChildren([
   loginRoute,
   imbotOnboardingRoute,
   credentialOnboardingRoute,
+  workspaceShareRoute,
   layoutRoute.addChildren([
     indexRoute,
     workspacesRoute,

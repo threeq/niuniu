@@ -1089,9 +1089,9 @@ func (h *KanbanHandler) SuggestGoalCondition(c *gin.Context) {
 			return
 		}
 	}
-	if !agentproxy.ClaudeCLIAvailable() {
+	if !agentproxy.NiuniuAgentAvailable() {
 		c.AbortWithStatusJSON(http.StatusServiceUnavailable, gin.H{
-			"error": gin.H{"code": "CLI_UNAVAILABLE", "message": "claude CLI not available"},
+			"error": gin.H{"code": "CLI_UNAVAILABLE", "message": "niuniu-agent CLI not available"},
 		})
 		return
 	}
@@ -1103,31 +1103,27 @@ func (h *KanbanHandler) SuggestGoalCondition(c *gin.Context) {
 		return
 	}
 
-	// Resolve a Claude account CLAUDE_CONFIG_DIR for this user so the
-	// subprocess inherits the same auth niuniu's workspace agents use.
-	// Empty → fall back to claude CLI's native home; on most niuniu hosts
-	// that won't have working creds and the call will fail with 502.
-	//
-	// Keep the full account around (not just configDir) so failure paths
-	// can name the account that was used — opaque "exit status 1" wasted
-	// hours of operator time when the cause was a wrong account selection
-	// (rate-limit, expired auth, etc.). accountLabel is the human-readable
-	// "<name> (id=<id>)" or "default ~/.claude" so logs and 502 bodies
-	// point at the exact account, not just the config_dir path.
+	// Resolve the ISSUE's project default provider (projects.env_provider_*)
+	// and expand it into subprocess env. One-shot calls run OUTSIDE any
+	// workspace, so without this they fall back to the host's native
+	// ~/.claude — which fails with an expired OAuth session on hosts where
+	// the project binding is the only working credential.
+	providerEnv := h.svc.ProjectProviderEnv(c.Request.Context(), detail.ProjectID, "niuniu")
 	configDir := ""
-	suggestion, err := agentproxy.SuggestGoalCondition(
+	suggestion, err := agentproxy.SuggestGoalConditionWithEnv(
 		c.Request.Context(),
 		detail.Title,
 		detail.Description.String,
 		configDir,
+		providerEnv,
 	)
 	if err != nil {
 		// CLI may have flipped to unavailable between the entry check and
 		// the spawn — surface 503 rather than a generic 502 so the SPA can
 		// show the right toast.
-		if !agentproxy.ClaudeCLIAvailable() {
+		if !agentproxy.NiuniuAgentAvailable() {
 			c.AbortWithStatusJSON(http.StatusServiceUnavailable, gin.H{
-				"error": gin.H{"code": "CLI_UNAVAILABLE", "message": "claude CLI not available"},
+				"error": gin.H{"code": "CLI_UNAVAILABLE", "message": "niuniu-agent CLI not available"},
 			})
 			return
 		}

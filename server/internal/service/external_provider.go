@@ -34,13 +34,13 @@ type ExternalProviderService struct {
 	// onImapWritePrefChange, when set, is invoked (async) after the imap
 	// provider's write-permission is toggled, so office-mail workspaces
 	// reproject their config.toml/permissions.deny to the new write state.
-	onImapWritePrefChange func(ctx context.Context, userID int64)
+	onImapWritePrefChange func(ctx context.Context, ownerType string, ownerID int64)
 }
 
 // SetImapWritePrefChangeHook wires a best-effort callback fired after the imap
 // provider's write-permission toggle (SetWritePref). Used to reproject the
-// user's office-mail workspaces so the toggle reaches the materialized files.
-func (s *ExternalProviderService) SetImapWritePrefChangeHook(fn func(ctx context.Context, userID int64)) {
+// owner's office-mail workspaces so the toggle reaches the materialized files.
+func (s *ExternalProviderService) SetImapWritePrefChangeHook(fn func(ctx context.Context, ownerType string, ownerID int64)) {
 	s.onImapWritePrefChange = fn
 }
 
@@ -233,11 +233,17 @@ func (s *ExternalProviderService) Delete(ctx context.Context, id int64) error {
 	return s.q.DeleteProvider(ctx, id)
 }
 
-// ListWritePrefs returns enabled flags for every (user_id, provider_id) pair
-// the user has explicitly touched. Provider ids absent from the result map
-// are treated as disabled by the proxy (writes default to off).
-func (s *ExternalProviderService) ListWritePrefs(ctx context.Context, userID int64) (map[int64]bool, error) {
-	rows, err := s.q.ListAPIWritePrefsForUser(ctx, userID)
+// ListWritePrefs returns enabled flags for every (owner, provider_id) pair
+// the owner has explicitly touched. The owner is a workspace owner scope
+// ('user' personal space or 'org') — NOT the browser user who flipped the
+// toggle: an org grant governs every member's agent running in that org's
+// workspaces. Provider ids absent from the result map are treated as
+// disabled by the proxy (writes default to off).
+func (s *ExternalProviderService) ListWritePrefs(ctx context.Context, ownerType string, ownerID int64) (map[int64]bool, error) {
+	rows, err := s.q.ListAPIWritePrefsForOwner(ctx, store.ListAPIWritePrefsForOwnerParams{
+		OwnerType: ownerType,
+		OwnerID:   ownerID,
+	})
 	if err != nil {
 		return nil, fmt.Errorf("list write prefs: %w", err)
 	}
@@ -248,15 +254,17 @@ func (s *ExternalProviderService) ListWritePrefs(ctx context.Context, userID int
 	return out, nil
 }
 
-// SetWritePref upserts a single (user_id, provider_id) row to the requested
-// enabled state. The proxy reads this at call time to gate non-GET methods.
-func (s *ExternalProviderService) SetWritePref(ctx context.Context, userID, providerID int64, enabled bool) error {
+// SetWritePref upserts a single (owner_type, owner_id, provider_id) row to
+// the requested enabled state. The proxy reads this at call time under the
+// WORKSPACE's owner scope to gate non-GET methods.
+func (s *ExternalProviderService) SetWritePref(ctx context.Context, ownerType string, ownerID, providerID int64, enabled bool) error {
 	v := int64(0)
 	if enabled {
 		v = 1
 	}
 	if err := s.q.UpsertAPIWritePrefs(ctx, store.UpsertAPIWritePrefsParams{
-		UserID:     userID,
+		OwnerType:  ownerType,
+		OwnerID:    ownerID,
 		ProviderID: providerID,
 		Enabled:    v,
 	}); err != nil {
@@ -265,12 +273,12 @@ func (s *ExternalProviderService) SetWritePref(ctx context.Context, userID, prov
 	// Toggling the imap provider's write-permission must reach office-mail's
 	// materialized config.toml (outgoing/SMTP) + permissions.deny, which only
 	// happens on reprojection. Fire the hook (async) when this is the imap
-	// provider so the user's office-mail workspaces refresh automatically.
+	// provider so the owner's office-mail workspaces refresh automatically.
 	if s.onImapWritePrefChange != nil {
 		var name string
 		if err := s.db.QueryRowContext(ctx,
 			`SELECT name FROM external_providers WHERE id = ?`, providerID).Scan(&name); err == nil && name == imapProviderName {
-			go s.onImapWritePrefChange(context.Background(), userID)
+			go s.onImapWritePrefChange(context.Background(), ownerType, ownerID)
 		}
 	}
 	return nil

@@ -493,7 +493,9 @@
         "openOnFile": "{{count}} open comment(s)",
         "allResolvedOnFile": "All {{count}} comment(s) resolved",
         "reviewProgress": "{{resolved}}/{{total}} resolved",
-        "reviewProgressHint": "Review progress: resolved / total. Independent of sending to the agent — delivered is not the same as fixed"
+        "reviewProgressHideHint": "Click to focus the review: the file tree keeps only files with comments, and resolved threads are hidden in the viewer",
+        "reviewProgressShowHint": "Review focus is on — click to show all files and comments",
+        "commentsOnlyEmpty": "No files with review comments"
       },
       "syncFromBranchPrompt": "Please merge the latest code from branch `{{sourceBranch}}` into the current branch `{{currentBranch}}` of the specific worktree below.\n\n⚠️ This workspace may contain multiple worktrees. Operate ONLY on the worktree below — do not switch to or `cd` into any other worktree:\n- Worktree name: {{worktreeName}}\n- Worktree absolute path: {{worktreePath}}\n- Current branch: {{currentBranch}}\n- Branch to merge in: {{sourceBranch}}\n\nFollow these steps. Always pin every git invocation with `git -C \"{{worktreePath}}\"` instead of relying on cwd:\n1. Run `git -C \"{{worktreePath}}\" status` to check the worktree is clean. If there are uncommitted changes, stop and ask me before continuing;\n2. Run `git -C \"{{worktreePath}}\" merge {{sourceBranch}}`;\n3. If there are merge conflicts: first list every conflicted file, then try to resolve them one by one (preserving both sides' intent, no lost changes), then commit with `git -C \"{{worktreePath}}\" commit --no-edit`. If you hit a conflict you cannot judge, stop and report the file and reason — do **not** run `git merge --abort`, leave the state for me;\n4. After a successful merge, briefly report: merge style (fast-forward or merge commit), new HEAD commit, and whether anything is still uncommitted."
     },
@@ -914,6 +916,9 @@
     "empty": "No pinned messages yet. Hover a message and click the pin icon to bookmark it.",
     "noPreview": "(no preview)",
     "locate": "Jump to message",
+    "copy": "Copy message content",
+    "copyDone": "Message content copied",
+    "copyFailed": "Failed to copy",
     "unpin": "Unpin",
     "unpinFailed": "Failed to unpin",
     "notLoaded": "This message isn't loaded yet — scroll up to load older messages."
@@ -1140,5 +1145,49 @@
   "gate": {
     "blocked": "Floor gate blocked completion",
     "blockedWith": "Floor gate blocked: {{name}} ({{reason}})"
+  },
+  "share": {
+    "toolbarButton": "Share",
+    "title": "Share workspace",
+    "description": "Create a password-protected, time-limited read-only link so external viewers can follow this workspace conversation in a browser.",
+    "passwordLabel": "Access password",
+    "generatePassword": "Regenerate password",
+    "expiryLabel": "Expires in",
+    "expiryHint": "The link stops working after expiry, at most 30 days.",
+    "expiry": {
+      "1h": "1 hour",
+      "24h": "24 hours",
+      "72h": "3 days",
+      "7d": "7 days",
+      "30d": "30 days"
+    },
+    "create": "Create share link",
+    "createFailed": "Failed to create share",
+    "linkLabel": "Share link",
+    "copyLink": "Copy link",
+    "copyPassword": "Copy password",
+    "copyFailed": "Copy failed",
+    "createdOnce": "Save the link and password now — the link cannot be viewed again after closing (create a new share to reset it).",
+    "activeList": "Active shares",
+    "revoke": "Revoke",
+    "revokeFailed": "Failed to revoke",
+    "expiresAt": "Expires: {{time}}",
+    "notFound": "This share does not exist or has expired",
+    "loadError": "Failed to load. Please retry.",
+    "passwordPromptTitle": "This share is password protected",
+    "passwordPromptHint": "Enter the share password to view the conversation",
+    "passwordPlaceholder": "Access password",
+    "wrongPassword": "Wrong password",
+    "unlock": "Unlock",
+    "readOnly": "Read-only share",
+    "empty": "No conversation content yet",
+    "allowChatLabel": "Allow conversation",
+    "allowChatShort": "Chat",
+    "allowChatHint": "Unlocked viewers can send messages to this workspace's AI assistant (consumes real quota, off by default).",
+    "allowChatUpdateFailed": "Failed to update chat permission",
+    "chatEnabled": "Conversational share",
+    "chatPlaceholder": "Type a message to this workspace's AI assistant…",
+    "chatSend": "Send",
+    "chatSendFailed": "Send failed. Please retry."
   }
 }

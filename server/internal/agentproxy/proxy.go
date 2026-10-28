@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"database/sql"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -164,6 +165,13 @@ type RateLimitScheduler interface {
 	// must not double-fire a continue prompt against a queue the user already
 	// drained. Best-effort; idempotent (no pending schedule → no-op).
 	CancelAutoResume(ctx context.Context, workspaceID int64)
+
+	// HasArmedAutoResume reports whether the autohost bg-wait promise is
+	// actually backed by a live resume (an autohost-wait one-shot schedule
+	// that is unfired, enabled, and still in the future). The GC consults it
+	// to detect a dead autohostScheduledWait promise — one whose timer was
+	// consumed or lost — before it strands the workspace "running" forever.
+	HasArmedAutoResume(ctx context.Context, workspaceID int64) bool
 }
 
 // SessionStateRecorder snapshots workspace git state when a session goes
@@ -346,6 +354,13 @@ type WorkspaceSession struct {
 	// JSON-RPC.
 	codexApp      *codexAppServerClient
 	codexThreadID string
+	// codexSpawnMu serializes ensureCodexAppServer's spawn. The alive check and
+	// the store of the new client are far apart (spawn does JSON-RPC initialize
+	// + thread resume, none of it under procMu), so two concurrent entries can
+	// both pass the check and start TWO app-servers — the second's thread
+	// resume then collides with the first's writer lock. Held across the whole
+	// check→spawn→store span.
+	codexSpawnMu sync.Mutex
 
 	// ompBackend is the reusable agentbackend.Backend driving omp workspaces
 	// (RPC over `omp --mode rpc`). Lazily created on the first omp turn; owned
@@ -2862,6 +2877,12 @@ func (s *WorkspaceSession) handleEvent(ctx context.Context, ev ParsedEvent, msgI
 	// agentID attributes events from this turn to the session's top-level
 	// workspace_agents row.
 	agentID := s.resolveAgentID(ev.ParentToolUseId)
+	// Agent-produced images (codex imagegen / image-view items) materialize
+	// into workspace files and go out as assistant attachment messages.
+	if len(ev.Images) > 0 {
+		s.emitAgentImages(ctx, ev, msgId, agentID)
+		return
+	}
 	switch ev.Type {
 	case "system":
 		if ev.Subtype == "init" && ev.SessionID != "" {
@@ -2898,6 +2919,8 @@ func (s *WorkspaceSession) handleEvent(ctx context.Context, ev ParsedEvent, msgI
 		} else if ev.Subtype == "api_retry" {
 			sysEv := NewOutputEvent(EventSystemInfo, fmt.Sprintf("API retry #%d: %s", ev.RetryAttempt, ev.RetryError), msgId, "system", s.workspaceID)
 			s.hub.Broadcast(s.workspaceID, sysEv)
+		} else if ev.Subtype == "image_generation_failed" {
+			s.hub.Broadcast(s.workspaceID, NewOutputEvent(EventSystemInfo, ev.Result, msgId, "system", s.workspaceID))
 		}
 
 	case "stream_event":
@@ -3891,6 +3914,10 @@ func (s *WorkspaceSession) killProcess() {
 	}
 	s.procMu.Unlock()
 	if codexApp != nil {
+		// Flag the death as deliberate BEFORE closing: the app-server's event
+		// loop reads this on process exit to keep an intentional kill from
+		// surfacing as "exited unexpectedly" in the chat.
+		codexApp.killRequested.Store(true)
 		_ = codexApp.Close()
 		slog.Info("agent: codex app-server killed", "workspaceID", s.workspaceID)
 	}
@@ -4084,6 +4111,141 @@ func (s *WorkspaceSession) emitActivity(agentID int64, ev OutputEvent) {
 }
 
 // persistAndBroadcast saves an OutputEvent to the database and broadcasts it.
+// chatAttachment mirrors the SPA's ChatAttachment (web/src/types/api.ts) so
+// agent messages can carry image attachments rendered by AttachmentPreview.
+type chatAttachment struct {
+	Path     string `json:"path"`
+	Type     string `json:"type"` // "upload" | "ref"
+	Name     string `json:"name"`
+	MimeType string `json:"mimeType,omitempty"`
+	Size     int64  `json:"size,omitempty"`
+}
+
+// agentImageDir is where agent-produced images land inside the workspace
+// (workspace-root-relative, matching ChatAttachment.path semantics). The
+// workspace root is a plain niuniu-managed directory — not a git repo — so a
+// dotdir keeps the images out of the way while staying fetchable through the
+// workspace file endpoint.
+const agentImageDir = ".niuniu-images"
+
+// emitAgentImages materializes agent-produced images (codex imagegen /
+// image-view items) into workspace files and surfaces them as ONE assistant
+// message with image attachments — rendered inline by AttachmentPreview.
+func (s *WorkspaceSession) emitAgentImages(ctx context.Context, ev ParsedEvent, msgId string, agentID int64) {
+	s.mu.Lock()
+	workDir := s.workDir
+	s.mu.Unlock()
+
+	atts := make([]chatAttachment, 0, len(ev.Images))
+	captions := make([]string, 0, len(ev.Images))
+	for i, img := range ev.Images {
+		att, cap, err := s.materializeAgentImage(workDir, img, i)
+		if err != nil {
+			slog.Warn("agent image: materialize failed", "workspaceID", s.workspaceID, "err", err)
+			continue
+		}
+		if att == nil {
+			continue
+		}
+		atts = append(atts, *att)
+		if cap != "" {
+			captions = append(captions, cap)
+		}
+	}
+	if len(atts) == 0 {
+		return
+	}
+	attJSON, err := json.Marshal(atts)
+	if err != nil {
+		slog.Warn("agent image: marshal attachments", "workspaceID", s.workspaceID, "err", err)
+		return
+	}
+	content := strings.Join(captions, "\n\n")
+	if content == "" {
+		content = "Generated image"
+	}
+	out := NewOutputEvent(EventText, content, msgId, "assistant", s.workspaceID)
+	out.Attachments = string(attJSON)
+	textMsgID := fmt.Sprintf("%s-img-%d", msgId, time.Now().UnixNano())
+	s.persistEventWithID(ctx, textMsgID, out, agentID)
+	s.hub.Broadcast(s.workspaceID, out)
+}
+
+// materializeAgentImage turns one ImageBlock into a chat attachment: inline
+// base64 is decoded and written under agentImageDir; path references are
+// re-based onto the workspace root (absolute paths outside it are rejected).
+func (s *WorkspaceSession) materializeAgentImage(workDir string, img adapter.ImageBlock, idx int) (*chatAttachment, string, error) {
+	if img.Path != "" {
+		rel := workspaceRelativePath(workDir, img.Path)
+		if rel == "" {
+			return nil, "", fmt.Errorf("image path outside workspace: %s", img.Path)
+		}
+		return &chatAttachment{
+			Path: rel,
+			Type: "ref",
+			Name: filepath.Base(rel),
+		}, img.Caption, nil
+	}
+	if img.Data == "" {
+		return nil, "", nil
+	}
+	raw, err := base64.StdEncoding.DecodeString(img.Data)
+	if err != nil {
+		return nil, "", fmt.Errorf("decode image: %w", err)
+	}
+	dir := filepath.Join(workDir, agentImageDir)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return nil, "", err
+	}
+	name := fmt.Sprintf("codex-%d-%d%s", time.Now().UnixMilli(), idx, imageExtFor(img.MimeType))
+	full := filepath.Join(dir, name)
+	if err := os.WriteFile(full, raw, 0o600); err != nil {
+		return nil, "", err
+	}
+	rel := filepath.ToSlash(filepath.Join(agentImageDir, name))
+	return &chatAttachment{
+		Path:     rel,
+		Type:     "upload",
+		Name:     name,
+		MimeType: img.MimeType,
+		Size:     int64(len(raw)),
+	}, img.Caption, nil
+}
+
+// workspaceRelativePath converts an agent-reported image path into a
+// workspace-root-relative slash path; "" when the path is absolute outside
+// workDir (not renderable through the workspace file endpoint).
+func workspaceRelativePath(workDir, p string) string {
+	p = strings.TrimPrefix(p, "file://")
+	if p == "" {
+		return ""
+	}
+	if !filepath.IsAbs(p) {
+		return filepath.ToSlash(filepath.Clean(p))
+	}
+	if workDir == "" {
+		return ""
+	}
+	rel, err := filepath.Rel(workDir, p)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return ""
+	}
+	return filepath.ToSlash(rel)
+}
+
+func imageExtFor(mime string) string {
+	switch mime {
+	case "image/jpeg":
+		return ".jpg"
+	case "image/gif":
+		return ".gif"
+	case "image/webp":
+		return ".webp"
+	default:
+		return ".png"
+	}
+}
+
 // agentID attributes the message to a workspace_agent (0 = unknown, stored as NULL).
 func (s *WorkspaceSession) persistAndBroadcast(ctx context.Context, ev OutputEvent, agentID int64) {
 	s.persistEvent(ctx, ev, agentID)
@@ -4589,17 +4751,46 @@ func (p *AgentProxy) gcSessionInflight(s *WorkspaceSession, now time.Time) {
 		s.emitBgTaskNotify()
 	}
 
-	// An expired wakeup whose deferred finalize held the workspace "running":
-	// honor the resume promise now. Only when no live loop exists — a running
-	// SendLoop owns the lifecycle (its own dequeue drains the queue).
-	if !expiredWakeup {
-		return
-	}
+	// Reconcile the deferred-finalize promises. Two things can hold this
+	// workspace "running" with the loop gone: an expired wakeup that was just
+	// swept (its resume promise is GC-backed — handled below), and the autohost
+	// bg-wait flag (autohostScheduledWait), which holds BOTH finalize
+	// (finalizeSendLoopTurn) and the Enqueue gate closed on the promise that a
+	// scheduler resume will re-enter SendLoop. That promise can die — its
+	// one-shot timer is consumed by a busy-skip, lost to a restart, or never
+	// registered — and nothing else ever re-checked it, stranding the
+	// workspace "running" with every message stuck queued forever. Verify the
+	// promise; when dead, clear the flag and honor the deferred finalize.
 	s.mu.Lock()
 	live := s.running
+	waiting := s.autohostScheduledWait
 	s.mu.Unlock()
+	if !expiredWakeup && !waiting {
+		return
+	}
 	if live {
 		return
+	}
+	if waiting {
+		armed := false
+		if s.parent != nil {
+			s.parent.mu.RLock()
+			sched := s.parent.rateLimitSched
+			s.parent.mu.RUnlock()
+			if sched != nil && sched.HasArmedAutoResume(ctx, s.workspaceID) {
+				armed = true
+			}
+		}
+		if armed {
+			// A live resume owns re-entry; keep waiting.
+			return
+		}
+		s.mu.Lock()
+		s.autohostScheduledWait = false
+		s.mu.Unlock()
+		waiting = false
+		slog.Warn("agentproxy: dead autohost wait promise — cleared flag, reconciling stuck workspace",
+			"workspace_id", s.workspaceID)
 	}
 	if s.PendingCount(ctx) > 0 {
 		// Queued messages exist: pop the first and hand it to a fresh SendLoop
@@ -4607,20 +4798,26 @@ func (p *AgentProxy) gcSessionInflight(s *WorkspaceSession, now time.Time) {
 		// loop starts on this message and its own dequeue drains the rest.
 		content, attach := s.dequeue(ctx)
 		if content != "" {
-			slog.Info("agentproxy: expired wakeup — resuming loop to drain queue",
+			slog.Info("agentproxy: expired wakeup / dead wait — resuming loop to drain queue",
 				"workspace_id", s.workspaceID, "remaining", s.PendingCount(ctx))
 			go s.SendLoop(ctx, s.workDir, content, attach)
+			return
 		}
-		return
+		// Dequeue failed — fall through: finalizing beats stranding on a
+		// silent no-op (the queued item stays for the next loop to drain).
 	}
 	// Queue empty: nothing will ever re-enter, so run the finalize tail the
 	// deferred finalize skipped — flip agent_status / kanban out of "running".
-	// autohostScheduledWait is re-checked: the autohost paced resume owns that
-	// lifecycle and will re-enter on its own schedule.
+	if s.hasPendingFutureWakeup() {
+		return
+	}
+	// Re-check liveness: between the check above and here, the armed resume
+	// (or a concurrent dispatcher) may have started a loop — it now owns the
+	// lifecycle and its own finalize.
 	s.mu.Lock()
-	waiting := s.autohostScheduledWait
+	live = s.running
 	s.mu.Unlock()
-	if waiting || s.hasPendingFutureWakeup() {
+	if live {
 		return
 	}
 	slog.Info("agentproxy: expired wakeup — finalizing stale 'running' workspace",

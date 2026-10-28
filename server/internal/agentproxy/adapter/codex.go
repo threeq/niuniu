@@ -4,6 +4,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"strings"
 )
 
 // CodexAdapter implements Adapter for `codex exec --json`. Behavior is
@@ -253,8 +254,86 @@ func codexItemEvents(item map[string]any, completed bool) []ParsedEvent {
 		return codexMCPToolEvents(item, completed)
 	case "fileChange":
 		return codexFileChangeEvents(item, completed)
+	case "imageGeneration":
+		return codexImageGenerationEvents(item)
+	case "imageView":
+		return codexImageViewEvents(item)
 	default:
 		return nil
+	}
+}
+
+// codexImageGenerationEvents parses codex 0.164's imageGeneration thread item
+// (app-server v2 ThreadItem): {type, id, status, revised_prompt?, result,
+// saved_path?}. `result` is the RAW base64 image (codex core decodes it with
+// BASE64_STANDARD before upload), and `saved_path` is where the image was
+// persisted inside the execution environment.
+func codexImageGenerationEvents(item map[string]any) []ParsedEvent {
+	status := firstString(item, "status")
+	caption := firstString(item, "revised_prompt")
+	if status != "" && status != "completed" {
+		if status == "failed" {
+			msg := "image generation failed"
+			if caption != "" {
+				msg += ": " + caption
+			}
+			return []ParsedEvent{{Type: "system", Subtype: "image_generation_failed", Result: msg}}
+		}
+		return nil // in-progress item/started — nothing to render yet
+	}
+
+	img := ImageBlock{Caption: caption}
+	if result := firstString(item, "result"); result != "" {
+		img.Data = strings.TrimPrefix(result, "data:")
+		// Tolerate a data-URI form ("data:image/png;base64,...."): keep only
+		// the base64 payload and take the declared mime.
+		if idx := strings.Index(img.Data, "base64,"); idx >= 0 {
+			img.MimeType = strings.TrimSuffix(strings.TrimPrefix(img.Data[:idx], "data:"), ";")
+			img.Data = img.Data[idx+len("base64,"):]
+		}
+		img.MimeType = sniffImageMime(img.Data, img.MimeType)
+		return []ParsedEvent{{Type: "assistant", Images: []ImageBlock{img}}}
+	}
+	// No inline data — the image was saved to disk instead.
+	if p := firstString(item, "saved_path"); p != "" {
+		img.Path = p
+		return []ParsedEvent{{Type: "assistant", Images: []ImageBlock{img}}}
+	}
+	return nil
+}
+
+// codexImageViewEvents parses the imageView thread item: {type, id, path} —
+// a reference to an image file inside the workspace the agent viewed/kept.
+func codexImageViewEvents(item map[string]any) []ParsedEvent {
+	p := firstString(item, "path")
+	if p == "" {
+		return nil
+	}
+	return []ParsedEvent{{Type: "assistant", Images: []ImageBlock{{Path: p}}}}
+}
+
+// sniffImageMime returns mime when the sender declared one, else sniffs the
+// decoded payload's magic bytes; falls back to image/png (codex imagegen's
+// default output format).
+func sniffImageMime(b64, mime string) string {
+	if strings.HasPrefix(mime, "image/") {
+		return mime
+	}
+	raw, err := base64.StdEncoding.DecodeString(b64[:min(len(b64), 32)])
+	if err != nil {
+		return "image/png"
+	}
+	switch {
+	case len(raw) >= 8 && string(raw[:8]) == "\x89PNG\r\n\x1a\n":
+		return "image/png"
+	case len(raw) >= 3 && raw[0] == 0xFF && raw[1] == 0xD8 && raw[2] == 0xFF:
+		return "image/jpeg"
+	case len(raw) >= 6 && (string(raw[:6]) == "GIF87a" || string(raw[:6]) == "GIF89a"):
+		return "image/gif"
+	case len(raw) >= 12 && string(raw[8:12]) == "WEBP":
+		return "image/webp"
+	default:
+		return "image/png"
 	}
 }
 

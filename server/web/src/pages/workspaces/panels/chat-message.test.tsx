@@ -233,6 +233,27 @@ describe('ChatMessage workspace file links', () => {
     expect(link.getAttribute('href')).toMatch(/^niu-file:/);
   });
 
+  it('renders a CJK filename inside【新增 `…` 】as an open-file link', async () => {
+    resolveWith(() => ({ path: '.worktrees/niuniu-main/docs/架构设计决策.md' }));
+    render(
+      withQuery(
+        <ChatMessage
+          event={baseEvent('【新增 `docs/架构设计决策.md` 】')}
+          cliType="claude"
+          toolResults={new Map()}
+          workspaceId="42"
+        />,
+      ),
+    );
+    fireEvent.click(screen.getByText('docs/架构设计决策.md'));
+    await waitFor(() =>
+      expect(viewerState()).toMatchObject({
+        kind: 'file',
+        path: '.worktrees/niuniu-main/docs/架构设计决策.md',
+      }),
+    );
+  });
+
   it('sends the raw ref (line stripped) and opens the server-resolved path', async () => {
     const seen: string[] = [];
     resolveWith((ref) => {

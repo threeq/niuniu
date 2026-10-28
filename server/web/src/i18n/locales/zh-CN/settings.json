@@ -224,7 +224,9 @@
       "writeEnabledHint": "关闭：只允许默认安全集合的接口（通常是只读 GET）。开启：AI 可以调用任意 method / 任意 path，请确认完全信任此 Provider 再开。",
       "writeEnabledOn": "已开启 {{name}} 的完全访问权限",
       "writeEnabledOff": "已关闭 {{name}} 的完全访问，仅保留默认安全集合",
-      "writeWarning": "默认只放行各 Provider 的安全集合（通常是 GET 只读）。打开「允许写入」后，AI 对该 Provider 拥有任意 method / 任意 path 的完整调用权，请按 Provider 单独评估再开。",
+      "writeWarning": "默认只放行各 Provider 的安全集合（通常是 GET 只读）。打开「允许写入」后，AI 对该 Provider 拥有任意 method / 任意 path 的完整调用权，请按 Provider 单独评估再开。授权按归属生效：个人空间只作用于个人工作空间的 AI，组织授权对该组织下所有成员的工作空间 AI 生效。",
+      "writeScopeLabel": "写入授权归属",
+      "writeScopePersonal": "个人空间",
       "empty": "尚未配置 Provider。点击下方按钮添加。",
       "loading": "加载中…",
       "addButton": "添加 Provider",
@@ -361,7 +363,8 @@
     "imbot": "IM 机器人",
     "harness": "工程规范",
     "about": "关于",
-    "providerUsage": "用量统计"
+    "providerUsage": "用量统计",
+    "share": "分享"
   },
   "capability": {
     "title": "能力配置",
@@ -533,15 +536,15 @@
     "perRepoNote": "想为某个仓库单独配置作者名/邮箱？请打开该仓库的「设置」tab 设置仓库级别的覆盖（例如：公司仓库用工作邮箱，其它用个人邮箱）。"
   },
   "gitCredentials": {
-    "title": "Git 远端凭证（SSH）",
-    "description": "为每个仓库 host 上传 SSH 私钥；Claude 在 workspace 里 push / pull / clone 时会自动使用对应 host 的 key 完成鉴权。私钥在数据库中以 AES-GCM 加密存储，仅在 PTY 启动时临时物化到 per-PTY 目录。",
-    "hostHint": "每个 host 一把密钥。支持通配符（如 \"*\"）作为 catch-all 配置。",
+    "title": "Git 远端凭证",
+    "description": "为每个仓库 host 配置 SSH 私钥或访问令牌：新建仓库克隆、以及在 workspace 里 push / pull 时自动使用对应 host 的凭证完成鉴权。密钥在数据库中以 AES-GCM 加密存储。",
+    "hostHint": "每个 host 一把凭证。支持通配符（如 \"*\"）作为 catch-all 配置。",
     "add": "添加凭证",
-    "addTitle": "添加 SSH 凭证",
-    "addDescription": "粘贴 OpenSSH 格式的未加密私钥。niuniu 会自动推算并存储对应的公钥 + 指纹供你后续核对。",
+    "addTitle": "添加 Git 远端凭证",
+    "addDescription": "SSH 私钥用于 git@ 地址；访问令牌用于 https:// 地址（新建仓库克隆与 workspace 内推拉都会自动使用）。",
     "loadFailed": "无法加载凭证。",
     "loading": "加载中…",
-    "empty": "暂无 SSH 凭证。",
+    "empty": "暂无 Git 远端凭证。",
     "saved": "已保存。",
     "save": "保存",
     "saving": "保存中…",
@@ -551,26 +554,34 @@
     "createFailed": "添加失败：{{detail}}",
     "deleted": "已删除。",
     "deleteFailed": "删除失败：{{detail}}",
-    "deleteTitle": "删除 SSH 凭证",
-    "deleteConfirm": "确认要删除 {{host}} 的 SSH 密钥？在你重新添加之前，使用该 host 的 workspace 将无法完成 {{host}} 的鉴权。",
+    "deleteTitle": "删除 Git 远端凭证",
+    "deleteConfirm": "确认要删除 {{host}} 的凭证？在你重新添加之前，使用该 host 的 workspace 将无法完成 {{host}} 的鉴权。",
     "deleteAria": "删除 {{host}} 的凭证",
+    "kind": {
+      "ssh": "SSH 私钥",
+      "token": "访问令牌"
+    },
     "col": {
       "host": "Host",
       "username": "用户",
+      "kind": "类型",
       "fingerprint": "指纹"
     },
     "field": {
       "host": "Host",
-      "hostHint": "例如 github.com、gitlab.com、gitea.example.com",
+      "hostHint": "例如 github.com、cnb.cool、gitea.example.com（不带 https:// 前缀；带协议的会自动归一化）",
       "username": "用户名",
-      "usernameHint": "几乎都是 \"git\"；只有自建 SSH 服务用了不同登录名时才需要改。",
+      "usernameHint": "SSH 凭证几乎都是 \"git\"；HTTPS 令牌按平台填写（如 cnb.cool 填 cnb）。",
       "privateKey": "私钥（PEM）",
-      "privateKeyHint": "粘贴未加密的私钥。带密码的私钥不支持——请先在本地解密。"
+      "privateKeyHint": "粘贴未加密的私钥。带密码的私钥不支持——请先在本地解密。",
+      "secret": "访问令牌",
+      "secretHint": "平台的访问令牌（access token）。仅用于 https:// 地址的克隆与推拉鉴权，不会写入远端 URL 持久化。"
     },
-    "securityNote": "私钥在数据库中使用 AES-GCM + integration master secret 加密；永远不会返回给前端、不会写入 .git/config，只在 session 启动时物化到 /tmp/<per-PTY-dir>/id_<host>（0600 权限，PTY 退出时清理）。",
+    "securityNote": "凭证在数据库中使用 AES-GCM + integration master secret 加密；永远不会返回给前端。SSH 私钥在会话启动时物化到数据目录（0600，仅目录属主可读）；令牌只在克隆/推拉时临时注入，不写入 .git/config。",
     "errInvalidPrivateKey": "粘贴的内容无法识别为有效的 SSH 私钥。",
     "errPassphraseRequired": "不支持带密码的私钥。请先在本地解密。",
     "errInvalidHost": "Host 必须是一个不含空格 / shell 元字符的单一 token。",
+    "errInvalidKind": "凭证类型无效。",
     "errHostConflict": "你已经为这个 host 配置了凭证。请先删除已有的再添加新的。"
   },
   "security": {
@@ -1428,5 +1439,14 @@
       "clearedManually": "（手动解除）",
       "empty": "所选区间内没有限流记录"
     }
+  },
+  "share": {
+    "title": "工作空间分享",
+    "description": "配置分享链接的访问域名（仅团队版）。生成的分享链接形如 <域名>/share/ws/<token>。",
+    "baseUrlLabel": "访问域名",
+    "baseUrlPlaceholder": "https://share.example.com",
+    "baseUrlHint": "留空时使用当前服务的访问地址。填写主机名或完整 http(s) 地址。",
+    "saveFailed": "保存失败",
+    "saved": "已保存"
   }
 }

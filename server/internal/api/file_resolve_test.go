@@ -112,6 +112,14 @@ func TestResolveFile_Ladder(t *testing.T) {
 			".worktrees/beta/942/nested.txt", "repo-prefixed")
 	})
 
+	t.Run("repo-name prefix as first segment re-anchors too", func(t *testing.T) {
+		// Agents write "alph/server/..." (git repo name) while the worktree dir
+		// is "alpha" (repo-branch). The FS-checked prefix match resolves it.
+		expectResolved(t, h, wsID,
+			"alph/server/web/src/lib/api.ts",
+			".worktrees/alpha/server/web/src/lib/api.ts", "repo-prefixed")
+	})
+
 	t.Run("workspace-dir-name embedded in the reference is cut", func(t *testing.T) {
 		wsBase := filepath.Base(filepath.Clean(wsDir))
 		expectResolved(t, h, wsID,

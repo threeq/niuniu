@@ -4,12 +4,16 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
 	"os/exec"
+	"runtime"
 	"sync"
 	"sync/atomic"
+	"syscall"
+	"time"
 )
 
 // codexAppServerClient is a small JSONL client for
@@ -35,6 +39,14 @@ type codexAppServerClient struct {
 	pending   map[int64]chan codexAppServerResponse
 	events    chan codexAppServerNotification
 	done      chan struct{}
+
+	// killRequested marks a death niuniu itself decided on (killProcess — user
+	// Stop, idle reaper, turn watchdog, session removal) as opposed to a real
+	// crash. The session's event loop checks it on process exit: a deliberate
+	// kill must not surface "exited unexpectedly" to the chat nor log an ERROR
+	// — that mislabeled every idle reaping as a system failure. Set before
+	// Close(); read by the event loop goroutine.
+	killRequested atomic.Bool
 }
 
 // codexEventsBuffer is the notification buffer between the app-server reader
@@ -120,6 +132,7 @@ func startCodexAppServerClient(ctx context.Context, command string, configArgs, 
 	argv := append(append([]string{}, configArgs...), "app-server", "--listen", "stdio://")
 	cmdCtx, cancel := context.WithCancel(ctx)
 	cmd := exec.CommandContext(cmdCtx, command, argv...)
+	cmd.SysProcAttr = codexAppServerSysProcAttr()
 	if len(env) > 0 {
 		cmd.Env = env
 	}
@@ -209,16 +222,41 @@ func (c *codexAppServerClient) StderrTail(n int) string {
 	return c.stderrBuf.String()
 }
 
+// codexAppServerGracePeriod bounds how long Close() waits after SIGTERM before
+// escalating to the context kill. Var so tests can shrink it.
+var codexAppServerGracePeriod = 3 * time.Second
+
+// Close tears the app-server down. Escalation order matters: codex removes its
+// <CODEX_HOME>/thread-writer-locks/<thread-id>.lock ONLY on a clean exit — a
+// hard SIGKILL leaks the lock and wedges every later thread/resume of that
+// session ("thread already has an active writer"). So: stdin EOF (peer hung
+// up) + SIGTERM first, and only if the process is still alive after the grace
+// period, the context kill (SIGKILL). Windows has no signals to speak of —
+// straight to the context kill there.
 func (c *codexAppServerClient) Close() error {
 	c.closeOnce.Do(func() {
-		c.cancel()
 		_ = c.stdin.Close()
+		c.gracefulStop()
 	})
 	<-c.done
 	c.waitOnce.Do(func() {
 		c.waitErr = c.cmd.Wait()
 	})
 	return c.waitErr
+}
+
+func (c *codexAppServerClient) gracefulStop() {
+	if runtime.GOOS == "windows" || c.cmd.Process == nil {
+		c.cancel()
+		return
+	}
+	_ = c.cmd.Process.Signal(syscall.SIGTERM)
+	select {
+	case <-c.done:
+		// Exited within the grace window — the clean path.
+	case <-time.After(codexAppServerGracePeriod):
+		c.cancel()
+	}
 }
 
 func (c *codexAppServerClient) call(ctx context.Context, method string, params any, out any) error {
@@ -289,45 +327,106 @@ func isTerminalCodexNotification(method string) bool {
 	return false
 }
 
+// codexMaxLineBytes caps one stdout JSONL line. codex embeds whole tool
+// outputs in single notifications — an imagegen result alone is the full
+// base64 image (~4/3 of the binary size), and prompts/screenshots ride in
+// the same lines. 32MB keeps every legitimate image tool output parseable;
+// lines over the cap are DROPPED with a warning, never fatal — losing one
+// oversized item beats killing the stream.
+const codexMaxLineBytes = 32 << 20
+
+// errCodexLineOversize reports a line dropped for exceeding codexMaxLineBytes.
+// The stream stays usable: the reader has already drained through the newline.
+var errCodexLineOversize = errors.New("codex stdout line exceeds cap — dropped")
+
+// readLineCapped reads one newline-terminated line without unbounded
+// allocation, draining (and reporting) lines over cap.
+func readLineCapped(r *bufio.Reader, cap int) ([]byte, error) {
+	var buf []byte
+	for {
+		chunk, err := r.ReadSlice('\n')
+		if err == bufio.ErrBufferFull {
+			buf = append(buf, chunk...)
+			if len(buf) > cap {
+				// Drain through the terminating newline so the NEXT line stays
+				// parseable, then report the drop.
+				for err == bufio.ErrBufferFull {
+					chunk, err = r.ReadSlice('\n')
+				}
+				return nil, errCodexLineOversize
+			}
+			continue
+		}
+		if len(buf) == 0 {
+			return chunk, err
+		}
+		buf = append(buf, chunk...)
+		return buf, err
+	}
+}
+
 func (c *codexAppServerClient) readLoop(r io.Reader) {
 	defer close(c.done)
 	defer close(c.events)
-	scanner := bufio.NewScanner(r)
-	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
-	for scanner.Scan() {
-		var envelope struct {
-			ID     json.RawMessage `json:"id,omitempty"`
-			Method string          `json:"method,omitempty"`
-			Params json.RawMessage `json:"params,omitempty"`
-			Result json.RawMessage `json:"result,omitempty"`
-			Error  *struct {
-				Code    int    `json:"code"`
-				Message string `json:"message"`
-			} `json:"error,omitempty"`
-		}
-		if err := json.Unmarshal(scanner.Bytes(), &envelope); err != nil {
+	// NOTE: this used to be a bufio.Scanner with a 1MB line cap and no
+	// scanner.Err() check. codex's oversized single-line notifications
+	// (base64 image tool outputs) tripped "token too long", readLoop returned
+	// SILENTLY, and the event loop declared the still-alive process dead —
+	// which left the live process holding its thread-writer flock, wedged on a
+	// full stdout pipe, poisoning every later thread/resume of that session
+	// with "already has an active writer" (the team-edition crash loop).
+	reader := bufio.NewReaderSize(r, 64*1024)
+	for {
+		line, err := readLineCapped(reader, codexMaxLineBytes)
+		if errors.Is(err, errCodexLineOversize) {
+			slog.Warn("codex app-server: dropped oversized stdout line", "cap", codexMaxLineBytes)
 			continue
 		}
-		if len(envelope.ID) > 0 && envelope.Method != "" {
-			c.deliver(codexAppServerNotification{ID: envelope.ID, Method: envelope.Method, Params: envelope.Params})
-			continue
+		if len(line) > 0 {
+			c.handleLine(line)
 		}
-		if len(envelope.ID) > 0 {
-			var id int64
-			if err := json.Unmarshal(envelope.ID, &id); err != nil {
-				continue
+		if err != nil {
+			if !errors.Is(err, io.EOF) {
+				slog.Warn("codex app-server: stdout read stopped", "err", err)
 			}
-			c.mu.Lock()
-			ch := c.pending[id]
-			c.mu.Unlock()
-			if ch != nil {
-				ch <- codexAppServerResponse{ID: id, Result: envelope.Result, Error: envelope.Error}
-			}
-			continue
+			return
 		}
-		if envelope.Method != "" {
-			c.deliver(codexAppServerNotification{Method: envelope.Method, Params: envelope.Params})
+	}
+}
+
+func (c *codexAppServerClient) handleLine(line []byte) {
+	var envelope struct {
+		ID     json.RawMessage `json:"id,omitempty"`
+		Method string          `json:"method,omitempty"`
+		Params json.RawMessage `json:"params,omitempty"`
+		Result json.RawMessage `json:"result,omitempty"`
+		Error  *struct {
+			Code    int    `json:"code"`
+			Message string `json:"message"`
+		} `json:"error,omitempty"`
+	}
+	if err := json.Unmarshal(line, &envelope); err != nil {
+		return
+	}
+	if len(envelope.ID) > 0 && envelope.Method != "" {
+		c.deliver(codexAppServerNotification{ID: envelope.ID, Method: envelope.Method, Params: envelope.Params})
+		return
+	}
+	if len(envelope.ID) > 0 {
+		var id int64
+		if err := json.Unmarshal(envelope.ID, &id); err != nil {
+			return
 		}
+		c.mu.Lock()
+		ch := c.pending[id]
+		c.mu.Unlock()
+		if ch != nil {
+			ch <- codexAppServerResponse{ID: id, Result: envelope.Result, Error: envelope.Error}
+		}
+		return
+	}
+	if envelope.Method != "" {
+		c.deliver(codexAppServerNotification{Method: envelope.Method, Params: envelope.Params})
 	}
 }
 

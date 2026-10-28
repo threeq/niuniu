@@ -25,6 +25,13 @@ import { confirm } from '@/lib/confirm';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import {
   useExternalProviders,
   useDeleteExternalProvider,
   useUpdateExternalProvider,
@@ -41,10 +48,24 @@ import {
   isSystemProvider,
   type ExternalProviderListItem,
 } from '@/types/integration';
+import { useAuthStore } from '@/stores/auth-store';
+import { useOrgStore } from '@/stores/org-store';
+import type { WriteOwnerScope } from '@/lib/external-proxy-api';
 
 export function ProviderList() {
   const { t } = useTranslation('settings');
-  const { data, isLoading, isError, error } = useExternalProviders();
+  const userId = useAuthStore((s) => s.user?.id ?? 0);
+  const myOrgs = useOrgStore((s) => s.myOrgs);
+  // Write-permission owner scope. The proxy gates non-GET calls by the
+  // WORKSPACE's owner, so this list manages the scope the agents actually
+  // read: a sole org by default (the common team deployment), else personal.
+  // The user's explicit pick wins once made.
+  const [picked, setPicked] = useState<WriteOwnerScope | null>(null);
+  const owner: WriteOwnerScope =
+    picked ?? (myOrgs.length === 1 ? { type: 'org', id: myOrgs[0].id } : { type: 'user', id: userId });
+  const { data, isLoading, isError, error } = useExternalProviders(
+    owner.id > 0 ? owner : undefined,
+  );
   const del = useDeleteExternalProvider();
   const update = useUpdateExternalProvider();
   const setWrite = useSetProviderWriteEnabled();
@@ -97,7 +118,7 @@ export function ProviderList() {
 
   const handleToggleWrite = (p: ExternalProviderListItem, next: boolean) => {
     setWrite.mutate(
-      { id: p.id, enabled: next },
+      { id: p.id, enabled: next, owner: owner.id > 0 ? owner : undefined },
       {
         onSuccess: () =>
           toast.success(
@@ -154,10 +175,41 @@ export function ProviderList() {
             {t('integrations.providers.sectionDescription')}
           </p>
         </div>
-        <Button size="sm" onClick={handleAdd}>
-          <Plus className="size-4 mr-1" />
-          {t('integrations.providers.addButton')}
-        </Button>
+        <div className="flex items-center gap-2">
+          {myOrgs.length > 0 && (
+            <Select
+              value={owner.type === 'org' ? `org:${owner.id}` : 'user'}
+              onValueChange={(v) => {
+                if (v === 'user') {
+                  setPicked({ type: 'user', id: userId });
+                } else {
+                  setPicked({ type: 'org', id: Number(v.slice('org:'.length)) });
+                }
+              }}
+            >
+              <SelectTrigger
+                aria-label={t('integrations.providers.writeScopeLabel')}
+                className="h-8 w-36 text-xs"
+              >
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="user">
+                  {t('integrations.providers.writeScopePersonal')}
+                </SelectItem>
+                {myOrgs.map((o) => (
+                  <SelectItem key={o.id} value={`org:${o.id}`}>
+                    {o.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
+          <Button size="sm" onClick={handleAdd}>
+            <Plus className="size-4 mr-1" />
+            {t('integrations.providers.addButton')}
+          </Button>
+        </div>
       </div>
 
       <div

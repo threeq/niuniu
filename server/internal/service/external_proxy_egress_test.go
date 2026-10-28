@@ -54,7 +54,7 @@ func TestExternalProxy_OversizeBodyWarnsAndFlags(t *testing.T) {
 	ctx := context.Background()
 	prov, err := provSvc.Create(ctx, "egress_probe", "Egress Probe", upstream.URL)
 	require.NoError(t, err)
-	require.NoError(t, provSvc.SetWritePref(ctx, env.UserA, prov.ID, true))
+	require.NoError(t, provSvc.SetWritePref(ctx, "user", env.UserA, prov.ID, true))
 	_, err = credSvc.Create(ctx, service.ExternalCredentialUpsertInput{
 		OwnerType: "user", OwnerID: env.UserA, UserID: env.UserA,
 		Provider:  integration.ProviderName("egress_probe"),

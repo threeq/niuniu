@@ -120,12 +120,13 @@ WHERE (CAST(sqlc.arg(member_id) AS BIGINT) = 0 OR a.user_id = sqlc.arg(member_id
   AND a.created_at <= COALESCE(sqlc.narg(to_ts), a.created_at);
 
 -- name: GetAPIWritePrefs :one
-SELECT * FROM external_api_write_prefs WHERE user_id = ? AND provider_id = ?;
+SELECT * FROM external_api_write_prefs
+WHERE owner_type = ? AND owner_id = ? AND provider_id = ?;
 
 -- name: UpsertAPIWritePrefs :exec
-INSERT INTO external_api_write_prefs (user_id, provider_id, enabled)
-VALUES (?, ?, ?)
-ON CONFLICT(user_id, provider_id) DO UPDATE SET enabled = excluded.enabled;
+INSERT INTO external_api_write_prefs (owner_type, owner_id, provider_id, enabled)
+VALUES (?, ?, ?, ?)
+ON CONFLICT(owner_type, owner_id, provider_id) DO UPDATE SET enabled = excluded.enabled;
 
--- name: ListAPIWritePrefsForUser :many
-SELECT * FROM external_api_write_prefs WHERE user_id = ?;
+-- name: ListAPIWritePrefsForOwner :many
+SELECT * FROM external_api_write_prefs WHERE owner_type = ? AND owner_id = ?;

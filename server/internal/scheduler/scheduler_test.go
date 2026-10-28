@@ -166,6 +166,95 @@ func TestOnAutohostWait_IdempotentWhilePending(t *testing.T) {
 	}
 }
 
+// TestOnAutohostWait_PastDueStaleRowIsReplaced pins the dead-promise fix: a
+// once schedule whose timer was already consumed (e.g. trigger skipped while
+// the session was busy) stays unfired + enabled in the DB forever, and the old
+// "already pending → return true" path mistook it for a live resume — the
+// workspace's autohostScheduledWait flag then held the Enqueue gate closed
+// behind a resume that would NEVER fire (长任务卡「运行中」根因). A past-due
+// unfired row must be retired and replaced with a freshly armed one.
+func TestOnAutohostWait_PastDueStaleRowIsReplaced(t *testing.T) {
+	s, q, wsID := newSchedulerForTest(t)
+	ctx := context.Background()
+
+	// Seed the stale row exactly as the real world leaves it: unfired,
+	// enabled, RunAt in the past, no in-memory timer (never Registered here).
+	stale, err := q.CreateSchedule(ctx, store.CreateScheduleParams{
+		WorkspaceID:  wsID,
+		Name:         autohostWaitScheduleName,
+		ScheduleType: "once",
+		RunAt:        sql.NullTime{Time: time.Now().Add(-10 * time.Minute), Valid: true},
+		ActionKind:   "agent_message",
+	})
+	if err != nil {
+		t.Fatalf("seed stale schedule: %v", err)
+	}
+
+	future := time.Now().Add(5 * time.Minute)
+	if ok := s.OnAutohostWait(ctx, wsID, future.Unix(), "继续推进"); !ok {
+		t.Fatalf("OnAutohostWait must report success after re-arming")
+	}
+
+	scheds, err := q.ListSchedules(ctx, wsID)
+	if err != nil {
+		t.Fatalf("list schedules: %v", err)
+	}
+	if len(scheds) != 1 {
+		t.Fatalf("expected the stale row to be replaced by exactly 1 armed schedule, got %d", len(scheds))
+	}
+	got := scheds[0]
+	if got.ID == stale.ID {
+		t.Fatalf("stale past-due schedule %d was reused instead of replaced", stale.ID)
+	}
+	if got.FiredAt.Valid {
+		t.Errorf("the surviving schedule must be unfired")
+	}
+	if !got.RunAt.Valid || got.RunAt.Time.Before(time.Now()) {
+		t.Errorf("the surviving schedule must be armed in the future, got runAt=%v (valid=%v)", got.RunAt.Time, got.RunAt.Valid)
+	}
+}
+
+// TestHasArmedAutoResume pins the GC's dead-promise oracle: armed = unfired +
+// enabled + RunAt still in the future. A past-due unfired row is NOT armed —
+// its timer is gone and it can never re-enter the workspace.
+func TestHasArmedAutoResume(t *testing.T) {
+	s, q, wsID := newSchedulerForTest(t)
+	ctx := context.Background()
+
+	if s.HasArmedAutoResume(ctx, wsID) {
+		t.Fatalf("no schedule seeded: must report unarmed")
+	}
+
+	// Future unfired autohost-wait row → armed.
+	if ok := s.OnAutohostWait(ctx, wsID, time.Now().Add(5*time.Minute).Unix(), "msg"); !ok {
+		t.Fatalf("seed OnAutohostWait: want success")
+	}
+	if !s.HasArmedAutoResume(ctx, wsID) {
+		t.Fatalf("future unfired autohost-wait row: must report armed")
+	}
+
+	// Age the row past its RunAt → timer consumed → unarmed.
+	future, err := q.ListSchedules(ctx, wsID)
+	if err != nil || len(future) != 1 {
+		t.Fatalf("list schedules: %v (%d)", err, len(future))
+	}
+	if err := q.DeleteSchedule(ctx, future[0].ID); err != nil {
+		t.Fatalf("delete: %v", err)
+	}
+	if _, err := q.CreateSchedule(ctx, store.CreateScheduleParams{
+		WorkspaceID:  wsID,
+		Name:         autohostWaitScheduleName,
+		ScheduleType: "once",
+		RunAt:        sql.NullTime{Time: time.Now().Add(-1 * time.Minute), Valid: true},
+		ActionKind:   "agent_message",
+	}); err != nil {
+		t.Fatalf("seed past-due row: %v", err)
+	}
+	if s.HasArmedAutoResume(ctx, wsID) {
+		t.Fatalf("past-due unfired row: must report unarmed")
+	}
+}
+
 func TestOnRateLimited_IdempotentWithinWindow(t *testing.T) {
 	s, q, wsID := newSchedulerForTest(t)
 	ctx := context.Background()

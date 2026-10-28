@@ -493,7 +493,9 @@
         "openOnFile": "{{count}} 條未解決的評論",
         "allResolvedOnFile": "{{count}} 條評論已全部標記為已解決",
         "reviewProgress": "已解決 {{resolved}}/{{total}}",
-        "reviewProgressHint": "審閱結論進度：已解決 / 總數。與「傳送給 Agent」無關——發出去不等於改好了"
+        "reviewProgressHideHint": "點選聚焦審閱：文件樹只顯示帶評論的文件，並在查看器中隱藏已解決評論",
+        "reviewProgressShowHint": "審閱聚焦已開啟——點選顯示全部文件與評論",
+        "commentsOnlyEmpty": "沒有帶審閱評論的文件"
       },
       "syncFromBranchPrompt": "請把分支 `{{sourceBranch}}` 的最新程式碼合併到下述指定 worktree 的當前分支 `{{currentBranch}}` 中。\n\n⚠️ 此工作空間下可能有多個 worktree，請嚴格只在下面這一個 worktree 中操作，不要切換到其他 worktree、不要 cd 離開它：\n- worktree 名稱：{{worktreeName}}\n- worktree 絕對路徑：{{worktreePath}}\n- 當前分支：{{currentBranch}}\n- 要合入的分支：{{sourceBranch}}\n\n請按以下步驟操作（始終用 `git -C \"{{worktreePath}}\"` 顯式定位，不要靠 cwd 推斷）：\n1. 執行 `git -C \"{{worktreePath}}\" status` 檢查工作區是否乾淨；若有未提交修改，先停下來告訴我，等我確認後再繼續；\n2. 執行 `git -C \"{{worktreePath}}\" merge {{sourceBranch}}` 進行合併；\n3. 如果產生合併衝突：先列出全部衝突檔案，再嘗試逐個解決（保留雙方意圖，避免丟失改動），完成後用 `git -C \"{{worktreePath}}\" commit --no-edit` 提交合並；遇到無法判斷如何取捨的衝突，停下來告訴我具體檔案和原因，**不要** 執行 `git merge --abort`，把現場保留給我；\n4. 合併成功後簡要報告：合併方式（fast-forward / merge commit）、新的 HEAD commit、是否還有未提交內容。"
     },
@@ -914,6 +916,9 @@
     "empty": "還沒有釘住的訊息。把滑鼠移到訊息上，點 Pin 圖示即可釘住。",
     "noPreview": "（無預覽）",
     "locate": "定位到該訊息",
+    "copy": "複製訊息內容",
+    "copyDone": "已複製訊息內容",
+    "copyFailed": "複製失敗",
     "unpin": "取消釘住",
     "unpinFailed": "取消釘住失敗",
     "notLoaded": "該訊息尚未載入，向上滾動以載入更早的訊息。"
@@ -1140,5 +1145,49 @@
   "gate": {
     "blocked": "底線閘未透過，已阻止完成",
     "blockedWith": "底線閘未透過：{{name}}（{{reason}}）"
+  },
+  "share": {
+    "toolbarButton": "分享",
+    "title": "分享工作空間",
+    "description": "建立一個帶密碼和時效的只讀連結，外部成員可在瀏覽器中檢視此工作空間的會話內容。",
+    "passwordLabel": "訪問密碼",
+    "generatePassword": "重新生成密碼",
+    "expiryLabel": "有效期",
+    "expiryHint": "到期後連結自動失效，最長 30 天。",
+    "expiry": {
+      "1h": "1 小時",
+      "24h": "24 小時",
+      "72h": "3 天",
+      "7d": "7 天",
+      "30d": "30 天"
+    },
+    "create": "建立分享連結",
+    "createFailed": "建立分享失敗",
+    "linkLabel": "分享連結",
+    "copyLink": "複製連結",
+    "copyPassword": "複製密碼",
+    "copyFailed": "複製失敗",
+    "createdOnce": "連結和密碼請立即儲存：關閉後無法再次檢視連結（密碼可重新建立分享）。",
+    "activeList": "進行中的分享",
+    "revoke": "撤銷",
+    "revokeFailed": "撤銷失敗",
+    "expiresAt": "到期時間：{{time}}",
+    "notFound": "分享不存在或已過期",
+    "loadError": "載入失敗，請重試",
+    "passwordPromptTitle": "此分享受密碼保護",
+    "passwordPromptHint": "輸入分享密碼以檢視會話內容",
+    "passwordPlaceholder": "訪問密碼",
+    "wrongPassword": "密碼錯誤",
+    "unlock": "解鎖檢視",
+    "readOnly": "只讀分享",
+    "empty": "暫無會話內容",
+    "allowChatLabel": "允許對話",
+    "allowChatShort": "可對話",
+    "allowChatHint": "解鎖的觀看者可以向此工作空間的 AI 助手傳送訊息（消耗真實額度，預設關閉）。",
+    "allowChatUpdateFailed": "更新對話許可權失敗",
+    "chatEnabled": "可對話分享",
+    "chatPlaceholder": "輸入訊息，與該工作空間的 AI 助手對話…",
+    "chatSend": "傳送",
+    "chatSendFailed": "傳送失敗，請重試"
   }
 }

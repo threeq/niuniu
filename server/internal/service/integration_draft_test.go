@@ -414,7 +414,7 @@ func TestDraftPipeline_FailedPublishRestoresPreviousVersion(t *testing.T) {
 	if ops := prov.Contract().Operations; len(ops) != 1 || ops[0].Path != "/things" {
 		t.Fatalf("the live contract must be v1 again, got %+v", ops)
 	}
-	if prefs, _ := e.providers.ListWritePrefs(ctx, e.uid); prefs[prov.ID] {
+	if prefs, _ := e.providers.ListWritePrefs(ctx, "user", e.uid); prefs[prov.ID] {
 		t.Fatal("the write gate must not be left on after a rolled-back publish")
 	}
 

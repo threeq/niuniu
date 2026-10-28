@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/niuniu-dev/niuniu/internal/service"
 	"github.com/niuniu-dev/niuniu/internal/store"
@@ -285,4 +286,80 @@ func TestGuard_DrainAllQueuedOwners(t *testing.T) {
 	cnt, err := e.q.CountQueuedForOwner(e.ctx, store.CountQueuedForOwnerParams{OwnerType: "user", OwnerID: 1})
 	require.NoError(t, err)
 	assert.Equal(t, int64(0), cnt)
+}
+
+// TestGuard_FinishedWorkspaceFreesSlot reproduces the reported deadlock: an
+// owner whose agents have ALL finished still saw every start_workspace answered
+// with queued=true and queue_position=N, and no workspace was ever created.
+// A finished workspace (needs_review / attention, agent idle) consumes no agent
+// capacity, so it must not hold a concurrency slot — otherwise the admission
+// path queues forever and the drain can never admit anything.
+func TestGuard_FinishedWorkspaceFreesSlot(t *testing.T) {
+	e := setupEpicTest(t)
+	col := e.makeProjectColumn(t)
+	g := service.NewOrchestrationGuard(e.q, service.OrchestrationLimits{MaxConcurrentWorkspaces: 1})
+
+	// The owner's only workspace finished its turn and awaits human review.
+	a := e.makeStandalone(t, col, "A")
+	e.addWorkspace(t, a, "needs_review")
+
+	b := e.makeStandalone(t, col, "B")
+	d, err := g.AdmitWorkspace(e.ctx, b)
+	require.NoError(t, err)
+	assert.Equal(t, service.GuardAdmit, d.Action, "a finished workspace must not consume the only slot")
+
+	// Same for the attention state (agent errored / stopped).
+	_, err = e.db.Exec("UPDATE workspaces SET status='attention' WHERE owner_type='user' AND owner_id=1")
+	require.NoError(t, err)
+	c := e.makeStandalone(t, col, "C")
+	dC, err := g.AdmitWorkspace(e.ctx, c)
+	require.NoError(t, err)
+	assert.Equal(t, service.GuardAdmit, dC.Action, "an attention workspace must not consume the only slot")
+
+	// A live agent still holds the slot regardless of the workspace status.
+	_, err = e.db.Exec("UPDATE workspaces SET status='needs_review', agent_status='running' WHERE owner_type='user' AND owner_id=1")
+	require.NoError(t, err)
+	dD, err := g.AdmitWorkspace(e.ctx, b)
+	require.NoError(t, err)
+	assert.Equal(t, service.GuardQueue, dD.Action, "a running agent must still hold a slot")
+}
+
+// TestGuard_SweeperDrainsStrandedQueue covers the second half of the deadlock:
+// entries enqueued while the owner was at the cap, when nothing was left to
+// complete afterwards (so no workspace_completed event would ever fire), must
+// still be started by the periodic sweep.
+func TestGuard_SweeperDrainsStrandedQueue(t *testing.T) {
+	e := setupEpicTest(t)
+	col := e.makeProjectColumn(t)
+	g := service.NewOrchestrationGuard(e.q, service.OrchestrationLimits{MaxConcurrentWorkspaces: 1})
+	starter := &fakeStarter{}
+	g.SetStarter(starter)
+
+	// Fill the slot with a running agent, queue B behind it.
+	a := e.makeStandalone(t, col, "A")
+	e.addWorkspace(t, a, "running")
+	b := e.makeStandalone(t, col, "B")
+	dB, err := g.AdmitWorkspace(e.ctx, b)
+	require.NoError(t, err)
+	require.Equal(t, service.GuardQueue, dB.Action)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	g.StartQueueSweeper(ctx, 20*time.Millisecond)
+
+	// Make room. NOTE: no workspace_completed event is published — that is the
+	// reported situation (the whole run was already over before the enqueue).
+	_, err = e.db.Exec("UPDATE workspaces SET status='needs_review' WHERE owner_type='user' AND owner_id=1")
+	require.NoError(t, err)
+
+	require.Eventually(t, func() bool {
+		starter.mu.Lock()
+		defer starter.mu.Unlock()
+		for _, id := range starter.started {
+			if id == b {
+				return true
+			}
+		}
+		return false
+	}, 3*time.Second, 20*time.Millisecond, "sweeper must drain the stranded queue")
 }

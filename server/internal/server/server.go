@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"crypto/sha256"
 	"database/sql"
 	"fmt"
 	"io/fs"
@@ -235,6 +236,9 @@ type Server struct {
 	gitIdentityHandler      *api.GitIdentityHandler
 	serverSettingsSvc       *service.ServerSettingsService
 	adminSettingsHandler    *api.AdminSettingsHandler
+	workspaceShareSvc       *service.WorkspaceShareService
+	workspaceShareHandler   *api.WorkspaceShareHandler
+	sharePublicHandler      *api.SharePublicHandler
 	licenseSvc              license.Gate
 	licenseHandler          *api.LicenseHandler
 	consentSvc              *consent.Service
@@ -630,6 +634,11 @@ func New(cfg *config.Config, db *sql.DB, frontendFS fs.FS) *Server {
 	// the one-shot suggestion/generation helpers (goal_condition / column_op /
 	// prompt-gen) and the /health probe.
 	go agentproxy.ProbeClaudeCLI(context.Background())
+	// Point the one-shot helpers at the SAME niuniu-agent the interactive
+	// paths use (config command, else sidecar/install discovery - never a
+	// bare PATH lookup that misses the desktop sidecar directory).
+	agentproxy.SetNiuniuAgentConfiguredCommand(s.cfg.Agent.NiuniuAgentCli.Command)
+	go agentproxy.ProbeNiuniuAgentCLI()
 	s.agentProxy.SetStatusHook(s.agentMgr) // wire workspace status transitions
 	s.agentProxy.SetMCPSessionService(s.mcpSessions)
 	// Codex approval bridge (B2): route `approval/request` notifications
@@ -994,6 +1003,11 @@ func New(cfg *config.Config, db *sql.DB, frontendFS fs.FS) *Server {
 	_ = s.serverSettingsSvc.SeedIfAbsent(seedCtx, service.KeyOrchWarnPct, strconv.Itoa(defWarnPct))
 	orchGuard.SetSettings(orchSettings)
 	orchGuard.SetStarter(s.epicExecSvc)
+	// Safety-net drain: completion events start queued workspaces immediately,
+	// but an entry enqueued when nothing was left to complete (all agents
+	// already finished) had no later event to revisit it and stayed queued
+	// forever. The sweep re-checks every owner on an interval.
+	orchGuard.StartQueueSweeper(context.Background(), service.DefaultQueueSweepInterval)
 	s.epicExecSvc.SetGuard(orchGuard)
 	s.kanbanSvc.SetMaxBatchIssues(s.cfg.Orchestration.MaxBatchIssues)
 	s.kanbanSvc.SetOrchestrationSettings(orchSettings)
@@ -1266,6 +1280,13 @@ func New(cfg *config.Config, db *sql.DB, frontendFS fs.FS) *Server {
 	s.licenseHandler = api.NewLicenseHandler(s.licenseSvc)
 	s.consentHandler = api.NewConsentHandler(s.consentSvc)
 
+	// 工作空间分享（团队版 feature；个人版被 NopGate 关死）。unlock cookie 的
+	// HMAC 密钥从 authSecret 派生（server 级已有随机源，无需另存）。
+	secret := sha256.Sum256([]byte("niuniu-share-unlock:" + authSecret))
+	s.workspaceShareSvc = service.NewWorkspaceShareService(s.queries, s.serverSettingsSvc, secret[:])
+	s.workspaceShareHandler = api.NewWorkspaceShareHandler(s.workspaceShareSvc, authz)
+	s.sharePublicHandler = api.NewSharePublicHandler(s.workspaceShareSvc, s.queries, s.agentProxy)
+
 	// Events handler (eventBus already initialized above)
 	s.eventsHandler = api.NewEventsHandler(s.eventBus)
 	s.eventsHandler.Authz = authz
@@ -1470,11 +1491,14 @@ func New(cfg *config.Config, db *sql.DB, frontendFS fs.FS) *Server {
 	s.extSourceSvc = service.NewExternalSourceService(s.queries, db, s.extCredSvc, intgRegistry, authz, s.credUsagePolicySvc)
 	s.extSourceHandler = api.NewExternalSourceHandler(s.extSourceSvc, authz)
 
-	// Per-user git remote SSH credentials (v5 Phase 2 sub-phase A).
-	// Spec: docs/superpowers/specs/2026-05-19-per-user-git-identity-design.md
-	// Storage + management only here; PTY GIT_SSH_COMMAND materialization
-	// (sub-phase B) lands in a follow-up.
+	// Per-user git remote credentials (v5 Phase 2): SSH keys materialize for
+	// PTY GIT_SSH_COMMAND injection; token kind authenticates server-side
+	// clones. Consumed by AgentManager (PTY spawn) and RepositoryService
+	// (staging clone) — wired here so both see the same store.
 	s.gitRemoteCredSvc = service.NewGitRemoteCredentialService(db, keyring)
+	s.gitRemoteCredSvc.SetMaterializeDir(filepath.Join(s.cfg.DataDir, "git-ssh"))
+	s.agentMgr.SetGitRemoteCredentialService(s.gitRemoteCredSvc)
+	s.repositorySvc.SetGitRemoteCredentialService(s.gitRemoteCredSvc)
 	s.gitRemoteCredHandler = api.NewGitRemoteCredentialHandler(s.gitRemoteCredSvc)
 
 	// External API proxy — generic, schema-driven replacement for all
@@ -1496,12 +1520,13 @@ func New(cfg *config.Config, db *sql.DB, frontendFS fs.FS) *Server {
 	s.externalProviderSvc = providerSvc
 	s.externalProxySvc = proxySvc
 	s.integrationAuditSvc = service.NewIntegrationAuditService(s.queries)
-	// Reproject the user's office-mail workspaces when they toggle imap write-
-	// permission, so config.toml (outgoing/SMTP) + permissions.deny refresh to
-	// the new state (otherwise the toggle never reaches the materialized files
-	// and sending stays disabled until an unrelated reprojection).
+	// Reproject the owner's office-mail workspaces when the imap write-
+	// permission toggle changes, so config.toml (outgoing/SMTP) +
+	// permissions.deny refresh to the new state (otherwise the toggle never
+	// reaches the materialized files and sending stays disabled until an
+	// unrelated reprojection).
 	if s.sceneProjector != nil {
-		providerSvc.SetImapWritePrefChangeHook(s.sceneProjector.ReprojectImapWorkspacesForUser)
+		providerSvc.SetImapWritePrefChangeHook(s.sceneProjector.ReprojectImapWorkspacesForOwner)
 	}
 
 	// Data integration (M1): SQL data sources. Connectors are stateless

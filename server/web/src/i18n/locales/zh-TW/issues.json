@@ -39,7 +39,7 @@
     "suggesting": "生成中…",
     "unsaved": "未儲存",
     "suggestFailed": "生成失敗，請重試",
-    "suggestCliUnavailable": "claude CLI 不可用，AI 建議功能禁用",
+    "suggestCliUnavailable": "niuniu-agent 不可用，AI 建議功能禁用",
     "suggestRateLimited": "AI 建議請求太頻繁，請稍候再試"
   }
 }

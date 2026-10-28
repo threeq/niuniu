@@ -252,6 +252,7 @@ function RepoSection({
   selectedFile,
   onSelectFile,
   search = '',
+  commentOnly = false,
 }: {
   workspaceId: string;
   repo: RepoDiffGroup;
@@ -259,6 +260,8 @@ function RepoSection({
   onSelectFile: (key: string) => void;
   /** Case-insensitive path filter (from the file-list search box). */
   search?: string;
+  /** Review-focus mode: keep only files carrying review comments. */
+  commentOnly?: boolean;
 }) {
   const { t } = useTranslation('workspaces');
   const fileCount = repo.files.length;
@@ -268,13 +271,19 @@ function RepoSection({
 
   const q = search.trim().toLowerCase();
   const visibleFiles = useMemo(
-    () => (q ? repo.files.filter((f) => f.path.toLowerCase().includes(q)) : repo.files),
-    [repo.files, q],
+    () =>
+      repo.files.filter(
+        (f) =>
+          (!commentOnly || f.totalCommentCount > 0) &&
+          (!q || f.path.toLowerCase().includes(q)),
+      ),
+    [repo.files, q, commentOnly],
   );
   const tree = useMemo(() => buildFileTree(visibleFiles), [visibleFiles]);
 
-  // While searching, hide repos with no matching files and force-expand the rest.
-  if (q && visibleFiles.length === 0) return null;
+  // While searching or review-focusing, hide repos with no matching files and
+  // force-expand the rest.
+  if ((q || commentOnly) && visibleFiles.length === 0) return null;
   const expanded = q ? true : !collapsed;
 
   return (
@@ -447,6 +456,8 @@ function LocalToolbar({
   totalFiles,
   totalAdditions,
   totalDeletions,
+  hideResolved,
+  onToggleHideResolved,
 }: {
   baseBranches: string[];
   pendingCount: number;
@@ -459,6 +470,9 @@ function LocalToolbar({
   totalFiles: number;
   totalAdditions: number;
   totalDeletions: number;
+  /** Whether resolved comments are currently hidden in the viewer. */
+  hideResolved: boolean;
+  onToggleHideResolved: () => void;
 }) {
   const { t } = useTranslation('workspaces');
 
@@ -491,15 +505,25 @@ function LocalToolbar({
         {/* Review progress — the question this whole loop exists to answer:
             "of the N comments I raised, how many have I actually judged?".
             Counted off `resolved` (the verdict), never off `sent_to_agent`
-            (delivery), which is what the send-queue button below reports. */}
+            (delivery), which is what the send-queue button below reports.
+            Clicking toggles hiding resolved comments in the viewer, so the
+            threads left on screen are exactly the ones still open. */}
         {totalCommentCount > 0 && (
-          <span
-            title={t('panels.changes.comments.reviewProgressHint')}
+          <button
+            type="button"
+            onClick={onToggleHideResolved}
+            aria-pressed={hideResolved}
+            title={t(
+              hideResolved
+                ? 'panels.changes.comments.reviewProgressShowHint'
+                : 'panels.changes.comments.reviewProgressHideHint',
+            )}
             className={cn(
-              'flex items-center gap-1 rounded-full px-1.5 py-px text-[11px] font-medium',
+              'flex cursor-pointer items-center gap-1 rounded-full px-1.5 py-px text-[11px] font-medium transition-opacity hover:opacity-80',
               unresolvedCount > 0
-                ? 'bg-warning/15 text-warning-foreground'
-                : 'bg-success/15 text-success-foreground',
+                ? 'bg-warning/15 text-warning'
+                : 'bg-success/15 text-success',
+              hideResolved && 'opacity-50',
             )}
           >
             {unresolvedCount > 0 ? (
@@ -511,18 +535,21 @@ function LocalToolbar({
               resolved: totalCommentCount - unresolvedCount,
               total: totalCommentCount,
             })}
-          </span>
+          </button>
         )}
         {pendingCount > 0 && (
           <Button
             type="button"
+            variant="outline"
             size="sm"
-            className="h-7 gap-1.5"
+            className="h-6 gap-1 rounded-full px-2 text-[11px] font-medium text-muted-foreground hover:text-foreground"
             onClick={onSendAll}
             disabled={sendingAll}
+            title={t('panels.changes.comments.sendQueue', { count: pendingCount })}
+            aria-label={t('panels.changes.comments.sendQueue', { count: pendingCount })}
           >
-            <Send className="h-3.5 w-3.5" />
-            {t('panels.changes.comments.sendQueue', { count: pendingCount })}
+            <Send className="h-3 w-3" />
+            <span className="tabular-nums">{pendingCount}</span>
           </Button>
         )}
       </span>
@@ -562,6 +589,15 @@ export function ChangesPanel({ workspaceId }: ChangesPanelProps) {
     useWorkspaceComments(workspaceId);
   const [sendingAll, setSendingAll] = useState(false);
 
+  // The "resolved N/M" chip doubles as the hide-resolved toggle for the review
+  // comments rendered in the central viewer. Kept in the panel store so the
+  // toolbar (this panel) and the viewer (a different subtree) stay in sync.
+  const hideResolved = useWorkspacePanelStore(
+    (s) => s.hideResolvedComments?.[workspaceId] ?? false,
+  );
+  const setHideResolvedFor = useWorkspacePanelStore((s) => s.setHideResolvedComments);
+  const toggleHideResolved = () => setHideResolvedFor(workspaceId, !hideResolved);
+
   const handleSendAll = async () => {
     setSendingAll(true);
     try {
@@ -580,8 +616,17 @@ export function ChangesPanel({ workspaceId }: ChangesPanelProps) {
   const showSearch = totalFiles > 0;
   const activeSearch = showSearch ? fileSearch : '';
   const fileQuery = activeSearch.trim().toLowerCase();
+  // Review focus (the "resolved N/M" chip): filter the tree to files carrying
+  // review comments AND hide resolved threads in the viewer.
   const hasMatches =
-    !fileQuery || repos.some((r) => r.files.some((f) => f.path.toLowerCase().includes(fileQuery)));
+    (!fileQuery && !hideResolved) ||
+    repos.some((r) =>
+      r.files.some(
+        (f) =>
+          (!hideResolved || f.totalCommentCount > 0) &&
+          (!fileQuery || f.path.toLowerCase().includes(fileQuery)),
+      ),
+    );
 
   const searchBox = (
     <div className="shrink-0 border-b border-border p-2">
@@ -620,7 +665,11 @@ export function ChangesPanel({ workspaceId }: ChangesPanelProps) {
     </div>
   ) : !hasMatches ? (
     <div className="flex items-center justify-center py-8 text-xs text-muted-foreground">
-      {t('panels.changes.searchNoMatch')}
+      {t(
+        hideResolved
+          ? 'panels.changes.comments.commentsOnlyEmpty'
+          : 'panels.changes.searchNoMatch',
+      )}
     </div>
   ) : (
     repos.map((repo) => (
@@ -631,6 +680,7 @@ export function ChangesPanel({ workspaceId }: ChangesPanelProps) {
         selectedFile={selectedFile}
         onSelectFile={handleSelectFile}
         search={activeSearch}
+        commentOnly={hideResolved}
       />
     ))
   );
@@ -656,6 +706,8 @@ export function ChangesPanel({ workspaceId }: ChangesPanelProps) {
         totalFiles={totalFiles}
         totalAdditions={totalAdditions}
         totalDeletions={totalDeletions}
+        hideResolved={hideResolved}
+        onToggleHideResolved={toggleHideResolved}
       />
 
       {/* Autohost 安全网: per-worktree hidden-ref checkpoint timeline (collapsed by

@@ -240,7 +240,7 @@ func TestHealthSweep_ProviderDriftDetectedAndAcknowledged(t *testing.T) {
 		t.Fatalf("create credential: %v", err)
 	}
 	// Allow the (read-only) probe through the write gate.
-	if err := provSvc.SetWritePref(ctx, uid, prov.ID, true); err != nil {
+	if err := provSvc.SetWritePref(ctx, "user", uid, prov.ID, true); err != nil {
 		t.Fatalf("set write pref: %v", err)
 	}
 
@@ -416,7 +416,7 @@ func TestHealthSweep_PublishSeedsDriftBaseline(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("create credential: %v", err)
 	}
-	if err := provSvc.SetWritePref(ctx, uid, prov.ID, true); err != nil {
+	if err := provSvc.SetWritePref(ctx, "user", uid, prov.ID, true); err != nil {
 		t.Fatalf("set write pref: %v", err)
 	}
 

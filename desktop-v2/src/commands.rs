@@ -751,6 +751,7 @@ pub fn activate_ai_service(app: tauri::AppHandle, id: String) -> Result<AIActiva
         let built = crate::webview_gate::gated_create(&app2, || {
             tauri::WebviewWindowBuilder::new(&app2, &label, tauri::WebviewUrl::External(parsed_url))
                 .html5_drag_drop()
+                .open_new_windows_externally()
                 .title(format!("{} · {}", i18n::ai_title(&lang), name))
                 .decorations(false)
                 // 无框窗口默认带 DWM「无装饰阴影」：tao 的 WM_NCCALCSIZE 会按

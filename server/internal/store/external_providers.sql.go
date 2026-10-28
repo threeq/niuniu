@@ -192,18 +192,25 @@ func (q *Queries) DeleteProvider(ctx context.Context, id int64) error {
 }
 
 const getAPIWritePrefs = `-- name: GetAPIWritePrefs :one
-SELECT user_id, provider_id, enabled FROM external_api_write_prefs WHERE user_id = ? AND provider_id = ?
+SELECT owner_type, owner_id, provider_id, enabled FROM external_api_write_prefs
+WHERE owner_type = ? AND owner_id = ? AND provider_id = ?
 `
 
 type GetAPIWritePrefsParams struct {
-	UserID     int64 `json:"user_id"`
-	ProviderID int64 `json:"provider_id"`
+	OwnerType  string `json:"owner_type"`
+	OwnerID    int64  `json:"owner_id"`
+	ProviderID int64  `json:"provider_id"`
 }
 
 func (q *Queries) GetAPIWritePrefs(ctx context.Context, arg GetAPIWritePrefsParams) (ExternalApiWritePref, error) {
-	row := q.db.QueryRowContext(ctx, getAPIWritePrefs, arg.UserID, arg.ProviderID)
+	row := q.db.QueryRowContext(ctx, getAPIWritePrefs, arg.OwnerType, arg.OwnerID, arg.ProviderID)
 	var i ExternalApiWritePref
-	err := row.Scan(&i.UserID, &i.ProviderID, &i.Enabled)
+	err := row.Scan(
+		&i.OwnerType,
+		&i.OwnerID,
+		&i.ProviderID,
+		&i.Enabled,
+	)
 	return i, err
 }
 
@@ -277,12 +284,17 @@ func (q *Queries) GetProviderByName(ctx context.Context, name string) (ExternalP
 	return i, err
 }
 
-const listAPIWritePrefsForUser = `-- name: ListAPIWritePrefsForUser :many
-SELECT user_id, provider_id, enabled FROM external_api_write_prefs WHERE user_id = ?
+const listAPIWritePrefsForOwner = `-- name: ListAPIWritePrefsForOwner :many
+SELECT owner_type, owner_id, provider_id, enabled FROM external_api_write_prefs WHERE owner_type = ? AND owner_id = ?
 `
 
-func (q *Queries) ListAPIWritePrefsForUser(ctx context.Context, userID int64) ([]ExternalApiWritePref, error) {
-	rows, err := q.db.QueryContext(ctx, listAPIWritePrefsForUser, userID)
+type ListAPIWritePrefsForOwnerParams struct {
+	OwnerType string `json:"owner_type"`
+	OwnerID   int64  `json:"owner_id"`
+}
+
+func (q *Queries) ListAPIWritePrefsForOwner(ctx context.Context, arg ListAPIWritePrefsForOwnerParams) ([]ExternalApiWritePref, error) {
+	rows, err := q.db.QueryContext(ctx, listAPIWritePrefsForOwner, arg.OwnerType, arg.OwnerID)
 	if err != nil {
 		return nil, err
 	}
@@ -290,7 +302,12 @@ func (q *Queries) ListAPIWritePrefsForUser(ctx context.Context, userID int64) ([
 	items := []ExternalApiWritePref{}
 	for rows.Next() {
 		var i ExternalApiWritePref
-		if err := rows.Scan(&i.UserID, &i.ProviderID, &i.Enabled); err != nil {
+		if err := rows.Scan(
+			&i.OwnerType,
+			&i.OwnerID,
+			&i.ProviderID,
+			&i.Enabled,
+		); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
@@ -616,18 +633,24 @@ func (q *Queries) UpdateProvider(ctx context.Context, arg UpdateProviderParams) 
 }
 
 const upsertAPIWritePrefs = `-- name: UpsertAPIWritePrefs :exec
-INSERT INTO external_api_write_prefs (user_id, provider_id, enabled)
-VALUES (?, ?, ?)
-ON CONFLICT(user_id, provider_id) DO UPDATE SET enabled = excluded.enabled
+INSERT INTO external_api_write_prefs (owner_type, owner_id, provider_id, enabled)
+VALUES (?, ?, ?, ?)
+ON CONFLICT(owner_type, owner_id, provider_id) DO UPDATE SET enabled = excluded.enabled
 `
 
 type UpsertAPIWritePrefsParams struct {
-	UserID     int64 `json:"user_id"`
-	ProviderID int64 `json:"provider_id"`
-	Enabled    int64 `json:"enabled"`
+	OwnerType  string `json:"owner_type"`
+	OwnerID    int64  `json:"owner_id"`
+	ProviderID int64  `json:"provider_id"`
+	Enabled    int64  `json:"enabled"`
 }
 
 func (q *Queries) UpsertAPIWritePrefs(ctx context.Context, arg UpsertAPIWritePrefsParams) error {
-	_, err := q.db.ExecContext(ctx, upsertAPIWritePrefs, arg.UserID, arg.ProviderID, arg.Enabled)
+	_, err := q.db.ExecContext(ctx, upsertAPIWritePrefs,
+		arg.OwnerType,
+		arg.OwnerID,
+		arg.ProviderID,
+		arg.Enabled,
+	)
 	return err
 }

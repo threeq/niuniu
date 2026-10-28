@@ -370,7 +370,9 @@ func (s *ExternalProxyService) PrecheckCall(ctx context.Context, in ProxyInput) 
 	}
 
 	// 3) Whitelist / write gate (same predicate the proxy falls back to).
-	writeEnabled := s.writeEnabledFor(ctx, in.UserID, prov.ID)
+	// The toggle is an OWNER-scoped grant, so resolve the same scope Call() uses.
+	ownerType, ownerID := s.writePrefScope(ctx, in)
+	writeEnabled := s.writeEnabledFor(ctx, ownerType, ownerID, prov.ID)
 	allowed := s.gateAllows(writeEnabled, prov.Whitelist, res.Method, res.Path)
 	add("whitelist", allowed, whitelistDetail(allowed, writeEnabled, res.Method, res.Path))
 

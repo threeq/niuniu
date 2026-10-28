@@ -151,7 +151,7 @@ func (p *SceneProjector) applyEmailIntegration(
 	// autohost regardless of the write-permission toggle — no outgoing(SMTP) and
 	// every write tool denied. To actually send, the user switches the workspace
 	// to an interactive mode, where each write hits the permission prompt.
-	writeEnabled := p.imapWriteEnabled(ctx, userID) && !p.workspaceAutohost(ctx, wsID)
+	writeEnabled := p.imapWriteEnabled(ctx, owner.Type, owner.ID) && !p.workspaceAutohost(ctx, wsID)
 	accounts := p.collectEmailAccounts(ctx, wsID, userID, writeEnabled)
 	if len(accounts) == 0 {
 		drop() // no imap mailbox the creator bound on the workspace's project
@@ -402,21 +402,21 @@ func (p *SceneProjector) ReprojectImapWorkspaces(ctx context.Context, owner Owne
 	p.reprojectImapRows(ctx, rows)
 }
 
-// ReprojectImapWorkspacesForUser re-projects every non-archived workspace the
-// user CREATED that references an imap credential, regardless of owner. Used
-// when a USER-GLOBAL setting changes — the imap write-permission toggle
-// (external_api_write_prefs is keyed by user, not owner) — so every office-mail
-// workspace the user drives (personal + org) regenerates its config.toml
+// ReprojectImapWorkspacesForOwner re-projects every non-archived workspace
+// under the OWNER scope that references an imap credential. Used when an
+// owner-scoped setting changes — the imap write-permission toggle
+// (external_api_write_prefs is keyed by the workspace's owner) — so every
+// office-mail workspace in that scope regenerates its config.toml
 // (outgoing/SMTP) and permissions.deny to match the new write state. Without
 // this the toggle never reaches the materialized files and sending stays
 // disabled. Best-effort: errors logged, not surfaced.
-func (p *SceneProjector) ReprojectImapWorkspacesForUser(ctx context.Context, userID int64) {
+func (p *SceneProjector) ReprojectImapWorkspacesForOwner(ctx context.Context, ownerType string, ownerID int64) {
 	rows, err := p.db.QueryContext(ctx, `
 		SELECT w.id, sp.projected_definition FROM workspaces w
 		JOIN workspace_scene_projection sp ON sp.workspace_id = w.id
-		WHERE w.created_by = ? AND w.is_archived = 0`, userID)
+		WHERE w.owner_type = ? AND w.owner_id = ? AND w.is_archived = 0`, ownerType, ownerID)
 	if err != nil {
-		slog.Warn("reproject imap workspaces (user): query failed", "err", err)
+		slog.Warn("reproject imap workspaces (owner): query failed", "err", err)
 		return
 	}
 	p.reprojectImapRows(ctx, rows)
@@ -467,12 +467,14 @@ func projectionReferencesIMAP(def string) bool {
 	return false
 }
 
-// imapWriteEnabled reports whether the user granted write-permission for their
-// mailboxes. It reads the SAME store the existing write-permission UI writes —
-// external_api_write_prefs keyed by the imap provider's id (POST via
-// ExternalProviderService.SetWritePref) — so the Settings toggle actually
-// governs send/delete. Default false → read-only: no SMTP outgoing and
-// delete/move/mark denied. Global per user (per-account is a future step).
+// imapWriteEnabled reports whether the workspace's OWNER granted
+// write-permission for the mailboxes. It reads the SAME store the
+// write-permission UI writes — external_api_write_prefs keyed by the imap
+// provider's id (POST via ExternalProviderService.SetWritePref) — under the
+// workspace's owner scope ('user' personal space / 'org'), so the Settings
+// toggle actually governs send/delete for every agent in that scope.
+// Default false → read-only: no SMTP outgoing and delete/move/mark denied.
+// Global per owner (per-account is a future step).
 // workspaceAutohost reports whether the workspace runs in autohost permission
 // mode (NIUNIU_PERMISSION_MODE=autohost) — niuniu's bypassPermissions superset,
 // where the CLI raises NO confirmation prompt and a watchdog auto-continues.
@@ -490,14 +492,14 @@ func (p *SceneProjector) workspaceAutohost(ctx context.Context, wsID int64) bool
 	return strings.TrimSpace(mode) == "autohost"
 }
 
-func (p *SceneProjector) imapWriteEnabled(ctx context.Context, userID int64) bool {
+func (p *SceneProjector) imapWriteEnabled(ctx context.Context, ownerType string, ownerID int64) bool {
 	var enabled int
 	err := p.db.QueryRowContext(ctx, `
 		SELECT COALESCE(MAX(w.enabled), 0)
 		FROM external_providers p
 		LEFT JOIN external_api_write_prefs w
-		  ON w.provider_id = p.id AND w.user_id = ?
-		WHERE p.name = ?`, userID, imapProviderName).Scan(&enabled)
+		  ON w.provider_id = p.id AND w.owner_type = ? AND w.owner_id = ?
+		WHERE p.name = ?`, ownerType, ownerID, imapProviderName).Scan(&enabled)
 	if err != nil {
 		return false
 	}

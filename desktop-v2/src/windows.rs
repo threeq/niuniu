@@ -9,8 +9,9 @@ use crate::config::DesktopConfig;
 use crate::i18n;
 use crate::state::{ConnInfo, RebuildingState};
 
-/// 每个 webview 创建链都必须带上 `.html5_drag_drop()` —— 关闭 Tauri 的原生拖放
-/// 拦截，让网页拿回标准 HTML5 拖放。
+/// 每个 webview 创建链都必须带上 `.html5_drag_drop()`（关闭 Tauri 的原生拖放
+/// 拦截，让网页拿回标准 HTML5 拖放）与 `.open_new_windows_externally()`
+/// （new-window 请求交给系统浏览器）。
 ///
 /// Tauri 2 默认开启原生拖放（`drag_drop_handler_enabled = true`）：Windows 上
 /// tauri-runtime-wry 会调用 `with_drag_drop_handler`，wry 随即为窗口挂一个原生
@@ -28,11 +29,31 @@ use crate::state::{ConnInfo, RebuildingState};
 /// 用 trait 而非裸调用：策略有名可 grep（新增窗口漏带时一查即知），说明只此一处。
 pub trait Html5DragDrop: Sized {
     fn html5_drag_drop(self) -> Self;
+    /// new-window 请求（window.open / target=_blank）→ 系统默认浏览器打开，
+    /// 并拒绝在应用内新建 webview。
+    ///
+    /// Tauri/wry 默认把 new-window 请求静默丢弃：SPA 在 webview 里点 URL 走到
+    /// `window.open(url, '_blank')` 时（团队/托管模式下 shell 端点不可用时的
+    /// 标准路径）什么都不会发生——「桌面端 chat-flow 点击 URL 没有反应」的根因。
+    /// 这里统一接管：http/https 交给系统浏览器（opener 插件），其余 scheme
+    /// 直接拒绝；无论哪种都不在应用内开新窗。
+    fn open_new_windows_externally(self) -> Self;
 }
 
 impl<'a> Html5DragDrop for WebviewWindowBuilder<'a, tauri::Wry, tauri::AppHandle> {
     fn html5_drag_drop(self) -> Self {
         self.disable_drag_drop_handler()
+    }
+
+    fn open_new_windows_externally(self) -> Self {
+        self.on_new_window(|url, _features| {
+            if matches!(url.scheme(), "http" | "https") {
+                if let Err(e) = tauri_plugin_opener::open_url(url.as_str(), None::<&str>) {
+                    eprintln!("open external url {:?} failed: {e}", url.as_str());
+                }
+            }
+            tauri::webview::NewWindowResponse::Deny
+        })
     }
 }
 
@@ -225,6 +246,7 @@ pub fn create_main_window(
     let win = crate::webview_gate::gated_create(app, || {
         WebviewWindowBuilder::new(app, "main", WebviewUrl::External(splash_data_url(lang)))
             .html5_drag_drop()
+            .open_new_windows_externally()
             .title(title)
             .inner_size(1440.0, 900.0)
             .min_inner_size(800.0, 600.0)
@@ -244,6 +266,7 @@ pub fn create_picker_window(app: &tauri::AppHandle, lang: &str) -> tauri::Result
     let win = crate::webview_gate::gated_create(app, || {
         WebviewWindowBuilder::new(app, "picker", WebviewUrl::App("index.html".into()))
             .html5_drag_drop()
+            .open_new_windows_externally()
             .title(i18n::manage_title(lang))
             .inner_size(1280.0, 800.0)
             .visible(false)
@@ -269,6 +292,7 @@ pub fn create_ai_hub_window(app: &tauri::AppHandle, lang: &str) -> tauri::Result
     let win = crate::webview_gate::gated_create(app, || {
         WebviewWindowBuilder::new(app, "ai-hub", WebviewUrl::App("ai.html".into()))
             .html5_drag_drop()
+            .open_new_windows_externally()
             .title(i18n::ai_title(lang))
             .inner_size(980.0, 720.0)
             .visible(false)
@@ -301,6 +325,7 @@ pub fn create_runners_window(app: &tauri::AppHandle, lang: &str) -> tauri::Resul
     let win = crate::webview_gate::gated_create(app, || {
         WebviewWindowBuilder::new(app, "runners", WebviewUrl::App("runners.html".into()))
             .html5_drag_drop()
+            .open_new_windows_externally()
             .title(i18n::runners_title(lang))
             .inner_size(900.0, 640.0)
             .visible(false)
@@ -347,6 +372,7 @@ pub fn open_connection_window(
         let built = crate::webview_gate::gated_create(&app, || {
             WebviewWindowBuilder::new(&app, &label, WebviewUrl::External(url))
                 .html5_drag_drop()
+                .open_new_windows_externally()
                 .title(i18n::remote_title(&lang, &info.name, &base))
                 .inner_size(1280.0, 840.0)
                 .visible(false)

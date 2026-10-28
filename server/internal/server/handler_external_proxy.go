@@ -329,7 +329,9 @@ func (s *Server) proxyListProviders(c *gin.Context) {
 	// the user's whole integration catalog. The SPA settings page reaches this
 	// same handler via /api/me/... where mcp_workspace_id is absent, so it
 	// keeps the full list for management.
+	wsScoped := false
 	if wsID := c.GetInt64("mcp_workspace_id"); wsID > 0 {
+		wsScoped = true
 		allowed := s.workspaceSourceProviderNames(c.Request.Context(), wsID)
 		scoped := make([]service.ProviderDef, 0, len(providers))
 		for _, p := range providers {
@@ -340,9 +342,30 @@ func (s *Server) proxyListProviders(c *gin.Context) {
 		providers = scoped
 	}
 
-	// Load per-user write prefs once and merge into each row. Absent means
+	// Write-permission scope: the WORKSPACE's owner for MCP callers (an org
+	// grant governs every member's agent in that org's workspaces — the same
+	// scope proxyCall gates under); explicit owner_type/owner_id for the SPA
+	// (org members manage the org scope), defaulting to the caller's personal
+	// owner.
+	ownerType, ownerID := "", int64(0)
+	if wsScoped {
+		if wsID := c.GetInt64("mcp_workspace_id"); wsID > 0 {
+			if ws, wsErr := s.queries.GetWorkspace(c.Request.Context(), wsID); wsErr == nil && ws.OwnerType != "" && ws.OwnerID > 0 {
+				ownerType, ownerID = ws.OwnerType, ws.OwnerID
+			}
+		}
+	}
+	if ownerType == "" {
+		owner, ok := s.resolveWriteOwnerScope(c, userID)
+		if !ok {
+			return
+		}
+		ownerType, ownerID = owner.Type, owner.ID
+	}
+
+	// Load the owner's write prefs once and merge into each row. Absent means
 	// disabled (default-off security gate enforced by the proxy at call time).
-	writePrefs, err := s.externalProviderSvc.ListWritePrefs(c.Request.Context(), userID)
+	writePrefs, err := s.externalProviderSvc.ListWritePrefs(c.Request.Context(), ownerType, ownerID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": gin.H{"code": "INTERNAL_ERROR", "message": err.Error()}})
 		return
@@ -420,9 +443,32 @@ func (s *Server) workspaceSourceProviderNames(ctx context.Context, workspaceID i
 	return allowed
 }
 
+// resolveWriteOwnerScope resolves the owner scope the write-permission
+// toggle applies to: explicit owner_type/owner_id query params (org members
+// manage their org's scope), defaulting to the caller's personal owner.
+// Authorized via EnsureOwnerWritable — same model as the credentials API.
+// Writes the error response and returns ok=false on failure.
+func (s *Server) resolveWriteOwnerScope(c *gin.Context, userID int64) (service.OwnerRef, bool) {
+	owner := service.OwnerRef{Type: "user", ID: userID}
+	if t := c.Query("owner_type"); t != "" {
+		id, err := strconv.ParseInt(c.Query("owner_id"), 10, 64)
+		if err != nil || id <= 0 {
+			c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{"code": "BAD_REQUEST", "message": "invalid owner_id"}})
+			return owner, false
+		}
+		owner = service.OwnerRef{Type: t, ID: id}
+	}
+	if err := s.authzSvc.EnsureOwnerWritable(c.Request.Context(), userID, owner); err != nil {
+		c.JSON(http.StatusForbidden, gin.H{"error": gin.H{"code": "FORBIDDEN", "message": "forbidden"}})
+		return owner, false
+	}
+	return owner, true
+}
+
 // proxySetWriteEnabled handles PATCH /api/me/external-proxy/providers/:id/write-enabled
-// with body {enabled: bool}. Flips the user's external_api_write_prefs row,
-// which the proxy consults to gate non-GET calls.
+// with body {enabled: bool, owner_type?, owner_id?}. Flips the OWNER's
+// external_api_write_prefs row — the workspace-owner scope the proxy consults
+// to gate non-GET calls (org grant governs every member's agent in that org).
 func (s *Server) proxySetWriteEnabled(c *gin.Context) {
 	userID := c.GetInt64("auth_user_id")
 	if userID == 0 {
@@ -442,13 +488,27 @@ func (s *Server) proxySetWriteEnabled(c *gin.Context) {
 		return
 	}
 	var req struct {
-		Enabled bool `json:"enabled"`
+		Enabled   bool    `json:"enabled"`
+		OwnerType *string `json:"owner_type"`
+		OwnerID   *int64  `json:"owner_id"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{"code": "BAD_REQUEST", "message": err.Error()}})
 		return
 	}
-	if err := s.externalProviderSvc.SetWritePref(c.Request.Context(), userID, id, req.Enabled); err != nil {
+	owner := service.OwnerRef{Type: "user", ID: userID}
+	if req.OwnerType != nil && *req.OwnerType != "" {
+		if req.OwnerID == nil || *req.OwnerID <= 0 {
+			c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{"code": "BAD_REQUEST", "message": "invalid owner_id"}})
+			return
+		}
+		owner = service.OwnerRef{Type: *req.OwnerType, ID: *req.OwnerID}
+	}
+	if err := s.authzSvc.EnsureOwnerWritable(c.Request.Context(), userID, owner); err != nil {
+		c.JSON(http.StatusForbidden, gin.H{"error": gin.H{"code": "FORBIDDEN", "message": "forbidden"}})
+		return
+	}
+	if err := s.externalProviderSvc.SetWritePref(c.Request.Context(), owner.Type, owner.ID, id, req.Enabled); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": gin.H{"code": "INTERNAL_ERROR", "message": err.Error()}})
 		return
 	}

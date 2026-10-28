@@ -268,6 +268,7 @@ func (h *RepositoryHandler) Create(c *gin.Context) {
 		AutoInit:  autoInit,
 		OwnerType: owner.Type,
 		OwnerID:   owner.ID,
+		UserID:    userID, // clone-time credential resolution (token / SSH key)
 	})
 	if err != nil {
 		switch {
