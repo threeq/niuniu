@@ -2,7 +2,9 @@ package api
 
 import (
 	"database/sql"
+	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"os"
@@ -737,7 +739,11 @@ func (h *RepositoryHandler) Pull(c *gin.Context) {
 	if !h.authorizeRepo(c) {
 		return
 	}
-	if err := h.svc.Pull(c.Request.Context(), c.Param("id")); err != nil {
+	branch, ok := bindRepoBranch(c)
+	if !ok {
+		return
+	}
+	if err := h.svc.Pull(c.Request.Context(), c.Param("id"), branch); err != nil {
 		InternalError(c, err)
 		return
 	}
@@ -755,11 +761,29 @@ func (h *RepositoryHandler) Push(c *gin.Context) {
 	if !h.authorizeRepo(c) {
 		return
 	}
-	if err := h.svc.Push(c.Request.Context(), c.Param("id")); err != nil {
+	branch, ok := bindRepoBranch(c)
+	if !ok {
+		return
+	}
+	if err := h.svc.Push(c.Request.Context(), c.Param("id"), branch); err != nil {
 		InternalError(c, err)
 		return
 	}
 	c.Status(http.StatusOK)
+}
+
+// bindRepoBranch reads the optional {"branch": "..."} body of a pull/push.
+// An absent/empty body means "the checked-out branch". Returns false after
+// writing a 400 for a malformed body.
+func bindRepoBranch(c *gin.Context) (string, bool) {
+	var req struct {
+		Branch string `json:"branch"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil && !errors.Is(err, io.EOF) {
+		BadRequest(c, err.Error())
+		return "", false
+	}
+	return strings.TrimSpace(req.Branch), true
 }
 
 // authorizeRepo enforces per-repository access for handlers that act on an

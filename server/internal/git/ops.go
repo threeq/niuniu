@@ -586,6 +586,59 @@ func Push(worktreePath string) error {
 	return nil
 }
 
+// upstreamRemote returns the remote the branch tracks, falling back to origin.
+func upstreamRemote(repoPath, branch string) string {
+	out, err := exec.Command("git", "-C", repoPath, "config", "--get", "branch."+branch+".remote").Output()
+	if err == nil {
+		if r := strings.TrimSpace(string(out)); r != "" {
+			return r
+		}
+	}
+	return "origin"
+}
+
+// PullBranch pulls the named local branch. When it is the checked-out branch
+// this is a normal merge pull; otherwise the local ref is fast-forwarded via
+// fetch, which (like a pull on a clean tree) refuses non-fast-forward updates.
+func PullBranch(repoPath, branch string) error {
+	current, err := CurrentBranch(repoPath)
+	if err != nil {
+		return err
+	}
+	if current == branch {
+		return Pull(repoPath)
+	}
+	remote := upstreamRemote(repoPath, branch)
+	ref := "refs/heads/" + branch
+	cmd := exec.Command("git", "-C", repoPath, "fetch", remote, ref+":"+ref)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("git fetch %s %s: %s: %w", remote, branch, strings.TrimSpace(string(out)), err)
+	}
+	return nil
+}
+
+// PushBranch pushes the named local branch to its upstream remote (origin when
+// the branch has no upstream). The checked-out branch uses a plain git push so
+// a configured push refspec is honored.
+func PushBranch(repoPath, branch string) error {
+	current, err := CurrentBranch(repoPath)
+	if err != nil {
+		return err
+	}
+	if current == branch {
+		return Push(repoPath)
+	}
+	remote := upstreamRemote(repoPath, branch)
+	ref := "refs/heads/" + branch
+	cmd := exec.Command("git", "-C", repoPath, "push", remote, ref+":"+ref)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("git push %s %s: %s: %w", remote, branch, strings.TrimSpace(string(out)), err)
+	}
+	return nil
+}
+
 // GetCommitCount returns the total number of commits in the repository.
 func GetCommitCount(repoPath string) (int, error) {
 	cmd := exec.Command("git", "-C", repoPath, "rev-list", "--count", "HEAD")

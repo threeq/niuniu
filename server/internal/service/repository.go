@@ -1270,7 +1270,7 @@ func (s *RepositoryService) CommitAll(ctx context.Context, id, message string, u
 // Pull fetches and merges remote changes into the repository's own checkout.
 // Used by the repository page's branch panel; workspace worktrees have their
 // own pull path via GitOpsService.
-func (s *RepositoryService) Pull(ctx context.Context, id string) error {
+func (s *RepositoryService) Pull(ctx context.Context, id, branch string) error {
 	repo, err := s.getForRemoteOp(ctx, id)
 	if err != nil {
 		return err
@@ -1278,11 +1278,17 @@ func (s *RepositoryService) Pull(ctx context.Context, id string) error {
 	if err := guardRemoteEgress(ctx, repo.GitRemote.String); err != nil {
 		return err
 	}
-	return git.Pull(repo.Path)
+	if branch == "" {
+		return git.Pull(repo.Path)
+	}
+	if !git.BranchExists(repo.Path, branch) {
+		return fmt.Errorf("branch %q not found", branch)
+	}
+	return git.PullBranch(repo.Path, branch)
 }
 
 // Push pushes the repository's own checkout to its upstream remote.
-func (s *RepositoryService) Push(ctx context.Context, id string) error {
+func (s *RepositoryService) Push(ctx context.Context, id, branch string) error {
 	repo, err := s.getForRemoteOp(ctx, id)
 	if err != nil {
 		return err
@@ -1290,7 +1296,13 @@ func (s *RepositoryService) Push(ctx context.Context, id string) error {
 	if err := guardRemoteEgress(ctx, repo.GitRemote.String); err != nil {
 		return err
 	}
-	return git.Push(repo.Path)
+	if branch == "" {
+		return git.Push(repo.Path)
+	}
+	if !git.BranchExists(repo.Path, branch) {
+		return fmt.Errorf("branch %q not found", branch)
+	}
+	return git.PushBranch(repo.Path, branch)
 }
 
 // getForRemoteOp loads a repository row for a pull/push.
