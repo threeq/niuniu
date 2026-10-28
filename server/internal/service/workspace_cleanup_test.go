@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"database/sql"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -295,6 +296,150 @@ func TestRunDueCleanup_OnlyEnabledProjects(t *testing.T) {
 
 	requireWorkspaceGone(t, q, ctx, onWs)
 	requireWorkspaceExists(t, q, ctx, offWs)
+}
+
+// ---- global expiry --------------------------------------------------------
+
+func TestSweepExpired_DeletesStaleWorkspacesAndIssues(t *testing.T) {
+	svc, q, db, ctx := newCleanupSvc(t)
+	now := time.Date(2026, 7, 20, 12, 0, 0, 0, time.UTC)
+	svc.now = func() time.Time { return now }
+
+	pid := mkProject(t, q, ctx, "p")
+	col := mkColumn(t, db, pid)
+	old := now.Add(-30 * 24 * time.Hour)
+	recent := now.Add(-1 * 24 * time.Hour)
+
+	// stale in-progress issue: the global expiry has no status filter, so both
+	// this workspace and its issue go.
+	staleIssue := mkIssue(t, db, col, "implement", "idle")
+	staleWs := mkWorkspace(t, db, staleIssue, "idle", old)
+
+	// recent activity: kept.
+	freshIssue := mkIssue(t, db, col, "completed", "idle")
+	freshWs := mkWorkspace(t, db, freshIssue, "idle", old)
+	setLastActivity(t, db, freshWs, recent)
+
+	// old but running: kept.
+	runIssue := mkIssue(t, db, col, "implement", "running")
+	runWs := mkWorkspace(t, db, runIssue, "running", old)
+
+	// old but uncommitted changes: kept.
+	dirtyIssue := mkIssue(t, db, col, "completed", "idle")
+	dirtyWs := mkWorkspace(t, db, dirtyIssue, "idle", old)
+
+	stubDeletes(svc, q, map[int64]bool{dirtyWs: true})
+
+	res, err := svc.SweepExpired(ctx, 7)
+	require.NoError(t, err)
+	require.Equal(t, 4, res.Scanned)
+	require.ElementsMatch(t, []int64{staleWs}, res.Deleted)
+	require.Equal(t, 1, res.SkippedChanges)
+	require.Equal(t, 0, res.Errors)
+
+	requireWorkspaceGone(t, q, ctx, staleWs)
+	requireIssueGone(t, q, ctx, staleIssue)
+	requireWorkspaceExists(t, q, ctx, freshWs)
+	requireWorkspaceExists(t, q, ctx, runWs)
+	requireWorkspaceExists(t, q, ctx, dirtyWs)
+}
+
+func TestSweepExpired_KeepsWorkspaceWithoutIssue(t *testing.T) {
+	svc, q, db, ctx := newCleanupSvc(t)
+	now := time.Date(2026, 7, 20, 12, 0, 0, 0, time.UTC)
+	svc.now = func() time.Time { return now }
+	stubDeletes(svc, q, nil)
+
+	// issue_id NULL: workspace still expires; the issue delete is skipped.
+	res, err := db.Exec(
+		"INSERT INTO workspaces (path, status, agent_status, session_status, updated_at) VALUES ('/tmp/ws', 'created', 'idle', 'idle', ?)",
+		now.Add(-30*24*time.Hour))
+	require.NoError(t, err)
+	wsID, err := res.LastInsertId()
+	require.NoError(t, err)
+
+	got, err := svc.SweepExpired(ctx, 7)
+	require.NoError(t, err)
+	require.ElementsMatch(t, []int64{wsID}, got.Deleted)
+	requireWorkspaceGone(t, q, ctx, wsID)
+}
+
+func TestSweepExpired_ZeroDaysIsNoop(t *testing.T) {
+	svc, q, db, ctx := newCleanupSvc(t)
+	svc.now = func() time.Time { return time.Date(2026, 7, 20, 12, 0, 0, 0, time.UTC) }
+	stubDeletes(svc, q, nil)
+
+	pid := mkProject(t, q, ctx, "p")
+	col := mkColumn(t, db, pid)
+	iss := mkIssue(t, db, col, "completed", "idle")
+	ws := mkWorkspace(t, db, iss, "idle", time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC))
+
+	res, err := svc.SweepExpired(ctx, 0)
+	require.NoError(t, err)
+	require.Equal(t, 0, res.Scanned)
+	require.Empty(t, res.Deleted)
+	requireWorkspaceExists(t, q, ctx, ws)
+}
+
+func TestSweepExpired_BoundsConcurrency(t *testing.T) {
+	svc, q, db, ctx := newCleanupSvc(t)
+	now := time.Date(2026, 7, 20, 12, 0, 0, 0, time.UTC)
+	svc.now = func() time.Time { return now }
+
+	pid := mkProject(t, q, ctx, "p")
+	col := mkColumn(t, db, pid)
+	old := now.Add(-30 * 24 * time.Hour)
+	const n = 8
+	ids := make([]int64, 0, n)
+	for i := 0; i < n; i++ {
+		iss := mkIssue(t, db, col, "completed", "idle")
+		ids = append(ids, mkWorkspace(t, db, iss, "idle", old))
+	}
+
+	var (
+		inFlight int32
+		maxSeen  int32
+	)
+	svc.hasChanges = func(ctx context.Context, id int64) (bool, error) {
+		cur := atomic.AddInt32(&inFlight, 1)
+		for {
+			prev := atomic.LoadInt32(&maxSeen)
+			if cur <= prev || atomic.CompareAndSwapInt32(&maxSeen, prev, cur) {
+				break
+			}
+		}
+		time.Sleep(20 * time.Millisecond)
+		atomic.AddInt32(&inFlight, -1)
+		return false, nil
+	}
+	svc.deleteWorkspace = func(ctx context.Context, id int64) error { return q.DeleteWorkspace(ctx, id) }
+	svc.deleteIssue = func(ctx context.Context, id int64) error { return nil }
+
+	res, err := svc.SweepExpired(ctx, 7)
+	require.NoError(t, err)
+	require.Len(t, res.Deleted, n)
+	require.LessOrEqual(t, atomic.LoadInt32(&maxSeen), int32(sweepExpiredConcurrency),
+		"teardown concurrency must stay bounded")
+	require.Greater(t, atomic.LoadInt32(&maxSeen), int32(1), "teardown should use the bounded pool")
+}
+
+func TestRunDueCleanup_GlobalExpiryIndependentOfProjectPolicy(t *testing.T) {
+	svc, q, db, ctx := newCleanupSvc(t)
+	now := time.Date(2026, 7, 20, 12, 0, 0, 0, time.UTC)
+	svc.now = func() time.Time { return now }
+	svc.expireDays = func(ctx context.Context) int { return 7 }
+	stubDeletes(svc, q, nil)
+
+	// Project policies stay OFF; the global window alone must clean this.
+	pid := mkProject(t, q, ctx, "p")
+	col := mkColumn(t, db, pid)
+	iss := mkIssue(t, db, col, "implement", "idle")
+	ws := mkWorkspace(t, db, iss, "idle", now.Add(-30*24*time.Hour))
+
+	svc.runDueCleanup(ctx)
+
+	requireWorkspaceGone(t, q, ctx, ws)
+	requireIssueGone(t, q, ctx, iss)
 }
 
 // ---- assertion helpers ----------------------------------------------------
