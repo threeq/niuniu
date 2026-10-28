@@ -226,8 +226,8 @@ func noProbeResult(providerName string) *ProviderVerifyResult {
 		Detail:     "the contract has no read-only operation to use as a verification probe",
 		NextAction: "add a read-only operation to the contract (or point verify_operation at one)",
 		Alternatives: []string{
-			"declare a cheap read-only endpoint such as a list/ping operation",
-			"mark an existing read-via-POST operation read_only and confirm it has no side effects",
+			"declare a cheap read-only endpoint such as a list or ping GET operation",
+			"point verify_operation at a GET or HEAD operation",
 		},
 	}
 }

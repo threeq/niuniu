@@ -193,6 +193,11 @@ type ProxyInput struct {
 	Path        string
 	Query       map[string]any
 	Body        map[string]any
+	// Params carries the operation arguments a sandbox function supplied via
+	// http_request({operation, params}). The box author names them separately
+	// from query/body, so they must ride alongside them rather than being
+	// dropped before the proxy sees the call.
+	Params      map[string]any
 	WorkspaceID int64  // >0 when called by an in-workspace MCP agent; resolve credential by project binding
 	SourceKey   string // optional disambiguator when a project binds multiple sources for the same provider
 
@@ -558,8 +563,19 @@ func (s *ExternalProxyService) authorizeCall(prov *ProviderDef, contract *Provid
 		return method, path, query, body, nil
 	}
 	switch {
+	case op != nil && op.ReadOnly && coarseReadOnly(op.Method):
+		// Provably read-only (GET/HEAD) — in the default safe set.
 	case op != nil && op.ReadOnly:
-		// Read-only operation — in the default safe set.
+		// Declared read-only but not a provably read-only method (e.g. a
+		// read-via-POST). The coarse check cannot prove it has no side effects,
+		// so the declaration is not trusted for gating: it needs the explicit
+		// writable toggle rather than silently joining the safe set.
+		return "", "", nil, nil, &ProxyError{
+			Code: "operation_requires_write",
+			Message: fmt.Sprintf("operation %q (%s %s) on provider %q is declared read-only but uses a non-GET/HEAD method, which cannot be proven side-effect-free. Enable \"Allow writes\" for this provider in Settings -> Integrations to allow it.",
+				op.Name, op.Method, op.Path, in.Provider),
+			Provider: in.Provider,
+		}
 	case op != nil:
 		return "", "", nil, nil, &ProxyError{
 			Code: "operation_requires_write",

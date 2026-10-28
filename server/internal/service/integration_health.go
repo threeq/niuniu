@@ -358,6 +358,29 @@ func (s *IntegrationHealthService) setBaseline(ctx context.Context, id int64, di
 	}
 }
 
+// SeedProviderDriftBaseline fetches the provider's upstream OpenAPI document
+// once and pins its digest as the drift baseline. The draft pipeline calls it at
+// PUBLISH time, so the baseline is the document as it stood when the contract
+// went live: an upstream change that happens between publication and the first
+// scheduled sweep is then detected as drift, instead of being absorbed silently
+// when the first sweep would otherwise have established the baseline itself.
+//
+// A no-op when the provider has no openapi_url, or when a baseline is already
+// set (idempotent, so it is safe to call on every publish). A fetch failure is
+// never fatal: the first sweep falls back to establishing the baseline.
+func (s *IntegrationHealthService) SeedProviderDriftBaseline(ctx context.Context, providerID int64) {
+	p, err := s.q.GetProviderByID(ctx, providerID)
+	if err != nil {
+		return
+	}
+	if p.UpstreamSpecDigest != "" {
+		return
+	}
+	// With an empty baseline, checkContractDrift records the baseline from the
+	// fetched document (or returns early on an empty url / fetch failure).
+	s.checkContractDrift(ctx, p)
+}
+
 // applyDrift raises the drift flag + notifies once. A provider already flagged
 // stays flagged (only the observed digest is refreshed) and is not re-notified
 // on every sweep; the flag clears when the user acknowledges.

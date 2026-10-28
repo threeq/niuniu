@@ -44,6 +44,13 @@ var (
 	// has no linked project: data-source visibility is project-scoped, so a
 	// source created without a project could never be queried by the agent.
 	ErrWorkspaceNoProject = errors.New("workspace has no linked project; cannot create a data source for it")
+	// ErrConfigCarriesSecret is returned by CreateForWorkspace (the agent-facing
+	// create path) when the supplied config carries secret material — a
+	// password, API key, auth header or private key. Secrets must reach the
+	// server out-of-band via the one-time credential link, never through the
+	// model context / conversation. The settings UI path (Create/Update) is not
+	// subject to this: it is a direct human action, not an LLM tool call.
+	ErrConfigCarriesSecret = errors.New("data source config must not carry secret fields")
 )
 
 // ErrDataSourceKindUnsupported wraps dataconn.ErrUnsupported so handlers can map
@@ -199,6 +206,14 @@ func (s *DataSourceService) Create(ctx context.Context, in CreateDataSourceInput
 // otherwise the same errors as Create (ErrDataSourceKindUnsupported,
 // ErrDataSourceNameTaken).
 func (s *DataSourceService) CreateForWorkspace(ctx context.Context, ws store.Workspace, userID int64, in CreateDataSourceInput) (*DataSourceDTO, error) {
+	// This is the agent-facing (MCP tool) create path, so the config passes
+	// through the model context on its way here. Reject any secret material up
+	// front and point the caller at the out-of-band secure link: a secret typed
+	// into the conversation is already leaked by the time we could redact it.
+	if names := ScanConfigSecrets(in.Config); len(names) > 0 {
+		return nil, fmt.Errorf("%w: %s. Pass secrets through the secure link instead: call request_credential_link(kind=\"data_source\", name=%q, kind=...) so the user enters them on a one-time page, then create the source with only the non-secret fields (host, port, database, user, options.scheme, …)",
+			ErrConfigCarriesSecret, strings.Join(names, ", "), strings.TrimSpace(in.Name))
+	}
 	pid, err := s.q.GetProjectIDForWorkspace(ctx, ws.ID)
 	if err != nil || pid <= 0 {
 		return nil, ErrWorkspaceNoProject
@@ -779,23 +794,83 @@ func (s *DataSourceService) HasCredential(ctx context.Context, id int64, ownerTy
 // configHasSecret reports whether a decrypted data-source config carries any
 // secret material.
 func configHasSecret(cfg map[string]any) bool {
-	if stringField(cfg, "password") != "" || stringField(cfg, "private_key") != "" {
+	return len(ScanConfigSecrets(cfg)) > 0
+}
+
+// secretConfigKeys are config field names (case-insensitive) whose presence
+// with a non-empty value means the config carries secret material. `headers`
+// is included as a container: its values are request auth (e.g. an
+// Authorization header), so a non-empty headers map is itself secret.
+var secretConfigKeys = map[string]bool{
+	"password":      true,
+	"passwd":        true,
+	"pwd":           true,
+	"private_key":   true,
+	"privatekey":    true,
+	"api_key":       true,
+	"apikey":        true,
+	"token":         true,
+	"access_token":  true,
+	"secret":        true,
+	"client_secret": true,
+	"secret_key":    true,
+	"authorization": true,
+	"auth":          true,
+	"headers":       true,
+}
+
+// ScanConfigSecrets returns the dotted field names (e.g. "options.api_key",
+// "options.headers", "ssh.password") that carry secret material anywhere in a
+// data-source config, recursively — including nested option/ssh/headers maps.
+// It returns ONLY names, never values, so a caller can reject a config without
+// echoing the secret back into a model context, a log or an error message.
+// Names are de-duplicated and sorted for a stable, testable result.
+func ScanConfigSecrets(cfg map[string]any) []string {
+	var found []string
+	seen := map[string]bool{}
+	var walk func(prefix string, m map[string]any)
+	walk = func(prefix string, m map[string]any) {
+		for k, v := range m {
+			path := k
+			if prefix != "" {
+				path = prefix + "." + k
+			}
+			if secretConfigKeys[strings.ToLower(strings.TrimSpace(k))] {
+				// The field itself is the offending name; do not descend into
+				// it (a header VALUE could otherwise surface as a "name").
+				if secretValuePresent(v) && !seen[path] {
+					seen[path] = true
+					found = append(found, path)
+				}
+				continue
+			}
+			if sub, ok := v.(map[string]any); ok {
+				walk(path, sub)
+			}
+		}
+	}
+	walk("", cfg)
+	sort.Strings(found)
+	return found
+}
+
+// secretValuePresent reports whether a secret-named field actually holds a
+// value: an empty string / empty map / empty list / nil is treated as absent
+// (the edit form and several builders use a blank secret as a "keep existing"
+// marker), so only real secret material trips the scan.
+func secretValuePresent(v any) bool {
+	switch t := v.(type) {
+	case nil:
+		return false
+	case string:
+		return strings.TrimSpace(t) != ""
+	case map[string]any:
+		return len(t) > 0
+	case []any:
+		return len(t) > 0
+	default:
 		return true
 	}
-	if opts, ok := cfg["options"].(map[string]any); ok {
-		if stringField(opts, "api_key") != "" || stringField(opts, "token") != "" {
-			return true
-		}
-		if h, ok := opts["headers"].(map[string]any); ok && len(h) > 0 {
-			return true
-		}
-	}
-	if ssh, ok := cfg["ssh"].(map[string]any); ok {
-		if stringField(ssh, "password") != "" || stringField(ssh, "private_key") != "" {
-			return true
-		}
-	}
-	return false
 }
 
 func (s *DataSourceService) encryptConfig(cfg map[string]any) (string, error) {

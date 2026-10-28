@@ -89,7 +89,7 @@ func newOpenAPIDraftTestServer(t *testing.T) (*gin.Engine, *service.ExternalProv
 	srv := &Server{
 		externalProviderSvc: svc,
 		queries:             q,
-		extSourceSvc:        service.NewExternalSourceService(q, db, nil, nil, nil),
+		extSourceSvc:        service.NewExternalSourceService(q, db, nil, nil, nil, nil),
 	}
 
 	gin.SetMode(gin.TestMode)

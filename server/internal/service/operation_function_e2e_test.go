@@ -176,8 +176,9 @@ func newFnE2E(t *testing.T) *fnE2E {
 		functions: functions, drafts: drafts, upstream: upstream}
 }
 
-// seedProviderAndFunction drafts a provider whose contract has one read-only
-// operation, carrying a function that calls it, then confirms and publishes.
+// seedProviderAndFunction drafts a write-enabled provider whose contract has a
+// token-exchange write and a read-only list, carrying a function that calls both,
+// then confirms and publishes.
 func (e *fnE2E) seedProviderAndFunction(t *testing.T) FunctionView {
 	t.Helper()
 	ctx := context.Background()
@@ -190,11 +191,18 @@ func (e *fnE2E) seedProviderAndFunction(t *testing.T) FunctionView {
 		Provider: &ProviderDraftPayload{
 			Label:   "E2E Orders",
 			BaseURL: e.upstream.URL,
+			// exchangeToken is a side-effecting POST (it mints a token), so it is a
+			// genuine write, not read_only: a non-GET/HEAD method cannot be proven
+			// side-effect-free and read_only would let it bypass the write gate. The
+			// provider therefore asks for the write gate, which is what makes the
+			// whole two-step (write then read) flow runnable.
+			WriteEnabled: true,
+			Whitelist:    `[{"method":"GET","path":"*"},{"method":"POST","path":"/oauth/token"}]`,
 			Contract: &ProviderContract{
 				Provider: "E2E Orders",
 				BaseURL:  e.upstream.URL,
 				Operations: []ContractOperation{
-					{Name: "exchangeToken", Method: "POST", Path: "/oauth/token", ReadOnly: true,
+					{Name: "exchangeToken", Method: "POST", Path: "/oauth/token", ReadOnly: false,
 						ResponseShape: `{"token":"tok-123"}`},
 					{Name: "listOrders", Method: "GET", Path: "/orders", ReadOnly: true,
 						// Declaring the response shape is what lets the rehearsal
@@ -222,7 +230,7 @@ func (e *fnE2E) seedProviderAndFunction(t *testing.T) FunctionView {
 					        token: orders.body.seen_token, steps: 2};
 				}`,
 				Egress: []sandbox.EgressOp{
-					{Operation: "exchangeToken", ReadOnly: true},
+					{Operation: "exchangeToken", ReadOnly: false},
 					{Operation: "listOrders", ReadOnly: true},
 				},
 			}},
@@ -261,6 +269,9 @@ func (e *fnE2E) seedProviderAndFunction(t *testing.T) FunctionView {
 	if _, err := e.drafts.ConfirmDraft(ctx, ConfirmImpactInput{
 		DraftID: view.ID, OwnerType: owner, OwnerID: user,
 		AckKeys: view.Card.AckKeys(),
+		// Turning on the write gate is a widening change: it needs the separate,
+		// explicit second confirmation as well as the per-item acks.
+		SecondConfirmation: true,
 	}); err != nil {
 		t.Fatalf("confirm: %v", err)
 	}

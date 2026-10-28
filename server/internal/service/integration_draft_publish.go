@@ -155,6 +155,14 @@ func (s *IntegrationDraftService) PublishDraft(ctx context.Context, in PublishDr
 	if err := s.enable(ctx, row.Kind, applied.targetID, true); err != nil {
 		return nil, err
 	}
+	if s.health != nil && row.Kind == DraftKindProvider {
+		// Pin the drift baseline to the upstream document as it stands at publish
+		// time. Setting it here (rather than at the first scheduled sweep) closes
+		// the blind window where an upstream change landing between publish and
+		// first sweep would be silently absorbed as the baseline. Idempotent, and
+		// a no-op for providers without an openapi_url.
+		s.health.SeedProviderDriftBaseline(ctx, applied.targetID)
+	}
 	if row.Kind == DraftKindProvider {
 		var p ProviderDraftPayload
 		_ = json.Unmarshal([]byte(row.Payload), &p)
@@ -755,10 +763,12 @@ type liveVerifier struct {
 // with Probe=true, so a not-yet-enabled provider is permitted and the write
 // whitelist is skipped.
 //
-// No extra confirmation gate is applied here: the probe is resolved from the
-// contract's verify_operation, which the draft lint requires and the approved
-// confirmation card displayed in its decision area. Card approval IS the
-// confirmation for this exact request.
+// Defence in depth: even though card approval IS the confirmation for the
+// request the card displayed, a probe that is not provably read-only must NOT
+// auto-execute here. This mirrors ExternalProxyService.VerifyProvider's
+// CoarseReadOnly gate — the card being approved does not let a non-GET/HEAD
+// probe run unattended on publish. SelectVerifyOperation already only returns
+// GET/HEAD, so this is a backstop rather than the primary gate.
 func (v *liveVerifier) VerifyProvider(ctx context.Context, providerName string, userID int64) (*DraftVerifyResult, error) {
 	if v.proxy == nil || v.providers == nil {
 		return &DraftVerifyResult{OK: false, Detail: "provider verification is unavailable in this build"}, nil
@@ -773,8 +783,29 @@ func (v *liveVerifier) VerifyProvider(ctx context.Context, providerName string, 
 			Detail: "the contract exposes no read-only operation to verify with"}, nil
 	}
 	manifest := BuildProbeManifest(op, source)
+	if refusal, refused := refuseNonCoarseProbe(manifest); refused {
+		return refusal, nil
+	}
 	res := v.proxy.runProbe(ctx, prov, op, manifest, userID, 0, "")
 	return &DraftVerifyResult{OK: res.OK, Status: res.Status, Probe: manifest, Detail: res.Detail}, nil
+}
+
+// refuseNonCoarseProbe is the publish-time backstop that mirrors
+// ExternalProxyService.VerifyProvider's CoarseReadOnly gate: a probe whose method
+// is not GET/HEAD cannot be proven side-effect-free, so it is refused (with
+// RequiresConfirmation surfaced) rather than executed. It returns (result, true)
+// when the probe must be refused and (nil, false) when it may run.
+func refuseNonCoarseProbe(m *ProbeManifest) (*DraftVerifyResult, bool) {
+	if m.CoarseReadOnly {
+		return nil, false
+	}
+	return &DraftVerifyResult{
+		OK:                   false,
+		Probe:                m,
+		RequiresConfirmation: true,
+		Detail: fmt.Sprintf("the verification probe uses %s, which cannot be proven read-only; refusing to run it automatically",
+			m.Method),
+	}, true
 }
 
 // VerifyDataSource pings the source through its connector, using the same

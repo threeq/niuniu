@@ -316,9 +316,42 @@ func TestBuildConfirmCard_GoldenDecisionPayload(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read golden (run with UPDATE_GOLDEN=1 to create): %v", err)
 	}
-	if !bytes.Equal(bytes.TrimSpace(got), bytes.TrimSpace(want)) {
+	if !goldenEqual(got, want) {
 		t.Errorf("confirm card drifted from the golden snapshot.\n--- got ---\n%s\n--- want ---\n%s",
-			bytes.TrimSpace(got), bytes.TrimSpace(want))
+			bytes.TrimSpace(normalizeEOL(got)), bytes.TrimSpace(normalizeEOL(want)))
+	}
+}
+
+// normalizeEOL rewrites CRLF to LF so a golden comparison is neutral to the
+// checkout's line endings. The fixture is committed with LF, but a Windows
+// checkout (core.autocrlf=true) rewrites it to CRLF; bytes.TrimSpace only strips
+// the ends, so interior CRLF would otherwise fail the match with zero content
+// drift.
+func normalizeEOL(b []byte) []byte {
+	return bytes.ReplaceAll(b, []byte("\r\n"), []byte("\n"))
+}
+
+// goldenEqual compares two golden payloads on their line-ending-neutral form.
+func goldenEqual(got, want []byte) bool {
+	return bytes.Equal(bytes.TrimSpace(normalizeEOL(got)), bytes.TrimSpace(normalizeEOL(want)))
+}
+
+// TestGoldenDecisionPayload_TolerantOfCRLFCheckout guards the line-ending
+// normalisation: a CRLF-mangled copy of the golden must still match, while a
+// real content change still must not.
+func TestGoldenDecisionPayload_TolerantOfCRLFCheckout(t *testing.T) {
+	payload, err := DecisionPayload(BuildConfirmCard(canonicalInput()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := indentJSON(t, payload)
+	crlf := bytes.ReplaceAll(got, []byte("\n"), []byte("\r\n"))
+
+	if !goldenEqual(got, crlf) {
+		t.Fatal("a CRLF checkout of the same payload must compare equal")
+	}
+	if goldenEqual(got, append(crlf, 'x')) {
+		t.Fatal("a real content change must not compare equal")
 	}
 }
 

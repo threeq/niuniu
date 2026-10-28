@@ -185,13 +185,14 @@ export interface UpdateProviderBody {
 
 // --- Integration activity feed (Epic #726 / #728) ---------------------------
 //
-// The read side of the two integration audit tables. `kind` discriminates the
-// two row shapes: 'api' rows carry the external-proxy fields (method/path/
-// status_code + the outbound body fingerprint), 'data' rows carry the data-query
-// fields (source/access_mode/statement_summary/...). Kind-specific fields are
-// absent rather than null on the other kind.
+// The read side of the integration audit tables. `kind` discriminates the row
+// shapes: 'api' rows carry the external-proxy fields (method/path/status_code +
+// the outbound body fingerprint), 'data' rows carry the data-query fields
+// (source/access_mode/statement_summary/...), and 'function' rows carry the
+// sandbox operation-function fields (function_name/caller/egress_*). Kind-
+// specific fields are absent rather than null on the other kinds.
 
-export type ActivityKind = 'api' | 'data';
+export type ActivityKind = 'api' | 'data' | 'function';
 
 /** Value-free summary of an outbound request body: hash + size + field NAMES.
  *  Values are never persisted, so this can be shown without leaking a payload. */
@@ -230,6 +231,18 @@ export interface IntegrationActivityItem {
   status?: string;
   rows?: number;
   duration_ms?: number;
+
+  // kind === 'function' (a sandbox operation-function run). Such a row names the
+  // provider it ran against, so provider_id/provider_name are populated too.
+  function_id?: number;
+  function_name?: string;
+  caller?: string;
+  error_code?: string;
+  egress_calls?: number;
+  egress_ops?: string[];
+  code_hash?: string;
+  observation?: boolean;
+  replayed?: boolean;
 }
 
 export type IntegrationActivityItemWithFingerprint = IntegrationActivityItem &

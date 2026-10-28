@@ -24,8 +24,9 @@ const probeContract = `{"schema_version":"1","provider":"probe",` +
 	`{"name":"search","method":"GET","path":"/search","read_only":true,"parameters":[{"name":"q","in":"query","required":true}]}` +
 	`],"verify_operation":"list"}`
 
-// postProbeContract has a read-via-POST verify operation (lint warning, needs
-// human confirmation at publish).
+// postProbeContract has a read-via-POST verify operation: the contract is now
+// REJECTED by lint (a non-GET/HEAD read_only probe cannot be proven safe), so
+// publish must roll back without ever contacting the upstream.
 const postProbeContract = `{"schema_version":"1","provider":"probe",` +
 	`"operations":[{"name":"search","method":"POST","path":"/search","read_only":true}],` +
 	`"verify_operation":"search"}`
@@ -193,9 +194,10 @@ func TestPublishProviderFailureRollsBack(t *testing.T) {
 	require.Equal(t, "legacy free text", after.Profile, "rollback leaves the previous profile intact")
 }
 
-// A non-GET probe is gated on explicit confirmation; the manifest is returned
-// for the confirmation card, and the probe is NOT sent until it is confirmed.
-func TestPublishProviderNonGetProbeRequiresConfirmation(t *testing.T) {
+// A non-GET/HEAD verify_operation is a BLOCKING lint error: publish rejects the
+// contract and never sends the probe — even with Confirmed=true, a write-shaped
+// probe is not executed.
+func TestPublishProviderRejectsReadOnlyPostProbe(t *testing.T) {
 	e := newVerifyEnv(t, http.StatusOK)
 	prov := e.seedProvider(t, "pubconfirm", postProbeContract, false)
 	ctx := context.Background()
@@ -205,20 +207,25 @@ func TestPublishProviderNonGetProbeRequiresConfirmation(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.False(t, res.Published)
-	require.True(t, res.RequiresConfirmation)
 	require.True(t, res.RolledBack)
-	require.NotNil(t, res.Probe)
-	require.Equal(t, "POST", res.Probe.Method)
-	require.False(t, res.Probe.CoarseReadOnly)
-	require.Equal(t, int32(0), atomic.LoadInt32(e.hits), "an unconfirmed probe must not be sent")
+	require.NotEmpty(t, res.Issues, "the rejection must surface the blocking lint issues")
+	var sawErr bool
+	for _, iss := range res.Issues {
+		if iss.Severity == "error" {
+			sawErr = true
+		}
+	}
+	require.True(t, sawErr)
+	require.Equal(t, int32(0), atomic.LoadInt32(e.hits), "a rejected contract must never probe the upstream")
 
-	// After confirmation the probe runs and the provider publishes.
+	// Confirming does not help: the contract itself is invalid, so the probe is
+	// still not run.
 	res, err = e.svc.PublishProvider(ctx, service.PublishProviderInput{
 		ProviderID: prov.ID, UserID: e.userID, Confirmed: true,
 	})
 	require.NoError(t, err)
-	require.True(t, res.Published)
-	require.Equal(t, int32(1), atomic.LoadInt32(e.hits))
+	require.False(t, res.Published)
+	require.Equal(t, int32(0), atomic.LoadInt32(e.hits), "confirming an invalid contract must not probe either")
 }
 
 func strptr(s string) *string { return &s }

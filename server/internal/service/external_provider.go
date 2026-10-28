@@ -334,8 +334,9 @@ var systemSeed = []ProviderDef{
 	{
 		// Google Search Console (Search Console API v3). Auth is an OAuth2 access
 		// token sent as Bearer. searchAnalytics/query is a POST that only READS
-		// data, so it is whitelisted alongside GET; genuine writes (sitemap
-		// submit, etc.) still require the per-user "Allow writes" toggle.
+		// data, but a non-GET/HEAD method cannot be proven side-effect-free, so it
+		// is NOT marked read_only in the contract — doing so would let it skip the
+		// per-user "Allow writes" toggle. Callers enable writes to run it.
 		Name:       "gsc",
 		Label:      "Google Search Console",
 		APIBaseURL: "https://searchconsole.googleapis.com",
@@ -427,7 +428,6 @@ const gscProfile = `{
       "name": "query_search_analytics",
       "method": "POST",
       "path": "/webmasters/v3/sites/{siteUrl}/searchAnalytics/query",
-      "read_only": true,
       "summary": "Query search analytics (clicks, impressions, ctr, position) for a property.",
       "parameters": [
         {"name": "siteUrl", "in": "path", "type": "string", "required": true, "description": "URL-encoded property, e.g. https%3A%2F%2Fexample.com%2F or sc-domain%3Aexample.com"},
@@ -438,7 +438,7 @@ const gscProfile = `{
       ],
       "request_example": {"siteUrl": "https%3A%2F%2Fexample.com%2F", "startDate": "2026-06-01", "endDate": "2026-06-30", "dimensions": ["query"], "rowLimit": 25000},
       "response_shape": "JSON object with rows[] each {keys[], clicks, impressions, ctr, position}.",
-      "notes": "siteUrl must be URL-encoded. The POST only READS data — it is in the default safe set; genuine writes (sitemap submit) still need the write toggle."
+      "notes": "siteUrl must be URL-encoded. The POST only READS data, but a non-GET/HEAD method cannot be proven side-effect-free, so it is NOT marked read_only (that flag would let it bypass the write gate). Enable \"Allow writes\" for this provider to call it."
     }
   ]
 }`

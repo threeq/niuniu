@@ -8,6 +8,7 @@ import (
 	"database/sql"
 	"errors"
 	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/niuniu-dev/niuniu/internal/dataconn"
@@ -205,7 +206,7 @@ func TestCreateForWorkspace(t *testing.T) {
 		Name: "petstore", Kind: "http",
 		Config: map[string]any{
 			"host":    "api.example.com",
-			"options": map[string]any{"scheme": "https", "base_path": "/v1", "headers": map[string]any{"Authorization": "Bearer tok"}},
+			"options": map[string]any{"scheme": "https", "base_path": "/v1"},
 		},
 		ScopeConfig:       map[string]any{"tables_allow": []any{"/pets"}},
 		DefaultAccessMode: "read", RequireConfirm: "writes_only",
@@ -216,11 +217,8 @@ func TestCreateForWorkspace(t *testing.T) {
 	if dto.Kind != "http" || dto.OwnerType != ws.OwnerType || dto.OwnerID != ws.OwnerID {
 		t.Fatalf("owner/kind not taken from workspace: %+v", dto)
 	}
-	// headers (secret) must be redacted from the DTO; scheme/base_path echoed.
+	// Non-secret options are echoed back in the redacted DTO.
 	opts, _ := dto.Config["options"].(map[string]any)
-	if _, leaked := opts["headers"]; leaked {
-		t.Fatalf("headers must be redacted in DTO, got %v", dto.Config)
-	}
 	if opts["scheme"] != "https" || opts["base_path"] != "/v1" {
 		t.Fatalf("non-secret options should be echoed: %v", opts)
 	}
@@ -233,14 +231,77 @@ func TestCreateForWorkspace(t *testing.T) {
 	if got, err := svc.ResolveSourceIDForWorkspace(ctx, "petstore", ws, uid, nil); err != nil || got != dto.ID {
 		t.Fatalf("created source must resolve by name: %d %v", got, err)
 	}
-	// Decrypted config round-trips the secret header.
-	cc, err := svc.LoadConnConfig(ctx, dto.ID, uid, nil)
-	if err != nil {
-		t.Fatalf("LoadConnConfig: %v", err)
+}
+
+// TestCreateForWorkspaceRejectsSecretInConfig: the agent-facing create path must
+// refuse a config that carries secret material, name the offending FIELDS (never
+// the values), and point the caller at the out-of-band secure link.
+func TestCreateForWorkspaceRejectsSecretInConfig(t *testing.T) {
+	svc, env := newTestDataSourceService(t)
+	ctx := context.Background()
+	uid := env.UserA
+	ws, _ := newWorkspaceInProject(t, env, uid, "viz")
+
+	const secretValue = "Bearer super-secret-tok"
+	_, err := svc.CreateForWorkspace(ctx, ws, uid, service.CreateDataSourceInput{
+		Name: "petstore-secret", Kind: "http",
+		Config: map[string]any{
+			"host":    "api.example.com",
+			"options": map[string]any{"scheme": "https", "headers": map[string]any{"Authorization": secretValue}},
+		},
+	})
+	if !errors.Is(err, service.ErrConfigCarriesSecret) {
+		t.Fatalf("want ErrConfigCarriesSecret, got %v", err)
 	}
-	hdrs, _ := cc.Options["headers"].(map[string]any)
-	if hdrs["Authorization"] != "Bearer tok" {
-		t.Fatalf("secret header should round-trip: %+v", cc.Options)
+	msg := err.Error()
+	// The offending field NAME is named...
+	if !strings.Contains(msg, "options.headers") {
+		t.Fatalf("error must name the offending field, got %q", msg)
+	}
+	// ...but the secret VALUE never appears.
+	if strings.Contains(msg, "super-secret-tok") || strings.Contains(msg, "Bearer") {
+		t.Fatalf("error must not leak the secret value: %q", msg)
+	}
+	// Actionable: tells the caller to use the secure link.
+	if !strings.Contains(msg, "request_credential_link") {
+		t.Fatalf("error must point at the secure link, got %q", msg)
+	}
+	// Nothing was persisted.
+	if vis, _ := svc.ListForWorkspace(ctx, ws, uid, nil); len(vis) != 0 {
+		t.Fatalf("a rejected create must not persist a source, got %v", vis)
+	}
+}
+
+// TestScanConfigSecrets covers the reusable detector: recursion into nested
+// maps, dotted field names, empty-secret handling and value-free output.
+func TestScanConfigSecrets(t *testing.T) {
+	cases := []struct {
+		name string
+		cfg  map[string]any
+		want []string
+	}{
+		{"clean", map[string]any{"host": "h", "port": 5432, "user": "u", "database": "db",
+			"options": map[string]any{"scheme": "https", "base_path": "/v1"}}, nil},
+		{"top-level password", map[string]any{"host": "h", "password": "p"}, []string{"password"}},
+		{"nested api_key", map[string]any{"options": map[string]any{"api_key": "k"}}, []string{"options.api_key"}},
+		{"nested ssh", map[string]any{"ssh": map[string]any{"password": "p", "private_key": "pk"}},
+			[]string{"ssh.password", "ssh.private_key"}},
+		{"headers container", map[string]any{"options": map[string]any{"headers": map[string]any{"Authorization": "Bearer x"}}},
+			[]string{"options.headers"}},
+		{"empty secrets ignored", map[string]any{"password": "", "options": map[string]any{"api_key": "", "headers": map[string]any{}}}, nil},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := service.ScanConfigSecrets(tc.cfg)
+			if strings.Join(got, ",") != strings.Join(tc.want, ",") {
+				t.Fatalf("ScanConfigSecrets = %v, want %v", got, tc.want)
+			}
+			for _, name := range got {
+				if strings.Contains(name, "Bearer") || strings.Contains(name, "super") {
+					t.Fatalf("detector leaked a value in a field name: %q", name)
+				}
+			}
+		})
 	}
 }
 

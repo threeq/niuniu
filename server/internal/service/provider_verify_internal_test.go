@@ -92,9 +92,10 @@ func TestBuildProbeRequest(t *testing.T) {
 	require.Error(t, err)
 }
 
-// A verify_operation that resolves to a read-via-POST is flagged (warning), not
-// silently trusted — the coarse read-only check cannot prove it is safe.
-func TestLintContractFlagsNonGetProbe(t *testing.T) {
+// A verify_operation that resolves to a read-via-POST is a BLOCKING error: the
+// coarse read-only check cannot prove it is side-effect-free, and a probe must
+// never be able to mutate upstream state.
+func TestLintContractRejectsNonGetProbe(t *testing.T) {
 	c := (&ProviderContract{
 		VerifyOperation: "search",
 		Operations: []ContractOperation{
@@ -102,15 +103,73 @@ func TestLintContractFlagsNonGetProbe(t *testing.T) {
 		},
 	}).normalized()
 	issues := LintContract(c)
-	var sawWarning bool
+	var sawErr bool
 	for _, iss := range issues {
-		require.NotEqual(t, "error", iss.Severity, "a read-only POST probe is a warning, not a blocking error")
-		if iss.Severity == "warning" && iss.Path == "verify_operation" {
-			sawWarning = true
+		if iss.Severity == "error" && (iss.Path == "verify_operation" || iss.Path == "operations[0].read_only") {
+			sawErr = true
 		}
 	}
-	require.True(t, sawWarning, "non-GET verify_operation must be flagged")
-	require.NoError(t, ValidateContract(c))
+	require.True(t, sawErr, "a non-GET verify_operation / read_only POST must be a blocking error")
+	require.Error(t, ValidateContract(c), "the contract must be rejected, not merely warned about")
+}
+
+// A non-GET/HEAD operation flagged read_only warns but does NOT block publish —
+// the contract stays expressible; the safety is enforced at egress instead
+// (the operation is kept out of the default safe set, see external_proxy.go).
+func TestLintContractReadOnlyWriteMethodWarns(t *testing.T) {
+	c := (&ProviderContract{
+		Operations: []ContractOperation{
+			{Name: "list", Method: "GET", Path: "/items", ReadOnly: true},
+			{Name: "transfer", Method: "POST", Path: "/transfer", ReadOnly: true},
+		},
+	}).normalized()
+	require.NoError(t, ValidateContract(c), "a read_only POST must not block publish")
+
+	var warned bool
+	for _, iss := range LintContract(c) {
+		if iss.Path == "operations[1].read_only" {
+			warned = true
+			require.Equal(t, "warning", iss.Severity)
+		}
+	}
+	require.True(t, warned, "expected a warning for the read_only POST")
+}
+
+// SelectVerifyOperation must never return a non-GET/HEAD operation, whatever the
+// contract declares.
+func TestSelectVerifyOperationNeverReturnsNonGet(t *testing.T) {
+	// Declared verify_operation is a read-via-POST -> refused (nil), not returned.
+	c := &ProviderContract{
+		VerifyOperation: "search",
+		Operations: []ContractOperation{
+			{Name: "search", Method: "POST", Path: "/search", ReadOnly: true},
+			{Name: "list", Method: "GET", Path: "/items", ReadOnly: true},
+		},
+	}
+	op, src := SelectVerifyOperation(c)
+	require.Nil(t, op, "the declared POST probe must not be returned")
+	require.Empty(t, src)
+
+	// Only a read-only POST exists (no declared probe) -> nil ("no read-only op").
+	c = &ProviderContract{
+		Operations: []ContractOperation{{Name: "search", Method: "POST", Path: "/search", ReadOnly: true}},
+	}
+	op, src = SelectVerifyOperation(c)
+	require.Nil(t, op)
+	require.Empty(t, src)
+
+	// A read-only POST alongside a read-only GET: the GET is chosen.
+	c = &ProviderContract{
+		Operations: []ContractOperation{
+			{Name: "search", Method: "POST", Path: "/search", ReadOnly: true},
+			{Name: "list", Method: "GET", Path: "/items", ReadOnly: true},
+		},
+	}
+	op, src = SelectVerifyOperation(c)
+	require.NotNil(t, op)
+	require.Equal(t, "list", op.Name)
+	require.Equal(t, "GET", op.Method)
+	require.Equal(t, "default_least_harmful", src)
 }
 
 // A verify_operation naming a genuine write is a blocking error.

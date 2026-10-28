@@ -162,6 +162,41 @@ func TestIntegrationActivityEndpoint_Filters(t *testing.T) {
 	}
 }
 
+// kind=function is a valid filter: sandbox function calls are merged into the
+// same feed as api/data rows, and the handler must accept the kind rather than
+// reject it with 400 (which would make those credential-bearing calls
+// unfilterable).
+func TestIntegrationActivityEndpoint_FunctionKindAccepted(t *testing.T) {
+	r, db := newAuditTestServer(t)
+	seedAuditTimeline(t, db)
+	if _, err := db.Exec(`INSERT INTO function_call_audit
+		(user_id, function_id, provider_id, function_name, status, caller, egress_calls, created_at)
+		VALUES (1, 30, 10, 'list_things', 'ok', 'agent', 2, '2026-10-06 10:00:00')`); err != nil {
+		t.Fatalf("seed function audit: %v", err)
+	}
+
+	// An explicit kind=function filter is accepted (not a 400).
+	w, page := getActivity(t, r, "/api/me/integration-activity?kind=function")
+	if w.Code != http.StatusOK {
+		t.Fatalf("kind=function status = %d, body %s", w.Code, w.Body.String())
+	}
+	if page.Data.Total != 1 || len(page.Data.Items) != 1 {
+		t.Fatalf("kind=function should return the one function row, got total=%d items=%d", page.Data.Total, len(page.Data.Items))
+	}
+	if page.Data.Items[0].Kind != service.ActivityKindFunction {
+		t.Errorf("row kind = %q, want %q", page.Data.Items[0].Kind, service.ActivityKindFunction)
+	}
+
+	// The merged feed also carries it (alongside api/data), newest first.
+	_, merged := getActivity(t, r, "/api/me/integration-activity")
+	if merged.Data.Total != 6 {
+		t.Fatalf("merged total = %d, want 6", merged.Data.Total)
+	}
+	if merged.Data.Items[0].Kind != service.ActivityKindFunction {
+		t.Errorf("newest merged row = %q, want function", merged.Data.Items[0].Kind)
+	}
+}
+
 // The two prefix-scoped routes must pin their kind even when the caller asks
 // for the other one.
 func TestIntegrationActivityEndpoint_PrefixRoutesPinKind(t *testing.T) {

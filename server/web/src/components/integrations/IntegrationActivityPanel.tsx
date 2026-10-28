@@ -45,11 +45,18 @@ const SOURCE_SEPARATOR = ':';
 
 /** Status tint for one feed row. Reads the HTTP status for api rows and the
  *  ok/err word for data rows; both render the value as text, so colour is
- *  never the only signal (design-system §5.10). */
+ *  never the only signal (design-system §5.10). A function row shares the
+ *  ok/err vocabulary (ok/error/denied/rate_limited/replay_refused). */
 function statusTone(item: IntegrationActivityItemWithFingerprint): {
   key: 'success' | 'warning' | 'destructive' | 'muted';
   text: string;
 } {
+  if (item.kind === 'function') {
+    if (item.status === 'ok') return { key: 'success', text: item.status };
+    if (!item.status) return { key: 'muted', text: '—' };
+    // Surface the specific error code when the function runtime recorded one.
+    return { key: 'destructive', text: item.error_code || item.status };
+  }
   if (item.kind === 'data') {
     if (item.status === 'ok') return { key: 'success', text: item.status };
     if (item.status === 'err') return { key: 'destructive', text: item.status };
@@ -127,12 +134,21 @@ export function IntegrationActivityPanel() {
     if (item.kind === 'api') {
       return `${item.method ?? ''} ${item.path ?? ''}`.trim() || '—';
     }
+    if (item.kind === 'function') {
+      return item.function_name || `#${item.function_id ?? '?'}`;
+    }
     return item.statement_summary || '—';
   };
 
   const renderSubtitle = (item: IntegrationActivityItemWithFingerprint) => {
     if (item.kind === 'api') {
       return item.provider_name || `#${item.provider_id ?? '?'}`;
+    }
+    if (item.kind === 'function') {
+      // A function runs against a provider, so the subtitle names that source
+      // and who invoked it (an agent, the user, or the publish rehearsal).
+      const who = item.provider_name || `#${item.provider_id ?? '?'}`;
+      return [who, item.caller].filter(Boolean).join(' · ');
     }
     const who = item.source_name || `#${item.source_id ?? '?'}`;
     const parts = [who, item.access_mode, item.database_name].filter(Boolean);
@@ -141,7 +157,8 @@ export function IntegrationActivityPanel() {
 
   // The body fingerprint answers "what shape of data left this machine" — hash
   // prefix + size + top-level field names. Field VALUES are never stored, so
-  // this line is safe to display.
+  // this line is safe to display. A function row instead summarizes the egress
+  // the sandbox function performed through the provider.
   const renderFingerprint = (item: IntegrationActivityItemWithFingerprint) => {
     if (item.kind === 'api') {
       if (!item.body_sha256) return t('integrations.activity.noBody');
@@ -150,6 +167,14 @@ export function IntegrationActivityPanel() {
         hash: item.body_sha256.slice(0, 12),
         bytes: num(item.body_bytes ?? 0),
         fields: fields || t('integrations.activity.fieldsNone'),
+      });
+    }
+    if (item.kind === 'function') {
+      const ops = (item.egress_ops ?? []).join(', ');
+      return t('integrations.activity.functionMeta', {
+        calls: num(item.egress_calls ?? 0),
+        ms: num(item.duration_ms ?? 0),
+        ops: ops || t('integrations.activity.egressNone'),
       });
     }
     return t('integrations.activity.dataMeta', {
@@ -201,6 +226,9 @@ export function IntegrationActivityPanel() {
             </SelectItem>
             <SelectItem value="data">
               {t('integrations.activity.kindData')}
+            </SelectItem>
+            <SelectItem value="function">
+              {t('integrations.activity.kindFunction')}
             </SelectItem>
           </SelectContent>
         </Select>
@@ -287,7 +315,9 @@ export function IntegrationActivityPanel() {
                 <Badge variant="outline" className="mt-0.5 shrink-0">
                   {item.kind === 'api'
                     ? t('integrations.activity.kindApi')
-                    : t('integrations.activity.kindData')}
+                    : item.kind === 'function'
+                      ? t('integrations.activity.kindFunction')
+                      : t('integrations.activity.kindData')}
                 </Badge>
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 min-w-0">

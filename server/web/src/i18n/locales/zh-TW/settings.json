@@ -32,6 +32,7 @@
       "kindAll": "全部型別",
       "kindApi": "API 呼叫",
       "kindData": "資料查詢",
+      "kindFunction": "函式呼叫",
       "filterSource": "按來源篩選",
       "sourceAll": "全部來源",
       "filterRange": "按時間篩選",
@@ -50,6 +51,8 @@
       "fieldsNone": "（無欄位）",
       "fingerprint": "請求體 sha256 {{hash}}… · {{bytes}} B · 欄位：{{fields}}",
       "dataMeta": "{{rows}} 行 · {{ms}} ms",
+      "functionMeta": "{{calls}} 次出口 · {{ms}} ms · {{ops}}",
+      "egressNone": "（無出口呼叫）",
       "oversize": "超出閾值",
       "oversizeHint": "外發請求體超過出口告警閾值。",
       "oversizeToast": "發往 {{provider}} 的外發資料體超出閾值，已標記，請在「整合活動」中查看。"

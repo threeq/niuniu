@@ -4,8 +4,10 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"log/slog"
 	"regexp"
 	"strings"
+	"sync"
 )
 
 // Runtime identifiers for the in-box language engine. The runtime is
@@ -147,8 +149,9 @@ func (s Spec) CodeHash() string {
 var nameRe = regexp.MustCompile(`^[a-zA-Z][a-zA-Z0-9_]{0,63}$`)
 
 // Allows reports whether an egress request is covered by the spec. A request
-// carrying an operation is matched on the operation name; otherwise the legacy
-// method+path pair is matched.
+// carrying an operation is matched on the operation name (the preferred form);
+// a request carrying only method+path is matched against the legacy method+path
+// entries. Anything that matches neither form is denied — fail closed.
 func (s Spec) Allows(req *HTTPRequestMessage) bool {
 	if op := strings.TrimSpace(req.Operation); op != "" {
 		for _, e := range s.Egress {
@@ -156,11 +159,42 @@ func (s Spec) Allows(req *HTTPRequestMessage) bool {
 				return true
 			}
 		}
+		// An operation-named request is authorized only by an operation-named
+		// entry; a legacy method+path entry must not widen it.
 		return false
 	}
-	// A request with no operation may not be resolved by the host either; the
-	// caller must name an operation. Reject so the failure is explicit.
+	// No operation named: fall back to the legacy method+path form. A request
+	// that carries neither an operation nor a method/path resolves to nothing,
+	// so it is denied rather than vacuously allowed.
+	method := strings.ToUpper(strings.TrimSpace(req.Method))
+	path := strings.TrimSpace(req.Path)
+	if method == "" && path == "" {
+		return false
+	}
+	for _, e := range s.Egress {
+		if strings.TrimSpace(e.Operation) != "" {
+			continue
+		}
+		warnLegacyEgressSpec()
+		if strings.ToUpper(strings.TrimSpace(e.Method)) == method && strings.TrimSpace(e.Path) == path {
+			return true
+		}
+	}
 	return false
+}
+
+// legacyEgressWarn guards the one-time migration notice. A legacy method+path
+// spec used to authorize nothing; now it matches again, but it is still the
+// deprecated form and an operator should know it is in play so it can be
+// migrated to operation names. Emitting it once per process keeps a hot egress
+// path from flooding the log.
+var legacyEgressWarn sync.Once
+
+func warnLegacyEgressSpec() {
+	legacyEgressWarn.Do(func() {
+		slog.Warn("sandbox: an egress spec keyed on method+path was matched; " +
+			"this is the deprecated form — migrate the function's egress to operation names")
+	})
 }
 
 // ToolName is the MCP tool name a published function projects to.

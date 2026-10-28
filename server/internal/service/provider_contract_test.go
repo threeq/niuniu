@@ -245,9 +245,12 @@ func TestLintContract_Errors(t *testing.T) {
 	}
 }
 
-// TestLintContract_ReadOnlyPOSTWarns: a POST declared read-only is a warning
-// (some APIs read via POST) but not a blocking error.
-func TestLintContract_ReadOnlyPOSTWarns(t *testing.T) {
+// TestLintContract_ReadOnlyPOSTIsWarning: a POST declared read-only is a
+// WARNING, not a blocking error — the contract stays publishable so a genuine
+// read-via-POST (e.g. a search endpoint) is still expressible. The safety comes
+// from the egress gate instead: such an operation is kept out of the default
+// safe set (external_proxy.go) and needs the per-user write toggle.
+func TestLintContract_ReadOnlyPOSTIsWarning(t *testing.T) {
 	c := &ProviderContract{
 		Operations: []ContractOperation{
 			{Name: "query", Method: "POST", Path: "/search", ReadOnly: true},
@@ -257,5 +260,5 @@ func TestLintContract_ReadOnlyPOSTWarns(t *testing.T) {
 	require.Len(t, issues, 1)
 	require.Equal(t, "warning", issues[0].Severity)
 	require.Equal(t, "operations[0].read_only", issues[0].Path)
-	require.NoError(t, ValidateContract(c), "warnings must not block validation")
+	require.NoError(t, ValidateContract(c), "a read_only POST must not block validation")
 }

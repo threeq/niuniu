@@ -575,6 +575,14 @@ func (s *Server) proxyUpdateProvider(c *gin.Context) {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": gin.H{"code": "UNAUTHORIZED", "message": "authentication required"}})
 		return
 	}
+	// Providers are global (not owner-scoped), so the project idiom for mutating
+	// them is the admin gate: RequireAdmin is a pass-through in personal mode and
+	// requires role=admin|owner in team mode. This is the same authorization the
+	// integration-health provider mutations apply, so a non-admin cannot rewrite
+	// a provider's base URL, auth wiring, whitelist or contract via PUT.
+	if !s.requireProviderAdmin(c) {
+		return
+	}
 
 	id, ok := providerPathID(c)
 	if !ok {

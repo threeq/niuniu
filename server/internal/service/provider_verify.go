@@ -6,9 +6,10 @@
 //
 //   - SelectVerifyOperation — picks the probe operation. It prefers the
 //     contract's declared verify_operation; when that is unset it defaults to
-//     the LEAST-HARMFUL read-only operation (GET over HEAD over a read-via-POST,
-//     no path placeholders, fewest required params) so an AI-authored contract
-//     never probes with something that could mutate state.
+//     the LEAST-HARMFUL read-only operation (GET over HEAD, no path
+//     placeholders, fewest required params). It NEVER returns a non-GET/HEAD
+//     operation, so an AI-authored contract cannot probe with something that
+//     could mutate state.
 //   - ProbeManifest — the human-visible description of exactly which request
 //     the probe will send. It is returned in every verify/publish response and
 //     embedded in the confirmation card, so a probe can never be silently
@@ -126,10 +127,14 @@ func scoreProbe(op *ContractOperation) probeScore {
 // operation was auto-selected), or (nil, "") when the contract has no usable
 // read-only operation.
 //
-// The contract's explicit verify_operation wins even if a less harmful
-// operation exists — the author may know the cheapest authenticated endpoint
-// (e.g. a dedicated /ping). Lint already requires that declared operation to be
-// read-only.
+// It ONLY ever returns a provably read-only operation (GET/HEAD). The contract's
+// explicit verify_operation wins even if a less harmful operation exists — the
+// author may know the cheapest authenticated endpoint (e.g. a dedicated /ping) —
+// but only when that operation uses GET/HEAD. A verify_operation that is not
+// GET/HEAD is never returned, so the caller reports "no read-only operation to
+// verify with" rather than probing with something whose side effects the coarse
+// check cannot rule out. This mirrors LintContract, which rejects such contracts
+// outright.
 func SelectVerifyOperation(c *ProviderContract) (*ContractOperation, string) {
 	if c == nil {
 		return nil, ""
@@ -137,6 +142,11 @@ func SelectVerifyOperation(c *ProviderContract) (*ContractOperation, string) {
 	if c.VerifyOperation != "" {
 		for i := range c.Operations {
 			if c.Operations[i].Name == c.VerifyOperation {
+				if !coarseReadOnly(c.Operations[i].Method) {
+					// Declared probe is not provably read-only (e.g. a read-via-
+					// POST): refuse rather than execute it.
+					return nil, ""
+				}
 				return &c.Operations[i], "verify_operation"
 			}
 		}
@@ -146,7 +156,9 @@ func SelectVerifyOperation(c *ProviderContract) (*ContractOperation, string) {
 	var bestScore probeScore
 	for i := range c.Operations {
 		op := &c.Operations[i]
-		if !op.ReadOnly {
+		if !op.ReadOnly || !coarseReadOnly(op.Method) {
+			// Only a provably read-only (GET/HEAD) operation may be a probe; a
+			// read-via-POST is skipped even when flagged read_only.
 			continue
 		}
 		sc := scoreProbe(op)

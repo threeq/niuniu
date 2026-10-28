@@ -211,3 +211,87 @@ func TestCredProxy_ForwardUpstreamDown(t *testing.T) {
 	assert.Equal(t, http.StatusBadGateway, rec.Code)
 	assert.NotContains(t, rec.Body.String(), "Bearer s", "an error path never echoes the secret")
 }
+
+// TestCredProxy_TokenIsPinnedToItsTarget: a token minted for one upstream must
+// stop working if the scene later resolves to a different upstream, so a stale
+// or leaked .mcp.json snapshot cannot be re-pointed at another host.
+func TestCredProxy_TokenIsPinnedToItsTarget(t *testing.T) {
+	upstream := "https://kb.example.com/mcp"
+	p := NewCredProxyService(testKeyring(t), nil, func(_ context.Context, _ int64, _ string) (string, map[string]string, error) {
+		return upstream, map[string]string{"Authorization": "Bearer live"}, nil
+	})
+	proxied, err := p.Issue(9, "kb", upstream)
+	require.NoError(t, err)
+
+	// Same upstream → still valid.
+	_, err = p.Resolve(context.Background(), tokenOf(t, proxied))
+	require.NoError(t, err)
+
+	// The scene now points somewhere else → the pinned token is refused, and it
+	// is indistinguishable from a forged token (no upstream disclosure).
+	upstream = "https://evil.example.com/mcp"
+	_, err = p.Resolve(context.Background(), tokenOf(t, proxied))
+	assert.ErrorIs(t, err, ErrCredProxyTokenInvalid)
+
+	// Equivalent spellings of the same upstream still match (normalized).
+	upstream = "https://kb.example.com/mcp/"
+	_, err = p.Resolve(context.Background(), tokenOf(t, proxied))
+	assert.NoError(t, err)
+
+	// An unpinned token (minted without a target) keeps working as before.
+	unpinned, err := p.Issue(9, "kb")
+	require.NoError(t, err)
+	upstream = "https://evil.example.com/mcp"
+	_, err = p.Resolve(context.Background(), tokenOf(t, unpinned))
+	assert.NoError(t, err, "a token minted before pinning existed is not rejected")
+}
+
+// TestCredProxy_RefusesPathEscape: the caller controls the sub-path, so it must
+// not be able to walk out of the projected upstream with "..".
+func TestCredProxy_RefusesPathEscape(t *testing.T) {
+	var called bool
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		called = true
+	}))
+	defer upstream.Close()
+
+	u, _ := url.Parse(upstream.URL + "/mcp")
+	p := NewCredProxyService(nil, nil, nil)
+	target := ProxyTarget{Server: "kb", Upstream: u, Headers: map[string]string{"Authorization": "Bearer real"}}
+
+	req := httptest.NewRequest(http.MethodGet, "http://127.0.0.1:3000/cred-proxy/tok/../admin", nil)
+	rec := httptest.NewRecorder()
+	p.ServeHTTP(rec, req, target, "/../admin")
+
+	assert.Equal(t, http.StatusForbidden, rec.Code)
+	assert.False(t, called, "an escaping request never reaches the upstream")
+	assert.NotContains(t, rec.Body.String(), "real", "the refusal never echoes the secret")
+}
+
+func TestCredProxy_WithinUpstreamPath(t *testing.T) {
+	cases := []struct {
+		base, rest string
+		want       bool
+	}{
+		{"/mcp", "", true},
+		{"/mcp", "/", true},
+		{"/mcp", "/sse", true},
+		{"/mcp", "/a/b", true},
+		{"/mcp", "/../admin", false},
+		{"/mcp", "/a/../../admin", false},
+		{"/base/v1", "/tools", true},
+		{"/base/v1", "/../../etc", false},
+		{"", "/anything", true}, // bare-host upstream: nothing to confine to
+		{"/", "/anything", true},
+	}
+	for _, tc := range cases {
+		assert.Equalf(t, tc.want, withinUpstreamPath(tc.base, tc.rest), "base=%q rest=%q", tc.base, tc.rest)
+	}
+}
+
+// TestCredProxy_TokenTTLIsDeliberatelyLong: the TTL is a secondary defense — the
+// real boundary is live re-projection — and a short TTL would break a
+// long-running agent whose .mcp.json is not regenerated mid-run.
+func TestCredProxy_TokenTTLIsDeliberatelyLong(t *testing.T) {
+	assert.Equal(t, 7*24*time.Hour, credProxyTokenTTL)
+}

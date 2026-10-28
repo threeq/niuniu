@@ -333,7 +333,9 @@ func (p *SceneProjector) proxifyCredentialHeaders(wsID int64, name string, cfg m
 	// The minted URL names only the workspace + server; the credential itself is
 	// resolved per request (see CredProxyService.Resolve), so nothing secret
 	// goes into the token OR the file.
-	proxyURL, err := p.credProxy.Issue(wsID, name)
+	// The token is pinned to the upstream being replaced, so it cannot later be
+	// re-pointed at a different upstream by editing the scene config.
+	proxyURL, err := p.credProxy.Issue(wsID, name, upstream)
 	if err != nil {
 		slog.Warn("scene projector: credential proxy issue failed", "server", name, "err", err)
 		return false

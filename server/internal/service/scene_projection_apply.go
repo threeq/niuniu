@@ -253,10 +253,13 @@ func (p *SceneProjector) Apply(ctx context.Context, wsID int64) (*ApplyResult, e
 		userID = ws.CreatedBy.Int64
 	}
 	resolvedMCPConfigs, droppedMCP, credMissing := p.resolveProjectionCredentials(ctx, owner, userID, ws.ID, proj)
-	// 0b. office-mail / mcp-email-server is env-driven: inject the decrypted
-	//     mailbox credential as MCP_EMAIL_SERVER_* env (IMAP always, SMTP only
-	//     when write-permission is granted), and gate delete/move/mark via
-	//     permissions.deny by the same write-permission (spec v2).
+	// 0b. office-mail / mcp-email-server takes a TOML file path
+	//     (MCP_EMAIL_SERVER_CONFIG_PATH), NOT env: the server's env form only
+	//     supports a single account whereas office-mail needs many, and the
+	//     credential must be a directly-usable IMAP password either way. The
+	//     TOML is materialized OUTSIDE the workspace (0600, permissions.deny),
+	//     never in it. Delete/move/mark are gated via permissions.deny by the
+	//     write-permission (spec v2). See the credential-proxy threat model §4.3.
 	emailMissing := p.applyEmailIntegration(ctx, owner, userID, ws.ID, wsDir, proj, resolvedMCPConfigs, droppedMCP)
 	for a := range emailMissing {
 		credMissing[a] = true

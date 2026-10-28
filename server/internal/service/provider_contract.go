@@ -601,12 +601,18 @@ func pathTemplateMatches(tmpl string, reqSegs []string) bool {
 //   - each parameter needs a name and a valid location
 //     (query|path|body|header);
 //   - verify_operation, when set, must name an existing operation, and that
-//     operation must be read-only (the probe must be side-effect-free); a
-//     read-only verify_operation whose method is not GET/HEAD earns a warning
-//     (the coarse check cannot prove it is safe — human confirmation backs it);
+//     operation must be read-only (the probe must be side-effect-free) AND use a
+//     provably read-only method (GET/HEAD). A verify_operation that is not
+//     GET/HEAD is an error — the coarse check cannot prove a read-via-POST (e.g.
+//     GSC searchAnalytics) is side-effect-free, and a probe must never be able to
+//     mutate upstream state (defence in depth: this is one of three gates, the
+//     others being SelectVerifyOperation and the publish-time CoarseReadOnly
+//     check);
 //   - a non-GET/HEAD operation declared read_only is a warning — the coarse
-//     check cannot distinguish a read-by-POST (e.g. GSC searchAnalytics) from
-//     a write; human confirmation is the backstop.
+//     check cannot distinguish a read-by-POST from a write, so the declaration
+//     is not trusted for gating: such an operation stays publishable but is kept
+//     OUT of the default safe set (see external_proxy.go) and needs the per-user
+//     write toggle.
 func LintContract(c *ProviderContract) []ContractIssue {
 	var issues []ContractIssue
 	if c == nil {
@@ -648,7 +654,7 @@ func LintContract(c *ProviderContract) []ContractIssue {
 		}
 		if op.ReadOnly && httpMethods[method] && !readOnlyMethods[method] {
 			issues = append(issues, ContractIssue{"warning", loc + ".read_only",
-				op.Method + " declared read_only — verify it has no side effects (human confirmation required)"})
+				op.Method + " declared read_only — the coarse check cannot prove a non-GET/HEAD method has no side effects, so this operation is not in the default safe set and requires the \"Allow writes\" toggle"})
 		}
 	}
 
@@ -664,11 +670,11 @@ func LintContract(c *ProviderContract) []ContractIssue {
 		case !coarseReadOnly(op.Method):
 			// Declared read-only but not GET/HEAD (a read-via-POST). The coarse
 			// check cannot prove it is side-effect-free (e.g. a GET that mutates,
-			// or a POST that deletes), so flag it for human confirmation rather
-			// than silently trusting the declaration.
-			issues = append(issues, ContractIssue{"warning", "verify_operation",
+			// or a POST that deletes), so the contract is rejected outright rather
+			// than trusting the declaration + a human confirmation.
+			issues = append(issues, ContractIssue{"error", "verify_operation",
 				"verify_operation " + c.VerifyOperation + " uses " + op.Method +
-					" — the read-only check is coarse; confirm the probe has no side effects (human confirmation required)"})
+					" — not a provably read-only method (GET/HEAD); the verification probe must be GET or HEAD"})
 		}
 	}
 	return issues

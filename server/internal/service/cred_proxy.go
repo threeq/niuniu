@@ -47,6 +47,7 @@ import (
 	"net/http"
 	"net/http/httputil"
 	"net/url"
+	"path"
 	"strings"
 	"time"
 
@@ -78,6 +79,23 @@ type credProxyClaims struct {
 	WorkspaceID int64  `json:"w"`
 	ServerName  string `json:"s"`
 	ExpiresAt   int64  `json:"e"` // unix seconds
+	// Target pins the token to the exact upstream it was minted for
+	// ("scheme://host/basepath"). Resolve rejects the token when the live
+	// upstream no longer matches, so a leaked or stale token cannot be
+	// re-pointed at a different upstream by editing the scene config. Empty
+	// means unpinned (a token minted before this field existed).
+	Target string `json:"t,omitempty"`
+}
+
+// targetKey normalizes an upstream URL into the value a token is pinned to:
+// scheme + host + cleaned base path (so "/a/b/", "/a/b" and "/a/b/." agree).
+// An empty or unparsable input yields "" (unpinned).
+func targetKey(raw string) string {
+	u, err := url.Parse(strings.TrimSpace(raw))
+	if err != nil || u.Scheme == "" || u.Host == "" {
+		return ""
+	}
+	return u.Scheme + "://" + u.Host + path.Clean("/"+u.Path)
 }
 
 // CredTargetResolver re-resolves the live upstream + credential headers for a
@@ -126,17 +144,26 @@ const ProxyPathPrefix = "/cred-proxy/"
 // Issue mints the loopback URL a workspace MCP server should be pointed at. The
 // resolved credential is NOT passed here — the token only names the
 // (workspace, server) pair, and the real header is resolved per request.
-func (s *CredProxyService) Issue(workspaceID int64, serverName string) (string, error) {
+//
+// The optional intendedTarget is the upstream URL the projection is replacing;
+// when given, the token is pinned to it (see credProxyClaims.Target) so it
+// cannot later be re-pointed at a different upstream.
+func (s *CredProxyService) Issue(workspaceID int64, serverName string, intendedTarget ...string) (string, error) {
 	if s.keyring == nil {
 		return "", fmt.Errorf("credential proxy: no keyring configured")
 	}
 	if workspaceID <= 0 || serverName == "" {
 		return "", fmt.Errorf("credential proxy: workspace and server name are required")
 	}
+	target := ""
+	if len(intendedTarget) > 0 {
+		target = targetKey(intendedTarget[0])
+	}
 	payload, err := json.Marshal(credProxyClaims{
 		WorkspaceID: workspaceID,
 		ServerName:  serverName,
 		ExpiresAt:   s.now().Add(credProxyTokenTTL).Unix(),
+		Target:      target,
 	})
 	if err != nil {
 		return "", fmt.Errorf("credential proxy: marshal claims: %w", err)
@@ -211,6 +238,14 @@ func (s *CredProxyService) Resolve(ctx context.Context, token string) (ProxyTarg
 	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
 		return ProxyTarget{}, fmt.Errorf("%w: unusable upstream url", ErrCredProxyTargetUnavailable)
 	}
+	// The token is pinned to the upstream it was minted for: if the live scene
+	// now resolves to a different upstream, a stale/leaked token must not follow
+	// it. An unpinned token (minted before pinning existed) is still accepted.
+	if claims.Target != "" && targetKey(u.String()) != claims.Target {
+		slog.Warn("credential proxy: token target no longer matches the projected upstream",
+			"server", claims.ServerName)
+		return ProxyTarget{}, ErrCredProxyTokenInvalid
+	}
 	if len(headers) == 0 {
 		return ProxyTarget{}, fmt.Errorf("%w: no credential header", ErrCredProxyTargetUnavailable)
 	}
@@ -220,9 +255,34 @@ func (s *CredProxyService) Resolve(ctx context.Context, token string) (ProxyTarg
 // ServeHTTP proxies one already-resolved request. rest is the sub-path after
 // the token (/cred-proxy/:token/*rest), appended to the upstream's own path.
 func (s *CredProxyService) ServeHTTP(w http.ResponseWriter, r *http.Request, target ProxyTarget, rest string) {
+	// The caller controls rest, so confine it to the projected upstream path:
+	// the token must not be usable as a general-purpose credential for the
+	// whole host (e.g. /.. escapes, or a sibling endpoint outside the base).
+	if !withinUpstreamPath(target.Upstream.Path, rest) {
+		slog.Warn("credential proxy: refused a request that escapes the projected upstream path",
+			"server", target.Server)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusForbidden)
+		_, _ = w.Write([]byte(`{"error":"credential proxy: path outside the projected upstream"}`))
+		return
+	}
 	ctx := context.WithValue(r.Context(), credProxyTargetKey{}, target)
 	ctx = context.WithValue(ctx, credProxyRestKey{}, rest)
 	s.proxy.ServeHTTP(w, r.WithContext(ctx))
+}
+
+// withinUpstreamPath reports whether appending the caller-supplied rest to the
+// upstream base path keeps the request inside that base. It blocks ".."
+// traversal out of the projected endpoint. A bare-host upstream (empty base
+// path) has no base to confine to, so any path on that host is allowed — that
+// is the projected target's own scope.
+func withinUpstreamPath(basePath, rest string) bool {
+	base := path.Clean("/" + strings.Trim(basePath, "/"))
+	if base == "/" {
+		return true
+	}
+	joined := path.Clean(joinProxyPath(basePath, rest))
+	return joined == base || strings.HasPrefix(joined, base+"/")
 }
 
 type credProxyTargetKey struct{}

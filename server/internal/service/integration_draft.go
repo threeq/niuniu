@@ -219,6 +219,10 @@ type DraftVerifyResult struct {
 	Status int            `json:"status,omitempty"`
 	Probe  *ProbeManifest `json:"probe,omitempty"`
 	Detail string         `json:"detail,omitempty"`
+	// RequiresConfirmation is set when the selected probe is not a provably
+	// read-only method (GET/HEAD): the probe was refused because it cannot be
+	// auto-executed, even though the confirmation card was approved.
+	RequiresConfirmation bool `json:"requires_confirmation,omitempty"`
 }
 
 // IntegrationDraftService owns the draft pipeline.

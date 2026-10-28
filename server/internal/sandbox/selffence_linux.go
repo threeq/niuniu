@@ -5,6 +5,7 @@ package sandbox
 import (
 	"fmt"
 	"runtime"
+	"sync"
 	"syscall"
 	"unsafe"
 
@@ -146,10 +147,73 @@ type sockFprog struct {
 	Filter *sockFilter
 }
 
-func seccompAvailable() bool { return true }
+// The seccomp filter's REAL outcome, recorded when ApplySelfFence runs in THIS
+// process. A constant `true` claimed the filter was in effect whether or not it
+// had installed — the exact "silently reported as enforced" failure the design
+// forbids. The box records the actual prctl(PR_SET_SECCOMP) result here; the
+// server (which never self-fences — the box does) leaves it unset and falls back
+// to whether a filter is even buildable for this architecture, so the value is
+// always derived, never a hardcoded true.
+var (
+	seccompOutcomeMu  sync.Mutex
+	seccompOutcomeSet bool
+	seccompOutcomeErr string
+)
 
+// recordSeccompOutcome stores the result of the last applySeccomp attempt. nil
+// means the filter installed; a non-nil error means it did not.
+func recordSeccompOutcome(err error) {
+	seccompOutcomeMu.Lock()
+	seccompOutcomeSet = true
+	if err != nil {
+		seccompOutcomeErr = err.Error()
+	} else {
+		seccompOutcomeErr = ""
+	}
+	seccompOutcomeMu.Unlock()
+	ResetSelfCheckCache()
+}
+
+// seccompOutcome reports the recorded application result and whether one has
+// been recorded at all in this process.
+func seccompOutcome() (set bool, errMsg string) {
+	seccompOutcomeMu.Lock()
+	defer seccompOutcomeMu.Unlock()
+	return seccompOutcomeSet, seccompOutcomeErr
+}
+
+// seccompBuildable reports whether a filter can be assembled for this platform
+// at all: a supported architecture has an AUDIT_ARCH value and syscall numbers
+// to deny. This is a capability, not a proof — the box proves application at
+// startup and the escape self-test proves containment.
+func seccompBuildable() bool {
+	return buildAuditArch() != 0 && len(seccompDenied()) > 0
+}
+
+// seccompAvailable reports the real signal. When ApplySelfFence has run in this
+// process it reflects whether the filter ACTUALLY installed; otherwise (the
+// server, which never self-fences) it reflects whether one is buildable here.
+// It is therefore derived from observed state, never a constant true.
+func seccompAvailable() bool {
+	if set, errMsg := seccompOutcome(); set {
+		return errMsg == ""
+	}
+	return seccompBuildable()
+}
+
+// seccompDetail names which of the two states the signal reflects, because
+// "applied" is not the same claim as "verified": this status reports that the
+// filter installed; that it actually CONTAINS is only proven by the active
+// escape self-test (--fence-selftest). The wording keeps the two apart instead
+// of letting a green component imply a proof it never made.
 func seccompDetail() string {
-	return "a syscall filter denies sockets, process creation, ptrace, module and namespace operations"
+	if set, errMsg := seccompOutcome(); set {
+		if errMsg != "" {
+			return "the syscall filter did NOT install: " + errMsg
+		}
+		return "the syscall filter was applied (denies sockets, process creation, ptrace, module and namespace operations); containment is confirmed by the escape self-test, not by this status alone"
+	}
+	return "a syscall filter denying sockets, process creation, ptrace, module and namespace operations is available for this architecture and is applied by the box at startup"
 }
 
 // seccompDeniedCommon is the arch-independent denylist. Everything not listed
@@ -262,8 +326,12 @@ func ApplySelfFence(memoryMB int) error {
 		return err
 	}
 	if err := applySeccomp(); err != nil {
+		// Record the real outcome so the self-check reports what happened, not a
+		// constant "true".
+		recordSeccompOutcome(err)
 		return err
 	}
+	recordSeccompOutcome(nil)
 	return applyCPULimit(memoryMB)
 }
 

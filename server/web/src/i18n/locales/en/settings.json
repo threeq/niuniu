@@ -32,6 +32,7 @@
       "kindAll": "All types",
       "kindApi": "API call",
       "kindData": "Data query",
+      "kindFunction": "Function call",
       "filterSource": "Filter by source",
       "sourceAll": "All sources",
       "filterRange": "Filter by time",
@@ -50,6 +51,8 @@
       "fieldsNone": "(no fields)",
       "fingerprint": "body sha256 {{hash}}… · {{bytes}} B · fields: {{fields}}",
       "dataMeta": "{{rows}} rows · {{ms}} ms",
+      "functionMeta": "{{calls}} egress · {{ms}} ms · {{ops}}",
+      "egressNone": "(no egress)",
       "oversize": "oversize",
       "oversizeHint": "The outbound request body exceeded the egress warning threshold.",
       "oversizeToast": "Large outbound payload to {{provider}} was flagged. Review it in Integration activity."

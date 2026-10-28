@@ -231,6 +231,11 @@ func (s *Server) dataProxyCreateSource(c *gin.Context) {
 		switch {
 		case errors.Is(err, service.ErrWorkspaceNoProject):
 			c.JSON(http.StatusUnprocessableEntity, gin.H{"error": err.Error(), "code": "no_project"})
+		case errors.Is(err, service.ErrConfigCarriesSecret):
+			// The agent tried to pass a secret through the conversation. Reject
+			// with the offending field NAMES (never the values) and point at the
+			// out-of-band secure link; the MCP shim surfaces this message as-is.
+			c.JSON(http.StatusUnprocessableEntity, gin.H{"error": err.Error(), "code": "secret_in_config"})
 		case errors.Is(err, service.ErrDataSourceNameTaken):
 			c.JSON(http.StatusConflict, gin.H{"error": err.Error(), "code": "name_taken"})
 		case errors.Is(err, dataconn.ErrUnsupported):

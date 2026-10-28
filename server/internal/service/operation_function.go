@@ -814,15 +814,7 @@ func (s *OperationFunctionService) serveEgress(ctx context.Context, row store.In
 		return &sandbox.HTTPResponseMessage{OK: false,
 			Error: fmt.Sprintf("this function has reached its outbound limit of %d calls per minute", functionEgressPerMinute)}
 	}
-	out, err := s.proxy.Call(ctx, ProxyInput{
-		UserID:      in.UserID,
-		Provider:    row.ProviderName,
-		Operation:   req.Operation,
-		Query:       req.Query,
-		Body:        req.Body,
-		WorkspaceID: in.WorkspaceID,
-		SourceKey:   in.SourceKey,
-	})
+	out, err := s.proxy.Call(ctx, proxyInputFor(row, req, in))
 	if err != nil {
 		// A refusal (unknown operation, write gate, SSRF, transport) is
 		// reported in-band so the function can branch instead of dying.
@@ -836,6 +828,27 @@ func (s *OperationFunctionService) serveEgress(ctx context.Context, row store.In
 		Status:  out.Status,
 		Headers: out.Headers,
 		Body:    out.Body,
+	}
+}
+
+// proxyInputFor maps one box request onto the proxy call. It exists as a named
+// seam so the field mapping can be tested directly — in particular that the
+// box's `params` reaches ProxyInput, which the old inline literal silently
+// dropped (a function that put its arguments in params had them vanish before
+// the proxy ever saw the call).
+//
+// Authorization is unchanged: the proxy still authorizes by operation name, and
+// params carries no authority of its own.
+func proxyInputFor(row store.IntegrationFunction, req *sandbox.HTTPRequestMessage, in FunctionInvokeInput) ProxyInput {
+	return ProxyInput{
+		UserID:      in.UserID,
+		Provider:    row.ProviderName,
+		Operation:   req.Operation,
+		Params:      req.Params,
+		Query:       req.Query,
+		Body:        req.Body,
+		WorkspaceID: in.WorkspaceID,
+		SourceKey:   in.SourceKey,
 	}
 }
 

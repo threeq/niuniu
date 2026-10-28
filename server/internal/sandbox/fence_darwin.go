@@ -151,14 +151,18 @@ func (darwinFence) Probe() []ComponentStatus {
 		Name: "seatbelt-profile-applies", Required: true, OK: ok, Detail: detail,
 	})
 	// Memory is the one ceiling Seatbelt does not express and RLIMIT_AS cannot
-	// supply for a Go binary. The supervisor reports peak usage after exit but
-	// cannot cap it in flight, so this is declared as a HARDENING GAP rather
-	// than quietly presented as enforced.
+	// supply for a Go binary, so there is no in-KERNEL hard cap here. The
+	// runtime can still OBSERVE and KILL: the supervisor samples RSS (see
+	// rss_darwin.go) every 100ms and terminates a box that exceeds its declared
+	// ceiling, exactly as the Linux watchdog does. This component stays a
+	// deliberate HARDENING-GAP disclosure — it reports the missing kernel cap —
+	// rather than over-claiming a hard limit; the sampled kill is documented in
+	// the detail so the stronger-than-before reality is not hidden either way.
 	comps = append(comps, ComponentStatus{
 		Name:     "memory-limit",
 		Required: false,
 		OK:       false,
-		Detail:   "no in-flight hard memory cap on this platform; CPU seconds and wall clock are capped, peak memory is reported after exit",
+		Detail:   "no in-kernel hard memory cap on this platform (Seatbelt expresses none; RLIMIT_AS cannot be used for a Go binary); the supervisor samples RSS and kills the box when it exceeds the ceiling",
 	})
 	if p := HelperPath(); p != "" {
 		ok, detail := darwinProbeSpawn(p)

@@ -314,3 +314,127 @@ func TestHealthSweep_ProviderDriftDetectedAndAcknowledged(t *testing.T) {
 		t.Fatalf("contract_drift should be cleared, got %d", row.ContractDrift)
 	}
 }
+
+// TestHealthSweep_PublishSeedsDriftBaseline is the regression guard for the
+// drift "blind window" (Epic #726 / #744): the baseline must be pinned when the
+// contract is PUBLISHED, not when the first scheduled sweep runs. Otherwise an
+// upstream document change that lands between publication and that first sweep
+// is absorbed silently (the sweep would "establish" the already-changed document
+// as the baseline) instead of being reported as drift.
+//
+// The test publishes a provider through the real draft pipeline against an
+// httptest upstream, flips the upstream document, and asserts the very first
+// probe already reports drift.
+func TestHealthSweep_PublishSeedsDriftBaseline(t *testing.T) {
+	env := niutest.NewIsolationEnv(t)
+	ctx := context.Background()
+	kr, err := crypto.LoadOrCreate(env.TempPath(t, "integration_secret"))
+	if err != nil {
+		t.Fatalf("keyring: %v", err)
+	}
+
+	// Upstream: the verify endpoint the published contract probes, plus an
+	// OpenAPI document whose bytes the test can swap to simulate a change.
+	var spec atomic.Value
+	spec.Store(`{"openapi":"3.0.0","info":{"title":"v1"}}`)
+	mux := http.NewServeMux()
+	mux.HandleFunc("/things", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	})
+	mux.HandleFunc("/openapi.json", func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(spec.Load().(string)))
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	credReg := integration.NewRegistry()
+	provSvc := service.NewExternalProviderService(env.Queries(), env.DB)
+	credSvc := service.NewExternalCredentialService(env.Queries(), env.DB, kr, credReg)
+	authz := service.NewAuthz(env.Queries(), env.DB)
+	proxySvc := service.NewExternalProxyService(env.Queries(), env.DB, provSvc, credSvc, authz, nil)
+	proxySvc.SetClientForTest(srv.Client()) // httptest listens on loopback
+	dsSvc := service.NewDataSourceService(env.Queries(), env.DB, kr, dataconn.NewRegistry())
+	health := service.NewIntegrationHealthService(env.Queries(), env.DB, provSvc, proxySvc, dsSvc,
+		service.IntegrationHealthConfig{Enabled: true, FailureThreshold: 3})
+	health.SetClientForTest(srv.Client())
+
+	draftSvc := service.NewIntegrationDraftService(env.Queries(), provSvc, dsSvc, proxySvc, health)
+	draftSvc.SetVerifier(&fakeVerifier{ok: true})
+
+	uid := env.UserA
+	p := providerPayload(srv.URL,
+		[]service.ContractOperation{op("list_thing", "GET", "/things", true)}, "list_thing", false)
+	p.OpenAPIURL = srv.URL + "/openapi.json"
+	v, err := draftSvc.CreateDraft(ctx, service.CreateDraftInput{
+		OwnerType: "user", OwnerID: uid, CreatedBy: uid,
+		Kind: service.DraftKindProvider, TargetName: "example",
+		AgentAuthored: true, Provider: p,
+		Origin:  service.NewUntrustedOrigin(service.UntrustedKindOpenAPI, srv.URL+"/openapi.json"),
+		DocOps:  []service.OperationKey{{Method: "GET", Path: "/things"}},
+		DocHost: "127.0.0.1",
+	})
+	if err != nil {
+		t.Fatalf("create draft: %v", err)
+	}
+	if v.Status != service.DraftStatusDraft {
+		t.Fatalf("expected a clean draft, got status=%s issues=%+v", v.Status, v.Issues)
+	}
+	confirmed, err := draftSvc.ConfirmDraft(ctx, service.ConfirmImpactInput{
+		DraftID: v.ID, OwnerType: "user", OwnerID: uid, AckKeys: acks(v),
+	})
+	if err != nil {
+		t.Fatalf("confirm draft: %v", err)
+	}
+	res, err := draftSvc.PublishDraft(ctx, service.PublishDraftInput{
+		DraftID: confirmed.ID, OwnerType: "user", OwnerID: uid, ByUser: uid,
+	})
+	if err != nil || !res.Published {
+		t.Fatalf("publish: res=%+v err=%v", res, err)
+	}
+
+	prov, err := provSvc.GetByName(ctx, "example")
+	if err != nil {
+		t.Fatalf("get published provider: %v", err)
+	}
+	// The fix under test: publishing a provider that carries an openapi_url pins
+	// the drift baseline then and there.
+	seeded, err := env.Queries().GetProviderByID(ctx, prov.ID)
+	if err != nil {
+		t.Fatalf("get published provider row: %v", err)
+	}
+	if seeded.UpstreamSpecDigest == "" {
+		t.Fatal("publishing a provider with an openapi_url must seed the drift baseline")
+	}
+
+	// The sweep's verify call must go through the proxy, which needs a user
+	// credential and the write gate open (as in the sibling drift test).
+	if _, err := credSvc.Create(ctx, service.ExternalCredentialUpsertInput{
+		OwnerType: "user", OwnerID: uid, UserID: uid,
+		Provider: integration.ProviderName("example"), Alias: "default",
+		RawConfig: map[string]any{"token": "t", "auth_mode": "bearer"},
+	}); err != nil {
+		t.Fatalf("create credential: %v", err)
+	}
+	if err := provSvc.SetWritePref(ctx, uid, prov.ID, true); err != nil {
+		t.Fatalf("set write pref: %v", err)
+	}
+
+	// The upstream document changes between publication and the first sweep.
+	spec.Store(`{"openapi":"3.0.0","info":{"title":"v2-changed"}}`)
+
+	out, err := health.ProbeProvider(ctx, prov.ID)
+	if err != nil {
+		t.Fatalf("first probe: %v", err)
+	}
+	if !out.Drift {
+		t.Fatalf("the first sweep after an upstream change must report drift, got %+v", out)
+	}
+	row, err := env.Queries().GetProviderByID(ctx, prov.ID)
+	if err != nil {
+		t.Fatalf("get provider: %v", err)
+	}
+	if row.ContractDrift != 1 {
+		t.Fatalf("contract_drift flag should be set, got %d", row.ContractDrift)
+	}
+}

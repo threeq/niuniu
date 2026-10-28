@@ -156,7 +156,27 @@ func LoadOrMigrate(kc KeyStore, legacyPath string) (*Outcome, error) {
 		return nil, fmt.Errorf("%w — refusing to generate a fresh key, which would strand every existing integration credential; "+
 			"repair or remove the keychain entry and restart", err)
 	default:
-		return degradeToFile(file, err)
+		// The keychain is present but failed with something other than
+		// "not found" / "corrupt" — usually a transient backend outage
+		// (e.g. a Secret Service that failed to start for this run).
+		// Falling back to the plaintext file is only safe when that file
+		// ALREADY holds a key, i.e. a genuine legacy/degraded install whose
+		// master key we can reuse. If the file does not exist, generating a
+		// fresh key here would silently mint a DIFFERENT master key and
+		// strand every credential encrypted under the real one — so we hard
+		// fail instead, telling the operator how to recover.
+		switch _, ferr := file.Get(); {
+		case ferr == nil:
+			return degradeToFile(file, err)
+		case !errors.Is(ferr, ErrKeyNotFound):
+			return nil, ferr
+		default:
+			return nil, fmt.Errorf(
+				"integration master key unavailable: OS keychain error (%v) and no legacy key file at %s; "+
+					"refusing to generate a fresh key, which would make every existing integration credential undecryptable. "+
+					"Restore keychain access, restore the key file, or set %s=file for a host that intentionally has no keychain",
+				err, file.Path, EnvBackend)
+		}
 	}
 }
 

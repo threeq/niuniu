@@ -11,6 +11,7 @@ import (
 	"github.com/gin-gonic/gin"
 	_ "modernc.org/sqlite"
 
+	"github.com/niuniu-dev/niuniu/internal/config"
 	"github.com/niuniu-dev/niuniu/internal/service"
 	"github.com/niuniu-dev/niuniu/internal/store"
 )
@@ -55,7 +56,10 @@ func newProviderUpdateTestServer(t *testing.T) (*gin.Engine, *service.ExternalPr
 	}
 
 	svc := service.NewExternalProviderService(store.New(store.Wrap(db)), db)
-	srv := &Server{externalProviderSvc: svc}
+	// cfg is required by the admin gate on PUT /providers/:id (requireProviderAdmin
+	// reads cfg.Auth.Enabled). The zero value has auth disabled, i.e. personal-mode
+	// pass-through, so the pre-existing patch-semantics tests are unaffected.
+	srv := &Server{externalProviderSvc: svc, cfg: &config.Config{}}
 
 	gin.SetMode(gin.TestMode)
 	r := gin.New()

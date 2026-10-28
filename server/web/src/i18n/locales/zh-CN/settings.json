@@ -32,6 +32,7 @@
       "kindAll": "全部类型",
       "kindApi": "API 调用",
       "kindData": "数据查询",
+      "kindFunction": "函数调用",
       "filterSource": "按来源筛选",
       "sourceAll": "全部来源",
       "filterRange": "按时间筛选",
@@ -50,6 +51,8 @@
       "fieldsNone": "（无字段）",
       "fingerprint": "请求体 sha256 {{hash}}… · {{bytes}} B · 字段：{{fields}}",
       "dataMeta": "{{rows}} 行 · {{ms}} ms",
+      "functionMeta": "{{calls}} 次出口 · {{ms}} ms · {{ops}}",
+      "egressNone": "（无出口调用）",
       "oversize": "超出阈值",
       "oversizeHint": "外发请求体超过出口告警阈值。",
       "oversizeToast": "发往 {{provider}} 的外发数据体超出阈值，已标记，请在「集成活动」中查看。"

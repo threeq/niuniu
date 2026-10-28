@@ -149,8 +149,19 @@ stdio 服务器（有 `command`）从**子进程环境变量**取密，没有「
 
 ### 4.3 office-mail TOML：迁出工作区 + 拒绝读
 
-`mcp-email-server` 只接受**文件路径**（`MCP_EMAIL_SERVER_CONFIG_PATH`），
-文件里必须是可以直接登录 IMAP 的口令，没有任何注入点。因此改为：
+`mcp-email-server` 的**多账户**配置只能经文件（`MCP_EMAIL_SERVER_CONFIG_PATH`
+指向的 TOML `[[emails]]`）；它的 `env` 注入只支持**单账户**（见
+`docs/product-analysis/2026-06-23-email-management.md`：「env（单账户）+
+TOML（多账户）」）。office-mail 场景要支持多邮箱，所以只能落 TOML，且 TOML 里
+必须是可直接登录 IMAP 的口令。
+
+> ⚠️ 更正：本文早先写成「只接受文件路径，没有任何注入点」，这是**不准确**的——
+> 单账户是可以用 `MCP_EMAIL_SERVER_*` env 注入的（`scene_projection_apply.go`
+> 里还留着那版写法的陈旧注释）。但**改走 env 不是解法**：那只是把同一份明文从
+>「工作区外的 0600 文件」挪到「工作区内的 `.mcp.json`」，agent 直接可读，反而
+> 更差。所以下面的处置仍然成立。
+
+因此改为：
 
 1. **移出工作区**：`<wsDir>/.email-config/config.toml`
    → `<ownerRoot>/cred-material/workspaces/<wsID>/email-config.toml`
@@ -172,11 +183,23 @@ sandbox / keychain 级隔离，属另一议题）。
 
 ### 4.5 agent 拿到 token 意味着什么
 
-agent 读 `.mcp.json` 会看到 token。它能做的：用该 token 向**那一个**上游发请求
-并带上凭证 —— 也就是该 MCP 服务器本来就有的能力。它**不能**：
+agent 读 `.mcp.json` 会看到 token。它能做的：用该 token 向**该上游**发请求并带上
+凭证。
+
+> ⚠️ 更正：这里早先写成「也就是该 MCP 服务器本来就有的能力」，这是**夸大**的。
+> `CredProxyService.direct` 会把请求方给的任意子路径拼到上游 base path 之后，
+> 所以 agent 实际拿到的是**该凭证对该上游的能力**——base path 之内的任意
+> 路径/方法都能打到（例如上游有一个 MCP 从未暴露的删除端点），而**不是**仅限
+> MCP 服务器暴露的工具面。现已补上路径限定（见下一条）并如实记录本限制。
+
+它**不能**：
 
 - 得到凭证本身（token 是密封的指针，不含密文；无法拿去别的服务、无法外带复用）；
-- 指向别的上游（上游 URL 来自投射，不接受请求方输入）；
+- 指向别的上游（上游 URL 来自投射，不接受请求方输入；且 token 已**密封绑定**到
+  投射时的目标 `scheme://host/basepath`，场景配置改指别处后旧 token 立即失效）；
+- 越出投射的 base path（`/..` 穿越或 sibling 端点被 403 拒绝，见
+  `CredProxyService.withinUpstreamPath`）。**例外**：上游是裸 host（无 base path）
+  时无处可限，此时该 token 覆盖该 host 的全部路径；
 - 在场景移除 / 凭证解绑后继续使用（403）；也无法在 7 天后继续使用；
 - 从**网络**上重放（loopback-only）。
 
@@ -195,6 +218,7 @@ agent 读 `.mcp.json` 会看到 token。它能做的：用该 token 向**那一�
 | TTL 7 天（绝对值，不滑动） | 真正的边界是实时投射，TTL 只是二次防御；避免「短 TTL 打断长跑 agent」 |
 | 拒绝**读**即可，未做 OS 隔离 | 见 §4.3 残余风险；与既有 KB 只读保护同构 |
 | 不引入 `cred-exec` 包装器 | 见 §4.2；当前无场景需要，且风险高 |
+| token 密封绑定目标上游 + 限定 base path | agent 仍可打 base path 内的任意端点（裸 host 上游不减）；换来「token 不可被改场景重定向、不能跨路径外带」 |
 | 复用 `call_external_api` 的 SSRF 防护？**否** | 该防护会阻断 loopback/私网，而场景上游（企业内部 KB）常是私网地址。上游 URL 是**场景作者写定的配置**（非 agent 输入），故使用普通 `http.Transport` |
 | 复用集成主密钥密封 token | 与凭据落库共用一套密钥生命周期（OS keychain，#745）；代价是轮换主密钥会让既有 token 失效（下次投射即恢复） |
 | loopback-only 限制 | 关掉了「远程 MCP 客户端」这一未来形态；本版本工作区与 server 同机，故成立。若将来支持远程 runner，需要显式放开并重新评估该边界 |

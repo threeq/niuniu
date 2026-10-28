@@ -175,11 +175,14 @@ func TestMigrationIdempotent(t *testing.T) {
 	}
 }
 
-// TestDegradedFallbackWhenKeychainUnavailable: no Secret Service → write and
-// use the plaintext file, flagged and warned (never silent).
+// TestDegradedFallbackWhenKeychainUnavailable: an existing legacy key file
+// plus a keychain that errors (no Secret Service) → reuse the file's key, on
+// the file backend, flagged and warned (never silent).
 func TestDegradedFallbackWhenKeychainUnavailable(t *testing.T) {
 	dir := t.TempDir()
 	secretPath := filepath.Join(dir, "integration_secret")
+	legacyKey := mustKey(t, 21)
+	writeLegacyFile(t, secretPath, legacyKey)
 	fake := &fakeKeyStore{err: errors.New("The name org.freedesktop.secrets was not provided by any .service files")}
 
 	out, err := LoadOrMigrate(fake, secretPath)
@@ -191,6 +194,10 @@ func TestDegradedFallbackWhenKeychainUnavailable(t *testing.T) {
 	}
 	if len(out.Warnings) == 0 || !strings.Contains(strings.ToLower(out.Warnings[0]), "plaintext") {
 		t.Fatalf("degradation must warn about plaintext storage, warnings=%v", out.Warnings)
+	}
+	// The degraded path must reuse the pre-existing key, never mint a new one.
+	if !bytes.Equal(out.Keyring.current, legacyKey) {
+		t.Fatal("degraded fallback must reuse the existing file key")
 	}
 	info, err := os.Stat(secretPath)
 	if err != nil {
@@ -211,6 +218,28 @@ func TestDegradedFallbackWhenKeychainUnavailable(t *testing.T) {
 	}
 	if pt, err := again.Keyring.Decrypt(ct); err != nil || string(pt) != "y" {
 		t.Fatalf("degraded key not stable: pt=%q err=%v", pt, err)
+	}
+}
+
+// TestTransientKeychainErrorNoLegacyFileIsFatal: a keychain that is present but
+// errors transiently (e.g. a Secret Service that failed to start this run) must
+// NOT mint a fresh master key when no legacy key file exists. Doing so would
+// silently strand every credential encrypted under the real key and leave a
+// plaintext key file behind.
+func TestTransientKeychainErrorNoLegacyFileIsFatal(t *testing.T) {
+	dir := t.TempDir()
+	secretPath := filepath.Join(dir, "integration_secret")
+	fake := &fakeKeyStore{err: errors.New("org.freedesktop.secrets: connection closed by peer")}
+
+	out, err := LoadOrMigrate(fake, secretPath)
+	if err == nil {
+		t.Fatalf("transient keychain error with no legacy file must be fatal, got outcome %+v", out)
+	}
+	if _, statErr := os.Stat(secretPath); !errors.Is(statErr, os.ErrNotExist) {
+		t.Fatalf("must not create a plaintext key file, stat err = %v", statErr)
+	}
+	if fake.sets != 0 {
+		t.Fatalf("must not write a new key to the keychain, sets = %d", fake.sets)
 	}
 }
 

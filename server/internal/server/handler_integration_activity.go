@@ -53,8 +53,9 @@ func (s *Server) writeActivityPage(c *gin.Context, forcedKind string) {
 	in := service.IntegrationActivityInput{UserID: userID, Kind: forcedKind}
 	if forcedKind == "" {
 		kind := c.Query("kind")
-		if kind != "" && kind != service.ActivityKindAPI && kind != service.ActivityKindData {
-			badRequest("kind must be api or data")
+		if kind != "" && kind != service.ActivityKindAPI && kind != service.ActivityKindData &&
+			kind != service.ActivityKindFunction {
+			badRequest("kind must be api, data, or function")
 			return
 		}
 		in.Kind = kind
@@ -94,7 +95,7 @@ func (s *Server) writeActivityPage(c *gin.Context, forcedKind string) {
 	page, err := s.integrationAuditSvc.ListActivity(c.Request.Context(), in)
 	if err != nil {
 		if err == service.ErrBadActivityKind {
-			badRequest("kind must be api or data")
+			badRequest("kind must be api, data, or function")
 			return
 		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": gin.H{"code": "INTERNAL_ERROR", "message": err.Error()}})

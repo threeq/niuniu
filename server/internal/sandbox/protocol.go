@@ -78,6 +78,13 @@ type InvokeMessage struct {
 // OPERATION (plus its parameters) and the host resolves method + path from the
 // provider contract. Dynamic URL construction is therefore not expressible —
 // not merely linted against.
+//
+// Method+Path exist only for the LEGACY authorization form (a spec whose egress
+// is keyed on method+path rather than an operation name). They are never
+// settable from function code — the in-box runtime rejects `method`/`path` as
+// unknown options — so they cannot be used to name an arbitrary endpoint; they
+// are surfaced here so an old spec can still be matched instead of silently
+// authorizing nothing.
 type HTTPRequestMessage struct {
 	Kind      Kind           `json:"kind"`
 	ID        int64          `json:"id"`
@@ -85,6 +92,10 @@ type HTTPRequestMessage struct {
 	Params    map[string]any `json:"params,omitempty"`
 	Query     map[string]any `json:"query,omitempty"`
 	Body      map[string]any `json:"body,omitempty"`
+	// Method and Path are the legacy form; see the type comment. omitempty keeps
+	// them off the wire for every operation-named request.
+	Method string `json:"method,omitempty"`
+	Path   string `json:"path,omitempty"`
 }
 
 // HTTPResponseMessage is the host's answer to one HTTPRequestMessage. A failed
