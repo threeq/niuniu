@@ -1,10 +1,11 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Group, Panel, Separator } from 'react-resizable-panels';
 import { useTranslation } from 'react-i18next';
 import { ChevronLeft, PanelLeftOpen } from 'lucide-react';
 import { api } from '@/lib/api';
 import { Button } from '@/components/ui/button';
+import { Sheet, SheetContent, SheetTitle } from '@/components/ui/sheet';
 import { useIsMobile } from '@/hooks/use-media-query';
 import type { Workspace, Issue } from '@/types/api';
 import { useWorkspacePanelStore, type PanelId } from '@/stores/workspace-panel-store';
@@ -68,6 +69,7 @@ export function WorkspacePage({ workspaceId }: WorkspacePageProps) {
   const { t } = useTranslation('workspaces');
   const { openPanels, isSidebarOpen, toggleSidebar, togglePanel } = useWorkspacePanelStore();
   const isMobile = useIsMobile();
+  const [mobileListOpen, setMobileListOpen] = useState(false);
   const contentViewer = useWorkspacePanelStore((s) => s.contentViewer[workspaceId] ?? null);
   // Unified search (file names + contents). Lives on the page, not the toolbar,
   // so the Ctrl/Cmd+Shift+F and Ctrl/Cmd+P shortcuts work anywhere in the page.
@@ -169,7 +171,11 @@ export function WorkspacePage({ workspaceId }: WorkspacePageProps) {
         ))}
 
       <div className="flex flex-col flex-1 min-w-0">
-        <WorkspaceToolbar workspace={workspace} onOpenSearch={() => setSearchOpen(true)} />
+        <WorkspaceToolbar
+          workspace={workspace}
+          onOpenSearch={() => setSearchOpen(true)}
+          onOpenWorkspaceList={isMobile ? () => setMobileListOpen(true) : undefined}
+        />
 
         {/* empty:hidden collapses the wrapper (and its pt-2) when the banner
             renders null — otherwise a dead 8px band sits atop the chat flow. */}
@@ -312,6 +318,24 @@ export function WorkspacePage({ workspaceId }: WorkspacePageProps) {
           open={searchOpen}
           onOpenChange={setSearchOpen}
         />
+      )}
+
+      {/* Mobile workspace switcher: the fixed rail is hidden below md, so the
+          list opens as a drawer from the toolbar button. */}
+      {isMobile && (
+        <Sheet open={mobileListOpen} onOpenChange={setMobileListOpen}>
+          <SheetContent side="left" className="w-4/5 max-w-xs gap-0 p-0">
+            <SheetTitle className="sr-only">{t('sidebar.title')}</SheetTitle>
+            <div
+              className="flex h-full flex-col overflow-hidden"
+              onClickCapture={(e) => {
+                if ((e.target as HTMLElement).closest('a')) setMobileListOpen(false);
+              }}
+            >
+              <WorkspaceSidebar />
+            </div>
+          </SheetContent>
+        </Sheet>
       )}
     </div>
   );

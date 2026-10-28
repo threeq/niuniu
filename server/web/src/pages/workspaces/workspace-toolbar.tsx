@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { FolderTree, GitCompareArrows, CircleDot, Archive, Sparkles, Pin, Presentation, Clapperboard, Loader2, Library, Search, Share2 } from 'lucide-react';
+import { FolderTree, GitCompareArrows, CircleDot, Archive, Sparkles, Pin, Presentation, Clapperboard, Loader2, Library, Search, Share2, PanelLeftOpen } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { cn } from '@/lib/utils';
 import { useWorkspacePanelStore, type PanelId } from '@/stores/workspace-panel-store';
@@ -12,6 +12,9 @@ import type { Workspace } from '@/types/api';
 
 interface WorkspaceToolbarProps {
   workspace: Workspace;
+  /** Mobile only: opens the workspace list drawer (the fixed rail is hidden
+   *  below md, so phones need an explicit entry point). */
+  onOpenWorkspaceList?: () => void;
   /** Opens the unified search dialog; the dialog itself lives on the page so
    *  its keyboard shortcut works regardless of toolbar mount state. */
   onOpenSearch: () => void;
@@ -31,7 +34,7 @@ const allPanelButtons: { id: PanelId; icon: React.ComponentType<{ className?: st
   { id: 'kbs', icon: Library, i18nKey: 'toolbar.panels.kbs' },
 ];
 
-export function WorkspaceToolbar({ workspace, onOpenSearch }: WorkspaceToolbarProps) {
+export function WorkspaceToolbar({ workspace, onOpenSearch, onOpenWorkspaceList }: WorkspaceToolbarProps) {
   const { t } = useTranslation('workspaces');
   const { togglePanel, isPanelOpen } = useWorkspacePanelStore();
   const personalMode = useConfigStore((s) => s.personalMode);
@@ -64,7 +67,19 @@ export function WorkspaceToolbar({ workspace, onOpenSearch }: WorkspaceToolbarPr
           the issue `#<id>` is the primary id (matches what IM/kanban show) and
           the workspace `!<id>` trails as the secondary technical id; an issue-less
           workspace shows only `!<id>`. */}
-      <div className="flex items-center gap-1.5 min-w-0">
+      <div className="flex min-w-0 items-center gap-1.5">
+        {onOpenWorkspaceList && (
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={onOpenWorkspaceList}
+            className="h-7 w-7 shrink-0 md:hidden"
+            aria-label={t('sidebar.collapse.expand')}
+            title={t('sidebar.collapse.expand')}
+          >
+            <PanelLeftOpen className="h-4 w-4" aria-hidden="true" />
+          </Button>
+        )}
         {workspace.issue_id ? (
           <span className="flex items-center gap-1 shrink-0 text-xs font-mono tabular-nums">
             <span className="text-warm-text-muted">#{workspace.issue_id}</span>
