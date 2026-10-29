@@ -53,6 +53,8 @@ export function WorkspaceSharePage({ token }: WorkspaceSharePageProps) {
   const [sending, setSending] = useState(false);
   const [sendError, setSendError] = useState(false);
   const [liveConnected, setLiveConnected] = useState(false);
+  // 键盘弹出时的真实可见高度（px）；null 表示用默认的 h-dvh。
+  const [viewportHeight, setViewportHeight] = useState<number | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const contentRef = useRef<HTMLDivElement | null>(null);
   const stickToBottomRef = useRef(true);
@@ -254,6 +256,31 @@ export function WorkspaceSharePage({ token }: WorkspaceSharePageProps) {
     return () => ro.disconnect();
   }, [meta?.unlocked]);
 
+  // 移动端键盘弹出时 iOS 不会缩小布局视口（dvh 不变），底部输入框和最后一条
+  // 消息会被键盘盖住。用 visualViewport 的真实可见高度收紧容器。
+  useEffect(() => {
+    const vv = window.visualViewport;
+    if (!vv) return;
+    const update = () => {
+      const covered = window.innerHeight - vv.height;
+      setViewportHeight(covered > 120 ? Math.round(vv.height) : null);
+    };
+    update();
+    vv.addEventListener('resize', update);
+    vv.addEventListener('scroll', update);
+    return () => {
+      vv.removeEventListener('resize', update);
+      vv.removeEventListener('scroll', update);
+    };
+  }, []);
+
+  // 可见高度变化（键盘弹出/收起）后容器尺寸变了，原来的 scrollTop 不再是底部；
+  // 布局生效后再贴一次底。
+  useLayoutEffect(() => {
+    const el = scrollRef.current;
+    if (el && stickToBottomRef.current) el.scrollTop = el.scrollHeight;
+  }, [viewportHeight]);
+
   // 视口变化（旋转、移动端键盘/地址栏）后消息区高度变了，贴底状态下重新贴底。
   useEffect(() => {
     const onResize = () => {
@@ -390,7 +417,7 @@ export function WorkspaceSharePage({ token }: WorkspaceSharePageProps) {
   // 已解锁：会话视图。外层固定为一屏高，只有消息区滚动——输入框始终钉在
   // 窗口底部，移动端浏览器地址栏收起/展开也不会把输入框顶出可视区。
   return (
-    <ShareShell variant="chat">
+    <ShareShell variant="chat" height={viewportHeight}>
       <div className="flex shrink-0 items-center justify-between gap-3 border-b border-warm-border px-4 py-3">
         <div className="min-w-0">
           <div className="truncate text-sm font-medium text-warm-text">{meta?.name}</div>
@@ -455,10 +482,21 @@ export function WorkspaceSharePage({ token }: WorkspaceSharePageProps) {
 // ShareShell 是页面级容器：
 // - chat：h-dvh 全高一屏，只有消息区滚动（输入框钉底，移动端地址栏变化安全）；
 // - 其它（加载/密码门/错误）：居中的窄栏，内容不足一屏时垂直居中。
-function ShareShell({ children, variant = 'card' }: { children: React.ReactNode; variant?: 'card' | 'chat' }) {
+function ShareShell({
+  children,
+  variant = 'card',
+  height,
+}: {
+  children: React.ReactNode;
+  variant?: 'card' | 'chat';
+  height?: number | null;
+}) {
   if (variant === 'chat') {
     return (
-      <div className="flex h-dvh flex-col overflow-hidden bg-background text-foreground">
+      <div
+        className="flex h-dvh flex-col overflow-hidden bg-background text-foreground"
+        style={height ? { height } : undefined}
+      >
         <div className="mx-auto flex min-h-0 w-full max-w-3xl flex-1 flex-col">{children}</div>
       </div>
     );
