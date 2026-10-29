@@ -740,7 +740,7 @@ func (s *EpicExecutionService) recordRouteVisit(ctx context.Context, issueID, co
 	}
 	if _, err := s.db.ExecContext(ctx,
 		`INSERT INTO issue_route_visits (issue_id, column_id, visit_count) VALUES (?, ?, 1)
-		 ON CONFLICT(issue_id, column_id) DO UPDATE SET visit_count = visit_count + 1`,
+		 ON CONFLICT(issue_id, column_id) DO UPDATE SET visit_count = issue_route_visits.visit_count + 1`,
 		issueID, columnID); err != nil {
 		slog.Warn("advance_issue: record route visit", "issueID", issueID, "columnID", columnID, "error", err)
 		return 0, 0
