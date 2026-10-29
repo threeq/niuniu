@@ -136,12 +136,12 @@ export function KnowledgeBaseDetailPage() {
   return (
     <div className="h-full flex flex-col bg-background">
       {/* Header */}
-      <div className="flex items-center justify-between gap-3 px-4 py-3 bg-card border-b">
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b bg-card px-3 py-2 sm:px-4 sm:py-3">
         <div className="flex items-center gap-3 min-w-0">
           <Library className="w-4 h-4 text-muted-foreground shrink-0" aria-hidden />
           <h1 className="font-semibold text-foreground truncate">{kb.name}</h1>
           <KBStatusBadge kb={kb} />
-          <span className="flex items-center gap-1 text-xs text-muted-foreground shrink-0">
+          <span className="hidden items-center gap-1 text-xs text-muted-foreground shrink-0 sm:flex">
             <SourceIcon className="w-3.5 h-3.5" aria-hidden />
             {t(`sourceKind.${kb.source_kind}`)}
           </span>
@@ -149,7 +149,7 @@ export function KnowledgeBaseDetailPage() {
 
         <div className="flex items-center gap-2 shrink-0">
           {ready && (
-            <span className="text-xs text-muted-foreground tabular-nums mr-1">
+            <span className="hidden text-xs text-muted-foreground tabular-nums mr-1 sm:inline">
               {t('row.counts', { docs: kb.doc_count, chunks: kb.chunk_count })}
             </span>
           )}
@@ -238,13 +238,13 @@ export function KnowledgeBaseDetailPage() {
       )}
 
       {/* Tabs */}
-      <div className="flex items-center gap-1 px-4 bg-card border-b">
+      <div className="flex items-center gap-1 overflow-x-auto border-b bg-card px-2 sm:px-4 md:overflow-visible">
         {tabs.map((tab) => (
           <button
             key={tab.id}
             onClick={() => setActiveTab(tab.id)}
             className={cn(
-              'flex items-center gap-2 px-3 py-2 text-sm font-medium border-b-2 -mb-px transition-colors',
+              'flex shrink-0 items-center gap-2 px-2 py-2 text-sm font-medium border-b-2 -mb-px transition-colors sm:px-3',
               activeTab === tab.id
                 ? 'border-brand text-brand'
                 : 'border-transparent text-muted-foreground hover:text-foreground',

@@ -83,9 +83,9 @@ export function SchedulesPage() {
 
   return (
     <div className="h-full overflow-y-auto">
-      <div className="p-6 max-w-4xl mx-auto">
+      <div className="mx-auto max-w-4xl p-4 sm:p-6">
       {/* Header */}
-      <div className="flex items-center justify-between mb-5">
+      <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-lg font-semibold text-foreground">{t('list.title')}</h1>
           <p className="text-sm text-muted-foreground mt-0.5">{t('list.subtitle')}</p>
@@ -183,7 +183,7 @@ function WorkspaceScheduleGroup({
   const { t } = useTranslation('schedules')
   return (
     <div className="bg-card border border-border rounded-lg">
-      <div className="flex items-center justify-between px-4 py-3 border-b border-border">
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border px-3 py-3 sm:px-4">
         <div className="flex items-center gap-2">
           <span className={cn('w-1.5 h-1.5 rounded-full', statusDot[status] || 'bg-muted-foreground/50')} />
           <span className="text-sm font-medium text-foreground">{name || t('list.workspaceFallback', { id: workspaceId })}</span>
@@ -234,7 +234,7 @@ function ScheduleRow({ schedule: s, workspaceId, onEdit, onHistory }: ScheduleRo
 
   return (
     <div
-      className="flex items-center gap-3 px-4 py-2.5 border-b border-border/50 last:border-0 hover:bg-accent cursor-pointer"
+      className="flex cursor-pointer items-center gap-2 border-b border-border/50 px-3 py-2.5 last:border-0 hover:bg-accent sm:gap-3 sm:px-4"
       onClick={onHistory}
     >
       {s.schedule_type === 'cron' ? (
@@ -266,7 +266,7 @@ function ScheduleRow({ schedule: s, workspaceId, onEdit, onHistory }: ScheduleRo
       </div>
 
       {s.last_run_at && (
-        <span className="text-[11px] text-muted-foreground/70 shrink-0">
+        <span className="hidden shrink-0 text-[11px] text-muted-foreground/70 sm:inline">
           {t('list.lastRun', { time: new Date(s.last_run_at).toLocaleString() })}
         </span>
       )}

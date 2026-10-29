@@ -307,6 +307,7 @@ function UsageTotalsTable({
   if (totals.length === 0) return null
 
   return (
+    <div className="overflow-x-auto">
     <Table>
       <TableHeader>
         <TableRow>
@@ -368,6 +369,7 @@ function UsageTotalsTable({
         ))}
       </TableBody>
     </Table>
+    </div>
   )
 }
 
