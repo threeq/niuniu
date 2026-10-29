@@ -167,10 +167,14 @@ type shareMessageResponse struct {
 	CreatedAt string `json:"createdAt"`
 }
 
-// Messages — GET /share/api/ws/:token/messages?after=<msgId>&limit=N
+// Messages — GET /share/api/ws/:token/messages?limit=N[&before=<msgId>][&after=<msgId>]
 //
 // 只返回 role ∈ {user, assistant} 且 event_type='text' 的行——tool 调用/
 // 结果、thinking、成本等内部细节不对匿名访问者暴露。需有效解锁 cookie。
+//
+// before 用于向上翻页（更老的一页），after 用于增量拉取；两者互斥，after 优先。
+// 响应里的 cursor 是这一页最老的原始行 id（过滤前的行），观看者拿它继续 before
+// 翻页——只按可见消息的 id 翻页会在「整页都是 tool/thinking」时卡住。
 func (h *SharePublicHandler) Messages(c *gin.Context) {
 	resolved, ok := h.resolveForPublic(c)
 	if !ok {
@@ -189,31 +193,42 @@ func (h *SharePublicHandler) Messages(c *gin.Context) {
 	}
 
 	ctx := c.Request.Context()
-	rows, err := func() ([]store.AgentMessage, error) {
-		if after := c.Query("after"); after != "" {
-			return h.q.ListAgentMessagesAfter(ctx, store.ListAgentMessagesAfterParams{
-				WorkspaceID: resolved.WorkspaceID,
-				ID:          after,
-				ID_2:        after,
-				ID_3:        after,
-				Limit:       limit + 1,
-			})
-		}
-		return h.q.ListAgentMessagesLatest(ctx, store.ListAgentMessagesLatestParams{
+	after, before := c.Query("after"), c.Query("before")
+	var rows []store.AgentMessage
+	var err error
+	switch {
+	case after != "":
+		rows, err = h.q.ListAgentMessagesAfter(ctx, store.ListAgentMessagesAfterParams{
+			WorkspaceID: resolved.WorkspaceID,
+			ID:          after,
+			ID_2:        after,
+			ID_3:        after,
+			Limit:       limit + 1,
+		})
+	case before != "":
+		rows, err = h.q.ListAgentMessagesBefore(ctx, store.ListAgentMessagesBeforeParams{
+			WorkspaceID: resolved.WorkspaceID,
+			ID:          before,
+			ID_2:        before,
+			ID_3:        before,
+			Limit:       limit + 1,
+		})
+	default:
+		rows, err = h.q.ListAgentMessagesLatest(ctx, store.ListAgentMessagesLatestParams{
 			WorkspaceID: resolved.WorkspaceID,
 			Limit:       limit + 1,
 		})
-	}()
+	}
 	if err != nil {
 		InternalError(c, err)
 		return
 	}
 	hasMore := int64(len(rows)) > limit
 	if hasMore {
-		if c.Query("after") != "" {
-			rows = rows[:limit]
+		if after != "" {
+			rows = rows[:limit] // 增量：丢最新的一行，保持 ASC
 		} else {
-			rows = rows[1:] // 最新 N 行：丢最老的一行，保持 ASC
+			rows = rows[1:] // 最新/更老一页：丢最老的一行，保持 ASC
 		}
 	}
 
@@ -232,7 +247,12 @@ func (h *SharePublicHandler) Messages(c *gin.Context) {
 			CreatedAt: m.CreatedAt.UTC().Format(timeRFC3339),
 		})
 	}
-	c.JSON(http.StatusOK, gin.H{"messages": out, "hasMore": hasMore})
+	// cursor = 本页最老的原始行 id（rows 已按 ASC 排序），供下一轮 before 翻页。
+	cursor := ""
+	if len(rows) > 0 {
+		cursor = rows[0].ID
+	}
+	c.JSON(http.StatusOK, gin.H{"messages": out, "hasMore": hasMore, "cursor": cursor})
 }
 
 type shareChatReq struct {
