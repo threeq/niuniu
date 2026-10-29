@@ -279,6 +279,67 @@ func TestSharePublic_ChatGates(t *testing.T) {
 	}
 }
 
+func TestSharePublic_MessagesPaging(t *testing.T) {
+	h, token, password := newSharePublicHarness(t)
+	r := shareRouter(h)
+	base := "/share/api/ws/" + token
+	cookie := unlockCookieFor(t, r, base, password)
+
+	// 首屏：3 行原始数据（含 1 行 tool_use）→ 2 条可见文本，cursor 指向最老原始行。
+	code, body, _ := doShareJSON(t, r, http.MethodGet, base+"/messages?limit=3", nil, cookie)
+	if code != http.StatusOK {
+		t.Fatalf("latest: status %d", code)
+	}
+	if n := len(body["messages"].([]any)); n != 2 {
+		t.Fatalf("latest messages = %d, want 2", n)
+	}
+	if body["cursor"] != "row-0" {
+		t.Fatalf("latest cursor = %v, want row-0", body["cursor"])
+	}
+	if body["hasMore"] != false {
+		t.Fatalf("latest hasMore = %v, want false", body["hasMore"])
+	}
+
+	// 向上翻页：before=row-2 limit=1 → 更老的 row-0/row-1 里取最新一条，
+	// hasMore=true 表示还有更老的，cursor 推进到 row-1。
+	code, body, _ = doShareJSON(t, r, http.MethodGet, base+"/messages?limit=1&before=row-2", nil, cookie)
+	if code != http.StatusOK {
+		t.Fatalf("before: status %d", code)
+	}
+	msgs := body["messages"].([]any)
+	if len(msgs) != 1 || msgs[0].(map[string]any)["content"] != "world" {
+		t.Fatalf("before messages = %v", msgs)
+	}
+	if body["hasMore"] != true || body["cursor"] != "row-1" {
+		t.Fatalf("before hasMore=%v cursor=%v, want true/row-1", body["hasMore"], body["cursor"])
+	}
+
+	// 继续往前：只剩 row-0，之后没有更多。
+	code, body, _ = doShareJSON(t, r, http.MethodGet, base+"/messages?limit=1&before=row-1", nil, cookie)
+	if code != http.StatusOK {
+		t.Fatalf("before2: status %d", code)
+	}
+	msgs = body["messages"].([]any)
+	if len(msgs) != 1 || msgs[0].(map[string]any)["content"] != "hello" {
+		t.Fatalf("before2 messages = %v", msgs)
+	}
+	if body["hasMore"] != false {
+		t.Fatalf("before2 hasMore = %v, want false", body["hasMore"])
+	}
+
+	// 翻到最早：空数组 + 空 cursor，前端据此停手。
+	code, body, _ = doShareJSON(t, r, http.MethodGet, base+"/messages?limit=1&before=row-0", nil, cookie)
+	if code != http.StatusOK {
+		t.Fatalf("before3: status %d", code)
+	}
+	if n := len(body["messages"].([]any)); n != 0 {
+		t.Fatalf("before3 messages = %d, want 0", n)
+	}
+	if body["hasMore"] != false || body["cursor"] != "" {
+		t.Fatalf("before3 hasMore=%v cursor=%v", body["hasMore"], body["cursor"])
+	}
+}
+
 func TestSharePublic_EventsRequiresUnlock(t *testing.T) {
 	h, _, token, _ := newSharePublicHarnessOpts(t, false, nil)
 	h.hub = &fakeShareEventHub{ch: make(chan event.OutputEvent, 4)}

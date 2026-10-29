@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { Eye, KeyRound, Loader2, Lock, RefreshCw, SendHorizonal } from 'lucide-react';
@@ -27,6 +27,16 @@ async function shareFetch<T>(path: string, init?: RequestInit): Promise<{ ok: bo
   return { ok: res.ok, status: res.status, data };
 }
 
+// 分享页消息分页：最新一页用 latest，向上翻页用 before + cursor（服务端返回
+// 的本页最老原始行 id——可见消息全是 text，翻页游标必须按原始行算才不会卡住）。
+interface ShareMessagesPage {
+  messages: WorkspaceShareMessage[];
+  hasMore: boolean;
+  cursor?: string;
+}
+
+const OLDER_PAGE_SIZE = 100;
+
 interface WorkspaceSharePageProps {
   token: string;
 }
@@ -42,7 +52,18 @@ export function WorkspaceSharePage({ token }: WorkspaceSharePageProps) {
   const [sendError, setSendError] = useState(false);
   const [liveConnected, setLiveConnected] = useState(false);
   const scrollRef = useRef<HTMLDivElement | null>(null);
+  const contentRef = useRef<HTMLDivElement | null>(null);
   const stickToBottomRef = useRef(true);
+  // 向上翻页：olderMessages 是首屏窗口之外的更老消息，olderPage 是翻页游标和
+  // 「还有没有更老的」。首屏窗口会随新消息漂移，一旦开始翻页就固定用翻页游标，
+  // 所以 olderPage 为 null 时读首屏那一页的 cursor/hasMore。
+  const [olderMessages, setOlderMessages] = useState<WorkspaceShareMessage[]>([]);
+  const [olderPage, setOlderPage] = useState<{ cursor: string; hasMore: boolean } | null>(null);
+  const [loadingOlder, setLoadingOlder] = useState(false);
+  // 滚动事件会连续触发，state 更新是异步的，必须用 ref 同步防重入，
+  // 否则一次上滑会把同一页请求多次。
+  const loadingOlderRef = useRef(false);
+  const pendingAnchorRef = useRef<{ height: number; top: number } | null>(null);
 
   const base = `/share/api/ws/${encodeURIComponent(token)}`;
 
@@ -64,7 +85,7 @@ export function WorkspaceSharePage({ token }: WorkspaceSharePageProps) {
   const messagesQuery = useQuery({
     queryKey: ['share-messages', token],
     queryFn: async () => {
-      const res = await shareFetch<{ messages: WorkspaceShareMessage[]; hasMore: boolean }>(`${base}/messages?limit=300`);
+      const res = await shareFetch<ShareMessagesPage>(`${base}/messages?limit=300`);
       if (res.status === 404) throw new Error('NOT_FOUND');
       // 解锁 cookie 过期（1 小时）——刷新 meta 把页面送回密码门。
       if (res.status === 401) {
@@ -128,13 +149,89 @@ export function WorkspaceSharePage({ token }: WorkspaceSharePageProps) {
     };
   }, [base, meta?.unlocked, qc, token]);
 
-  const messages = messagesQuery.data?.messages ?? [];
+  // 首屏窗口 + 已翻出来的更老消息合并渲染。重叠时以首屏窗口里的版本为准
+  // （流式更新会改写内容），顺序仍是时间正序。
+  const messages = useMemo(() => {
+    const tail = messagesQuery.data?.messages ?? [];
+    if (olderMessages.length === 0) return tail;
+    const tailIds = new Set(tail.map((m) => m.id));
+    const head = olderMessages.filter((m) => !tailIds.has(m.id));
+    return head.length === 0 ? tail : [...head, ...tail];
+  }, [olderMessages, messagesQuery.data]);
+
+  const olderCursor = olderPage ? olderPage.cursor : (messagesQuery.data?.cursor ?? '');
+  const hasMoreOlder = olderPage ? olderPage.hasMore : !!messagesQuery.data?.hasMore;
+
+  // 向上翻页：用 before + cursor 取更老的一页，插到列表前面并保持视觉锚点
+  // （记录插入前后的高度差补回 scrollTop），否则内容会在用户眼前跳走。
+  const loadOlder = useCallback(async () => {
+    if (loadingOlderRef.current || !hasMoreOlder || !olderCursor) return;
+    loadingOlderRef.current = true;
+    setLoadingOlder(true);
+    const el = scrollRef.current;
+    const anchor = el ? { height: el.scrollHeight, top: el.scrollTop } : null;
+    let collected: WorkspaceShareMessage[] = [];
+    let cursor = olderCursor;
+    let more = false;
+    let failed = false;
+    try {
+      // 有的页可能全是 tool/thinking（公开视图里不可见），连翻几页直到有内容。
+      for (let page = 0; page < 5 && cursor; page += 1) {
+        const res = await shareFetch<ShareMessagesPage>(
+          `${base}/messages?limit=${OLDER_PAGE_SIZE}&before=${encodeURIComponent(cursor)}`,
+        );
+        if (!res.ok || !res.data) {
+          failed = true;
+          break;
+        }
+        collected = [...res.data.messages, ...collected];
+        more = res.data.hasMore;
+        cursor = res.data.cursor ?? '';
+        if (collected.length > 0) break;
+      }
+    } catch {
+      failed = true;
+    }
+    if (!failed) {
+      pendingAnchorRef.current = anchor;
+      setOlderMessages((prev) => {
+        const known = new Set(prev.map((m) => m.id));
+        return [...collected.filter((m) => !known.has(m.id)), ...prev];
+      });
+      setOlderPage({ cursor, hasMore: more && cursor !== '' });
+    }
+    loadingOlderRef.current = false;
+    setLoadingOlder(false);
+  }, [base, hasMoreOlder, olderCursor]);
+
+  // 插入更老的消息后把滚动位置补回去，保持用户当前看到的内容不动。
+  useLayoutEffect(() => {
+    const el = scrollRef.current;
+    const anchor = pendingAnchorRef.current;
+    if (!el || !anchor) return;
+    pendingAnchorRef.current = null;
+    el.scrollTop = anchor.top + (el.scrollHeight - anchor.height);
+  }, [olderMessages]);
 
   // 新内容到达时贴底；用户主动往上翻过就不再抢滚动位置。
   useEffect(() => {
     const el = scrollRef.current;
     if (el && stickToBottomRef.current) el.scrollTop = el.scrollHeight;
   }, [messagesQuery.data]);
+
+  // 贴底状态下持续跟随内容高度：首屏 markdown/代码块异步撑高、流式输出变长时
+  // 都能保持在底部（进入页面即默认停在最新一条）。
+  useEffect(() => {
+    if (!meta?.unlocked) return;
+    const el = scrollRef.current;
+    const content = contentRef.current;
+    if (!el || !content || typeof ResizeObserver === 'undefined') return;
+    const ro = new ResizeObserver(() => {
+      if (stickToBottomRef.current) el.scrollTop = el.scrollHeight;
+    });
+    ro.observe(content);
+    return () => ro.disconnect();
+  }, [meta?.unlocked]);
 
   // 视口变化（旋转、移动端键盘/地址栏）后消息区高度变了，贴底状态下重新贴底。
   useEffect(() => {
@@ -154,6 +251,7 @@ export function WorkspaceSharePage({ token }: WorkspaceSharePageProps) {
     const el = scrollRef.current;
     if (!el) return;
     stickToBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 64;
+    if (el.scrollTop < 80) void loadOlder();
   };
 
   const handleUnlock = async (e?: React.FormEvent) => {
@@ -285,25 +383,32 @@ export function WorkspaceSharePage({ token }: WorkspaceSharePageProps) {
       <div
         ref={scrollRef}
         onScroll={handleScroll}
-        className="min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-contain px-4 py-3"
+        className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-3"
       >
-        {messages.length === 0 && messagesQuery.isPending && (
-          <div className="flex justify-center py-8">
-            <Loader2 className="size-5 animate-spin text-warm-text-muted" aria-hidden="true" />
-          </div>
-        )}
-        {messages.length === 0 && !messagesQuery.isPending && (
-          <p className="py-8 text-center text-xs text-warm-text-muted">{t('share.empty')}</p>
-        )}
-        {messages.map((m) =>
-          m.role === 'user' ? (
-            <div key={m.id} className="whitespace-pre-wrap break-words rounded-md border-l-2 border-info/40 bg-info/10 px-3 py-2 text-sm text-foreground">
-              {m.content}
+        <div ref={contentRef} className="space-y-3">
+          {loadingOlder && (
+            <div className="flex justify-center py-2">
+              <Loader2 className="size-4 animate-spin text-warm-text-muted" aria-hidden="true" />
             </div>
-          ) : (
-            <MarkdownMessage key={m.id} content={m.content} role="assistant" />
-          ),
-        )}
+          )}
+          {messages.length === 0 && messagesQuery.isPending && (
+            <div className="flex justify-center py-8">
+              <Loader2 className="size-5 animate-spin text-warm-text-muted" aria-hidden="true" />
+            </div>
+          )}
+          {messages.length === 0 && !messagesQuery.isPending && (
+            <p className="py-8 text-center text-xs text-warm-text-muted">{t('share.empty')}</p>
+          )}
+          {messages.map((m) =>
+            m.role === 'user' ? (
+              <div key={m.id} className="whitespace-pre-wrap break-words rounded-md border-l-2 border-info/40 bg-info/10 px-3 py-2 text-sm text-foreground">
+                {m.content}
+              </div>
+            ) : (
+              <MarkdownMessage key={m.id} content={m.content} role="assistant" />
+            ),
+          )}
+        </div>
       </div>
       {meta?.allowChat && (
         <form
