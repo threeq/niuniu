@@ -35,7 +35,9 @@ interface ShareMessagesPage {
   cursor?: string;
 }
 
-const OLDER_PAGE_SIZE = 100;
+// 首屏只取最新一页：打开页面看的是「最新消息」，更早的内容等用户滚到顶部再加载。
+const INITIAL_PAGE_SIZE = 30;
+const OLDER_PAGE_SIZE = 50;
 
 interface WorkspaceSharePageProps {
   token: string;
@@ -64,6 +66,7 @@ export function WorkspaceSharePage({ token }: WorkspaceSharePageProps) {
   // 否则一次上滑会把同一页请求多次。
   const loadingOlderRef = useRef(false);
   const pendingAnchorRef = useRef<{ height: number; top: number } | null>(null);
+  const autoFillRef = useRef(0);
 
   const base = `/share/api/ws/${encodeURIComponent(token)}`;
 
@@ -80,12 +83,12 @@ export function WorkspaceSharePage({ token }: WorkspaceSharePageProps) {
   const meta = metaQuery.data;
   const loadError = metaQuery.error instanceof Error ? metaQuery.error.message : null;
 
-  // 已解锁后拉聊天内容：最新 300 条。SSE 连着时靠 /events 的信号即时刷新，
+  // 已解锁后拉聊天内容：首屏最新一页。SSE 连着时靠 /events 的信号即时刷新，
   // 只是留一个 2 分钟的低频轮询兜底（长连接被代理掐断时的最后防线）。
   const messagesQuery = useQuery({
     queryKey: ['share-messages', token],
     queryFn: async () => {
-      const res = await shareFetch<ShareMessagesPage>(`${base}/messages?limit=300`);
+      const res = await shareFetch<ShareMessagesPage>(`${base}/messages?limit=${INITIAL_PAGE_SIZE}`);
       if (res.status === 404) throw new Error('NOT_FOUND');
       // 解锁 cookie 过期（1 小时）——刷新 meta 把页面送回密码门。
       if (res.status === 401) {
@@ -212,6 +215,24 @@ export function WorkspaceSharePage({ token }: WorkspaceSharePageProps) {
     pendingAnchorRef.current = null;
     el.scrollTop = anchor.top + (el.scrollHeight - anchor.height);
   }, [olderMessages]);
+
+  // 首屏只有最新一页；如果内容撑不满一屏就滚不动、也就触发不了「滚到顶部加载」。
+  // 这时主动补几页（工具调用多的会话首屏可见消息可能很少），最多补 5 轮。
+  useEffect(() => {
+    if (!messagesQuery.isSuccess) return;
+    const el = scrollRef.current;
+    if (!el) return;
+    if (el.scrollHeight > el.clientHeight + 8) {
+      autoFillRef.current = 0;
+      return;
+    }
+    if (autoFillRef.current >= 5 || loadingOlderRef.current) return;
+    if (!hasMoreOlder || !olderCursor) return;
+    autoFillRef.current += 1;
+    // 放到下一拍再拉，避免在 effect 里同步触发渲染链。
+    const timer = window.setTimeout(() => void loadOlder(), 0);
+    return () => window.clearTimeout(timer);
+  }, [messages, messagesQuery.isSuccess, hasMoreOlder, olderCursor, loadOlder]);
 
   // 新内容到达时贴底；用户主动往上翻过就不再抢滚动位置。
   useEffect(() => {
