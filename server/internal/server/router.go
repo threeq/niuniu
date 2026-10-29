@@ -79,6 +79,11 @@ func (s *Server) setupRoutes() {
 			auth.RateLimitMiddleware(0.2, 8),
 			s.sharePublicHandler.Unlock)
 		sharePub.GET("/:token/messages", s.sharePublicHandler.Messages)
+		// 实时更新信号（SSE）；解锁 cookie 是唯一凭证，长期持有连接。限流只作用
+		// 在建立连接时，防止匿名端刷连接占资源。
+		sharePub.GET("/:token/events",
+			auth.RateLimitMiddleware(0.2, 8),
+			s.sharePublicHandler.Events)
 		// 公开对话：分享 allowChat + 解锁 cookie 双重门在 handler 内；
 		// 独立限流防刷 agent（消耗真实 token）。
 		sharePub.POST("/:token/chat",
