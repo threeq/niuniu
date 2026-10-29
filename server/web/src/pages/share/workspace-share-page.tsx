@@ -35,8 +35,8 @@ interface ShareMessagesPage {
   cursor?: string;
 }
 
-// 首屏只取最新一页：打开页面看的是「最新消息」，更早的内容等用户滚到顶部再加载。
-const INITIAL_PAGE_SIZE = 30;
+// 首屏取最新 300 条（与原有行为一致）；更早的内容等用户滚到顶部再按页加载。
+const INITIAL_PAGE_SIZE = 300;
 const OLDER_PAGE_SIZE = 50;
 
 interface WorkspaceSharePageProps {
