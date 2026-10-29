@@ -64,14 +64,14 @@ export function RepositoryDetailPage() {
   return (
     <div className="h-full flex flex-col bg-background">
       {/* Header */}
-      <div className="flex items-center justify-between px-4 py-3 bg-card border-b">
-        <div className="flex items-center gap-3">
-          <GitBranch className="w-4 h-4 text-muted-foreground" />
-          <h1 className="font-semibold text-foreground">
+      <div className="flex items-center justify-between gap-2 border-b bg-card px-3 py-2 sm:px-4 sm:py-3">
+        <div className="flex min-w-0 items-center gap-2 sm:gap-3">
+          <GitBranch className="w-4 h-4 shrink-0 text-muted-foreground" />
+          <h1 className="truncate font-semibold text-foreground">
             {isLoading ? t('common:actions.loading') : repository?.name}
           </h1>
           {repository?.default_branch && (
-            <span className="text-xs text-muted-foreground bg-muted px-2 py-0.5 rounded">
+            <span className="hidden shrink-0 rounded bg-muted px-2 py-0.5 text-xs text-muted-foreground sm:inline">
               {repository.default_branch}
             </span>
           )}
@@ -1177,23 +1177,23 @@ function RepoWorktreesTab({ repoId }: { repoId: string }) {
         </div>
       </div>
       {showCreate && (
-        <div className="flex items-center gap-2 px-4 py-3 border-b bg-muted">
-          <Input placeholder={t('detail.worktrees.pathPlaceholder')} value={newWtPath} onChange={(e) => setNewWtPath(e.target.value)} className="w-64" />
-          <Input placeholder={t('detail.worktrees.branchPlaceholder')} value={newWtBranch} onChange={(e) => setNewWtBranch(e.target.value)} className="w-40" />
-          <Button size="sm" onClick={handleCreateWorktree} disabled={isLoading}>{t('detail.worktrees.createButton')}</Button>
+        <div className="flex flex-col gap-2 border-b bg-muted px-4 py-3 sm:flex-row sm:items-center">
+          <Input placeholder={t('detail.worktrees.pathPlaceholder')} value={newWtPath} onChange={(e) => setNewWtPath(e.target.value)} className="w-full sm:w-64" />
+          <Input placeholder={t('detail.worktrees.branchPlaceholder')} value={newWtBranch} onChange={(e) => setNewWtBranch(e.target.value)} className="w-full sm:w-40" />
+          <Button size="sm" onClick={handleCreateWorktree} disabled={isLoading} className="shrink-0">{t('detail.worktrees.createButton')}</Button>
         </div>
       )}
       <div className="flex-1 overflow-auto p-4">
         {worktrees.length > 0 ? worktrees.map((wt) => (
-          <div key={wt.path} className="flex items-center justify-between px-3 py-2 rounded hover:bg-accent mb-1">
-            <div className="flex items-center gap-2">
-              <FolderGit2 className="w-4 h-4 text-info" />
-              <div>
-                <div className="text-sm font-medium">{wt.branch}</div>
-                <div className="text-xs text-muted-foreground">{wt.path}</div>
+          <div key={wt.path} className="mb-1 flex flex-wrap items-center justify-between gap-2 rounded px-3 py-2 hover:bg-accent">
+            <div className="flex min-w-0 items-center gap-2">
+              <FolderGit2 className="w-4 h-4 shrink-0 text-info" />
+              <div className="min-w-0">
+                <div className="truncate text-sm font-medium">{wt.branch}</div>
+                <div className="truncate text-xs text-muted-foreground">{wt.path}</div>
               </div>
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               {wt.workspace_id ? <span className="text-xs text-success bg-success/10 dark:bg-emerald-950/30 dark:text-emerald-300 px-2 py-0.5 rounded">{t('detail.worktrees.workspaceLabel', { path: wt.workspace_path })}</span> : <span className="text-xs text-muted-foreground">{t('detail.worktrees.noWorkspace')}</span>}
               {wt.has_changes && <span className="text-xs text-warning">{t('detail.worktrees.uncommittedChanges')}</span>}
               {wt.id && <Button variant="ghost" size="sm" className="h-7 text-xs text-destructive hover:text-destructive/80" onClick={() => handleRemoveWorktree(wt)}>{t('detail.worktrees.remove')}</Button>}
@@ -1234,7 +1234,7 @@ function RepoSettingsTab({ repoId, repository }: { repoId: string; repository?: 
 
   return (
     <div className="h-full overflow-auto bg-card">
-      <div className="max-w-2xl mx-auto p-6">
+      <div className="mx-auto max-w-2xl p-4 sm:p-6">
         <h2 className="text-lg font-semibold mb-6">{t('detail.settings.title')}</h2>
         <div className="space-y-6">
           <div><label className="block text-sm font-medium text-foreground mb-1">{t('detail.settings.name')}</label><Input value={name} onChange={(e) => setName(e.target.value)} /></div>

@@ -235,7 +235,7 @@ export function SkillSettings() {
           {t('skills.loading')}
         </div>
       ) : (
-        <div className="rounded-lg border border-warm-border">
+        <div className="overflow-x-auto rounded-lg border border-warm-border">
           <Table>
             <TableHeader>
               <TableRow>
