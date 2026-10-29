@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -14,6 +15,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"github.com/niuniu-dev/niuniu/internal/event"
 	"github.com/niuniu-dev/niuniu/internal/service"
 	"github.com/niuniu-dev/niuniu/internal/store"
 )
@@ -64,7 +66,7 @@ func newSharePublicHarnessOpts(t *testing.T, allowChat bool, sender ShareChatSen
 		}
 	}
 
-	return NewSharePublicHandler(svc, q, sender), svc, info.RawToken, password
+	return NewSharePublicHandler(svc, q, sender, nil), svc, info.RawToken, password
 }
 
 func newSharePublicHarness(t *testing.T) (*SharePublicHandler, string, string) {
@@ -98,8 +100,17 @@ func shareRouter(h *SharePublicHandler) *gin.Engine {
 	r.POST("/share/api/ws/:token/unlock", h.Unlock)
 	r.GET("/share/api/ws/:token/messages", h.Messages)
 	r.POST("/share/api/ws/:token/chat", h.Chat)
+	r.GET("/share/api/ws/:token/events", h.Events)
 	return r
 }
+
+// fakeShareEventHub 返回一条由测试预置的通道，便于在 ServeHTTP 之前塞事件。
+type fakeShareEventHub struct {
+	ch chan event.OutputEvent
+}
+
+func (f *fakeShareEventHub) Subscribe(int64, string) chan event.OutputEvent { return f.ch }
+func (f *fakeShareEventHub) Unsubscribe(int64, string)                      {}
 
 func doShareJSON(t *testing.T, r *gin.Engine, method, path string, body any, cookie *http.Cookie) (int, map[string]any, []*http.Cookie) {
 	t.Helper()
@@ -265,6 +276,69 @@ func TestSharePublic_ChatGates(t *testing.T) {
 	code, _, _ = doShareJSON(t, r2, http.MethodPost, base2+"/chat", map[string]string{"content": "hi"}, cookie2)
 	if code != http.StatusForbidden {
 		t.Fatalf("chat after disable: status %d, want 403", code)
+	}
+}
+
+func TestSharePublic_EventsRequiresUnlock(t *testing.T) {
+	h, _, token, _ := newSharePublicHarnessOpts(t, false, nil)
+	h.hub = &fakeShareEventHub{ch: make(chan event.OutputEvent, 4)}
+	r := shareRouter(h)
+	base := "/share/api/ws/" + token
+
+	code, _, _ := doShareJSON(t, r, http.MethodGet, base+"/events", nil, nil)
+	if code != http.StatusUnauthorized {
+		t.Fatalf("locked events: status %d, want 401", code)
+	}
+
+	// hub 缺失时已解锁也拿不到实时通道（503），而不是挂起连接。
+	h2, _, token2, password2 := newSharePublicHarnessOpts(t, false, nil)
+	r2 := shareRouter(h2)
+	base2 := "/share/api/ws/" + token2
+	cookie2 := unlockCookieFor(t, r2, base2, password2)
+	code, _, _ = doShareJSON(t, r2, http.MethodGet, base2+"/events", nil, cookie2)
+	if code != http.StatusServiceUnavailable {
+		t.Fatalf("events without hub: status %d, want 503", code)
+	}
+}
+
+func TestSharePublic_EventsEmitsMessageSignals(t *testing.T) {
+	h, _, token, password := newSharePublicHarnessOpts(t, false, nil)
+	hub := &fakeShareEventHub{ch: make(chan event.OutputEvent, 4)}
+	h.hub = hub
+	r := shareRouter(h)
+	base := "/share/api/ws/" + token
+	cookie := unlockCookieFor(t, r, base, password)
+
+	// 一条 assistant 文本（应下发信号）+ 一条 tool_use（内部细节，不下发）。
+	hub.ch <- event.OutputEvent{Type: event.EventText, Role: "assistant", Content: "hi"}
+	hub.ch <- event.OutputEvent{Type: event.EventToolUse, Role: "assistant"}
+	close(hub.ch)
+
+	// c.Stream 需要 http.CloseNotifier，httptest.ResponseRecorder 不实现它，
+	// 所以这里起一个真 server。
+	srv := httptest.NewServer(r)
+	defer srv.Close()
+
+	req, err := http.NewRequest(http.MethodGet, srv.URL+base+"/events", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.AddCookie(cookie)
+	resp, err := srv.Client().Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("events status %d", resp.StatusCode)
+	}
+	if got := resp.Header.Get("Content-Type"); got != "text/event-stream" {
+		t.Fatalf("content-type = %q", got)
+	}
+	if n := strings.Count(string(body), "data: {\"type\":\"message\"}"); n != 1 {
+		t.Fatalf("expected exactly 1 message signal, got %d: %q", n, body)
 	}
 }
 

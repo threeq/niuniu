@@ -2,12 +2,17 @@ package api
 
 import (
 	"context"
+	"fmt"
+	"io"
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 
+	"github.com/niuniu-dev/niuniu/internal/event"
 	"github.com/niuniu-dev/niuniu/internal/service"
 	"github.com/niuniu-dev/niuniu/internal/store"
 )
@@ -19,12 +24,20 @@ type ShareChatSender interface {
 	Deliver(ctx context.Context, workspaceID int64, workDir, content, attachments string) (queued bool, queueID int64, err error)
 }
 
+// ShareEventHub 是公开观看者实时更新的依赖切缝（*agentproxy.SessionHub 天然
+// 满足）。只订阅工作空间事件流，不暴露任何写能力。
+type ShareEventHub interface {
+	Subscribe(workspaceID int64, windowID string) chan event.OutputEvent
+	Unsubscribe(workspaceID int64, windowID string)
+}
+
 // SharePublicHandler 是 /share 外链的公开访问面（未登录）。端点：
 //
 //	GET  /share/api/ws/:token/info     元信息（是否需要密码等，不含内容）
 //	POST /share/api/ws/:token/unlock   密码解锁 → 发短时 HMAC cookie
 //	GET  /share/api/ws/:token/messages 解锁后的聊天内容（只读文本行）
 //	POST /share/api/ws/:token/chat     解锁+allowChat 时向工作空间 agent 发消息
+//	GET  /share/api/ws/:token/events   解锁后的实时更新信号（SSE）
 //
 // token 不存在/已撤销/已过期统一 404 SHARE_NOT_FOUND（不区分原因，防枚举）。
 // feature 门（团队版）在 router 层挂 LicenseFeatureGate。
@@ -32,10 +45,11 @@ type SharePublicHandler struct {
 	svc    *service.WorkspaceShareService
 	q      *store.Queries
 	sender ShareChatSender // 对话通道；nil 时 chat 端点恒 503
+	hub    ShareEventHub   // 事件流；nil 时 events 端点恒 503
 }
 
-func NewSharePublicHandler(svc *service.WorkspaceShareService, q *store.Queries, sender ShareChatSender) *SharePublicHandler {
-	return &SharePublicHandler{svc: svc, q: q, sender: sender}
+func NewSharePublicHandler(svc *service.WorkspaceShareService, q *store.Queries, sender ShareChatSender, hub ShareEventHub) *SharePublicHandler {
+	return &SharePublicHandler{svc: svc, q: q, sender: sender, hub: hub}
 }
 
 // shareCookieName 是解锁 cookie 名。Path=/ 使得 SPA 页面与 /share/api 同源
@@ -280,6 +294,69 @@ func (h *SharePublicHandler) Chat(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusAccepted, gin.H{"status": "accepted"})
+}
+
+// Events — GET /share/api/ws/:token/events
+//
+// 已解锁观看者的实时更新通道（SSE）。只下发「有新内容」的信号，不下发正文
+// ——正文仍走 /messages（那里已经过滤掉 tool/thinking 等内部事件）。这样匿名
+// 观看者既拿不到额外信息，也不会因为信号里缺少字段而看到半截内容。
+// 服务端按 500ms 合并信号：流式输出时每 token 都会广播一条 text 事件，逐条
+// 转发会让观看者每秒重拉十几次列表。
+func (h *SharePublicHandler) Events(c *gin.Context) {
+	resolved, ok := h.resolveForPublic(c)
+	if !ok {
+		return
+	}
+	if !h.isUnlocked(c, resolved) {
+		RespondError(c, http.StatusUnauthorized, "SHARE_LOCKED", "password required")
+		return
+	}
+	if h.hub == nil {
+		RespondError(c, http.StatusServiceUnavailable, "SHARE_LIVE_UNAVAILABLE", "live updates unavailable")
+		return
+	}
+
+	windowID := "share:" + uuid.NewString()
+	ch := h.hub.Subscribe(resolved.WorkspaceID, windowID)
+	defer h.hub.Unsubscribe(resolved.WorkspaceID, windowID)
+
+	c.Header("Content-Type", "text/event-stream")
+	c.Header("Cache-Control", "no-cache")
+	c.Header("Connection", "keep-alive")
+	// 反向代理（nginx）默认会攒满缓冲才下发，SSE 会被卡住。
+	c.Header("X-Accel-Buffering", "no")
+	fmt.Fprint(c.Writer, ": connected\n\n")
+	c.Writer.Flush()
+
+	ctx := c.Request.Context()
+	keepalive := time.NewTicker(25 * time.Second)
+	defer keepalive.Stop()
+
+	const signalInterval = 500 * time.Millisecond
+	var lastSignal time.Time
+
+	c.Stream(func(w io.Writer) bool {
+		select {
+		case <-ctx.Done():
+			return false
+		case <-keepalive.C:
+			fmt.Fprint(w, ": keepalive\n\n")
+			return true
+		case ev, open := <-ch:
+			if !open {
+				return false
+			}
+			if ev.Type != event.EventText || (ev.Role != "user" && ev.Role != "assistant") {
+				return true
+			}
+			if now := time.Now(); now.Sub(lastSignal) >= signalInterval {
+				lastSignal = now
+				fmt.Fprint(w, "data: {\"type\":\"message\"}\n\n")
+			}
+			return true
+		}
+	})
 }
 
 // timeRFC3339 统一公开端点的时间格式。
