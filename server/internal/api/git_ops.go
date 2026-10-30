@@ -275,7 +275,7 @@ func (h *GitOpsHandler) Pull(c *gin.Context) {
 		return
 	}
 
-	if err := h.gitOpsSvc.Pull(c.Request.Context(), workspaceID, repoID); err != nil {
+	if err := h.gitOpsSvc.Pull(c.Request.Context(), c.GetInt64("auth_user_id"), workspaceID, repoID); err != nil {
 		InternalError(c, err)
 		return
 	}
@@ -307,7 +307,7 @@ func (h *GitOpsHandler) Push(c *gin.Context) {
 		return
 	}
 
-	if err := h.gitOpsSvc.Push(c.Request.Context(), workspaceID, repoID); err != nil {
+	if err := h.gitOpsSvc.Push(c.Request.Context(), c.GetInt64("auth_user_id"), workspaceID, repoID); err != nil {
 		InternalError(c, err)
 		return
 	}

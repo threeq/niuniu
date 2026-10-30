@@ -16,6 +16,10 @@ type GitOpsService struct {
 	// Nil-safe: when unset, commits fall through to repo-local then OS-global
 	// git config, which is the pre-per-user-identity behavior.
 	gitIdentity *GitIdentityService
+	// gitRemoteCred resolves the caller's stored git credential so workspace
+	// pull/push authenticate the same way the repository panel does. Nil-safe:
+	// when unset, remotes fall back to bare git (public remotes unaffected).
+	gitRemoteCred *GitRemoteCredentialService
 }
 
 func NewGitOpsService(q *store.Queries, notifyHub *notify.NotificationHub) *GitOpsService {
@@ -103,7 +107,7 @@ func (s *GitOpsService) Commit(ctx context.Context, workspaceID, repoID int64, m
 }
 
 // Pull fetches and merges changes from the remote repository.
-func (s *GitOpsService) Pull(ctx context.Context, workspaceID, repoID int64) error {
+func (s *GitOpsService) Pull(ctx context.Context, userID int64, workspaceID, repoID int64) error {
 	wsRepo, err := s.q.GetWorktreeByWorkspaceAndRepo(ctx, store.GetWorktreeByWorkspaceAndRepoParams{
 		WorkspaceID:  workspaceID,
 		RepositoryID: repoID,
@@ -112,7 +116,14 @@ func (s *GitOpsService) Pull(ctx context.Context, workspaceID, repoID int64) err
 		return fmt.Errorf("get workspace repo: %w", err)
 	}
 
-	if err := git.Pull(wsRepo.WorktreePath); err != nil {
+	remote := remoteForRepoID(ctx, s.q, repoID)
+	if err := guardRemoteEgressWith(ctx, s.gitRemoteCred, userID, remote); err != nil {
+		return err
+	}
+	env, cleanup := remoteAuthEnv(ctx, s.gitRemoteCred, userID, remote)
+	defer cleanup()
+
+	if err := git.PullEnv(wsRepo.WorktreePath, env); err != nil {
 		return err
 	}
 
@@ -127,7 +138,7 @@ func (s *GitOpsService) Pull(ctx context.Context, workspaceID, repoID int64) err
 }
 
 // Push pushes local changes to the remote repository.
-func (s *GitOpsService) Push(ctx context.Context, workspaceID, repoID int64) error {
+func (s *GitOpsService) Push(ctx context.Context, userID int64, workspaceID, repoID int64) error {
 	wsRepo, err := s.q.GetWorktreeByWorkspaceAndRepo(ctx, store.GetWorktreeByWorkspaceAndRepoParams{
 		WorkspaceID:  workspaceID,
 		RepositoryID: repoID,
@@ -136,7 +147,14 @@ func (s *GitOpsService) Push(ctx context.Context, workspaceID, repoID int64) err
 		return fmt.Errorf("get workspace repo: %w", err)
 	}
 
-	if err := git.Push(wsRepo.WorktreePath); err != nil {
+	remote := remoteForRepoID(ctx, s.q, repoID)
+	if err := guardRemoteEgressWith(ctx, s.gitRemoteCred, userID, remote); err != nil {
+		return err
+	}
+	env, cleanup := remoteAuthEnv(ctx, s.gitRemoteCred, userID, remote)
+	defer cleanup()
+
+	if err := git.PushEnv(wsRepo.WorktreePath, env); err != nil {
 		return err
 	}
 
@@ -232,4 +250,23 @@ func (s *GitOpsService) StatusByRepoID(ctx context.Context, repoID, workspaceID 
 
 	// Otherwise use the repository's original path
 	return git.Status(repo.Path)
+}
+
+// remoteForRepoID loads the repository's configured git remote for a
+// workspace-level pull/push. Empty when the row is gone (git then reports the
+// missing remote itself); []string-free by design so callers stay simple.
+func remoteForRepoID(ctx context.Context, q *store.Queries, repoID int64) string {
+	repo, err := q.GetRepository(ctx, repoID)
+	if err != nil {
+		return ""
+	}
+	return repo.GitRemote.String
+}
+
+// WithGitRemoteCredentials attaches the per-user git credential store so
+// workspace pull/push authenticate (HTTPS token via credential.helper, SSH key
+// via GIT_SSH_COMMAND) and honour the same egress guard as the repo panel.
+func (s *GitOpsService) WithGitRemoteCredentials(svc *GitRemoteCredentialService) *GitOpsService {
+	s.gitRemoteCred = svc
+	return s
 }

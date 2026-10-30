@@ -566,9 +566,22 @@ func CommitAll(worktreePath, message string) error {
 	return nil
 }
 
+// withExtraEnv attaches per-operation environment entries (credential helper /
+// GIT_SSH_COMMAND assembled by the caller) to a git command. A no-op when the
+// caller has no auth to inject, so unauthenticated remotes keep working.
+func withExtraEnv(cmd *exec.Cmd, extraEnv []string) *exec.Cmd {
+	if len(extraEnv) > 0 {
+		cmd.Env = append(os.Environ(), extraEnv...)
+	}
+	return cmd
+}
+
 // Pull fetches and merges changes from the remote repository.
-func Pull(worktreePath string) error {
-	cmd := exec.Command("git", "-C", worktreePath, "pull")
+func Pull(worktreePath string) error { return PullEnv(worktreePath, nil) }
+
+// PullEnv is Pull with extra environment (credential helper / SSH command).
+func PullEnv(worktreePath string, extraEnv []string) error {
+	cmd := withExtraEnv(exec.Command("git", "-C", worktreePath, "pull"), extraEnv)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("git pull: %s: %w", strings.TrimSpace(string(out)), err)
@@ -577,8 +590,11 @@ func Pull(worktreePath string) error {
 }
 
 // Push pushes local changes to the remote repository.
-func Push(worktreePath string) error {
-	cmd := exec.Command("git", "-C", worktreePath, "push")
+func Push(worktreePath string) error { return PushEnv(worktreePath, nil) }
+
+// PushEnv is Push with extra environment (credential helper / SSH command).
+func PushEnv(worktreePath string, extraEnv []string) error {
+	cmd := withExtraEnv(exec.Command("git", "-C", worktreePath, "push"), extraEnv)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("git push: %s: %w", strings.TrimSpace(string(out)), err)
@@ -601,16 +617,22 @@ func upstreamRemote(repoPath, branch string) string {
 // this is a normal merge pull; otherwise the local ref is fast-forwarded via
 // fetch, which (like a pull on a clean tree) refuses non-fast-forward updates.
 func PullBranch(repoPath, branch string) error {
+	return PullBranchEnv(repoPath, branch, nil)
+}
+
+// PullBranchEnv is PullBranch with extra environment (credential helper / SSH
+// command) applied to whichever git command ends up running.
+func PullBranchEnv(repoPath, branch string, extraEnv []string) error {
 	current, err := CurrentBranch(repoPath)
 	if err != nil {
 		return err
 	}
 	if current == branch {
-		return Pull(repoPath)
+		return PullEnv(repoPath, extraEnv)
 	}
 	remote := upstreamRemote(repoPath, branch)
 	ref := "refs/heads/" + branch
-	cmd := exec.Command("git", "-C", repoPath, "fetch", remote, ref+":"+ref)
+	cmd := withExtraEnv(exec.Command("git", "-C", repoPath, "fetch", remote, ref+":"+ref), extraEnv)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("git fetch %s %s: %s: %w", remote, branch, strings.TrimSpace(string(out)), err)
@@ -622,16 +644,22 @@ func PullBranch(repoPath, branch string) error {
 // the branch has no upstream). The checked-out branch uses a plain git push so
 // a configured push refspec is honored.
 func PushBranch(repoPath, branch string) error {
+	return PushBranchEnv(repoPath, branch, nil)
+}
+
+// PushBranchEnv is PushBranch with extra environment (credential helper / SSH
+// command) applied to whichever git command ends up running.
+func PushBranchEnv(repoPath, branch string, extraEnv []string) error {
 	current, err := CurrentBranch(repoPath)
 	if err != nil {
 		return err
 	}
 	if current == branch {
-		return Push(repoPath)
+		return PushEnv(repoPath, extraEnv)
 	}
 	remote := upstreamRemote(repoPath, branch)
 	ref := "refs/heads/" + branch
-	cmd := exec.Command("git", "-C", repoPath, "push", remote, ref+":"+ref)
+	cmd := withExtraEnv(exec.Command("git", "-C", repoPath, "push", remote, ref+":"+ref), extraEnv)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("git push %s %s: %s: %w", remote, branch, strings.TrimSpace(string(out)), err)

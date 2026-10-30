@@ -120,6 +120,41 @@ func (m *AgentManager) gitSSHEnv(ctx context.Context, userID int64) []string {
 	return []string{"GIT_SSH_COMMAND=ssh -F " + cfgPath + " -o StrictHostKeyChecking=accept-new"}
 }
 
+// gitTokenEnv materializes the user's HTTPS token credentials as a git
+// credential-store file and returns the GIT_CONFIG_* env that points git at it
+// (empty slice when nothing applies). Together with gitSSHEnv this makes both
+// remote shapes work from inside a workspace: SSH keys via GIT_SSH_COMMAND,
+// HTTPS tokens via credential.helper — previously only the SSH half was wired,
+// so `git pull` in a workspace terminal asked for a username it could never
+// read ("could not read Username for 'https://…'"). Best-effort: failures log
+// and yield no env rather than blocking spawn.
+func (m *AgentManager) gitTokenEnv(ctx context.Context, userID int64) []string {
+	if m.gitRemoteCred == nil || userID <= 0 {
+		return nil
+	}
+	credPath, err := m.gitRemoteCred.MaterializeUserTokens(ctx, userID)
+	if err != nil {
+		slog.Warn("agent: materialize git tokens failed; spawning without credential.helper",
+			"userID", userID, "err", err)
+		return nil
+	}
+	if credPath == "" {
+		return nil
+	}
+	return []string{
+		"GIT_CONFIG_COUNT=1",
+		"GIT_CONFIG_KEY_0=credential.helper",
+		"GIT_CONFIG_VALUE_0=store --file=" + credPath,
+	}
+}
+
+// gitRemoteEnv is the full git auth environment for a PTY spawn: SSH keys plus
+// HTTPS token credentials.
+func (m *AgentManager) gitRemoteEnv(ctx context.Context, userID int64) []string {
+	env := m.gitSSHEnv(ctx, userID)
+	return append(env, m.gitTokenEnv(ctx, userID)...)
+}
+
 func NewAgentManager(q *store.Queries, cfg *config.AgentConfig) *AgentManager {
 	return &AgentManager{
 		processes:             make(map[int64]*terminal.PTYProcess),
@@ -332,7 +367,7 @@ func (m *AgentManager) Start(ctx context.Context, workspaceID int64, workDir, in
 	// GIT_SSH_COMMAND so Claude's in-workspace `git push/pull/fetch`
 	// authenticate as the session user (token-kind credentials apply to
 	// clone-time URL injection, not here). Optional / nil-safe.
-	envSlice = append(envSlice, m.gitSSHEnv(ctx, userID)...)
+	envSlice = append(envSlice, m.gitRemoteEnv(ctx, userID)...)
 
 	// Create PTY process with workDir as cwd and workspace env vars
 	proc, err := terminal.NewPTYProcess(command, args, workDir, envSlice)
@@ -630,7 +665,7 @@ func (m *AgentManager) StartTerminal(ctx context.Context, workspaceID int64) (*t
 	// workspace's session user) — manual `git push/pull` in the terminal
 	// authenticates with the user's stored SSH keys. Optional / nil-safe.
 	if ws.CurrentSessionUserID.Valid && ws.CurrentSessionUserID.Int64 > 0 {
-		ptyEnv = append(ptyEnv, m.gitSSHEnv(ctx, ws.CurrentSessionUserID.Int64)...)
+		ptyEnv = append(ptyEnv, m.gitRemoteEnv(ctx, ws.CurrentSessionUserID.Int64)...)
 	}
 
 	// Create PTY process with workspace as cwd

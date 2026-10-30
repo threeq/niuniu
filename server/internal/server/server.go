@@ -1501,6 +1501,9 @@ func New(cfg *config.Config, db *sql.DB, frontendFS fs.FS) *Server {
 	s.gitRemoteCredSvc.SetMaterializeDir(filepath.Join(s.cfg.DataDir, "git-ssh"))
 	s.agentMgr.SetGitRemoteCredentialService(s.gitRemoteCredSvc)
 	s.repositorySvc.SetGitRemoteCredentialService(s.gitRemoteCredSvc)
+	// Workspace-level pull/push authenticates and guards egress the same way the
+	// repository panel does.
+	s.gitOpsSvc.WithGitRemoteCredentials(s.gitRemoteCredSvc)
 	s.gitRemoteCredHandler = api.NewGitRemoteCredentialHandler(s.gitRemoteCredSvc)
 
 	// External API proxy — generic, schema-driven replacement for all
