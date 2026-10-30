@@ -1270,39 +1270,45 @@ func (s *RepositoryService) CommitAll(ctx context.Context, id, message string, u
 // Pull fetches and merges remote changes into the repository's own checkout.
 // Used by the repository page's branch panel; workspace worktrees have their
 // own pull path via GitOpsService.
-func (s *RepositoryService) Pull(ctx context.Context, id, branch string) error {
+func (s *RepositoryService) Pull(ctx context.Context, userID int64, id, branch string) error {
 	repo, err := s.getForRemoteOp(ctx, id)
 	if err != nil {
 		return err
 	}
-	if err := guardRemoteEgress(ctx, repo.GitRemote.String); err != nil {
+	if err := s.guardRemoteEgress(ctx, userID, repo.GitRemote.String); err != nil {
 		return err
 	}
+	// Authenticate as the caller: without this an HTTPS remote fails with
+	// "could not read Username" even though the credential is stored.
+	env, cleanup := s.prepareRemoteAuth(ctx, userID, repo.GitRemote.String)
+	defer cleanup()
 	if branch == "" {
-		return git.Pull(repo.Path)
+		return git.PullEnv(repo.Path, env)
 	}
 	if !git.BranchExists(repo.Path, branch) {
 		return fmt.Errorf("branch %q not found", branch)
 	}
-	return git.PullBranch(repo.Path, branch)
+	return git.PullBranchEnv(repo.Path, branch, env)
 }
 
 // Push pushes the repository's own checkout to its upstream remote.
-func (s *RepositoryService) Push(ctx context.Context, id, branch string) error {
+func (s *RepositoryService) Push(ctx context.Context, userID int64, id, branch string) error {
 	repo, err := s.getForRemoteOp(ctx, id)
 	if err != nil {
 		return err
 	}
-	if err := guardRemoteEgress(ctx, repo.GitRemote.String); err != nil {
+	if err := s.guardRemoteEgress(ctx, userID, repo.GitRemote.String); err != nil {
 		return err
 	}
+	env, cleanup := s.prepareRemoteAuth(ctx, userID, repo.GitRemote.String)
+	defer cleanup()
 	if branch == "" {
-		return git.Push(repo.Path)
+		return git.PushEnv(repo.Path, env)
 	}
 	if !git.BranchExists(repo.Path, branch) {
 		return fmt.Errorf("branch %q not found", branch)
 	}
-	return git.PushBranch(repo.Path, branch)
+	return git.PushBranchEnv(repo.Path, branch, env)
 }
 
 // getForRemoteOp loads a repository row for a pull/push.
@@ -1322,7 +1328,27 @@ func (s *RepositoryService) getForRemoteOp(ctx context.Context, id string) (stor
 // (KBAllowLocalSources = true there), so local-first usage is unchanged.
 // git dials on its own, so this validates DNS up front rather than pinning the
 // connection (rebinding remains possible; it raises the bar, not a full fix).
+//
+// A host the caller has explicitly stored a git credential for is treated as
+// trusted egress and skips the address check: that is an operator/user decision
+// about where their own code lives, and cloud networks routinely answer such
+// hosts with link-local acceleration addresses (Tencent Cloud resolves
+// cnb.cool to 169.254.1.44, which is reachable and serves HTTPS) that the
+// generic private-address rule would reject.
+func (s *RepositoryService) guardRemoteEgress(ctx context.Context, userID int64, gitRemote string) error {
+	return guardRemoteEgressWith(ctx, s.gitRemoteCred, userID, gitRemote)
+}
+
+// guardRemoteEgress is the credential-less form: no acting user means no host
+// can be trusted, so every remote is address-checked. Kept for callers without
+// a user context and for the guard's unit tests.
 func guardRemoteEgress(ctx context.Context, gitRemote string) error {
+	return guardRemoteEgressWith(ctx, nil, 0, gitRemote)
+}
+
+// guardRemoteEgressWith is the credential-service-parameterised guard shared by
+// the repository and workspace git services.
+func guardRemoteEgressWith(ctx context.Context, credSvc *GitRemoteCredentialService, userID int64, gitRemote string) error {
 	remote := strings.TrimSpace(gitRemote)
 	if remote == "" {
 		return nil // no recorded remote; git itself will report "no upstream"
@@ -1337,10 +1363,75 @@ func guardRemoteEgress(ctx context.Context, gitRemote string) error {
 	if host == "" {
 		return nil // scp-less local path: git will handle it, no network egress
 	}
+	if credSvc != nil && userID > 0 {
+		if cred, err := credSvc.ResolveForRemote(ctx, userID, remote); err == nil && cred != nil {
+			return nil // caller-configured egress is trusted (see doc above)
+		}
+	}
 	if err := validateRemoteHost(ctx, host); err != nil {
 		return fmt.Errorf("remote host blocked: %w", err)
 	}
 	return nil
+}
+
+// prepareRemoteAuth returns extra git environment for a one-shot server-side
+// remote operation, mirroring the clone path: an HTTPS token credential becomes
+// a throwaway credential-store file (never written into the repository config),
+// an SSH credential becomes a throwaway key plus GIT_SSH_COMMAND. The caller
+// must invoke cleanup. Both parts are no-ops when the caller has no credential
+// for this host, which keeps public remotes working unchanged.
+func (s *RepositoryService) prepareRemoteAuth(ctx context.Context, userID int64, remoteURL string) (env []string, cleanup func()) {
+	return remoteAuthEnv(ctx, s.gitRemoteCred, userID, remoteURL)
+}
+
+// remoteAuthEnv is the credential-service-parameterised auth materialiser shared
+// by the repository and workspace git services.
+func remoteAuthEnv(ctx context.Context, credSvc *GitRemoteCredentialService, userID int64, remoteURL string) (env []string, cleanup func()) {
+	cleanup = func() {}
+	if credSvc == nil || userID <= 0 {
+		return nil, cleanup
+	}
+	cred, err := credSvc.ResolveForRemote(ctx, userID, remoteURL)
+	if err != nil || cred == nil {
+		return nil, cleanup
+	}
+	dir, mkErr := os.MkdirTemp("", "niuniu-git-auth-")
+	if mkErr != nil {
+		slog.Warn("repo remote auth: temp dir failed; running without credentials", "err", mkErr)
+		return nil, cleanup
+	}
+	switch {
+	case cred.Kind == CredentialKindToken && !IsSSHRemote(remoteURL):
+		host := GitRemoteHost(remoteURL)
+		if host == "" {
+			os.RemoveAll(dir)
+			return nil, cleanup
+		}
+		userinfo := url.UserPassword(cred.Username, cred.Secret).String()
+		credPath := filepath.Join(dir, "git-credentials")
+		if wErr := os.WriteFile(credPath, []byte("https://"+userinfo+"@"+host+"\n"), 0o600); wErr != nil {
+			slog.Warn("repo remote auth: credentials write failed", "err", wErr)
+			os.RemoveAll(dir)
+			return nil, cleanup
+		}
+		env = []string{
+			"GIT_CONFIG_COUNT=1",
+			"GIT_CONFIG_KEY_0=credential.helper",
+			"GIT_CONFIG_VALUE_0=store --file=" + credPath,
+		}
+	case cred.Kind == CredentialKindSSH && IsSSHRemote(remoteURL):
+		keyPath := filepath.Join(dir, "id.key")
+		if wErr := os.WriteFile(keyPath, []byte(strings.TrimRight(cred.Secret, "\n")+"\n"), 0o600); wErr != nil {
+			slog.Warn("repo remote auth: key write failed", "err", wErr)
+			os.RemoveAll(dir)
+			return nil, cleanup
+		}
+		env = []string{"GIT_SSH_COMMAND=ssh -i " + keyPath + " -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new"}
+	default:
+		os.RemoveAll(dir)
+		return nil, cleanup
+	}
+	return env, func() { os.RemoveAll(dir) }
 }
 
 // remoteHost extracts the network host from a git remote in URL or SCP-like

@@ -469,6 +469,79 @@ func (s *GitRemoteCredentialService) materializeUserSSHKeys(ctx context.Context,
 	return cfgPath, nil
 }
 
+// MaterializeUserTokens renders the user's HTTPS token credentials as a git
+// credential-store file (one `https://user:token@host` line per host) under the
+// materialize dir, returning its path ("" when the user has no token
+// credentials). PTY spawns inject `credential.helper=store --file=<path>` so
+// in-workspace `git push/pull/fetch` authenticate over HTTPS the same way SSH
+// keys already do — without a prompt and without touching the repo config.
+//
+// The wildcard host ('*') is skipped: a catch-all cannot be expressed as an
+// https URL host.
+func (s *GitRemoteCredentialService) MaterializeUserTokens(ctx context.Context, userID int64) (string, error) {
+	if s.materializeDir == "" {
+		return "", nil
+	}
+	dir := filepath.Join(s.materializeDir, fmt.Sprint(userID))
+	return s.materializeUserTokens(ctx, userID, dir)
+}
+
+// materializeUserTokens is the directory-taking core (tests pass t.TempDir).
+func (s *GitRemoteCredentialService) materializeUserTokens(ctx context.Context, userID int64, dir string) (string, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT host, username, encrypted FROM git_remote_credentials
+		WHERE user_id = ? AND kind = 'token'
+		ORDER BY host ASC`, userID)
+	if err != nil {
+		return "", fmt.Errorf("list token credentials: %w", err)
+	}
+	type entry struct{ host, username, encrypted string }
+	var entries []entry
+	for rows.Next() {
+		var e entry
+		if err := rows.Scan(&e.host, &e.username, &e.encrypted); err != nil {
+			rows.Close()
+			return "", fmt.Errorf("scan token credential: %w", err)
+		}
+		entries = append(entries, e)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return "", fmt.Errorf("iterate token credentials: %w", err)
+	}
+	if len(entries) == 0 {
+		return "", nil
+	}
+
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return "", fmt.Errorf("create token dir: %w", err)
+	}
+	var buf strings.Builder
+	for _, e := range entries {
+		if e.host == "*" {
+			continue // a catch-all cannot be written as an https URL host
+		}
+		pt, err := s.keyring.Decrypt([]byte(e.encrypted))
+		if err != nil {
+			slog.Warn("git token materialize: decrypt failed; skipping host",
+				"user_id", userID, "host", e.host, "err", err)
+			continue
+		}
+		// url.UserPassword percent-encodes reserved characters in both parts,
+		// which is exactly what git's credential store expects.
+		userinfo := url.UserPassword(e.username, strings.TrimSpace(string(pt))).String()
+		buf.WriteString("https://" + userinfo + "@" + e.host + "\n")
+	}
+	if buf.Len() == 0 {
+		return "", nil
+	}
+	credPath := filepath.Join(dir, "git-credentials")
+	if err := os.WriteFile(credPath, []byte(buf.String()), 0o600); err != nil {
+		return "", fmt.Errorf("write credentials file: %w", err)
+	}
+	return credPath, nil
+}
+
 // sanitizeHostFileName maps a host (possibly '*') to a safe file name base.
 func sanitizeHostFileName(host string) string {
 	var b strings.Builder

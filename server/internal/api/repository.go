@@ -743,7 +743,7 @@ func (h *RepositoryHandler) Pull(c *gin.Context) {
 	if !ok {
 		return
 	}
-	if err := h.svc.Pull(c.Request.Context(), c.Param("id"), branch); err != nil {
+	if err := h.svc.Pull(c.Request.Context(), c.GetInt64("auth_user_id"), c.Param("id"), branch); err != nil {
 		InternalError(c, err)
 		return
 	}
@@ -765,7 +765,7 @@ func (h *RepositoryHandler) Push(c *gin.Context) {
 	if !ok {
 		return
 	}
-	if err := h.svc.Push(c.Request.Context(), c.Param("id"), branch); err != nil {
+	if err := h.svc.Push(c.Request.Context(), c.GetInt64("auth_user_id"), c.Param("id"), branch); err != nil {
 		InternalError(c, err)
 		return
 	}
