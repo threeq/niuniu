@@ -1291,6 +1291,23 @@ func (s *RepositoryService) Pull(ctx context.Context, userID int64, id, branch s
 	return git.PullBranchEnv(repo.Path, branch, env)
 }
 
+// CheckoutRemoteBranch fetches a remote-tracking branch and makes a local
+// branch of the same name current, creating it with tracking when absent. It
+// reuses Pull's egress guard and credential injection, so an HTTPS remote
+// authenticates exactly like pull/push do.
+func (s *RepositoryService) CheckoutRemoteBranch(ctx context.Context, userID int64, id, remoteBranch string) (string, error) {
+	repo, err := s.getForRemoteOp(ctx, id)
+	if err != nil {
+		return "", err
+	}
+	if err := s.guardRemoteEgress(ctx, userID, repo.GitRemote.String); err != nil {
+		return "", err
+	}
+	env, cleanup := s.prepareRemoteAuth(ctx, userID, repo.GitRemote.String)
+	defer cleanup()
+	return git.CheckoutRemoteBranchEnv(repo.Path, remoteBranch, env)
+}
+
 // Push pushes the repository's own checkout to its upstream remote.
 func (s *RepositoryService) Push(ctx context.Context, userID int64, id, branch string) error {
 	repo, err := s.getForRemoteOp(ctx, id)

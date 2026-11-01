@@ -1192,6 +1192,7 @@ func (s *Server) setupRoutes() {
 		repositories.POST("/:id/branches", s.repositoryHandler.CreateBranch)
 		repositories.DELETE("/:id/branches", s.repositoryHandler.DeleteBranch)
 		repositories.PUT("/:id/branches/checkout", s.repositoryHandler.CheckoutBranch)
+		repositories.PUT("/:id/branches/checkout-remote", s.repositoryHandler.CheckoutRemoteBranch)
 		repositories.GET("/:id/worktrees", s.repositoryHandler.ListWorktrees)
 		repositories.POST("/:id/worktrees", s.repositoryHandler.CreateWorktree)
 		repositories.DELETE("/:id/worktrees/:worktree_id", s.repositoryHandler.RemoveWorktree)
