@@ -635,6 +635,29 @@ func (h *RepositoryHandler) CheckoutBranch(c *gin.Context) {
 	c.Status(http.StatusOK)
 }
 
+// CheckoutRemoteBranch creates/switches to a local branch tracking a remote one
+// @Summary      Checkout a remote branch locally
+// @Description  Fetch a remote-tracking branch and make a local branch of the same name current (created with tracking when absent). Branch name passed as query param to support slashes.
+// @Tags         Repositories
+// @Param        id   path   string  true  "Repository ID"
+// @Param        name query  string  true  "Remote branch name, e.g. origin/feat/x"
+// @Success      200  {object}  map[string]string
+// @Failure      400  {object}  Error
+// @Router       /repositories/{id}/branches/checkout-remote [put]
+func (h *RepositoryHandler) CheckoutRemoteBranch(c *gin.Context) {
+	name := c.Query("name")
+	if name == "" {
+		BadRequest(c, "branch name is required")
+		return
+	}
+	local, err := h.svc.CheckoutRemoteBranch(c.Request.Context(), c.GetInt64("auth_user_id"), c.Param("id"), name)
+	if err != nil {
+		BadRequest(c, err.Error())
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"branch": local})
+}
+
 // ListWorktrees returns all worktrees
 // @Summary      List worktrees
 // @Description  Get all worktrees for a repository

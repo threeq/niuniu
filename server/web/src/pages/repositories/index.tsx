@@ -240,7 +240,7 @@ function RepoBranchesTab({ repoId, repoName }: { repoId: string; repoName: strin
   const [isDiscarding, setIsDiscarding] = useState(false);
   // Per-branch in-flight marker: branch -> operation. Each row shows a pulsing
   // icon only while its own pull/push runs, so other rows stay clickable.
-  const [branchOp, setBranchOp] = useState<Record<string, 'pull' | 'push'>>({});
+  const [branchOp, setBranchOp] = useState<Record<string, 'pull' | 'push' | 'checkout'>>({});
 
   const { data: branchTree, refetch: refetchTree } = useQuery<BranchTree>({
     queryKey: ['repository', repoId, 'branch-tree'],
@@ -407,6 +407,34 @@ function RepoBranchesTab({ repoId, repoName }: { repoId: string; repoName: strin
       setBranchOp((prev) => {
         const next = { ...prev };
         delete next[branch];
+        return next;
+      });
+    }
+  };
+
+  // Remote branch -> local: fetch it and make a local tracking branch current.
+  // Same per-row in-flight marker as pull/push so only this row pulses.
+  const handleCheckoutRemote = async (remoteBranch: string) => {
+    setBranchOp((prev) => ({ ...prev, [remoteBranch]: 'checkout' }));
+    try {
+      const res = await api.put<{ branch?: string }>(
+        `/repositories/${repoId}/branches/checkout-remote?name=${encodeURIComponent(remoteBranch)}`,
+        {},
+      );
+      refetchTree();
+      refetchStatus();
+      queryClient.invalidateQueries({ queryKey: ['repository', repoId, 'graph'] });
+      toast.success(
+        t('detail.branches.checkoutRemoteSuccess', { branch: res?.branch || remoteBranch }),
+      );
+    } catch (err) {
+      toast.error(
+        `${t('detail.branches.checkoutRemoteFailed')}: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    } finally {
+      setBranchOp((prev) => {
+        const next = { ...prev };
+        delete next[remoteBranch];
         return next;
       });
     }
@@ -639,10 +667,20 @@ function RepoBranchesTab({ repoId, repoName }: { repoId: string; repoName: strin
               {remoteExpanded && remoteBranches.map((branch) => (
                 <div
                   key={branch}
-                  className="flex items-center gap-1 pl-6 pr-2 py-1 text-[#a6adc8] hover:bg-[#313244] cursor-default"
+                  className="flex items-center gap-1 pl-6 pr-2 py-1 text-[#a6adc8] hover:bg-[#313244] cursor-default group"
                 >
                   <GitBranchIcon className="w-3 h-3 shrink-0 text-[#a6e3a1]" />
-                  <span className="truncate">{branch}</span>
+                  <span className="truncate flex-1">{branch}</span>
+                  {/* Bring the remote branch down as a local tracking branch and
+                      make it current (fetch + switch -c --track / ff-only). */}
+                  <button
+                    onClick={(e) => { e.stopPropagation(); void handleCheckoutRemote(branch); }}
+                    disabled={!!branchOp[branch]}
+                    className="hidden group-hover:block text-[#89b4fa] hover:text-[#74c7ec] disabled:opacity-50"
+                    title={t('detail.branches.checkoutRemote')}
+                  >
+                    <ArrowDownToLine className={cn('w-3 h-3', branchOp[branch] === 'checkout' && 'animate-pulse')} />
+                  </button>
                 </div>
               ))}
             </div>
