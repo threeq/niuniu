@@ -108,4 +108,47 @@ func TestSplitRemoteBranch(t *testing.T) {
 	if r, b := SplitRemoteBranch(repo, "no-slash"); r != "" || b != "" {
 		t.Fatalf("plain name must not parse as remote branch, got (%q,%q)", r, b)
 	}
+	// An UNKNOWN remote prefix must not be accepted (no first-slash fallback):
+	// otherwise an arbitrary string would reach git as its <repository> arg.
+	if r, b := SplitRemoteBranch(repo, "upstream/main"); r != "" || b != "" {
+		t.Fatalf("unknown remote must not parse, got (%q,%q)", r, b)
+	}
+}
+
+// TestValidateBranchName pins the argument-injection defences: a leading "-"
+// (option injection, e.g. git fetch --upload-pack=<cmd>) and refspec syntax
+// are rejected, while ordinary branch names pass.
+func TestValidateBranchName(t *testing.T) {
+	bad := []string{
+		"", "-n", "--upload-pack=calc", "a:b", "a b", "a..b", "a~1", "a^",
+		"a?", "a*", "a[", "a" + string(rune(0x7f)), "x/", "/x", "a.lock",
+	}
+	for _, name := range bad {
+		if err := ValidateBranchName(name); err == nil {
+			t.Errorf("ValidateBranchName(%q) = nil, want an error", name)
+		}
+	}
+	for _, name := range []string{"main", "feat/x", "release-1.2", "user/abc_1"} {
+		if err := ValidateBranchName(name); err != nil {
+			t.Errorf("ValidateBranchName(%q) = %v, want nil", name, err)
+		}
+	}
+}
+
+// TestCheckoutRemoteBranch_RejectsUnsafeInput: both halves are validated
+// before any git invocation, so a hostile query parameter cannot become a git
+// option or refspec.
+func TestCheckoutRemoteBranch_RejectsUnsafeInput(t *testing.T) {
+	_, repo, _ := setupRemotePair(t)
+	cases := []string{
+		"origin/--upload-pack=calc",
+		"origin/main:refs/heads/evil",
+		"upstream/main", // not a configured remote
+		"main",          // not a remote ref
+	}
+	for _, ref := range cases {
+		if _, err := CheckoutRemoteBranchEnv(repo, ref, nil); err == nil {
+			t.Errorf("CheckoutRemoteBranchEnv(%q) = nil error, want rejection", ref)
+		}
+	}
 }
