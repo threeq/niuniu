@@ -1335,7 +1335,7 @@ func (s *RepositoryService) Push(ctx context.Context, userID int64, id, branch s
 // Uses the persistent materialize dir (not a temp dir) because the shell can
 // outlive a single operation.
 func (s *RepositoryService) TerminalGitEnv(ctx context.Context, userID int64, id string) []string {
-	if s.gitRemoteCred == nil || userID <= 0 {
+	if s.gitRemoteCred == nil {
 		return nil
 	}
 	repo, err := s.getForRemoteOp(ctx, id)

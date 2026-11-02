@@ -8,7 +8,6 @@ import (
 	"database/sql"
 	"encoding/pem"
 	"errors"
-	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -337,9 +336,13 @@ func TestResolveForRemote(t *testing.T) {
 	require.NoError(t, err)
 	assert.Nil(t, none, "no credential for github.com → soft nil")
 
+	// Credentials are a deployment-wide setting: a host configured once is
+	// usable by every workspace, terminal and agent, not only by the member who
+	// typed the token in.
 	otherUser, err := svc.ResolveForRemote(context.Background(), userID+1, "git@cnb.cool:agi/x.git")
 	require.NoError(t, err)
-	assert.Nil(t, otherUser, "another user's lookup must not see alice's row")
+	require.NotNil(t, otherUser, "shared credential: any caller resolves it")
+	assert.Equal(t, CredentialKindSSH, otherUser.Kind)
 }
 
 // ─── materialization (B) ─────────────────────────────────────────────────────
@@ -367,8 +370,9 @@ func TestMaterializeUserSSHKeys(t *testing.T) {
 	cfgPath, err := svc.MaterializeUserSSHKeys(context.Background(), userID)
 	require.NoError(t, err)
 	require.NotEmpty(t, cfgPath)
-	// The config lands in the per-user subdirectory of the materialize root.
-	assert.Contains(t, cfgPath, filepath.Join(fmt.Sprint(userID), "config"))
+	// Credentials are deployment-wide, so the materialized set lands in the
+	// shared subdirectory rather than a per-user one.
+	assert.Contains(t, cfgPath, filepath.Join("shared", "config"))
 
 	cfg, err := os.ReadFile(cfgPath)
 	require.NoError(t, err)
@@ -381,7 +385,7 @@ func TestMaterializeUserSSHKeys(t *testing.T) {
 	assert.Less(t, strings.Index(text, "Host cnb.cool"), strings.Index(text, "Host *"))
 
 	// Both key files exist and are 0600.
-	keys, _ := filepath.Glob(filepath.Join(dir, fmt.Sprint(userID), "*.key"))
+	keys, _ := filepath.Glob(filepath.Join(dir, "shared", "*.key"))
 	require.Len(t, keys, 2)
 	for _, k := range keys {
 		st, statErr := os.Stat(k)
@@ -393,7 +397,7 @@ func TestMaterializeUserSSHKeys(t *testing.T) {
 		}
 	}
 
-	// No user credentials → no config, no error.
+	// A different deployment with no credentials materializes nothing.
 	otherSvc, otherUser := newGitRemoteCredSvc(t)
 	otherSvc.SetMaterializeDir(t.TempDir())
 	cfg2, err := otherSvc.MaterializeUserSSHKeys(context.Background(), otherUser+1)
