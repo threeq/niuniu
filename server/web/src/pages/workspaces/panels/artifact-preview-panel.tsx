@@ -103,7 +103,7 @@ export function ArtifactPreviewPanel({ workspaceId, artifacts, variant = 'viewer
     if (downloadingPath) return;
     setDownloadingPath(a.path);
     try {
-      const blob = await fetchFileWithProgress(getFileContentUrl(workspaceId, a.path, 'raw'));
+      const blob = await fetchFileWithProgress(`${getFileContentUrl(workspaceId, a.path, 'raw')}&_ts=${Date.now()}`);
       saveBlobToLocal(blob, a.name);
       toast.success(t('artifactPreview.downloadDone', { name: a.name }));
     } catch {

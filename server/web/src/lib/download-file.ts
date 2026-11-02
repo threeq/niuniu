@@ -12,7 +12,11 @@ export async function fetchFileWithProgress(
 	url: string,
 	onProgress?: (pct: number) => void,
 ): Promise<Blob> {
-	const res = await fetch(url, { credentials: 'include' });
+	// cache: 'no-store' — a download must always be the file AS IT IS NOW. The
+	// file-content endpoint advertises `Cache-Control: private, max-age=3600`,
+	// so the default fetch mode happily replays a stale body from the webview's
+	// HTTP cache when the same file is downloaded twice within the hour.
+	const res = await fetch(url, { credentials: 'include', cache: 'no-store' });
 	if (!res.ok) throw new Error(`HTTP ${res.status}`);
 	const total = Number(res.headers.get('Content-Length'));
 	if (!res.body || !Number.isFinite(total) || total <= 0) {
