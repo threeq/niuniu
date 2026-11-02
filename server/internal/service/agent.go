@@ -155,6 +155,47 @@ func (m *AgentManager) gitRemoteEnv(ctx context.Context, userID int64) []string 
 	return append(env, m.gitTokenEnv(ctx, userID)...)
 }
 
+// GitRemoteEnv is the exported form of gitRemoteEnv for other spawn paths (the
+// agentproxy chat backend, which runs the same agent CLI outside a PTY).
+func (m *AgentManager) GitRemoteEnv(ctx context.Context, userID int64) []string {
+	return m.gitRemoteEnv(ctx, userID)
+}
+
+// GitRemoteEnvForWorkspace returns the git auth env for the user a workspace
+// acts as: its live session user, falling back to the workspace's creator.
+// Credentials are stored per (user, host), so a workspace that never recorded a
+// session user (created but not yet chatted in, or driven by the scheduler) used
+// to get NO credentials at all and every `git pull` failed with "could not read
+// Username" even though the creator had one configured.
+func (m *AgentManager) GitRemoteEnvForWorkspace(ctx context.Context, workspaceID int64) []string {
+	if m.gitRemoteCred == nil || workspaceID <= 0 {
+		return nil
+	}
+	ws, err := m.q.GetWorkspace(ctx, workspaceID)
+	if err != nil {
+		slog.Warn("agent: git remote env — workspace lookup failed", "workspaceID", workspaceID, "err", err)
+		return nil
+	}
+	uid := gitEnvUserID(ws.CurrentSessionUserID, ws.CreatedBy)
+	if uid <= 0 {
+		return nil
+	}
+	return m.gitRemoteEnv(ctx, uid)
+}
+
+// gitEnvUserID picks which user's stored git credentials a workspace uses: the
+// live session user when one is recorded, otherwise the workspace creator.
+// Returns 0 when neither is usable.
+func gitEnvUserID(sessionUser, createdBy sql.NullInt64) int64 {
+	if sessionUser.Valid && sessionUser.Int64 > 0 {
+		return sessionUser.Int64
+	}
+	if createdBy.Valid && createdBy.Int64 > 0 {
+		return createdBy.Int64
+	}
+	return 0
+}
+
 func NewAgentManager(q *store.Queries, cfg *config.AgentConfig) *AgentManager {
 	return &AgentManager{
 		processes:             make(map[int64]*terminal.PTYProcess),
@@ -363,11 +404,15 @@ func (m *AgentManager) Start(ctx context.Context, workspaceID int64, workDir, in
 		}
 	}
 
-	// Per-user git remote credentials: materialize SSH keys + inject
-	// GIT_SSH_COMMAND so Claude's in-workspace `git push/pull/fetch`
-	// authenticate as the session user (token-kind credentials apply to
-	// clone-time URL injection, not here). Optional / nil-safe.
-	envSlice = append(envSlice, m.gitRemoteEnv(ctx, userID)...)
+	// Per-user git remote credentials so the agent's in-workspace
+	// `git push/pull/fetch` authenticate: SSH keys via GIT_SSH_COMMAND, HTTPS
+	// tokens via credential.helper. Falls back to the workspace creator when the
+	// caller passed no user. Optional / nil-safe.
+	gitUID := userID
+	if gitUID <= 0 && ws.CreatedBy.Valid {
+		gitUID = ws.CreatedBy.Int64
+	}
+	envSlice = append(envSlice, m.gitRemoteEnv(ctx, gitUID)...)
 
 	// Create PTY process with workDir as cwd and workspace env vars
 	proc, err := terminal.NewPTYProcess(command, args, workDir, envSlice)
@@ -661,12 +706,12 @@ func (m *AgentManager) StartTerminal(ctx context.Context, workspaceID int64) (*t
 			}
 		}
 	}
-	// Per-user git remote credentials (same scope as the identity above: the
-	// workspace's session user) — manual `git push/pull` in the terminal
-	// authenticates with the user's stored SSH keys. Optional / nil-safe.
-	if ws.CurrentSessionUserID.Valid && ws.CurrentSessionUserID.Int64 > 0 {
-		ptyEnv = append(ptyEnv, m.gitRemoteEnv(ctx, ws.CurrentSessionUserID.Int64)...)
-	}
+	// Per-user git remote credentials for manual `git push/pull` in the
+	// workspace terminal: SSH keys via GIT_SSH_COMMAND, HTTPS tokens via
+	// credential.helper. Falls back to the workspace creator when no session
+	// user is recorded (otherwise a freshly created workspace got no
+	// credentials at all). Optional / nil-safe.
+	ptyEnv = append(ptyEnv, m.GitRemoteEnvForWorkspace(ctx, workspaceID)...)
 
 	// Create PTY process with workspace as cwd
 	proc, err := terminal.NewPTYProcess(shell, args, ws.Path, ptyEnv)

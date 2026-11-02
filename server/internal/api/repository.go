@@ -971,7 +971,12 @@ func (h *RepositoryHandler) Terminal(c *gin.Context) {
 		args = []string{"-l"}
 	}
 
-	proc, err := terminal.NewPTYProcess(shell, args, repoPath, nil)
+	// Authenticate the shell's git commands as the caller: HTTPS tokens via
+	// credential.helper, SSH keys via GIT_SSH_COMMAND. Without this a repo
+	// terminal could clone but never pull/push ("could not read Username").
+	gitEnv := h.svc.TerminalGitEnv(c.Request.Context(), c.GetInt64("auth_user_id"), c.Param("id"))
+
+	proc, err := terminal.NewPTYProcess(shell, args, repoPath, gitEnv)
 	if err != nil {
 		InternalError(c, fmt.Errorf("create PTY process: %w", err))
 		return

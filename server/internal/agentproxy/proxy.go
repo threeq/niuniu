@@ -312,6 +312,18 @@ const streamPersistThrottle = 300 * time.Millisecond
 // WorkspaceSession manages a long-lived Claude Code process for a workspace.
 // The process stays alive across multiple messages (Mode C).
 // If the process dies or the server restarts, it auto-recovers with --resume.
+// GitRemoteEnvFunc, when set by the server, yields extra environment entries for
+// the agent CLI process so in-session `git push/pull/fetch` authenticate with the
+// active user's stored remote credentials (HTTPS token via credential.helper,
+// SSH key via GIT_SSH_COMMAND). Returns nil when the user has none, which keeps
+// public remotes unchanged.
+var GitRemoteEnvFunc func(ctx context.Context, workspaceID int64) []string
+
+// SetGitRemoteEnvFunc wires GitRemoteEnvFunc once at boot.
+func SetGitRemoteEnvFunc(fn func(ctx context.Context, workspaceID int64) []string) {
+	GitRemoteEnvFunc = fn
+}
+
 type WorkspaceSession struct {
 	workspaceID      int64
 	issueID          int64  // workspaces.issue_id, 0 if unlinked; cached at session start
@@ -2464,6 +2476,9 @@ func (s *WorkspaceSession) ensureProcess(ctx context.Context, workDir string) er
 		GitAuthorName:    gitName,
 		GitAuthorEmail:   gitEmail,
 	})
+	if GitRemoteEnvFunc != nil {
+		cmdEnv = append(cmdEnv, GitRemoteEnvFunc(cmdCtx, s.workspaceID)...)
+	}
 	cmd.Env = cmdEnv
 
 	// Claude Code prints a "[claude-code:unrecognized_model]" stderr diagnostic
