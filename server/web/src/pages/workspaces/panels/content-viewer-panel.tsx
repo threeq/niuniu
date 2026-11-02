@@ -273,7 +273,6 @@ function FileHeaderActions({
   // no signal at all — no progress, no completion, no failure.
   const [downloading, setDownloading] = useState(false);
   const [progress, setProgress] = useState(100);
-  const downloadUrl = getFileContentUrl(workspaceId, path, 'raw');
 
   const handleSubmitArtifact = async () => {
     if (submitting) return;
@@ -295,7 +294,12 @@ function FileHeaderActions({
     setDownloading(true);
     setProgress(100);
     try {
-      const blob = await fetchFileWithProgress(downloadUrl, setProgress);
+      // Built at CLICK time with a cache-buster: the raw endpoint sets
+      // max-age=3600 and some webviews ignore fetch's cache mode for
+      // subresources, so a render-time URL could still hand back the previous
+      // version of the file.
+      const url = `${getFileContentUrl(workspaceId, path, 'raw')}&_ts=${Date.now()}`;
+      const blob = await fetchFileWithProgress(url, setProgress);
       saveBlobToLocal(blob, name);
       toast.success(t('filePreview.downloadDone', { name }));
     } catch {

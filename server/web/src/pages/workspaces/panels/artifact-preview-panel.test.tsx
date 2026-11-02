@@ -75,7 +75,11 @@ describe('ArtifactPreviewPanel', () => {
     await userEvent.click(screen.getAllByRole('button', { name: /下载|Download/ })[0]);
     await waitFor(() =>
       expect(fetchProgressMock).toHaveBeenCalledWith(
-        '/api/workspaces/7/file-content?path=report.xlsx&mode=raw',
+        // The URL carries a per-click `_ts` cache-buster: a download must
+        // always fetch the file as it is now, never a webview-cached copy.
+        expect.stringMatching(
+          /^\/api\/workspaces\/7\/file-content\?path=report\.xlsx&mode=raw&_ts=\d+$/,
+        ),
         undefined,
       ),
     );
