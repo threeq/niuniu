@@ -1328,6 +1328,36 @@ func (s *RepositoryService) Push(ctx context.Context, userID int64, id, branch s
 	return git.PushBranchEnv(repo.Path, branch, env)
 }
 
+// TerminalGitEnv builds the git auth environment for an interactive terminal
+// opened at this repository: HTTPS token credentials via credential.helper,
+// SSH keys via GIT_SSH_COMMAND. Empty when the caller has no credential for the
+// repository's remote host, which keeps plain public-repo shells unchanged.
+// Uses the persistent materialize dir (not a temp dir) because the shell can
+// outlive a single operation.
+func (s *RepositoryService) TerminalGitEnv(ctx context.Context, userID int64, id string) []string {
+	if s.gitRemoteCred == nil || userID <= 0 {
+		return nil
+	}
+	repo, err := s.getForRemoteOp(ctx, id)
+	if err != nil {
+		return nil
+	}
+	if GitRemoteHost(repo.GitRemote.String) == "" && !IsSSHRemote(repo.GitRemote.String) {
+		return nil
+	}
+	var env []string
+	if credPath, err := s.gitRemoteCred.MaterializeUserTokens(ctx, userID); err == nil && credPath != "" {
+		env = append(env,
+			"GIT_CONFIG_COUNT=1",
+			"GIT_CONFIG_KEY_0=credential.helper",
+			"GIT_CONFIG_VALUE_0=store --file="+credPath)
+	}
+	if cfgPath, err := s.gitRemoteCred.MaterializeUserSSHKeys(ctx, userID); err == nil && cfgPath != "" {
+		env = append(env, "GIT_SSH_COMMAND=ssh -F "+cfgPath+" -o StrictHostKeyChecking=accept-new")
+	}
+	return env
+}
+
 // getForRemoteOp loads a repository row for a pull/push.
 func (s *RepositoryService) getForRemoteOp(ctx context.Context, id string) (store.Repository, error) {
 	repoID, err := s.parseRepoID(id)

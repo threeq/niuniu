@@ -1504,6 +1504,9 @@ func New(cfg *config.Config, db *sql.DB, frontendFS fs.FS) *Server {
 	// Workspace-level pull/push authenticates and guards egress the same way the
 	// repository panel does.
 	s.gitOpsSvc.WithGitRemoteCredentials(s.gitRemoteCredSvc)
+	// The agentproxy chat backend spawns the same agent CLI outside a PTY; give
+	// it the same git credential environment the PTY paths get.
+	agentproxy.SetGitRemoteEnvFunc(s.agentMgr.GitRemoteEnvForWorkspace)
 	s.gitRemoteCredHandler = api.NewGitRemoteCredentialHandler(s.gitRemoteCredSvc)
 
 	// External API proxy — generic, schema-driven replacement for all
