@@ -1033,6 +1033,8 @@ Thread 映射：
 2. **未保存来源配置时运行时按 `off` 处理**。`GET /intake/settings` 对无存储行显示 schema 默认 `observe`，但 `imbotPolicy.LoadPolicy` 对无行返回 `ModeOff`（只接受显式请求）。上线时必须至少保存一次该来源配置，才会写入 `intake_settings` 并按所选模式运行。运行手册 §3 步骤 4 已将其列为必做项。
 3. **团队版 GitHub `webhook_secret` 尚无表单入口**。SPA 的 GitHub 凭据对话框只渲染 PAT；团队版需通过 API 写入（见运行手册 §4.2）。后续可在凭据对话框补充可选 `webhook_secret` 字段。
 4. **GitHub Enterprise BaseURL 未暴露配置**。个人版轮询固定 `https://api.github.com`；`GithubSourceService.SetPollerBaseURL` 目前仅供代码/测试使用。
+5. **实现新增了 §6.8 未列出的 4 张运行期表**：`intake_project_state`（项目暂停开关）、`intake_daily_usage`（daily cap 原子占位，TOCTOU 修复）、`github_source_poll_state`（轮询游标/退避）、`github_thread_bindings`（PR/issue thread 绑定与续接）。它们不改变设计语义，运维说明见运行手册 §5.4。
+6. **`im_bot_chats.intake_mode` 新增 `inherit` 值**：表示跟随项目+来源设置；不是迁移回填值，只由用户主动选择。
 
 ### 14.3 运维文档
 

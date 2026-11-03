@@ -45,7 +45,15 @@
 | 校准门槛 | ≥10 条、认可率 ≥80% | 达到后才建议开启 `auto`（仍需二次确认） |
 | Webhook body 上限 | 25 MB | 反代需不小于该值 |
 
-### 0.3 环境变量
+### 0.3 安全与默认策略（上线前必须知悉）
+
+- **默认保守**：新 Source 默认 `observe`（设计 §12-3）。设置页显示 `observe`；若从未保存过该来源配置，运行时按更保守的 `off` 处理（只接受显式请求，见 §3 步骤 4）。`auto` 必须先完成 dry-run 校准（≥10 条、认可率 ≥80%）并在 UI 二次确认。
+- **外部文本只是数据**：IM 消息、GitHub 评论、邮件正文都只作为任务描述/上下文，**不构成指令**；`explicit` / `inferred` / `denied` 由代码按 allow list、bot list、规则判定，prompt 内容无法提权。
+- **高-risk 动作只给显式授权**：停止任务等高风险动作只允许 `explicit` 且非 bot 的 actor（`Policy.AllowsHighRiskAction`）。
+- **Epic 不自动完成**：Epic 类型 issue 必须人工审核后手动移入「完成」列；autohost/`[AUTOHOST_DONE]` 不能替 Epic 收尾。
+- **个人版无公网依赖**：GitHub 采用出站轮询；团队版才需要公网 webhook。
+
+### 0.4 环境变量
 
 Viper 把 `.` 替换为 `_`，前缀 `NIUNIU_`：
 
@@ -72,7 +80,7 @@ intake:
 在升级到包含本能力的版本前完成：
 
 - [ ] **备份数据库**。SQLite 为 `~/.niuniu/niuniu.db`；团队版 PostgreSQL 用 `pg_dump -Fc niuniu_server > niuniu_server-before-intake.dump`。
-- [ ] 确认磁盘余量：新增 8 张表，均为增量；不会重写存量数据。
+- [ ] 确认磁盘余量：本能力新增 **12 张表**（见 §5.4），均为增量；不会重写存量数据。
 - [ ] 源码构建时先跑：
   - `make schema-diff` 必须输出 `OK: no table-level drift detected`
   - `make sqlc`（无 diff）
@@ -82,7 +90,7 @@ intake:
 - [ ] 确认已有 GitHub 集成凭据可读目标仓库（PAT 含 Issues 读、必要时写）。
 - [ ] 明确本次上线形态：个人版轮询 / 团队版 webhook（不要两种同时当作主路径）。
 
-> 数据库 schema 变更由服务启动时的 `store/migrate.go` 自动执行（`addColumnIfNotExists` + `CREATE TABLE IF NOT EXISTS`）。本能力**没有破坏性迁移**：新表、新列；存量 `issues.goal_condition` 不回填、不改写（设计 §7.3）。
+> 数据库 schema 变更由服务启动时的 `store/migrate.go` 自动执行（`addColumnIfNotExists` + `CREATE TABLE IF NOT EXISTS`）。本能力**没有破坏性迁移**：新表、新列；存量 `issues.goal_condition` 不回填、不改写（设计 §7.3）。迁移列：`issue_checklists.kind/brief_id`、`issues.completion_profile_id`、`im_bot_chats.intake_mode`；`issue_exec_events.kind` 放宽以接受 `intake` 轨迹。
 
 ---
 
@@ -148,7 +156,8 @@ intake:
    - `agent_mode=command` → `intake_mode=off`
    - `agent_mode=observe` → `intake_mode=auto`
    - 新 chat 默认 `observe`（dry-run）
-   - 每个 chat 可在 chat 行覆盖「继承项目 / 关闭 / 观察 / 自动」。
+   - 每个 chat 可在 chat 行覆盖「继承项目（`inherit`）/ 关闭（`off`）/ 观察（`observe`）/ 自动（`auto`）」。
+     `inherit` 表示该 chat 不覆盖项目+来源策略，实际模式取 `intake_settings` 中 `im_bot` 来源的 `mode`；`inherit` 不是迁移回填值，只由用户主动选择。
 
 ---
 
@@ -264,6 +273,8 @@ curl "$BASE/api/projects/123/intake/decisions?executed=0"
 | `observe` | `auto` | 保留旧「预算内直接行动」 |
 | 其他/新 chat | `observe` | dry-run，只记录决策 |
 
+`intake_mode` 还接受 `inherit`（跟随项目+来源设置）。它是用户显式选择值，不由本次迁移写入；`effectiveChatIntakeMode` 遇到 `inherit` 返回空模式，由 intake pipeline 采用项目策略的 `mode`。
+
 **验证**：
 
 ```sql
@@ -363,6 +374,58 @@ DROP TABLE im_bot_inbox;
 - 新建的 intake 任务由 Task Brief 渲染 `goal_condition`（缓存），验收项物化为 `issue_checklists.kind='acceptance'`。
 - 手工 issue 没有 Brief 时继续使用原 `goal_condition`；不会因为升级而变化。
 - 若需要修正某个存量 issue 的验收标准，人工编辑其 `goal_condition` 或创建 Task Brief；不要批量回填。
+
+### 5.4 新增数据表与运行期状态
+
+本能力共新增 12 张表（SQLite / PostgreSQL 双写）：
+
+| 分组 | 表 | 用途 |
+|---|---|---|
+| Intake 配置 | `intake_settings` | 每 (project, source_kind) 的模式、daily_cap、allow/bot list |
+| Intake 配置 | `intake_rules` | 规则：instruction + conditions + priority + enabled |
+| Intake 配置 | `intake_policy_versions` | 每次设置/规则变更的策略快照（只增不改） |
+| Intake 配置 | `intake_project_state` | 项目级暂停开关（`paused`）；无行 = 未暂停 |
+| Intake 事件 | `intake_events` | 入站事件，UNIQUE(source_kind, source_ref, event_ext_id) 做幂等 |
+| Intake 事件 | `intake_decisions` | 每条事件的决策（accept/resume/ignore/unavailable）与执行结果 |
+| Intake 事件 | `intake_daily_usage` | 每日自动接活配额的原子占位 |
+| GitHub | `github_source_poll_state` | 每 (project, repo, event stream) 的 since/ETag 游标与退避 |
+| GitHub | `github_thread_bindings` | 每 (project, repo, PR/issue) 的 thread → issue/workspace 绑定 |
+| Completion | `task_briefs` | Task Brief 1:N 追加式版本 |
+| Completion | `completion_settings` | 项目默认完成策略 |
+| Completion | `completion_profiles` | 命名完成策略 |
+
+**`intake_daily_usage`（daily cap 的 TOCTOU 修复）**
+
+- 每 (project_id, source_kind, day) 一行，`used` 为已占用配额；`day` 取触发事件时间所在日历日（`YYYY-MM-DD`）。
+- 占位是一条原子语句：
+
+  ```sql
+  INSERT INTO intake_daily_usage (project_id, source_kind, day, used)
+  VALUES (?, ?, ?, 1)
+  ON CONFLICT (project_id, source_kind, day)
+  DO UPDATE SET used = intake_daily_usage.used + 1
+  WHERE intake_daily_usage.used < ?;   -- cap
+  ```
+
+  影响行数为 0 即配额用尽。这避免了“先 count 再 insert”在并发下多接任务。
+- 只有 `inferred` 的自动执行占用配额；`explicit` 请求不占。
+- 执行前失败会 `ReleaseIntakeDailySlot` 归还；执行成功后不归还。
+- 该表只做配额计数，不保存事件内容。行数 ≈ 项目数 × 来源数 × 天数，无需常规清理；若要清理，只删历史 `day`，不要删当天行。
+
+**`github_source_poll_state`（个人版轮询游标）**
+
+- 每 (project_id, repo, stream) 一行；`stream` 是事件流（`issue_comment` 等）。
+- 字段：`since_ts`、`etag`、`failure_count`、`backoff_until`、`last_polled_at`、`last_error`；时间用 RFC3339 文本保证 SQLite/PG 一致。
+- 排查轮询问题先看 `last_error` 和 `backoff_until`。
+- **不要手删这张表来“强制刷新”**：删行会让下一次轮询从默认起点重拉，可能产生大量历史事件（仍会被 `intake_events` 去重，但会浪费配额）。确需重拉时，只把目标行的 `since_ts`/`etag` 更新到期望位置。
+
+**`github_thread_bindings`（续接依据）**
+
+- 每 (project_id, repo, thread_ext_id) 一行，记录绑定的 `issue_id` / `workspace_id`。
+- `state='ended'` 表示 PR 已关闭/合并：后续评论仍会记录为事件，但不再新建或续接任务。
+- 排查“评论没续接”时先看该行是否存在、`state` 是否为 `ended`。
+
+**备份**：以上表都在主库内，按 §1 的整体备份即可；不需要单独导出。回滚二进制时**保留**这些表（纯增量，旧版本会忽略）。
 
 ---
 
@@ -545,6 +608,17 @@ intake:
 - [ ] 项目设置两个独立入口可用；移动端、键盘、Dark mode、设计系统检查通过。
 - [ ] 个人版在无公网环境完成一次「评论 → 任务」验证。
 - [ ] 团队版完成一次「GitHub webhook → 任务」验证，伪造签名被 401 拒绝。
+
+> Epic（#755）本身**不适用自动完成**：必须人工审核后手动移入「完成」列。上面的清单用于人工审核，不要把 `[AUTOHOST_DONE]` 当作 Epic 的收尾依据。
+
+### 8.1 已知问题（不阻塞本次上线）
+
+| 项 | 状态 | 处理 |
+|---|---|---|
+| 仓库级 `pnpm lint` 仍有 29 个 `main` 既有错误 | 既有基线，本 Epic 未新增；本 Epic 改动文件 0 错误 | 作为独立 chore 跟踪，**不在本 issue 清理** |
+| 团队版 GitHub `webhook_secret` 无表单入口 | 可用 API 完成（§4.2） | 后续在凭据对话框补可选字段（独立任务） |
+| `im_bot_inbox` 读切换未执行 | 双写已上线；读路径仍为旧表 | 按 §5.2 在下一版本切换、保留一版后删除 |
+| GitHub Enterprise BaseURL 不可配置 | 个人版轮询固定 `api.github.com` | 需要时另开任务暴露配置 |
 
 ---
 
