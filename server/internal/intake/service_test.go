@@ -8,13 +8,17 @@ import (
 )
 
 type fakeStore struct {
-	event      EventRecord
-	eventErr   error
-	eventCalls int
-	lastEvent  Trigger
-	decisions  []DecisionRecord
-	marked     []markedExecution
-	decisionID int64
+	event         EventRecord
+	eventErr      error
+	eventCalls    int
+	lastEvent     Trigger
+	decisions     []DecisionRecord
+	marked        []markedExecution
+	decisionID    int64
+	executedCount int64
+	countErr      error
+	countCalls    int
+	countSince    time.Time
 }
 
 type markedExecution struct {
@@ -39,6 +43,12 @@ func (f *fakeStore) RecordDecision(ctx context.Context, rec DecisionRecord) (int
 func (f *fakeStore) MarkExecuted(ctx context.Context, decisionID int64, res ExecutionResult) error {
 	f.marked = append(f.marked, markedExecution{decisionID: decisionID, result: res})
 	return nil
+}
+
+func (f *fakeStore) CountExecuted(ctx context.Context, projectID int64, sourceKind string, since time.Time) (int64, error) {
+	f.countCalls++
+	f.countSince = since
+	return f.executedCount, f.countErr
 }
 
 type fakePolicies struct {
@@ -323,6 +333,71 @@ func TestHandleOffModeIgnoresInferred(t *testing.T) {
 	}
 	if store.decisions[0].Brief != nil || store.decisions[0].WouldDo != nil {
 		t.Fatalf("ignored trigger carried a brief")
+	}
+}
+
+func TestHandleDailyCapBlocksInferred(t *testing.T) {
+	policy := Policy{
+		Mode:     ModeAuto,
+		DailyCap: 2,
+		Rules:    []Rule{{ID: 11, Enabled: true, Conditions: RuleConditions{Keywords: []string{"deploy"}}}},
+	}
+	svc, store, _, _, executor := newHarness(policy)
+	store.executedCount = 2
+
+	res, err := svc.Handle(context.Background(), trigger("ou_dave", "please deploy"))
+	if err != nil {
+		t.Fatalf("Handle: %v", err)
+	}
+	if res.Decision != DecisionIgnore || res.ReasonCode != ReasonDailyCap || res.Executed {
+		t.Fatalf("result = %+v", res)
+	}
+	if len(executor.plans) != 0 || len(store.marked) != 0 {
+		t.Fatalf("daily cap did not stop execution")
+	}
+	if store.countCalls != 1 {
+		t.Fatalf("count calls = %d, want 1", store.countCalls)
+	}
+	if store.decisions[0].Decision != DecisionIgnore || store.decisions[0].WouldDo != nil {
+		t.Fatalf("recorded = %+v", store.decisions[0])
+	}
+}
+
+func TestHandleDailyCapDoesNotLimitExplicit(t *testing.T) {
+	policy := allowPolicy()
+	policy.DailyCap = 1
+	svc, store, _, _, executor := newHarness(policy)
+	store.executedCount = 99
+
+	res, err := svc.Handle(context.Background(), trigger("ou_alice", "do it"))
+	if err != nil {
+		t.Fatalf("Handle: %v", err)
+	}
+	if !res.Executed || len(executor.plans) != 1 {
+		t.Fatalf("explicit request was capped: %+v", res)
+	}
+	if store.countCalls != 0 {
+		t.Fatalf("count calls = %d, want 0 for explicit work", store.countCalls)
+	}
+}
+
+func TestHandleDailyCapZeroIsUnlimited(t *testing.T) {
+	policy := Policy{
+		Mode:  ModeAuto,
+		Rules: []Rule{{ID: 11, Enabled: true, Conditions: RuleConditions{Keywords: []string{"deploy"}}}},
+	}
+	svc, store, _, _, executor := newHarness(policy)
+	store.executedCount = 99
+
+	res, err := svc.Handle(context.Background(), trigger("ou_dave", "please deploy"))
+	if err != nil {
+		t.Fatalf("Handle: %v", err)
+	}
+	if !res.Executed || len(executor.plans) != 1 {
+		t.Fatalf("cap=0 should not limit: %+v", res)
+	}
+	if store.countCalls != 0 {
+		t.Fatalf("count calls = %d, want 0", store.countCalls)
 	}
 }
 

@@ -99,6 +99,9 @@ type Store interface {
 	RecordEvent(ctx context.Context, t Trigger) (EventRecord, error)
 	RecordDecision(ctx context.Context, rec DecisionRecord) (int64, error)
 	MarkExecuted(ctx context.Context, decisionID int64, res ExecutionResult) error
+	// CountExecuted backs the per-source daily cap. It counts decisions that
+	// were actually executed for this project+source since the given instant.
+	CountExecuted(ctx context.Context, projectID int64, sourceKind string, since time.Time) (int64, error)
 }
 
 // PolicyProvider loads the effective policy for one project+source. A project
@@ -222,6 +225,17 @@ func (s *Service) Handle(ctx context.Context, t Trigger) (Result, error) {
 
 	decision, reason := decide(policy.Mode, authz.Strength, resolution.Bound, t.ForceNew)
 	executed := shouldExecute(policy.Mode, authz.Strength)
+	// The daily cap bounds inferred auto-intake only; explicit requests from an
+	// allow-listed actor always run.
+	if executed && authz.Strength == StrengthInferred && policy.DailyCap > 0 {
+		withinCap, err := s.withinDailyCap(ctx, t, policy.DailyCap)
+		if err != nil {
+			return res, fmt.Errorf("intake: daily cap: %w", err)
+		}
+		if !withinCap {
+			decision, reason, executed = DecisionIgnore, ReasonDailyCap, false
+		}
+	}
 	res.Decision = decision
 	res.ReasonCode = reason
 
@@ -284,6 +298,19 @@ func (s *Service) Handle(ctx context.Context, t Trigger) (Result, error) {
 	res.IssueID = out.IssueID
 	res.WorkspaceID = out.WorkspaceID
 	return res, nil
+}
+
+// withinDailyCap reports whether one more execution stays inside the
+// project+source daily cap. The window is the calendar day of the trigger in
+// its own timezone.
+func (s *Service) withinDailyCap(ctx context.Context, t Trigger, cap int64) (bool, error) {
+	now := t.ReceivedAt
+	start := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
+	n, err := s.store.CountExecuted(ctx, t.ProjectID, t.SourceKind, start)
+	if err != nil {
+		return false, err
+	}
+	return n < cap, nil
 }
 
 // decide maps authorization strength + mode + thread binding to a decision.

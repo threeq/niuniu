@@ -210,6 +210,12 @@ func (st imbotIntakeStore) MarkExecuted(ctx context.Context, decisionID int64, r
 	return err
 }
 
+func (st imbotIntakeStore) CountExecuted(ctx context.Context, projectID int64, sourceKind string, since time.Time) (int64, error) {
+	return st.q.CountExecutedIntakeDecisionsSince(ctx, store.CountExecutedIntakeDecisionsSinceParams{
+		ProjectID: projectID, SourceKind: sourceKind, CreatedAt: since,
+	})
+}
+
 func validID(id int64) sql.NullInt64 {
 	return sql.NullInt64{Int64: id, Valid: id > 0}
 }

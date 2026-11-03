@@ -36,6 +36,9 @@ func TestPolicyEvaluate(t *testing.T) {
 		{"bot list actor is inferred", "bot_release", true, "build it", StrengthInferred, nil, ReasonBotList},
 		{"bot outside bot list is denied", "bot_other", true, "build it", StrengthDenied, nil, ReasonDenied},
 		{"keyword rule is case-insensitive", "ou_dave", false, "please DEPLOY now", StrengthInferred, []int64{11}, ReasonRule},
+		{"keyword needs a token boundary", "ou_dave", false, "the app is undeployed", StrengthDenied, nil, ReasonDenied},
+		{"keyword does not match a longer word", "ou_dave", false, "deployment failed", StrengthDenied, nil, ReasonDenied},
+		{"keyword matches beside punctuation", "ou_dave", false, "deploy!", StrengthInferred, []int64{11}, ReasonRule},
 		{"chinese keyword rule matches", "ou_dave", false, "帮我发布一下", StrengthInferred, []int64{11}, ReasonRule},
 		{"actor rule matches", "ou_bob", false, "anything", StrengthInferred, []int64{12}, ReasonRule},
 		{"disabled rule never matches", "ou_carol", false, "deploy", StrengthInferred, []int64{11}, ReasonRule},
@@ -76,6 +79,34 @@ func TestPolicyEvaluateDirectRequestBeatsEverything(t *testing.T) {
 	got := policy.Evaluate(Trigger{Actor: ActorRef{ExtID: "ou_unknown"}, Text: "deploy", Explicit: true})
 	if got.Strength != StrengthExplicit || got.ReasonCode != ReasonDirect {
 		t.Fatalf("got %+v, want explicit/direct_request", got)
+	}
+}
+
+func TestContainsKeywordTokenBoundaries(t *testing.T) {
+	tests := []struct {
+		name string
+		text string
+		kw   string
+		want bool
+	}{
+		{"single token matches", "please deploy now", "deploy", true},
+		{"substring of longer word is rejected", "undeployed", "deploy", false},
+		{"longer word is rejected", "deployment failed", "deploy", false},
+		{"punctuation is a boundary", "deploy!", "deploy", true},
+		{"multi-word phrase matches consecutively", "please deploy now", "deploy now", true},
+		{"multi-word phrase does not span other words", "deploy it now", "deploy now", false},
+		{"punctuated phrase is tokenized", "deploy-now", "deploy now", true},
+		{"cjk keyword keeps substring matching", "帮我发布一下", "发布", true},
+		{"cjk keyword still requires exact substring", "帮我发布", "未发布", false},
+		{"accented latin does not substring-match", "cafeteria", "café", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := containsKeyword(tt.text, []string{tt.kw}); got != tt.want {
+				t.Fatalf("containsKeyword(%q, %q) = %v, want %v", tt.text, tt.kw, got, tt.want)
+			}
+		})
 	}
 }
 
