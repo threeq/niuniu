@@ -25,6 +25,9 @@ type IntakeHandler struct {
 	// Github exposes the bound-repo event configuration + poll health (design
 	// §6.10). Nil until server wiring; the endpoints then answer 501.
 	Github *service.GithubSourceService
+	// Webhook exposes the team-edition email/generic webhook bindings. Nil until
+	// server wiring; the endpoints then answer 501.
+	Webhook *service.WebhookSourceService
 	// ProviderEnv lets the brief suggestion reuse the issue endpoint's provider
 	// default, so it works even when the host's native CLI login has expired.
 	ProviderEnv interface {

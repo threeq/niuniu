@@ -53,6 +53,14 @@ func (s *Server) setupRoutes() {
 	s.engine.GET("/api/credential-onboarding/:token", s.credOnboardingHandler.GetCredentialLinkInfo)
 	s.engine.POST("/api/credential-onboarding/:token", s.credOnboardingHandler.SubmitCredentialLink)
 
+	// Team-edition inbound webhook Sources (Epic #755, design §6.10) — no auth:
+	// the per-binding signature (GitHub HMAC) or bearer secret is the sole
+	// authorization, exactly like the IM public webhook above. An unsigned or
+	// forged delivery is rejected with 401 and records nothing.
+	s.engine.POST("/api/integrations/github/webhook/:binding", s.intakeWebhookHandler.GitHub)
+	s.engine.POST("/api/integrations/webhook/:binding", s.intakeWebhookHandler.Webhook)
+	s.engine.POST("/api/integrations/email/:binding", s.intakeWebhookHandler.Email)
+
 	// Local credential proxy (issue #733): the loopback endpoint a projected
 	// MCP server is pointed at instead of carrying the secret itself. The
 	// opaque, expiring path token IS the authorization, so these sit outside
@@ -784,6 +792,11 @@ func (s *Server) setupRoutes() {
 		// GitHub Source (个人版轮询, design §6.10): bound repos + event types.
 		projects.GET("/:id/intake/github", s.intakeHandler.GetGitHubConfig)
 		projects.PUT("/:id/intake/github", s.intakeHandler.PutGitHubConfig)
+		// Team-edition email / generic webhook bindings (design §6.10). The
+		// secret is returned once at creation and never again.
+		projects.GET("/:id/intake/webhook", s.intakeHandler.ListWebhookBindings)
+		projects.POST("/:id/intake/webhook", s.intakeHandler.CreateWebhookBinding)
+		projects.DELETE("/:id/intake/webhook/:bid", s.intakeHandler.DeleteWebhookBinding)
 		projects.GET("/:id/intake/decisions", s.intakeHandler.ListDecisions)
 		projects.PATCH("/:id/intake/decisions/:did", s.intakeHandler.UpdateDecisionBrief)
 		projects.POST("/:id/intake/decisions/:did/accept", s.intakeHandler.AcceptDecision)

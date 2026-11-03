@@ -659,11 +659,17 @@ func (s *GithubSourceService) persistBrief(ctx context.Context, issueID int64, p
 // GithubRepoConfigDTO is one bound repository with its event selection and
 // latest poll health.
 type GithubRepoConfigDTO struct {
-	SourceKey    string     `json:"source_key"`
-	Events       []string   `json:"events"`
-	LastPolledAt *time.Time `json:"last_polled_at,omitempty"`
-	BackoffUntil *time.Time `json:"backoff_until,omitempty"`
-	LastError    string     `json:"last_error,omitempty"`
+	SourceKey string   `json:"source_key"`
+	Events    []string `json:"events"`
+	// WebhookPath is the public inbound URL for the team edition. The personal
+	// edition keeps polling; the endpoint is inert until a secret is configured.
+	WebhookPath string `json:"webhook_path"`
+	// WebhookConfigured reports whether the bound credential carries a
+	// webhook_secret (the value itself is never returned).
+	WebhookConfigured bool       `json:"webhook_configured"`
+	LastPolledAt      *time.Time `json:"last_polled_at,omitempty"`
+	BackoffUntil      *time.Time `json:"backoff_until,omitempty"`
+	LastError         string     `json:"last_error,omitempty"`
 }
 
 // GithubConfigView is the GET response.
@@ -702,8 +708,10 @@ func (s *GithubSourceService) ListGitHubConfig(ctx context.Context, projectID in
 			continue
 		}
 		dto := GithubRepoConfigDTO{
-			SourceKey: row.SourceKey,
-			Events:    githubEventsFromConfig(row.Config),
+			SourceKey:         row.SourceKey,
+			Events:            githubEventsFromConfig(row.Config),
+			WebhookPath:       fmt.Sprintf("/api/integrations/github/webhook/%d", row.ID),
+			WebhookConfigured: s.webhookSecretConfigured(ctx, row.CredentialID),
 		}
 		if len(dto.Events) == 0 {
 			dto.Events = append([]string(nil), githubsource.KnownEvents...)
@@ -736,6 +744,25 @@ func (s *GithubSourceService) ListGitHubConfig(ctx context.Context, projectID in
 	}
 	sort.Slice(view.Repos, func(i, j int) bool { return view.Repos[i].SourceKey < view.Repos[j].SourceKey })
 	return view, nil
+}
+
+// webhookSecretConfigured reports whether the bound credential carries a
+// webhook secret. It decrypts only to answer a boolean; the value never leaves
+// the service.
+func (s *GithubSourceService) webhookSecretConfigured(ctx context.Context, credentialID sql.NullInt64) bool {
+	if s.creds == nil || !credentialID.Valid || credentialID.Int64 <= 0 {
+		return false
+	}
+	cred, err := s.creds.GetBoundByID(ctx, credentialID.Int64)
+	if err != nil {
+		return false
+	}
+	for _, key := range []string{"webhook_secret", "secret"} {
+		if v, ok := cred.Config[key].(string); ok && strings.TrimSpace(v) != "" {
+			return true
+		}
+	}
+	return false
 }
 
 // UpdateGitHubConfig changes the enabled event set for the supplied repos. A

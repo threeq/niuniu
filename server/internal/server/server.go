@@ -113,14 +113,16 @@ type Server struct {
 	projectFloorHandler  *api.ProjectFloorHandler
 
 	// Intake (任务来源) + Completion (自动完成) contract surface (design §6.9).
-	intakeSvc         *service.IntakeService
-	intakeHandler     *api.IntakeHandler
-	githubSourceSvc   *service.GithubSourceService
-	githubReplySvc    *service.GithubReplyDispatcher
-	completionSvc     *service.CompletionService
-	completionHandler *api.CompletionHandler
-	taskBriefSvc      *service.TaskBriefService
-	taskBriefHandler  *api.TaskBriefHandler
+	intakeSvc            *service.IntakeService
+	intakeHandler        *api.IntakeHandler
+	githubSourceSvc      *service.GithubSourceService
+	githubReplySvc       *service.GithubReplyDispatcher
+	webhookSourceSvc     *service.WebhookSourceService
+	intakeWebhookHandler *api.IntegrationWebhookHandler
+	completionSvc        *service.CompletionService
+	completionHandler    *api.CompletionHandler
+	taskBriefSvc         *service.TaskBriefService
+	taskBriefHandler     *api.TaskBriefHandler
 	// Mission control: the two independent metric panels + global intake pause.
 	missionControlSvc     *service.MissionControlService
 	missionControlHandler *api.MissionControlHandler
@@ -1735,6 +1737,14 @@ func New(cfg *config.Config, db *sql.DB, frontendFS fs.FS) *Server {
 	if cfg.Intake.GitHubPollCron != "" {
 		s.scheduler.RegisterGitHubPoll(cfg.Intake.GitHubPollCron, s.githubSourceSvc.RunOnce)
 	}
+	// Team-edition inbound Sources (design §6.10): GitHub webhook plus the
+	// email/generic webhook adapters. They normalize to the same Trigger shape
+	// and run through the same Intake pipeline as polling, so dedupe, actor
+	// scope, the daily cap and audit are identical.
+	s.webhookSourceSvc = service.NewWebhookSourceService(db, s.queries, s.extCredSvc)
+	s.webhookSourceSvc.SetInbound(imbotDispatch, s.agentProxy)
+	s.intakeHandler.Webhook = s.webhookSourceSvc
+	s.intakeWebhookHandler = api.NewIntegrationWebhookHandler(s.webhookSourceSvc)
 	// Let a user answer an agent's ask_user question by tapping an option button in
 	// the chat (the outbound question card carries option buttons).
 	s.imbotSvc.SetAskUserDecider(s.askUserService)
