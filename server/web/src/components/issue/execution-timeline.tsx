@@ -1,7 +1,7 @@
 import { useQuery } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
 import {
-  ArrowRight, ShieldCheck, MessageCircleQuestion, Flag, Hand, CircleDollarSign,
+  ArrowRight, ShieldCheck, MessageCircleQuestion, Flag, Hand, CircleDollarSign, Inbox,
 } from 'lucide-react'
 import { epicApi } from '@/lib/api'
 import type { ExecTimelineEntry, ExecTimelineResponse } from '@/types/api'
@@ -18,6 +18,7 @@ const KIND_ICON: Record<ExecTimelineEntry['kind'], React.ComponentType<{ classNa
   terminal:     Flag,
   intervention: Hand,
   cost:         CircleDollarSign,
+  intake:       Inbox,
 }
 
 // Per-issue execution timeline (spec section 23.7): advance moves, gate results,

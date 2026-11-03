@@ -77,7 +77,8 @@
         "ask_user": "Asked you",
         "terminal": "Terminal state",
         "intervention": "Intervention",
-        "cost": "Cost"
+        "cost": "Cost",
+        "intake": "Intake"
       }
     },
     "checkpointTimeline": {
@@ -274,7 +275,8 @@
     "groupName": "Group: {{group}}",
     "checklist": {
       "title": "Checklist",
-      "addPlaceholder": "Add an item..."
+      "addPlaceholder": "Add an item...",
+      "executionSection": "Execution checklist"
     },
     "description": {
       "label": "Description",

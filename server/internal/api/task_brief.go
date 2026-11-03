@@ -100,7 +100,7 @@ func (h *TaskBriefHandler) PutBrief(c *gin.Context) {
 		BadRequest(c, "invalid request body")
 		return
 	}
-	view, err := h.svc.PutIssueBrief(c.Request.Context(), issueID, in)
+	view, err := h.svc.PutIssueBrief(c.Request.Context(), issueID, in, uid)
 	if err != nil {
 		if errors.Is(err, service.ErrNotFound) {
 			NotFound(c, "ISSUE")

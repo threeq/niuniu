@@ -526,7 +526,7 @@ func (e imbotExecutor) persistBrief(ctx context.Context, issueID int64, plan int
 	if brief.Provenance.DecisionID == 0 {
 		brief.Provenance.DecisionID = plan.DecisionID
 	}
-	if _, err := NewTaskBriefWriter(e.svc.db).Append(ctx, issueID, brief); err != nil {
+	if _, err := NewTaskBriefWriter(e.svc.db).Append(ctx, issueID, brief, 0); err != nil {
 		slog.Warn("imbot: persist task brief failed", "issue", issueID, "error", err)
 	}
 }

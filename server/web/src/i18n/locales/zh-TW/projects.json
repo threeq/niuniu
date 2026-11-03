@@ -77,7 +77,8 @@
         "ask_user": "提問",
         "terminal": "終態",
         "intervention": "人工干預",
-        "cost": "成本"
+        "cost": "成本",
+        "intake": "接活"
       }
     },
     "checkpointTimeline": {
@@ -274,7 +275,8 @@
     "groupName": "分組: {{group}}",
     "checklist": {
       "title": "Checklist",
-      "addPlaceholder": "新增專案..."
+      "addPlaceholder": "新增專案...",
+      "executionSection": "執行清單"
     },
     "description": {
       "label": "描述",

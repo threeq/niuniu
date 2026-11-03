@@ -56,6 +56,8 @@ import type {
   WorkspaceMCPState,
   EpicProgress,
   ExecTimelineResponse,
+  IssueBriefResponse,
+  TaskBriefInput,
   CheckpointListResponse,
   CheckpointRevertResponse,
   Scene,
@@ -557,9 +559,19 @@ export const api = {
   deleteChecklist: (checklistId: number) =>
     api.delete(`/checklists/${checklistId}`),
 
+  // Task Brief (design §6.4 / §6.9). null brief = the issue did not come from
+  // Intake, which is what hides the card on legacy issues.
+  // suppressError: the detail panel simply omits the card when the brief is
+  // unavailable instead of raising a global API toast.
+  getIssueBrief: (issueId: number) =>
+    api.get<IssueBriefResponse>(`/issues/${issueId}/brief`, { suppressError: true }),
+  putIssueBrief: (issueId: number, input: TaskBriefInput) =>
+    api.put<IssueBriefResponse>(`/issues/${issueId}/brief`, input),
+
   // Issue comments
   listIssueComments: (issueId: number) =>
     api.get<IssueComment[]>(`/issues/${issueId}/comments`),
+
   createIssueComment: (issueId: number, data: { author: string; content: string }) =>
     api.post<IssueComment>(`/issues/${issueId}/comments`, data),
   updateIssueComment: (commentId: number, data: { content: string }) =>

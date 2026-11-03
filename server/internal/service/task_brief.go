@@ -49,17 +49,35 @@ type TaskBriefView struct {
 	Provenance       Provenance   `json:"provenance"`
 	IntakeDecisionID *int64       `json:"intake_decision_id"`
 	PolicyVersion    int64        `json:"policy_version"`
+	CreatedBy        *int64       `json:"created_by"`
 	CreatedAt        time.Time    `json:"created_at"`
+}
+
+// ProvenanceEventView is the original intake event behind the current Brief,
+// rendered into the provenance popover. It travels with the Brief so the detail
+// panel does not issue a second request.
+type ProvenanceEventView struct {
+	SourceKind  string          `json:"source_kind"`
+	EventKind   string          `json:"event_kind"`
+	ActorExtID  string          `json:"actor_ext_id"`
+	ActorName   string          `json:"actor_name"`
+	ThreadExtID string          `json:"thread_ext_id"`
+	EventExtID  string          `json:"event_ext_id"`
+	SourceRef   string          `json:"source_ref"`
+	Payload     json.RawMessage `json:"payload"`
+	ReceivedAt  time.Time       `json:"received_at"`
+	RuleNames   []string        `json:"rule_names"`
 }
 
 // IssueBriefView is the GET /api/issues/:id/brief response. Brief is null for
 // issues that did not come from Intake, which is how the UI decides whether to
 // render the Task Brief card at all.
 type IssueBriefView struct {
-	IssueID       int64           `json:"issue_id"`
-	GoalCondition string          `json:"goal_condition"`
-	Brief         *TaskBriefView  `json:"brief"`
-	Versions      []TaskBriefView `json:"versions"`
+	IssueID         int64                `json:"issue_id"`
+	GoalCondition   string               `json:"goal_condition"`
+	Brief           *TaskBriefView       `json:"brief"`
+	Versions        []TaskBriefView      `json:"versions"`
+	ProvenanceEvent *ProvenanceEventView `json:"provenance_event"`
 }
 
 // TaskBriefInput is the PUT /api/issues/:id/brief body. Delivery and provenance
@@ -89,7 +107,7 @@ func NewTaskBriefService(q *store.Queries, db *store.DB) *TaskBriefService {
 // edit never rewrites history; acceptance rows and issues.goal_condition are
 // refreshed by the writer in the same transaction. Delivery/provenance fall
 // back to the current version, and an issue without a brief gets version 1.
-func (s *TaskBriefService) PutIssueBrief(ctx context.Context, issueID int64, in TaskBriefInput) (IssueBriefView, error) {
+func (s *TaskBriefService) PutIssueBrief(ctx context.Context, issueID int64, in TaskBriefInput, createdBy int64) (IssueBriefView, error) {
 	goal := strings.TrimSpace(in.Goal)
 	if goal == "" {
 		return IssueBriefView{}, errors.New("goal is required")
@@ -142,7 +160,7 @@ func (s *TaskBriefService) PutIssueBrief(ctx context.Context, issueID int64, in 
 			ActorExtID:    provenance.ActorExtID,
 			RuleIDs:       provenance.RuleIDs,
 		},
-	}); err != nil {
+	}, createdBy); err != nil {
 		return IssueBriefView{}, err
 	}
 	return s.GetIssueBrief(ctx, issueID)
@@ -169,6 +187,7 @@ func (s *TaskBriefService) GetIssueBrief(ctx context.Context, issueID int64) (Is
 	}
 	view := taskBriefView(latest)
 	out.Brief = &view
+	out.ProvenanceEvent = s.provenanceEvent(ctx, view.Provenance)
 
 	rows, err := s.q.ListTaskBriefs(ctx, issueID)
 	if err != nil {
@@ -179,6 +198,43 @@ func (s *TaskBriefService) GetIssueBrief(ctx context.Context, issueID int64) (Is
 		out.Versions = append(out.Versions, taskBriefView(r))
 	}
 	return out, nil
+}
+
+// provenanceEvent loads the decision + event that produced the current Brief.
+// A brief without an intake origin (or whose decision was pruned) simply has no
+// event; the popover still renders the stored provenance fields. Rule names are
+// resolved best-effort so a deleted rule does not blank the whole trace.
+func (s *TaskBriefService) provenanceEvent(ctx context.Context, prov Provenance) *ProvenanceEventView {
+	if prov.DecisionID <= 0 {
+		return nil
+	}
+	decision, err := s.q.GetIntakeDecision(ctx, prov.DecisionID)
+	if err != nil {
+		return nil
+	}
+	event, err := s.q.GetIntakeEvent(ctx, decision.EventID)
+	if err != nil {
+		return nil
+	}
+	payload := json.RawMessage(orJSONObject(event.PayloadJson))
+	view := &ProvenanceEventView{
+		SourceKind:  event.SourceKind,
+		EventKind:   event.EventKind,
+		ActorExtID:  event.ActorExtID,
+		ActorName:   event.ActorName,
+		ThreadExtID: event.ThreadExtID,
+		EventExtID:  event.EventExtID,
+		SourceRef:   event.SourceRef,
+		Payload:     payload,
+		ReceivedAt:  event.ReceivedAt,
+		RuleNames:   []string{},
+	}
+	for _, ruleID := range prov.RuleIDs {
+		if rule, rerr := s.q.GetIntakeRule(ctx, ruleID); rerr == nil && rule.Name != "" {
+			view.RuleNames = append(view.RuleNames, rule.Name)
+		}
+	}
+	return view
 }
 
 func taskBriefView(r store.TaskBrief) TaskBriefView {
@@ -196,6 +252,10 @@ func taskBriefView(r store.TaskBrief) TaskBriefView {
 	if r.IntakeDecisionID.Valid {
 		v := r.IntakeDecisionID.Int64
 		view.IntakeDecisionID = &v
+	}
+	if r.CreatedBy.Valid {
+		v := r.CreatedBy.Int64
+		view.CreatedBy = &v
 	}
 	_ = json.Unmarshal([]byte(orJSONObject(r.DeliveryJson)), &view.Delivery)
 	_ = json.Unmarshal([]byte(orJSONObject(r.ProvenanceJson)), &view.Provenance)
@@ -221,7 +281,7 @@ func NewTaskBriefWriter(db *store.DB) *TaskBriefWriter { return &TaskBriefWriter
 
 // Append records a new Brief version for issueID and refreshes its derived
 // copies in the same transaction. Old versions stay queryable.
-func (w *TaskBriefWriter) Append(ctx context.Context, issueID int64, brief intake.TaskBrief) (store.TaskBrief, error) {
+func (w *TaskBriefWriter) Append(ctx context.Context, issueID int64, brief intake.TaskBrief, createdBy int64) (store.TaskBrief, error) {
 	if issueID <= 0 {
 		return store.TaskBrief{}, errors.New("task brief: invalid issue id")
 	}
@@ -285,6 +345,7 @@ func (w *TaskBriefWriter) Append(ctx context.Context, issueID int64, brief intak
 		ProvenanceJson:   string(provenanceJSON),
 		IntakeDecisionID: sql.NullInt64{Int64: brief.Provenance.DecisionID, Valid: brief.Provenance.DecisionID > 0},
 		PolicyVersion:    brief.Provenance.PolicyVersion,
+		CreatedBy:        sql.NullInt64{Int64: createdBy, Valid: createdBy > 0},
 	})
 	if err != nil {
 		return store.TaskBrief{}, fmt.Errorf("task brief: create version: %w", err)

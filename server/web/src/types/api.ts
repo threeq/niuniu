@@ -157,7 +157,7 @@ export interface EpicProgress {
 /** One row of the per-issue execution timeline (spec section 23.7). */
 export interface ExecTimelineEntry {
   id: number
-  kind: 'advance' | 'gate' | 'ask_user' | 'terminal' | 'intervention' | 'cost'
+  kind: 'advance' | 'gate' | 'ask_user' | 'terminal' | 'intervention' | 'cost' | 'intake'
   summary: string
   detail_json?: string
   cost_usd: number
@@ -168,6 +168,71 @@ export interface ExecTimelineEntry {
 export interface ExecTimelineResponse {
   entries: ExecTimelineEntry[]
   total_cost: number
+}
+
+// ── Task Brief (design §6.4 / §6.9) ──────────────────────────────────────────
+
+export interface TaskBriefDelivery {
+  source_kind: string
+  thread_ext_id: string
+  reply_mode: string
+}
+
+export interface TaskBriefProvenance {
+  decision_id: number
+  policy_version: number
+  strength: string
+  actor_ext_id: string
+  rule_ids: number[]
+}
+
+/** One append-only Brief version. */
+export interface TaskBriefVersion {
+  id: number
+  issue_id: number
+  version: number
+  goal: string
+  acceptance: string[]
+  scope_in: string[]
+  scope_out: string[]
+  delivery: TaskBriefDelivery
+  provenance: TaskBriefProvenance
+  intake_decision_id: number | null
+  policy_version: number
+  created_by: number | null
+  created_at: string
+}
+
+/** Original intake event behind the current Brief (provenance popover). */
+export interface BriefProvenanceEvent {
+  source_kind: string
+  event_kind: string
+  actor_ext_id: string
+  actor_name: string
+  thread_ext_id: string
+  event_ext_id: string
+  source_ref: string
+  payload: Record<string, unknown>
+  received_at: string
+  rule_names: string[]
+}
+
+/** Returned by GET /issues/:id/brief; brief is null for non-Intake issues. */
+export interface IssueBriefResponse {
+  issue_id: number
+  goal_condition: string
+  brief: TaskBriefVersion | null
+  versions: TaskBriefVersion[]
+  provenance_event: BriefProvenanceEvent | null
+}
+
+/** PUT /issues/:id/brief body. Omitted delivery/provenance inherit the current version. */
+export interface TaskBriefInput {
+  goal: string
+  acceptance: string[]
+  scope_in: string[]
+  scope_out: string[]
+  delivery?: TaskBriefDelivery
 }
 
 /** One repo's snapshot within a checkpoint step (autohost 安全网 hidden-ref). */
@@ -1016,6 +1081,9 @@ export interface IssueChecklist extends BaseEntity {
   title: string
   is_completed: number
   position: number
+  /** 'task' = manual execution item, 'acceptance' = materialized from the Brief. */
+  kind?: 'task' | 'acceptance' | string
+  brief_id?: number | null
 }
 
 export interface ChecklistStats {

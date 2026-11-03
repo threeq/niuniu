@@ -10,6 +10,7 @@ import { useIssueTimeline } from '@/lib/hooks/use-issue-timeline'
 import { IssueProperties } from '@/components/issue/issue-properties'
 import { IssueDescription } from '@/components/issue/issue-description'
 import { IssueGoalConditionPanel } from '@/components/issue/issue-goal-condition-panel'
+import { IssueBriefCard } from '@/components/issue/issue-brief-card'
 import { IssueChecklist } from '@/components/issue/issue-checklist'
 import { IssueTimeline } from '@/components/issue/issue-timeline'
 import { IssueCommentInput } from '@/components/issue/issue-comment-input'
@@ -316,6 +317,8 @@ export function KanbanIssueDetailPanel({ issueId, columns, onClose, onOpenIssue 
         )}
 
         <IssueWorkspace issueId={numericId} issueTitle={issue.title} />
+
+        <IssueBriefCard issueId={numericId} />
 
         <IssueDescription description={issue.description ?? ''} onSave={(desc) => handleUpdate({ description: desc })} />
         <IssueGoalConditionPanel
