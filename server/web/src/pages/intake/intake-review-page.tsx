@@ -38,8 +38,13 @@ export function IntakeReviewPage() {
   const isDesktop = useMediaQuery('(min-width: 768px)')
   const { projects, isLoading: projectsLoading } = useProjects()
   // Deep link from an IM chat row: preselect the project and narrow the queue to
-  // that conversation (design §6.7.7).
-  const search = useSearch({ strict: false }) as { project?: number; chat?: string }
+  // that conversation (design §6.7.7). Mission control drills here with
+  // ?source=<kind> for a per-source view.
+  const search = useSearch({ strict: false }) as {
+    project?: number
+    chat?: string
+    source?: string
+  }
 
   const [pickedProjectId, setPickedProjectId] = useState<number | null>(search.project ?? null)
   const [filter, setFilter] = useState<QueueFilter>('all')
@@ -68,13 +73,15 @@ export function IntakeReviewPage() {
     retry: 1,
   })
 
-  // A chat deep link narrows the queue client-side: decisions already carry the
-  // originating conversation's platform id, so no extra endpoint is needed.
+  // Chat / source deep links narrow the queue client-side: decisions already
+  // carry the originating conversation id and source kind, so no extra endpoint
+  // is needed. Mission control's per-source rows land here with ?source=.
   const decisions = useMemo(() => {
-    const all = decisionsQuery.data ?? []
-    if (!search.chat) return all
-    return all.filter((d) => d.payload?.ChatExtID === search.chat)
-  }, [decisionsQuery.data, search.chat])
+    let all = decisionsQuery.data ?? []
+    if (search.chat) all = all.filter((d) => d.payload?.ChatExtID === search.chat)
+    if (search.source) all = all.filter((d) => d.source_kind === search.source)
+    return all
+  }, [decisionsQuery.data, search.chat, search.source])
 
   // Keep a valid selection as the list changes (accept/ignore removes a row)
   // without an effect: falling back to the first row is derived at render time.

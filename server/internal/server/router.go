@@ -789,6 +789,12 @@ func (s *Server) setupRoutes() {
 			auth.RateLimitUserMiddleware(0.1, 3),
 			s.intakeHandler.SuggestGoalCondition)
 
+		// Mission control — two independent metric panels over the same
+		// capabilities, plus the global intake pause switch (design §6.6 /
+		// §6.7.8). Cross-project, scoped to the caller's accessible projects.
+		api.GET("/mission-control", s.missionControlHandler.Get)
+		api.PUT("/mission-control/pause", s.missionControlHandler.SetPause)
+
 		// Completion (自动完成) — project default + named profiles. Independent of
 		// Intake: changing one never affects the other (§6.5).
 		projects.GET("/:id/completion/settings", s.completionHandler.GetSettings)

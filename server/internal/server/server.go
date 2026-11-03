@@ -119,6 +119,9 @@ type Server struct {
 	completionHandler *api.CompletionHandler
 	taskBriefSvc      *service.TaskBriefService
 	taskBriefHandler  *api.TaskBriefHandler
+	// Mission control: the two independent metric panels + global intake pause.
+	missionControlSvc     *service.MissionControlService
+	missionControlHandler *api.MissionControlHandler
 
 	// External credential management (encrypted token storage).
 	intgKeyring          *crypto.Keyring
@@ -937,6 +940,10 @@ func New(cfg *config.Config, db *sql.DB, frontendFS fs.FS) *Server {
 	s.completionHandler = api.NewCompletionHandler(s.completionSvc, authz)
 	s.taskBriefSvc = service.NewTaskBriefService(s.queries, store.Wrap(db))
 	s.taskBriefHandler = api.NewTaskBriefHandler(s.taskBriefSvc, authz)
+	// Mission control reads across the Intake/Completion tables, so it is built
+	// after intakeSvc (it reuses its pause get/set) and owns no writes of its own.
+	s.missionControlSvc = service.NewMissionControlService(store.Wrap(db), s.queries, authz, s.intakeSvc)
+	s.missionControlHandler = &api.MissionControlHandler{Svc: s.missionControlSvc, DB: db}
 	// PATCH /api/issues/:id carries completion_profile_id; the kanban handler owns
 	// that route, so give it the completion service.
 	s.kanbanHandler.Completion = s.completionSvc

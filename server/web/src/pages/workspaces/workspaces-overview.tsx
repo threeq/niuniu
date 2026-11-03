@@ -20,7 +20,7 @@ import {
 import { OwnerFilter } from '@/components/shared/owner-filter';
 import { OwnerBadge } from '@/components/shared/owner-badge';
 import { AttentionIssuesPanel } from '@/components/workspaces/attention-issues-panel';
-import { AutonomyMetricsPlaceholder } from '@/components/workspaces/autonomy-metrics-placeholder';
+import { MissionControlPanels } from '@/components/workspaces/mission-control-panels';
 import { OwnerTokenTrend } from '@/components/workspaces/token-usage-chart';
 import { CreatorPicker } from '@/components/shared/creator-picker';
 import { UserBadge } from '@/components/shared/user-badge';
@@ -455,9 +455,9 @@ export function WorkspacesOverview() {
               />
             </div>
 
-            {/* Mission control placeholders for the Intake / Completion
-                capabilities (Phase 0 — metrics land with the policy APIs). */}
-            <AutonomyMetricsPlaceholder />
+            {/* Mission control: two independent panels for the Intake and
+                Completion capabilities (design §6.7.8). */}
+            <MissionControlPanels ownerParam={ownerFilterParam} />
 
             {/* Owner token usage trend; falls back to the caller's personal
                 owner when no single-owner filter is active. */}
