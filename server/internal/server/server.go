@@ -21,6 +21,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/niuniu-dev/niuniu/internal/agentproxy"
 	"github.com/niuniu-dev/niuniu/internal/api"
+	"github.com/niuniu-dev/niuniu/internal/completion"
 	"github.com/niuniu-dev/niuniu/internal/config"
 	"github.com/niuniu-dev/niuniu/internal/consent"
 	"github.com/niuniu-dev/niuniu/internal/dataconn"
@@ -433,6 +434,14 @@ func New(cfg *config.Config, db *sql.DB, frontendFS fs.FS) *Server {
 		frontendFS: frontendFS,
 	}
 	store.Migrate(db)
+
+	// Projects created before completion policy existed get their
+	// completion_settings row + built-in profiles here. Gated on "no settings
+	// row" so a project whose profiles the user edited/deleted is not re-seeded
+	// on every boot. Best-effort: the resolver falls back to schema defaults.
+	if err := completion.BackfillProjectDefaults(context.Background(), store.Wrap(db)); err != nil {
+		slog.Warn("completion: backfill project defaults failed", "error", err)
+	}
 
 	authz := service.NewAuthz(s.queries, db)
 	s.authzSvc = authz

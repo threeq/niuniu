@@ -12,6 +12,7 @@ import (
 
 	"golang.org/x/sync/errgroup"
 
+	"github.com/niuniu-dev/niuniu/internal/completion"
 	"github.com/niuniu-dev/niuniu/internal/event"
 	"github.com/niuniu-dev/niuniu/internal/notify"
 	"github.com/niuniu-dev/niuniu/internal/store"
@@ -1985,8 +1986,19 @@ func (s *KanbanService) CreateProjectWithDefaults(ctx context.Context, name, des
 	// be dead code given current routing.
 	appendResourceAudit(ctx, s.db, nil, ownerType, ownerID, 0, "project.created", "project", project.ID,
 		resourceAuditPayload(name))
+	s.seedCompletionDefaults(ctx, project.ID)
 
 	return project, nil
+}
+
+// seedCompletionDefaults gives a fresh project its completion_settings row and
+// the built-in named profiles (design §6.7.4). Best-effort: the resolver falls
+// back to schema defaults when the row is missing, so a seed failure must not
+// turn a successful project creation into a 500.
+func (s *KanbanService) seedCompletionDefaults(ctx context.Context, projectID int64) {
+	if err := completion.EnsureProjectDefaults(ctx, s.db, projectID); err != nil {
+		slog.Warn("seed completion defaults failed", "project_id", projectID, "error", err)
+	}
 }
 
 // ColumnSeed describes one kanban column to create when seeding a project from
@@ -2078,6 +2090,7 @@ func (s *KanbanService) CreateProjectWithColumns(ctx context.Context, name, desc
 
 	appendResourceAudit(ctx, s.db, nil, ownerType, ownerID, 0, "project.created", "project", project.ID,
 		resourceAuditPayload(name))
+	s.seedCompletionDefaults(ctx, project.ID)
 
 	return project, nil
 }

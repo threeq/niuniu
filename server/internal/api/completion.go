@@ -134,7 +134,7 @@ func (h *CompletionHandler) PutSettings(c *gin.Context) {
 		BadRequest(c, "invalid request body")
 		return
 	}
-	view, err := h.svc.UpdateSettings(c.Request.Context(), pid, in)
+	view, err := h.svc.UpdateSettings(c.Request.Context(), pid, c.GetInt64("auth_user_id"), in)
 	if err != nil {
 		h.mapCompletionErr(c, err)
 		return
@@ -188,7 +188,7 @@ func (h *CompletionHandler) CreateProfile(c *gin.Context) {
 		BadRequest(c, "invalid request body")
 		return
 	}
-	profile, err := h.svc.CreateProfile(c.Request.Context(), pid, in)
+	profile, err := h.svc.CreateProfile(c.Request.Context(), pid, c.GetInt64("auth_user_id"), in)
 	if err != nil {
 		h.mapCompletionErr(c, err)
 		return
@@ -226,7 +226,7 @@ func (h *CompletionHandler) UpdateProfile(c *gin.Context) {
 		BadRequest(c, "invalid request body")
 		return
 	}
-	profile, err := h.svc.UpdateProfile(c.Request.Context(), pid, profileID, in)
+	profile, err := h.svc.UpdateProfile(c.Request.Context(), pid, profileID, c.GetInt64("auth_user_id"), in)
 	if err != nil {
 		h.mapCompletionErr(c, err)
 		return
@@ -256,7 +256,7 @@ func (h *CompletionHandler) DeleteProfile(c *gin.Context) {
 	if !ok {
 		return
 	}
-	if err := h.svc.DeleteProfile(c.Request.Context(), pid, profileID); err != nil {
+	if err := h.svc.DeleteProfile(c.Request.Context(), pid, profileID, c.GetInt64("auth_user_id")); err != nil {
 		h.mapCompletionErr(c, err)
 		return
 	}
@@ -276,7 +276,7 @@ func (h *CompletionHandler) MCPSetPolicy(c *gin.Context) {
 		BadRequest(c, "invalid request body")
 		return
 	}
-	view, err := h.svc.UpdateSettings(c.Request.Context(), pid, in)
+	view, err := h.svc.UpdateSettings(c.Request.Context(), pid, c.GetInt64("auth_user_id"), in)
 	if err != nil {
 		h.mapCompletionErr(c, err)
 		return
@@ -333,9 +333,9 @@ func (h *CompletionHandler) MCPUpsertProfile(c *gin.Context) {
 		err     error
 	)
 	if body.ProfileID > 0 {
-		profile, err = h.svc.UpdateProfile(c.Request.Context(), pid, body.ProfileID, in)
+		profile, err = h.svc.UpdateProfile(c.Request.Context(), pid, body.ProfileID, c.GetInt64("auth_user_id"), in)
 	} else {
-		profile, err = h.svc.CreateProfile(c.Request.Context(), pid, in)
+		profile, err = h.svc.CreateProfile(c.Request.Context(), pid, c.GetInt64("auth_user_id"), in)
 	}
 	if err != nil {
 		h.mapCompletionErr(c, err)
@@ -372,7 +372,7 @@ func (h *CompletionHandler) MCPSetIssueProfile(c *gin.Context) {
 		BadRequest(c, "invalid request body")
 		return
 	}
-	issue, err := h.svc.SetIssueProfile(c.Request.Context(), issueID, body.ProfileID)
+	issue, err := h.svc.SetIssueProfile(c.Request.Context(), issueID, uid, body.ProfileID)
 	if err != nil {
 		h.mapCompletionErr(c, err)
 		return
