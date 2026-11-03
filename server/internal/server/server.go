@@ -115,6 +115,7 @@ type Server struct {
 	// Intake (任务来源) + Completion (自动完成) contract surface (design §6.9).
 	intakeSvc         *service.IntakeService
 	intakeHandler     *api.IntakeHandler
+	githubSourceSvc   *service.GithubSourceService
 	completionSvc     *service.CompletionService
 	completionHandler *api.CompletionHandler
 	taskBriefSvc      *service.TaskBriefService
@@ -1711,6 +1712,16 @@ func New(cfg *config.Config, db *sql.DB, frontendFS fs.FS) *Server {
 	// The calibration queue's accept path reuses the IM executor, so a pending
 	// decision creates (or resumes) the same task an automatic accept would.
 	s.intakeSvc.SetAcceptor(s.imbotSvc)
+
+	// GitHub Source adapter (Epic #755 / design §6.10): poll bound repos,
+	// normalize events, and run them through the same Intake pipeline. Polling is
+	// outbound only, so the personal edition needs no public webhook endpoint.
+	s.githubSourceSvc = service.NewGithubSourceService(db, s.queries, s.extCredSvc)
+	s.githubSourceSvc.SetInbound(imbotDispatch, s.agentProxy)
+	s.intakeHandler.Github = s.githubSourceSvc
+	if cfg.Intake.GitHubPollCron != "" {
+		s.scheduler.RegisterGitHubPoll(cfg.Intake.GitHubPollCron, s.githubSourceSvc.RunOnce)
+	}
 	// Let a user answer an agent's ask_user question by tapping an option button in
 	// the chat (the outbound question card carries option buttons).
 	s.imbotSvc.SetAskUserDecider(s.askUserService)

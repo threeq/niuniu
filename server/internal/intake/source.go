@@ -32,10 +32,13 @@ const (
 // Event kinds are adapter-defined (message, issue_comment, pull_request_review,
 // check_run, ...). The intake pipeline does not branch on them.
 const (
-	EventKindMessage      = "message"
-	EventKindIssueComment = "issue_comment"
-	EventKindReview       = "review"
-	EventKindCheckRun     = "check_run"
+	EventKindMessage           = "message"
+	EventKindIssueComment      = "issue_comment"
+	EventKindReview            = "review"
+	EventKindReviewComment     = "pull_request_review_comment"
+	EventKindCheckRun          = "check_run"
+	EventKindWorkflowRun       = "workflow_run"
+	EventKindPullRequestClosed = "pull_request_closed"
 	// EventKindProposal is work a source derived from observation rather than a
 	// message addressed to it (the IM employee's proactive task verdict).
 	EventKindProposal = "proposal"
@@ -88,6 +91,10 @@ type Trigger struct {
 	Attachments []Attachment
 	Raw         json.RawMessage
 	ReceivedAt  time.Time
+
+	// SourceURL is the upstream permalink for the event (a PR/comment URL).
+	// Executors copy it into issues.external_url for provenance.
+	SourceURL string
 
 	// ConversationExtID is the source's conversation container — for IM, the
 	// group/DM chat id. Thread.ThreadExtID is the narrower topic inside it.

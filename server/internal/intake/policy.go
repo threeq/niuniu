@@ -142,7 +142,11 @@ func (p Policy) Evaluate(t Trigger) Authorization {
 			}
 		}
 	}
-	if t.ReceiveAll && len(p.AllowList) > 0 {
+	if t.ReceiveAll {
+		// A source that reads a whole scope (an IM observe chat, a polled
+		// repository) treats an unlisted actor as an inferred candidate. This is
+		// the design §6.2 "未列名单的人，在开启接收全部消息的范围" row; auto mode
+		// still requires a matching rule, so it is not an open grant.
 		return Authorization{Strength: StrengthInferred, ReasonCode: ReasonUnlisted}
 	}
 	return Authorization{Strength: StrengthDenied, ReasonCode: ReasonDenied}

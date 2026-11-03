@@ -18,6 +18,7 @@ import { EmptyState } from '@/components/shared/empty-state'
 import { confirm } from '@/lib/confirm'
 import {
   intakeApi,
+  type GithubRepoConfig,
   type IntakeRule,
   type IntakeSetting,
   type IntakeSourceKind,
@@ -114,6 +115,39 @@ export function SourceConfigDialog({
     },
   })
 
+  const githubQuery = useQuery({
+    queryKey: ['intake-github-config', projectId],
+    queryFn: () => intakeApi.getGithubConfig(projectId),
+    enabled: open && source?.source_kind === 'github',
+    retry: false,
+  })
+
+  const githubMutation = useMutation({
+    mutationFn: (repos: { source_key: string; events: string[] }[]) =>
+      intakeApi.updateGithubConfig(projectId, repos),
+    onSuccess: (data) => {
+      qc.setQueryData(['intake-github-config', projectId], data)
+    },
+    onError: (err: unknown) => {
+      toast.error(
+        t('intake.config.githubSaveFailed', {
+          message: err instanceof Error ? err.message : String(err),
+        }),
+      )
+    },
+  })
+
+  // Saving immediately (like a rule toggle) keeps the repo/event config
+  // independent of the settings draft's save button.
+  const toggleGithubEvent = (repo: GithubRepoConfig, event: string) => {
+    const next = repo.events.includes(event)
+      ? repo.events.filter((e) => e !== event)
+      : [...repo.events, event]
+    // The server rejects an empty selection; keep the last event on.
+    if (next.length === 0) return
+    githubMutation.mutate([{ source_key: repo.source_key, events: next }])
+  }
+
   if (!source || !draft) return null
 
   const capValue = dailyCapValue(draft.daily_cap)
@@ -128,6 +162,56 @@ export function SourceConfigDialog({
         </DialogHeader>
 
         <div className={cn('space-y-6', isMobile ? '' : 'min-w-0')}>
+          {source.source_kind === 'github' && (
+            <div className="space-y-3">
+              <div>
+                <h4 className="text-sm font-medium">{t('intake.config.githubEventsTitle')}</h4>
+                <p className="text-xs text-muted-foreground">{t('intake.config.githubEventsHint')}</p>
+              </div>
+              {githubQuery.isLoading ? (
+                <p className="py-2 text-center text-xs text-muted-foreground">{t('intake.loading')}</p>
+              ) : (githubQuery.data?.repos.length ?? 0) === 0 ? (
+                <p className="text-xs text-muted-foreground">{t('intake.config.githubNoRepos')}</p>
+              ) : (
+                githubQuery.data!.repos.map((repo) => (
+                  <div key={repo.source_key} className="space-y-2 rounded-md border border-warm-border p-3">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <span className="text-sm font-medium">{repo.source_key}</span>
+                      {repo.last_polled_at && (
+                        <span className="text-xs text-muted-foreground">
+                          {t('intake.config.githubLastPolled', {
+                            time: new Date(repo.last_polled_at).toLocaleString(),
+                          })}
+                        </span>
+                      )}
+                    </div>
+                    <div className="flex flex-wrap gap-x-4 gap-y-2">
+                      {(githubQuery.data?.known_events ?? []).map((event) => (
+                        <div key={event} className="flex items-center gap-2">
+                          <Switch
+                            checked={repo.events.includes(event)}
+                            onCheckedChange={() => toggleGithubEvent(repo, event)}
+                            disabled={
+                              githubMutation.isPending &&
+                              githubMutation.variables?.[0]?.source_key === repo.source_key
+                            }
+                            aria-label={t(`intake.githubEvent.${event}`)}
+                          />
+                          <span className="text-sm">{t(`intake.githubEvent.${event}`)}</span>
+                        </div>
+                      ))}
+                    </div>
+                    {repo.last_error && (
+                      <p className="text-xs text-destructive">
+                        {t('intake.config.githubError', { message: repo.last_error })}
+                      </p>
+                    )}
+                  </div>
+                ))
+              )}
+            </div>
+          )}
+
           <ChipsEditor
             label={t('intake.config.allowList')}
             hint={t('intake.config.allowListHint')}

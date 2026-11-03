@@ -780,6 +780,9 @@ func (s *Server) setupRoutes() {
 		projects.PUT("/:id/intake/rules/:rid", s.intakeHandler.UpdateRule)
 		projects.DELETE("/:id/intake/rules/:rid", s.intakeHandler.DeleteRule)
 		projects.GET("/:id/intake/policy-versions", s.intakeHandler.ListPolicyVersions)
+		// GitHub Source (个人版轮询, design §6.10): bound repos + event types.
+		projects.GET("/:id/intake/github", s.intakeHandler.GetGitHubConfig)
+		projects.PUT("/:id/intake/github", s.intakeHandler.PutGitHubConfig)
 		projects.GET("/:id/intake/decisions", s.intakeHandler.ListDecisions)
 		projects.PATCH("/:id/intake/decisions/:did", s.intakeHandler.UpdateDecisionBrief)
 		projects.POST("/:id/intake/decisions/:did/accept", s.intakeHandler.AcceptDecision)

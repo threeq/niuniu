@@ -99,6 +99,12 @@
       "addRule": "New rule",
       "rulesEmptyTitle": "No rules yet",
       "rulesEmpty": "Without a rule, auto mode will not accept inferred work.",
+      "githubEventsTitle": "GitHub events",
+      "githubEventsHint": "Choose which events from this repository enter the intake pipeline. Polling is outbound only, so no public URL is needed.",
+      "githubNoRepos": "No GitHub repository is bound yet. Bind a repository and credential under External sources first.",
+      "githubSaveFailed": "Failed to save GitHub events: {{message}}",
+      "githubLastPolled": "Last polled: {{time}}",
+      "githubError": "Polling error: {{message}}",
       "dailyCap": "Daily cap",
       "dailyCapHint": "Maximum automatic pickups per day; 0 = none, default 4.",
       "dailyCapError": "Enter an integer of 0 or more.",
@@ -108,6 +114,14 @@
       "policyVersionHint": "Every settings or rule save creates a new version.",
       "pause": "Pause intake",
       "close": "Done"
+    },
+    "githubEvent": {
+      "issue_comment": "Issue / PR comment",
+      "review": "PR review",
+      "pull_request_review_comment": "Review comment",
+      "check_run": "Check run",
+      "workflow_run": "Workflow run",
+      "pull_request_closed": "PR closed / merged"
     },
     "history": {
       "title": "Policy version history",

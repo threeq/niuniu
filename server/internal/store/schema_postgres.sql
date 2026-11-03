@@ -2291,6 +2291,23 @@ CREATE TABLE IF NOT EXISTS intake_daily_usage (
     UNIQUE(project_id, source_kind, day)
 );
 
+-- GitHub Source polling cursors (Epic #755 / design §6.10). One row per
+-- (project, repo, event stream): the since/ETag cursor plus failure backoff.
+-- Timestamps are RFC3339 text for SQLite/PostgreSQL parity.
+CREATE TABLE IF NOT EXISTS github_source_poll_state (
+    id             BIGSERIAL PRIMARY KEY,
+    project_id     BIGINT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    repo           TEXT NOT NULL,
+    stream         TEXT NOT NULL,
+    since_ts       TEXT,
+    etag           TEXT NOT NULL DEFAULT '',
+    failure_count  INTEGER NOT NULL DEFAULT 0,
+    backoff_until  TEXT,
+    last_polled_at TEXT,
+    last_error     TEXT NOT NULL DEFAULT '',
+    UNIQUE(project_id, repo, stream)
+);
+
 -- Task Brief: append-only 1:N versions per issue; current version = MAX(version).
 -- Provenance links back to the intake decision that created the brief.
 CREATE TABLE IF NOT EXISTS task_briefs (

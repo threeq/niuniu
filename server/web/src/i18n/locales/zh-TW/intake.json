@@ -99,6 +99,12 @@
       "addRule": "新建規則",
       "rulesEmptyTitle": "還沒有規則",
       "rulesEmpty": "沒有規則時，自動模式不會接推斷工作。",
+      "githubEventsTitle": "GitHub 事件",
+      "githubEventsHint": "選擇這個倉庫裡哪些事件進入接活管線。輪詢只向外讀取事件，不需要公網位址。",
+      "githubNoRepos": "還沒有綁定 GitHub 倉庫。請先在專案設定的「外部來源」裡綁定倉庫和憑證。",
+      "githubSaveFailed": "儲存 GitHub 事件失敗：{{message}}",
+      "githubLastPolled": "最近輪詢：{{time}}",
+      "githubError": "輪詢錯誤：{{message}}",
       "dailyCap": "每日上限",
       "dailyCapHint": "每天最多自動接多少個；0 = 不自動接活，預設 4。",
       "dailyCapError": "請輸入不小於 0 的整數。",
@@ -108,6 +114,14 @@
       "policyVersionHint": "每次儲存設定或規則都會生成一個新版本。",
       "pause": "暫停接活",
       "close": "完成"
+    },
+    "githubEvent": {
+      "issue_comment": "Issue / PR 評論",
+      "review": "PR Review",
+      "pull_request_review_comment": "Review 行內評論",
+      "check_run": "Check Run",
+      "workflow_run": "Workflow Run",
+      "pull_request_closed": "PR 關閉 / 合併"
     },
     "history": {
       "title": "策略版本歷史",

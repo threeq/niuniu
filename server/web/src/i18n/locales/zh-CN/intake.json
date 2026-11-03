@@ -99,6 +99,12 @@
       "addRule": "新建规则",
       "rulesEmptyTitle": "还没有规则",
       "rulesEmpty": "没有规则时，自动模式不会接推断工作。",
+      "githubEventsTitle": "GitHub 事件",
+      "githubEventsHint": "选择这个仓库里哪些事件进入接活管线。轮询只向外读取事件，不需要公网地址。",
+      "githubNoRepos": "还没有绑定 GitHub 仓库。请先在项目设置的「外部来源」里绑定仓库和凭证。",
+      "githubSaveFailed": "保存 GitHub 事件失败：{{message}}",
+      "githubLastPolled": "最近轮询：{{time}}",
+      "githubError": "轮询错误：{{message}}",
       "dailyCap": "每日上限",
       "dailyCapHint": "每天最多自动接多少个；0 = 不自动接活，默认 4。",
       "dailyCapError": "请输入不小于 0 的整数。",
@@ -108,6 +114,14 @@
       "policyVersionHint": "每次保存设置或规则都会生成一个新版本。",
       "pause": "暂停接活",
       "close": "完成"
+    },
+    "githubEvent": {
+      "issue_comment": "Issue / PR 评论",
+      "review": "PR Review",
+      "pull_request_review_comment": "Review 行内评论",
+      "check_run": "Check Run",
+      "workflow_run": "Workflow Run",
+      "pull_request_closed": "PR 关闭 / 合并"
     },
     "history": {
       "title": "策略版本历史",

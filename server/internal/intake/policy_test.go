@@ -120,6 +120,14 @@ func TestPolicyEvaluateUnlistedReceiveAllIsCandidate(t *testing.T) {
 	if got.Strength != StrengthDenied {
 		t.Fatalf("non-receive-all unlisted actor = %+v, want denied", got)
 	}
+
+	// A source with no allow list at all (a polled repository) still treats a
+	// receive-all scope as inferred candidates — auto mode still requires a
+	// matching rule before acting.
+	got = Policy{Mode: ModeObserve}.Evaluate(Trigger{Actor: ActorRef{ExtID: "alice"}, ReceiveAll: true})
+	if got.Strength != StrengthInferred || got.ReasonCode != ReasonUnlisted {
+		t.Fatalf("receive-all with no allow list = %+v, want inferred", got)
+	}
 }
 
 func TestPolicyEvaluateBotListIsNeverExplicit(t *testing.T) {
