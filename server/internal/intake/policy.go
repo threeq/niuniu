@@ -89,6 +89,12 @@ type Authorization struct {
 // Order matters: an allow-listed actor is explicit even if it is also a bot or
 // matches a rule. Rule-matched and bot actors are inferred, never explicit.
 // Actor ids from the message text play no part in this decision.
+//
+// Keyword rules match normalized tokens as a consecutive sequence, so Latin
+// keywords cannot be smuggled inside a longer word or a different word order.
+// CJK keywords are the one deliberate substring exception — the script has no
+// word boundaries. Inferred work still only executes in auto mode and is
+// bounded by DailyCap.
 func (p Policy) Evaluate(t Trigger) Authorization {
 	if contains(p.AllowList, t.Actor.ExtID) {
 		return Authorization{Strength: StrengthExplicit, ReasonCode: ReasonAllowList}
@@ -135,60 +141,92 @@ func contains(list []string, want string) bool {
 
 func containsKeyword(text string, keywords []string) bool {
 	lower := strings.ToLower(text)
+	tokens := tokenize(lower)
 	for _, kw := range keywords {
 		kw = strings.ToLower(strings.TrimSpace(kw))
 		if kw == "" {
 			continue
 		}
-		// A Latin keyword must match a whole token: "deploy" must not match
-		// "undeployed" or "deployment", or attacker-controlled prose could earn
-		// inferred authorization by embedding the keyword. CJK has no word
-		// boundaries, so those keywords fall back to substring matching.
-		if isASCIIWord(kw) {
-			if containsWord(lower, kw) {
+		// CJK has no word boundaries, so those keywords are the one deliberate
+		// substring case (documented in Policy.Evaluate). Everything else —
+		// including multi-word and punctuated Latin phrases — is normalized to
+		// tokens and must match as a consecutive sequence. Falling back to raw
+		// substring matching here would let "deploy now" match "deploy it now"
+		// and let prose embed a keyword to earn inferred authorization.
+		if containsCJK(kw) {
+			if strings.Contains(lower, kw) {
 				return true
 			}
 			continue
 		}
-		if strings.Contains(lower, kw) {
+		want := tokenize(kw)
+		if len(want) == 0 {
+			continue
+		}
+		if containsTokenSequence(tokens, want) {
 			return true
 		}
 	}
 	return false
 }
 
-func isASCIIWord(s string) bool {
-	if s == "" {
-		return false
+// tokenize splits text on every non-letter/digit rune, so punctuation and
+// underscores are boundaries.
+func tokenize(s string) []string {
+	var (
+		out []string
+		b   strings.Builder
+	)
+	flush := func() {
+		if b.Len() > 0 {
+			out = append(out, b.String())
+			b.Reset()
+		}
 	}
 	for _, r := range s {
-		if r > unicode.MaxASCII || !(unicode.IsLetter(r) || unicode.IsDigit(r) || r == '_' || r == '-') {
-			return false
+		if unicode.IsLetter(r) || unicode.IsDigit(r) {
+			b.WriteRune(r)
+			continue
 		}
+		flush()
 	}
-	return true
+	flush()
+	return out
 }
 
-// containsWord reports whether word occurs in text delimited by non-word
-// characters. text is expected to be lowercased.
-func containsWord(text, word string) bool {
-	for start := 0; start <= len(text)-len(word); {
-		i := strings.Index(text[start:], word)
-		if i < 0 {
-			return false
+// containsTokenSequence reports whether want occurs as consecutive tokens.
+func containsTokenSequence(tokens, want []string) bool {
+	if len(want) == 0 || len(want) > len(tokens) {
+		return false
+	}
+	for i := 0; i+len(want) <= len(tokens); i++ {
+		match := true
+		for j := range want {
+			if tokens[i+j] != want[j] {
+				match = false
+				break
+			}
 		}
-		i += start
-		end := i + len(word)
-		beforeOK := i == 0 || !isWordByte(text[i-1])
-		afterOK := end == len(text) || !isWordByte(text[end])
-		if beforeOK && afterOK {
+		if match {
 			return true
 		}
-		start = i + 1
 	}
 	return false
 }
 
-func isWordByte(b byte) bool {
-	return b == '_' || b >= '0' && b <= '9' || b >= 'a' && b <= 'z' || b >= 'A' && b <= 'Z'
+// containsCJK reports whether s contains Han, Hiragana, Katakana or Hangul.
+// Only these get substring matching: they are written without word boundaries.
+func containsCJK(s string) bool {
+	for _, r := range s {
+		switch {
+		case r >= 0x4E00 && r <= 0x9FFF, // Han
+			r >= 0x3400 && r <= 0x4DBF, // Han extension A
+			r >= 0x3040 && r <= 0x309F, // Hiragana
+			r >= 0x30A0 && r <= 0x30FF, // Katakana
+			r >= 0xAC00 && r <= 0xD7AF, // Hangul syllables
+			r >= 0x1100 && r <= 0x11FF: // Hangul Jamo
+			return true
+		}
+	}
+	return false
 }

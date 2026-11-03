@@ -67,6 +67,34 @@ func TestPolicyEvaluate(t *testing.T) {
 	}
 }
 
+func TestContainsKeywordTokenBoundaries(t *testing.T) {
+	tests := []struct {
+		name string
+		text string
+		kw   string
+		want bool
+	}{
+		{"single token matches", "please deploy now", "deploy", true},
+		{"substring of longer word is rejected", "undeployed", "deploy", false},
+		{"longer word is rejected", "deployment failed", "deploy", false},
+		{"punctuation is a boundary", "deploy!", "deploy", true},
+		{"multi-word phrase matches consecutively", "please deploy now", "deploy now", true},
+		{"multi-word phrase does not span other words", "deploy it now", "deploy now", false},
+		{"punctuated phrase is tokenized", "deploy-now", "deploy now", true},
+		{"cjk keyword keeps substring matching", "帮我发布一下", "发布", true},
+		{"cjk keyword still requires exact substring", "帮我发布", "未发布", false},
+		{"accented latin does not substring-match", "cafeteria", "café", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := containsKeyword(tt.text, []string{tt.kw}); got != tt.want {
+				t.Fatalf("containsKeyword(%q, %q) = %v, want %v", tt.text, tt.kw, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestPolicyEvaluateFirstMatchingRuleWins(t *testing.T) {
 	policy := Policy{
 		Rules: []Rule{
