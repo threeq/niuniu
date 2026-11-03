@@ -38,6 +38,9 @@ vi.mock('@/lib/intake-api', () => ({
   intakeApi: {
     listDecisions: vi.fn(),
     listRules: vi.fn(),
+    getCalibration: vi.fn(),
+    getSettings: vi.fn(),
+    updateSettings: vi.fn(),
     saveDraft: vi.fn(),
     accept: vi.fn(),
     ignore: vi.fn(),
@@ -45,7 +48,12 @@ vi.mock('@/lib/intake-api', () => ({
   },
 }))
 
-import { intakeApi, type IntakeDecision } from '@/lib/intake-api'
+import {
+  intakeApi,
+  type IntakeCalibration,
+  type IntakeDecision,
+  type IntakeSettings,
+} from '@/lib/intake-api'
 import { IntakeReviewPage } from './intake-review-page'
 
 const decision = (over: Partial<IntakeDecision> = {}): IntakeDecision => ({
@@ -81,6 +89,44 @@ const decision = (over: Partial<IntakeDecision> = {}): IntakeDecision => ({
   ...over,
 })
 
+const calibration = (over: Partial<IntakeCalibration> = {}): IntakeCalibration => ({
+  project_id: 1,
+  calibrated: 12,
+  accepted: 10,
+  ignored: 2,
+  pending: 1,
+  acceptance_rate: 10 / 12,
+  min_calibrated: 10,
+  min_acceptance_rate: 0.8,
+  ready: true,
+  sources: [
+    {
+      source_kind: 'im_bot',
+      calibrated: 12,
+      accepted: 10,
+      ignored: 2,
+      pending: 1,
+      acceptance_rate: 10 / 12,
+    },
+  ],
+  recent: [],
+  ...over,
+})
+
+const settings = (): IntakeSettings => ({
+  project_id: 1,
+  paused: false,
+  settings: [
+    {
+      source_kind: 'im_bot',
+      mode: 'observe',
+      daily_cap: 4,
+      allow_list: ['ou_1'],
+      bot_list: [],
+    },
+  ],
+})
+
 function renderPage() {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   return render(
@@ -107,6 +153,9 @@ describe('IntakeReviewPage', () => {
         created_at: '2026-11-03T00:00:00Z',
       },
     ])
+    vi.mocked(intakeApi.getCalibration).mockResolvedValue(calibration())
+    vi.mocked(intakeApi.getSettings).mockResolvedValue(settings())
+    vi.mocked(intakeApi.updateSettings).mockResolvedValue(settings())
   })
 
   it('lists the pending decision with its summary, strength and rule name', async () => {
@@ -186,5 +235,59 @@ describe('IntakeReviewPage', () => {
 
     expect(await screen.findByText('review.emptyTitle')).toBeInTheDocument()
     expect(screen.getByText('review.goToSources')).toBeInTheDocument()
+  })
+
+  it('shows the calibration sample but never suggests auto below the threshold', async () => {
+    vi.mocked(intakeApi.getCalibration).mockResolvedValue(
+      calibration({
+        calibrated: 4,
+        accepted: 4,
+        ignored: 0,
+        acceptance_rate: 1,
+        ready: false,
+        sources: [
+          {
+            source_kind: 'im_bot',
+            calibrated: 4,
+            accepted: 4,
+            ignored: 0,
+            pending: 0,
+            acceptance_rate: 1,
+          },
+        ],
+      }),
+    )
+    renderPage()
+
+    expect(await screen.findByText('calibration.summary')).toBeInTheDocument()
+    expect(screen.getByText('calibration.needCount')).toBeInTheDocument()
+    expect(screen.queryByText('calibration.readyCta')).not.toBeInTheDocument()
+  })
+
+  it('opens the enable-auto dialog with the sample and affected sources, then enables them', async () => {
+    renderPage()
+
+    fireEvent.click(await screen.findByText('calibration.readyCta'))
+
+    expect(await screen.findByText('calibration.dialog.title')).toBeInTheDocument()
+    expect(screen.getByText('calibration.dialog.sourcesTitle')).toBeInTheDocument()
+    expect(screen.getByText('calibration.dialog.sample')).toBeInTheDocument()
+    expect(screen.getByText('calibration.dialog.allowList', { exact: false })).toBeInTheDocument()
+    expect(screen.getByText('calibration.dialog.rules', { exact: false })).toBeInTheDocument()
+    expect(screen.getByText('calibration.dialog.pauseNote')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByText('calibration.dialog.confirm'))
+
+    await waitFor(() =>
+      expect(intakeApi.updateSettings).toHaveBeenCalledWith(1, [
+        {
+          source_kind: 'im_bot',
+          mode: 'auto',
+          daily_cap: 4,
+          allow_list: ['ou_1'],
+          bot_list: [],
+        },
+      ]),
+    )
   })
 })

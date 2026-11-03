@@ -74,6 +74,7 @@ func setupIntakeCompletion(t *testing.T) (*gin.Engine, *sql.DB) {
 	g.Use(withIdentity)
 	g.GET("/projects/:id/intake/settings", intakeHandler.GetSettings)
 	g.PUT("/projects/:id/intake/settings", intakeHandler.PutSettings)
+	g.GET("/projects/:id/intake/calibration", intakeHandler.GetCalibration)
 	g.GET("/projects/:id/intake/decisions", intakeHandler.ListDecisions)
 	g.PATCH("/projects/:id/intake/decisions/:did", intakeHandler.UpdateDecisionBrief)
 	g.POST("/projects/:id/intake/decisions/:did/accept", intakeHandler.AcceptDecision)
@@ -176,6 +177,28 @@ func TestIntakeSettings_OwnerScope(t *testing.T) {
 
 	// MCP tunnel enforces the same project scope.
 	w = doJSON(t, r, http.MethodGet, "/mcp/projects/1/intake/settings", "2", "")
+	assert.Equal(t, http.StatusForbidden, w.Code, w.Body.String())
+}
+
+func TestIntakeCalibration_Contract(t *testing.T) {
+	r, _ := setupIntakeCompletion(t)
+
+	w := doJSON(t, r, http.MethodGet, "/api/projects/1/intake/calibration", "1", "")
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+	stats := decodeBody[service.IntakeCalibrationStats](t, w)
+	assert.Equal(t, int64(1), stats.ProjectID)
+	// The seeded dry-run decision has a proposed brief but is still pending, so
+	// it counts toward the queue, not the resolved sample.
+	assert.Equal(t, int64(0), stats.Calibrated)
+	assert.Equal(t, int64(1), stats.Pending)
+	assert.False(t, stats.Ready)
+	assert.Equal(t, int64(10), stats.MinCalibrated)
+	assert.InDelta(t, 0.8, stats.MinAcceptanceRate, 0.0001)
+	assert.NotNil(t, stats.Sources)
+	assert.NotNil(t, stats.Recent)
+
+	// Another owner's project is not readable.
+	w = doJSON(t, r, http.MethodGet, "/api/projects/1/intake/calibration", "2", "")
 	assert.Equal(t, http.StatusForbidden, w.Code, w.Body.String())
 }
 
