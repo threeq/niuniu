@@ -89,6 +89,17 @@ type MissionControlService struct {
 	db     *store.DB
 	authz  *Authz
 	intake *IntakeService
+
+	// now is the clock used for every time-bounded metric. nil means time.Now;
+	// tests inject a fixed instant to pin day boundaries.
+	now func() time.Time
+}
+
+func (s *MissionControlService) clock() time.Time {
+	if s.now != nil {
+		return s.now()
+	}
+	return time.Now()
 }
 
 func NewMissionControlService(db *store.DB, q *store.Queries, authz *Authz, intake *IntakeService) *MissionControlService {
@@ -214,9 +225,14 @@ func rateMetric(key, drill string, num, denom int64, warnAbove float64) MissionC
 
 // View returns both independent panels.
 func (s *MissionControlService) View(ctx context.Context, userID int64, ownerFilter *OwnerRef) (MissionControlView, error) {
-	now := time.Now()
-	todayStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
-	windowStart := now.Add(-missionRateWindow)
+	now := s.clock()
+	// Stored timestamps are UTC (CURRENT_TIMESTAMP), and SQLite binds a
+	// time.Time as its local wall-clock string, so a boundary must be expressed
+	// in UTC or the comparison is shifted by the zone offset. The day is still
+	// the user's local day: local midnight is converted to the equivalent UTC
+	// instant (00:00 +08 == 16:00Z the previous day).
+	todayStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location()).UTC()
+	windowStart := now.UTC().Add(-missionRateWindow)
 
 	projects, err := s.accessibleProjects(ctx, userID, ownerFilter)
 	if err != nil {
@@ -597,7 +613,7 @@ func (s *MissionControlService) completionView(ctx context.Context, userID int64
 		"SELECT CAST(COALESCE(SUM(CASE WHEN w.status = 'running' AND w.is_archived = 0 THEN 1 ELSE 0 END),0) AS BIGINT), "+
 			"CAST(COALESCE(SUM(CASE WHEN w.status = 'running' AND w.is_archived = 0 AND w.updated_at < ? THEN 1 ELSE 0 END),0) AS BIGINT) "+
 			"FROM workspaces w WHERE "+ownerSQL,
-		append([]any{time.Now().Add(-missionStuckThreshold)}, ownerArgs...)...).
+		append([]any{s.clock().UTC().Add(-missionStuckThreshold)}, ownerArgs...)...).
 		Scan(&running, &stuck); err != nil {
 		return MissionControlCompletion{}, err
 	}

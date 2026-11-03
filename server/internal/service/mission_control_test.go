@@ -54,6 +54,79 @@ func metricByKey(t *testing.T, metrics []MissionControlMetric, key string) Missi
 	return MissionControlMetric{}
 }
 
+// TestMissionControl_TodayBoundaryUsesUTCStorage pins the timezone fix: stored
+// timestamps are UTC, so the "today" boundary must be the local-midnight
+// instant converted to UTC. A row created at 00:15 local (16:15Z the previous
+// UTC day) counts as today on both panels, while 23:59 local the previous day
+// (15:59Z) does not.
+func TestMissionControl_TodayBoundaryUsesUTCStorage(t *testing.T) {
+	db := openOrgTestDB(t)
+	ctx := context.Background()
+	userID, projectID, _, todoColID := seedMissionControl(t, db)
+
+	// Fixed wall clock: 2026-11-04 00:30 at UTC+8. Today starts at
+	// 2026-11-03 16:00Z; the previous local day ends at 15:59:59Z.
+	now := time.Date(2026, 11, 4, 0, 30, 0, 0, time.FixedZone("UTC+8", 8*3600))
+	today := time.Date(2026, 11, 3, 16, 15, 0, 0, time.UTC)
+	yesterday := time.Date(2026, 11, 3, 15, 59, 0, 0, time.UTC)
+
+	wsID := missionExec(t, db,
+		`INSERT INTO workspaces (name, path, status, owner_type, owner_id) VALUES ('ws','/tmp/ws','running','user',?)`, userID)
+	issueID := missionExec(t, db,
+		`INSERT INTO issues (column_id, title, position) VALUES (?,'probe',0)`, todoColID)
+	eventID := missionExec(t, db,
+		`INSERT INTO intake_events (project_id, source_kind, source_ref, event_ext_id, event_kind) `+
+			`VALUES (?,'im_bot','chat-1','evt-1','message')`, projectID)
+	for _, at := range []time.Time{today, yesterday} {
+		missionExec(t, db,
+			`INSERT INTO intake_decisions (event_id, project_id, mode_at_decision, strength, decision, executed, issue_id, workspace_id, created_at) `+
+				`VALUES (?,?,'auto','explicit','accept',1,?,?,?)`,
+			eventID, projectID, issueID, wsID, at)
+		missionExec(t, db,
+			`INSERT INTO issue_exec_events (issue_id, kind, summary, created_at) VALUES (?,'intervention','probe',?)`,
+			issueID, at)
+		missionExec(t, db,
+			`INSERT INTO workspace_costs (workspace_id, cost_usd, created_at) VALUES (?,1.5,?)`, wsID, at)
+	}
+	// Distinct token amounts make "today only" unambiguous.
+	missionExec(t, db,
+		`INSERT INTO workspace_token_hourly (workspace_id, bucket_hour, input_tokens) VALUES (?,?,100)`, wsID, today)
+	missionExec(t, db,
+		`INSERT INTO workspace_token_hourly (workspace_id, bucket_hour, input_tokens) VALUES (?,?,999)`, wsID, yesterday)
+
+	svc := newMissionControlService(db)
+	svc.now = func() time.Time { return now }
+	view, err := svc.View(ctx, userID, nil)
+	require.NoError(t, err)
+
+	todayAccepted := metricByKey(t, view.Intake.Metrics, "today_accepted")
+	require.NotNil(t, todayAccepted.Value)
+	assert.Equal(t, float64(1), *todayAccepted.Value, "00:15 local must count as today")
+
+	interventions := metricByKey(t, view.Completion.Metrics, "interventions")
+	require.NotNil(t, interventions.Value)
+	assert.Equal(t, float64(1), *interventions.Value)
+
+	tokens := metricByKey(t, view.Completion.Metrics, "today_tokens")
+	require.NotNil(t, tokens.Value)
+	assert.Equal(t, float64(100), *tokens.Value)
+
+	cost := metricByKey(t, view.Completion.Metrics, "today_cost")
+	require.NotNil(t, cost.Value)
+	assert.InDelta(t, 1.5, *cost.Value, 1e-9)
+
+	// Per-day buckets use the same window; the bucket label follows the host's
+	// local zone, so derive the expected label instead of hard-coding it.
+	wantDay := today.In(time.Local).Format("2006-01-02")
+	found := false
+	for _, d := range view.Intake.PerSource {
+		if d.Day == wantDay && d.Count == 1 {
+			found = true
+		}
+	}
+	assert.True(t, found, "today bucket %q missing from %+v", wantDay, view.Intake.PerSource)
+}
+
 func TestMissionControl_NoProjectsHasNoData(t *testing.T) {
 	db := openOrgTestDB(t)
 	userID := newOrgTestUser(t, db, "no-projects", "member")
