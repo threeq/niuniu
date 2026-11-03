@@ -577,6 +577,29 @@ func TestAdvanceIssue_CompleteColumn_RequireReviewRefused(t *testing.T) {
 	assert.Contains(t, evs[0].Summary, "人工审查")
 }
 
+// An unresolvable completion policy must fail closed: the done-lane move is
+// refused rather than treated as "no review required".
+func TestAdvanceIssue_CompleteColumn_PolicyResolveFailureFailsClosed(t *testing.T) {
+	e := setupEpicTest(t)
+	e.svc.SetAgentProxy(&fakeAgentProxy{})
+	pid, _, implID := makeProjectWithColumns(t, e)
+	doneID := makeCompleteColumn(t, e, pid)
+	issueID := makeStandaloneIssue(t, e, implID, "改需求", "")
+	e.makeWorkspace(t, issueID)
+	e.svc.SetCompletionDirtyChecker(func(_ context.Context, _ store.Workspace) (bool, string) {
+		return false, ""
+	})
+	_, derr := e.db.ExecContext(e.ctx, `DROP TABLE completion_settings`)
+	require.NoError(t, derr)
+
+	_, err := e.svc.AdvanceIssue(e.ctx, service.AdvanceIssueInput{
+		IssueID: issueID, ToColumn: strconv.FormatInt(doneID, 10), CallerUserID: 1,
+	})
+	require.Error(t, err, "an unresolvable policy must refuse the done move")
+	assert.Contains(t, err.Error(), "无法解析自动完成策略")
+	assert.Equal(t, implID, issueColumn(t, e, issueID), "card stays put on fail-closed")
+}
+
 // --- complete-column epic-child auto-merge (epic 自动执行逻辑优化, ws-568) ---
 
 // An epic CHILD advanced into the done lane has its worktree committed + merged

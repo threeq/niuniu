@@ -211,13 +211,15 @@ func (s *WorkspaceSession) augmentAutohostPrompt(ctx context.Context, base strin
 	if s.issueID <= 0 || s.q == nil {
 		return base
 	}
-	policy, ok := s.autohostEffectivePolicy(ctx)
-	if !ok {
+	policy, ok, err := s.autohostEffectivePolicy(ctx)
+	if err != nil || !ok {
+		// The watchdog fails closed on a policy error before this prompt is
+		// used; return the base prompt rather than guessing at policy values.
 		return base
 	}
 	var b strings.Builder
 	b.WriteString(base)
-	if unmet := s.unmetAcceptance(ctx); len(unmet) > 0 {
+	if unmet, aerr := s.unmetAcceptance(ctx); aerr == nil && len(unmet) > 0 {
 		b.WriteString("\n\n以下验收项尚未标记完成；完成每一项后请调用 update_checklist_item 将其勾选（completed=true）：\n")
 		for _, item := range unmet {
 			fmt.Fprintf(&b, "- %s\n", item)
@@ -233,37 +235,41 @@ func (s *WorkspaceSession) augmentAutohostPrompt(ctx context.Context, base strin
 // autohostEffectivePolicy resolves the issue's effective completion policy
 // (design §6.5). It reads fresh rows on every call, which is exactly what makes
 // a settings/profile change take effect on the NEXT turn without restarting the
-// agent. resolved=false means the session is not issue-bound (or the lookup
-// failed); callers then keep the legacy NIUNIU_AUTOHOST_* env behavior.
-func (s *WorkspaceSession) autohostEffectivePolicy(ctx context.Context) (completion.EffectivePolicy, bool) {
+// agent.
+//
+// resolved=false with a nil error means the session is deliberately not
+// issue-bound; callers then keep the legacy NIUNIU_AUTOHOST_* env behavior. For
+// an issue-bound session a resolution error is returned to the caller, which
+// MUST fail closed (stop the watchdog) rather than silently degrade to the
+// permissive env defaults — a DB hiccup must never let a task be declared done.
+func (s *WorkspaceSession) autohostEffectivePolicy(ctx context.Context) (completion.EffectivePolicy, bool, error) {
 	if s.issueID <= 0 || s.q == nil {
-		return completion.EffectivePolicy{}, false
+		return completion.EffectivePolicy{}, false, nil
 	}
 	policy, err := completion.NewResolver(s.q).ResolveIssueID(ctx, s.issueID)
 	if err != nil {
-		slog.Warn("autohost: resolve completion policy failed; using legacy env budgets",
-			"workspace_id", s.workspaceID, "issue_id", s.issueID, "error", err)
-		return completion.EffectivePolicy{}, false
+		return completion.EffectivePolicy{}, false, err
 	}
-	return policy, true
+	return policy, true, nil
 }
 
 // unmetAcceptance returns the Task Brief acceptance items not yet completed for
 // the current issue. No brief (zero acceptance rows) yields nil — a hand-created
 // issue without a Brief keeps the pre-Brief completion behavior. Manual
 // kind='task' checklist rows are deliberately excluded (design §6.4).
-func (s *WorkspaceSession) unmetAcceptance(ctx context.Context) []string {
+//
+// A query error is returned (not swallowed): the caller must fail closed so a
+// transient DB failure can never be read as "all acceptance items are done".
+func (s *WorkspaceSession) unmetAcceptance(ctx context.Context) ([]string, error) {
 	if s.issueID <= 0 || s.q == nil {
-		return nil
+		return nil, nil
 	}
 	rows, err := s.q.ListChecklistsByIssueAndKind(ctx, store.ListChecklistsByIssueAndKindParams{
 		IssueID: s.issueID,
 		Kind:    autohostAcceptanceKind,
 	})
 	if err != nil {
-		slog.Warn("autohost: list acceptance items failed; completion gate skipped",
-			"workspace_id", s.workspaceID, "issue_id", s.issueID, "error", err)
-		return nil
+		return nil, err
 	}
 	var unmet []string
 	for _, r := range rows {
@@ -271,7 +277,7 @@ func (s *WorkspaceSession) unmetAcceptance(ctx context.Context) []string {
 			unmet = append(unmet, r.Title)
 		}
 	}
-	return unmet
+	return unmet, nil
 }
 
 // autohostHumanActionQuestion extracts the question following the
@@ -446,7 +452,16 @@ func (s *WorkspaceSession) autohostMaybeContinue(ctx context.Context) (bool, str
 		return false, ""
 	}
 
-	policy, hasPolicy := s.autohostEffectivePolicy(ctx)
+	policy, hasPolicy, perr := s.autohostEffectivePolicy(ctx)
+	if perr != nil {
+		// Fail closed: an issue-bound session that cannot read its policy must
+		// not fall back to the permissive legacy budgets. Park into attention so
+		// a human checks the configuration instead of the task silently ending.
+		slog.Error("autohost: resolve completion policy failed; stopping into attention",
+			"workspace_id", s.workspaceID, "issue_id", s.issueID, "error", perr)
+		s.setAutohostAttention(autohostPolicyUnavailableQuestion())
+		return false, ""
+	}
 	budget := s.readAutohostBudget(ctx)
 	var tokenBudget int64
 	if hasPolicy {
@@ -503,7 +518,15 @@ func (s *WorkspaceSession) autohostMaybeContinue(ctx context.Context) (bool, str
 	}
 
 	if autohostShouldStop(lastText) {
-		unmet := s.unmetAcceptance(ctx)
+		unmet, aerr := s.unmetAcceptance(ctx)
+		if aerr != nil {
+			// Fail closed: never accept a sentinel when the acceptance list
+			// could not be read — "unknown" must not mean "all done".
+			slog.Error("autohost: acceptance lookup failed; refusing completion",
+				"workspace_id", s.workspaceID, "issue_id", s.issueID, "error", aerr)
+			s.setAutohostAttention(autohostAcceptanceUnavailableQuestion())
+			return false, ""
+		}
 		if len(unmet) == 0 {
 			slog.Info("autohost: sentinel accepted, acceptance complete",
 				"workspace_id", s.workspaceID, "consec", consec)
@@ -529,7 +552,7 @@ func (s *WorkspaceSession) autohostMaybeContinue(ctx context.Context) (bool, str
 	}
 
 	if tokenBudget > 0 && chainTokens >= tokenBudget {
-		s.setAutohostAttention(autohostTokenBudgetQuestion(chainTokens, tokenBudget, s.unmetAcceptance(ctx)))
+		s.setAutohostAttention(autohostTokenBudgetQuestion(chainTokens, tokenBudget, s.acceptanceListForQuestion(ctx)))
 		slog.Info("autohost: token budget exhausted, stopping into attention",
 			"workspace_id", s.workspaceID, "tokens", chainTokens, "budget", tokenBudget)
 		return false, ""
@@ -545,7 +568,7 @@ func (s *WorkspaceSession) autohostMaybeContinue(ctx context.Context) (bool, str
 		if s.hasPendingBgWork() && s.scheduleBgWaitResume(ctx) {
 			return false, ""
 		}
-		s.setAutohostAttention(autohostRoundsCapQuestion(budget, s.unmetAcceptance(ctx)))
+		s.setAutohostAttention(autohostRoundsCapQuestion(budget, s.acceptanceListForQuestion(ctx)))
 		slog.Info("autohost: round budget exhausted, stopping into attention",
 			"workspace_id", s.workspaceID, "consec", consec, "budget", budget)
 		return false, ""
@@ -574,6 +597,29 @@ func (s *WorkspaceSession) peekAutohostAttention() string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.autohostAttention
+}
+
+// acceptanceListForQuestion is the display-only acceptance list embedded in a
+// structured question. A lookup failure is surfaced inline — the question is
+// still asked, and the failure is never treated as "all done".
+func (s *WorkspaceSession) acceptanceListForQuestion(ctx context.Context) []string {
+	unmet, err := s.unmetAcceptance(ctx)
+	if err != nil {
+		slog.Warn("autohost: acceptance lookup failed while building question",
+			"workspace_id", s.workspaceID, "issue_id", s.issueID, "error", err)
+		return []string{"（验收项读取失败，请人工核对）"}
+	}
+	return unmet
+}
+
+func autohostPolicyUnavailableQuestion() string {
+	return "⏸ 自动托管已暂停：无法解析本任务的自动完成策略（可能是配置或数据库异常）。\n" +
+		"请检查项目「自动完成」设置或 issue 指定的 profile 后重试。"
+}
+
+func autohostAcceptanceUnavailableQuestion() string {
+	return "⏸ 自动托管已暂停：无法读取 Task Brief 的验收项，因此不会宣布完成。\n" +
+		"请检查数据库与任务配置，确认验收项后决定是否继续。"
 }
 
 func autohostDecisionQuestion(question string) string {
@@ -649,7 +695,13 @@ func (s *WorkspaceSession) autohostMaybeRecover(ctx context.Context) (bool, stri
 	}
 	// Recovery is part of the Completion capability: a policy with autohost
 	// switched off must stop retrying too (resolved fresh each turn).
-	policy, hasPolicy := s.autohostEffectivePolicy(ctx)
+	policy, hasPolicy, perr := s.autohostEffectivePolicy(ctx)
+	if perr != nil {
+		// Fail closed on a policy read failure (see autohostMaybeContinue).
+		slog.Error("autohost: resolve completion policy failed during recovery; stopping",
+			"workspace_id", s.workspaceID, "issue_id", s.issueID, "error", perr)
+		return false, ""
+	}
 	if hasPolicy && !policy.AutohostEnabled {
 		return false, ""
 	}
