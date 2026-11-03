@@ -363,6 +363,9 @@ type IssueResponse struct {
 	// (non-archived) workspace, so its parent/child relations are frozen — the
 	// UI hides the parent/child entries the server guardrail would 409 anyway.
 	HasWorkspace bool `json:"has_workspace"`
+	// CompletionProfileID is the issue-level completion profile override.
+	// Nil means the issue inherits the project default (§6.5).
+	CompletionProfileID *int64 `json:"completion_profile_id"`
 	// External tracker linkage. Empty when the issue is not linked to any
 	// external source. ExternalSource is the provider name (e.g. "github");
 	// ExternalID is canonical ("owner/repo#123"); ExternalURL is the
@@ -460,6 +463,7 @@ func toIssueResponse(d service.IssueDetail) IssueResponse {
 		ExecStatus:                 d.ExecStatus,
 		ExecStatusReason:           execStatusReason,
 		HasWorkspace:               d.HasWorkspace,
+		CompletionProfileID:        nullInt64ToPtr(d.CompletionProfileID),
 		ExternalSource:             nullStringValResp(d.ExternalSource),
 		ExternalID:                 nullStringValResp(d.ExternalID),
 		ExternalURL:                nullStringValResp(d.ExternalUrl),
@@ -468,6 +472,15 @@ func toIssueResponse(d service.IssueDetail) IssueResponse {
 		CreatedAt:                  d.CreatedAt,
 		UpdatedAt:                  d.UpdatedAt,
 	}
+}
+
+// nullInt64ToPtr renders a nullable column as a nullable JSON number.
+func nullInt64ToPtr(n sql.NullInt64) *int64 {
+	if !n.Valid {
+		return nil
+	}
+	v := n.Int64
+	return &v
 }
 
 // parseExternalCommentsSnapshot decodes the JSON array stored in
