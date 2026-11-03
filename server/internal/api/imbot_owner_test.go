@@ -345,6 +345,37 @@ func TestIMBotOwner_ListBots_ExplicitOwnerFilterStillScopes(t *testing.T) {
 
 // PatchChatOwner derives authorization from the chat's own bot, so a plain member
 // cannot retarget an org bot's routing even though the route carries no project.
+// TestIMBotOwner_PatchChat_IntakeMode covers the design §6.9 intake_mode field
+// on PATCH /api/imbot/chats/:chatid: it is persisted on the chat, unknown values
+// degrade to the dry-run default, and another owner cannot set it.
+func TestIMBotOwner_PatchChat_IntakeMode(t *testing.T) {
+	r, _, pendingChat, _, _, _ := setupIMBotOwner(t)
+	path := "/api/imbot/chats/" + itoa(pendingChat)
+
+	// New chats default to observe (dry-run) — never auto-create on day one.
+	w := ownerReq(t, r, http.MethodPatch, path, "1", `{"bind_mode":"project"}`)
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+	assert.Equal(t, "observe", resp["intake_mode"])
+
+	w = ownerReq(t, r, http.MethodPatch, path, "1", `{"intake_mode":"auto"}`)
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+	assert.Equal(t, "auto", resp["intake_mode"])
+
+	// Unrecognized values degrade to observe rather than erroring or enabling.
+	w = ownerReq(t, r, http.MethodPatch, path, "1", `{"intake_mode":"yolo"}`)
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+	assert.Equal(t, "observe", resp["intake_mode"])
+
+	// A different owner cannot change the mode.
+	w = ownerReq(t, r, http.MethodPatch, path, "2", `{"intake_mode":"off"}`)
+	assert.True(t, w.Code == http.StatusForbidden || w.Code == http.StatusNotFound,
+		"cross-owner patch must be rejected, got %d body=%s", w.Code, w.Body.String())
+}
+
 func TestIMBotOwner_PatchChat_AuthorizedByBotOwner(t *testing.T) {
 	r, svc, orgChan, orgProj := setupIMBotOrgScopeWithSvc(t)
 

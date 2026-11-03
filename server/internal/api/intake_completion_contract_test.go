@@ -305,6 +305,12 @@ func TestIssueBrief_NullThenVersioned(t *testing.T) {
 	assert.Equal(t, []int64{3}, view.Brief.Provenance.RuleIDs)
 	require.Len(t, view.Versions, 1)
 
+	// Unauthenticated callers are rejected rather than treated as unrestricted.
+	w = doJSON(t, r, http.MethodGet, "/api/issues/1/brief", "", "")
+	assert.Equal(t, http.StatusUnauthorized, w.Code)
+	w = doJSON(t, r, http.MethodGet, "/mcp/issues/1/brief", "", "")
+	assert.Equal(t, http.StatusUnauthorized, w.Code)
+
 	// Cross-owner reads and unknown issues.
 	w = doJSON(t, r, http.MethodGet, "/api/issues/1/brief", "2", "")
 	assert.Equal(t, http.StatusForbidden, w.Code)

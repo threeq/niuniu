@@ -554,6 +554,7 @@ type ImBotChat struct {
 	ChatName      string        `json:"chat_name"`
 	BindMode      string        `json:"bind_mode"`
 	AgentMode     string        `json:"agent_mode"`
+	IntakeMode    string        `json:"intake_mode"`
 	PinnedIssueID sql.NullInt64 `json:"pinned_issue_id"`
 	ActiveIssueID sql.NullInt64 `json:"active_issue_id"`
 	Status        string        `json:"status"`

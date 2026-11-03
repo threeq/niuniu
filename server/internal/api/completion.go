@@ -351,16 +351,19 @@ func (h *CompletionHandler) MCPSetIssueProfile(c *gin.Context) {
 	if !ok {
 		return
 	}
-	if uid := c.GetInt64("auth_user_id"); uid > 0 {
-		owner, err := h.authz.CanAccessIssue(c.Request.Context(), uid, issueID)
-		if err != nil {
-			writeAuthzError(c, err)
-			return
-		}
-		if err := h.authz.EnsureOwnerWritable(c.Request.Context(), uid, owner); err != nil {
-			writeAuthzError(c, err)
-			return
-		}
+	uid := c.GetInt64("auth_user_id")
+	if uid <= 0 {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthenticated"})
+		return
+	}
+	owner, err := h.authz.CanAccessIssue(c.Request.Context(), uid, issueID)
+	if err != nil {
+		writeAuthzError(c, err)
+		return
+	}
+	if err := h.authz.EnsureOwnerWritable(c.Request.Context(), uid, owner); err != nil {
+		writeAuthzError(c, err)
+		return
 	}
 	var body struct {
 		ProfileID *int64 `json:"profile_id"`

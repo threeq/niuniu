@@ -1973,6 +1973,14 @@ CREATE TABLE IF NOT EXISTS im_bot_chats (
     -- would make fresh and upgraded schemas diverge. Validated in the service layer
     -- (normalizeAgentMode) instead.
     agent_mode      TEXT NOT NULL DEFAULT 'command',
+    -- intake_mode (design 2026-11-03 §6.9): how this chat feeds Intake —
+    --   'off'     — only explicit requests create/continue a task;
+    --   'observe' — record dry-run decisions for human calibration. Default for
+    --               new chats;
+    --   'auto'    — create tasks within the project policy and daily cap.
+    -- No CHECK for the same retrofit reason as agent_mode; validated in the
+    -- service layer (normalizeIntakeMode).
+    intake_mode     TEXT NOT NULL DEFAULT 'observe',
     pinned_issue_id INTEGER,
     active_issue_id INTEGER,
     status          TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','active','disabled')),

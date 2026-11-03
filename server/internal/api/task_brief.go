@@ -38,11 +38,14 @@ func (h *TaskBriefHandler) GetBrief(c *gin.Context) {
 	if !ok {
 		return
 	}
-	if uid := c.GetInt64("auth_user_id"); uid > 0 {
-		if _, err := h.authz.CanAccessIssue(c.Request.Context(), uid, issueID); err != nil {
-			writeAuthzError(c, err)
-			return
-		}
+	uid := c.GetInt64("auth_user_id")
+	if uid <= 0 {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthenticated"})
+		return
+	}
+	if _, err := h.authz.CanAccessIssue(c.Request.Context(), uid, issueID); err != nil {
+		writeAuthzError(c, err)
+		return
 	}
 	view, err := h.svc.GetIssueBrief(c.Request.Context(), issueID)
 	if err != nil {
