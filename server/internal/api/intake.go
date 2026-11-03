@@ -22,6 +22,9 @@ import (
 type IntakeHandler struct {
 	svc   *service.IntakeService
 	authz *service.Authz
+	// Github exposes the bound-repo event configuration + poll health (design
+	// §6.10). Nil until server wiring; the endpoints then answer 501.
+	Github *service.GithubSourceService
 	// ProviderEnv lets the brief suggestion reuse the issue endpoint's provider
 	// default, so it works even when the host's native CLI login has expired.
 	ProviderEnv interface {
@@ -704,4 +707,48 @@ func intParam(c *gin.Context, name string) int {
 		return 0
 	}
 	return n
+}
+
+// GetGitHubConfig serves GET /api/projects/:id/intake/github: the project's
+// bound GitHub repos, their enabled event types, and the latest poll health.
+func (h *IntakeHandler) GetGitHubConfig(c *gin.Context) {
+	pid, ok := h.intakeProjectAccess(c, false)
+	if !ok {
+		return
+	}
+	if h.Github == nil {
+		c.JSON(http.StatusNotImplemented, gin.H{"error": "github source is not wired"})
+		return
+	}
+	view, err := h.Github.ListGitHubConfig(c.Request.Context(), pid)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, view)
+}
+
+// PutGitHubConfig serves PUT /api/projects/:id/intake/github. It changes only
+// the enabled event types; repo bindings and credentials keep their own
+// (external-sources) settings.
+func (h *IntakeHandler) PutGitHubConfig(c *gin.Context) {
+	pid, ok := h.intakeProjectAccess(c, true)
+	if !ok {
+		return
+	}
+	if h.Github == nil {
+		c.JSON(http.StatusNotImplemented, gin.H{"error": "github source is not wired"})
+		return
+	}
+	var body service.UpdateGithubConfigRequest
+	if err := c.ShouldBindJSON(&body); err != nil {
+		BadRequest(c, "invalid request body")
+		return
+	}
+	view, err := h.Github.UpdateGitHubConfig(c.Request.Context(), pid, body)
+	if err != nil {
+		BadRequest(c, err.Error())
+		return
+	}
+	c.JSON(http.StatusOK, view)
 }

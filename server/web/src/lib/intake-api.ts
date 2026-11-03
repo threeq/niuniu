@@ -131,6 +131,21 @@ export interface IntakeRuleInput {
   enabled?: boolean
 }
 
+/** One bound GitHub repo's polling configuration and latest health. */
+export interface GithubRepoConfig {
+  source_key: string
+  events: string[]
+  last_polled_at?: string
+  backoff_until?: string
+  last_error?: string
+}
+
+export interface GithubConfig {
+  project_id: number
+  repos: GithubRepoConfig[]
+  known_events: string[]
+}
+
 export interface IntakePolicyVersion {
   id: number
   project_id: number
@@ -193,6 +208,14 @@ export const intakeApi = {
 
   deleteRule: (projectId: number, ruleId: number) =>
     api.delete<void>(`/projects/${projectId}/intake/rules/${ruleId}`),
+
+  // GitHub Source (个人版轮询): bound repos, enabled events, poll health.
+  // suppressError: the config dialog renders its own empty/error state.
+  getGithubConfig: (projectId: number) =>
+    api.get<GithubConfig>(`/projects/${projectId}/intake/github`, { suppressError: true }),
+
+  updateGithubConfig: (projectId: number, repos: { source_key: string; events: string[] }[]) =>
+    api.put<GithubConfig>(`/projects/${projectId}/intake/github`, { repos }),
 
   listPolicyVersions: (projectId: number, sourceKind: IntakeSourceKind, limit = 50) =>
     api.get<IntakePolicyVersion[]>(`/projects/${projectId}/intake/policy-versions`, {

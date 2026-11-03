@@ -34,17 +34,18 @@ type HarnessGate interface {
 
 // Scheduler manages cron-based and one-time scheduled tasks for workspaces.
 type Scheduler struct {
-	cron        *cron.Cron
-	q           *store.Queries
-	db          *sql.DB // raw DB for queries not covered by sqlc (e.g. triggered_by checks)
-	proxy       *agentproxy.AgentProxy
-	notifyHub   *notify.NotificationHub
-	harnessGate HarnessGate            // optional; on_schedule pre-flight gate
-	allowRun    func() bool            // license gate; nil = always allowed
-	entries     map[int64]cron.EntryID // scheduleID → cron entry
-	timers      map[int64]*time.Timer  // scheduleID → one-shot timer
-	healthEntry cron.EntryID           // integration-source health sweep (#744); 0 = unregistered
-	mu          sync.Mutex
+	cron            *cron.Cron
+	q               *store.Queries
+	db              *sql.DB // raw DB for queries not covered by sqlc (e.g. triggered_by checks)
+	proxy           *agentproxy.AgentProxy
+	notifyHub       *notify.NotificationHub
+	harnessGate     HarnessGate            // optional; on_schedule pre-flight gate
+	allowRun        func() bool            // license gate; nil = always allowed
+	entries         map[int64]cron.EntryID // scheduleID → cron entry
+	timers          map[int64]*time.Timer  // scheduleID → one-shot timer
+	healthEntry     cron.EntryID           // integration-source health sweep (#744); 0 = unregistered
+	githubPollEntry cron.EntryID           // GitHub Source polling (#773); 0 = unregistered
+	mu              sync.Mutex
 }
 
 // New creates a new Scheduler.
@@ -89,6 +90,32 @@ func (s *Scheduler) RegisterHealthSweep(expr string, run func(context.Context)) 
 	}
 	s.healthEntry = entryID
 	slog.Info("scheduler: registered integration health sweep", "expr", expr)
+}
+
+// RegisterGitHubPoll schedules GitHub Source polling on the shared cron engine
+// (Epic #755 / design §6.10). The poller keeps its own per-repo since/ETag
+// cursors and backoff, so the expression only controls how often a due-check
+// runs. An empty expr or nil run disables polling. Register before Start;
+// re-calling replaces the previous entry.
+func (s *Scheduler) RegisterGitHubPoll(expr string, run func(context.Context)) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.githubPollEntry != 0 {
+		s.cron.Remove(s.githubPollEntry)
+		s.githubPollEntry = 0
+	}
+	if expr == "" || run == nil {
+		return
+	}
+	entryID, err := s.cron.AddFunc(expr, func() {
+		run(context.Background())
+	})
+	if err != nil {
+		slog.Error("scheduler: register github poll failed", "expr", expr, "err", err)
+		return
+	}
+	s.githubPollEntry = entryID
+	slog.Info("scheduler: registered github source poll", "expr", expr)
 }
 
 // Start begins the cron scheduler.

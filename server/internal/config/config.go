@@ -143,6 +143,12 @@ type IntakeConfig struct {
 	//
 	// Env override: NIUNIU_INTAKE_LEGACY_CHAT_MODE.
 	LegacyChatMode bool `mapstructure:"legacy_chat_mode"`
+	// GitHubPollCron drives GitHub repository polling (design §6.10). Each
+	// enabled repo is polled every tick with its own since/ETag cursor; an empty
+	// expression disables scheduling (manual RunOnce still works).
+	//
+	// Env override: NIUNIU_INTAKE_GITHUB_POLL_CRON.
+	GitHubPollCron string `mapstructure:"github_poll_cron"`
 }
 
 type EditorConfig struct {
@@ -490,6 +496,9 @@ func Load() (*Config, error) {
 	viper.SetDefault("integration_health.enabled", true)
 	viper.SetDefault("integration_health.failure_threshold", 3)
 	viper.SetDefault("integration_health.sweep_cron", "0 * * * *")
+	// GitHub Source polling (Epic #755 / design §6.10): personal edition polls
+	// outbound, so no public webhook is needed.
+	viper.SetDefault("intake.github_poll_cron", "*/1 * * * *")
 	viper.SetDefault("editor.vscode_mode", "local")
 	viper.SetDefault("editor.vscode_remote_url", "")
 	viper.SetDefault("image_optimization.enabled", true)
