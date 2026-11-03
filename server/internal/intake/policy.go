@@ -1,6 +1,9 @@
 package intake
 
-import "strings"
+import (
+	"strings"
+	"unicode"
+)
 
 // Mode is the per project+source intake mode.
 type Mode string
@@ -37,6 +40,7 @@ const (
 	ReasonAccepted    = "accepted"
 	ReasonResumed     = "resumed"
 	ReasonOffInferred = "off_inferred"
+	ReasonDailyCap    = "daily_cap"
 	ReasonDisabled    = "disabled"
 )
 
@@ -132,12 +136,59 @@ func contains(list []string, want string) bool {
 func containsKeyword(text string, keywords []string) bool {
 	lower := strings.ToLower(text)
 	for _, kw := range keywords {
+		kw = strings.ToLower(strings.TrimSpace(kw))
 		if kw == "" {
 			continue
 		}
-		if strings.Contains(lower, strings.ToLower(kw)) {
+		// A Latin keyword must match a whole token: "deploy" must not match
+		// "undeployed" or "deployment", or attacker-controlled prose could earn
+		// inferred authorization by embedding the keyword. CJK has no word
+		// boundaries, so those keywords fall back to substring matching.
+		if isASCIIWord(kw) {
+			if containsWord(lower, kw) {
+				return true
+			}
+			continue
+		}
+		if strings.Contains(lower, kw) {
 			return true
 		}
 	}
 	return false
+}
+
+func isASCIIWord(s string) bool {
+	if s == "" {
+		return false
+	}
+	for _, r := range s {
+		if r > unicode.MaxASCII || !(unicode.IsLetter(r) || unicode.IsDigit(r) || r == '_' || r == '-') {
+			return false
+		}
+	}
+	return true
+}
+
+// containsWord reports whether word occurs in text delimited by non-word
+// characters. text is expected to be lowercased.
+func containsWord(text, word string) bool {
+	for start := 0; start <= len(text)-len(word); {
+		i := strings.Index(text[start:], word)
+		if i < 0 {
+			return false
+		}
+		i += start
+		end := i + len(word)
+		beforeOK := i == 0 || !isWordByte(text[i-1])
+		afterOK := end == len(text) || !isWordByte(text[end])
+		if beforeOK && afterOK {
+			return true
+		}
+		start = i + 1
+	}
+	return false
+}
+
+func isWordByte(b byte) bool {
+	return b == '_' || b >= '0' && b <= '9' || b >= 'a' && b <= 'z' || b >= 'A' && b <= 'Z'
 }
