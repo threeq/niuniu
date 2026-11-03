@@ -62,7 +62,7 @@ export function CompletionPolicyFields({ draft, onChange, idPrefix, disabled }: 
             className="w-32 tabular-nums"
           />
           {roundsInvalid ? (
-            <p className="text-xs text-destructive">{t('completion.invalidRounds')}</p>
+            <p className="text-xs text-destructive-text">{t('completion.invalidRounds')}</p>
           ) : null}
         </div>
         <div className="space-y-1.5">
@@ -80,7 +80,7 @@ export function CompletionPolicyFields({ draft, onChange, idPrefix, disabled }: 
             className="w-40 tabular-nums"
           />
           {budgetInvalid ? (
-            <p className="text-xs text-destructive">{t('completion.invalidBudget')}</p>
+            <p className="text-xs text-destructive-text">{t('completion.invalidBudget')}</p>
           ) : (
             <p className="text-xs text-muted-foreground">{t('completion.unlimited')}</p>
           )}

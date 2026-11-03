@@ -1,4 +1,5 @@
 import type { ComponentType } from 'react'
+import { Link } from '@tanstack/react-router'
 import { useTranslation } from 'react-i18next'
 import { Bot, Github, Mail, Settings2, Workflow, Webhook } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
@@ -128,9 +129,9 @@ export function SourceCard({
               {t('intake.configure')}
             </Button>
             <Button type="button" variant="ghost" size="sm" asChild>
-              <a href={`/intake?project=${projectId}&source=${source.source_kind}`}>
+              <Link to="/intake" search={{ project: projectId, source: source.source_kind }}>
                 {t('intake.viewPending', { count: pending })}
-              </a>
+              </Link>
             </Button>
           </div>
         </>

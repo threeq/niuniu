@@ -675,7 +675,7 @@ function ProvenancePopover({
                     {attachments.map((attachment, index) => (
                       <span
                         key={index}
-                        className="rounded-md border border-warm-border px-1.5 py-0.5 text-[11px] text-warm-text-muted"
+                        className="rounded-md border border-warm-border px-1.5 py-0.5 text-xs text-warm-text-muted"
                       >
                         {attachment.Name || t('brief.provenance.attachment')}
                       </span>
@@ -687,7 +687,7 @@ function ProvenancePopover({
               <span className="text-xs text-warm-text-muted">{t('brief.provenance.noEvent')}</span>
             )}
             {event && (
-              <span className="flex flex-wrap items-center gap-2 text-[11px] text-warm-text-muted">
+              <span className="flex flex-wrap items-center gap-2 text-xs text-warm-text-muted">
                 <span>{t('brief.provenance.receivedAt', { time: formatTime(event.received_at) })}</span>
                 {safeURL && (
                   <a
@@ -797,7 +797,7 @@ function VersionHistory({
             <div className="flex flex-wrap items-center gap-2 text-xs">
               <span className="font-medium">v{version.version}</span>
               {isCurrent && (
-                <span className="rounded-md bg-brand-soft px-1.5 py-0.5 text-[11px] font-medium text-brand">
+                <span className="rounded-md bg-brand-soft px-1.5 py-0.5 text-xs font-medium text-brand">
                   {t('brief.current')}
                 </span>
               )}
@@ -809,7 +809,7 @@ function VersionHistory({
                     type="button"
                     variant="ghost"
                     size="sm"
-                    className="h-6 px-1.5 text-[11px]"
+                    className="h-6 px-1.5 text-xs"
                     aria-expanded={comparing}
                     onClick={() => onToggleCompare(version.version)}
                   >
@@ -821,7 +821,7 @@ function VersionHistory({
                     type="button"
                     variant="ghost"
                     size="sm"
-                    className="h-6 gap-1 px-1.5 text-[11px]"
+                    className="h-6 gap-1 px-1.5 text-xs"
                     disabled={rollingBack}
                     onClick={() => onRollback(version)}
                   >
@@ -848,10 +848,10 @@ function VersionHistory({
                   <div key={`entry-${index}`} className="flex items-start gap-1.5">
                     <span
                       className={cn(
-                        'shrink-0 rounded px-1 text-[11px] font-medium',
+                        'shrink-0 rounded px-1 text-xs font-medium',
                         entry.kind === 'added'
                           ? 'bg-success/10 text-success'
-                          : 'bg-destructive/10 text-destructive',
+                          : 'bg-destructive/10 text-destructive-text',
                       )}
                     >
                       {entry.kind === 'added' ? t('brief.added') : t('brief.removed')}

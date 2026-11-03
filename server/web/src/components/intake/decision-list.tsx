@@ -1,5 +1,6 @@
 import { useTranslation } from 'react-i18next'
 import { Bot, Github, Inbox } from 'lucide-react'
+import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { cn } from '@/lib/utils'
 import type { IntakeDecision } from '@/lib/intake-api'
@@ -20,11 +21,11 @@ export function StrengthBadge({ strength }: { strength: string }) {
   return (
     <span
       className={cn(
-        'inline-flex shrink-0 items-center rounded-md px-1.5 py-0.5 text-[11px] font-medium',
+        'inline-flex shrink-0 items-center rounded-md px-1.5 py-0.5 text-xs font-medium',
         strength === 'explicit'
           ? 'bg-brand-soft text-brand'
           : strength === 'denied'
-            ? 'bg-destructive/10 text-destructive'
+            ? 'bg-destructive/10 text-destructive-text'
             : 'bg-warm-muted text-warm-text-muted',
       )}
     >
@@ -72,10 +73,10 @@ export function DecisionList({
         return (
           <li key={decision.id} className="relative flex items-start gap-2 px-3 py-3">
             {!seenIds.has(decision.id) && (
-              <span
-                className="absolute inset-y-2 left-0 w-0.5 rounded-full bg-brand"
-                aria-label={t('review.newDecision')}
-              />
+              <>
+                <span className="absolute inset-y-2 left-0 w-0.5 rounded-full bg-brand" aria-hidden="true" />
+                <span className="sr-only">{t('review.newDecision')}</span>
+              </>
             )}
             <Checkbox
               checked={selectedIds.has(decision.id)}
@@ -83,12 +84,13 @@ export function DecisionList({
               className="mt-1 shrink-0"
               aria-label={t('review.selectDecision', { id: decision.id })}
             />
-            <button
+            <Button
               type="button"
+              variant="ghost"
               onClick={() => onSelect(decision)}
               className={cn(
-                'min-w-0 flex-1 rounded-md text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand',
-                activeId === decision.id && 'bg-brand-soft/60',
+                'h-auto min-w-0 flex-1 flex-col items-start justify-start gap-0 whitespace-normal rounded-md p-0 text-left font-normal hover:bg-accent',
+                activeId === decision.id && 'bg-brand-soft/60 hover:bg-brand-soft/60',
               )}
             >
               <div className="flex items-center gap-1.5 text-xs text-warm-text-muted">
@@ -99,7 +101,7 @@ export function DecisionList({
                 <span aria-hidden>·</span>
                 <span className="truncate">{thread || t('review.noThread')}</span>
               </div>
-              <div className="mt-1 flex items-center gap-2 text-[11px] text-warm-text-muted">
+              <div className="mt-1 flex items-center gap-2 text-xs text-warm-text-muted">
                 <span className="tabular-nums">{relative(decision.created_at)}</span>
                 <StrengthBadge strength={decision.strength} />
                 {labelKey && decision.decision !== 'accept' && (
@@ -109,7 +111,7 @@ export function DecisionList({
                 )}
               </div>
               <p className="mt-1 line-clamp-2 text-sm break-words">{summary}</p>
-            </button>
+            </Button>
           </li>
         )
       })}

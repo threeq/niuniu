@@ -13,7 +13,13 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet'
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+} from '@/components/ui/sheet'
 import { EmptyState } from '@/components/shared/empty-state'
 import { useProjects } from '@/lib/hooks/use-projects'
 import { useMediaQuery } from '@/hooks/use-media-query'
@@ -170,7 +176,7 @@ export function IntakeReviewPage() {
   const enableAuto = useMutation({
     mutationFn: (sourceKinds: string[]) => {
       const current = settingsQuery.data
-      if (!current) throw new Error(t('calibration.dialog.settingsUnavailable'))
+      if (!current) throw new Error(t('intake.calibration.dialog.settingsUnavailable'))
       const rows = current.settings
         .filter((setting) => sourceKinds.includes(setting.source_kind))
         .map((setting) => ({
@@ -184,14 +190,14 @@ export function IntakeReviewPage() {
     },
     onSuccess: () => {
       setEnableOpen(false)
-      toast.success(t('calibration.dialog.enabledToast'))
+      toast.success(t('intake.calibration.dialog.enabledToast'))
       queryClient.invalidateQueries({ queryKey: ['intake-calibration', projectId] })
       queryClient.invalidateQueries({ queryKey: ['intake-settings', projectId] })
       queryClient.invalidateQueries({ queryKey: ['intake-decisions'] })
     },
     onError: (error) => {
       toast.error(
-        t('calibration.dialog.enabledFailed', {
+        t('intake.calibration.dialog.enabledFailed', {
           message: error instanceof Error ? error.message : String(error),
         }),
       )
@@ -304,7 +310,7 @@ export function IntakeReviewPage() {
             type="button"
             variant="outline"
             size="sm"
-            className="h-7 border-destructive/50 px-2 text-xs text-destructive hover:bg-destructive/10 hover:text-destructive"
+            className="h-7 border-destructive/50 px-2 text-xs text-destructive-text hover:bg-destructive/10 hover:text-destructive-text"
             onClick={() => setBatchOpen(true)}
           >
             {t('review.batchIgnore')}
@@ -418,19 +424,19 @@ export function IntakeReviewPage() {
       {projectId !== null && calibration ? (
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-warm-border bg-warm-surface px-4 py-2">
           <span className="text-xs font-medium text-warm-text tabular-nums">
-            {t('calibration.summary', {
+            {t('intake.calibration.summary', {
               count: calibration.calibrated,
               rate: Math.round(calibration.acceptance_rate * 100),
             })}
           </span>
           <span className="text-xs text-warm-text-muted tabular-nums">
-            {t('calibration.pendingCount', { count: calibration.pending })}
+            {t('intake.calibration.pendingCount', { count: calibration.pending })}
           </span>
           {ready && allCalibratedOnAuto ? (
-            <span className="text-xs text-warm-text-muted">{t('calibration.activeHint')}</span>
+            <span className="text-xs text-warm-text-muted">{t('intake.calibration.activeHint')}</span>
           ) : ready ? (
             <>
-              <span className="text-xs text-warm-text-muted">{t('calibration.readyHint')}</span>
+              <span className="text-xs text-warm-text-muted">{t('intake.calibration.readyHint')}</span>
               <Button
                 type="button"
                 size="sm"
@@ -439,16 +445,16 @@ export function IntakeReviewPage() {
                 onClick={() => setEnableOpen(true)}
               >
                 <Zap className="mr-1 h-3.5 w-3.5" aria-hidden="true" />
-                {t('calibration.readyCta')}
+                {t('intake.calibration.readyCta')}
               </Button>
             </>
           ) : (
             <span className="text-xs text-warm-text-muted tabular-nums">
               {calibration.calibrated < calibration.min_calibrated
-                ? t('calibration.needCount', {
+                ? t('intake.calibration.needCount', {
                     count: calibration.min_calibrated - calibration.calibrated,
                   })
-                : t('calibration.needRate', {
+                : t('intake.calibration.needRate', {
                     rate: Math.round(calibration.min_acceptance_rate * 100),
                   })}
             </span>
@@ -473,9 +479,10 @@ export function IntakeReviewPage() {
 
       {!isDesktop && (
         <Sheet open={drawerOpen} onOpenChange={setDrawerOpen}>
-          <SheetContent side="bottom" className="flex h-[85vh] flex-col gap-0 p-0">
+          <SheetContent side="bottom" className="flex h-5/6 flex-col gap-0 p-0">
             <SheetHeader className="border-b border-warm-border px-4 py-3 text-left">
               <SheetTitle className="text-sm font-semibold">{t('review.title')}</SheetTitle>
+              <SheetDescription className="sr-only">{t('review.description')}</SheetDescription>
             </SheetHeader>
             <div className="min-h-0 flex-1 overflow-hidden">{detailContent}</div>
           </SheetContent>

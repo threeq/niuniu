@@ -172,12 +172,14 @@ export function ChatRow({ projectId, chat, canManage }: Props) {
             </PopoverTrigger>
             <PopoverContent className="w-72 space-y-2" align="end">
               <p className="text-sm font-medium text-warm-text">{t('imbot.bindModeTitle')}</p>
-              <button
+              <Button
                 type="button"
+                variant="ghost"
+                aria-pressed={!pinned}
                 disabled={bind.isPending}
                 onClick={() => bind.mutate({ bind_mode: 'project', pinned_issue_id: null })}
                 className={
-                  'w-full rounded-md border px-2.5 py-1.5 text-left text-sm transition-colors ' +
+                  'h-auto w-full flex-col items-start justify-start gap-0 whitespace-normal rounded-md border px-2.5 py-1.5 text-left text-sm font-normal ' +
                   (!pinned
                     ? 'border-brand bg-brand/5 text-warm-text'
                     : 'border-warm-border text-warm-text-muted hover:bg-warm-muted')
@@ -185,7 +187,7 @@ export function ChatRow({ projectId, chat, canManage }: Props) {
               >
                 {t('imbot.bindProject')}
                 <span className="block text-xs text-warm-text-muted">{t('imbot.bindProjectHint')}</span>
-              </button>
+              </Button>
 
               <div className="space-y-1">
                 <p className="text-xs text-warm-text-muted">{t('imbot.bindWorkspaceHint')}</p>
@@ -199,20 +201,22 @@ export function ChatRow({ projectId, chat, canManage }: Props) {
                   {issues.data?.map((iss) => {
                     const selected = pinned && chat.pinned_issue_id === iss.id;
                     return (
-                      <button
+                      <Button
                         key={iss.id}
                         type="button"
+                        variant="ghost"
+                        aria-pressed={selected}
                         disabled={bind.isPending}
                         onClick={() => bind.mutate({ bind_mode: 'workspace', pinned_issue_id: iss.id })}
                         className={
-                          'w-full rounded-md border px-2.5 py-1.5 text-left text-sm truncate transition-colors ' +
+                          'h-auto w-full justify-start gap-0 whitespace-normal rounded-md border px-2.5 py-1.5 text-left text-sm font-normal ' +
                           (selected
                             ? 'border-brand bg-brand/5 text-warm-text'
                             : 'border-warm-border text-warm-text-muted hover:bg-warm-muted')
                         }
                       >
-                        {iss.title}
-                      </button>
+                        <span className="truncate">{iss.title}</span>
+                      </Button>
                     );
                   })}
                 </div>
@@ -241,12 +245,14 @@ export function ChatRow({ projectId, chat, canManage }: Props) {
             </PopoverTrigger>
             <PopoverContent className="w-72 space-y-2" align="end">
               <p className="text-sm font-medium text-warm-text">{t('imbot.agentModeTitle')}</p>
-              <button
+              <Button
                 type="button"
+                variant="ghost"
+                aria-pressed={!observing}
                 disabled={setMode.isPending}
                 onClick={() => setMode.mutate('command')}
                 className={
-                  'w-full rounded-md border px-2.5 py-1.5 text-left text-sm transition-colors ' +
+                  'h-auto w-full flex-col items-start justify-start gap-0 whitespace-normal rounded-md border px-2.5 py-1.5 text-left text-sm font-normal ' +
                   (!observing
                     ? 'border-brand bg-brand/5 text-warm-text'
                     : 'border-warm-border text-warm-text-muted hover:bg-warm-muted')
@@ -256,13 +262,15 @@ export function ChatRow({ projectId, chat, canManage }: Props) {
                 <span className="block text-xs text-warm-text-muted">
                   {t('imbot.agentModeCommandHint')}
                 </span>
-              </button>
-              <button
+              </Button>
+              <Button
                 type="button"
+                variant="ghost"
+                aria-pressed={observing}
                 disabled={setMode.isPending}
                 onClick={() => setMode.mutate('observe')}
                 className={
-                  'w-full rounded-md border px-2.5 py-1.5 text-left text-sm transition-colors ' +
+                  'h-auto w-full flex-col items-start justify-start gap-0 whitespace-normal rounded-md border px-2.5 py-1.5 text-left text-sm font-normal ' +
                   (observing
                     ? 'border-brand bg-brand/5 text-warm-text'
                     : 'border-warm-border text-warm-text-muted hover:bg-warm-muted')
@@ -272,7 +280,7 @@ export function ChatRow({ projectId, chat, canManage }: Props) {
                 <span className="block text-xs text-warm-text-muted">
                   {t('imbot.agentModeObserveHint')}
                 </span>
-              </button>
+              </Button>
             </PopoverContent>
           </Popover>
         ) : (
@@ -348,6 +356,7 @@ export function ChatRow({ projectId, chat, canManage }: Props) {
             type="button"
             variant="ghost"
             size="sm"
+            aria-label={t('imbot.removeChat')}
             className="text-destructive hover:text-destructive/80 hover:bg-destructive/10"
             disabled={remove.isPending}
             onClick={async () => {
@@ -356,7 +365,7 @@ export function ChatRow({ projectId, chat, canManage }: Props) {
               }
             }}
           >
-            <Trash2 className="h-4 w-4" />
+            <Trash2 className="h-4 w-4" aria-hidden="true" />
           </Button>
         )}
       </div>

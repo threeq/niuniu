@@ -202,7 +202,7 @@ export function SourceConfigDialog({
                       ))}
                     </div>
                     {repo.last_error && (
-                      <p className="text-xs text-destructive">
+                      <p className="text-xs text-destructive-text">
                         {t('intake.config.githubError', { message: repo.last_error })}
                       </p>
                     )}
@@ -279,7 +279,7 @@ export function SourceConfigDialog({
                         type="button"
                         variant="ghost"
                         size="sm"
-                        className="text-destructive hover:bg-destructive/10 hover:text-destructive"
+                        className="text-destructive-text hover:bg-destructive/10 hover:text-destructive-text"
                         onClick={async () => {
                           if (await confirm({ description: t('intake.rules.deleteConfirm', { name: rule.name }), destructive: true })) {
                             deleteRule.mutate(rule)
@@ -333,7 +333,7 @@ export function SourceConfigDialog({
                               type="button"
                               variant="ghost"
                               size="sm"
-                              className="text-destructive hover:bg-destructive/10 hover:text-destructive"
+                              className="text-destructive-text hover:bg-destructive/10 hover:text-destructive-text"
                               onClick={async () => {
                                 if (await confirm({ description: t('intake.rules.deleteConfirm', { name: rule.name }), destructive: true })) {
                                   deleteRule.mutate(rule)
@@ -365,7 +365,7 @@ export function SourceConfigDialog({
                 aria-invalid={capError || undefined}
               />
               {capError ? (
-                <p className="text-xs text-destructive">{t('intake.config.dailyCapError')}</p>
+                <p className="text-xs text-destructive-text">{t('intake.config.dailyCapError')}</p>
               ) : (
                 <p className="text-xs text-muted-foreground">{t('intake.config.dailyCapHint')}</p>
               )}
@@ -388,7 +388,7 @@ export function SourceConfigDialog({
           <div className="space-y-2 rounded-md border border-destructive/30 bg-destructive/5 p-3">
             <div className="flex items-start justify-between gap-4">
               <div className="min-w-0">
-                <p className="text-sm font-medium text-destructive">{t('intake.config.pause')}</p>
+                <p className="text-sm font-medium text-destructive-text">{t('intake.config.pause')}</p>
                 <p className="mt-1 text-xs text-muted-foreground">{t('intake.pauseHint')}</p>
               </div>
               <Switch

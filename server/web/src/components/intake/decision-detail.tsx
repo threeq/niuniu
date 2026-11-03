@@ -123,7 +123,7 @@ export function DecisionDetail({ decision, rules, rulesFailed }: DecisionDetailP
             </span>
             <StrengthBadge strength={decision.strength} />
             {isResume && (
-              <span className="rounded bg-warm-muted px-1.5 py-0.5 text-[11px] font-medium">
+              <span className="rounded bg-warm-muted px-1.5 py-0.5 text-xs font-medium">
                 {t('review.decision.resume')}
               </span>
             )}
@@ -213,7 +213,7 @@ export function DecisionDetail({ decision, rules, rulesFailed }: DecisionDetailP
             <div className="mb-2 flex items-center justify-between">
               <h3 className="text-xs font-medium text-warm-text-muted">{t('review.brief')}</h3>
               {editing && (
-                <span className="text-[11px] text-brand">{t('review.dirtyHint')}</span>
+                <span className="text-xs text-brand">{t('review.dirtyHint')}</span>
               )}
             </div>
             <TaskBriefEditor
@@ -287,7 +287,7 @@ export function DecisionDetail({ decision, rules, rulesFailed }: DecisionDetailP
           <Button
             type="button"
             variant="ghost"
-            className="ml-auto text-destructive hover:bg-destructive/10 hover:text-destructive"
+            className="ml-auto text-destructive-text hover:bg-destructive/10 hover:text-destructive-text"
             onClick={() => setIgnoreOpen(true)}
             disabled={busy}
           >

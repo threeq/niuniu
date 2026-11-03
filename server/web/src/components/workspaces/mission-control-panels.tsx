@@ -94,20 +94,20 @@ function MetricTile({ metric }: { metric: MissionControlMetric }) {
   switch (metric.drill) {
     case 'intake':
       return (
-        <Link to="/intake" className={TILE_CLASS} aria-label={label}>
+        <Link to="/intake" className={TILE_CLASS}>
           {content}
         </Link>
       )
     case 'workspaces':
       return (
-        <Link to="/workspaces" className={TILE_CLASS} aria-label={label}>
+        <Link to="/workspaces" className={TILE_CLASS}>
           {content}
         </Link>
       )
     default:
       // Cost tiles drill into the token trend already rendered on this page.
       return (
-        <a href="#owner-token-trend" className={TILE_CLASS} aria-label={label}>
+        <a href="#owner-token-trend" className={TILE_CLASS}>
           {content}
         </a>
       )
