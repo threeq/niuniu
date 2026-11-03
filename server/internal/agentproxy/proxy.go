@@ -481,6 +481,17 @@ type WorkspaceSession struct {
 	autohostConsec      int
 	autohostErrorConsec int
 	autohostGoalHint    string
+	// autohostChainTokens accumulates token usage across the current autohost
+	// chain (reset with the other counters on externally-sourced input). The
+	// effective completion policy's TokenBudget is compared against it on each
+	// watchdog decision; the budget bounds one task, not one process. Guarded by
+	// s.mu.
+	autohostChainTokens int64
+	// autohostAttention carries the structured question when the watchdog
+	// deliberately stops into attention (rounds/token budget exhausted, a human
+	// decision requested). SendLoop peeks it and finalizeSendLoopTurn clears it.
+	// Guarded by s.mu.
+	autohostAttention string
 	// autohostScheduledWait is set true by autohostMaybeContinue when, instead of
 	// stopping, it scheduled a paced resume to WAIT for pending background work.
 	// SendLoop reads it to keep the workspace "running" (not needs_review) at the
@@ -1990,6 +2001,18 @@ func (s *WorkspaceSession) SendLoop(ctx context.Context, workDir, content, attac
 			continue
 		}
 
+		// The watchdog may have stopped into attention rather than completing:
+		// rounds/token budget exhausted, or the worker asked for a human
+		// decision. Surface the structured question and finalize as attention
+		// WITHOUT the error/rollback path (a budget stop is not a failed turn,
+		// so re-queueing the user message would wrongly restart the work).
+		if attention := s.peekAutohostAttention(); attention != "" {
+			slog.Info("autohost: terminal stop into attention", "workspaceID", s.workspaceID)
+			s.emitAutohostSystemInfo(ctx, attention)
+			s.finalizeSendLoopTurn(ctx, false, attention, true)
+			return
+		}
+
 		// Reaching here on a clean turn means the autohost watchdog declined to
 		// continue (or autohost is off). When autohost is active and the watchdog
 		// genuinely STOPPED (LLM met / sentinel / budget with no bg work), this is
@@ -2020,11 +2043,21 @@ func (s *WorkspaceSession) finalizeSendLoopTurn(ctx context.Context, isError boo
 	//
 	// 例外: autohostTerminalStop (SendLoop 用 !scheduledWait && mode==autohost 算出)
 	// —— autohost 判定真正完成 (met / sentinel) 后立即流转, 残留 stale wakeup 不挡。
+	// A deliberate attention stop (rounds/token budget exhausted or a human
+	// decision requested) is not a failed turn: status must become attention,
+	// but the error rollback (which re-queues the user message and restarts
+	// the work) must not fire.
+	s.mu.Lock()
+	attention := s.autohostAttention
+	s.autohostAttention = ""
+	s.mu.Unlock()
+	attentionStop := isError || attention != ""
+
 	s.mu.Lock()
 	scheduledWait := s.autohostScheduledWait
 	schedulerDriven := s.schedulerDriven
 	s.mu.Unlock()
-	if !isError && !autohostTerminalStop && (scheduledWait || s.hasPendingFutureWakeup()) {
+	if !attentionStop && !autohostTerminalStop && (scheduledWait || s.hasPendingFutureWakeup()) {
 		slog.Info("agent finalizeSendLoopTurn: deferring done — paced autohost wait / pending wakeup",
 			"workspaceID", s.workspaceID, "scheduledWait", scheduledWait)
 		return
@@ -2055,9 +2088,12 @@ func (s *WorkspaceSession) finalizeSendLoopTurn(ctx context.Context, isError boo
 	// its final autohost/queue decision. A clean turn may still be followed by
 	// an automatic continue prompt, in which case the workspace must stay running.
 	if s.statusHook != nil && !s.isTemporary {
-		if isError {
+		switch {
+		case isError:
 			s.statusHook.OnAgentEvent(ctx, s.workspaceID, "error")
-		} else {
+		case attention != "":
+			s.statusHook.OnAgentEvent(ctx, s.workspaceID, "attention")
+		default:
 			s.statusHook.OnAgentEvent(ctx, s.workspaceID, "done")
 		}
 	}
@@ -2065,7 +2101,7 @@ func (s *WorkspaceSession) finalizeSendLoopTurn(ctx context.Context, isError boo
 	// Publish to event bus for desktop SSE subscribers.
 	// Skipped for temporary workspaces to avoid spurious agent_done events.
 	if s.eventBus != nil && !s.isTemporary {
-		if isError {
+		if isError || attention != "" {
 			s.eventBus.Publish(event.OutputEvent{
 				Type: event.EventAgentFailed, Content: result,
 				WorkspaceId: s.workspaceID, Ts: time.Now().UnixMilli(),
@@ -2092,7 +2128,7 @@ func (s *WorkspaceSession) finalizeSendLoopTurn(ctx context.Context, isError boo
 	// Skipped for temporary workspaces to avoid noisy sidebar notifications.
 	if s.notifyHub != nil && !s.isTemporary {
 		finalStatus := "needs_review"
-		if isError {
+		if attentionStop {
 			finalStatus = "attention"
 		}
 
@@ -2990,6 +3026,14 @@ func (s *WorkspaceSession) handleEvent(ctx context.Context, ev ParsedEvent, msgI
 		}
 
 	case "result":
+		// Autohost token budget: accumulate every turn's usage (success or
+		// error) into the current chain. The watchdog compares it to the
+		// effective policy's TokenBudget on its next decision — never mid-turn.
+		if total := int64(ev.InputTokens + ev.OutputTokens + ev.CacheCreationTokens + ev.CacheReadTokens); total > 0 {
+			s.mu.Lock()
+			s.autohostChainTokens += total
+			s.mu.Unlock()
+		}
 		if ev.IsError {
 			s.persistAndBroadcast(ctx, NewOutputEvent(EventError, ev.Result, msgId, "assistant", s.workspaceID), agentID)
 			if staleTasks, err := s.q.ListInProgressTasks(ctx, s.workspaceID); err == nil && len(staleTasks) > 0 {
