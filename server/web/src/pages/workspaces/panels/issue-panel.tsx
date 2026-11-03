@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next'
 import { Trash2, Pencil, Check, Play } from 'lucide-react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/lib/api'
+import { isDoneColumn, isReviewColumn } from '@/lib/kanban-columns'
 import type { Workspace, Issue } from '@/types/api'
 import { toast } from 'sonner'
 import { useChatInputBridge } from '@/stores/chat-input-bridge-store'
@@ -102,9 +103,8 @@ export function IssuePanel({ workspace, readOnly }: IssuePanelProps) {
   // panel — the comment composer offers the same "需重做/打回" action when the issue
   // sits in a review lane (审查/人工审查) or the done lane (完成, = re-open for review).
   const currentCol = columns?.find((c) => c.id === issue?.column_id)
-  const currentLifecycle = (currentCol?.lifecycle_mapping ?? '').toLowerCase()
-  const isReviewCol = !!currentCol && (currentCol.name.includes('审查') || currentLifecycle.includes('review'))
-  const isDoneCol = !!currentCol && (currentCol.name.includes('完成') || currentLifecycle.includes('complete'))
+  const isReviewCol = !!currentCol && isReviewColumn(currentCol)
+  const isDoneCol = !!currentCol && isDoneColumn(currentCol)
   const canRequestChanges = !readOnly && (isReviewCol || isDoneCol)
   const requestChangesMutation = useMutation({
     mutationFn: (data: { author: string; content: string }) =>
