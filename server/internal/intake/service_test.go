@@ -8,12 +8,12 @@ import (
 )
 
 type fakeStore struct {
-	event         EventRecord
-	eventErr      error
-	eventCalls    int
-	lastEvent     Trigger
-	decisions     []DecisionRecord
-	marked        []markedExecution
+	event        EventRecord
+	eventErr     error
+	eventCalls   int
+	lastEvent    Trigger
+	decisions    []DecisionRecord
+	marked       []markedExecution
 	decisionID   int64
 	reserved     int64
 	reserveCalls int
@@ -592,5 +592,56 @@ func TestProposeSkipsOutsideObserve(t *testing.T) {
 		if len(executor.plans) != 0 {
 			t.Fatalf("mode %s executed", mode)
 		}
+	}
+}
+
+// TestHandlePausedForcesOff covers the project stop switch: paused wins over a
+// source-level auto mode, so inferred work neither executes nor gets recorded as
+// a dry-run, while an explicit request still runs.
+func TestHandlePausedForcesOff(t *testing.T) {
+	policy := Policy{
+		Mode:   ModeAuto,
+		Paused: true,
+		Rules:  []Rule{{ID: 11, Enabled: true, Conditions: RuleConditions{Keywords: []string{"deploy"}}}},
+	}
+	svc, store, _, _, executor := newHarness(policy)
+
+	res, err := svc.Handle(context.Background(), trigger("ou_dave", "please deploy"))
+	if err != nil {
+		t.Fatalf("Handle: %v", err)
+	}
+	if res.Decision != DecisionIgnore || res.Executed || res.ReasonCode != ReasonOffInferred {
+		t.Fatalf("result = %+v", res)
+	}
+	if len(executor.plans) != 0 {
+		t.Fatalf("paused inferred work executed")
+	}
+	if rec := store.decisions[0]; rec.Mode != ModeOff {
+		t.Fatalf("recorded mode = %s, want off", rec.Mode)
+	}
+
+	svc, _, _, _, executor = newHarness(Policy{Mode: ModeAuto, Paused: true, AllowList: []string{"ou_alice"}})
+	res, err = svc.Handle(context.Background(), trigger("ou_alice", "fix bug"))
+	if err != nil {
+		t.Fatalf("Handle explicit: %v", err)
+	}
+	if res.Decision != DecisionAccept || !res.Executed {
+		t.Fatalf("explicit request while paused = %+v", res)
+	}
+	if len(executor.plans) != 1 {
+		t.Fatalf("explicit request while paused did not execute")
+	}
+}
+
+func TestProposeSkipsWhilePaused(t *testing.T) {
+	svc, store, _, _, _ := newHarness(Policy{Mode: ModeObserve, Paused: true})
+	tg := trigger("bot:employee", "整理季度数据")
+	tg.EventID = ""
+	tg.EventKind = EventKindProposal
+	if _, err := svc.Propose(context.Background(), Proposal{Trigger: tg, Goal: "整理季度数据"}); err != nil {
+		t.Fatalf("Propose: %v", err)
+	}
+	if len(store.decisions) != 0 || store.eventCalls != 0 {
+		t.Fatalf("paused proposal recorded or stored something")
 	}
 }

@@ -53,8 +53,12 @@ type IntakeSettingDTO struct {
 // kind is present: kinds without a stored row are rendered with defaults so the
 // settings page never has to synthesize them.
 type IntakeSettingsView struct {
-	ProjectID int64              `json:"project_id"`
-	Settings  []IntakeSettingDTO `json:"settings"`
+	ProjectID int64 `json:"project_id"`
+	// Paused is the project-level stop switch: while true the pipeline forces
+	// every source to mode off, so inferred/observe work stops immediately
+	// while explicit requests keep working.
+	Paused   bool               `json:"paused"`
+	Settings []IntakeSettingDTO `json:"settings"`
 }
 
 // IntakeSettingInput is one settings row in a PUT body.
@@ -134,11 +138,15 @@ func (s *IntakeService) GetSettings(ctx context.Context, projectID int64) (Intak
 	if err != nil {
 		return IntakeSettingsView{}, err
 	}
+	paused, err := s.GetPaused(ctx, projectID)
+	if err != nil {
+		return IntakeSettingsView{}, err
+	}
 	byKind := make(map[string]store.IntakeSetting, len(rows))
 	for _, r := range rows {
 		byKind[r.SourceKind] = r
 	}
-	view := IntakeSettingsView{ProjectID: projectID, Settings: make([]IntakeSettingDTO, 0, len(byKind)+len(intakeSourceKinds))}
+	view := IntakeSettingsView{ProjectID: projectID, Paused: paused, Settings: make([]IntakeSettingDTO, 0, len(byKind)+len(intakeSourceKinds))}
 	seen := make(map[string]bool, len(byKind))
 	for _, kind := range intakeSourceKinds {
 		if r, ok := byKind[kind]; ok {
@@ -161,6 +169,37 @@ func (s *IntakeService) GetSettings(ctx context.Context, projectID int64) (Intak
 		}
 	}
 	return view, nil
+}
+
+// GetPaused reports the project-level intake stop switch. A missing row means
+// not paused — the default for every project.
+func (s *IntakeService) GetPaused(ctx context.Context, projectID int64) (bool, error) {
+	row, err := s.q.GetIntakeProjectState(ctx, projectID)
+	switch {
+	case err == nil:
+		return row.Paused != 0, nil
+	case errors.Is(err, sql.ErrNoRows):
+		return false, nil
+	default:
+		return false, err
+	}
+}
+
+// SetPaused flips the project-level stop switch. It is deliberately separate
+// from source settings: pausing must take effect immediately, not on save.
+func (s *IntakeService) SetPaused(ctx context.Context, projectID int64, paused bool) (bool, error) {
+	pausedInt := int64(0)
+	if paused {
+		pausedInt = 1
+	}
+	row, err := s.q.UpsertIntakeProjectState(ctx, store.UpsertIntakeProjectStateParams{
+		ProjectID: projectID,
+		Paused:    pausedInt,
+	})
+	if err != nil {
+		return false, err
+	}
+	return row.Paused != 0, nil
 }
 
 // UpdateSettings upserts each provided row and, per §6.8, writes one policy

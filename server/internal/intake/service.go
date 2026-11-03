@@ -209,6 +209,11 @@ func (s *Service) Handle(ctx context.Context, t Trigger) (Result, error) {
 	if t.Mode != "" {
 		policy.Mode = t.Mode
 	}
+	// The project stop switch wins over every mode: no inferred/observe work
+	// runs while paused, but explicit requests still execute in mode off.
+	if policy.Paused {
+		policy.Mode = ModeOff
+	}
 
 	authz := policy.Evaluate(t)
 	res := Result{
@@ -364,6 +369,9 @@ func (s *Service) Propose(ctx context.Context, p Proposal) (Result, error) {
 	}
 	if t.Mode != "" {
 		policy.Mode = t.Mode
+	}
+	if policy.Paused {
+		policy.Mode = ModeOff
 	}
 	if policy.Mode != ModeObserve {
 		return Result{Decision: DecisionIgnore, ReasonCode: ReasonOffInferred}, nil

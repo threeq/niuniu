@@ -74,10 +74,14 @@ type Policy struct {
 	SourceKind string
 	Version    int64
 	Mode       Mode
-	DailyCap   int64
-	AllowList  []string
-	BotList    []string
-	Rules      []Rule
+	// Paused is the project-level stop switch. When set the pipeline treats the
+	// mode as off regardless of source or chat overrides: inferred/observe work
+	// stops immediately while explicit requests keep working.
+	Paused    bool
+	DailyCap  int64
+	AllowList []string
+	BotList   []string
+	Rules     []Rule
 }
 
 // Authorization is the result of evaluating a policy for a trigger.

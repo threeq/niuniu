@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"log/slog"
 	"strconv"
@@ -518,7 +519,8 @@ func (e *IMBotEmployee) considerChat(ctx context.Context, chat store.ImBotChat) 
 	// evaluated at all. The dry-run path sends no message, so it must not consume
 	// the interruption budget — nothing was interrupted.
 	if action == EmployeeActionTask && strings.TrimSpace(verdict.Task) != "" &&
-		e.svc.effectiveChatIntakeMode(chat) != intake.ModeAuto {
+		(e.svc.effectiveChatIntakeMode(chat) != intake.ModeAuto ||
+			e.svc.intakePaused(ctx, chat.ProjectID.Int64)) {
 		e.proposeTask(ctx, chat, verdict)
 		return
 	}
@@ -545,6 +547,21 @@ func (e *IMBotEmployee) considerChat(ctx context.Context, chat store.ImBotChat) 
 // switch.
 func (s *IMBotService) effectiveChatIntakeMode(chat store.ImBotChat) intake.Mode {
 	return effectiveChatIntakeMode(chat, s.legacyChatIntakeMode)
+}
+
+// intakePaused reports the project stop switch for paths that decide from the
+// chat mode directly (the proactive employee) and therefore never reach
+// intake.Service's policy gate. Real lookup errors fail closed: skipping inferred
+// work is the conservative choice.
+func (s *IMBotService) intakePaused(ctx context.Context, projectID int64) bool {
+	if projectID <= 0 {
+		return false
+	}
+	state, err := s.q.GetIntakeProjectState(ctx, projectID)
+	if err != nil {
+		return !errors.Is(err, sql.ErrNoRows)
+	}
+	return state.Paused != 0
 }
 
 // proposeTask records a proactive task verdict as a dry-run decision instead of

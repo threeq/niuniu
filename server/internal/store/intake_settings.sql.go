@@ -23,6 +23,17 @@ func (q *Queries) DeleteIntakeSetting(ctx context.Context, arg DeleteIntakeSetti
 	return err
 }
 
+const getIntakeProjectState = `-- name: GetIntakeProjectState :one
+SELECT project_id, paused, updated_at FROM intake_project_state WHERE project_id = ?
+`
+
+func (q *Queries) GetIntakeProjectState(ctx context.Context, projectID int64) (IntakeProjectState, error) {
+	row := q.db.QueryRowContext(ctx, getIntakeProjectState, projectID)
+	var i IntakeProjectState
+	err := row.Scan(&i.ProjectID, &i.Paused, &i.UpdatedAt)
+	return i, err
+}
+
 const getIntakeSetting = `-- name: GetIntakeSetting :one
 SELECT id, project_id, source_kind, mode, daily_cap, allow_list_json, bot_list_json, updated_at FROM intake_settings WHERE project_id = ? AND source_kind = ?
 `
@@ -82,6 +93,27 @@ func (q *Queries) ListIntakeSettingsByProject(ctx context.Context, projectID int
 		return nil, err
 	}
 	return items, nil
+}
+
+const upsertIntakeProjectState = `-- name: UpsertIntakeProjectState :one
+INSERT INTO intake_project_state (project_id, paused)
+VALUES (?, ?)
+ON CONFLICT(project_id) DO UPDATE SET
+    paused = excluded.paused,
+    updated_at = CURRENT_TIMESTAMP
+RETURNING project_id, paused, updated_at
+`
+
+type UpsertIntakeProjectStateParams struct {
+	ProjectID int64 `json:"project_id"`
+	Paused    int64 `json:"paused"`
+}
+
+func (q *Queries) UpsertIntakeProjectState(ctx context.Context, arg UpsertIntakeProjectStateParams) (IntakeProjectState, error) {
+	row := q.db.QueryRowContext(ctx, upsertIntakeProjectState, arg.ProjectID, arg.Paused)
+	var i IntakeProjectState
+	err := row.Scan(&i.ProjectID, &i.Paused, &i.UpdatedAt)
+	return i, err
 }
 
 const upsertIntakeSetting = `-- name: UpsertIntakeSetting :one

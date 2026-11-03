@@ -2203,6 +2203,16 @@ CREATE TABLE IF NOT EXISTS intake_settings (
     UNIQUE(project_id, source_kind)
 );
 
+-- Project-level intake pause. A missing row means not paused. While paused the
+-- pipeline forces every source to mode off: explicit requests keep working
+-- (mode off still runs them) but inferred/observe work stops immediately and
+-- resuming needs no re-calibration.
+CREATE TABLE IF NOT EXISTS intake_project_state (
+    project_id BIGINT PRIMARY KEY REFERENCES projects(id) ON DELETE CASCADE,
+    paused     INTEGER NOT NULL DEFAULT 0,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
 -- Ordered intake rules evaluated per source; higher priority wins.
 CREATE TABLE IF NOT EXISTS intake_rules (
     id              BIGSERIAL PRIMARY KEY,
