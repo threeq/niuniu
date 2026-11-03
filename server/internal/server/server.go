@@ -1674,6 +1674,8 @@ func New(cfg *config.Config, db *sql.DB, frontendFS fs.FS) *Server {
 		imbot.ChannelWechat:   wechat.New(),
 	}
 	s.imbotSvc = service.NewIMBotService(s.queries, db, keyring, s.authzSvc, imbotAdapters)
+	// Rollback switch for the per-chat agent_mode → intake_mode migration (§7.1).
+	s.imbotSvc.SetIntakeLegacyChatMode(s.cfg.Intake.LegacyChatMode)
 	// Health alerts now reach both channels: station-in hub + IM Bot (#744).
 	s.integrationHealthSvc.SetNotifier(&integrationHealthNotifier{hub: s.notifyHub, imbotSvc: s.imbotSvc})
 	// Egress data-governance alerts (#747) use the same two channels. The

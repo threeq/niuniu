@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/niuniu-dev/niuniu/internal/intake"
 	"github.com/niuniu-dev/niuniu/internal/store"
 )
 
@@ -156,6 +157,10 @@ const (
 
 	// employeeActionWindow is the budget's rolling period.
 	employeeActionWindow = 24 * time.Hour
+
+	// employeeActorExtID identifies the bot itself as the actor of a proactive
+	// proposal recorded for calibration. It is not a platform user id.
+	employeeActorExtID = "niuniu:employee"
 
 	// employeeFailuresBeforeNotice is how many CONSECUTIVE analysis failures a chat
 	// tolerates before the bot says so in the chat itself.
@@ -506,6 +511,18 @@ func (e *IMBotEmployee) considerChat(ctx context.Context, chat store.ImBotChat) 
 			"chat", chat.ID, "action", action)
 		return
 	}
+	// Starting a task is intake work, not mere chatter: it is gated by the chat's
+	// intake mode (design §6.3). In auto the employee starts the task as before;
+	// in observe the proposal is RECORDED as a dry-run decision (would-do) and
+	// nothing is created, delivered, or announced; in off inferred work is not
+	// evaluated at all. The dry-run path sends no message, so it must not consume
+	// the interruption budget — nothing was interrupted.
+	if action == EmployeeActionTask && strings.TrimSpace(verdict.Task) != "" &&
+		e.svc.effectiveChatIntakeMode(chat) != intake.ModeAuto {
+		e.proposeTask(ctx, chat, verdict)
+		return
+	}
+
 	if action != EmployeeActionNone && !e.claimActionBudget(chat.ID) {
 		slog.Info("imbot: employee action suppressed by daily budget",
 			"chat", chat.ID, "action", action, "budget", employeeMaxActionsPerDay)
@@ -522,6 +539,49 @@ func (e *IMBotEmployee) considerChat(ctx context.Context, chat store.ImBotChat) 
 	default:
 		slog.Debug("imbot: employee verdict none", "chat", chat.ID, "messages", len(msgs))
 	}
+}
+
+// effectiveChatIntakeMode resolves this chat's intake mode, honoring the rollback
+// switch.
+func (s *IMBotService) effectiveChatIntakeMode(chat store.ImBotChat) intake.Mode {
+	return effectiveChatIntakeMode(chat, s.legacyChatIntakeMode)
+}
+
+// proposeTask records a proactive task verdict as a dry-run decision instead of
+// starting it. Observe mode writes the would-do payload the calibration queue
+// shows; off records nothing. Zero side effects: no issue, no workspace, no
+// message, no delivery.
+func (e *IMBotEmployee) proposeTask(ctx context.Context, chat store.ImBotChat, verdict EmployeeVerdict) {
+	mode := e.svc.effectiveChatIntakeMode(chat)
+	if mode != intake.ModeObserve || !chat.ProjectID.Valid {
+		return
+	}
+	channel, err := e.q.GetIMBotChannel(ctx, chat.ChannelID)
+	if err != nil {
+		return
+	}
+	// The proposal has no platform event: the employee derived it from the
+	// chat's transcript, so the event id stays empty and the store synthesizes a
+	// unique one (no dedupe — each analysis verdict is its own proposal).
+	res, err := e.svc.intake.Propose(ctx, intake.Proposal{
+		Trigger: intake.Trigger{
+			ProjectID:         chat.ProjectID.Int64,
+			SourceKind:        intake.SourceKindIMBot,
+			SourceRef:         strconv.FormatInt(channel.ID, 10),
+			EventKind:         intake.EventKindProposal,
+			ConversationExtID: chat.ChatExtID,
+			Actor:             intake.ActorRef{ExtID: employeeActorExtID, Name: "牛牛"},
+			ReceivedAt:        e.now(),
+			Mode:              mode,
+		},
+		Goal: verdict.Task,
+	})
+	if err != nil {
+		slog.Warn("imbot: record dry-run proposal failed", "chat", chat.ID, "error", err)
+		return
+	}
+	slog.Info("imbot: employee task recorded as dry-run proposal",
+		"chat", chat.ID, "decision", res.DecisionID, "reason", res.ReasonCode)
 }
 
 // actionableVerdict reports whether an acting verdict actually has something to

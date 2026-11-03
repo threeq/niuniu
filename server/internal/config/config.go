@@ -59,6 +59,7 @@ type Config struct {
 	Upgrade           UpgradeConfig           `mapstructure:"upgrade"`
 	ImageOptimization ImageOptimizationConfig `mapstructure:"image_optimization"`
 	Orchestration     OrchestrationConfig     `mapstructure:"orchestration"`
+	Intake            IntakeConfig            `mapstructure:"intake"`
 	Telemetry         TelemetryConfig         `mapstructure:"telemetry"`
 	DataDir           string                  // computed at load time, not from config file (~/.niuniu)
 }
@@ -130,6 +131,18 @@ type IntegrationHealthConfig struct {
 	// gated by its own probe_interval_seconds, so this only controls how often
 	// the due-check runs. Empty disables scheduling (manual probes still work).
 	SweepCron string `mapstructure:"sweep_cron"`
+}
+
+// IntakeConfig configures task intake (Epic #755).
+type IntakeConfig struct {
+	// LegacyChatMode is the rollback switch for the per-chat agent_mode →
+	// intake_mode semantics migration (design §7.1). When true, a chat's
+	// effective intake mode is derived from agent_mode at runtime
+	// (command → off, observe → auto) instead of the migrated intake_mode
+	// column, restoring pre-migration behaviour without rewriting data.
+	//
+	// Env override: NIUNIU_INTAKE_LEGACY_CHAT_MODE.
+	LegacyChatMode bool `mapstructure:"legacy_chat_mode"`
 }
 
 type EditorConfig struct {
@@ -425,6 +438,10 @@ func Load() (*Config, error) {
 	// Defaults
 	viper.SetDefault("server.port", 3000)
 	viper.SetDefault("server.host", "127.0.0.1")
+	// Rollback switch for the agent_mode → intake_mode semantics migration.
+	// Defaulted so viper knows the key and picks up NIUNIU_INTAKE_LEGACY_CHAT_MODE
+	// through Unmarshal.
+	viper.SetDefault("intake.legacy_chat_mode", false)
 	viper.SetDefault("storage.driver", "sqlite")
 	viper.SetDefault("storage.sqlite.path", filepath.Join(niuniuDir, "niuniu.db"))
 	viper.SetDefault("storage.sqlite.max_open_conns", 8)

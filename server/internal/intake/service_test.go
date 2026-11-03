@@ -515,3 +515,82 @@ func TestHandleStampsReceivedAt(t *testing.T) {
 		t.Fatalf("received at = %v, want %v", store.lastEvent.ReceivedAt, want)
 	}
 }
+
+// TestHandleTriggerModeOverridesPolicy is the per-chat mode: the trigger's own
+// mode wins over the project+source setting, so a chat in observe dry-runs even
+// when its project policy says auto.
+func TestHandleTriggerModeOverridesPolicy(t *testing.T) {
+	policy := Policy{
+		Mode:  ModeAuto,
+		Rules: []Rule{{ID: 11, Enabled: true, Conditions: RuleConditions{Keywords: []string{"deploy"}}}},
+	}
+	svc, store, _, _, executor := newHarness(policy)
+
+	tg := trigger("ou_dave", "please deploy")
+	tg.Mode = ModeObserve
+	res, err := svc.Handle(context.Background(), tg)
+	if err != nil {
+		t.Fatalf("Handle: %v", err)
+	}
+	if res.Decision != DecisionAccept || res.Executed || res.ReasonCode != ReasonObserved {
+		t.Fatalf("result = %+v", res)
+	}
+	if len(executor.plans) != 0 {
+		t.Fatalf("chat-level observe mode executed")
+	}
+	if rec := store.decisions[0]; rec.Mode != ModeObserve || rec.WouldDo == nil {
+		t.Fatalf("record = %+v, want observe mode with would-do", rec)
+	}
+}
+
+// TestProposeRecordsDryRunWithoutSideEffects covers a source-derived proposal
+// (the IM employee's task verdict): observe records executed=0 with the would-do
+// payload; auto and off record nothing and never execute.
+func TestProposeRecordsDryRunWithoutSideEffects(t *testing.T) {
+	svc, store, _, resolver, executor := newHarness(Policy{Mode: ModeObserve, Version: 7})
+
+	tg := trigger("bot:employee", "整理季度数据")
+	tg.EventID = ""
+	tg.EventKind = EventKindProposal
+	tg.Mode = ModeObserve
+	res, err := svc.Propose(context.Background(), Proposal{Trigger: tg, Goal: "整理季度数据"})
+	if err != nil {
+		t.Fatalf("Propose: %v", err)
+	}
+	if res.Decision != DecisionAccept || res.Executed || res.ReasonCode != ReasonObserved {
+		t.Fatalf("result = %+v", res)
+	}
+	if len(executor.plans) != 0 || len(store.marked) != 0 {
+		t.Fatalf("proposal produced side effects")
+	}
+	if resolver.calls != 0 {
+		t.Fatalf("proposal resolved a task; it must not touch routing")
+	}
+	rec := store.decisions[0]
+	if rec.WouldDo == nil || rec.WouldDo.Brief == nil {
+		t.Fatalf("record = %+v, want a dry-run would-do", rec)
+	}
+	if rec.WouldDo.Brief.Goal != "整理季度数据" {
+		t.Fatalf("would-do goal = %q", rec.WouldDo.Brief.Goal)
+	}
+	if rec.Strength != StrengthInferred || rec.PolicyVersion != 7 {
+		t.Fatalf("record meta = %+v", rec)
+	}
+}
+
+func TestProposeSkipsOutsideObserve(t *testing.T) {
+	for _, mode := range []Mode{ModeAuto, ModeOff} {
+		svc, store, _, _, executor := newHarness(Policy{Mode: mode})
+		tg := trigger("bot:employee", "整理季度数据")
+		tg.Mode = mode
+		if _, err := svc.Propose(context.Background(), Proposal{Trigger: tg, Goal: "整理季度数据"}); err != nil {
+			t.Fatalf("Propose(%s): %v", mode, err)
+		}
+		if len(store.decisions) != 0 || store.eventCalls != 0 {
+			t.Fatalf("mode %s recorded or stored something", mode)
+		}
+		if len(executor.plans) != 0 {
+			t.Fatalf("mode %s executed", mode)
+		}
+	}
+}

@@ -213,7 +213,7 @@ func (s *IMBotService) HandleInbound(ctx context.Context, ev imbot.InboundEvent)
 	// chat intake_mode only governs INFERRED work, so an explicit message still
 	// executes in off/observe mode exactly as it did before the extraction
 	// (design §6.3, §7.1).
-	res, err := s.intake.Handle(ctx, imbotSource{}.Normalize(ev, channel, chat, text, forceNew))
+	res, err := s.intake.Handle(ctx, imbotSource{legacyChatMode: s.legacyChatIntakeMode}.Normalize(ev, channel, chat, text, forceNew))
 	if err != nil {
 		slog.Warn("imbot: intake failed", "channel", channel.ID, "chat", chat.ID, "project", routeProjectID, "error", err)
 		return

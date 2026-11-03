@@ -36,6 +36,9 @@ const (
 	EventKindIssueComment = "issue_comment"
 	EventKindReview       = "review"
 	EventKindCheckRun     = "check_run"
+	// EventKindProposal is work a source derived from observation rather than a
+	// message addressed to it (the IM employee's proactive task verdict).
+	EventKindProposal = "proposal"
 )
 
 // Attachment is an external resource referenced by an inbound event. Bytes are
@@ -108,6 +111,11 @@ type Trigger struct {
 	// ForceNew asks for a new task even when the conversation is already bound
 	// to one. Adapters set it from an explicit user control (IM `/new`).
 	ForceNew bool
+
+	// Mode overrides the project+source policy's mode for this trigger. A source
+	// with a finer-grained mode (an IM chat's own intake_mode) sets it; empty
+	// means "use the policy's mode as stored".
+	Mode Mode
 }
 
 // Source is one inbound adapter. Normalize must be pure: it maps a platform

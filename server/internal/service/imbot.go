@@ -67,6 +67,10 @@ type IMBotService struct {
 	// approved chat must execute, which is exactly the pre-extraction behaviour.
 	intake *intake.Service
 
+	// legacyChatIntakeMode is the rollback switch for the agent_mode →
+	// intake_mode semantics migration (design §7). See SetIntakeLegacyChatMode.
+	legacyChatIntakeMode bool
+
 	// --- inbound (W2), wired via SetInbound after construction ---
 	dispatch  TaskRouter        // continue-or-create issue+workspace in the bound project
 	deliverer MessageDeliverer  // agentproxy.Deliver (interface to avoid an import cycle)
@@ -198,6 +202,14 @@ func NewIMBotService(q *store.Queries, rawDB *sql.DB, kr *crypto.Keyring, authz 
 	})
 	return s
 }
+
+// SetIntakeLegacyChatMode is the rollback switch for the agent_mode →
+// intake_mode semantics migration (design §7). When enabled, a chat's effective
+// intake mode is derived from its agent_mode at runtime (command → off,
+// observe → auto) instead of the migrated intake_mode column, restoring the
+// pre-migration behaviour. The stored column is left untouched, so the switch is
+// fully reversible.
+func (s *IMBotService) SetIntakeLegacyChatMode(enabled bool) { s.legacyChatIntakeMode = enabled }
 
 // SetAskUserDecider wires the ask-user answer write-back so a user can answer an
 // agent's question by tapping an option button in the chat. Optional (nil in

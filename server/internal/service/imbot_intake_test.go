@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/niuniu-dev/niuniu/internal/imbot"
@@ -203,5 +204,84 @@ func TestIMBotService_HasIntakePipeline(t *testing.T) {
 	f := newIMBotFixture(t)
 	if f.svc.intake == nil {
 		t.Fatal("IMBotService was built without its intake pipeline")
+	}
+}
+
+// TestEffectiveChatIntakeMode covers the per-chat mode resolution and the
+// rollback switch (design §7.1). The migrated column is authoritative by
+// default; the rollback derives the mode from agent_mode and ignores it.
+func TestEffectiveChatIntakeMode(t *testing.T) {
+	chat := func(agentMode, intakeMode string) store.ImBotChat {
+		return store.ImBotChat{AgentMode: agentMode, IntakeMode: intakeMode}
+	}
+	cases := []struct {
+		name   string
+		chat   store.ImBotChat
+		legacy bool
+		want   intake.Mode
+	}{
+		{"migrated observe chat is auto", chat("observe", "auto"), false, intake.ModeAuto},
+		{"migrated command chat is off", chat("command", "off"), false, intake.ModeOff},
+		{"new chat defaults to observe", chat("command", "observe"), false, intake.ModeObserve},
+		{"unknown intake degrades to observe", chat("command", ""), false, intake.ModeObserve},
+		{"rollback observe→auto", chat("observe", "off"), true, intake.ModeAuto},
+		{"rollback command→off", chat("command", "auto"), true, intake.ModeOff},
+		{"rollback empty agent degrades to command", chat("", "auto"), true, intake.ModeOff},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := effectiveChatIntakeMode(tc.chat, tc.legacy); got != tc.want {
+				t.Fatalf("effectiveChatIntakeMode(%+v, legacy=%v) = %q, want %q", tc.chat, tc.legacy, got, tc.want)
+			}
+		})
+	}
+}
+
+// TestHandleInbound_ChatIntakeModeOverridesProjectPolicy proves the chat-level
+// mode reaches the pipeline: a project policy of auto must not start work when
+// the chat itself is in observe (dry-run).
+func TestHandleInbound_ChatIntakeModeOverridesProjectPolicy(t *testing.T) {
+	f := newIMBotFixture(t)
+	chat := f.activeChat(t, "oc_chatmode")
+	chat = f.setChatIntakeMode(t, chat, IntakeModeObserve)
+	ctx := context.Background()
+	// Project policy says auto, with a rule matching the message, so the project
+	// setting alone would execute.
+	_, err := f.q.UpsertIntakeSetting(ctx, store.UpsertIntakeSettingParams{
+		ProjectID: f.projectID, SourceKind: intake.SourceKindIMBot, Mode: "auto",
+		DailyCap: 10, AllowListJson: `["ou_a"]`, BotListJson: `[]`,
+	})
+	if err != nil {
+		t.Fatalf("seed intake setting: %v", err)
+	}
+	_, err = f.q.CreateIntakeRule(ctx, store.CreateIntakeRuleParams{
+		ProjectID: f.projectID, SourceKind: intake.SourceKindIMBot, Name: "r",
+		Instruction: "", ConditionsJson: `{"keywords":["部署"]}`, Priority: 0, Enabled: 1,
+	})
+	if err != nil {
+		t.Fatalf("seed rule: %v", err)
+	}
+	f.router.queue = []PlanTarget{{IssueID: f.issueID, WorkspaceID: f.wsID, ProjectID: f.projectID}}
+
+	// A non-listed actor whose message matches the rule is inferred; the chat's
+	// observe mode must record it instead of executing.
+	ev := f.groupMsg(chat.ChatExtID, "e-dry", "请部署到线上", false)
+	ev.ActorExtID = "ou_b"
+	f.svc.HandleInbound(ctx, ev)
+
+	if f.router.calls != 0 {
+		t.Fatalf("chat observe mode executed %d times, want 0", f.router.calls)
+	}
+	recorded := f.intakeEvent(t, chat.ChatExtID, "e-dry")
+	decisions, err := f.q.ListIntakeDecisionsByEvent(ctx, recorded.ID)
+	if err != nil || len(decisions) != 1 {
+		t.Fatalf("decisions = %v, err = %v", decisions, err)
+	}
+	d := decisions[0]
+	if d.Executed != 0 || d.Decision != "accept" || d.ModeAtDecision != IntakeModeObserve {
+		t.Fatalf("decision = %+v, want an unexecuted accept recorded in observe mode", d)
+	}
+	if !strings.Contains(d.WouldDoJson, "请部署到线上") {
+		t.Fatalf("would_do_json = %s, want the proposed goal", d.WouldDoJson)
 	}
 }

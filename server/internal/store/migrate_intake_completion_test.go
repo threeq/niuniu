@@ -107,6 +107,64 @@ func TestIntakeExecEventKindMigration(t *testing.T) {
 	require.Equal(t, 1, n, "index must survive the table rebuild")
 }
 
+// TestMigrateIMBotIntakeMode covers the §7.1 semantics migration:
+//
+//	agent_mode='command' → intake_mode='off'
+//	agent_mode='observe' → intake_mode='auto'
+//
+// The backfill runs once, only when the column is first added. A value the user
+// chose afterwards must survive a restart, and chats created later get the
+// schema default 'observe' (dry-run), not the legacy mapping.
+func TestMigrateIMBotIntakeMode(t *testing.T) {
+	Driver = "sqlite"
+	db, err := sql.Open("sqlite", ":memory:?_foreign_keys=ON")
+	require.NoError(t, err)
+	db.SetMaxOpenConns(1)
+	t.Cleanup(func() { _ = db.Close() })
+
+	_, err = db.Exec(`CREATE TABLE im_bot_chats (
+		id         INTEGER PRIMARY KEY AUTOINCREMENT,
+		agent_mode TEXT NOT NULL DEFAULT 'command')`)
+	require.NoError(t, err)
+	for _, mode := range []string{"command", "observe", ""} {
+		_, err = db.Exec(`INSERT INTO im_bot_chats (agent_mode) VALUES (?)`, mode)
+		require.NoError(t, err)
+	}
+
+	migrateIMBotIntakeMode(db)
+
+	got := map[int64]string{}
+	rows, err := db.Query(`SELECT id, intake_mode FROM im_bot_chats ORDER BY id`)
+	require.NoError(t, err)
+	for rows.Next() {
+		var id int64
+		var mode string
+		require.NoError(t, rows.Scan(&id, &mode))
+		got[id] = mode
+	}
+	require.NoError(t, rows.Close())
+	require.Equal(t, "off", got[1], "command must migrate to off")
+	require.Equal(t, "auto", got[2], "observe must migrate to auto")
+	require.Equal(t, "off", got[3], "an empty legacy agent_mode degrades to command → off")
+
+	// A chat created after the migration defaults to observe (dry-run).
+	res, err := db.Exec(`INSERT INTO im_bot_chats (agent_mode) VALUES ('observe')`)
+	require.NoError(t, err)
+	newID, err := res.LastInsertId()
+	require.NoError(t, err)
+	var newMode string
+	require.NoError(t, db.QueryRow(`SELECT intake_mode FROM im_bot_chats WHERE id = ?`, newID).Scan(&newMode))
+	require.Equal(t, "observe", newMode, "a new chat must default to observe, not the legacy mapping")
+
+	// A user-chosen mode must not be overwritten by a later startup.
+	_, err = db.Exec(`UPDATE im_bot_chats SET intake_mode = 'auto' WHERE id = 1`)
+	require.NoError(t, err)
+	migrateIMBotIntakeMode(db)
+	var kept string
+	require.NoError(t, db.QueryRow(`SELECT intake_mode FROM im_bot_chats WHERE id = 1`).Scan(&kept))
+	require.Equal(t, "auto", kept, "the backfill must run only once")
+}
+
 // TestIntakeCompletionMigration_KeepsLegacyRows builds a pre-feature checklist
 // and issue table, then runs the retrofit migration directly. Legacy rows must
 // survive untouched and read back as kind='task' / NULL brief / NULL profile,

@@ -47,11 +47,15 @@ import (
 // method cannot be honoured from a ThreadRef alone (it carries neither the IM
 // channel nor the chat), and replies stay with the IM adapter, which owns the
 // channel credential and each platform's message shape.
-type imbotSource struct{}
+type imbotSource struct {
+	// legacyChatMode is the rollback switch for the agent_mode -> intake_mode
+	// semantics migration (design §7). See effectiveChatIntakeMode.
+	legacyChatMode bool
+}
 
 func (imbotSource) Kind() string { return intake.SourceKindIMBot }
 
-func (imbotSource) Normalize(
+func (src imbotSource) Normalize(
 	ev imbot.InboundEvent,
 	channel store.ImBotChannel,
 	chat store.ImBotChat,
@@ -97,6 +101,32 @@ func (imbotSource) Normalize(
 		// inferred candidates rather than denied.
 		ReceiveAll: normalizeAgentMode(chat.AgentMode) == AgentModeObserve,
 		ForceNew:   forceNew,
+		// The chat's own intake mode is finer-grained than the project+source
+		// setting, so it governs this trigger (design §6.9).
+		Mode: effectiveChatIntakeMode(chat, src.legacyChatMode),
+	}
+}
+
+// effectiveChatIntakeMode resolves the intake mode that governs one chat.
+//
+// The migrated intake_mode column is authoritative. The legacy switch is the
+// rollback for the semantics migration (design §7): when set, the mode is
+// derived from agent_mode at runtime instead — command → off, observe → auto —
+// which restores the pre-migration behaviour without rewriting the column.
+func effectiveChatIntakeMode(chat store.ImBotChat, legacy bool) intake.Mode {
+	if legacy {
+		if normalizeAgentMode(chat.AgentMode) == AgentModeObserve {
+			return intake.ModeAuto
+		}
+		return intake.ModeOff
+	}
+	switch normalizeIntakeMode(chat.IntakeMode) {
+	case IntakeModeOff:
+		return intake.ModeOff
+	case IntakeModeAuto:
+		return intake.ModeAuto
+	default:
+		return intake.ModeObserve
 	}
 }
 

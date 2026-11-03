@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -203,6 +204,11 @@ func (s *Service) Handle(ctx context.Context, t Trigger) (Result, error) {
 	if err != nil {
 		return Result{EventID: event.ID}, fmt.Errorf("intake: load policy: %w", err)
 	}
+	// A source-provided mode (an IM chat's own intake_mode) is finer-grained
+	// than the project+source setting and overrides it for this trigger.
+	if t.Mode != "" {
+		policy.Mode = t.Mode
+	}
 
 	authz := policy.Evaluate(t)
 	res := Result{
@@ -319,6 +325,90 @@ func (s *Service) Handle(ctx context.Context, t Trigger) (Result, error) {
 	res.Executed = true
 	res.IssueID = out.IssueID
 	res.WorkspaceID = out.WorkspaceID
+	return res, nil
+}
+
+// Proposal is work a source derived on its own initiative from observation —
+// the IM employee's proactive "task" verdict — rather than a message a human
+// addressed to the bot. It is inferred by definition: nobody asked for it.
+type Proposal struct {
+	Trigger Trigger
+	Goal    string
+}
+
+// Propose records a derived proposal as a dry-run decision in observe mode. It
+// never executes and never performs a side effect: no task, no workspace, no
+// message. In auto mode it records nothing (the caller executes the work through
+// its normal path), and in off mode inferred work is not evaluated at all, so it
+// records nothing either. Callers that may execute must consult the mode before
+// calling.
+func (s *Service) Propose(ctx context.Context, p Proposal) (Result, error) {
+	if !s.enabled {
+		return Result{Decision: DecisionIgnore, ReasonCode: ReasonDisabled}, nil
+	}
+	if s.store == nil || s.policies == nil {
+		return Result{}, ErrNotWired
+	}
+
+	t := p.Trigger
+	if goal := strings.TrimSpace(p.Goal); goal != "" {
+		t.Text = goal
+	}
+	if t.ReceivedAt.IsZero() {
+		t.ReceivedAt = s.clock()
+	}
+
+	policy, err := s.policies.LoadPolicy(ctx, t.ProjectID, t.SourceKind)
+	if err != nil {
+		return Result{}, fmt.Errorf("intake: load policy: %w", err)
+	}
+	if t.Mode != "" {
+		policy.Mode = t.Mode
+	}
+	if policy.Mode != ModeObserve {
+		return Result{Decision: DecisionIgnore, ReasonCode: ReasonOffInferred}, nil
+	}
+
+	event, err := s.store.RecordEvent(ctx, t)
+	if err != nil {
+		return Result{}, fmt.Errorf("intake: record event: %w", err)
+	}
+	if event.Duplicate {
+		return Result{
+			EventID:    event.ID,
+			Decision:   DecisionIgnore,
+			ReasonCode: ReasonDuplicate,
+			Duplicate:  true,
+		}, nil
+	}
+
+	brief := NewBrief(t, Provenance{
+		PolicyVersion: policy.Version,
+		Strength:      StrengthInferred,
+		ActorExtID:    t.Actor.ExtID,
+	})
+	res := Result{
+		EventID:    event.ID,
+		Decision:   DecisionAccept,
+		Strength:   StrengthInferred,
+		ReasonCode: ReasonObserved,
+	}
+	decisionID, err := s.store.RecordDecision(ctx, DecisionRecord{
+		EventID:       event.ID,
+		ProjectID:     t.ProjectID,
+		Mode:          policy.Mode,
+		Strength:      StrengthInferred,
+		Decision:      DecisionAccept,
+		ReasonCode:    ReasonObserved,
+		PolicyVersion: policy.Version,
+		Thread:        t.Thread,
+		Brief:         &brief,
+		WouldDo:       &WouldDo{Decision: DecisionAccept, Brief: &brief, Thread: t.Thread},
+	})
+	if err != nil {
+		return res, fmt.Errorf("intake: record decision: %w", err)
+	}
+	res.DecisionID = decisionID
 	return res, nil
 }
 
