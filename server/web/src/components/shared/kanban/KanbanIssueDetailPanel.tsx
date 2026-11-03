@@ -16,6 +16,7 @@ import { IssueCommentInput } from '@/components/issue/issue-comment-input'
 import { toast } from 'sonner'
 import { ExecutionTimeline } from '@/components/issue/execution-timeline'
 import { IssueWorkspace } from '@/components/issue/issue-workspace'
+import { IssueCompletionPolicyCard } from '@/components/issue/issue-completion-policy-card'
 import { ExternalIssueHeader } from './ExternalIssueHeader'
 import { ExternalCommentsSnapshot } from './ExternalCommentsSnapshot'
 import { EpicHierarchyControl } from './EpicHierarchyControl'
@@ -316,6 +317,9 @@ export function KanbanIssueDetailPanel({ issueId, columns, onClose, onOpenIssue 
         )}
 
         <IssueWorkspace issueId={numericId} issueTitle={issue.title} />
+
+        {/* Completion policy (design §6.7.6): inherit / named profile + source. */}
+        <IssueCompletionPolicyCard issue={issue} onUpdate={handleUpdate} />
 
         <IssueDescription description={issue.description ?? ''} onSave={(desc) => handleUpdate({ description: desc })} />
         <IssueGoalConditionPanel

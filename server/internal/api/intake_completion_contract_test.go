@@ -334,6 +334,7 @@ func TestCompletionProfiles_CRUDAndReferenceGuard(t *testing.T) {
 	require.Equal(t, http.StatusOK, w.Code)
 	profiles := decodeBody[[]service.CompletionProfileDTO](t, w)
 	require.Len(t, profiles, 1)
+	assert.Zero(t, profiles[0].IssueCount, "a fresh profile references no issues")
 
 	w = doJSON(t, r, http.MethodPatch, "/api/projects/1/completion/profiles/"+strconv.FormatInt(created.ID, 10), "1",
 		`{"token_budget":1000}`)
@@ -346,6 +347,13 @@ func TestCompletionProfiles_CRUDAndReferenceGuard(t *testing.T) {
 	w = doJSON(t, r, http.MethodPut, "/mcp/issues/1/completion-profile", "1",
 		`{"profile_id":`+strconv.FormatInt(created.ID, 10)+`}`)
 	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+
+	// The list-level reference count the UI relies on must follow the assignment.
+	w = doJSON(t, r, http.MethodGet, "/api/projects/1/completion/profiles", "1", "")
+	require.Equal(t, http.StatusOK, w.Code)
+	profiles = decodeBody[[]service.CompletionProfileDTO](t, w)
+	require.Len(t, profiles, 1)
+	assert.Equal(t, int64(1), profiles[0].IssueCount)
 
 	w = doJSON(t, r, http.MethodDelete, "/api/projects/1/completion/profiles/"+strconv.FormatInt(created.ID, 10), "1", "")
 	assert.Equal(t, http.StatusConflict, w.Code, w.Body.String())
