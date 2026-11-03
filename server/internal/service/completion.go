@@ -43,8 +43,12 @@ type CompletionProfileDTO struct {
 	ProjectID int64  `json:"project_id"`
 	Name      string `json:"name"`
 	CompletionPolicy
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
+	// IssueCount is how many issues currently select this profile. The UI shows
+	// it and refuses deletion while non-zero (design §6.7.4); the server still
+	// enforces the same guard in DeleteProfile.
+	IssueCount int64     `json:"issue_count"`
+	CreatedAt  time.Time `json:"created_at"`
+	UpdatedAt  time.Time `json:"updated_at"`
 }
 
 // CompletionProfileInput is the create/update body. Pointer fields make PATCH
@@ -164,7 +168,11 @@ func (s *CompletionService) ListProfiles(ctx context.Context, projectID int64) (
 	}
 	out := make([]CompletionProfileDTO, 0, len(rows))
 	for _, r := range rows {
-		out = append(out, completionProfileDTO(r))
+		dto, err := s.withIssueCount(ctx, r)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, dto)
 	}
 	return out, nil
 }
@@ -197,7 +205,7 @@ func (s *CompletionService) CreateProfile(ctx context.Context, projectID, actorU
 	}
 	s.auditProject(ctx, projectID, actorUserID, "completion.profile_created", "completion_profile", row.ID,
 		profileAuditPayload(row.Name, p))
-	return completionProfileDTO(row), nil
+	return s.withIssueCount(ctx, row)
 }
 
 // UpdateProfile applies a partial update. The profile must belong to projectID.
@@ -240,7 +248,7 @@ func (s *CompletionService) UpdateProfile(ctx context.Context, projectID, profil
 	}
 	s.auditProject(ctx, projectID, actorUserID, "completion.profile_updated", "completion_profile", row.ID,
 		profileAuditPayload(row.Name, p))
-	return completionProfileDTO(row), nil
+	return s.withIssueCount(ctx, row)
 }
 
 // DeleteProfile removes a profile unless an issue still references it.
@@ -357,6 +365,16 @@ func (s *CompletionService) ensureNameFree(ctx context.Context, projectID int64,
 		}
 	}
 	return nil
+}
+
+func (s *CompletionService) withIssueCount(ctx context.Context, r store.CompletionProfile) (CompletionProfileDTO, error) {
+	dto := completionProfileDTO(r)
+	n, err := s.q.CountIssuesByCompletionProfile(ctx, sql.NullInt64{Int64: r.ID, Valid: true})
+	if err != nil {
+		return CompletionProfileDTO{}, err
+	}
+	dto.IssueCount = n
+	return dto, nil
 }
 
 func completionProfileDTO(r store.CompletionProfile) CompletionProfileDTO {

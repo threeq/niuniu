@@ -291,9 +291,9 @@ export function ProjectSettingsTab({ projectId, initialSection, onIntakeDirtyCha
         />
       )}
 
-      {/* Section: Completion — read-only Phase 0 preview of how far a task is
-          pushed and when it stops to ask a person. */}
-      {activeSection === 'completion' && <CompletionPolicyPanel projectId={projectId} />}
+      {/* Section: Completion — project default + named profiles. Independent of
+          intake: changing one never changes which tasks get picked up. */}
+      {activeSection === 'completion' && <CompletionPolicyPanel key={projectId} projectId={projectId} />}
 
       {/* Section: Basic info */}
       {activeSection === 'basic' && (
