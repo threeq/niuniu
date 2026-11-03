@@ -153,7 +153,7 @@ CREATE TABLE IF NOT EXISTS issue_exec_events (
     id           BIGSERIAL PRIMARY KEY,
     issue_id     BIGINT NOT NULL REFERENCES issues(id) ON DELETE CASCADE,
     workspace_id BIGINT,
-    kind         TEXT NOT NULL CHECK (kind IN ('advance','gate','ask_user','terminal','cost','intervention')),
+    kind         TEXT NOT NULL CHECK (kind IN ('advance','gate','ask_user','terminal','cost','intervention','intake')),
     summary      TEXT NOT NULL,
     detail_json  TEXT,
     cost_usd     DOUBLE PRECISION NOT NULL DEFAULT 0,

@@ -870,6 +870,10 @@ func Migrate(db *sql.DB) {
 	// 2026-11-03 Task intake + auto-completion (Epic #755): extend existing
 	// tables for task Brief acceptance items and per-issue completion profiles.
 	migrateIntakeCompletion(db)
+
+	// 2026-11-03 intake events map onto the existing Execution Timeline, so the
+	// issue_exec_events.kind CHECK must admit 'intake' (design §6.7.6).
+	migrateIntakeExecEventKind(db)
 }
 
 // migrateIntakeCompletion retrofits the intake/completion columns onto existing
@@ -899,6 +903,43 @@ func migrateIntakeCompletion(db *sql.DB) {
 			slog.Warn("create intake/completion index failed", "sql", idx, "error", err)
 		}
 	}
+}
+
+// migrateIntakeExecEventKind admits 'intake' to issue_exec_events.kind so an
+// intake event can be projected onto the existing ExecutionTimeline (design
+// §6.7.6: reuse the timeline, add intake/intervention copy only). Fresh DBs get
+// the widened CHECK from the schema files; SQLite cannot ALTER a CHECK, so
+// upgraded DBs are rebuilt from their stored DDL, and Postgres swaps the named
+// constraint in place.
+func migrateIntakeExecEventKind(db *sql.DB) {
+	const (
+		oldEnum = "('advance','gate','ask_user','terminal','cost','intervention')"
+		newEnum = "('advance','gate','ask_user','terminal','cost','intervention','intake')"
+	)
+	w := Wrap(db)
+	if migrationApplied(w, "allow_intake_exec_event_kind_v1") {
+		return
+	}
+
+	if Driver == "postgres" {
+		stmts := []string{
+			`ALTER TABLE issue_exec_events DROP CONSTRAINT IF EXISTS issue_exec_events_kind_check`,
+			`ALTER TABLE issue_exec_events ADD CONSTRAINT issue_exec_events_kind_check
+				CHECK (kind IN ('advance','gate','ask_user','terminal','cost','intervention','intake'))`,
+		}
+		for _, s := range stmts {
+			if _, err := db.Exec(s); err != nil {
+				slog.Warn("migrateIntakeExecEventKind (pg): step failed", "error", err)
+				return // leave marker unset; next start retries
+			}
+		}
+	} else if err := rebuildSQLiteWidenCheck(db, "issue_exec_events", oldEnum, newEnum); err != nil {
+		slog.Warn("migrateIntakeExecEventKind (sqlite): rebuild failed", "error", err)
+		return // leave marker unset; next start retries
+	}
+
+	markMigration(w, "allow_intake_exec_event_kind_v1")
+	slog.Info("migrateIntakeExecEventKind: issue_exec_events.kind widened for 'intake'")
 }
 
 // migrateIMBotAgentEmployee retrofits the Agent-employee (issue #664) data model

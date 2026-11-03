@@ -117,7 +117,7 @@ CREATE TABLE IF NOT EXISTS issue_exec_events (
     id           INTEGER PRIMARY KEY AUTOINCREMENT,
     issue_id     INTEGER NOT NULL REFERENCES issues(id) ON DELETE CASCADE,
     workspace_id INTEGER,
-    kind         TEXT NOT NULL CHECK (kind IN ('advance','gate','ask_user','terminal','cost','intervention')),
+    kind         TEXT NOT NULL CHECK (kind IN ('advance','gate','ask_user','terminal','cost','intervention','intake')),
     summary      TEXT NOT NULL,
     detail_json  TEXT,
     cost_usd     REAL NOT NULL DEFAULT 0,

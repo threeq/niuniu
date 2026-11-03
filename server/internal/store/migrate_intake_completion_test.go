@@ -51,6 +51,60 @@ func TestIntakeCompletionSchemaFreshAndRepeatable(t *testing.T) {
 			`SELECT COUNT(*) FROM sqlite_master WHERE type='index' AND name=?`, idx).Scan(&n))
 		require.Equal(t, 1, n, "index %s missing", idx)
 	}
+
+	// The Execution Timeline must admit intake events on a fresh DB.
+	_, err := db.Exec(`INSERT INTO projects (id, name) VALUES (1, 'p')`)
+	require.NoError(t, err)
+	_, err = db.Exec(`INSERT INTO columns (id, project_id, name) VALUES (1, 1, 'todo')`)
+	require.NoError(t, err)
+	_, err = db.Exec(`INSERT INTO issues (id, column_id, title) VALUES (1, 1, 'task')`)
+	require.NoError(t, err)
+	_, err = db.Exec(`INSERT INTO issue_exec_events (issue_id, kind, summary) VALUES (1, 'intake', 'accepted')`)
+	require.NoError(t, err, "issue_exec_events.kind must admit 'intake'")
+}
+
+// TestIntakeExecEventKindMigration builds an old-shape issue_exec_events table
+// (kind CHECK without 'intake'), then widens it. Existing rows and the index
+// must survive and the new value must be accepted; a second run is a no-op.
+func TestIntakeExecEventKindMigration(t *testing.T) {
+	Driver = "sqlite"
+	db, err := sql.Open("sqlite", ":memory:?_foreign_keys=ON")
+	require.NoError(t, err)
+	db.SetMaxOpenConns(1)
+	t.Cleanup(func() { _ = db.Close() })
+
+	for _, stmt := range []string{
+		`CREATE TABLE issue_exec_events (
+			id           INTEGER PRIMARY KEY AUTOINCREMENT,
+			issue_id     INTEGER NOT NULL,
+			workspace_id INTEGER,
+			kind         TEXT NOT NULL CHECK (kind IN ('advance','gate','ask_user','terminal','cost','intervention')),
+			summary      TEXT NOT NULL,
+			detail_json  TEXT,
+			cost_usd     REAL NOT NULL DEFAULT 0,
+			created_at   TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP)`,
+		`CREATE INDEX idx_issue_exec_events_issue ON issue_exec_events(issue_id, created_at)`,
+		`INSERT INTO issue_exec_events (issue_id, kind, summary) VALUES (7, 'advance', 'legacy')`,
+	} {
+		_, err := db.Exec(stmt)
+		require.NoError(t, err, stmt)
+	}
+
+	migrateIntakeExecEventKind(db)
+	migrateIntakeExecEventKind(db) // repeatable
+
+	var summary string
+	require.NoError(t, db.QueryRow(
+		`SELECT summary FROM issue_exec_events WHERE issue_id = 7 AND kind = 'advance'`).Scan(&summary))
+	require.Equal(t, "legacy", summary)
+
+	_, err = db.Exec(`INSERT INTO issue_exec_events (issue_id, kind, summary) VALUES (7, 'intake', 'new')`)
+	require.NoError(t, err, "widened CHECK must admit 'intake'")
+
+	var n int
+	require.NoError(t, db.QueryRow(
+		`SELECT COUNT(*) FROM sqlite_master WHERE type='index' AND name='idx_issue_exec_events_issue'`).Scan(&n))
+	require.Equal(t, 1, n, "index must survive the table rebuild")
 }
 
 // TestIntakeCompletionMigration_KeepsLegacyRows builds a pre-feature checklist
