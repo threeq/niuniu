@@ -3,12 +3,31 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/niuniu-dev/niuniu/internal/imbot"
 	"github.com/niuniu-dev/niuniu/internal/intake"
 )
+
+// passThroughResolver resolves nothing: every trigger is a new task.
+type passThroughResolver struct{}
+
+func (passThroughResolver) Resolve(_ context.Context, t intake.Trigger) (intake.Resolution, error) {
+	return intake.Resolution{Thread: t.Thread}, nil
+}
+
+// countingExecutor counts executions without touching any workspace.
+type countingExecutor struct{ executed int64 }
+
+func (e *countingExecutor) Execute(_ context.Context, _ intake.ExecutionPlan) (intake.ExecutionResult, error) {
+	n := atomic.AddInt64(&e.executed, 1)
+	return intake.ExecutionResult{IssueID: 1000 + n, WorkspaceID: 2000 + n}, nil
+}
 
 // intakePolicyFixture reuses the IM fixture's in-memory database so the rules
 // CRUD, policy versions and the IM caller share one store.
@@ -147,6 +166,68 @@ func TestIntakePolicy_SettingsAndRuleChangesApplyOnNextLoad(t *testing.T) {
 	}
 	if policy.Version != 3 {
 		t.Fatalf("policy version = %d, want 3", policy.Version)
+	}
+}
+
+// Twenty inferred events race for a daily cap of 3. The reservation is a single
+// atomic upsert, so exactly 3 execute — the count-then-execute version let all
+// 20 pass the check before any was marked executed.
+func TestHandleInferredDailyCapIsAtomic(t *testing.T) {
+	svc, f := intakePolicyFixture(t)
+	ctx := context.Background()
+	cap := int64(3)
+
+	if _, err := svc.UpdateSettings(ctx, f.projectID, UpdateIntakeSettingsRequest{
+		Settings: []IntakeSettingInput{{
+			SourceKind: intake.SourceKindIMBot,
+			Mode:       string(intake.ModeAuto),
+			DailyCap:   &cap,
+		}},
+	}); err != nil {
+		t.Fatalf("update settings: %v", err)
+	}
+	if _, err := svc.CreateRule(ctx, f.projectID, UpsertIntakeRuleInput{
+		SourceKind: intake.SourceKindIMBot,
+		Name:       "部署类",
+		Conditions: intake.RuleConditions{Keywords: []string{"deploy"}},
+	}); err != nil {
+		t.Fatalf("create rule: %v", err)
+	}
+
+	executor := &countingExecutor{}
+	pipeline := intake.NewService(intake.Deps{
+		Enabled:  true,
+		Store:    imbotIntakeStore{q: f.q},
+		Policies: imbotPolicy{q: f.q},
+		Resolver: passThroughResolver{},
+		Executor: executor,
+	})
+
+	const events = 20
+	var wg sync.WaitGroup
+	for i := 0; i < events; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			_, err := pipeline.Handle(ctx, intake.Trigger{
+				ProjectID:  f.projectID,
+				SourceKind: intake.SourceKindIMBot,
+				SourceRef:  "chat-1",
+				EventID:    fmt.Sprintf("evt-%d", i),
+				EventKind:  intake.EventKindMessage,
+				Actor:      intake.ActorRef{ExtID: "ou_dave"},
+				Text:       "please deploy",
+				ReceivedAt: time.Date(2026, 11, 3, 10, 0, 0, 0, time.UTC),
+			})
+			if err != nil {
+				t.Errorf("Handle %d: %v", i, err)
+			}
+		}(i)
+	}
+	wg.Wait()
+
+	if got := atomic.LoadInt64(&executor.executed); got != cap {
+		t.Fatalf("executed = %d, want exactly %d", got, cap)
 	}
 }
 

@@ -134,6 +134,24 @@ func TestPolicyEvaluateBotListIsNeverExplicit(t *testing.T) {
 	}
 }
 
+func TestPolicyEvaluateBotCarriesMatchingRuleScope(t *testing.T) {
+	// A listed bot stays inferred, but still records the rule that bounds it so
+	// auto mode can require that rule before executing.
+	policy := Policy{
+		Mode:    ModeAuto,
+		BotList: []string{"bot_release"},
+		Rules: []Rule{
+			{ID: 9, Enabled: true, Conditions: RuleConditions{Keywords: []string{"deploy"}}},
+		},
+	}
+	got := policy.Evaluate(Trigger{
+		Actor: ActorRef{ExtID: "bot_release", IsBot: true}, Text: "please deploy",
+	})
+	if got.Strength != StrengthInferred || got.ReasonCode != ReasonBotList || !slices.Equal(got.MatchedRuleIDs, []int64{9}) {
+		t.Fatalf("bot rule scope = %+v, want inferred/bot_list [9]", got)
+	}
+}
+
 func TestAllowsHighRiskAction(t *testing.T) {
 	open := Policy{Mode: ModeOff}
 	listed := Policy{Mode: ModeOff, AllowList: []string{"ou_alice"}, BotList: []string{"bot_release"}}

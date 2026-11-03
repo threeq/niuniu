@@ -116,7 +116,13 @@ func (p Policy) Evaluate(t Trigger) Authorization {
 	}
 	if p.isBot(t) {
 		if contains(p.BotList, t.Actor.ExtID) {
-			return Authorization{Strength: StrengthInferred, ReasonCode: ReasonBotList}
+			// Bots are scope-limited like every inferred actor: attach the
+			// matching rule (if any) so auto mode can require it before acting.
+			return Authorization{
+				Strength:       StrengthInferred,
+				MatchedRuleIDs: p.matchedRuleIDs(t),
+				ReasonCode:     ReasonBotList,
+			}
 		}
 		return Authorization{Strength: StrengthDenied, ReasonCode: ReasonDenied}
 	}
@@ -154,6 +160,17 @@ func (p Policy) AllowsHighRiskAction(t Trigger) bool {
 // BotList is how IM (whose payloads carry no bot flag) marks an actor as a bot.
 func (p Policy) isBot(t Trigger) bool {
 	return t.Actor.IsBot || contains(p.BotList, t.Actor.ExtID)
+}
+
+// matchedRuleIDs returns the highest-priority matching rule, as a single-element
+// slice for the decision record. Evaluation stops at the first match.
+func (p Policy) matchedRuleIDs(t Trigger) []int64 {
+	for _, r := range p.Rules {
+		if r.matches(t) {
+			return []int64{r.ID}
+		}
+	}
+	return nil
 }
 
 func (r Rule) matches(t Trigger) bool {

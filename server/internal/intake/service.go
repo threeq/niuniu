@@ -99,9 +99,14 @@ type Store interface {
 	RecordEvent(ctx context.Context, t Trigger) (EventRecord, error)
 	RecordDecision(ctx context.Context, rec DecisionRecord) (int64, error)
 	MarkExecuted(ctx context.Context, decisionID int64, res ExecutionResult) error
-	// CountExecuted backs the per-source daily cap. It counts decisions that
-	// were actually executed for this project+source since the given instant.
-	CountExecuted(ctx context.Context, projectID int64, sourceKind string, since time.Time) (int64, error)
+	// ReserveDailySlot atomically claims one slot in the project+source daily
+	// cap. It must be a single atomic operation: counting first and executing
+	// later lets concurrent inferred events all pass the check and overshoot the
+	// cap. Returns false when the day's cap is already used.
+	ReserveDailySlot(ctx context.Context, projectID int64, sourceKind, day string, cap int64) (bool, error)
+	// ReleaseDailySlot returns a reservation when the pipeline failed before
+	// executing anything.
+	ReleaseDailySlot(ctx context.Context, projectID int64, sourceKind, day string) error
 }
 
 // PolicyProvider loads the effective policy for one project+source. A project
@@ -227,14 +232,23 @@ func (s *Service) Handle(ctx context.Context, t Trigger) (Result, error) {
 	executed := shouldExecute(policy.Mode, authz.Strength) &&
 		(decision == DecisionAccept || decision == DecisionResume)
 	// The daily cap bounds inferred auto-intake only; explicit requests from an
-	// allow-listed actor always run.
+	// allow-listed actor always run. The slot is claimed atomically BEFORE
+	// execution so concurrent inferred events cannot all pass a check-then-act
+	// window and overshoot the cap.
+	var releaseSlot func()
 	if executed && authz.Strength == StrengthInferred && policy.DailyCap > 0 {
-		withinCap, err := s.withinDailyCap(ctx, t, policy.DailyCap)
+		day := t.ReceivedAt.Format("2006-01-02")
+		reserved, err := s.store.ReserveDailySlot(ctx, t.ProjectID, t.SourceKind, day, policy.DailyCap)
 		if err != nil {
 			return res, fmt.Errorf("intake: daily cap: %w", err)
 		}
-		if !withinCap {
+		if !reserved {
 			decision, reason, executed = DecisionIgnore, ReasonDailyCap, false
+		} else {
+			// A cancelled caller context must not leak the slot.
+			releaseSlot = func() {
+				_ = s.store.ReleaseDailySlot(context.Background(), t.ProjectID, t.SourceKind, day)
+			}
 		}
 	}
 	res.Decision = decision
@@ -269,11 +283,18 @@ func (s *Service) Handle(ctx context.Context, t Trigger) (Result, error) {
 		WouldDo:        wouldDo,
 	})
 	if err != nil {
+		// Nothing executed, so return the claimed slot.
+		if releaseSlot != nil {
+			releaseSlot()
+		}
 		return res, fmt.Errorf("intake: record decision: %w", err)
 	}
 	res.DecisionID = decisionID
 
 	if !executed {
+		if releaseSlot != nil {
+			releaseSlot()
+		}
 		return res, nil
 	}
 
@@ -299,19 +320,6 @@ func (s *Service) Handle(ctx context.Context, t Trigger) (Result, error) {
 	res.IssueID = out.IssueID
 	res.WorkspaceID = out.WorkspaceID
 	return res, nil
-}
-
-// withinDailyCap reports whether one more execution stays inside the
-// project+source daily cap. The window is the calendar day of the trigger in
-// its own timezone.
-func (s *Service) withinDailyCap(ctx context.Context, t Trigger, cap int64) (bool, error) {
-	now := t.ReceivedAt
-	start := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
-	n, err := s.store.CountExecuted(ctx, t.ProjectID, t.SourceKind, start)
-	if err != nil {
-		return false, err
-	}
-	return n < cap, nil
 }
 
 // decide maps authorization strength + mode + thread binding to a decision.

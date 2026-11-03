@@ -2344,6 +2344,19 @@ CREATE TABLE IF NOT EXISTS intake_decisions (
 );
 CREATE INDEX IF NOT EXISTS idx_intake_decisions_pending ON intake_decisions(project_id, executed, decision);
 
+-- Daily inferred-intake reservations: one row per (project, source, local day).
+-- Reservation is a single atomic INSERT ... ON CONFLICT DO UPDATE ... WHERE
+-- used < cap, so concurrent inferred events cannot all pass a check-then-act
+-- window and overshoot daily_cap.
+CREATE TABLE IF NOT EXISTS intake_daily_usage (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    project_id  INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    source_kind TEXT NOT NULL,
+    day         TEXT NOT NULL,
+    used        INTEGER NOT NULL DEFAULT 0,
+    UNIQUE(project_id, source_kind, day)
+);
+
 -- Task Brief: append-only 1:N versions per issue; current version = MAX(version).
 -- Provenance links back to the intake decision that created the brief.
 CREATE TABLE IF NOT EXISTS task_briefs (

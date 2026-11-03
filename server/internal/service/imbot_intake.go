@@ -217,10 +217,14 @@ func (st imbotIntakeStore) MarkExecuted(ctx context.Context, decisionID int64, r
 	return err
 }
 
-func (st imbotIntakeStore) CountExecuted(ctx context.Context, projectID int64, sourceKind string, since time.Time) (int64, error) {
-	return st.q.CountExecutedIntakeDecisionsSince(ctx, store.CountExecutedIntakeDecisionsSinceParams{
-		ProjectID: projectID, SourceKind: sourceKind, CreatedAt: since,
+func (st imbotIntakeStore) ReserveDailySlot(ctx context.Context, projectID int64, sourceKind, day string, cap int64) (bool, error) {
+	return st.q.ReserveIntakeDailySlot(ctx, store.ReserveIntakeDailySlotParams{
+		ProjectID: projectID, SourceKind: sourceKind, Day: day, Cap: cap,
 	})
+}
+
+func (st imbotIntakeStore) ReleaseDailySlot(ctx context.Context, projectID int64, sourceKind, day string) error {
+	return st.q.ReleaseIntakeDailySlot(ctx, projectID, sourceKind, day)
 }
 
 func validID(id int64) sql.NullInt64 {
