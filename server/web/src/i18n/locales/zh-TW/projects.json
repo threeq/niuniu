@@ -613,6 +613,8 @@
         "repos": "倉庫",
         "labels": "標籤",
         "board": "看板",
+        "intake": "任務來源",
+        "completion": "自動完成",
         "externalSources": "外部源",
         "memory": "記憶",
         "imbot": "IM 機器人",

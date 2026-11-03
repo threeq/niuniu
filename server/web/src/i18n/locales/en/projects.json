@@ -613,6 +613,8 @@
         "repos": "Repositories",
         "labels": "Labels",
         "board": "Board",
+        "intake": "Intake",
+        "completion": "Completion",
         "externalSources": "External sources",
         "memory": "Memory",
         "imbot": "IM bot",

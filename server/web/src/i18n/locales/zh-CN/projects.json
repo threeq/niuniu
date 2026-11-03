@@ -613,6 +613,8 @@
         "repos": "仓库",
         "labels": "标签",
         "board": "看板",
+        "intake": "任务来源",
+        "completion": "自动完成",
         "externalSources": "外部源",
         "memory": "记忆",
         "imbot": "IM 机器人",

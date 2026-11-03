@@ -14,6 +14,8 @@ import { ColumnsEditorSection } from './columns-editor-section';
 import { DefaultScenesSection } from './default-scenes-section';
 import { ProjectCleanupPolicyCard } from './cleanup-policy-card';
 import { ProjectFloorCard } from './project-floor-card';
+import { IntakePolicyPanel } from '@/components/projects/intake/IntakePolicyPanel';
+import { CompletionPolicyPanel } from '@/components/completion/CompletionPolicyPanel';
 import { SaveAsTemplateDialog } from './save-as-template-dialog';
 import { ExternalSourcesPanel } from '@/components/projects/ExternalSourcesPanel';
 import { ProjectDataSourcesPanel } from '@/components/projects/ProjectDataSourcesPanel';
@@ -25,9 +27,9 @@ import { DeleteProjectDialog } from '@/components/dialogs/delete-project-dialog'
 import { ProjectColorPicker } from '@/components/shared/project-color-picker';
 import { CLI_TYPES, DEFAULT_CLI_TYPE } from '@/lib/cli-types';
 
-type SettingsSection = 'basic' | 'repos' | 'labels' | 'board' | 'externalSources' | 'imbot' | 'cleanup' | 'danger';
+type SettingsSection = 'basic' | 'repos' | 'labels' | 'board' | 'intake' | 'completion' | 'externalSources' | 'imbot' | 'cleanup' | 'danger';
 
-const SETTINGS_SECTIONS: SettingsSection[] = ['basic', 'repos', 'labels', 'board', 'externalSources', 'imbot', 'cleanup', 'danger'];
+const SETTINGS_SECTIONS: SettingsSection[] = ['basic', 'repos', 'labels', 'board', 'intake', 'completion', 'externalSources', 'imbot', 'cleanup', 'danger'];
 
 // Narrow an untrusted deep-link value (?section=board) to a real section.
 function asSettingsSection(v: string | undefined): SettingsSection {
@@ -201,6 +203,8 @@ export function ProjectSettingsTab({ projectId, initialSection }: Props) {
     { key: 'repos', label: t('tabs.settings.sections.repos') },
     { key: 'labels', label: t('tabs.settings.sections.labels') },
     { key: 'board', label: t('tabs.settings.sections.board') },
+    { key: 'intake', label: t('tabs.settings.sections.intake') },
+    { key: 'completion', label: t('tabs.settings.sections.completion') },
     { key: 'externalSources', label: t('tabs.settings.sections.externalSources') },
     { key: 'imbot', label: t('tabs.settings.sections.imbot') },
     { key: 'cleanup', label: t('tabs.settings.sections.cleanup') },
@@ -212,7 +216,7 @@ export function ProjectSettingsTab({ projectId, initialSection }: Props) {
       <h2 className="text-lg font-semibold">{t('tabs.settings.title')}</h2>
 
       {/* Sub-tab nav strip */}
-      <nav className="flex gap-1 border-b border-warm-border">
+      <nav className="flex flex-wrap gap-1 border-b border-warm-border">
         {sections.map(({ key, label }) => (
           <button
             key={key}
@@ -249,6 +253,14 @@ export function ProjectSettingsTab({ projectId, initialSection }: Props) {
           )}
         </div>
       )}
+
+      {/* Section: Intake — read-only Phase 0 preview of which sources may
+          create tasks. Kept fully independent from completion. */}
+      {activeSection === 'intake' && <IntakePolicyPanel projectId={projectId} />}
+
+      {/* Section: Completion — read-only Phase 0 preview of how far a task is
+          pushed and when it stops to ask a person. */}
+      {activeSection === 'completion' && <CompletionPolicyPanel projectId={projectId} />}
 
       {/* Section: Basic info */}
       {activeSection === 'basic' && (
