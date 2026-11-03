@@ -7,12 +7,13 @@ package store
 
 import (
 	"context"
+	"database/sql"
 )
 
 const createChecklist = `-- name: CreateChecklist :one
 INSERT INTO issue_checklists (issue_id, title, position)
 VALUES (?, ?, COALESCE((SELECT MAX(ic.position) FROM issue_checklists ic WHERE ic.issue_id = ?), -1) + 1)
-RETURNING id, issue_id, title, is_completed, position, created_at, updated_at
+RETURNING id, issue_id, title, is_completed, position, kind, brief_id, created_at, updated_at
 `
 
 type CreateChecklistParams struct {
@@ -30,10 +31,71 @@ func (q *Queries) CreateChecklist(ctx context.Context, arg CreateChecklistParams
 		&i.Title,
 		&i.IsCompleted,
 		&i.Position,
+		&i.Kind,
+		&i.BriefID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
 	return i, err
+}
+
+const createChecklistWithKind = `-- name: CreateChecklistWithKind :one
+INSERT INTO issue_checklists (issue_id, title, position, kind, brief_id)
+VALUES (?, ?, COALESCE((SELECT MAX(ic.position) FROM issue_checklists ic WHERE ic.issue_id = ?), -1) + 1, ?, ?)
+RETURNING id, issue_id, title, is_completed, position, kind, brief_id, created_at, updated_at
+`
+
+type CreateChecklistWithKindParams struct {
+	IssueID   int64         `json:"issue_id"`
+	Title     string        `json:"title"`
+	IssueID_2 int64         `json:"issue_id_2"`
+	Kind      string        `json:"kind"`
+	BriefID   sql.NullInt64 `json:"brief_id"`
+}
+
+// Materializes a Brief acceptance item (kind='acceptance', brief_id set) at the
+// next position. Manual checklist rows keep using CreateChecklist.
+func (q *Queries) CreateChecklistWithKind(ctx context.Context, arg CreateChecklistWithKindParams) (IssueChecklist, error) {
+	row := q.db.QueryRowContext(ctx, createChecklistWithKind,
+		arg.IssueID,
+		arg.Title,
+		arg.IssueID_2,
+		arg.Kind,
+		arg.BriefID,
+	)
+	var i IssueChecklist
+	err := row.Scan(
+		&i.ID,
+		&i.IssueID,
+		&i.Title,
+		&i.IsCompleted,
+		&i.Position,
+		&i.Kind,
+		&i.BriefID,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const deleteAcceptanceChecklistsForBrief = `-- name: DeleteAcceptanceChecklistsForBrief :exec
+DELETE FROM issue_checklists WHERE brief_id = ?
+`
+
+func (q *Queries) DeleteAcceptanceChecklistsForBrief(ctx context.Context, briefID sql.NullInt64) error {
+	_, err := q.db.ExecContext(ctx, deleteAcceptanceChecklistsForBrief, briefID)
+	return err
+}
+
+const deleteAcceptanceChecklistsForIssue = `-- name: DeleteAcceptanceChecklistsForIssue :exec
+DELETE FROM issue_checklists WHERE issue_id = ? AND kind = 'acceptance'
+`
+
+// Regenerating acceptance items removes only the Brief-materialized rows; manual
+// kind='task' rows are never touched.
+func (q *Queries) DeleteAcceptanceChecklistsForIssue(ctx context.Context, issueID int64) error {
+	_, err := q.db.ExecContext(ctx, deleteAcceptanceChecklistsForIssue, issueID)
+	return err
 }
 
 const deleteChecklist = `-- name: DeleteChecklist :exec
@@ -46,7 +108,7 @@ func (q *Queries) DeleteChecklist(ctx context.Context, id int64) error {
 }
 
 const getChecklist = `-- name: GetChecklist :one
-SELECT id, issue_id, title, is_completed, position, created_at, updated_at FROM issue_checklists WHERE id = ?
+SELECT id, issue_id, title, is_completed, position, kind, brief_id, created_at, updated_at FROM issue_checklists WHERE id = ?
 `
 
 func (q *Queries) GetChecklist(ctx context.Context, id int64) (IssueChecklist, error) {
@@ -58,6 +120,8 @@ func (q *Queries) GetChecklist(ctx context.Context, id int64) (IssueChecklist, e
 		&i.Title,
 		&i.IsCompleted,
 		&i.Position,
+		&i.Kind,
+		&i.BriefID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
@@ -83,8 +147,32 @@ func (q *Queries) GetChecklistStats(ctx context.Context, issueID int64) (GetChec
 	return i, err
 }
 
+const getChecklistStatsByKind = `-- name: GetChecklistStatsByKind :one
+SELECT
+    COUNT(*) as total,
+    CAST(COALESCE(SUM(CASE WHEN is_completed = 1 THEN 1 ELSE 0 END), 0) AS INTEGER) as completed
+FROM issue_checklists WHERE issue_id = ? AND kind = ?
+`
+
+type GetChecklistStatsByKindParams struct {
+	IssueID int64  `json:"issue_id"`
+	Kind    string `json:"kind"`
+}
+
+type GetChecklistStatsByKindRow struct {
+	Total     int64 `json:"total"`
+	Completed int64 `json:"completed"`
+}
+
+func (q *Queries) GetChecklistStatsByKind(ctx context.Context, arg GetChecklistStatsByKindParams) (GetChecklistStatsByKindRow, error) {
+	row := q.db.QueryRowContext(ctx, getChecklistStatsByKind, arg.IssueID, arg.Kind)
+	var i GetChecklistStatsByKindRow
+	err := row.Scan(&i.Total, &i.Completed)
+	return i, err
+}
+
 const listChecklistsByIssue = `-- name: ListChecklistsByIssue :many
-SELECT id, issue_id, title, is_completed, position, created_at, updated_at FROM issue_checklists WHERE issue_id = ? ORDER BY position
+SELECT id, issue_id, title, is_completed, position, kind, brief_id, created_at, updated_at FROM issue_checklists WHERE issue_id = ? ORDER BY position
 `
 
 func (q *Queries) ListChecklistsByIssue(ctx context.Context, issueID int64) ([]IssueChecklist, error) {
@@ -102,6 +190,50 @@ func (q *Queries) ListChecklistsByIssue(ctx context.Context, issueID int64) ([]I
 			&i.Title,
 			&i.IsCompleted,
 			&i.Position,
+			&i.Kind,
+			&i.BriefID,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listChecklistsByIssueAndKind = `-- name: ListChecklistsByIssueAndKind :many
+SELECT id, issue_id, title, is_completed, position, kind, brief_id, created_at, updated_at FROM issue_checklists WHERE issue_id = ? AND kind = ? ORDER BY position
+`
+
+type ListChecklistsByIssueAndKindParams struct {
+	IssueID int64  `json:"issue_id"`
+	Kind    string `json:"kind"`
+}
+
+func (q *Queries) ListChecklistsByIssueAndKind(ctx context.Context, arg ListChecklistsByIssueAndKindParams) ([]IssueChecklist, error) {
+	rows, err := q.db.QueryContext(ctx, listChecklistsByIssueAndKind, arg.IssueID, arg.Kind)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []IssueChecklist{}
+	for rows.Next() {
+		var i IssueChecklist
+		if err := rows.Scan(
+			&i.ID,
+			&i.IssueID,
+			&i.Title,
+			&i.IsCompleted,
+			&i.Position,
+			&i.Kind,
+			&i.BriefID,
 			&i.CreatedAt,
 			&i.UpdatedAt,
 		); err != nil {
@@ -119,7 +251,7 @@ func (q *Queries) ListChecklistsByIssue(ctx context.Context, issueID int64) ([]I
 }
 
 const updateChecklist = `-- name: UpdateChecklist :one
-UPDATE issue_checklists SET title = ?, is_completed = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? RETURNING id, issue_id, title, is_completed, position, created_at, updated_at
+UPDATE issue_checklists SET title = ?, is_completed = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? RETURNING id, issue_id, title, is_completed, position, kind, brief_id, created_at, updated_at
 `
 
 type UpdateChecklistParams struct {
@@ -137,6 +269,8 @@ func (q *Queries) UpdateChecklist(ctx context.Context, arg UpdateChecklistParams
 		&i.Title,
 		&i.IsCompleted,
 		&i.Position,
+		&i.Kind,
+		&i.BriefID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)

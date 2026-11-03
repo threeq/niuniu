@@ -157,3 +157,10 @@ UPDATE issues SET goal_condition = ?, updated_at = CURRENT_TIMESTAMP WHERE id = 
 -- name: UpdateIssuePriority :exec
 -- Lightweight single-field update used by the batch priority endpoint.
 UPDATE issues SET priority = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?;
+
+-- name: SetIssueCompletionProfile :one
+-- NULL clears the issue-level override so it inherits the project default.
+UPDATE issues
+SET completion_profile_id = ?, updated_at = CURRENT_TIMESTAMP
+WHERE id = ?
+RETURNING *;

@@ -14,7 +14,7 @@ import (
 
 const createIssue = `-- name: CreateIssue :one
 INSERT INTO issues (column_id, title, description, priority, position, start_date, due_date, estimate_type, estimate, parent_issue_id, created_by)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id, column_id, title, description, priority, position, lifecycle_status, start_date, due_date, estimate_type, estimate, actual_time, external_source, external_id, external_url, external_snapshot_at, external_comments_snapshot, external_comments_snapshot_at, goal_condition, parent_issue_id, issue_type, exec_wave, exec_status, exec_status_reason, created_at, updated_at, created_by
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id, column_id, title, description, priority, position, lifecycle_status, start_date, due_date, estimate_type, estimate, actual_time, external_source, external_id, external_url, external_snapshot_at, external_comments_snapshot, external_comments_snapshot_at, goal_condition, parent_issue_id, issue_type, exec_wave, exec_status, exec_status_reason, completion_profile_id, created_at, updated_at, created_by
 `
 
 type CreateIssueParams struct {
@@ -71,6 +71,7 @@ func (q *Queries) CreateIssue(ctx context.Context, arg CreateIssueParams) (Issue
 		&i.ExecWave,
 		&i.ExecStatus,
 		&i.ExecStatusReason,
+		&i.CompletionProfileID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.CreatedBy,
@@ -88,7 +89,7 @@ func (q *Queries) DeleteIssue(ctx context.Context, id int64) error {
 }
 
 const getIssue = `-- name: GetIssue :one
-SELECT id, column_id, title, description, priority, position, lifecycle_status, start_date, due_date, estimate_type, estimate, actual_time, external_source, external_id, external_url, external_snapshot_at, external_comments_snapshot, external_comments_snapshot_at, goal_condition, parent_issue_id, issue_type, exec_wave, exec_status, exec_status_reason, created_at, updated_at, created_by FROM issues WHERE id = ?
+SELECT id, column_id, title, description, priority, position, lifecycle_status, start_date, due_date, estimate_type, estimate, actual_time, external_source, external_id, external_url, external_snapshot_at, external_comments_snapshot, external_comments_snapshot_at, goal_condition, parent_issue_id, issue_type, exec_wave, exec_status, exec_status_reason, completion_profile_id, created_at, updated_at, created_by FROM issues WHERE id = ?
 `
 
 func (q *Queries) GetIssue(ctx context.Context, id int64) (Issue, error) {
@@ -119,6 +120,7 @@ func (q *Queries) GetIssue(ctx context.Context, id int64) (Issue, error) {
 		&i.ExecWave,
 		&i.ExecStatus,
 		&i.ExecStatusReason,
+		&i.CompletionProfileID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.CreatedBy,
@@ -128,7 +130,7 @@ func (q *Queries) GetIssue(ctx context.Context, id int64) (Issue, error) {
 
 const getIssueDetail = `-- name: GetIssueDetail :one
 SELECT
-    i.id, i.column_id, i.title, i.description, i.priority, i.position, i.lifecycle_status, i.start_date, i.due_date, i.estimate_type, i.estimate, i.actual_time, i.external_source, i.external_id, i.external_url, i.external_snapshot_at, i.external_comments_snapshot, i.external_comments_snapshot_at, i.goal_condition, i.parent_issue_id, i.issue_type, i.exec_wave, i.exec_status, i.exec_status_reason, i.created_at, i.updated_at, i.created_by,
+    i.id, i.column_id, i.title, i.description, i.priority, i.position, i.lifecycle_status, i.start_date, i.due_date, i.estimate_type, i.estimate, i.actual_time, i.external_source, i.external_id, i.external_url, i.external_snapshot_at, i.external_comments_snapshot, i.external_comments_snapshot_at, i.goal_condition, i.parent_issue_id, i.issue_type, i.exec_wave, i.exec_status, i.exec_status_reason, i.completion_profile_id, i.created_at, i.updated_at, i.created_by,
     c.project_id AS project_id,
     (SELECT CAST(COUNT(*) AS INTEGER) FROM issue_checklists WHERE issue_id = i.id) AS checklist_total,
     (SELECT CAST(COALESCE(SUM(CASE WHEN is_completed = 1 THEN 1 ELSE 0 END), 0) AS INTEGER) FROM issue_checklists WHERE issue_id = i.id) AS checklist_completed
@@ -162,6 +164,7 @@ type GetIssueDetailRow struct {
 	ExecWave                   int64           `json:"exec_wave"`
 	ExecStatus                 string          `json:"exec_status"`
 	ExecStatusReason           sql.NullString  `json:"exec_status_reason"`
+	CompletionProfileID        sql.NullInt64   `json:"completion_profile_id"`
 	CreatedAt                  time.Time       `json:"created_at"`
 	UpdatedAt                  time.Time       `json:"updated_at"`
 	CreatedBy                  sql.NullInt64   `json:"created_by"`
@@ -204,6 +207,7 @@ func (q *Queries) GetIssueDetail(ctx context.Context, id int64) (GetIssueDetailR
 		&i.ExecWave,
 		&i.ExecStatus,
 		&i.ExecStatusReason,
+		&i.CompletionProfileID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.CreatedBy,
@@ -368,7 +372,7 @@ func (q *Queries) GetProjectNameByIssueID(ctx context.Context, id int64) (string
 }
 
 const listAttentionIssuesForOwners = `-- name: ListAttentionIssuesForOwners :many
-SELECT i.id, i.column_id, i.title, i.description, i.priority, i.position, i.lifecycle_status, i.start_date, i.due_date, i.estimate_type, i.estimate, i.actual_time, i.external_source, i.external_id, i.external_url, i.external_snapshot_at, i.external_comments_snapshot, i.external_comments_snapshot_at, i.goal_condition, i.parent_issue_id, i.issue_type, i.exec_wave, i.exec_status, i.exec_status_reason, i.created_at, i.updated_at, i.created_by FROM issues i
+SELECT i.id, i.column_id, i.title, i.description, i.priority, i.position, i.lifecycle_status, i.start_date, i.due_date, i.estimate_type, i.estimate, i.actual_time, i.external_source, i.external_id, i.external_url, i.external_snapshot_at, i.external_comments_snapshot, i.external_comments_snapshot_at, i.goal_condition, i.parent_issue_id, i.issue_type, i.exec_wave, i.exec_status, i.exec_status_reason, i.completion_profile_id, i.created_at, i.updated_at, i.created_by FROM issues i
 JOIN columns col ON col.id = i.column_id
 JOIN projects p ON p.id = col.project_id
 WHERE i.exec_status IN ('gate_blocked','waiting_input','abandoned')
@@ -431,6 +435,7 @@ func (q *Queries) ListAttentionIssuesForOwners(ctx context.Context, arg ListAtte
 			&i.ExecWave,
 			&i.ExecStatus,
 			&i.ExecStatusReason,
+			&i.CompletionProfileID,
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.CreatedBy,
@@ -449,7 +454,7 @@ func (q *Queries) ListAttentionIssuesForOwners(ctx context.Context, arg ListAtte
 }
 
 const listAvailableIssuesForWorkspace = `-- name: ListAvailableIssuesForWorkspace :many
-SELECT i.id, i.column_id, i.title, i.description, i.priority, i.position, i.lifecycle_status, i.start_date, i.due_date, i.estimate_type, i.estimate, i.actual_time, i.external_source, i.external_id, i.external_url, i.external_snapshot_at, i.external_comments_snapshot, i.external_comments_snapshot_at, i.goal_condition, i.parent_issue_id, i.issue_type, i.exec_wave, i.exec_status, i.exec_status_reason, i.created_at, i.updated_at, i.created_by, p.name AS project_name, c.project_id FROM issues i
+SELECT i.id, i.column_id, i.title, i.description, i.priority, i.position, i.lifecycle_status, i.start_date, i.due_date, i.estimate_type, i.estimate, i.actual_time, i.external_source, i.external_id, i.external_url, i.external_snapshot_at, i.external_comments_snapshot, i.external_comments_snapshot_at, i.goal_condition, i.parent_issue_id, i.issue_type, i.exec_wave, i.exec_status, i.exec_status_reason, i.completion_profile_id, i.created_at, i.updated_at, i.created_by, p.name AS project_name, c.project_id FROM issues i
 JOIN columns c ON i.column_id = c.id
 JOIN projects p ON c.project_id = p.id
 WHERE (i.lifecycle_status IS NULL OR i.lifecycle_status != 'completed')
@@ -482,6 +487,7 @@ type ListAvailableIssuesForWorkspaceRow struct {
 	ExecWave                   int64           `json:"exec_wave"`
 	ExecStatus                 string          `json:"exec_status"`
 	ExecStatusReason           sql.NullString  `json:"exec_status_reason"`
+	CompletionProfileID        sql.NullInt64   `json:"completion_profile_id"`
 	CreatedAt                  time.Time       `json:"created_at"`
 	UpdatedAt                  time.Time       `json:"updated_at"`
 	CreatedBy                  sql.NullInt64   `json:"created_by"`
@@ -523,6 +529,7 @@ func (q *Queries) ListAvailableIssuesForWorkspace(ctx context.Context) ([]ListAv
 			&i.ExecWave,
 			&i.ExecStatus,
 			&i.ExecStatusReason,
+			&i.CompletionProfileID,
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.CreatedBy,
@@ -543,7 +550,7 @@ func (q *Queries) ListAvailableIssuesForWorkspace(ctx context.Context) ([]ListAv
 }
 
 const listIssuesByColumn = `-- name: ListIssuesByColumn :many
-SELECT id, column_id, title, description, priority, position, lifecycle_status, start_date, due_date, estimate_type, estimate, actual_time, external_source, external_id, external_url, external_snapshot_at, external_comments_snapshot, external_comments_snapshot_at, goal_condition, parent_issue_id, issue_type, exec_wave, exec_status, exec_status_reason, created_at, updated_at, created_by FROM issues WHERE column_id = ? ORDER BY position
+SELECT id, column_id, title, description, priority, position, lifecycle_status, start_date, due_date, estimate_type, estimate, actual_time, external_source, external_id, external_url, external_snapshot_at, external_comments_snapshot, external_comments_snapshot_at, goal_condition, parent_issue_id, issue_type, exec_wave, exec_status, exec_status_reason, completion_profile_id, created_at, updated_at, created_by FROM issues WHERE column_id = ? ORDER BY position
 `
 
 func (q *Queries) ListIssuesByColumn(ctx context.Context, columnID int64) ([]Issue, error) {
@@ -580,6 +587,7 @@ func (q *Queries) ListIssuesByColumn(ctx context.Context, columnID int64) ([]Iss
 			&i.ExecWave,
 			&i.ExecStatus,
 			&i.ExecStatusReason,
+			&i.CompletionProfileID,
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.CreatedBy,
@@ -598,7 +606,7 @@ func (q *Queries) ListIssuesByColumn(ctx context.Context, columnID int64) ([]Iss
 }
 
 const listIssuesByParent = `-- name: ListIssuesByParent :many
-SELECT id, column_id, title, description, priority, position, lifecycle_status, start_date, due_date, estimate_type, estimate, actual_time, external_source, external_id, external_url, external_snapshot_at, external_comments_snapshot, external_comments_snapshot_at, goal_condition, parent_issue_id, issue_type, exec_wave, exec_status, exec_status_reason, created_at, updated_at, created_by FROM issues WHERE parent_issue_id = ? ORDER BY exec_wave, position
+SELECT id, column_id, title, description, priority, position, lifecycle_status, start_date, due_date, estimate_type, estimate, actual_time, external_source, external_id, external_url, external_snapshot_at, external_comments_snapshot, external_comments_snapshot_at, goal_condition, parent_issue_id, issue_type, exec_wave, exec_status, exec_status_reason, completion_profile_id, created_at, updated_at, created_by FROM issues WHERE parent_issue_id = ? ORDER BY exec_wave, position
 `
 
 // Children of an Epic, ordered by wave then board position. Drives Epic
@@ -637,6 +645,7 @@ func (q *Queries) ListIssuesByParent(ctx context.Context, parentIssueID sql.Null
 			&i.ExecWave,
 			&i.ExecStatus,
 			&i.ExecStatusReason,
+			&i.CompletionProfileID,
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.CreatedBy,
@@ -655,7 +664,7 @@ func (q *Queries) ListIssuesByParent(ctx context.Context, parentIssueID sql.Null
 }
 
 const listIssuesByProject = `-- name: ListIssuesByProject :many
-SELECT i.id, i.column_id, i.title, i.description, i.priority, i.position, i.lifecycle_status, i.start_date, i.due_date, i.estimate_type, i.estimate, i.actual_time, i.external_source, i.external_id, i.external_url, i.external_snapshot_at, i.external_comments_snapshot, i.external_comments_snapshot_at, i.goal_condition, i.parent_issue_id, i.issue_type, i.exec_wave, i.exec_status, i.exec_status_reason, i.created_at, i.updated_at, i.created_by FROM issues i
+SELECT i.id, i.column_id, i.title, i.description, i.priority, i.position, i.lifecycle_status, i.start_date, i.due_date, i.estimate_type, i.estimate, i.actual_time, i.external_source, i.external_id, i.external_url, i.external_snapshot_at, i.external_comments_snapshot, i.external_comments_snapshot_at, i.goal_condition, i.parent_issue_id, i.issue_type, i.exec_wave, i.exec_status, i.exec_status_reason, i.completion_profile_id, i.created_at, i.updated_at, i.created_by FROM issues i
 JOIN columns c ON i.column_id = c.id
 WHERE c.project_id = ?
 ORDER BY c.position, i.position
@@ -695,6 +704,7 @@ func (q *Queries) ListIssuesByProject(ctx context.Context, projectID int64) ([]I
 			&i.ExecWave,
 			&i.ExecStatus,
 			&i.ExecStatusReason,
+			&i.CompletionProfileID,
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.CreatedBy,
@@ -743,11 +753,60 @@ func (q *Queries) MoveIssue(ctx context.Context, arg MoveIssueParams) error {
 	return err
 }
 
+const setIssueCompletionProfile = `-- name: SetIssueCompletionProfile :one
+UPDATE issues
+SET completion_profile_id = ?, updated_at = CURRENT_TIMESTAMP
+WHERE id = ?
+RETURNING id, column_id, title, description, priority, position, lifecycle_status, start_date, due_date, estimate_type, estimate, actual_time, external_source, external_id, external_url, external_snapshot_at, external_comments_snapshot, external_comments_snapshot_at, goal_condition, parent_issue_id, issue_type, exec_wave, exec_status, exec_status_reason, completion_profile_id, created_at, updated_at, created_by
+`
+
+type SetIssueCompletionProfileParams struct {
+	CompletionProfileID sql.NullInt64 `json:"completion_profile_id"`
+	ID                  int64         `json:"id"`
+}
+
+// NULL clears the issue-level override so it inherits the project default.
+func (q *Queries) SetIssueCompletionProfile(ctx context.Context, arg SetIssueCompletionProfileParams) (Issue, error) {
+	row := q.db.QueryRowContext(ctx, setIssueCompletionProfile, arg.CompletionProfileID, arg.ID)
+	var i Issue
+	err := row.Scan(
+		&i.ID,
+		&i.ColumnID,
+		&i.Title,
+		&i.Description,
+		&i.Priority,
+		&i.Position,
+		&i.LifecycleStatus,
+		&i.StartDate,
+		&i.DueDate,
+		&i.EstimateType,
+		&i.Estimate,
+		&i.ActualTime,
+		&i.ExternalSource,
+		&i.ExternalID,
+		&i.ExternalUrl,
+		&i.ExternalSnapshotAt,
+		&i.ExternalCommentsSnapshot,
+		&i.ExternalCommentsSnapshotAt,
+		&i.GoalCondition,
+		&i.ParentIssueID,
+		&i.IssueType,
+		&i.ExecWave,
+		&i.ExecStatus,
+		&i.ExecStatusReason,
+		&i.CompletionProfileID,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.CreatedBy,
+	)
+	return i, err
+}
+
 const setIssueExecFields = `-- name: SetIssueExecFields :one
 UPDATE issues SET
     parent_issue_id = ?, issue_type = ?, exec_wave = ?, exec_status = ?,
     updated_at = CURRENT_TIMESTAMP
-WHERE id = ? RETURNING id, column_id, title, description, priority, position, lifecycle_status, start_date, due_date, estimate_type, estimate, actual_time, external_source, external_id, external_url, external_snapshot_at, external_comments_snapshot, external_comments_snapshot_at, goal_condition, parent_issue_id, issue_type, exec_wave, exec_status, exec_status_reason, created_at, updated_at, created_by
+WHERE id = ? RETURNING id, column_id, title, description, priority, position, lifecycle_status, start_date, due_date, estimate_type, estimate, actual_time, external_source, external_id, external_url, external_snapshot_at, external_comments_snapshot, external_comments_snapshot_at, goal_condition, parent_issue_id, issue_type, exec_wave, exec_status, exec_status_reason, completion_profile_id, created_at, updated_at, created_by
 `
 
 type SetIssueExecFieldsParams struct {
@@ -796,6 +855,7 @@ func (q *Queries) SetIssueExecFields(ctx context.Context, arg SetIssueExecFields
 		&i.ExecWave,
 		&i.ExecStatus,
 		&i.ExecStatusReason,
+		&i.CompletionProfileID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.CreatedBy,
@@ -859,7 +919,7 @@ UPDATE issues SET
     title = ?, description = ?, priority = ?,
     start_date = ?, due_date = ?, estimate_type = ?, estimate = ?, actual_time = ?,
     updated_at = CURRENT_TIMESTAMP
-WHERE id = ? RETURNING id, column_id, title, description, priority, position, lifecycle_status, start_date, due_date, estimate_type, estimate, actual_time, external_source, external_id, external_url, external_snapshot_at, external_comments_snapshot, external_comments_snapshot_at, goal_condition, parent_issue_id, issue_type, exec_wave, exec_status, exec_status_reason, created_at, updated_at, created_by
+WHERE id = ? RETURNING id, column_id, title, description, priority, position, lifecycle_status, start_date, due_date, estimate_type, estimate, actual_time, external_source, external_id, external_url, external_snapshot_at, external_comments_snapshot, external_comments_snapshot_at, goal_condition, parent_issue_id, issue_type, exec_wave, exec_status, exec_status_reason, completion_profile_id, created_at, updated_at, created_by
 `
 
 type UpdateIssueParams struct {
@@ -912,6 +972,7 @@ func (q *Queries) UpdateIssue(ctx context.Context, arg UpdateIssueParams) (Issue
 		&i.ExecWave,
 		&i.ExecStatus,
 		&i.ExecStatusReason,
+		&i.CompletionProfileID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.CreatedBy,
@@ -934,7 +995,7 @@ func (q *Queries) UpdateIssueGoalCondition(ctx context.Context, arg UpdateIssueG
 }
 
 const updateIssueLifecycle = `-- name: UpdateIssueLifecycle :one
-UPDATE issues SET lifecycle_status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? RETURNING id, column_id, title, description, priority, position, lifecycle_status, start_date, due_date, estimate_type, estimate, actual_time, external_source, external_id, external_url, external_snapshot_at, external_comments_snapshot, external_comments_snapshot_at, goal_condition, parent_issue_id, issue_type, exec_wave, exec_status, exec_status_reason, created_at, updated_at, created_by
+UPDATE issues SET lifecycle_status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? RETURNING id, column_id, title, description, priority, position, lifecycle_status, start_date, due_date, estimate_type, estimate, actual_time, external_source, external_id, external_url, external_snapshot_at, external_comments_snapshot, external_comments_snapshot_at, goal_condition, parent_issue_id, issue_type, exec_wave, exec_status, exec_status_reason, completion_profile_id, created_at, updated_at, created_by
 `
 
 type UpdateIssueLifecycleParams struct {
@@ -970,6 +1031,7 @@ func (q *Queries) UpdateIssueLifecycle(ctx context.Context, arg UpdateIssueLifec
 		&i.ExecWave,
 		&i.ExecStatus,
 		&i.ExecStatusReason,
+		&i.CompletionProfileID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.CreatedBy,

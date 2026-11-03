@@ -866,6 +866,39 @@ func Migrate(db *sql.DB) {
 	// 2026-08-27 Agent employee (issue #664): the chat observation log plus the
 	// per-chat agent_mode that opts a chat into observe-and-act-proactively.
 	migrateIMBotAgentEmployee(db)
+
+	// 2026-11-03 Task intake + auto-completion (Epic #755): extend existing
+	// tables for task Brief acceptance items and per-issue completion profiles.
+	migrateIntakeCompletion(db)
+}
+
+// migrateIntakeCompletion retrofits the intake/completion columns onto existing
+// databases. The eight new tables are created by schema.sql / schema_postgres.sql
+// on every startup (CREATE TABLE IF NOT EXISTS), so only the columns added to
+// pre-existing tables need handling here.
+//
+// Defaults preserve current behavior exactly: every legacy checklist row becomes
+// kind='task' with no brief, and every issue inherits the project completion
+// default (completion_profile_id NULL). No CHECK is added to these migration
+// columns (SQLite cannot add one via ALTER TABLE); fresh DBs get none either, so
+// the two paths stay equivalent.
+func migrateIntakeCompletion(db *sql.DB) {
+	fk := fkType()
+
+	addColumnIfNotExists(db, "issue_checklists", "kind", "TEXT NOT NULL DEFAULT 'task'")
+	addColumnIfNotExists(db, "issue_checklists", "brief_id", fk+" DEFAULT NULL REFERENCES task_briefs(id) ON DELETE SET NULL")
+	addColumnIfNotExists(db, "issues", "completion_profile_id", fk+" DEFAULT NULL REFERENCES completion_profiles(id) ON DELETE SET NULL")
+
+	// Indexes live here, not in the schema files: on an upgraded DB the schema
+	// runs BEFORE the columns above exist, so CREATE INDEX there would fail.
+	for _, idx := range []string{
+		`CREATE INDEX IF NOT EXISTS idx_issue_checklists_brief ON issue_checklists(brief_id)`,
+		`CREATE INDEX IF NOT EXISTS idx_issues_completion_profile ON issues(completion_profile_id)`,
+	} {
+		if _, err := db.Exec(idx); err != nil {
+			slog.Warn("create intake/completion index failed", "sql", idx, "error", err)
+		}
+	}
 }
 
 // migrateIMBotAgentEmployee retrofits the Agent-employee (issue #664) data model

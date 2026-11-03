@@ -183,6 +183,29 @@ type CommunityAgent struct {
 	UpdatedAt    time.Time `json:"updated_at"`
 }
 
+type CompletionProfile struct {
+	ID              int64     `json:"id"`
+	ProjectID       int64     `json:"project_id"`
+	Name            string    `json:"name"`
+	AutohostEnabled int64     `json:"autohost_enabled"`
+	MaxRounds       int64     `json:"max_rounds"`
+	TokenBudget     int64     `json:"token_budget"`
+	StopOnDecision  int64     `json:"stop_on_decision"`
+	RequireReview   int64     `json:"require_review"`
+	CreatedAt       time.Time `json:"created_at"`
+	UpdatedAt       time.Time `json:"updated_at"`
+}
+
+type CompletionSetting struct {
+	ProjectID       int64     `json:"project_id"`
+	AutohostEnabled int64     `json:"autohost_enabled"`
+	MaxRounds       int64     `json:"max_rounds"`
+	TokenBudget     int64     `json:"token_budget"`
+	StopOnDecision  int64     `json:"stop_on_decision"`
+	RequireReview   int64     `json:"require_review"`
+	UpdatedAt       time.Time `json:"updated_at"`
+}
+
 type CredentialOnboardingToken struct {
 	ID         int64        `json:"id"`
 	TokenHash  string       `json:"token_hash"`
@@ -460,6 +483,7 @@ type GitRemoteCredential struct {
 	UserID      int64        `json:"user_id"`
 	Host        string       `json:"host"`
 	Username    string       `json:"username"`
+	Kind        string       `json:"kind"`
 	Encrypted   string       `json:"encrypted"`
 	PublicKey   string       `json:"public_key"`
 	Fingerprint string       `json:"fingerprint"`
@@ -577,6 +601,70 @@ type ImBotThread struct {
 	IssueID     int64     `json:"issue_id"`
 	WorkspaceID int64     `json:"workspace_id"`
 	CreatedAt   time.Time `json:"created_at"`
+}
+
+type IntakeDecision struct {
+	ID                 int64         `json:"id"`
+	EventID            int64         `json:"event_id"`
+	ProjectID          int64         `json:"project_id"`
+	ModeAtDecision     string        `json:"mode_at_decision"`
+	Strength           string        `json:"strength"`
+	Decision           string        `json:"decision"`
+	Executed           int64         `json:"executed"`
+	ReasonCode         string        `json:"reason_code"`
+	ReasonText         string        `json:"reason_text"`
+	MatchedRuleIdsJson string        `json:"matched_rule_ids_json"`
+	PolicyVersion      int64         `json:"policy_version"`
+	IssueID            sql.NullInt64 `json:"issue_id"`
+	WorkspaceID        sql.NullInt64 `json:"workspace_id"`
+	WouldDoJson        string        `json:"would_do_json"`
+	CreatedAt          time.Time     `json:"created_at"`
+}
+
+type IntakeEvent struct {
+	ID          int64     `json:"id"`
+	ProjectID   int64     `json:"project_id"`
+	SourceKind  string    `json:"source_kind"`
+	SourceRef   string    `json:"source_ref"`
+	EventExtID  string    `json:"event_ext_id"`
+	EventKind   string    `json:"event_kind"`
+	ActorExtID  string    `json:"actor_ext_id"`
+	ActorName   string    `json:"actor_name"`
+	ThreadExtID string    `json:"thread_ext_id"`
+	PayloadJson string    `json:"payload_json"`
+	ReceivedAt  time.Time `json:"received_at"`
+}
+
+type IntakePolicyVersion struct {
+	ID           int64     `json:"id"`
+	ProjectID    int64     `json:"project_id"`
+	SourceKind   string    `json:"source_kind"`
+	Version      int64     `json:"version"`
+	SnapshotJson string    `json:"snapshot_json"`
+	CreatedAt    time.Time `json:"created_at"`
+}
+
+type IntakeRule struct {
+	ID             int64     `json:"id"`
+	ProjectID      int64     `json:"project_id"`
+	SourceKind     string    `json:"source_kind"`
+	Name           string    `json:"name"`
+	Instruction    string    `json:"instruction"`
+	ConditionsJson string    `json:"conditions_json"`
+	Priority       int64     `json:"priority"`
+	Enabled        int64     `json:"enabled"`
+	CreatedAt      time.Time `json:"created_at"`
+}
+
+type IntakeSetting struct {
+	ID            int64     `json:"id"`
+	ProjectID     int64     `json:"project_id"`
+	SourceKind    string    `json:"source_kind"`
+	Mode          string    `json:"mode"`
+	DailyCap      int64     `json:"daily_cap"`
+	AllowListJson string    `json:"allow_list_json"`
+	BotListJson   string    `json:"bot_list_json"`
+	UpdatedAt     time.Time `json:"updated_at"`
 }
 
 type IntegrationApprovalRequest struct {
@@ -749,6 +837,7 @@ type Issue struct {
 	ExecWave                   int64           `json:"exec_wave"`
 	ExecStatus                 string          `json:"exec_status"`
 	ExecStatusReason           sql.NullString  `json:"exec_status_reason"`
+	CompletionProfileID        sql.NullInt64   `json:"completion_profile_id"`
 	CreatedAt                  time.Time       `json:"created_at"`
 	UpdatedAt                  time.Time       `json:"updated_at"`
 	CreatedBy                  sql.NullInt64   `json:"created_by"`
@@ -772,13 +861,15 @@ type IssueAssignee struct {
 }
 
 type IssueChecklist struct {
-	ID          int64     `json:"id"`
-	IssueID     int64     `json:"issue_id"`
-	Title       string    `json:"title"`
-	IsCompleted int64     `json:"is_completed"`
-	Position    int64     `json:"position"`
-	CreatedAt   time.Time `json:"created_at"`
-	UpdatedAt   time.Time `json:"updated_at"`
+	ID          int64         `json:"id"`
+	IssueID     int64         `json:"issue_id"`
+	Title       string        `json:"title"`
+	IsCompleted int64         `json:"is_completed"`
+	Position    int64         `json:"position"`
+	Kind        string        `json:"kind"`
+	BriefID     sql.NullInt64 `json:"brief_id"`
+	CreatedAt   time.Time     `json:"created_at"`
+	UpdatedAt   time.Time     `json:"updated_at"`
 }
 
 type IssueComment struct {
@@ -1162,6 +1253,22 @@ type SessionState struct {
 	LastUserMsg       string    `json:"last_user_msg"`
 	LastContextTokens int64     `json:"last_context_tokens"`
 	SnapshotAt        time.Time `json:"snapshot_at"`
+}
+
+type TaskBrief struct {
+	ID               int64         `json:"id"`
+	IssueID          int64         `json:"issue_id"`
+	Version          int64         `json:"version"`
+	Goal             string        `json:"goal"`
+	AcceptanceJson   string        `json:"acceptance_json"`
+	ScopeInJson      string        `json:"scope_in_json"`
+	ScopeOutJson     string        `json:"scope_out_json"`
+	DeliveryJson     string        `json:"delivery_json"`
+	ProvenanceJson   string        `json:"provenance_json"`
+	IntakeDecisionID sql.NullInt64 `json:"intake_decision_id"`
+	PolicyVersion    int64         `json:"policy_version"`
+	CreatedBy        sql.NullInt64 `json:"created_by"`
+	CreatedAt        time.Time     `json:"created_at"`
 }
 
 type User struct {
