@@ -378,6 +378,83 @@ func (s *IMBotService) intakeChat(ctx context.Context, t intake.Trigger) (store.
 	})
 }
 
+// --- Accepting a pending decision -------------------------------------------
+
+// AcceptDecision executes a pending dry-run decision that originated from IM.
+// It is the IntakeDecisionAcceptor wired into the HTTP accept endpoint: the
+// pipeline already recorded the event + decision, so this rebuilds the trigger
+// from that event and runs the same executor an automatic accept would use.
+//
+// The brief is whatever the calibration queue saved (the proposed one, or the
+// user's edited draft). For a new task the goal becomes the issue title and
+// goal_condition; the original message stays as the description.
+func (s *IMBotService) AcceptDecision(ctx context.Context, d store.IntakeDecision) (int64, int64, error) {
+	ev, err := s.q.GetIntakeEvent(ctx, d.EventID)
+	if err != nil {
+		return 0, 0, fmt.Errorf("intake accept: load event: %w", err)
+	}
+	if ev.SourceKind != intake.SourceKindIMBot {
+		return 0, 0, fmt.Errorf("intake accept: source %q has no executor", ev.SourceKind)
+	}
+	channelID, err := strconv.ParseInt(ev.SourceRef, 10, 64)
+	if err != nil || channelID <= 0 {
+		return 0, 0, fmt.Errorf("intake accept: bad channel ref %q", ev.SourceRef)
+	}
+	channel, err := s.q.GetIMBotChannel(ctx, channelID)
+	if err != nil {
+		return 0, 0, fmt.Errorf("intake accept: load channel: %w", err)
+	}
+	var inb imbot.InboundEvent
+	if ev.PayloadJson != "" {
+		if err := json.Unmarshal([]byte(ev.PayloadJson), &inb); err != nil {
+			return 0, 0, fmt.Errorf("intake accept: decode event payload: %w", err)
+		}
+	}
+	chat, err := s.q.GetIMBotChatByExt(ctx, store.GetIMBotChatByExtParams{
+		ChannelID: channelID, ChatExtID: inb.ChatExtID,
+	})
+	if err != nil {
+		return 0, 0, fmt.Errorf("intake accept: load chat: %w", err)
+	}
+
+	src := imbotSource{legacyChatMode: s.legacyChatIntakeMode}
+	trig := src.Normalize(inb, channel, chat, inb.Text, true)
+
+	var wd struct {
+		Brief *intake.TaskBrief `json:"brief"`
+	}
+	if d.WouldDoJson != "" {
+		_ = json.Unmarshal([]byte(d.WouldDoJson), &wd)
+	}
+	plan := intake.ExecutionPlan{
+		Decision:   intake.Decision(d.Decision),
+		Trigger:    trig,
+		DecisionID: d.ID,
+	}
+	if wd.Brief != nil {
+		plan.Brief = *wd.Brief
+	}
+	if plan.Decision == intake.DecisionResume {
+		if !d.IssueID.Valid || !d.WorkspaceID.Valid || d.WorkspaceID.Int64 == 0 {
+			return 0, 0, errors.New("intake accept: resume decision has no bound workspace")
+		}
+		plan.IssueID, plan.WorkspaceID = d.IssueID.Int64, d.WorkspaceID.Int64
+	}
+
+	res, err := imbotExecutor{svc: s}.Execute(ctx, plan)
+	if err != nil {
+		return 0, 0, err
+	}
+	if plan.Decision == intake.DecisionAccept && wd.Brief != nil && strings.TrimSpace(wd.Brief.Goal) != "" {
+		if _, err := s.db.ExecContext(ctx,
+			`UPDATE issues SET goal_condition = ? WHERE id = ?`,
+			wd.Brief.GoalCondition(), res.IssueID); err != nil {
+			slog.Warn("imbot: write brief goal_condition failed", "issue", res.IssueID, "error", err)
+		}
+	}
+	return res.IssueID, res.WorkspaceID, nil
+}
+
 // --- Executor ---------------------------------------------------------------
 
 // imbotExecutor performs the IM side of an accepted (new) or resumed decision:
@@ -410,7 +487,7 @@ func (e imbotExecutor) Execute(ctx context.Context, plan intake.ExecutionPlan) (
 	if err != nil {
 		return intake.ExecutionResult{}, err
 	}
-	out, err := s.startInboundTask(ctx, channel, chat, ev, plan.Trigger)
+	out, err := s.startInboundTask(ctx, channel, chat, ev, plan.Trigger, plan.Brief.Goal)
 	if err != nil {
 		return intake.ExecutionResult{}, err
 	}
@@ -451,6 +528,7 @@ func (s *IMBotService) startInboundTask(
 	chat store.ImBotChat,
 	ev imbot.InboundEvent,
 	t intake.Trigger,
+	titleHint string,
 ) (intake.ExecutionResult, error) {
 	if s.dispatch == nil {
 		return intake.ExecutionResult{}, errors.New("imbot intake: no task router wired")
@@ -459,7 +537,7 @@ func (s *IMBotService) startInboundTask(
 	if !ok {
 		return intake.ExecutionResult{}, errors.New("imbot intake: project owner unresolved")
 	}
-	hint := RouteHint{ForceNew: t.ForceNew}
+	hint := RouteHint{ForceNew: t.ForceNew, TitleHint: strings.TrimSpace(titleHint)}
 	// A no-thread chat with an active pointer continues that task unless the
 	// user forced a new one; the resolver already decided continue-vs-new, so
 	// ActiveIssueID is only a classifier tie-break hint.

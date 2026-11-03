@@ -5,6 +5,7 @@
   "menu": {
     "projects": "專案",
     "workspaces": "工作空間",
+    "intake": "待校準",
     "repositories": "倉庫",
     "knowledgeBases": "知識庫",
     "scenes": "場景",
