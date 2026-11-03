@@ -96,7 +96,7 @@ export function useCanvasBridge(workspaceId: string) {
         if (opts.autoSend) {
           requestChatInput(workspaceId, opts.prompt, true, [attachment]);
         } else {
-          addAttachment(attachment);
+          addAttachment(workspaceId, attachment);
           requestChatInput(workspaceId, opts.prompt, false);
         }
         return { attachment, sourcePath };

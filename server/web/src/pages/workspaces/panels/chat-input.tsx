@@ -20,7 +20,11 @@ import { QuickActionsDialog } from './quick-actions-dialog';
 import { TaskProgressButton } from '../components/task-progress-button';
 import { AttachmentTag } from '../components/attachment-tag';
 import { FilePickerPopup } from '../components/file-picker-popup';
-import { useAttachmentStore } from '@/stores/attachment-store';
+import {
+  useAttachmentStore,
+  selectWorkspaceAttachments,
+  selectWorkspacePendingAttachments,
+} from '@/stores/attachment-store';
 import { useAgentSSEStore } from '@/stores/agent-sse-store';
 import { useNotificationWSStore } from '@/stores/notification-ws-store';
 import { useFileUpload } from '@/hooks/use-file-upload';
@@ -138,6 +142,10 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
   const [quickActionsDialogOpen, setQuickActionsDialogOpen] = useState(false);
 
   const store = useAttachmentStore();
+  // Attachments are staged per workspace: switching conversations must not
+  // carry one workspace's uploaded files into another's input.
+  const attachments = useAttachmentStore(selectWorkspaceAttachments(workspace.id));
+  const pendingAttachments = useAttachmentStore(selectWorkspacePendingAttachments(workspace.id));
   const { fileInputRef, uploadFiles, openFilePicker, handleFileInputChange, handlePaste } = useFileUpload(String(workspace.id));
   useFilePicker(String(workspace.id));
 
@@ -183,7 +191,7 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
     if (!value) return;
     if (textareaRef.current) textareaRef.current.value = '';
     clearDraft(workspace.id);
-    onSend(value, store.attachments);
+    onSend(value, attachments);
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -232,7 +240,7 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
         e.preventDefault();
         const selected = store.filePickerResults[store.filePickerSelectedIndex];
         if (selected) {
-          store.addAttachment({ path: selected.path, type: 'ref', name: selected.name, repo: selected.repo });
+          store.addAttachment(workspace.id, { path: selected.path, type: 'ref', name: selected.name, repo: selected.repo });
           if (textareaRef.current && atPositionRef.current >= 0) {
             const val = textareaRef.current.value;
             const cursor = textareaRef.current.selectionStart ?? val.length;
@@ -538,12 +546,12 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
         >
           <div className="h-1 w-8 rounded-full bg-border group-hover:bg-muted-foreground/50 transition-colors" />
         </div>
-        {(store.attachments.length > 0 || store.pendingAttachments.length > 0) && (
+        {(attachments.length > 0 || pendingAttachments.length > 0) && (
           <div className="flex flex-wrap gap-1.5 px-3 pt-2">
-            {store.attachments.map((a) => (
-              <AttachmentTag key={a.path} attachment={a} onRemove={() => store.removeAttachment(a.path)} />
+            {attachments.map((a) => (
+              <AttachmentTag key={a.path} attachment={a} onRemove={() => store.removeAttachment(workspace.id, a.path)} />
             ))}
-            {store.pendingAttachments.map((p) => (
+            {pendingAttachments.map((p) => (
               <AttachmentTag
                 key={`pending:${p.name}`}
                 attachment={{ path: '', type: 'upload', name: p.name, size: p.size }}
@@ -696,7 +704,7 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
             loading={store.filePickerLoading}
             query={store.filePickerQuery}
             onSelect={(file) => {
-              store.addAttachment({ path: file.path, type: 'ref', name: file.name, repo: file.repo });
+              store.addAttachment(workspace.id, { path: file.path, type: 'ref', name: file.name, repo: file.repo });
               if (textareaRef.current && atPositionRef.current >= 0) {
                 const val = textareaRef.current.value;
                 const cursor = textareaRef.current.selectionStart ?? val.length;

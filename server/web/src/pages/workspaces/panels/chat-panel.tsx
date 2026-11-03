@@ -774,7 +774,7 @@ export function ChatPanel({ workspace, readOnly }: ChatPanelProps) {
         } else {
           setSessionState('running');
         }
-        attachmentStore.clearAttachments();
+        attachmentStore.clearAttachments(String(workspaceId));
       } catch {
         // API error — session stays idle, no state change needed
       } finally {

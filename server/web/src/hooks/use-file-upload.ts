@@ -16,11 +16,11 @@ export function useFileUpload(workspaceId: string) {
       toast.error(t('errors.fileUploadTooLarge', { name: file.name, limit: '10MB' }));
       return;
     }
-    store.addPendingAttachment(file.name, file.size);
+    store.addPendingAttachment(workspaceId, file.name, file.size);
     store.setUploading(true);
     try {
       const result = await api.uploadAttachment(workspaceId, file);
-      store.movePendingToAttachment(file.name, {
+      store.movePendingToAttachment(workspaceId, file.name, {
         path: result.path,
         type: 'upload',
         name: result.name,
@@ -30,7 +30,7 @@ export function useFileUpload(workspaceId: string) {
         optimized: result.optimized,
       });
     } catch {
-      store.removePendingAttachment(file.name);
+      store.removePendingAttachment(workspaceId, file.name);
       toast.error(t('errors.fileUploadFailed', { name: file.name }));
     } finally {
       store.setUploading(false);
