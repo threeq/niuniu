@@ -186,7 +186,24 @@ func (s *EpicExecutionService) AdvanceIssue(ctx context.Context, in AdvanceIssue
 		// single AI-advance choke point so the agent routes to the review lane
 		// instead. Resolved fresh from the DB, so a profile change applies to
 		// the very next advance without an agent restart.
-		if eff, perr := completion.ResolveCompletionPolicy(ctx, s.q, issue); perr == nil && eff.RequireReview {
+		eff, perr := completion.ResolveCompletionPolicy(ctx, s.q, issue)
+		if perr != nil {
+			// Fail closed: an unresolvable policy must not be read as "no review
+			// required". Deny the done-lane move and surface the configuration
+			// error to the agent.
+			slog.Error("advance_issue: resolve completion policy failed; refusing done move",
+				"issueID", in.IssueID, "to", targetID, "error", perr)
+			if s.execEvents != nil {
+				s.execEvents.Record(ctx, ExecEvent{
+					IssueID: in.IssueID, Kind: "intervention",
+					Summary: "拒绝移动到「" + target.name + "」：无法解析自动完成策略",
+				})
+			}
+			return AdvanceIssueResult{}, fmt.Errorf(
+				"无法解析自动完成策略，已拒绝移动到完成列「%s」；请检查项目「自动完成」设置后重试: %w",
+				target.name, perr)
+		}
+		if eff.RequireReview {
 			reviewName := s.reviewColumnName(ctx, srcCol.ProjectID)
 			reason := fmt.Sprintf(
 				"该任务按自动完成策略需要人工审查，不能直接移动到完成列「%s」。请改为移动到「%s」列，由人工审查通过后再进入完成。",
