@@ -583,6 +583,12 @@ export interface RepoBranch {
 
 export interface CreateWorkspaceRequest {
   issue_id?: number | null;
+  /**
+   * Project the workspace belongs to. Required when issue_id is omitted: the
+   * server creates the backing issue in this project and inherits its default
+   * repositories / scenes / provider (a workspace is never issue-less).
+   */
+  project_id?: number;
   name: string;
   repos: RepoBranch[];
   owner?: import('./org').OwnerRef;

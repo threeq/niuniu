@@ -432,6 +432,11 @@ export const api = {
   listAvailableIssuesForWorkspace: () =>
     api.get<AvailableIssue[]>('/workspaces/available-issues'),
 
+  getProjectWorkspaceDefaults: (projectId: string | number) =>
+    api.get<{ repos: IssueDefaultRepo[] }>(
+      `/workspaces/project-defaults?project_id=${encodeURIComponent(String(projectId))}`
+    ),
+
   getWorkspaceIssueDefaults: (issueId: string | number) =>
     api.get<{ repos: IssueDefaultRepo[]; project_default_cli_type?: CliType }>(
       `/workspaces/issue-defaults?issue_id=${encodeURIComponent(String(issueId))}`

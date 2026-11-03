@@ -735,6 +735,9 @@ func New(cfg *config.Config, db *sql.DB, frontendFS fs.FS) *Server {
 	s.labelHandler = api.NewLabelHandler(s.labelSvc, authz)
 	s.issueHandler = api.NewIssueHandler(s.kanbanSvc, authz)
 	s.workspaceHandler = api.NewWorkspaceHandler(s.workspaceSvc)
+	// Direct workspace creation auto-creates the backing issue in the
+	// selected project — a workspace is never issue-less.
+	s.workspaceHandler.Kanban = s.kanbanSvc
 	s.tokenUsageHandler = &api.TokenUsageHandler{
 		Svc:   service.NewTokenUsageService(s.queries),
 		Authz: authz,

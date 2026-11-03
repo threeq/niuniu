@@ -34,21 +34,21 @@ type branchInfoFetcher interface {
 }
 
 type WorkspaceService struct {
-	q             *store.Queries
-	db            *store.DB
-	cfg           *config.WorkspaceConfig
-	dataDir       string // root data directory (e.g. ~/.niuniu)
-	notifyHub     *notify.NotificationHub
-	harnessSvc    *HarnessService
-	authz         *Authz
-	agentProxy    *agentproxy.AgentProxy
-	repoSvc       branchInfoFetcher     // wired via SetRepositoryService
-	perm          *PermissionService    // wired via SetPermissionService
-	askUser       *AskUserService       // wired via SetAskUserService
-	mcpGen        *MCPConfigGenerator   // wired via SetMCPGenerator
-	sceneLayers   *SceneLayerService    // wired via SetSceneLayerService
-	sceneProj     *SceneProjector       // wired via SetSceneProjector
-	eventBus      *event.Bus            // wired via SetEventBus (optional; nil in tests)
+	q           *store.Queries
+	db          *store.DB
+	cfg         *config.WorkspaceConfig
+	dataDir     string // root data directory (e.g. ~/.niuniu)
+	notifyHub   *notify.NotificationHub
+	harnessSvc  *HarnessService
+	authz       *Authz
+	agentProxy  *agentproxy.AgentProxy
+	repoSvc     branchInfoFetcher   // wired via SetRepositoryService
+	perm        *PermissionService  // wired via SetPermissionService
+	askUser     *AskUserService     // wired via SetAskUserService
+	mcpGen      *MCPConfigGenerator // wired via SetMCPGenerator
+	sceneLayers *SceneLayerService  // wired via SetSceneLayerService
+	sceneProj   *SceneProjector     // wired via SetSceneProjector
+	eventBus    *event.Bus          // wired via SetEventBus (optional; nil in tests)
 	// onCreated is an optional post-creation hook (wired via SetWorkspaceCreatedHook).
 	// The Epic execution engine uses it to auto-link a workspace by its issue type:
 	// an Epic workspace becomes an orchestration workspace; a child workspace gets
@@ -681,12 +681,12 @@ type CreateWorkspaceInput struct {
 	// linking to a specific issue. Used by scene prefill to look up
 	// project_default_scenes. Ignored when IssueID is set (issue's project
 	// wins).
-	ProjectID       *int64
-	Name            string
-	Repos           []RepoBranch // New format: per-repo branch selection
-	OwnerType       string
-	OwnerID         int64
-	CreatedBy       *int64 // nullable; nil + owner_type='user' falls back to OwnerID
+	ProjectID *int64
+	Name      string
+	Repos     []RepoBranch // New format: per-repo branch selection
+	OwnerType string
+	OwnerID   int64
+	CreatedBy *int64 // nullable; nil + owner_type='user' falls back to OwnerID
 	// MCPServers is the workspace-scoped list of extra MCP server names to
 	// surface to Claude (names only; resolved against the bound claude
 	// account's registry at .mcp.json generation time).
@@ -2365,14 +2365,14 @@ func (s *WorkspaceService) SetEnvProvider(ctx context.Context, workspaceID, prov
 	})
 }
 
-// SetEnvProviderGroup binds the workspace to a provider GROUP ('' unbinds)
+// SetEnvProviderGroup binds the workspace to a provider GROUP (” unbinds)
 // instead of one specific provider. At spawn, sceneenv.ActiveProvider resolves
 // the group's best usable member in manual order, so a rate-limited or disabled
 // member is skipped automatically.
 func (s *WorkspaceService) SetEnvProviderGroup(ctx context.Context, workspaceID int64, group string) error {
 	return s.q.SetWorkspaceEnvProviderGroup(ctx, store.SetWorkspaceEnvProviderGroupParams{
-		ID:                 workspaceID,
-		EnvProviderGroup:   group,
+		ID:               workspaceID,
+		EnvProviderGroup: group,
 	})
 }
 
@@ -2563,9 +2563,7 @@ func (s *WorkspaceService) GetIssueDefaultCliType(ctx context.Context, issueID i
 
 func (s *WorkspaceService) GetIssueDefaultRepos(ctx context.Context, issueID int64) ([]IssueDefaultRepo, error) {
 	// Resolve issue → column → project_id. Mirrors KanbanHandler.GetIssue's
-	// project_id resolution path (kanban.go:519). We deliberately reuse the
-	// existing ListProjectRepositories query (which returns project_default_branch
-	// alongside repo fields) rather than maintain a parallel one.
+	// project_id resolution path (kanban.go:519).
 	issue, err := s.q.GetIssue(ctx, issueID)
 	if err != nil {
 		// Issue doesn't exist — treat as "no defaults" (handler authz layer
@@ -2576,7 +2574,16 @@ func (s *WorkspaceService) GetIssueDefaultRepos(ctx context.Context, issueID int
 	if err != nil {
 		return []IssueDefaultRepo{}, nil
 	}
-	rows, err := s.q.ListProjectRepositories(ctx, col.ProjectID)
+	return s.GetProjectDefaultRepos(ctx, col.ProjectID)
+}
+
+// GetProjectDefaultRepos returns the repositories a new workspace in this
+// project inherits, with the branch each should check out. This is the SAME
+// resolution the issue-based create path uses — creating a workspace directly
+// from the project (with or without picking an issue) must inherit exactly the
+// project's defaults.
+func (s *WorkspaceService) GetProjectDefaultRepos(ctx context.Context, projectID int64) ([]IssueDefaultRepo, error) {
+	rows, err := s.q.ListProjectRepositories(ctx, projectID)
 	if err != nil {
 		return nil, err
 	}
@@ -2584,7 +2591,7 @@ func (s *WorkspaceService) GetIssueDefaultRepos(ctx context.Context, issueID int
 		return []IssueDefaultRepo{}, nil
 	}
 	if s.repoSvc == nil {
-		slog.Warn("issue-defaults: repoSvc not wired, returning empty result", "issue_id", issueID)
+		slog.Warn("workspace-defaults: repoSvc not wired, returning empty result", "project_id", projectID)
 		return []IssueDefaultRepo{}, nil
 	}
 
@@ -2596,8 +2603,8 @@ func (s *WorkspaceService) GetIssueDefaultRepos(ctx context.Context, issueID int
 			defer wg.Done()
 			info, err := s.repoSvc.GetBranchInfo(ctx, strconv.FormatInt(row.ID, 10))
 			if err != nil {
-				slog.Warn("issue-defaults: skip repo",
-					"repo_id", row.ID, "issue_id", issueID, "err", err)
+				slog.Warn("workspace-defaults: skip repo",
+					"repo_id", row.ID, "project_id", projectID, "err", err)
 				return // out[i] stays zero value, filtered below
 			}
 			// Project-level override (pr.default_branch) wins when set.

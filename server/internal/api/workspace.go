@@ -29,6 +29,11 @@ type WorkspaceHandler struct {
 	// allowlist. Optional; nil makes CreateFromDirectory 500 (mis-wired server).
 	RepoSvc *service.RepositoryService
 	Perm    *service.PermissionService
+	// Kanban creates the issue that backs a directly-created workspace. A
+	// workspace is ALWAYS bound to an issue: when the caller creates from a
+	// project without picking one, the handler creates it here and then runs
+	// the exact same creation path.
+	Kanban *service.KanbanService
 }
 
 func NewWorkspaceHandler(svc *service.WorkspaceService) *WorkspaceHandler {
@@ -46,11 +51,11 @@ type CreateWorkspaceRequest struct {
 	// it to a specific issue. When set, used to prefill any project-default
 	// scenes (see WorkspaceService.Create scene-layer prefill). Ignored if
 	// IssueID is also set — issue's project takes precedence.
-	ProjectID       *int64                       `json:"project_id,omitempty"`
-	Name            string                       `json:"name"`
-	Repos           []RepoBranchRequest          `json:"repos"`
-	Owner           *CreateWorkspaceOwnerRequest `json:"owner"`
-	MCPServers     []string `json:"mcp_servers,omitempty"` // workspace-scoped MCP server names
+	ProjectID  *int64                       `json:"project_id,omitempty"`
+	Name       string                       `json:"name"`
+	Repos      []RepoBranchRequest          `json:"repos"`
+	Owner      *CreateWorkspaceOwnerRequest `json:"owner"`
+	MCPServers []string                     `json:"mcp_servers,omitempty"` // workspace-scoped MCP server names
 	// CliType picks the agent CLI for the workspace. "claude" (default) or
 	// "codex". Empty string normalizes to "claude" in the SQL layer.
 	// Immutable after create: PATCH /api/workspaces/:id rejects this field.
@@ -513,16 +518,79 @@ func (h *WorkspaceHandler) Create(c *gin.Context) {
 		return
 	}
 
-	// no_repo is the explicit opt-in for a plain-directory workspace. Enforce a
-	// clean either/or contract so an empty-repos request is never an accident:
-	// no_repo => no repos; otherwise at least one repo is required.
+	// no_repo is the explicit opt-in for a plain-directory workspace.
 	if req.NoRepo && len(req.Repos) > 0 {
 		BadRequest(c, "no_repo workspaces cannot have repositories")
 		return
 	}
+
+	// A workspace is ALWAYS bound to an issue. When the caller creates straight
+	// from a project (no issue picked), the issue is created here, in the
+	// project's first column, using the workspace name as its title — and the
+	// request then continues down the SAME creation path as an issue-bound
+	// create (project repositories, scenes, provider binding all inherited).
+	var inheritedProjectID int64
+	if req.IssueID == nil {
+		if req.ProjectID == nil || *req.ProjectID == 0 {
+			BadRequest(c, "issue_id or project_id is required: a workspace must be linked to an issue")
+			return
+		}
+		inheritedProjectID = *req.ProjectID
+		if userID > 0 && h.Authz != nil {
+			if _, err := h.Authz.CanAccessProject(c.Request.Context(), userID, inheritedProjectID); err != nil {
+				writeAuthzError(c, err)
+				return
+			}
+		}
+		if h.Kanban == nil || h.Q == nil {
+			InternalError(c, errors.New("kanban service not wired: cannot auto-create the issue"))
+			return
+		}
+		cols, err := h.Q.ListColumnsByProject(c.Request.Context(), inheritedProjectID)
+		if err != nil || len(cols) == 0 {
+			BadRequest(c, "project has no columns to create the issue in")
+			return
+		}
+		title := strings.TrimSpace(req.Name)
+		if title == "" {
+			title = "新建工作空间"
+		}
+		issue, err := h.Kanban.CreateIssue(c.Request.Context(), cols[0].ID, title, "",
+			0, 0, "", "", "", 0, nil, "task", 0, nil, nil, userID)
+		if err != nil {
+			slog.Warn("Create workspace: auto-create issue failed", "project_id", inheritedProjectID, "error", err)
+			InternalError(c, err)
+			return
+		}
+		req.IssueID = &issue.ID
+		if req.Name == "" {
+			req.Name = title
+		}
+	}
+
+	// Repositories are INHERITED from the project when the caller sends none —
+	// the same default set the issue-based flow seeds. An empty project (no
+	// repositories bound) yields a plain-directory workspace, which is the
+	// project's own default rather than a client-side opt-out.
 	if !req.NoRepo && len(req.Repos) == 0 {
-		BadRequest(c, "select at least one repository, or set no_repo=true for a plain-directory workspace")
-		return
+		projectID := inheritedProjectID
+		if projectID == 0 && req.IssueID != nil && h.Q != nil {
+			if issue, err := h.Q.GetIssue(c.Request.Context(), *req.IssueID); err == nil {
+				if col, err := h.Q.GetColumn(c.Request.Context(), issue.ColumnID); err == nil {
+					projectID = col.ProjectID
+				}
+			}
+		}
+		if projectID > 0 {
+			defaults, err := h.Svc.GetProjectDefaultRepos(c.Request.Context(), projectID)
+			if err != nil {
+				InternalError(c, err)
+				return
+			}
+			for _, d := range defaults {
+				req.Repos = append(req.Repos, RepoBranchRequest{RepoID: d.Repository.ID, Branch: d.PreferredBranch})
+			}
+		}
 	}
 
 	// Resolve owner: explicit body wins, but treat both nil and the SPA
@@ -579,17 +647,17 @@ func (h *WorkspaceHandler) Create(c *gin.Context) {
 		createdByPtr = &userID
 	}
 	result, err := h.Svc.Create(c.Request.Context(), service.CreateWorkspaceInput{
-		IssueID:         req.IssueID,
-		ProjectID:       req.ProjectID,
-		Name:            req.Name,
-		Repos:           repos,
-		OwnerType:       owner.Type,
-		OwnerID:         owner.ID,
-		CreatedBy:       createdByPtr,
-		MCPServers:      req.MCPServers,
-		CliType:         req.CliType,
-		NoRepo:          req.NoRepo,
-		Language:        c.GetHeader("X-Niuniu-Language"),
+		IssueID:    req.IssueID,
+		ProjectID:  req.ProjectID,
+		Name:       req.Name,
+		Repos:      repos,
+		OwnerType:  owner.Type,
+		OwnerID:    owner.ID,
+		CreatedBy:  createdByPtr,
+		MCPServers: req.MCPServers,
+		CliType:    req.CliType,
+		NoRepo:     req.NoRepo,
+		Language:   c.GetHeader("X-Niuniu-Language"),
 	})
 	if err != nil {
 		// Invalid cli_type is user-input, not a server failure. Mapping to
@@ -737,14 +805,14 @@ func (h *WorkspaceHandler) CreateFromDirectory(c *gin.Context) {
 		createdByPtr = &userID
 	}
 	result, err := h.Svc.Create(c.Request.Context(), service.CreateWorkspaceInput{
-		Name:            req.Name,
-		Repos:           []service.RepoBranch{{RepoID: repo.ID, Branch: ""}},
-		OwnerType:       owner.Type,
-		OwnerID:         owner.ID,
-		CreatedBy:       createdByPtr,
-		CliType:         req.CliType,
-		IsStudio:        true,
-		Language:        c.GetHeader("X-Niuniu-Language"),
+		Name:      req.Name,
+		Repos:     []service.RepoBranch{{RepoID: repo.ID, Branch: ""}},
+		OwnerType: owner.Type,
+		OwnerID:   owner.ID,
+		CreatedBy: createdByPtr,
+		CliType:   req.CliType,
+		IsStudio:  true,
+		Language:  c.GetHeader("X-Niuniu-Language"),
 	})
 	if err != nil {
 		if errors.Is(err, service.ErrInvalidCliType) {
@@ -883,15 +951,15 @@ func (h *WorkspaceHandler) CreateForIssue(c *gin.Context) {
 		createdByPtrForIssue = &userID
 	}
 	result, err := h.Svc.Create(c.Request.Context(), service.CreateWorkspaceInput{
-		IssueID:         &issueID,
-		Name:            req.Name,
-		Repos:           repos,
-		OwnerType:       owner.Type,
-		OwnerID:         owner.ID,
-		CreatedBy:       createdByPtrForIssue,
-		MCPServers:      req.MCPServers,
-		CliType:         req.CliType,
-		Language:        c.GetHeader("X-Niuniu-Language"),
+		IssueID:    &issueID,
+		Name:       req.Name,
+		Repos:      repos,
+		OwnerType:  owner.Type,
+		OwnerID:    owner.ID,
+		CreatedBy:  createdByPtrForIssue,
+		MCPServers: req.MCPServers,
+		CliType:    req.CliType,
+		Language:   c.GetHeader("X-Niuniu-Language"),
 	})
 	if err != nil {
 		if errors.Is(err, service.ErrInvalidCliType) {
@@ -1574,9 +1642,36 @@ func (h *WorkspaceHandler) GetIssueDefaults(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{
-		"repos":                   repos,
+		"repos":                    repos,
 		"project_default_cli_type": h.Svc.GetIssueDefaultCliType(c.Request.Context(), issueID),
 	})
+}
+
+// GET /api/workspaces/project-defaults?project_id=N
+// Repositories (and their preferred branch) a new workspace in this project
+// inherits. The dialog uses it to show what will be carried over; the create
+// handler resolves the same list server-side, so the client's copy is
+// informational only.
+func (h *WorkspaceHandler) GetProjectDefaults(c *gin.Context) {
+	userID := c.GetInt64("auth_user_id")
+	projectID, err := strconv.ParseInt(c.Query("project_id"), 10, 64)
+	if err != nil || projectID == 0 {
+		BadRequest(c, "invalid project_id")
+		return
+	}
+	if userID > 0 && h.Authz != nil {
+		if _, err := h.Authz.CanAccessProject(c.Request.Context(), userID, projectID); err != nil {
+			writeAuthzError(c, err)
+			return
+		}
+	}
+	repos, err := h.Svc.GetProjectDefaultRepos(c.Request.Context(), projectID)
+	if err != nil {
+		slog.Warn("GetProjectDefaults failed", "projectID", projectID, "error", err)
+		InternalError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"repos": repos})
 }
 
 // GetChangesSummary returns aggregated git change counts across all worktrees

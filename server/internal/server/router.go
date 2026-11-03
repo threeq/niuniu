@@ -884,6 +884,7 @@ func (s *Server) setupRoutes() {
 		workspaces.POST("/from-directory", s.workspaceHandler.CreateFromDirectory)
 		workspaces.GET("/available-issues", s.workspaceHandler.ListAvailableIssues)
 		workspaces.GET("/issue-defaults", s.workspaceHandler.GetIssueDefaults)
+		workspaces.GET("/project-defaults", s.workspaceHandler.GetProjectDefaults)
 		workspaces.GET("/archived", s.workspaceHandler.ListArchived)
 		workspaces.POST("/batch-delete", s.workspaceHandler.BatchDelete)
 		workspaces.GET("/:id", s.workspaceHandler.Get)

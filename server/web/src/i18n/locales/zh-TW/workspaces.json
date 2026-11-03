@@ -347,6 +347,15 @@
       "searchIssue": "搜尋問題...",
       "noAvailableIssue": "沒有可用的問題",
       "issueHint": "可選：僅顯示未完成且未關聯工作空間的問題",
+      "project": "專案",
+      "selectProject": "選擇專案",
+      "noProject": "暫無可用專案",
+      "projectRequired": "請選擇專案",
+      "nameAndNewIssue": "工作空間名稱 / 新問題標題",
+      "nameRequiredForNewIssue": "請填寫名稱（將作為新問題的標題）",
+      "inheritTitle": "將繼承專案預設配置",
+      "inheritNoRepos": "該專案未綁定倉庫，將建立無倉庫工作空間",
+      "inheritRepos": "倉庫 {{count}} 個：{{names}}",
       "noRepo": {
         "label": "無倉庫（辦公 / 純目錄任務）",
         "hint": "建立一個不含 git worktree 的普通目錄，適合非程式碼類任務。"
