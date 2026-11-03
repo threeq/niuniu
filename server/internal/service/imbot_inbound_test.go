@@ -265,6 +265,13 @@ func newIMBotFixture(t *testing.T) *imbotFixture {
 	}
 	db.SetMaxOpenConns(1)
 	t.Cleanup(func() { _ = db.Close() })
+	return seedIMBotFixture(t, db)
+}
+
+// seedIMBotFixture populates a fresh database (schema already applied by the
+// caller) with the project/issue/workspace/channel the IM tests share.
+func seedIMBotFixture(t *testing.T, db *sql.DB) *imbotFixture {
+	t.Helper()
 	if _, err := db.Exec(store.Schema); err != nil {
 		t.Fatalf("schema: %v", err)
 	}

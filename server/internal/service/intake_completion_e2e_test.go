@@ -16,9 +16,11 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -703,6 +705,177 @@ func TestE2E_CompletionPolicyResolutionRegression(t *testing.T) {
 	eff, _ = svc.ResolveIssuePolicy(ctx, f.issueID)
 	if eff.MaxRounds != 9 || eff.Source != completion.SourceProjectDefault {
 		t.Fatalf("intake change disturbed completion: %+v", eff)
+	}
+}
+
+// newConcurrentIMBotFixture uses a file-backed database with several
+// connections so the daily-cap test really races the reserve (an in-memory
+// database pinned to one connection would serialize every writer).
+func newConcurrentIMBotFixture(t *testing.T, maxConns int) *imbotFixture {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "e2e-intake.db")
+	// modernc ignores the mattn-style _journal_mode/_busy_timeout params; the
+	// _pragma form plus _txlock=immediate is what store.Open uses in production.
+	db, err := sql.Open("sqlite", path+
+		"?_pragma=journal_mode(WAL)"+
+		"&_pragma=busy_timeout(5000)"+
+		"&_pragma=synchronous(NORMAL)"+
+		"&_pragma=foreign_keys(1)"+
+		"&_txlock=immediate")
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	db.SetMaxOpenConns(maxConns)
+	t.Cleanup(func() { _ = db.Close() })
+	return seedIMBotFixture(t, db)
+}
+
+// TestE2E_ConcurrentInferredEventsRespectDailyCap drives the real IM pipeline
+// with 20 simultaneous inferred events (design §10.2 / #761). The atomic
+// daily-slot claim must let exactly cap events execute and record the rest as
+// daily_cap — no count-then-execute overshoot.
+func TestE2E_ConcurrentInferredEventsRespectDailyCap(t *testing.T) {
+	const (
+		events = 20
+		capN   = int64(2)
+	)
+	f := newConcurrentIMBotFixture(t, 8)
+	ctx := context.Background()
+	chat := f.activeChat(t, "oc_cap")
+	f.setChatAgentMode(t, chat, AgentModeObserve)
+	f.setChatIntakeMode(t, chat, IntakeModeAuto)
+
+	intakeSvc := NewIntakeService(f.db, f.q)
+	if _, err := intakeSvc.UpdateSettings(ctx, f.projectID, UpdateIntakeSettingsRequest{
+		Settings: []IntakeSettingInput{{
+			SourceKind: intake.SourceKindIMBot,
+			Mode:       string(intake.ModeAuto),
+			DailyCap:   ptr(capN),
+			// An allow list keeps "bob" off the explicit path, so these events are
+			// inferred and therefore subject to the cap.
+			AllowList: []string{"alice"},
+		}},
+	}); err != nil {
+		t.Fatalf("settings: %v", err)
+	}
+	if _, err := intakeSvc.CreateRule(ctx, f.projectID, UpsertIntakeRuleInput{
+		SourceKind: intake.SourceKindIMBot,
+		Name:       "部署",
+		Conditions: intake.RuleConditions{Keywords: []string{"deploy"}},
+	}); err != nil {
+		t.Fatalf("rule: %v", err)
+	}
+	for i := 0; i < events; i++ {
+		f.router.queue = append(f.router.queue, PlanTarget{
+			IssueID: f.issueID, WorkspaceID: f.wsID, ProjectID: f.projectID,
+		})
+	}
+
+	var wg sync.WaitGroup
+	for i := 0; i < events; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			f.svc.HandleInbound(ctx, imbot.InboundEvent{
+				ChannelID: f.channelID, ChatExtID: "oc_cap", Text: "please deploy now",
+				Kind: "message", EventID: fmt.Sprintf("cap-%d", i), ActorExtID: "bob",
+			})
+		}(i)
+	}
+	wg.Wait()
+
+	rows, err := f.db.QueryContext(ctx,
+		`SELECT decision, reason_code, executed FROM intake_decisions WHERE project_id = ?`, f.projectID)
+	if err != nil {
+		t.Fatalf("decisions: %v", err)
+	}
+	defer rows.Close()
+	executed, capped := 0, 0
+	for rows.Next() {
+		var decision, reason string
+		var isExec int
+		if err := rows.Scan(&decision, &reason, &isExec); err != nil {
+			t.Fatalf("scan decision: %v", err)
+		}
+		if isExec == 1 {
+			if decision != string(intake.DecisionAccept) && decision != string(intake.DecisionResume) {
+				t.Fatalf("unexpected executed decision %q", decision)
+			}
+			executed++
+		}
+		if reason == intake.ReasonDailyCap {
+			capped++
+		}
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
+	}
+	if executed != int(capN) {
+		t.Fatalf("executed = %d, want exactly %d", executed, capN)
+	}
+	if capped != events-int(capN) {
+		t.Fatalf("daily_cap decisions = %d, want %d", capped, events-int(capN))
+	}
+	if len(f.deliverer.calls) != int(capN) {
+		t.Fatalf("deliveries = %d, want %d", len(f.deliverer.calls), capN)
+	}
+}
+
+// TestE2E_BotIsInferredAndCannotStopTask pins the absolute bot rule (§10.4 /
+// design §6.2): a bot on the bot list is inferred even when it is the source of
+// an admitted message, and it can never stop a running task.
+func TestE2E_BotIsInferredAndCannotStopTask(t *testing.T) {
+	f := newIMBotFixture(t)
+	ctx := context.Background()
+	chat := f.activeChat(t, "oc_bot")
+	f.setChatAgentMode(t, chat, AgentModeObserve)
+	f.setChatIntakeMode(t, chat, IntakeModeAuto)
+	f.svc.setActiveIssue(ctx, chat, f.issueID)
+
+	intakeSvc := NewIntakeService(f.db, f.q)
+	if _, err := intakeSvc.UpdateSettings(ctx, f.projectID, UpdateIntakeSettingsRequest{
+		Settings: []IntakeSettingInput{{
+			SourceKind: intake.SourceKindIMBot,
+			Mode:       string(intake.ModeAuto),
+			AllowList:  []string{"alice"},
+			BotList:    []string{"bot_release"},
+		}},
+	}); err != nil {
+		t.Fatalf("settings: %v", err)
+	}
+	if _, err := intakeSvc.CreateRule(ctx, f.projectID, UpsertIntakeRuleInput{
+		SourceKind: intake.SourceKindIMBot,
+		Name:       "部署",
+		Conditions: intake.RuleConditions{Keywords: []string{"deploy"}},
+	}); err != nil {
+		t.Fatalf("rule: %v", err)
+	}
+	f.router.queue = []PlanTarget{{IssueID: f.issueID, WorkspaceID: f.wsID, ProjectID: f.projectID}}
+
+	// A matching bot message is inferred — never explicit — and can execute.
+	f.svc.HandleInbound(ctx, imbot.InboundEvent{
+		ChannelID: f.channelID, ChatExtID: "oc_bot", Text: "please deploy",
+		Kind: "message", EventID: "bot-1", ActorExtID: "bot_release",
+	})
+	ev := f.intakeEvent(t, "oc_bot", "bot-1")
+	decs, err := f.q.ListIntakeDecisionsByEvent(ctx, ev.ID)
+	if err != nil || len(decs) != 1 {
+		t.Fatalf("decisions = %v (err %v)", decs, err)
+	}
+	if decs[0].Strength != string(intake.StrengthInferred) {
+		t.Fatalf("bot strength = %q, want inferred", decs[0].Strength)
+	}
+
+	// /stop from the same bot is denied even though it is on the bot list.
+	f.svc.HandleInbound(ctx, imbot.InboundEvent{
+		ChannelID: f.channelID, ChatExtID: "oc_bot", Text: "/stop",
+		Kind: "message", EventID: "bot-2", ActorExtID: "bot_release",
+	})
+	f.deliverer.mu.Lock()
+	stopped := append([]int64(nil), f.deliverer.stopped...)
+	f.deliverer.mu.Unlock()
+	if len(stopped) != 0 {
+		t.Fatalf("bot stopped the task: %+v", stopped)
 	}
 }
 
