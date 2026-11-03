@@ -45,6 +45,7 @@ const (
 	ReasonNoRule      = "no_matching_rule"
 	ReasonDailyCap    = "daily_cap"
 	ReasonDisabled    = "disabled"
+	ReasonThreadEnded = "thread_ended"
 )
 
 // RuleConditions narrows when a rule applies. Every non-empty group must match;

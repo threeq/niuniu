@@ -36,11 +36,12 @@ const githubProviderName = "github"
 
 // GithubSourceService owns GitHub polling and the adapter's intake pipeline.
 type GithubSourceService struct {
-	db     *store.DB
-	q      *store.Queries
-	creds  *ExternalCredentialService
-	poller *githubsource.Poller
-	intake *intake.Service
+	db      *store.DB
+	q       *store.Queries
+	creds   *ExternalCredentialService
+	poller  *githubsource.Poller
+	intake  *intake.Service
+	threads githubThreadStore
 
 	mu        sync.RWMutex
 	dispatch  TaskRouter
@@ -52,6 +53,7 @@ type GithubSourceService struct {
 // no network I/O until RunOnce is called.
 func NewGithubSourceService(rawDB *sql.DB, q *store.Queries, creds *ExternalCredentialService) *GithubSourceService {
 	s := &GithubSourceService{db: store.Wrap(rawDB), q: q, creds: creds}
+	s.threads = githubThreadStore{db: s.db}
 	s.poller = &githubsource.Poller{
 		Client:  &http.Client{Timeout: 30 * time.Second},
 		Store:   githubPollStateStore{db: s.db},
@@ -218,15 +220,143 @@ func (s *GithubSourceService) tokenFor(ctx context.Context, credentialID int64) 
 type githubIntakeSink struct{ svc *GithubSourceService }
 
 func (k githubIntakeSink) Handle(ctx context.Context, t intake.Trigger) error {
+	// A closed/merged PR ends the thread subscription BEFORE the pipeline runs,
+	// so the close event itself resolves as ended instead of resuming the task.
+	// The tombstone row is also written for threads that never got a task: later
+	// comments must not create one after the PR is gone.
+	if t.EventKind == intake.EventKindPullRequestClosed {
+		if err := k.svc.threads.MarkEnded(ctx, t.ProjectID, t.SourceRef,
+			t.Thread.ThreadExtID, closedThreadReason(t), t.EventID); err != nil {
+			return fmt.Errorf("github intake: end thread: %w", err)
+		}
+	}
 	res, err := k.svc.intake.Handle(ctx, t)
 	if err != nil {
 		return err
 	}
-	if !res.Duplicate {
-		slog.Debug("github source: event handled",
-			"repo", t.SourceRef, "event", t.EventID, "decision", res.Decision, "reason", res.ReasonCode)
+	if res.Duplicate {
+		return nil
 	}
+	// Persist the per-thread read position. Event dedupe already makes a restart
+	// safe; this records how far the thread itself was consumed.
+	if err := k.svc.threads.Touch(ctx, t.ProjectID, t.SourceRef, t.Thread.ThreadExtID, t.EventID); err != nil {
+		slog.Warn("github source: save thread read position failed",
+			"repo", t.SourceRef, "thread", t.Thread.ThreadExtID, "error", err)
+	}
+	slog.Debug("github source: event handled",
+		"repo", t.SourceRef, "event", t.EventID, "decision", res.Decision, "reason", res.ReasonCode)
 	return nil
+}
+
+// closedThreadReason reads the close state from the normalized payload:
+// "merged" when the PR merged, otherwise "closed".
+func closedThreadReason(t intake.Trigger) string {
+	var p struct {
+		State string `json:"state"`
+	}
+	if len(t.Raw) > 0 && json.Unmarshal(t.Raw, &p) == nil && p.State != "" {
+		return p.State
+	}
+	return "closed"
+}
+
+// --- Thread bindings --------------------------------------------------------
+
+const (
+	githubThreadOpen  = "open"
+	githubThreadEnded = "ended"
+)
+
+// githubThreadBinding is one upstream thread -> task mapping. IssueID is 0 for
+// a tombstone row that only records the thread ended.
+type githubThreadBinding struct {
+	IssueID     int64
+	WorkspaceID int64
+	State       string
+	EndedReason string
+	LastEventID string
+}
+
+// githubThreadStore persists the mapping in github_thread_bindings. Raw SQL is
+// used (like githubPollStateStore) because these are single-row hot-path
+// upserts, not CRUD the sqlc query set needs to expose.
+type githubThreadStore struct{ db *store.DB }
+
+func (st githubThreadStore) Get(ctx context.Context, projectID int64, repo, thread string) (githubThreadBinding, bool, error) {
+	if thread == "" {
+		return githubThreadBinding{}, false, nil
+	}
+	var b githubThreadBinding
+	err := st.db.QueryRowContext(ctx, `
+		SELECT issue_id, workspace_id, state, ended_reason, last_event_id
+		FROM github_thread_bindings
+		WHERE project_id = ? AND repo = ? AND thread_ext_id = ?`,
+		projectID, repo, thread,
+	).Scan(&b.IssueID, &b.WorkspaceID, &b.State, &b.EndedReason, &b.LastEventID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return githubThreadBinding{}, false, nil
+	}
+	if err != nil {
+		return githubThreadBinding{}, false, err
+	}
+	return b, true, nil
+}
+
+// Bind records/refreshes the task a thread maps to. An ended thread stays
+// ended: the WHERE on the upsert makes a late bind a no-op so a race with the
+// close event cannot revive the subscription.
+func (st githubThreadStore) Bind(ctx context.Context, projectID int64, repo, thread string, issueID, workspaceID int64, eventID string) error {
+	if thread == "" {
+		return nil
+	}
+	_, err := st.db.ExecContext(ctx, `
+		INSERT INTO github_thread_bindings
+			(project_id, repo, thread_ext_id, issue_id, workspace_id, state, last_event_id, updated_at)
+		VALUES (?, ?, ?, ?, ?, 'open', ?, CURRENT_TIMESTAMP)
+		ON CONFLICT(project_id, repo, thread_ext_id) DO UPDATE SET
+			issue_id = excluded.issue_id,
+			workspace_id = excluded.workspace_id,
+			last_event_id = excluded.last_event_id,
+			updated_at = CURRENT_TIMESTAMP
+		WHERE github_thread_bindings.state <> 'ended'`,
+		projectID, repo, thread, issueID, workspaceID, eventID)
+	return err
+}
+
+// MarkEnded ends the subscription. It preserves an existing issue binding and
+// inserts a tombstone when the thread was never bound.
+func (st githubThreadStore) MarkEnded(ctx context.Context, projectID int64, repo, thread, reason, eventID string) error {
+	if thread == "" {
+		return nil
+	}
+	if reason == "" {
+		reason = "closed"
+	}
+	_, err := st.db.ExecContext(ctx, `
+		INSERT INTO github_thread_bindings
+			(project_id, repo, thread_ext_id, issue_id, workspace_id, state, ended_reason, last_event_id, updated_at)
+		VALUES (?, ?, ?, 0, 0, 'ended', ?, ?, CURRENT_TIMESTAMP)
+		ON CONFLICT(project_id, repo, thread_ext_id) DO UPDATE SET
+			state = 'ended',
+			ended_reason = excluded.ended_reason,
+			last_event_id = excluded.last_event_id,
+			updated_at = CURRENT_TIMESTAMP`,
+		projectID, repo, thread, reason, eventID)
+	return err
+}
+
+// Touch advances the per-thread read position for an open binding. An unbound
+// or ended thread is left alone (the repo-wide poll cursor still covers it).
+func (st githubThreadStore) Touch(ctx context.Context, projectID int64, repo, thread, eventID string) error {
+	if thread == "" || eventID == "" {
+		return nil
+	}
+	_, err := st.db.ExecContext(ctx, `
+		UPDATE github_thread_bindings
+		SET last_event_id = ?, updated_at = CURRENT_TIMESTAMP
+		WHERE project_id = ? AND repo = ? AND thread_ext_id = ? AND state = 'open'`,
+		eventID, projectID, repo, thread)
+	return err
 }
 
 // --- Poll state -------------------------------------------------------------
@@ -302,9 +432,9 @@ func parseDBTime(v sql.NullString) time.Time {
 
 // --- Resolver ---------------------------------------------------------------
 
-// githubResolver resumes an existing task when the same repo#number already
-// produced one. Unbound threads resolve to nothing and the pipeline routes a new
-// task.
+// githubResolver maps a repo#number thread to the task it is bound to. A bound
+// thread resumes; an ended thread (closed/merged PR) is ignored; an unbound
+// thread resolves to nothing and the pipeline routes a new task.
 type githubResolver struct{ db *store.DB }
 
 func (r githubResolver) Resolve(ctx context.Context, t intake.Trigger) (intake.Resolution, error) {
@@ -313,8 +443,34 @@ func (r githubResolver) Resolve(ctx context.Context, t intake.Trigger) (intake.R
 	if extID == "" {
 		return intake.Resolution{Thread: thread}, nil
 	}
+
+	binding, ok, err := githubThreadStore{db: r.db}.Get(ctx, t.ProjectID, t.SourceRef, thread.ThreadExtID)
+	if err != nil {
+		return intake.Resolution{}, err
+	}
+	if ok {
+		if binding.State == githubThreadEnded {
+			return intake.Resolution{Thread: thread, IssueID: binding.IssueID, Ended: true}, nil
+		}
+		if binding.IssueID > 0 {
+			workspaceID, err := activeWorkspaceForIssue(ctx, r.db, binding.IssueID)
+			if err != nil {
+				return intake.Resolution{}, err
+			}
+			thread.IssueID, thread.WorkspaceID = binding.IssueID, workspaceID
+			return intake.Resolution{
+				Thread:      thread,
+				IssueID:     binding.IssueID,
+				WorkspaceID: workspaceID,
+				Bound:       workspaceID != 0,
+			}, nil
+		}
+	}
+
+	// Fallback for tasks created before the binding table existed: the upstream
+	// thread is carried as issue provenance.
 	var issueID int64
-	err := r.db.QueryRowContext(ctx, `
+	err = r.db.QueryRowContext(ctx, `
 		SELECT i.id
 		FROM issues i
 		JOIN columns c ON c.id = i.column_id
@@ -329,13 +485,8 @@ func (r githubResolver) Resolve(ctx context.Context, t intake.Trigger) (intake.R
 		return intake.Resolution{}, err
 	}
 
-	var workspaceID int64
-	err = r.db.QueryRowContext(ctx, `
-		SELECT id FROM workspaces
-		WHERE issue_id = ? AND is_archived = 0
-		ORDER BY id DESC LIMIT 1`, issueID,
-	).Scan(&workspaceID)
-	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+	workspaceID, err := activeWorkspaceForIssue(ctx, r.db, issueID)
+	if err != nil {
 		return intake.Resolution{}, err
 	}
 	thread.IssueID, thread.WorkspaceID = issueID, workspaceID
@@ -345,6 +496,22 @@ func (r githubResolver) Resolve(ctx context.Context, t intake.Trigger) (intake.R
 		WorkspaceID: workspaceID,
 		Bound:       workspaceID != 0,
 	}, nil
+}
+
+// activeWorkspaceForIssue returns the issue's live workspace, or 0 when it has
+// none (removed/archived). The executor then continues the issue and starts a
+// fresh workspace instead of delivering into a dead one.
+func activeWorkspaceForIssue(ctx context.Context, db *store.DB, issueID int64) (int64, error) {
+	var workspaceID int64
+	err := db.QueryRowContext(ctx, `
+		SELECT id FROM workspaces
+		WHERE issue_id = ? AND is_archived = 0
+		ORDER BY id DESC LIMIT 1`, issueID,
+	).Scan(&workspaceID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return 0, nil
+	}
+	return workspaceID, err
 }
 
 func githubExternalID(repo, thread string) string {
@@ -364,6 +531,7 @@ func (e githubExecutor) Execute(ctx context.Context, plan intake.ExecutionPlan) 
 		if plan.WorkspaceID == 0 {
 			return intake.ExecutionResult{}, errors.New("github intake: resume without a workspace")
 		}
+		e.svc.bindThread(ctx, plan.Trigger, plan.IssueID, plan.WorkspaceID)
 		e.svc.deliver(ctx, plan.WorkspaceID, plan.Trigger)
 		return intake.ExecutionResult{IssueID: plan.IssueID, WorkspaceID: plan.WorkspaceID}, nil
 	}
@@ -395,9 +563,20 @@ func (e githubExecutor) Execute(ctx context.Context, plan intake.ExecutionPlan) 
 	}
 
 	e.svc.recordProvenance(ctx, target.IssueID, plan.Trigger)
+	e.svc.bindThread(ctx, plan.Trigger, target.IssueID, target.WorkspaceID)
 	e.svc.persistBrief(ctx, target.IssueID, plan)
 	e.svc.deliver(ctx, target.WorkspaceID, plan.Trigger)
 	return intake.ExecutionResult{IssueID: target.IssueID, WorkspaceID: target.WorkspaceID}, nil
+}
+
+// bindThread records the thread -> task mapping. Failure is logged rather than
+// failing the execution: the task now exists, and issue provenance (written by
+// recordProvenance for new tasks) still resolves later comments.
+func (s *GithubSourceService) bindThread(ctx context.Context, t intake.Trigger, issueID, workspaceID int64) {
+	if err := s.threads.Bind(ctx, t.ProjectID, t.SourceRef, t.Thread.ThreadExtID, issueID, workspaceID, t.EventID); err != nil {
+		slog.Warn("github intake: bind thread failed",
+			"repo", t.SourceRef, "thread", t.Thread.ThreadExtID, "issue", issueID, "error", err)
+	}
 }
 
 func (s *GithubSourceService) projectOwner(ctx context.Context, projectID int64) (OwnerRef, bool) {

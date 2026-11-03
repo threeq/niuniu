@@ -35,6 +35,10 @@ type Resolution struct {
 	IssueID     int64
 	WorkspaceID int64
 	Bound       bool // the thread is already bound to IssueID/WorkspaceID
+	// Ended marks a thread that is closed upstream (a closed/merged PR). The
+	// subscription is over, so the event is recorded but never executed — even
+	// when an allow-listed actor wrote it.
+	Ended bool
 }
 
 // WouldDo is the dry-run payload of a decision that was not executed. It is
@@ -240,6 +244,11 @@ func (s *Service) Handle(ctx context.Context, t Trigger) (Result, error) {
 	res.WorkspaceID = resolution.WorkspaceID
 
 	decision, reason := decide(policy.Mode, authz, resolution.Bound, t.ForceNew)
+	// A closed/merged upstream thread has ended its subscription: later events
+	// are still recorded for audit, but never create or resume work.
+	if resolution.Ended {
+		decision, reason = DecisionIgnore, ReasonThreadEnded
+	}
 	executed := shouldExecute(policy.Mode, authz.Strength) &&
 		(decision == DecisionAccept || decision == DecisionResume)
 	// The daily cap bounds inferred auto-intake only; explicit requests from an

@@ -2308,6 +2308,28 @@ CREATE TABLE IF NOT EXISTS github_source_poll_state (
     UNIQUE(project_id, repo, stream)
 );
 
+-- GitHub thread bindings (Epic #755 / design §6.10). One row per
+-- (project, repo, PR/issue number): the upstream thread -> task mapping, so a
+-- later comment resumes the same workspace instead of being triaged again.
+-- state='ended' after the PR closes/merges; the thread stops being a work
+-- target and further events are ignored. last_event_* is the per-thread read
+-- position (the repo-wide poll cursor lives in github_source_poll_state).
+CREATE TABLE IF NOT EXISTS github_thread_bindings (
+    id            BIGSERIAL PRIMARY KEY,
+    project_id    BIGINT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    repo          TEXT NOT NULL,
+    thread_ext_id TEXT NOT NULL,
+    issue_id      BIGINT NOT NULL DEFAULT 0,
+    workspace_id  BIGINT NOT NULL DEFAULT 0,
+    state         TEXT NOT NULL DEFAULT 'open',
+    ended_reason  TEXT NOT NULL DEFAULT '',
+    last_event_id TEXT NOT NULL DEFAULT '',
+    last_event_at TEXT,
+    created_at    TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at    TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(project_id, repo, thread_ext_id)
+);
+
 -- Task Brief: append-only 1:N versions per issue; current version = MAX(version).
 -- Provenance links back to the intake decision that created the brief.
 CREATE TABLE IF NOT EXISTS task_briefs (
