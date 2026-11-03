@@ -1,7 +1,7 @@
 import { api, apiFetch } from '@/lib/api'
 
-// Typed client for the Intake / Completion endpoints defined in
-// docs/superpowers/specs/2026-11-03-intake-completion-autonomy-design.md §6.9.
+// Typed client for the Intake (任务来源) / Completion (自动完成) endpoints defined
+// in docs/superpowers/specs/2026-11-03-intake-completion-autonomy-design.md §6.9.
 
 export type IntakeMode = 'off' | 'observe' | 'auto'
 export type IntakeSourceKind = 'im_bot' | 'github' | 'ci' | 'email' | 'webhook'
@@ -57,6 +57,7 @@ export interface IntakeEventPayload {
   Attachments?: { Kind: string; Name: string; ResourceID?: string }[]
 }
 
+/** One dry-run decision, joined with its originating event. */
 export interface IntakeDecision {
   id: number
   event_id: number
@@ -81,35 +82,62 @@ export interface IntakeDecision {
   created_at: string
 }
 
-export interface IntakeRule {
-  id: number
-  project_id: number
-  source_kind: string
-  name: string
-  instruction: string
-  enabled: boolean
-}
-
 export interface IntakeDecisionFilter {
   executed?: boolean
   decision?: IntakeDecisionKind
   limit?: number
 }
 
-export interface IntakeSourceSettings {
+/** One (project, source) settings row. Kinds without a stored row come back
+ *  with schema defaults (observe / cap 4 / empty lists). */
+export interface IntakeSetting {
   source_kind: IntakeSourceKind
-  connected: boolean
   mode: IntakeMode
   daily_cap: number
-  rule_count: number
-  allowed_member_count: number
-  pending_count: number
+  allow_list: string[]
+  bot_list: string[]
+  updated_at?: string
 }
 
 export interface IntakeSettings {
+  project_id: number
   paused: boolean
-  sources: IntakeSourceSettings[]
-  policy_version: number | null
+  settings: IntakeSetting[]
+}
+
+export interface IntakeRuleConditions {
+  actors?: string[]
+  keywords?: string[]
+}
+
+export interface IntakeRule {
+  id: number
+  project_id: number
+  source_kind: IntakeSourceKind
+  name: string
+  instruction: string
+  conditions: IntakeRuleConditions
+  priority: number
+  enabled: boolean
+  created_at: string
+}
+
+export interface IntakeRuleInput {
+  source_kind: IntakeSourceKind
+  name: string
+  instruction: string
+  conditions: IntakeRuleConditions
+  priority: number
+  enabled?: boolean
+}
+
+export interface IntakePolicyVersion {
+  id: number
+  project_id: number
+  source_kind: IntakeSourceKind
+  version: number
+  snapshot: unknown
+  created_at: string
 }
 
 export interface CompletionProfile {
@@ -134,10 +162,31 @@ export interface CompletionSettings {
 }
 
 export const intakeApi = {
-  // suppressError: the settings endpoint is part of a parallel skeleton task,
-  // so a 404 must render the panel's own error state instead of a global toast.
+  // suppressError: these settings endpoints are part of the intake surface, so a
+  // 404/403 renders the panel's own error state instead of a global toast.
   getSettings: (projectId: number) =>
     api.get<IntakeSettings>(`/projects/${projectId}/intake/settings`, { suppressError: true }),
+
+  updateSettings: (projectId: number, settings: IntakeSettingInput[]) =>
+    api.put<IntakeSettings>(`/projects/${projectId}/intake/settings`, { settings }),
+
+  setPaused: (projectId: number, paused: boolean) =>
+    api.put<{ paused: boolean }>(`/projects/${projectId}/intake/pause`, { paused }),
+
+  createRule: (projectId: number, input: IntakeRuleInput) =>
+    api.post<IntakeRule>(`/projects/${projectId}/intake/rules`, input),
+
+  updateRule: (projectId: number, ruleId: number, input: IntakeRuleInput) =>
+    api.put<IntakeRule>(`/projects/${projectId}/intake/rules/${ruleId}`, input),
+
+  deleteRule: (projectId: number, ruleId: number) =>
+    api.delete<void>(`/projects/${projectId}/intake/rules/${ruleId}`),
+
+  listPolicyVersions: (projectId: number, sourceKind: IntakeSourceKind, limit = 50) =>
+    api.get<IntakePolicyVersion[]>(`/projects/${projectId}/intake/policy-versions`, {
+      params: { source_kind: sourceKind, limit },
+      suppressError: true,
+    }),
 
   getCompletionSettings: (projectId: number) =>
     api.get<CompletionSettings>(`/projects/${projectId}/completion/settings`, {
@@ -187,4 +236,13 @@ export const intakeApi = {
       `/projects/${projectId}/intake/decisions/${decisionId}/suggest-goal-condition`,
       { method: 'POST', suppressError: true },
     ),
+}
+
+/** PUT body row. */
+export interface IntakeSettingInput {
+  source_kind: IntakeSourceKind
+  mode: IntakeMode
+  daily_cap: number
+  allow_list: string[]
+  bot_list: string[]
 }

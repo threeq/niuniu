@@ -99,7 +99,10 @@ describe('IntakeReviewPage', () => {
         source_kind: 'im_bot',
         name: '线上缺陷自动接单',
         instruction: '',
+        conditions: { keywords: ['500'] },
+        priority: 0,
         enabled: true,
+        created_at: '2026-11-03T00:00:00Z',
       },
     ])
   })

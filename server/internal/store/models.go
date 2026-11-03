@@ -604,6 +604,14 @@ type ImBotThread struct {
 	CreatedAt   time.Time `json:"created_at"`
 }
 
+type IntakeDailyUsage struct {
+	ID         int64  `json:"id"`
+	ProjectID  int64  `json:"project_id"`
+	SourceKind string `json:"source_kind"`
+	Day        string `json:"day"`
+	Used       int64  `json:"used"`
+}
+
 type IntakeDecision struct {
 	ID                 int64         `json:"id"`
 	EventID            int64         `json:"event_id"`
@@ -643,6 +651,12 @@ type IntakePolicyVersion struct {
 	Version      int64     `json:"version"`
 	SnapshotJson string    `json:"snapshot_json"`
 	CreatedAt    time.Time `json:"created_at"`
+}
+
+type IntakeProjectState struct {
+	ProjectID int64     `json:"project_id"`
+	Paused    int64     `json:"paused"`
+	UpdatedAt time.Time `json:"updated_at"`
 }
 
 type IntakeRule struct {

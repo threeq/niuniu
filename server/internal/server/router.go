@@ -774,6 +774,7 @@ func (s *Server) setupRoutes() {
 		// decisions are the dry-run calibration queue.
 		projects.GET("/:id/intake/settings", s.intakeHandler.GetSettings)
 		projects.PUT("/:id/intake/settings", s.intakeHandler.PutSettings)
+		projects.PUT("/:id/intake/pause", s.intakeHandler.SetPause)
 		projects.GET("/:id/intake/rules", s.intakeHandler.ListRules)
 		projects.POST("/:id/intake/rules", s.intakeHandler.CreateRule)
 		projects.PUT("/:id/intake/rules/:rid", s.intakeHandler.UpdateRule)

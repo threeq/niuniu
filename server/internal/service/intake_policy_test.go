@@ -360,3 +360,46 @@ func TestHandleInbound_UnconfiguredChatStillAllowsStop(t *testing.T) {
 		t.Fatalf("unconfigured chat denied a human: %+v", f.adapter.pushes)
 	}
 }
+
+func TestIntakePause_RoundTripsAndLoadsIntoPolicy(t *testing.T) {
+	svc, f := intakePolicyFixture(t)
+	ctx := context.Background()
+
+	paused, err := svc.GetPaused(ctx, f.projectID)
+	if err != nil {
+		t.Fatalf("get pause: %v", err)
+	}
+	if paused {
+		t.Fatalf("a fresh project must not be paused")
+	}
+
+	if _, err := svc.SetPaused(ctx, f.projectID, true); err != nil {
+		t.Fatalf("set pause: %v", err)
+	}
+	view, err := svc.GetSettings(ctx, f.projectID)
+	if err != nil {
+		t.Fatalf("get settings: %v", err)
+	}
+	if !view.Paused {
+		t.Fatalf("settings view did not report paused")
+	}
+
+	pol, err := (imbotPolicy{q: f.q}).LoadPolicy(ctx, f.projectID, intake.SourceKindIMBot)
+	if err != nil {
+		t.Fatalf("load policy: %v", err)
+	}
+	if !pol.Paused {
+		t.Fatalf("policy did not carry the project pause flag")
+	}
+
+	if _, err := svc.SetPaused(ctx, f.projectID, false); err != nil {
+		t.Fatalf("resume: %v", err)
+	}
+	pol, err = (imbotPolicy{q: f.q}).LoadPolicy(ctx, f.projectID, intake.SourceKindIMBot)
+	if err != nil {
+		t.Fatalf("load policy after resume: %v", err)
+	}
+	if pol.Paused {
+		t.Fatalf("policy still paused after resume")
+	}
+}

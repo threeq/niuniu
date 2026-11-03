@@ -19,3 +19,14 @@ RETURNING *;
 
 -- name: DeleteIntakeSetting :exec
 DELETE FROM intake_settings WHERE project_id = ? AND source_kind = ?;
+
+-- name: GetIntakeProjectState :one
+SELECT * FROM intake_project_state WHERE project_id = ?;
+
+-- name: UpsertIntakeProjectState :one
+INSERT INTO intake_project_state (project_id, paused)
+VALUES (?, ?)
+ON CONFLICT(project_id) DO UPDATE SET
+    paused = excluded.paused,
+    updated_at = CURRENT_TIMESTAMP
+RETURNING *;

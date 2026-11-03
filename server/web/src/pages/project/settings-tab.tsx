@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { useNavigate } from '@tanstack/react-router';
 import { Plus, X, Eye, EyeOff, Trash2 } from 'lucide-react';
 import { api } from '@/lib/api';
+import { confirm } from '@/lib/confirm';
 import { toast } from 'sonner';
 import type { Project, ProjectRepositoryBinding, Repository } from '@/types/api';
 import { OwnerBadge } from '@/components/shared/owner-badge';
@@ -40,10 +41,15 @@ interface Props {
   projectId: number;
   // Sub-section to open on mount, from a deep link. Unknown values fall back to 'basic'.
   initialSection?: string;
+  // Forwarded to the page chrome so switching top-level tabs can warn about
+  // unsaved intake edits (the panel itself blocks route changes).
+  onIntakeDirtyChange?: (dirty: boolean) => void;
 }
 
-export function ProjectSettingsTab({ projectId, initialSection }: Props) {
+export function ProjectSettingsTab({ projectId, initialSection, onIntakeDirtyChange }: Props) {
   const { t } = useTranslation(['projects', 'presets']);
+  const { t: tIntake } = useTranslation('intake');
+  const [intakeDirty, setIntakeDirty] = useState(false);
   const qc = useQueryClient();
   const navigate = useNavigate();
   const updateStatus = useUpdateProjectStatus();
@@ -221,7 +227,24 @@ export function ProjectSettingsTab({ projectId, initialSection }: Props) {
           <button
             key={key}
             type="button"
-            onClick={() => setActiveSection(key)}
+            onClick={() => {
+              if (key === activeSection) return;
+              // Leaving 任务来源 with local edits: confirm before unmounting the
+              // panel (its own route blocker cannot see local section switches).
+              if (activeSection === 'intake' && intakeDirty) {
+                void confirm({
+                  title: tIntake('intake.unsavedLeaveTitle'),
+                  description: tIntake('intake.unsavedLeaveDescription'),
+                  confirmText: tIntake('intake.unsavedLeaveConfirm'),
+                  cancelText: tIntake('intake.unsavedLeaveCancel'),
+                  destructive: true,
+                }).then((ok) => {
+                  if (ok) setActiveSection(key);
+                });
+                return;
+              }
+              setActiveSection(key);
+            }}
             className={[
               'px-3 py-2 text-sm font-medium border-b-2 -mb-px',
               activeSection === key
@@ -256,7 +279,17 @@ export function ProjectSettingsTab({ projectId, initialSection }: Props) {
 
       {/* Section: Intake — read-only Phase 0 preview of which sources may
           create tasks. Kept fully independent from completion. */}
-      {activeSection === 'intake' && <IntakePolicyPanel projectId={projectId} />}
+      {activeSection === 'intake' && (
+        <IntakePolicyPanel
+          key={projectId}
+          projectId={projectId}
+          onDirtyChange={(dirty) => {
+            setIntakeDirty(dirty);
+            onIntakeDirtyChange?.(dirty);
+          }}
+          onNavigateSection={(section) => setActiveSection(section as SettingsSection)}
+        />
+      )}
 
       {/* Section: Completion — read-only Phase 0 preview of how far a task is
           pushed and when it stops to ask a person. */}

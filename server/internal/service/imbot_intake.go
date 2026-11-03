@@ -271,6 +271,17 @@ type imbotPolicy struct{ q *store.Queries }
 func (p imbotPolicy) LoadPolicy(ctx context.Context, projectID int64, sourceKind string) (intake.Policy, error) {
 	pol := intake.Policy{ProjectID: projectID, SourceKind: sourceKind, Mode: intake.ModeOff}
 
+	// The project-level stop switch is independent of per-source settings.
+	state, err := p.q.GetIntakeProjectState(ctx, projectID)
+	switch {
+	case err == nil:
+		pol.Paused = state.Paused != 0
+	case errors.Is(err, sql.ErrNoRows):
+		// No state row: not paused.
+	default:
+		return intake.Policy{}, err
+	}
+
 	row, err := p.q.GetIntakeSetting(ctx, store.GetIntakeSettingParams{
 		ProjectID: projectID, SourceKind: sourceKind,
 	})

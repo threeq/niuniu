@@ -133,6 +133,40 @@ func (h *IntakeHandler) PutSettings(c *gin.Context) {
 	c.JSON(http.StatusOK, view)
 }
 
+// SetPause serves PUT /api/projects/:id/intake/pause.
+//
+// @Summary      Pause or resume intake for a project
+// @Description  While paused the pipeline forces every source to mode off: explicit requests keep working, inferred/observe work stops immediately.
+// @Tags         Intake
+// @Accept       json
+// @Produce      json
+// @Param        id    path      int  true  "Project ID"
+// @Param        body  body      object{paused=bool}  true  "Pause state"
+// @Success      200   {object}  object{paused=bool}
+// @Failure      400   {object}  Error
+// @Failure      401   {object}  Error
+// @Failure      403   {object}  Error
+// @Router       /projects/{id}/intake/pause [put]
+func (h *IntakeHandler) SetPause(c *gin.Context) {
+	pid, ok := h.intakeProjectAccess(c, true)
+	if !ok {
+		return
+	}
+	var body struct {
+		Paused *bool `json:"paused"`
+	}
+	if err := c.ShouldBindJSON(&body); err != nil || body.Paused == nil {
+		BadRequest(c, "paused is required")
+		return
+	}
+	paused, err := h.svc.SetPaused(c.Request.Context(), pid, *body.Paused)
+	if err != nil {
+		h.mapIntakeErr(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"paused": paused})
+}
+
 // ListRules serves GET /api/projects/:id/intake/rules.
 //
 // @Summary      List intake rules
