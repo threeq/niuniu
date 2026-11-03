@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next'
 import { Link, useSearch } from '@tanstack/react-router'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { Inbox, RefreshCw } from 'lucide-react'
+import { Inbox, RefreshCw, Zap } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import {
@@ -26,6 +26,7 @@ import {
 import { cn } from '@/lib/utils'
 import { DecisionList } from '@/components/intake/decision-list'
 import { DecisionDetail } from '@/components/intake/decision-detail'
+import { EnableAutoDialog } from '@/components/intake/enable-auto-dialog'
 import { IgnoreReasonDialog } from '@/components/intake/ignore-reason-dialog'
 import type { IgnoreReason } from '@/components/intake/ignore-reason'
 
@@ -72,6 +73,7 @@ export function IntakeReviewPage() {
   const [seenIds, setSeenIds] = useState<Set<number>>(new Set())
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [batchOpen, setBatchOpen] = useState(false)
+  const [enableOpen, setEnableOpen] = useState(false)
 
   // Default to the deep-linked project, else the first one, without an effect:
   // the derived id is what the queries use and an explicit choice overrides it.
@@ -88,6 +90,26 @@ export function IntakeReviewPage() {
   const rulesQuery = useQuery({
     queryKey: ['intake-rules', projectId],
     queryFn: () => intakeApi.listRules(projectId as number),
+    enabled: projectId !== null,
+    retry: 1,
+  })
+
+  // The trust-ramp sample: resolved dry-runs (accept vs ignore) and whether the
+  // auto-mode threshold is reached. Polled so the strip stays current while the
+  // user works through the queue.
+  const calibrationQuery = useQuery({
+    queryKey: ['intake-calibration', projectId],
+    queryFn: () => intakeApi.getCalibration(projectId as number),
+    enabled: projectId !== null,
+    retry: 1,
+    refetchInterval: 30_000,
+  })
+
+  // Only needed to render the confirmation dialog's allow list / caps, and to
+  // switch the selected sources to auto without dropping their other fields.
+  const settingsQuery = useQuery({
+    queryKey: ['intake-settings', projectId],
+    queryFn: () => intakeApi.getSettings(projectId as number),
     enabled: projectId !== null,
     retry: 1,
   })
@@ -144,6 +166,50 @@ export function IntakeReviewPage() {
       queryClient.invalidateQueries({ queryKey: ['intake-decisions'] })
     },
   })
+
+  const enableAuto = useMutation({
+    mutationFn: (sourceKinds: string[]) => {
+      const current = settingsQuery.data
+      if (!current) throw new Error(t('calibration.dialog.settingsUnavailable'))
+      const rows = current.settings
+        .filter((setting) => sourceKinds.includes(setting.source_kind))
+        .map((setting) => ({
+          source_kind: setting.source_kind as IntakeSourceKind,
+          mode: 'auto' as const,
+          daily_cap: setting.daily_cap,
+          allow_list: setting.allow_list,
+          bot_list: setting.bot_list,
+        }))
+      return intakeApi.updateSettings(projectId as number, rows)
+    },
+    onSuccess: () => {
+      setEnableOpen(false)
+      toast.success(t('calibration.dialog.enabledToast'))
+      queryClient.invalidateQueries({ queryKey: ['intake-calibration', projectId] })
+      queryClient.invalidateQueries({ queryKey: ['intake-settings', projectId] })
+      queryClient.invalidateQueries({ queryKey: ['intake-decisions'] })
+    },
+    onError: (error) => {
+      toast.error(
+        t('calibration.dialog.enabledFailed', {
+          message: error instanceof Error ? error.message : String(error),
+        }),
+      )
+    },
+  })
+
+  const calibration = calibrationQuery.data
+  const ready = calibration?.ready === true
+  // Once every source with calibration history is already on auto, the CTA has
+  // nothing left to do; show the active state instead of re-suggesting it.
+  const calibratedKinds = (calibration?.sources ?? []).filter((s) => s.calibrated > 0)
+  const allCalibratedOnAuto =
+    calibratedKinds.length > 0 &&
+    calibratedKinds.every(
+      (source) =>
+        settingsQuery.data?.settings.find((s) => s.source_kind === source.source_kind)?.mode ===
+        'auto',
+    )
 
   const listColumn = (
     <div className="flex h-full flex-col">
@@ -349,6 +415,47 @@ export function IntakeReviewPage() {
         </div>
       </div>
 
+      {projectId !== null && calibration ? (
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-warm-border bg-warm-surface px-4 py-2">
+          <span className="text-xs font-medium text-warm-text tabular-nums">
+            {t('calibration.summary', {
+              count: calibration.calibrated,
+              rate: Math.round(calibration.acceptance_rate * 100),
+            })}
+          </span>
+          <span className="text-xs text-warm-text-muted tabular-nums">
+            {t('calibration.pendingCount', { count: calibration.pending })}
+          </span>
+          {ready && allCalibratedOnAuto ? (
+            <span className="text-xs text-warm-text-muted">{t('calibration.activeHint')}</span>
+          ) : ready ? (
+            <>
+              <span className="text-xs text-warm-text-muted">{t('calibration.readyHint')}</span>
+              <Button
+                type="button"
+                size="sm"
+                variant="secondary"
+                className="ml-auto h-7 px-2 text-xs"
+                onClick={() => setEnableOpen(true)}
+              >
+                <Zap className="mr-1 h-3.5 w-3.5" aria-hidden="true" />
+                {t('calibration.readyCta')}
+              </Button>
+            </>
+          ) : (
+            <span className="text-xs text-warm-text-muted tabular-nums">
+              {calibration.calibrated < calibration.min_calibrated
+                ? t('calibration.needCount', {
+                    count: calibration.min_calibrated - calibration.calibrated,
+                  })
+                : t('calibration.needRate', {
+                    rate: Math.round(calibration.min_acceptance_rate * 100),
+                  })}
+            </span>
+          )}
+        </div>
+      ) : null}
+
       {projects && projects.length === 0 ? (
         <EmptyState
           icon={<Inbox className="h-12 w-12 text-muted-foreground" />}
@@ -382,6 +489,18 @@ export function IntakeReviewPage() {
         pending={batchIgnore.isPending}
         onConfirm={(reason) => batchIgnore.mutate(reason)}
       />
+
+      {calibration ? (
+        <EnableAutoDialog
+          open={enableOpen}
+          onOpenChange={setEnableOpen}
+          calibration={calibration}
+          settings={settingsQuery.data}
+          rules={rulesQuery.data ?? []}
+          pending={enableAuto.isPending}
+          onConfirm={(sourceKinds) => enableAuto.mutate(sourceKinds)}
+        />
+      ) : null}
     </div>
   )
 }

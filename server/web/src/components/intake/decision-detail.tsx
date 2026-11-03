@@ -45,6 +45,9 @@ export function DecisionDetail({ decision, rules, rulesFailed }: DecisionDetailP
 
   function refresh() {
     queryClient.invalidateQueries({ queryKey: ['intake-decisions'] })
+    // Accept/ignore changes the calibration sample, so the strip and the
+    // enable-auto recommendation must refresh with it.
+    queryClient.invalidateQueries({ queryKey: ['intake-calibration'] })
   }
 
   function openTask(issueId: number | null, workspaceId: number | null) {

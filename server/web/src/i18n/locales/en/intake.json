@@ -153,7 +153,45 @@
       "offDescription": "Only respond when niuniu is explicitly addressed.",
       "observeDescription": "Record work it would pick up, without acting.",
       "autoDescription": "Accept work within rules and the daily cap."
-    }
+    },
+    "calibration": {
+      "summary": "Calibrated {{count}} · acceptance rate {{rate}}%",
+      "pendingCount": "{{count}} awaiting calibration",
+      "readyHint": "You've reached the threshold for turning on auto.",
+      "needCount": "{{count}} more calibrated decisions before auto can be suggested.",
+      "needRate": "Acceptance rate is under {{rate}}%; keep calibrating or adjust the rules.",
+      "readyCta": "Enable auto",
+      "dialog": {
+        "title": "Enable auto intake",
+        "description": "Selected sources will accept matching inferred work on their own, within their rules and daily cap. You can pause at any time, and resuming needs no re-calibration.",
+        "sourcesTitle": "Affected sources",
+        "sourceStats": "calibrated {{calibrated}} · {{rate}}%",
+        "sourceDetail": "Daily cap {{cap}} · {{rules}} enabled rules · {{members}} allowed members",
+        "allowList": "Allow list: {{list}}",
+        "allowListEmpty": "Allow list empty: the source's own admission boundary applies.",
+        "rules": "Rules: {{list}}",
+        "rulesEmpty": "No enabled rules.",
+        "noRules": "No enabled rule: inferred work will not be accepted.",
+        "zeroCap": "Daily cap is 0: nothing will be accepted automatically.",
+        "sample": "Accepted {{accepted}} · ignored {{ignored}} of {{calibrated}} calibrated",
+        "recentTitle": "Calibration record",
+        "recentEmpty": "No resolved decisions yet.",
+        "outcomeAccepted": "Accepted",
+        "outcomeIgnored": "Ignored",
+        "pauseNote": "Pause intake at any time in settings or on Mission control. Resuming keeps these modes and the calibration.",
+        "noSelection": "Select at least one source.",
+        "settingsUnavailable": "Intake settings are unavailable, so auto cannot be enabled right now.",
+        "cancel": "Cancel",
+        "confirm": "Enable auto",
+        "confirming": "Enabling…",
+        "enabledToast": "Auto intake enabled. Pause any time; resuming needs no re-calibration.",
+        "enabledFailed": "Failed to enable auto: {{message}}",
+        "settingsMissing": "Source settings are unavailable; their allow list and cap can't be shown."
+      },
+      "activeHint": "Auto is on for the calibrated sources. You can pause any time; resuming needs no re-calibration."
+    },
+    "autoNeedsCalibration": "Auto is selected for {{sources}}, but the calibration sample is still below the threshold ({{calibrated}}/{{min}} decisions, {{rate}}% accepted). The setting will apply, but consider observing longer first.",
+    "calibrationProgress": "Calibration: {{count}}/{{min}} decisions · {{rate}}% accepted."
   },
   "completion": {
     "title": "Completion policy",

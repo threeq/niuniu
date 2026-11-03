@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"database/sql"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -190,5 +191,143 @@ func TestGithubSource_ConfigEvents(t *testing.T) {
 		Repos: []GithubRepoEventsInput{{SourceKey: "acme/foo", Events: []string{"not_an_event"}}},
 	}); err == nil {
 		t.Fatal("expected an empty event selection to be rejected")
+	}
+}
+
+// TestGithubSource_UnlistedActorDoesNotTakeWork proves the authorization
+// boundary at the pipeline level: an actor outside the allow list cannot start
+// work in auto mode without a matching rule, and a bot outside the bot list is
+// denied outright. Neither path reaches the task router.
+func TestGithubSource_UnlistedActorDoesNotTakeWork(t *testing.T) {
+	f := newIMBotFixture(t)
+	ctx := context.Background()
+
+	settings := NewIntakeService(f.db, f.q)
+	if _, err := settings.UpdateSettings(ctx, f.projectID, UpdateIntakeSettingsRequest{
+		Settings: []IntakeSettingInput{{
+			SourceKind: intake.SourceKindGitHub,
+			Mode:       "auto",
+			AllowList:  []string{"alice"},
+		}},
+	}); err != nil {
+		t.Fatalf("settings: %v", err)
+	}
+
+	svc := NewGithubSourceService(f.db, f.q, nil)
+	svc.SetInbound(f.router, f.deliverer)
+
+	// An unlisted human in a polled repository is an inferred candidate, but
+	// auto mode requires a matching rule before it can create work.
+	trig := githubTestTrigger(f.projectID)
+	trig.Actor = intake.ActorRef{ExtID: "mallory", Name: "mallory"}
+	res, err := svc.intake.Handle(ctx, trig)
+	if err != nil {
+		t.Fatalf("handle unlisted: %v", err)
+	}
+	if res.Executed || res.Decision != intake.DecisionIgnore || res.ReasonCode != intake.ReasonNoRule {
+		t.Fatalf("unlisted actor took work: %+v", res)
+	}
+
+	// A bot that is not on the bot list is denied — botness is never a grant.
+	botTrig := trig
+	botTrig.EventID = "issue_comment:2"
+	botTrig.Actor = intake.ActorRef{ExtID: "github-actions[bot]", Name: "github-actions[bot]", IsBot: true}
+	res, err = svc.intake.Handle(ctx, botTrig)
+	if err != nil {
+		t.Fatalf("handle bot: %v", err)
+	}
+	if res.Executed || res.Strength != intake.StrengthDenied || res.Decision != intake.DecisionIgnore {
+		t.Fatalf("unlisted bot was authorized: %+v", res)
+	}
+	if f.router.calls != 0 {
+		t.Fatalf("router calls = %d, want 0", f.router.calls)
+	}
+}
+
+// TestGithubSource_ListedBotIsInferredAndTraceable proves a listed bot can only
+// produce inferred work inside a matching rule, and that the decision plus the
+// task Brief record the actor login, matched rule and policy version.
+func TestGithubSource_ListedBotIsInferredAndTraceable(t *testing.T) {
+	f := newIMBotFixture(t)
+	ctx := context.Background()
+
+	settings := NewIntakeService(f.db, f.q)
+	if _, err := settings.UpdateSettings(ctx, f.projectID, UpdateIntakeSettingsRequest{
+		Settings: []IntakeSettingInput{{
+			SourceKind: intake.SourceKindGitHub,
+			Mode:       "auto",
+			AllowList:  []string{"alice"},
+			BotList:    []string{"dependabot[bot]"},
+		}},
+	}); err != nil {
+		t.Fatalf("settings: %v", err)
+	}
+	rule, err := settings.CreateRule(ctx, f.projectID, UpsertIntakeRuleInput{
+		SourceKind: intake.SourceKindGitHub,
+		Name:       "dependency updates",
+		// The rule author may type the login with the API's casing.
+		Conditions: intake.RuleConditions{Actors: []string{"Dependabot[Bot]"}},
+	})
+	if err != nil {
+		t.Fatalf("rule: %v", err)
+	}
+
+	svc := NewGithubSourceService(f.db, f.q, nil)
+	f.router.queue = append(f.router.queue, PlanTarget{
+		IssueID: f.issueID, WorkspaceID: f.wsID, ProjectID: f.projectID,
+	})
+	svc.SetInbound(f.router, f.deliverer)
+
+	trig := githubTestTrigger(f.projectID)
+	trig.Actor = intake.ActorRef{ExtID: "dependabot[bot]", Name: "dependabot[bot]", IsBot: true}
+	res, err := svc.intake.Handle(ctx, trig)
+	if err != nil {
+		t.Fatalf("handle: %v", err)
+	}
+	if !res.Executed || res.Strength != intake.StrengthInferred {
+		t.Fatalf("listed bot result = %+v, want inferred + executed", res)
+	}
+
+	// Event provenance: the GitHub login is stored on the event.
+	var actor string
+	if err := f.db.QueryRow(`SELECT actor_ext_id FROM intake_events WHERE id = ?`, res.EventID).Scan(&actor); err != nil {
+		t.Fatal(err)
+	}
+	if actor != "dependabot[bot]" {
+		t.Fatalf("event actor = %q", actor)
+	}
+
+	// Decision provenance: strength, matched rule and policy version.
+	var (
+		strength    string
+		matchedJSON string
+		version     int64
+	)
+	if err := f.db.QueryRow(
+		`SELECT strength, matched_rule_ids_json, policy_version FROM intake_decisions WHERE id = ?`,
+		res.DecisionID,
+	).Scan(&strength, &matchedJSON, &version); err != nil {
+		t.Fatal(err)
+	}
+	if strength != string(intake.StrengthInferred) {
+		t.Fatalf("decision strength = %q", strength)
+	}
+	if want := "[" + strconv.FormatInt(rule.ID, 10) + "]"; matchedJSON != want {
+		t.Fatalf("matched rules = %q, want %q", matchedJSON, want)
+	}
+	if version <= 0 {
+		t.Fatalf("policy version = %d, want > 0", version)
+	}
+
+	// Brief provenance: actor / login, rule and version travel with the task.
+	var prov string
+	if err := f.db.QueryRow(`SELECT provenance_json FROM task_briefs WHERE issue_id = ?`, f.issueID).Scan(&prov); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(prov, "dependabot[bot]") {
+		t.Fatalf("brief provenance has no actor: %s", prov)
+	}
+	if !strings.Contains(prov, "\"policy_version\"") || !strings.Contains(prov, "\"rule_ids\"") {
+		t.Fatalf("brief provenance lacks rule/version: %s", prov)
 	}
 }

@@ -201,6 +201,148 @@ func (s *IntakeService) GetPaused(ctx context.Context, projectID int64) (bool, e
 	}
 }
 
+// Calibration thresholds for suggesting auto mode (design §6.3 / §6.7.9).
+// They are returned to the client so the UI never hard-codes its own copy.
+const (
+	IntakeCalibrationMinDecisions = 10
+	IntakeCalibrationMinRate      = 0.8
+)
+
+// IntakeCalibrationSourceStats is the per-source breakdown of the calibration
+// sample: how many dry-run decisions were resolved (accepted or ignored), how
+// many are still pending, and the resulting acceptance rate.
+type IntakeCalibrationSourceStats struct {
+	SourceKind     string  `json:"source_kind"`
+	Calibrated     int64   `json:"calibrated"`
+	Accepted       int64   `json:"accepted"`
+	Ignored        int64   `json:"ignored"`
+	Pending        int64   `json:"pending"`
+	AcceptanceRate float64 `json:"acceptance_rate"`
+}
+
+// IntakeCalibrationRecord is one resolved dry-run decision. The enable-auto
+// confirmation dialog lists these so the user sees what their sample contains.
+type IntakeCalibrationRecord struct {
+	ID         int64     `json:"id"`
+	SourceKind string    `json:"source_kind"`
+	ActorName  string    `json:"actor_name"`
+	ActorExtID string    `json:"actor_ext_id"`
+	Outcome    string    `json:"outcome"` // accepted | ignored
+	ReasonCode string    `json:"reason_code"`
+	ReasonText string    `json:"reason_text"`
+	CreatedAt  time.Time `json:"created_at"`
+}
+
+// IntakeCalibrationStats is the project-wide calibration summary. Ready means
+// the sample is large enough (>= MinCalibrated) and the human accepted at least
+// MinAcceptanceRate of it; only then may the UI suggest switching to auto.
+type IntakeCalibrationStats struct {
+	ProjectID         int64                          `json:"project_id"`
+	Calibrated        int64                          `json:"calibrated"`
+	Accepted          int64                          `json:"accepted"`
+	Ignored           int64                          `json:"ignored"`
+	Pending           int64                          `json:"pending"`
+	AcceptanceRate    float64                        `json:"acceptance_rate"`
+	MinCalibrated     int64                          `json:"min_calibrated"`
+	MinAcceptanceRate float64                        `json:"min_acceptance_rate"`
+	Ready             bool                           `json:"ready"`
+	Sources           []IntakeCalibrationSourceStats `json:"sources"`
+	Recent            []IntakeCalibrationRecord      `json:"recent"`
+}
+
+// GetCalibration summarizes the dry-run sample for a project.
+//
+// A decision counts toward calibration only when it was recorded while the
+// source was observing AND carried a proposed brief (would_do_json). That
+// excludes explicit requests that executed immediately and inferred work that
+// was denied before any brief existed. Resolved = accepted (executed) or
+// ignored; still-pending dry-runs are reported separately.
+func (s *IntakeService) GetCalibration(ctx context.Context, projectID int64) (IntakeCalibrationStats, error) {
+	stats := IntakeCalibrationStats{
+		ProjectID:         projectID,
+		MinCalibrated:     IntakeCalibrationMinDecisions,
+		MinAcceptanceRate: IntakeCalibrationMinRate,
+		Sources:           []IntakeCalibrationSourceStats{},
+		Recent:            []IntakeCalibrationRecord{},
+	}
+
+	rows, err := s.db.QueryContext(ctx, `
+SELECT e.source_kind,
+       CAST(COALESCE(SUM(CASE WHEN d.executed = 1 OR d.decision = 'ignore' THEN 1 ELSE 0 END), 0) AS BIGINT),
+       CAST(COALESCE(SUM(CASE WHEN d.executed = 1 THEN 1 ELSE 0 END), 0) AS BIGINT),
+       CAST(COALESCE(SUM(CASE WHEN d.executed = 0 AND d.decision = 'ignore' THEN 1 ELSE 0 END), 0) AS BIGINT),
+       CAST(COALESCE(SUM(CASE WHEN d.executed = 0 AND d.decision IN ('accept','resume') THEN 1 ELSE 0 END), 0) AS BIGINT)
+FROM intake_decisions d
+JOIN intake_events e ON e.id = d.event_id
+WHERE d.project_id = ?
+  AND d.mode_at_decision = 'observe'
+  AND d.would_do_json <> '{}'
+GROUP BY e.source_kind
+ORDER BY e.source_kind`, projectID)
+	if err != nil {
+		return IntakeCalibrationStats{}, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var src IntakeCalibrationSourceStats
+		if err := rows.Scan(&src.SourceKind, &src.Calibrated, &src.Accepted, &src.Ignored, &src.Pending); err != nil {
+			return IntakeCalibrationStats{}, err
+		}
+		if src.Calibrated > 0 {
+			src.AcceptanceRate = float64(src.Accepted) / float64(src.Calibrated)
+		}
+		stats.Calibrated += src.Calibrated
+		stats.Accepted += src.Accepted
+		stats.Ignored += src.Ignored
+		stats.Pending += src.Pending
+		stats.Sources = append(stats.Sources, src)
+	}
+	if err := rows.Err(); err != nil {
+		return IntakeCalibrationStats{}, err
+	}
+	if stats.Calibrated > 0 {
+		stats.AcceptanceRate = float64(stats.Accepted) / float64(stats.Calibrated)
+	}
+	stats.Ready = stats.Calibrated >= IntakeCalibrationMinDecisions &&
+		stats.AcceptanceRate >= IntakeCalibrationMinRate
+
+	recent, err := s.db.QueryContext(ctx, `
+SELECT d.id, e.source_kind, e.actor_name, e.actor_ext_id, d.decision, d.executed,
+       d.reason_code, d.reason_text, d.created_at
+FROM intake_decisions d
+JOIN intake_events e ON e.id = d.event_id
+WHERE d.project_id = ?
+  AND d.mode_at_decision = 'observe'
+  AND d.would_do_json <> '{}'
+  AND (d.executed = 1 OR d.decision = 'ignore')
+ORDER BY d.created_at DESC, d.id DESC
+LIMIT 10`, projectID)
+	if err != nil {
+		return IntakeCalibrationStats{}, err
+	}
+	defer recent.Close()
+	for recent.Next() {
+		var (
+			rec      IntakeCalibrationRecord
+			decision string
+			executed int64
+		)
+		if err := recent.Scan(&rec.ID, &rec.SourceKind, &rec.ActorName, &rec.ActorExtID,
+			&decision, &executed, &rec.ReasonCode, &rec.ReasonText, &rec.CreatedAt); err != nil {
+			return IntakeCalibrationStats{}, err
+		}
+		rec.Outcome = "ignored"
+		if executed != 0 {
+			rec.Outcome = "accepted"
+		}
+		stats.Recent = append(stats.Recent, rec)
+	}
+	if err := recent.Err(); err != nil {
+		return IntakeCalibrationStats{}, err
+	}
+	return stats, nil
+}
+
 // SetPaused flips the project-level stop switch. It is deliberately separate
 // from source settings: pausing must take effect immediately, not on save.
 func (s *IntakeService) SetPaused(ctx context.Context, projectID int64, paused bool) (bool, error) {

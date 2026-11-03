@@ -76,6 +76,11 @@ export function IntakePolicyPanel({ projectId, onDirtyChange, onNavigateSection 
     queryFn: () => intakeApi.listDecisions(projectId, { executed: false, limit: 200 }),
     retry: false,
   })
+  const calibrationQuery = useQuery({
+    queryKey: ['intake-calibration', projectId],
+    queryFn: () => intakeApi.getCalibration(projectId),
+    retry: false,
+  })
   const chatsQuery = useQuery({
     queryKey: ['imbot-chats', projectId],
     queryFn: () => imbotApi.listChats(projectId),
@@ -213,6 +218,18 @@ export function IntakePolicyPanel({ projectId, onDirtyChange, onNavigateSection 
       .map((s) => t(`intake.source.${s.source_kind}`))
   }, [settings, draft, connected, rulesByKind, t])
 
+  // Auto selected before the sample is large/good enough: warn, never block
+  // (design §6.7.3). Also drives the progress hint below.
+  const calibration = calibrationQuery.data
+  const autoKinds = useMemo(() => {
+    if (!settings || !draft) return [] as string[]
+    return settings.settings
+      .filter((s) => draft[s.source_kind]?.mode === 'auto')
+      .map((s) => t(`intake.source.${s.source_kind}`))
+  }, [settings, draft, t])
+  const autoBelowCalibration =
+    autoKinds.length > 0 && calibration !== undefined && !calibration.ready
+
   const canSave = dirty && !invalid && !saveMutation.isPending
   const paused = settings?.paused ?? false
 
@@ -321,10 +338,34 @@ export function IntakePolicyPanel({ projectId, onDirtyChange, onNavigateSection 
             </Alert>
           ) : null}
 
-          <Alert variant="warning">
-            <AlertTriangle className="h-4 w-4" aria-hidden="true" />
-            <AlertDescription>{t('intake.calibrationHint')}</AlertDescription>
-          </Alert>
+          {autoBelowCalibration && calibration ? (
+            <Alert variant="warning">
+              <AlertTriangle className="h-4 w-4" aria-hidden="true" />
+              <AlertDescription>
+                {t('intake.autoNeedsCalibration', {
+                  sources: autoKinds.join(', '),
+                  calibrated: calibration.calibrated,
+                  min: calibration.min_calibrated,
+                  rate: Math.round(calibration.acceptance_rate * 100),
+                })}
+              </AlertDescription>
+            </Alert>
+          ) : calibration ? (
+            !calibration.ready ? (
+              <p className="text-xs text-muted-foreground tabular-nums">
+                {t('intake.calibrationProgress', {
+                  count: calibration.calibrated,
+                  min: calibration.min_calibrated,
+                  rate: Math.round(calibration.acceptance_rate * 100),
+                })}
+              </p>
+            ) : null
+          ) : (
+            <Alert variant="warning">
+              <AlertTriangle className="h-4 w-4" aria-hidden="true" />
+              <AlertDescription>{t('intake.calibrationHint')}</AlertDescription>
+            </Alert>
+          )}
         </>
       )}
 

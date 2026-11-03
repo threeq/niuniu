@@ -54,6 +54,14 @@ type user struct {
 	Type  string `json:"type"`
 }
 
+// appRef is the app fragment on a check run. Slug is the app's stable
+// identifier; its bot-user login is "<slug>[bot]".
+type appRef struct {
+	Name  string `json:"name"`
+	Slug  string `json:"slug"`
+	Owner *user  `json:"owner"`
+}
+
 // Comment shapes from the REST list endpoints. The list endpoints omit the
 // issue/pull request object, so the number is recovered from issue_url /
 // pull_request_url.
@@ -99,10 +107,7 @@ type checkRun struct {
 	HeadSHA     string     `json:"head_sha"`
 	StartedAt   *time.Time `json:"started_at"`
 	CompletedAt *time.Time `json:"completed_at"`
-	App         *struct {
-		Name  string `json:"name"`
-		Owner *user  `json:"owner"`
-	} `json:"app"`
+	App         *appRef `json:"app"`
 	CheckSuite struct {
 		PullRequests []pullRef `json:"pull_requests"`
 	} `json:"check_suite"`
@@ -188,10 +193,28 @@ func actorRef(u user) intake.ActorRef {
 }
 
 // IsBot reports whether a GitHub actor is a bot ([bot] suffix or a Bot account
-// type). It is a fact about the actor, not an authorization decision.
+// type). GitHub App bot users always have a "<app-slug>[bot]" login and type
+// "Bot". It is a fact about the actor, not an authorization decision.
 func IsBot(u user) bool {
 	return strings.EqualFold(u.Type, "Bot") ||
 		strings.HasSuffix(strings.ToLower(u.Login), "[bot]")
+}
+
+// appActor identifies the GitHub App that produced an event. Check runs carry no
+// user object: the actor is the app, and its bot-user login is derived from the
+// app slug so an allow/bot list entry like "github-actions[bot]" matches.
+func appActor(app *appRef) user {
+	actor := user{Type: "Bot"}
+	if app == nil {
+		return actor
+	}
+	switch {
+	case strings.TrimSpace(app.Slug) != "":
+		actor.Login = strings.TrimPrefix(strings.TrimSpace(app.Slug), "@") + "[bot]"
+	case strings.TrimSpace(app.Name) != "":
+		actor.Login = strings.TrimSpace(app.Name)
+	}
+	return actor
 }
 
 func baseTrigger(projectID int64, repo, eventID, kind, thread string, actor user, text, sourceURL string, payload any) intake.Trigger {
@@ -289,13 +312,7 @@ func NormalizeCheckRun(projectID int64, repo string, c checkRun) (intake.Trigger
 	}
 	// Check runs are always produced by a GitHub App, so the actor is a bot
 	// even when the payload omits the app block.
-	actor := user{Type: "Bot"}
-	if c.App != nil {
-		actor.Login = c.App.Name
-		if c.App.Owner != nil && c.App.Owner.Login != "" {
-			actor.Login = c.App.Owner.Login
-		}
-	}
+	actor := appActor(c.App)
 	sha := c.HeadSHA
 	if len(sha) > 7 {
 		sha = sha[:7]

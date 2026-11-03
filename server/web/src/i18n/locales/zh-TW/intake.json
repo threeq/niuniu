@@ -153,7 +153,45 @@
       "offDescription": "只響應明確 @ 牛牛的訊息。",
       "observeDescription": "記錄本來會接的任務，不自動執行。",
       "autoDescription": "在規則和每日上限內自動接活。"
-    }
+    },
+    "calibration": {
+      "summary": "已校準 {{count}} 條 · 認可率 {{rate}}%",
+      "pendingCount": "{{count}} 條待校準",
+      "readyHint": "已達開啟自動的門檻。",
+      "needCount": "還需校準 {{count}} 條，之後才會建議開啟自動。",
+      "needRate": "認可率低於 {{rate}}%，請繼續校準或調整規則。",
+      "readyCta": "開啟自動",
+      "dialog": {
+        "title": "開啟自動接活",
+        "description": "選中的來源會在規則和每日上限內自動接活，不再逐條詢問。你隨時可以暫停，恢復時無需重新校準。",
+        "sourcesTitle": "影響的來源",
+        "sourceStats": "已校準 {{calibrated}} 條 · {{rate}}%",
+        "sourceDetail": "每天最多 {{cap}} 個 · {{rules}} 條啟用規則 · {{members}} 位允許成員",
+        "allowList": "允許成員：{{list}}",
+        "allowListEmpty": "允許成員為空：沿用來源自身的准入邊界。",
+        "rules": "規則：{{list}}",
+        "rulesEmpty": "沒有啟用的規則。",
+        "noRules": "沒有啟用的規則，推斷類工作不會被接。",
+        "zeroCap": "每日上限為 0，不會自動接活。",
+        "sample": "已校準 {{calibrated}} 條：採納 {{accepted}}、忽略 {{ignored}}",
+        "recentTitle": "校準記錄",
+        "recentEmpty": "還沒有已處理的決策。",
+        "outcomeAccepted": "已採納",
+        "outcomeIgnored": "已忽略",
+        "pauseNote": "可隨時在設定頁或 Mission control 暫停接活。恢復時保留當前模式與校準結果。",
+        "noSelection": "請至少選擇一個來源。",
+        "settingsUnavailable": "暫時讀不到任務來源設定，無法開啟自動。",
+        "cancel": "取消",
+        "confirm": "開啟自動",
+        "confirming": "開啟中…",
+        "enabledToast": "已開啟自動接活。可隨時暫停，恢復無需重新校準。",
+        "enabledFailed": "開啟自動失敗：{{message}}",
+        "settingsMissing": "該來源設定暫不可用，無法顯示允許名單與每日上限。"
+      },
+      "activeHint": "已校準的來源已開啟自動。可隨時暫停，恢復無需重新校準。"
+    },
+    "autoNeedsCalibration": "已為 {{sources}} 選擇自動，但校準樣本未達門檻（{{calibrated}}/{{min}} 條，認可率 {{rate}}%）。設定會生效，但建議先多觀察一段時間。",
+    "calibrationProgress": "校準進度：{{count}}/{{min}} 條 · 認可率 {{rate}}%。"
   },
   "completion": {
     "title": "自動完成",
