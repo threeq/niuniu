@@ -10,6 +10,8 @@ vi.mock('@tanstack/react-router', () => ({
     <a href={to ?? '#'}>{children}</a>
   ),
   useNavigate: () => navigateMock,
+  // Deep-link search is empty in these tests; the chat filter stays off.
+  useSearch: () => ({}),
 }))
 
 vi.mock('react-i18next', () => ({

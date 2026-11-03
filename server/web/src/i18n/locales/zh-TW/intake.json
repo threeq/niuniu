@@ -283,6 +283,8 @@
     "selectedCount": "已選 {{count}} 項",
     "batchIgnore": "批量忽略",
     "clearSelection": "取消選擇",
+    "chatOnly": "僅顯示此會話",
+    "clearChatFilter": "顯示全部",
     "alreadyIgnored": "已忽略：{{reason}}",
     "notAcceptable": "該決策目前不可採納",
     "noReason": "未填寫原因"

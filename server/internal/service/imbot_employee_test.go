@@ -433,6 +433,34 @@ func TestEmployeeSweep_OffIntakeDoesNotEvaluate(t *testing.T) {
 	}
 }
 
+// TestEmployeeSweep_InheritUsesProjectPolicy: a chat in "inherit project" mode
+// must resolve against the project's im_bot setting, so an auto project lets the
+// proactive verdict start a task even though the chat carries no explicit mode.
+func TestEmployeeSweep_InheritUsesProjectPolicy(t *testing.T) {
+	f := newIMBotFixture(t)
+	chat := f.activeChat(t, "oc_inherit_sweep")
+	chat = f.setChatAgentMode(t, chat, AgentModeObserve)
+	chat = f.setChatIntakeMode(t, chat, IntakeModeInherit)
+	ctx := context.Background()
+	if _, err := f.q.UpsertIntakeSetting(ctx, store.UpsertIntakeSettingParams{
+		ProjectID: f.projectID, SourceKind: "im_bot", Mode: "auto",
+		DailyCap: 10, AllowListJson: `[]`, BotListJson: `[]`,
+	}); err != nil {
+		t.Fatalf("seed intake setting: %v", err)
+	}
+	seedChatter(t, f, chat, employeeMinMessages)
+	f.router.queue = []PlanTarget{{IssueID: f.issueID, WorkspaceID: f.wsID, ProjectID: f.projectID}}
+
+	emp := NewIMBotEmployee(f.svc, f.q, &fakeAnalyzer{verdict: EmployeeVerdict{
+		Action: EmployeeActionTask, Task: "整理季度数据",
+	}})
+	emp.sweep(ctx)
+
+	if f.router.calls != 1 {
+		t.Fatalf("inherit + project auto routed %d times, want 1", f.router.calls)
+	}
+}
+
 // TestEmployeeSweep_NoneStaysSilent is the common case, and the one that keeps the
 // feature tolerable: most chatter warrants nothing at all.
 func TestEmployeeSweep_NoneStaysSilent(t *testing.T) {

@@ -1551,7 +1551,7 @@ type UpdateIMBotChatIntakeModeParams struct {
 	ID         int64  `json:"id"`
 }
 
-// Per-chat intake mode (design section 6.9): off | observe | auto. Separate
+// Per-chat intake mode (design section 6.9): inherit | off | observe | auto. Separate
 // UPDATE for the same stale-row reason as agent_mode above; validated in the
 // service layer because the migration-added column carries no CHECK.
 func (q *Queries) UpdateIMBotChatIntakeMode(ctx context.Context, arg UpdateIMBotChatIntakeModeParams) (ImBotChat, error) {

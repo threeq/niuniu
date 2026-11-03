@@ -283,6 +283,8 @@
     "selectedCount": "{{count}} selected",
     "batchIgnore": "Ignore selected",
     "clearSelection": "Clear selection",
+    "chatOnly": "This conversation only",
+    "clearChatFilter": "Show all",
     "alreadyIgnored": "Ignored: {{reason}}",
     "notAcceptable": "This decision cannot be accepted",
     "noReason": "no reason recorded"

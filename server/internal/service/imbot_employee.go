@@ -519,7 +519,7 @@ func (e *IMBotEmployee) considerChat(ctx context.Context, chat store.ImBotChat) 
 	// evaluated at all. The dry-run path sends no message, so it must not consume
 	// the interruption budget — nothing was interrupted.
 	if action == EmployeeActionTask && strings.TrimSpace(verdict.Task) != "" &&
-		(e.svc.effectiveChatIntakeMode(chat) != intake.ModeAuto ||
+		(e.svc.effectiveChatIntakeMode(ctx, chat) != intake.ModeAuto ||
 			e.svc.intakePaused(ctx, chat.ProjectID.Int64)) {
 		e.proposeTask(ctx, chat, verdict)
 		return
@@ -544,9 +544,22 @@ func (e *IMBotEmployee) considerChat(ctx context.Context, chat store.ImBotChat) 
 }
 
 // effectiveChatIntakeMode resolves this chat's intake mode, honoring the rollback
-// switch.
-func (s *IMBotService) effectiveChatIntakeMode(chat store.ImBotChat) intake.Mode {
-	return effectiveChatIntakeMode(chat, s.legacyChatIntakeMode)
+// switch. An inherit chat resolves against the project's im_bot policy because
+// this path decides from the chat mode directly and never reaches the intake
+// pipeline's own policy load. A lookup failure fails closed to off.
+func (s *IMBotService) effectiveChatIntakeMode(ctx context.Context, chat store.ImBotChat) intake.Mode {
+	mode := effectiveChatIntakeMode(chat, s.legacyChatIntakeMode)
+	if mode != "" {
+		return mode
+	}
+	if !chat.ProjectID.Valid {
+		return intake.ModeOff
+	}
+	pol, err := (imbotPolicy{q: s.q}).LoadPolicy(ctx, chat.ProjectID.Int64, intake.SourceKindIMBot)
+	if err != nil {
+		return intake.ModeOff
+	}
+	return pol.Mode
 }
 
 // intakePaused reports the project stop switch for paths that decide from the
@@ -569,7 +582,7 @@ func (s *IMBotService) intakePaused(ctx context.Context, projectID int64) bool {
 // shows; off records nothing. Zero side effects: no issue, no workspace, no
 // message, no delivery.
 func (e *IMBotEmployee) proposeTask(ctx context.Context, chat store.ImBotChat, verdict EmployeeVerdict) {
-	mode := e.svc.effectiveChatIntakeMode(chat)
+	mode := e.svc.effectiveChatIntakeMode(ctx, chat)
 	if mode != intake.ModeObserve || !chat.ProjectID.Valid {
 		return
 	}
