@@ -394,6 +394,16 @@ const dashboardDetailRoute = createRoute({
 const intakeRoute = createRoute({
   getParentRoute: () => layoutRoute,
   path: '/intake',
+  // Deep-link support: an IM chat row links here filtered to that conversation
+  // (?project=<id>&chat=<chat_ext_id>, design §6.7.7). Both keys stay optional so
+  // the global queue keeps its existing bare URL.
+  validateSearch: (search: Record<string, unknown>): { project?: number; chat?: string } => {
+    const out: { project?: number; chat?: string } = {};
+    const project = Number(search.project);
+    if (Number.isFinite(project) && project > 0) out.project = project;
+    if (typeof search.chat === 'string' && search.chat) out.chat = search.chat;
+    return out;
+  },
   component: IntakeReviewPage,
 });
 

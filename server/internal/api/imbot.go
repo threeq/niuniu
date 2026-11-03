@@ -419,7 +419,8 @@ type patchChatBody struct {
 	// periodically analyzes it. Omitted/empty preserves the current mode.
 	AgentMode string `json:"agent_mode"`
 	// IntakeMode switches this chat's intake mode (design §6.9):
-	// "off" | "observe" | "auto". Omitted/empty preserves the current mode.
+	// "inherit" | "off" | "observe" | "auto". Omitted/empty preserves the
+	// current mode.
 	IntakeMode string `json:"intake_mode"`
 }
 

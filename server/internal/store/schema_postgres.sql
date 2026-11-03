@@ -1929,7 +1929,7 @@ CREATE TABLE IF NOT EXISTS im_bot_chats (
     -- would make fresh and upgraded schemas diverge. Validated in the service layer
     -- (normalizeAgentMode) instead.
     agent_mode      TEXT NOT NULL DEFAULT 'command',
-    -- intake_mode (design 2026-11-03 §6.9): off | observe (default) | auto.
+    -- intake_mode (design 2026-11-03 §6.9): inherit | off | observe (default) | auto.
     -- No CHECK for the same retrofit reason as agent_mode; validated in the
     -- service layer (normalizeIntakeMode).
     intake_mode     TEXT NOT NULL DEFAULT 'observe',

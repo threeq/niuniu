@@ -1,9 +1,10 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Link } from '@tanstack/react-router'
+import { Link, useSearch } from '@tanstack/react-router'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { Inbox, RefreshCw } from 'lucide-react'
+import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import {
   Select,
@@ -36,8 +37,11 @@ export function IntakeReviewPage() {
   const queryClient = useQueryClient()
   const isDesktop = useMediaQuery('(min-width: 768px)')
   const { projects, isLoading: projectsLoading } = useProjects()
+  // Deep link from an IM chat row: preselect the project and narrow the queue to
+  // that conversation (design §6.7.7).
+  const search = useSearch({ strict: false }) as { project?: number; chat?: string }
 
-  const [pickedProjectId, setPickedProjectId] = useState<number | null>(null)
+  const [pickedProjectId, setPickedProjectId] = useState<number | null>(search.project ?? null)
   const [filter, setFilter] = useState<QueueFilter>('all')
   const [activeId, setActiveId] = useState<number | null>(null)
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set())
@@ -45,9 +49,9 @@ export function IntakeReviewPage() {
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [batchOpen, setBatchOpen] = useState(false)
 
-  // Default to the first project without an effect: the derived id is what the
-  // queries use, and an explicit choice simply overrides it.
-  const projectId = pickedProjectId ?? projects?.[0]?.id ?? null
+  // Default to the deep-linked project, else the first one, without an effect:
+  // the derived id is what the queries use and an explicit choice overrides it.
+  const projectId = pickedProjectId ?? search.project ?? projects?.[0]?.id ?? null
 
   const decisionsQuery = useQuery({
     queryKey: ['intake-decisions', projectId, filter],
@@ -64,7 +68,13 @@ export function IntakeReviewPage() {
     retry: 1,
   })
 
-  const decisions = decisionsQuery.data ?? []
+  // A chat deep link narrows the queue client-side: decisions already carry the
+  // originating conversation's platform id, so no extra endpoint is needed.
+  const decisions = useMemo(() => {
+    const all = decisionsQuery.data ?? []
+    if (!search.chat) return all
+    return all.filter((d) => d.payload?.ChatExtID === search.chat)
+  }, [decisionsQuery.data, search.chat])
 
   // Keep a valid selection as the list changes (accept/ignore removes a row)
   // without an effect: falling back to the first row is derived at render time.
@@ -270,6 +280,20 @@ export function IntakeReviewPage() {
               ))}
             </SelectContent>
           </Select>
+          {search.chat && (
+            <div className="flex items-center gap-2">
+              <Badge variant="outline" className="text-xs font-normal text-warm-text-muted">
+                {t('review.chatOnly')}
+              </Badge>
+              <Link
+                to="/intake"
+                search={projectId !== null ? { project: projectId } : {}}
+                className="text-xs text-brand hover:underline"
+              >
+                {t('review.clearChatFilter')}
+              </Link>
+            </div>
+          )}
         </div>
       </div>
 

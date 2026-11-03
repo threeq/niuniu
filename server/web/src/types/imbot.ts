@@ -14,6 +14,10 @@ export type ImBotBindMode = 'project' | 'workspace';
 // chat and periodically analyzes it, proactively reporting or starting work.
 export type ImBotAgentMode = 'command' | 'observe';
 
+// Per-chat intake mode (design §6.9). 'inherit' follows the project's im_bot
+// source setting; the other three override it for this chat only.
+export type ImBotIntakeMode = 'inherit' | 'off' | 'observe' | 'auto';
+
 export interface ImBotChannel {
   id: number;
   channel_type: ImBotChannelType;
@@ -32,6 +36,7 @@ export interface ImBotChat {
   chat_name: string;
   bind_mode: ImBotBindMode;
   agent_mode: ImBotAgentMode;
+  intake_mode: ImBotIntakeMode;
   pinned_issue_id: number | null;
   active_issue_id: number | null;
   status: ImBotChatStatus;
@@ -90,6 +95,7 @@ export interface ImBotPendingChat {
   project_id: number | null;
   bind_mode?: ImBotBindMode;
   agent_mode?: ImBotAgentMode;
+  intake_mode?: ImBotIntakeMode;
   pinned_issue_id?: number | null;
 }
 

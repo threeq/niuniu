@@ -1032,8 +1032,8 @@ type PatchChatInput struct {
 	// AgentMode switches the Agent-employee initiative level ("command" |
 	// "observe"). Empty preserves the current value, like the other fields here.
 	AgentMode string
-	// IntakeMode switches this chat's intake mode ("off" | "observe" | "auto").
-	// Empty preserves the current value.
+	// IntakeMode switches this chat's intake mode
+	// ("inherit" | "off" | "observe" | "auto"). Empty preserves the current value.
 	IntakeMode string
 }
 
