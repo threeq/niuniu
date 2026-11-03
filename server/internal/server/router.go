@@ -825,7 +825,9 @@ func (s *Server) setupRoutes() {
 		// (design §6.9); PUT stays for existing callers.
 		issues.PATCH("/:id", s.kanbanHandler.UpdateIssue)
 		// Task Brief: current version + full history (null brief = not from Intake).
+		// PUT appends a version; acceptance rows and goal_condition refresh with it.
 		issues.GET("/:id/brief", s.taskBriefHandler.GetBrief)
+		issues.PUT("/:id/brief", s.taskBriefHandler.PutBrief)
 		issues.PUT("/:id/move", s.kanbanHandler.MoveIssue)
 		issues.PUT("/:id/lifecycle", s.kanbanHandler.UpdateIssueLifecycle)
 		// Executable Epic: set parent/issue_type/exec_wave/exec_status.

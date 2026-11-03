@@ -175,6 +175,17 @@ definitions:
       path:
         type: string
     type: object
+  github_com_niuniu-dev_niuniu_internal_intake.RuleConditions:
+    properties:
+      actors:
+        items:
+          type: string
+        type: array
+      keywords:
+        items:
+          type: string
+        type: array
+    type: object
   github_com_niuniu-dev_niuniu_internal_integration.ExternalComment:
     properties:
       author:
@@ -190,6 +201,11 @@ definitions:
       url:
         description: direct link to the comment in the external UI
         type: string
+    type: object
+  github_com_niuniu-dev_niuniu_internal_service.AcceptDecisionInput:
+    properties:
+      brief:
+        $ref: '#/definitions/github_com_niuniu-dev_niuniu_internal_service.DecisionBriefDraft'
     type: object
   github_com_niuniu-dev_niuniu_internal_service.BatchDeleteResult:
     properties:
@@ -340,6 +356,23 @@ definitions:
       username:
         type: string
     type: object
+  github_com_niuniu-dev_niuniu_internal_service.DecisionBriefDraft:
+    properties:
+      Acceptance:
+        items:
+          type: string
+        type: array
+      Goal:
+        type: string
+      ScopeIn:
+        items:
+          type: string
+        type: array
+      ScopeOut:
+        items:
+          type: string
+        type: array
+    type: object
   github_com_niuniu-dev_niuniu_internal_service.DeliverySpec:
     properties:
       reply_mode:
@@ -417,6 +450,44 @@ definitions:
         items:
           type: integer
         type: array
+    type: object
+  github_com_niuniu-dev_niuniu_internal_service.IntakePolicyVersionDTO:
+    properties:
+      created_at:
+        type: string
+      id:
+        type: integer
+      project_id:
+        type: integer
+      snapshot:
+        items:
+          type: integer
+        type: array
+      source_kind:
+        type: string
+      version:
+        type: integer
+    type: object
+  github_com_niuniu-dev_niuniu_internal_service.IntakeRuleDTO:
+    properties:
+      conditions:
+        $ref: '#/definitions/github_com_niuniu-dev_niuniu_internal_intake.RuleConditions'
+      created_at:
+        type: string
+      enabled:
+        type: boolean
+      id:
+        type: integer
+      instruction:
+        type: string
+      name:
+        type: string
+      priority:
+        type: integer
+      project_id:
+        type: integer
+      source_kind:
+        type: string
     type: object
   github_com_niuniu-dev_niuniu_internal_service.IntakeSettingDTO:
     properties:
@@ -557,6 +628,27 @@ definitions:
           $ref: '#/definitions/github_com_niuniu-dev_niuniu_internal_service.ToolStatus'
         type: array
     type: object
+  github_com_niuniu-dev_niuniu_internal_service.TaskBriefInput:
+    properties:
+      acceptance:
+        items:
+          type: string
+        type: array
+      delivery:
+        $ref: '#/definitions/github_com_niuniu-dev_niuniu_internal_service.DeliverySpec'
+      goal:
+        type: string
+      provenance:
+        $ref: '#/definitions/github_com_niuniu-dev_niuniu_internal_service.Provenance'
+      scope_in:
+        items:
+          type: string
+        type: array
+      scope_out:
+        items:
+          type: string
+        type: array
+    type: object
   github_com_niuniu-dev_niuniu_internal_service.TaskBriefView:
     properties:
       acceptance:
@@ -636,6 +728,21 @@ definitions:
         items:
           $ref: '#/definitions/github_com_niuniu-dev_niuniu_internal_service.IntakeSettingInput'
         type: array
+    type: object
+  github_com_niuniu-dev_niuniu_internal_service.UpsertIntakeRuleInput:
+    properties:
+      conditions:
+        $ref: '#/definitions/github_com_niuniu-dev_niuniu_internal_intake.RuleConditions'
+      enabled:
+        type: boolean
+      instruction:
+        type: string
+      name:
+        type: string
+      priority:
+        type: integer
+      source_kind:
+        type: string
     type: object
   github_com_niuniu-dev_niuniu_internal_service.WorkspaceOverview:
     properties:
@@ -2267,6 +2374,50 @@ paths:
       summary: Read an issue's Task Brief
       tags:
       - Issues
+    put:
+      consumes:
+      - application/json
+      description: Appends a new version and returns the updated current brief plus
+        the full history. delivery/provenance are inherited from the current version
+        when omitted.
+      parameters:
+      - description: Issue ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: Brief fields
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/github_com_niuniu-dev_niuniu_internal_service.TaskBriefInput'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/github_com_niuniu-dev_niuniu_internal_service.IssueBriefView'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/internal_api.Error'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/internal_api.Error'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/internal_api.Error'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/internal_api.Error'
+      summary: Edit an issue's Task Brief
+      tags:
+      - Issues
   /issues/{id}/move:
     put:
       consumes:
@@ -2944,10 +3095,12 @@ paths:
       summary: List intake decisions (calibration queue)
       tags:
       - Intake
-  /projects/{id}/intake/decisions/{did}/accept:
-    post:
-      description: Executes the decision through the intake pipeline, creating the
-        issue/workspace. Returns 501 until the pipeline is wired.
+  /projects/{id}/intake/decisions/{did}:
+    patch:
+      consumes:
+      - application/json
+      description: Updates only the pending decision's would-do brief. No issue, workspace
+        or message is created.
       parameters:
       - description: Project ID
         in: path
@@ -2959,6 +3112,12 @@ paths:
         name: did
         required: true
         type: integer
+      - description: Brief draft
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/github_com_niuniu-dev_niuniu_internal_service.DecisionBriefDraft'
       produces:
       - application/json
       responses:
@@ -2982,8 +3141,53 @@ paths:
           description: Not Found
           schema:
             $ref: '#/definitions/internal_api.Error'
-        "501":
-          description: Not Implemented
+      summary: Save an edited Task Brief draft
+      tags:
+      - Intake
+  /projects/{id}/intake/decisions/{did}/accept:
+    post:
+      consumes:
+      - application/json
+      description: Executes the decision through the intake pipeline, creating the
+        issue/workspace (or continuing the bound task for a resume). An optional brief
+        body replaces the proposed Task Brief.
+      parameters:
+      - description: Project ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: Decision ID
+        in: path
+        name: did
+        required: true
+        type: integer
+      - description: Edited Task Brief
+        in: body
+        name: body
+        schema:
+          $ref: '#/definitions/github_com_niuniu-dev_niuniu_internal_service.AcceptDecisionInput'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/github_com_niuniu-dev_niuniu_internal_service.IntakeDecisionDTO'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/internal_api.Error'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/internal_api.Error'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/internal_api.Error'
+        "404":
+          description: Not Found
           schema:
             $ref: '#/definitions/internal_api.Error'
       summary: Accept a dry-run intake decision
@@ -3035,6 +3239,252 @@ paths:
           schema:
             $ref: '#/definitions/internal_api.Error'
       summary: Ignore a dry-run intake decision
+      tags:
+      - Intake
+  /projects/{id}/intake/decisions/{did}/suggest-goal-condition:
+    post:
+      description: Reuses the issue goal_condition suggester against the decision's
+        proposed goal + original message. Nothing is persisted.
+      parameters:
+      - description: Project ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: Decision ID
+        in: path
+        name: did
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_api.SuggestGoalConditionResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/internal_api.Error'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/internal_api.Error'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/internal_api.Error'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/internal_api.Error'
+        "429":
+          description: Too Many Requests
+          schema:
+            $ref: '#/definitions/internal_api.Error'
+        "502":
+          description: Bad Gateway
+          schema:
+            $ref: '#/definitions/internal_api.Error'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/internal_api.Error'
+      summary: AI-suggest the brief goal for a pending decision
+      tags:
+      - Intake
+  /projects/{id}/intake/policy-versions:
+    get:
+      description: Auditable snapshots for one source, newest first.
+      parameters:
+      - description: Project ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: Source kind
+        in: query
+        name: source_kind
+        required: true
+        type: string
+      - description: Max rows (default 50)
+        in: query
+        name: limit
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/github_com_niuniu-dev_niuniu_internal_service.IntakePolicyVersionDTO'
+            type: array
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/internal_api.Error'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/internal_api.Error'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/internal_api.Error'
+      summary: List intake policy versions
+      tags:
+      - Intake
+  /projects/{id}/intake/rules:
+    get:
+      description: Rules for a project, optionally filtered by source_kind, priority
+        order.
+      parameters:
+      - description: Project ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: Filter by source kind
+        in: query
+        name: source_kind
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/github_com_niuniu-dev_niuniu_internal_service.IntakeRuleDTO'
+            type: array
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/internal_api.Error'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/internal_api.Error'
+      summary: List intake rules
+      tags:
+      - Intake
+    post:
+      consumes:
+      - application/json
+      description: Adds a rule and records a policy version for its source.
+      parameters:
+      - description: Project ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: Rule
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/github_com_niuniu-dev_niuniu_internal_service.UpsertIntakeRuleInput'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/github_com_niuniu-dev_niuniu_internal_service.IntakeRuleDTO'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/internal_api.Error'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/internal_api.Error'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/internal_api.Error'
+      summary: Create an intake rule
+      tags:
+      - Intake
+  /projects/{id}/intake/rules/{rid}:
+    delete:
+      description: Removes a rule and records a policy version for its source.
+      parameters:
+      - description: Project ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: Rule ID
+        in: path
+        name: rid
+        required: true
+        type: integer
+      responses:
+        "204":
+          description: No Content
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/internal_api.Error'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/internal_api.Error'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/internal_api.Error'
+      summary: Delete an intake rule
+      tags:
+      - Intake
+    put:
+      consumes:
+      - application/json
+      description: Edits a rule in place and records a policy version for its source.
+      parameters:
+      - description: Project ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: Rule ID
+        in: path
+        name: rid
+        required: true
+        type: integer
+      - description: Rule
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/github_com_niuniu-dev_niuniu_internal_service.UpsertIntakeRuleInput'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/github_com_niuniu-dev_niuniu_internal_service.IntakeRuleDTO'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/internal_api.Error'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/internal_api.Error'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/internal_api.Error'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/internal_api.Error'
+      summary: Update an intake rule
       tags:
       - Intake
   /projects/{id}/intake/settings:

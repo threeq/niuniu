@@ -935,7 +935,7 @@ func New(cfg *config.Config, db *sql.DB, frontendFS fs.FS) *Server {
 	s.intakeHandler.ProviderEnv = s.kanbanSvc
 	s.completionSvc = service.NewCompletionService(db, s.queries)
 	s.completionHandler = api.NewCompletionHandler(s.completionSvc, authz)
-	s.taskBriefSvc = service.NewTaskBriefService(s.queries)
+	s.taskBriefSvc = service.NewTaskBriefService(s.queries, store.Wrap(db))
 	s.taskBriefHandler = api.NewTaskBriefHandler(s.taskBriefSvc, authz)
 	// PATCH /api/issues/:id carries completion_profile_id; the kanban handler owns
 	// that route, so give it the completion service.

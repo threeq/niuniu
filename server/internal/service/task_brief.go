@@ -13,6 +13,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/niuniu-dev/niuniu/internal/intake"
@@ -61,13 +62,90 @@ type IssueBriefView struct {
 	Versions      []TaskBriefView `json:"versions"`
 }
 
-// TaskBriefService reads Task Brief versions for an issue.
-type TaskBriefService struct {
-	q *store.Queries
+// TaskBriefInput is the PUT /api/issues/:id/brief body. Delivery and provenance
+// are optional on an edit and inherit the current version when omitted, so a
+// caller changing the goal does not have to restate where the result goes.
+type TaskBriefInput struct {
+	Goal       string        `json:"goal"`
+	Acceptance []string      `json:"acceptance"`
+	ScopeIn    []string      `json:"scope_in"`
+	ScopeOut   []string      `json:"scope_out"`
+	Delivery   *DeliverySpec `json:"delivery"`
+	Provenance *Provenance   `json:"provenance"`
 }
 
-func NewTaskBriefService(q *store.Queries) *TaskBriefService {
-	return &TaskBriefService{q: q}
+// TaskBriefService reads Task Brief versions for an issue and appends a new
+// version on an explicit edit.
+type TaskBriefService struct {
+	q      *store.Queries
+	writer *TaskBriefWriter
+}
+
+func NewTaskBriefService(q *store.Queries, db *store.DB) *TaskBriefService {
+	return &TaskBriefService{q: q, writer: NewTaskBriefWriter(db)}
+}
+
+// PutIssueBrief appends a new Brief version. task_briefs is append-only, so an
+// edit never rewrites history; acceptance rows and issues.goal_condition are
+// refreshed by the writer in the same transaction. Delivery/provenance fall
+// back to the current version, and an issue without a brief gets version 1.
+func (s *TaskBriefService) PutIssueBrief(ctx context.Context, issueID int64, in TaskBriefInput) (IssueBriefView, error) {
+	goal := strings.TrimSpace(in.Goal)
+	if goal == "" {
+		return IssueBriefView{}, errors.New("goal is required")
+	}
+	if s.writer == nil || s.writer.db == nil {
+		return IssueBriefView{}, errors.New("task brief: no database")
+	}
+	if _, err := s.q.GetIssue(ctx, issueID); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return IssueBriefView{}, ErrNotFound
+		}
+		return IssueBriefView{}, err
+	}
+
+	delivery := DeliverySpec{}
+	provenance := Provenance{RuleIDs: []int64{}}
+	cur, err := s.q.GetLatestTaskBrief(ctx, issueID)
+	switch {
+	case err == nil:
+		view := taskBriefView(cur)
+		delivery = view.Delivery
+		provenance = view.Provenance
+	case !errors.Is(err, sql.ErrNoRows):
+		return IssueBriefView{}, err
+	}
+	if in.Delivery != nil {
+		delivery = *in.Delivery
+	}
+	if in.Provenance != nil {
+		provenance = *in.Provenance
+		if provenance.RuleIDs == nil {
+			provenance.RuleIDs = []int64{}
+		}
+	}
+
+	if _, err := s.writer.Append(ctx, issueID, intake.TaskBrief{
+		Goal:       goal,
+		Acceptance: in.Acceptance,
+		ScopeIn:    in.ScopeIn,
+		ScopeOut:   in.ScopeOut,
+		Delivery: intake.DeliverySpec{
+			SourceKind:  delivery.SourceKind,
+			ThreadExtID: delivery.ThreadExtID,
+			ReplyMode:   delivery.ReplyMode,
+		},
+		Provenance: intake.Provenance{
+			DecisionID:    provenance.DecisionID,
+			PolicyVersion: provenance.PolicyVersion,
+			Strength:      intake.Strength(provenance.Strength),
+			ActorExtID:    provenance.ActorExtID,
+			RuleIDs:       provenance.RuleIDs,
+		},
+	}); err != nil {
+		return IssueBriefView{}, err
+	}
+	return s.GetIssueBrief(ctx, issueID)
 }
 
 // GetIssueBrief returns the current brief plus the full version history
