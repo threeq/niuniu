@@ -223,6 +223,7 @@ func TestEffectiveChatIntakeMode(t *testing.T) {
 		{"migrated observe chat is auto", chat("observe", "auto"), false, intake.ModeAuto},
 		{"migrated command chat is off", chat("command", "off"), false, intake.ModeOff},
 		{"new chat defaults to observe", chat("command", "observe"), false, intake.ModeObserve},
+		{"inherit defers to project policy", chat("command", "inherit"), false, ""},
 		{"unknown intake degrades to observe", chat("command", ""), false, intake.ModeObserve},
 		{"rollback observe→auto", chat("observe", "off"), true, intake.ModeAuto},
 		{"rollback command→off", chat("command", "auto"), true, intake.ModeOff},
@@ -283,6 +284,37 @@ func TestHandleInbound_ChatIntakeModeOverridesProjectPolicy(t *testing.T) {
 	}
 	if !strings.Contains(d.WouldDoJson, "请部署到线上") {
 		t.Fatalf("would_do_json = %s, want the proposed goal", d.WouldDoJson)
+	}
+}
+
+// TestHandleInbound_InheritUsesProjectPolicy proves the "inherit project" chat
+// mode: a chat with no explicit mode lets the project's im_bot setting decide,
+// so the same inferred message that dry-runs under observe executes under auto.
+func TestHandleInbound_InheritUsesProjectPolicy(t *testing.T) {
+	f := newIMBotFixture(t)
+	chat := f.activeChat(t, "oc_inherit")
+	chat = f.setChatIntakeMode(t, chat, IntakeModeInherit)
+	ctx := context.Background()
+	if _, err := f.q.UpsertIntakeSetting(ctx, store.UpsertIntakeSettingParams{
+		ProjectID: f.projectID, SourceKind: intake.SourceKindIMBot, Mode: "auto",
+		DailyCap: 10, AllowListJson: `["ou_a"]`, BotListJson: `[]`,
+	}); err != nil {
+		t.Fatalf("seed intake setting: %v", err)
+	}
+	if _, err := f.q.CreateIntakeRule(ctx, store.CreateIntakeRuleParams{
+		ProjectID: f.projectID, SourceKind: intake.SourceKindIMBot, Name: "r",
+		Instruction: "", ConditionsJson: `{"keywords":["部署"]}`, Priority: 0, Enabled: 1,
+	}); err != nil {
+		t.Fatalf("seed rule: %v", err)
+	}
+	f.router.queue = []PlanTarget{{IssueID: f.issueID, WorkspaceID: f.wsID, ProjectID: f.projectID}}
+
+	ev := f.groupMsg(chat.ChatExtID, "e-inherit", "请部署到线上", false)
+	ev.ActorExtID = "ou_b"
+	f.svc.HandleInbound(ctx, ev)
+
+	if f.router.calls != 1 {
+		t.Fatalf("inherit + project auto executed %d times, want 1", f.router.calls)
 	}
 }
 

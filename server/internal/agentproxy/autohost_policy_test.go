@@ -15,7 +15,13 @@ import (
 // DefaultPolicy applies unless a test overrides it.
 func newPolicyTestSession(t *testing.T) (s *WorkspaceSession, q *store.Queries, issueID, projectID int64) {
 	t.Helper()
-	q = setupDispatchDB(t)
+	s, q, _, issueID, projectID = newPolicyTestSessionWithDB(t)
+	return s, q, issueID, projectID
+}
+
+func newPolicyTestSessionWithDB(t *testing.T) (s *WorkspaceSession, q *store.Queries, db *store.DB, issueID, projectID int64) {
+	t.Helper()
+	db, q = setupDispatchDBRaw(t)
 	ctx := context.Background()
 
 	ws, err := q.CreateWorkspace(ctx, store.CreateWorkspaceParams{
@@ -60,7 +66,7 @@ func newPolicyTestSession(t *testing.T) (s *WorkspaceSession, q *store.Queries, 
 		t.Fatalf("CreateIssue: %v", err)
 	}
 
-	return &WorkspaceSession{workspaceID: ws.ID, workDir: ws.Path, q: q, issueID: iss.ID}, q, iss.ID, proj.ID
+	return &WorkspaceSession{workspaceID: ws.ID, workDir: ws.Path, q: q, issueID: iss.ID}, q, db, iss.ID, proj.ID
 }
 
 func setCompletionSettings(t *testing.T, q *store.Queries, projectID int64, p completionSettingsRow) {
@@ -341,6 +347,43 @@ func TestFinalizeAttentionStopSetsAttentionStatus(t *testing.T) {
 	}
 	if got := s.peekAutohostAttention(); got != "" {
 		t.Fatalf("attention must be consumed by finalize, got %q", got)
+	}
+}
+
+// A policy read failure on an issue-bound session must fail closed (attention),
+// never silently fall back to the permissive legacy env budgets.
+func TestAutohostPolicyResolutionFailureFailsClosed(t *testing.T) {
+	s, _, _, _ := newPolicyTestSession(t)
+	s.issueID = 999999 // no such issue row -> resolver error
+	setLastText(s, "still working")
+
+	ok, _ := s.autohostMaybeContinue(context.Background())
+	if ok {
+		t.Fatal("a policy resolution failure must stop the watchdog")
+	}
+	attention := s.peekAutohostAttention()
+	if !strings.Contains(attention, "无法解析本任务的自动完成策略") {
+		t.Fatalf("policy failure must surface a structured question, got %q", attention)
+	}
+}
+
+// A failed acceptance lookup must refuse the sentinel rather than read "unknown"
+// as "all done".
+func TestAutohostAcceptanceLookupFailureFailsClosed(t *testing.T) {
+	s, q, db, _, projectID := newPolicyTestSessionWithDB(t)
+	setCompletionSettings(t, q, projectID, completionSettingsRow{autohostEnabled: 1, maxRounds: 5, stopOnDecision: 1})
+	if _, err := db.ExecContext(context.Background(), `DROP TABLE issue_checklists`); err != nil {
+		t.Fatalf("drop issue_checklists: %v", err)
+	}
+	setLastText(s, "全部做完\n"+autohostStopSentinel)
+
+	ok, _ := s.autohostMaybeContinue(context.Background())
+	if ok {
+		t.Fatal("an acceptance lookup failure must stop the watchdog")
+	}
+	attention := s.peekAutohostAttention()
+	if !strings.Contains(attention, "无法读取 Task Brief 的验收项") {
+		t.Fatalf("acceptance lookup failure must refuse completion, got attention %q", attention)
 	}
 }
 

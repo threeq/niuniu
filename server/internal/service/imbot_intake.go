@@ -113,6 +113,11 @@ func (src imbotSource) Normalize(
 // rollback for the semantics migration (design §7): when set, the mode is
 // derived from agent_mode at runtime instead — command → off, observe → auto —
 // which restores the pre-migration behaviour without rewriting the column.
+//
+// An inherit chat returns the empty mode: the intake pipeline then keeps the
+// project+source policy's mode (see intake.Service.Handle), which is exactly
+// what "继承项目" means. Callers that never reach the policy load (the proactive
+// employee) must resolve the project default themselves.
 func effectiveChatIntakeMode(chat store.ImBotChat, legacy bool) intake.Mode {
 	if legacy {
 		if normalizeAgentMode(chat.AgentMode) == AgentModeObserve {
@@ -125,6 +130,8 @@ func effectiveChatIntakeMode(chat store.ImBotChat, legacy bool) intake.Mode {
 		return intake.ModeOff
 	case IntakeModeAuto:
 		return intake.ModeAuto
+	case IntakeModeInherit:
+		return ""
 	default:
 		return intake.ModeObserve
 	}

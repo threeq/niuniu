@@ -364,6 +364,12 @@ func TestIMBotOwner_PatchChat_IntakeMode(t *testing.T) {
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
 	assert.Equal(t, "auto", resp["intake_mode"])
 
+	// Inherit is a first-class mode: the chat defers to the project setting.
+	w = ownerReq(t, r, http.MethodPatch, path, "1", `{"intake_mode":"inherit"}`)
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+	assert.Equal(t, "inherit", resp["intake_mode"])
+
 	// Unrecognized values degrade to observe rather than erroring or enabling.
 	w = ownerReq(t, r, http.MethodPatch, path, "1", `{"intake_mode":"yolo"}`)
 	require.Equal(t, http.StatusOK, w.Code, w.Body.String())

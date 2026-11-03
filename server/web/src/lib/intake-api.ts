@@ -151,14 +151,26 @@ export interface CompletionProfile {
   issue_count: number
 }
 
+/** GET/PUT /completion/settings — the project default (never a 404; absent rows
+ *  report the schema defaults). Named profiles come from their own endpoint. */
 export interface CompletionSettings {
+  project_id?: number
   autohost_enabled: boolean
   max_rounds: number
   token_budget: number
   stop_on_decision: boolean
   require_review: boolean
-  default_profile_id: number | null
-  profiles: CompletionProfile[]
+  updated_at?: string
+}
+
+/** PATCH body for /completion/profiles/:pid — omitted fields keep their value. */
+export interface CompletionProfileInput {
+  name?: string
+  autohost_enabled?: boolean
+  max_rounds?: number
+  token_budget?: number
+  stop_on_decision?: boolean
+  require_review?: boolean
 }
 
 export const intakeApi = {
@@ -192,6 +204,24 @@ export const intakeApi = {
     api.get<CompletionSettings>(`/projects/${projectId}/completion/settings`, {
       suppressError: true,
     }),
+
+  updateCompletionSettings: (projectId: number, input: CompletionProfileInput) =>
+    api.put<CompletionSettings>(`/projects/${projectId}/completion/settings`, input),
+
+  // suppressError: the panel renders its own inline retry state.
+  listCompletionProfiles: (projectId: number) =>
+    api.get<CompletionProfile[]>(`/projects/${projectId}/completion/profiles`, {
+      suppressError: true,
+    }),
+
+  createCompletionProfile: (projectId: number, input: CompletionProfileInput) =>
+    api.post<CompletionProfile>(`/projects/${projectId}/completion/profiles`, input),
+
+  updateCompletionProfile: (projectId: number, profileId: number, input: CompletionProfileInput) =>
+    api.patch<CompletionProfile>(`/projects/${projectId}/completion/profiles/${profileId}`, input),
+
+  deleteCompletionProfile: (projectId: number, profileId: number) =>
+    api.delete<void>(`/projects/${projectId}/completion/profiles/${profileId}`),
 
   // ── Calibration queue ─────────────────────────────────────────────────────
 

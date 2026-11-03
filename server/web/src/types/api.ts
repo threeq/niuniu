@@ -137,6 +137,9 @@ export interface Issue extends BaseEntity {
    *  (non-archived) workspace, so its parent/child relations are frozen —
    *  the UI hides parent/child entries the server would 409 anyway. */
   has_workspace?: boolean
+  /** Completion policy override (design §6.5). Null = inherit the project
+   *  default. Set via PUT/PATCH /issues/:id with `completion_profile_id`. */
+  completion_profile_id?: number | null
 }
 
 export type IssueType = 'task' | 'epic'

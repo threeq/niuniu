@@ -49,6 +49,7 @@ export const imbotApi = {
     body: {
       bind_mode?: string;
       agent_mode?: string;
+      intake_mode?: string;
       pinned_issue_id?: number | null;
       active_issue_id?: number | null;
       status?: string;

@@ -44,6 +44,10 @@ const (
 	IntakeModeObserve = "observe"
 	// IntakeModeAuto: create tasks within the project policy and daily cap.
 	IntakeModeAuto = "auto"
+	// IntakeModeInherit: follow the project's im_bot source setting. Stored as an
+	// explicit value rather than NULL because the migration-added column is NOT
+	// NULL on existing databases and SQLite cannot drop that constraint.
+	IntakeModeInherit = "inherit"
 )
 
 // normalizeIntakeMode validates an intake_mode value from the API or the DB.
@@ -55,6 +59,8 @@ func normalizeIntakeMode(mode string) string {
 		return IntakeModeOff
 	case IntakeModeAuto:
 		return IntakeModeAuto
+	case IntakeModeInherit:
+		return IntakeModeInherit
 	default:
 		return IntakeModeObserve
 	}

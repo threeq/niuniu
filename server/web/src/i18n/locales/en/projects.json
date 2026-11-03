@@ -958,6 +958,16 @@
     "agentModeCommandHint": "Act only when @-mentioned, messaged directly, or given a command.",
     "agentModeObserve": "Observe actively",
     "agentModeObserveHint": "Record the discussion and review it periodically; speak up or start a task when warranted.",
+    "intakeModeTitle": "Intake mode",
+    "intakeMode": {
+      "inherit": "Inherit project",
+      "off": "Off",
+      "observe": "Observe",
+      "auto": "Auto"
+    },
+    "intakeModeOverridden": "Overrides project default",
+    "intakeModeObserveHint": "Messages are recorded for calibration; the bot will not act on its own.",
+    "intakePendingLink": "Review {{count}} awaiting calibration",
     "wechat": {
       "scanHint": "Scan the QR code below with WeChat (Discover → Scan) to connect the bot.",
       "starting": "Fetching QR code…",

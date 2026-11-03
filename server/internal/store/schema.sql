@@ -1974,6 +1974,7 @@ CREATE TABLE IF NOT EXISTS im_bot_chats (
     -- (normalizeAgentMode) instead.
     agent_mode      TEXT NOT NULL DEFAULT 'command',
     -- intake_mode (design 2026-11-03 §6.9): how this chat feeds Intake —
+    --   'inherit' — follow the project's im_bot source setting;
     --   'off'     — only explicit requests create/continue a task;
     --   'observe' — record dry-run decisions for human calibration. Default for
     --               new chats;
