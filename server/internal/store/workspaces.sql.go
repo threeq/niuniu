@@ -1053,3 +1053,85 @@ func (q *Queries) UpdateWorkspaceStrictMCP(ctx context.Context, arg UpdateWorksp
 	_, err := q.db.ExecContext(ctx, updateWorkspaceStrictMCP, arg.StrictMcpConfig, arg.ID)
 	return err
 }
+
+const getProjectIDByWorkspaceID = `-- name: GetProjectIDByWorkspaceID :one
+SELECT c.project_id
+FROM workspaces w
+JOIN issues i ON w.issue_id = i.id
+JOIN columns c ON i.column_id = c.id
+WHERE w.id = ?
+`
+
+// Resolves the project a workspace belongs to (workspace -> issue -> column ->
+// project). Scopes cross-workspace agent messaging to one project.
+func (q *Queries) GetProjectIDByWorkspaceID(ctx context.Context, id int64) (int64, error) {
+	row := q.db.QueryRowContext(ctx, getProjectIDByWorkspaceID, id)
+	var project_id int64
+	err := row.Scan(&project_id)
+	return project_id, err
+}
+
+const listProjectWorkspacesForMessaging = `-- name: ListProjectWorkspacesForMessaging :many
+SELECT
+    w.id           AS workspace_id,
+    w.name         AS workspace_name,
+    w.status       AS status,
+    w.agent_status AS agent_status,
+    i.id           AS issue_id,
+    i.title        AS issue_title,
+    i.issue_type   AS issue_type,
+    COALESCE(i.parent_issue_id, 0) AS parent_issue_id
+FROM workspaces w
+JOIN issues i ON w.issue_id = i.id
+JOIN columns c ON i.column_id = c.id
+WHERE c.project_id = ?
+  AND w.is_archived = 0
+  AND w.status <> 'completed'
+ORDER BY w.created_at DESC
+`
+
+type ListProjectWorkspacesForMessagingRow struct {
+	WorkspaceID   int64          `json:"workspace_id"`
+	WorkspaceName string         `json:"workspace_name"`
+	Status        string         `json:"status"`
+	AgentStatus   sql.NullString `json:"agent_status"`
+	IssueID       int64          `json:"issue_id"`
+	IssueTitle    string         `json:"issue_title"`
+	IssueType     string         `json:"issue_type"`
+	ParentIssueID int64          `json:"parent_issue_id"`
+}
+
+// Live workspaces in a project that can take part in cross-workspace agent
+// messaging: not archived, not completed, bound to an issue. Carries the issue
+// identity so an Epic orchestrator can address a child by issue_id.
+func (q *Queries) ListProjectWorkspacesForMessaging(ctx context.Context, projectID int64) ([]ListProjectWorkspacesForMessagingRow, error) {
+	rows, err := q.db.QueryContext(ctx, listProjectWorkspacesForMessaging, projectID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListProjectWorkspacesForMessagingRow{}
+	for rows.Next() {
+		var i ListProjectWorkspacesForMessagingRow
+		if err := rows.Scan(
+			&i.WorkspaceID,
+			&i.WorkspaceName,
+			&i.Status,
+			&i.AgentStatus,
+			&i.IssueID,
+			&i.IssueTitle,
+			&i.IssueType,
+			&i.ParentIssueID,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}

@@ -204,6 +204,9 @@ func main() {
 			// Inbox tools also require a workspace ID — the server keys inbox
 			// storage by workspace and we send it in the request body.
 			registerInboxTools(s, api, *workspaceID, *agentName)
+			// Cross-workspace agent messaging (same project): discover peers and
+			// message another workspace's agent directly.
+			registerWorkspaceMessageTools(s, api)
 		}
 		// harness group: pre-commit gate check (agent calls before `git commit`).
 		// No-repo scenes (no git, no harness) hide it via disable_tool_groups.
@@ -1063,8 +1066,8 @@ func registerIssueWriteTools(s *server.MCPServer, api *apiClient) {
 			mcp.WithDescription("Move an issue's card to another board column (self-report progress); may skip or go back (e.g. review bounces it to implement). "+
 				"If the target is an instruct column, the server ensures the issue's workspace exists and sends that column's instruction to the agent. "+
 				"For the AI-native board: read the issue + column menu and decide the path yourself. No-access returns 403/404. "+
-					"If the response has blocked=true (blocked_reason explains, e.g. a livelock cap from repeated bounces), the issue is "+
-					"blocked-needs-human: stop routing and wait for a human."),
+				"If the response has blocked=true (blocked_reason explains, e.g. a livelock cap from repeated bounces), the issue is "+
+				"blocked-needs-human: stop routing and wait for a human."),
 			mcp.WithNumber("issue_id", mcp.Description("Issue ID to move"), mcp.Required()),
 			mcp.WithString("to_column", mcp.Description("Target column: column ID (numeric string) or name (case-insensitive, within the issue's project)"), mcp.Required()),
 			mcp.WithString("reason", mcp.Description("Reason for the move (optional, logged)")),
@@ -1511,6 +1514,89 @@ func registerInboxTools(s *server.MCPServer, api *apiClient, workspaceID int64, 
 // deliverable/diff instead), search (retrieve), and consolidate (idle dedup/tidy,
 // the "Dream" pass). All key off the workspace; the server derives owner +
 // project from it.
+func registerWorkspaceMessageTools(s *server.MCPServer, api *apiClient) {
+	s.AddTool(
+		mcp.NewTool("list_workspaces",
+			mcp.WithDescription("List the peer workspaces of THIS workspace: live workspaces in the same project "+
+				"(workspace id, name, issue, status). Use a returned workspace_id or issue_id with send_workspace_message."),
+		),
+		func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			data, err := api.get("/mcp/peer-workspaces")
+			if err != nil {
+				return mcp.NewToolResultError(err.Error()), nil
+			}
+			var resp struct {
+				Data []struct {
+					WorkspaceID   int64  `json:"workspace_id"`
+					Name          string `json:"name"`
+					Status        string `json:"status"`
+					AgentStatus   string `json:"agent_status"`
+					IssueID       int64  `json:"issue_id"`
+					IssueTitle    string `json:"issue_title"`
+					IssueType     string `json:"issue_type"`
+					ParentIssueID int64  `json:"parent_issue_id"`
+				} `json:"data"`
+			}
+			if err := json.Unmarshal(data, &resp); err != nil {
+				return mcp.NewToolResultError("decode peer workspaces: " + err.Error()), nil
+			}
+			if len(resp.Data) == 0 {
+				return mcp.NewToolResultText("no peer workspaces in this project"), nil
+			}
+			var b strings.Builder
+			fmt.Fprintf(&b, "本项目共 %d 个可通信工作空间：\n", len(resp.Data))
+			for _, w := range resp.Data {
+				kind := ""
+				if w.IssueType == "epic" {
+					kind = " [epic]"
+				}
+				fmt.Fprintf(&b, "- ws#%d「%s」 issue #%d「%s」%s status=%s agent=%s\n",
+					w.WorkspaceID, w.Name, w.IssueID, w.IssueTitle, kind, w.Status, w.AgentStatus)
+			}
+			return mcp.NewToolResultText(b.String()), nil
+		},
+	)
+
+	s.AddTool(
+		mcp.NewTool("send_workspace_message",
+			mcp.WithDescription("Send a message to ANOTHER workspace's agent in the same project (agent-to-agent). "+
+				"Address it by workspace_id or issue_id. The message is delivered into that workspace's chat and "+
+				"starts its agent if idle (queued if busy). Returns message_id; pass it as reply_to when answering."),
+			mcp.WithNumber("workspace_id", mcp.Description("Target workspace ID (from list_workspaces)")),
+			mcp.WithNumber("issue_id", mcp.Description("Target issue ID — resolves to that issue's live workspace (natural for Epic orchestration)")),
+			mcp.WithString("text", mcp.Description("Message body for the other agent"), mcp.Required()),
+			mcp.WithString("reply_to", mcp.Description("message_id of the peer message you are answering (optional)")),
+		),
+		func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			args := req.GetArguments()
+			text, errRes := requireString(args, "text")
+			if errRes != nil {
+				return errRes, nil
+			}
+			body := map[string]any{"text": text}
+			if v, ok := args["workspace_id"].(float64); ok && v > 0 {
+				body["target_workspace_id"] = int64(v)
+			}
+			if v, ok := args["issue_id"].(float64); ok && v > 0 {
+				body["target_issue_id"] = int64(v)
+			}
+			if _, hasWS := body["target_workspace_id"]; !hasWS {
+				if _, hasIssue := body["target_issue_id"]; !hasIssue {
+					return mcp.NewToolResultError("workspace_id or issue_id is required"), nil
+				}
+			}
+			if v, ok := args["reply_to"].(string); ok && strings.TrimSpace(v) != "" {
+				body["reply_to"] = v
+			}
+			data, err := api.post("/mcp/workspace-messages/send", body)
+			if err != nil {
+				return mcp.NewToolResultError(err.Error()), nil
+			}
+			return mcp.NewToolResultText(string(data)), nil
+		},
+	)
+}
+
 func registerMemoryTools(s *server.MCPServer, api *apiClient, wsid string) {
 	memTypeDesc := "Type: pattern, gotcha, decision, error_fix, note, or reference"
 

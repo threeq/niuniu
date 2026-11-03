@@ -758,7 +758,14 @@ func (s *EpicExecutionService) OnWorkspaceCreated(ctx context.Context, ws store.
 		// goal_condition judge says done), then start it on its own issue content.
 		s.enableAutohost(ctx, ws.ID, issue, composeIssueMarkdown(issue.Title, nullStringVal(issue.Description)))
 		s.injectBoardMenu(ctx, ws, issue)
-		s.sendKickoff(ctx, ws, composeIssueMarkdown(issue.Title, nullStringVal(issue.Description)))
+		childKickoff := composeIssueMarkdown(issue.Title, nullStringVal(issue.Description))
+		if issue.ParentIssueID.Valid {
+			// The child's own handle on the orchestrator: same-project messaging
+			// resolves issue_id to the epic's live orchestration workspace.
+			childKickoff += fmt.Sprintf("\n\n如需向编排者（Epic #%d）汇报进展、请求裁决或说明阻塞，调用 `send_workspace_message(issue_id=%d, text=...)`——消息会直接送达 Epic 编排工作空间的 agent。",
+				issue.ParentIssueID.Int64, issue.ParentIssueID.Int64)
+		}
+		s.sendKickoff(ctx, ws, childKickoff)
 	default:
 		// Standalone issue — execution is left to the user (no autohost kickoff,
 		// manual control). But still inject the board menu so a manually-opened
@@ -1143,6 +1150,7 @@ func composeOrchestrationPrompt(epic store.Issue, children []store.Issue) string
 	b.WriteString("你是该 Epic 的编排者。请按波次(wave)推进它的子任务：同一波内可并行，跨波需串行(先把低波次的子任务都完成，再进入下一波)。\n")
 	b.WriteString("对每个要启动的子任务，调用 MCP 工具 `start_workspace(issue_id)` 为它创建并启动独立工作空间(各子任务会用自己的标题+描述自动起跑)。\n")
 	b.WriteString("派发完当前可启动的子任务后，直接结束本回合：每当一个子任务完成或失败，系统会自动发消息通知你并附上各子任务最新状态，届时再决定派发下一波、处理失败或收尾。不要轮询子任务状态，不要 sleep/循环等待。\n")
+	b.WriteString("需要就某个子任务直接补充指令、追问进展或下达调整时，调用 `send_workspace_message(issue_id=<子任务 id>, text=...)`——消息会直接投递到该子任务工作空间的 agent，对方的回复会作为一条普通消息出现在你的聊天里；`list_workspaces()` 可列出本项目所有可通信的工作空间。\n")
 	b.WriteString("当所有子任务均已完成并合入 epic 分支后，在回复末尾单独输出一行：" + autohostDoneSentinel + "\n\n")
 	if len(children) == 0 {
 		b.WriteString("当前该 Epic 还没有子任务。\n")
@@ -1378,6 +1386,7 @@ func composeChildTerminalNotice(epic store.Issue, children []store.Issue, headli
 	b.WriteString("请基于上述状态推进编排（只做必要动作，控制 token 消耗）：\n")
 	b.WriteString("- 若当前波次已全部完成且存在下一波，调用 `start_workspace(issue_id)` 派发下一波子任务；\n")
 	b.WriteString("- 若有失败/阻塞的子任务，判断是重试（start_workspace 复用其工作空间）、还是放弃（abandon_issue）；\n")
+	b.WriteString("- 需要向某个子任务直接补充指令或追问时，用 `send_workspace_message(issue_id=<子任务 id>, text=...)`；\n")
 	b.WriteString("- 若所有子任务均已完成并合入，在回复末尾单独输出一行：" + autohostDoneSentinel + "\n")
 	b.WriteString("- 处理完后直接结束回合等待下一次通知；不要轮询子任务状态，不要 sleep 等待。\n")
 	return b.String()

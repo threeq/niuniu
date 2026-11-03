@@ -293,6 +293,11 @@ func (s *Server) setupRoutes() {
 		mcpGroup.POST("/inbox/send", s.teamHandler.InboxSend)
 		mcpGroup.POST("/inbox/read", s.teamHandler.InboxRead)
 
+		// Cross-workspace agent messaging (same project). The sender is derived
+		// from the MCP bearer token (mcp_workspace_id), never from the body.
+		mcpGroup.GET("/peer-workspaces", s.workspaceMessageHandler.ListPeers)
+		mcpGroup.POST("/workspace-messages/send", s.workspaceMessageHandler.SendMessage)
+
 		// Permission prompt — niuniu-mcp shim posts here for every Claude CLI
 		// tool call gated by --permission-prompt-tool. Blocks until the user
 		// answers in chat (or the request hits its 2h timeout).

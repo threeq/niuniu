@@ -232,3 +232,33 @@ UPDATE workspaces SET codex_sandbox_mode = ?, codex_approval_policy = ? WHERE id
 SELECT cli_type, codex_sandbox_mode, codex_approval_policy
 FROM workspaces
 WHERE id = ?;
+
+-- name: GetProjectIDByWorkspaceID :one
+-- Resolves the project a workspace belongs to (workspace -> issue -> column ->
+-- project). Scopes cross-workspace agent messaging to one project.
+SELECT c.project_id
+FROM workspaces w
+JOIN issues i ON w.issue_id = i.id
+JOIN columns c ON i.column_id = c.id
+WHERE w.id = ?;
+
+-- name: ListProjectWorkspacesForMessaging :many
+-- Live workspaces in a project that can take part in cross-workspace agent
+-- messaging: not archived, not completed, bound to an issue. Carries the issue
+-- identity so an Epic orchestrator can address a child by issue_id.
+SELECT
+    w.id           AS workspace_id,
+    w.name         AS workspace_name,
+    w.status       AS status,
+    w.agent_status AS agent_status,
+    i.id           AS issue_id,
+    i.title        AS issue_title,
+    i.issue_type   AS issue_type,
+    COALESCE(i.parent_issue_id, 0) AS parent_issue_id
+FROM workspaces w
+JOIN issues i ON w.issue_id = i.id
+JOIN columns c ON i.column_id = c.id
+WHERE c.project_id = ?
+  AND w.is_archived = 0
+  AND w.status <> 'completed'
+ORDER BY w.created_at DESC;
