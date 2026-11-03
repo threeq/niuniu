@@ -197,6 +197,10 @@ func TestProvenancePayloadProjection(t *testing.T) {
 	require.Equal(t, "https://example.test/x",
 		provenancePayloadURL(json.RawMessage(`{"SourceURL":"https://example.test/x"}`)))
 	require.Empty(t, provenancePayloadURL(nil))
+	// The value becomes an href in the UI: never let a script/data scheme through.
+	require.Empty(t, provenancePayloadURL(json.RawMessage(`{"html_url":"javascript:alert(1)"}`)))
+	require.Empty(t, provenancePayloadURL(json.RawMessage(`{"html_url":"data:text/html,<script>1</script>"}`)))
+	require.Empty(t, provenancePayloadURL(json.RawMessage(`{"html_url":"/relative/path"}`)))
 }
 
 func TestTaskBriefRead_ProvenanceEventAndCreatedBy(t *testing.T) {

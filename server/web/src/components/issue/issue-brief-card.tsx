@@ -596,6 +596,9 @@ function ProvenancePopover({
       })
     : ''
   const threadLabel = event?.thread_ext_id ? `#${event.thread_ext_id}` : ''
+  // The API already filters to http(s); keep the guard here too, since this
+  // value becomes an href.
+  const safeURL = event?.url && /^https?:\/\//i.test(event.url) ? event.url : ''
 
   return (
     <Popover>
@@ -686,9 +689,9 @@ function ProvenancePopover({
             {event && (
               <span className="flex flex-wrap items-center gap-2 text-[11px] text-warm-text-muted">
                 <span>{t('brief.provenance.receivedAt', { time: formatTime(event.received_at) })}</span>
-                {event.url && (
+                {safeURL && (
                   <a
-                    href={event.url}
+                    href={safeURL}
                     target="_blank"
                     rel="noreferrer"
                     className="inline-flex items-center gap-0.5 text-brand hover:underline"

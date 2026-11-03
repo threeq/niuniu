@@ -13,6 +13,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/url"
 	"strings"
 	"time"
 
@@ -261,14 +262,25 @@ func provenancePayloadText(payload json.RawMessage) string {
 }
 
 // provenancePayloadURL extracts the upstream permalink so the provenance panel
-// can link back to the exact comment/review/CI run.
+// can link back to the exact comment/review/CI run. Only http(s) survives: the
+// value comes from an external payload and is rendered as an href, so a
+// javascript:/data: scheme must never reach the UI.
 func provenancePayloadURL(payload json.RawMessage) string {
 	var m map[string]any
 	if len(payload) == 0 || json.Unmarshal(payload, &m) != nil {
 		return ""
 	}
 	for _, key := range []string{"SourceURL", "sourceURL", "html_url", "URL", "url"} {
-		if s, ok := m[key].(string); ok && strings.TrimSpace(s) != "" {
+		s, ok := m[key].(string)
+		if !ok {
+			continue
+		}
+		s = strings.TrimSpace(s)
+		if s == "" {
+			continue
+		}
+		if u, err := url.Parse(s); err == nil &&
+			(u.Scheme == "http" || u.Scheme == "https") && u.Host != "" {
 			return s
 		}
 	}
