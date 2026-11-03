@@ -1,6 +1,6 @@
 # 接活与完成：牛牛自主性双能力拆分设计
 
-日期：2026-11-03 ｜ 状态：已确认（2026-11-03）｜ 待实现
+日期：2026-11-03 ｜ 状态：已确认（2026-11-03）｜ **已实现（2026-11-04，Epic #755）** ｜ 上线与运维见 [`docs/operations/intake-completion-rollout.md`](../../operations/intake-completion-rollout.md)
 
 ## 0. 一句话
 
@@ -1008,3 +1008,34 @@ Thread 映射：
 - 不做自动 merge、自动发布、自动对外沟通。
 - 不做无上限自主；不把 Intake 和 Completion 合成单一 autonomy 开关。
 - 不回溯改写存量 issue 的 goal_condition 或执行轨迹。
+
+---
+
+## 14. 实现状态与代码索引（2026-11-04）
+
+> 本节记录设计与实现的对应关系，供后续维护与运维定位；不改变上文的设计结论。
+
+### 14.1 分阶段状态
+
+| 阶段 | 状态 | 主要落点 |
+|---|---|---|
+| Phase 0：schema / 契约骨架 / 指标 | 已实现 | `server/internal/store/schema.sql`、`schema_postgres.sql`、`store/migrate.go`；`server/internal/api/intake.go`、`completion.go` |
+| Phase 1：IntakeService + IM adapter + dry-run 队列 | 已实现 | `server/internal/intake/`、`server/internal/service/imbot_intake.go`、`server/internal/api/intake.go`、`server/web/src/pages/intake/` |
+| Phase 2：Task Brief + Completion Policy + profile | 已实现 | `server/internal/intake/brief.go`、`server/internal/completion/policy.go`、`server/internal/service/completion.go`、`server/internal/agentproxy/autohost.go` |
+| Phase 3：GitHub Source（个人版轮询） | 已实现 | `server/internal/githubsource/`、`server/internal/service/github_source.go`、`github_reply.go` |
+| Phase 4：团队版 webhook / 邮件 / 通用 webhook / 指标面板 | 已实现 | `server/internal/api/integration_webhook.go`、`server/internal/service/webhook_source.go`、`server/internal/service/mission_control.go`、`server/web/src/components/workspaces/mission-control-panels.tsx` |
+| UI：任务来源 / 自动完成 / 待校准 / Issue Task Brief / Mission control | 已实现 | `server/web/src/components/projects/intake/`、`components/completion/`、`components/issue/issue-completion-policy-card.tsx`、`pages/project/settings-tab.tsx` |
+| 测试 | 已实现 | `server/internal/service/intake_completion_e2e_test.go`（§9/§10 端到端）、`server/internal/agentproxy/autohost_policy_test.go`、`server/internal/store/migrate_intake_completion_test.go` |
+
+### 14.2 与设计的已知差异 / 待办
+
+1. **`im_bot_inbox` 读切换尚未执行**。本版本按 §7.2 做 Phase 1 双写，读路径仍是 `im_bot_inbox`（`server/internal/service/imbot_inbound.go` 的早期去重守卫）。读切换、保留一版、删除的步骤见运行手册 §5.2；必须在下一版本执行。
+2. **未保存来源配置时运行时按 `off` 处理**。`GET /intake/settings` 对无存储行显示 schema 默认 `observe`，但 `imbotPolicy.LoadPolicy` 对无行返回 `ModeOff`（只接受显式请求）。上线时必须至少保存一次该来源配置，才会写入 `intake_settings` 并按所选模式运行。运行手册 §3 步骤 4 已将其列为必做项。
+3. **团队版 GitHub `webhook_secret` 尚无表单入口**。SPA 的 GitHub 凭据对话框只渲染 PAT；团队版需通过 API 写入（见运行手册 §4.2）。后续可在凭据对话框补充可选 `webhook_secret` 字段。
+4. **GitHub Enterprise BaseURL 未暴露配置**。个人版轮询固定 `https://api.github.com`；`GithubSourceService.SetPollerBaseURL` 目前仅供代码/测试使用。
+
+### 14.3 运维文档
+
+- 上线、迁移、部署差异、策略版本、待校准、暂停、指标、回滚与验收清单：
+  [`docs/operations/intake-completion-rollout.md`](../../operations/intake-completion-rollout.md)
+- 团队版部署入口：`niuniu-enterprise` 仓库 `docs/ai-context/production-deploy.md`。
