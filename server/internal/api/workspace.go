@@ -536,7 +536,17 @@ func (h *WorkspaceHandler) Create(c *gin.Context) {
 			return
 		}
 		inheritedProjectID = *req.ProjectID
-		if userID > 0 && h.Authz != nil {
+		// Fail closed when the deployment authenticates callers: userID > 0 is
+		// guaranteed by auth.Middleware whenever auth is enabled, so a missing
+		// Authz service there is a mis-wiring, not a reason to skip the check.
+		// userID == 0 is the personal edition (auth intentionally disabled,
+		// loopback-only), where there is no identity to authorize — every other
+		// handler in this package has the same semantics.
+		if userID > 0 {
+			if h.Authz == nil {
+				InternalError(c, errors.New("authz service not wired"))
+				return
+			}
 			if _, err := h.Authz.CanAccessProject(c.Request.Context(), userID, inheritedProjectID); err != nil {
 				writeAuthzError(c, err)
 				return
@@ -1659,7 +1669,11 @@ func (h *WorkspaceHandler) GetProjectDefaults(c *gin.Context) {
 		BadRequest(c, "invalid project_id")
 		return
 	}
-	if userID > 0 && h.Authz != nil {
+	if userID > 0 {
+		if h.Authz == nil {
+			InternalError(c, errors.New("authz service not wired"))
+			return
+		}
 		if _, err := h.Authz.CanAccessProject(c.Request.Context(), userID, projectID); err != nil {
 			writeAuthzError(c, err)
 			return
