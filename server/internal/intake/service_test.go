@@ -314,6 +314,93 @@ func TestHandleAutoInferredExecutes(t *testing.T) {
 	}
 }
 
+func TestHandleAutoInferredWithoutRuleIsIgnored(t *testing.T) {
+	// A bot is inferred by bot_list, but inferred work only executes inside a
+	// matching rule — so with no rule it must not create a task.
+	policy := Policy{
+		Mode:    ModeAuto,
+		BotList: []string{"bot_release"},
+	}
+	svc, store, _, _, executor := newHarness(policy)
+
+	tg := trigger("bot_release", "build it")
+	tg.Actor.IsBot = true
+	res, err := svc.Handle(context.Background(), tg)
+	if err != nil {
+		t.Fatalf("Handle: %v", err)
+	}
+	if res.Decision != DecisionIgnore || res.ReasonCode != ReasonNoRule || res.Executed {
+		t.Fatalf("result = %+v", res)
+	}
+	if len(executor.plans) != 0 || len(store.marked) != 0 {
+		t.Fatalf("inferred work without a rule executed")
+	}
+	if store.decisions[0].WouldDo != nil || store.decisions[0].Brief != nil {
+		t.Fatalf("ignored inferred decision carried a brief")
+	}
+}
+
+func TestHandleObserveUnlistedReceiveAllRecordsDryRun(t *testing.T) {
+	policy := Policy{Version: 4, Mode: ModeObserve, AllowList: []string{"ou_alice"}}
+	svc, store, _, _, executor := newHarness(policy)
+
+	tg := trigger("ou_bob", "整理本周进展")
+	tg.Explicit = true
+	tg.ReceiveAll = true
+	res, err := svc.Handle(context.Background(), tg)
+	if err != nil {
+		t.Fatalf("Handle: %v", err)
+	}
+	if res.Strength != StrengthInferred || res.ReasonCode != ReasonObserved || res.Executed {
+		t.Fatalf("result = %+v", res)
+	}
+	if len(executor.plans) != 0 {
+		t.Fatalf("observe produced a side effect")
+	}
+	rec := store.decisions[0]
+	if rec.PolicyVersion != 4 || rec.MatchedRuleIDs != nil && len(rec.MatchedRuleIDs) != 0 {
+		t.Fatalf("recorded = %+v", rec)
+	}
+	if rec.WouldDo == nil || rec.WouldDo.Decision != DecisionAccept {
+		t.Fatalf("wouldDo = %+v", rec.WouldDo)
+	}
+}
+
+func TestHandlePolicyChangeAppliesToNextEvent(t *testing.T) {
+	svc, store, policies, _, executor := newHarness(Policy{
+		Version: 1,
+		Mode:    ModeAuto,
+		Rules:   []Rule{{ID: 11, Enabled: true, Conditions: RuleConditions{Keywords: []string{"deploy"}}}},
+	})
+
+	first := trigger("ou_dave", "please deploy")
+	if res, err := svc.Handle(context.Background(), first); err != nil || !res.Executed {
+		t.Fatalf("first event = %+v, err = %v", res, err)
+	}
+	if store.decisions[0].PolicyVersion != 1 {
+		t.Fatalf("first decision version = %d, want 1", store.decisions[0].PolicyVersion)
+	}
+
+	// The rule is disabled between events: policy is reloaded per trigger, so
+	// the very next event sees the new policy and its version.
+	policies.policy = Policy{Version: 2, Mode: ModeAuto, BotList: []string{"ou_dave"}}
+	second := trigger("ou_dave", "please deploy")
+	second.EventID = "evt-2"
+	second.Actor.IsBot = true
+	if res, err := svc.Handle(context.Background(), second); err != nil || res.Executed {
+		t.Fatalf("second event = %+v, err = %v", res, err)
+	}
+	if policies.calls != 2 {
+		t.Fatalf("policy loads = %d, want 2", policies.calls)
+	}
+	if store.decisions[1].PolicyVersion != 2 || store.decisions[1].ReasonCode != ReasonNoRule {
+		t.Fatalf("second decision = %+v", store.decisions[1])
+	}
+	if len(executor.plans) != 1 {
+		t.Fatalf("executor plans = %d, want 1", len(executor.plans))
+	}
+}
+
 func TestHandleOffModeIgnoresInferred(t *testing.T) {
 	policy := Policy{
 		Mode:  ModeOff,

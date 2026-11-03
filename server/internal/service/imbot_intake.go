@@ -88,8 +88,15 @@ func (imbotSource) Normalize(
 		Raw:               raw,
 		ReceivedAt:        time.Now(),
 		ConversationExtID: ev.ChatExtID,
-		Explicit:          true,
-		ForceNew:          forceNew,
+		// Chat pairing admitted the conversation, not the actor. This still
+		// grants explicit authority while no allow list is configured (the
+		// pre-policy behaviour), and once one exists Policy.Evaluate requires
+		// the actor to be on it.
+		Explicit: true,
+		// An observe-mode chat reads every message; unlisted actors there are
+		// inferred candidates rather than denied.
+		ReceiveAll: normalizeAgentMode(chat.AgentMode) == AgentModeObserve,
+		ForceNew:   forceNew,
 	}
 }
 
@@ -369,7 +376,37 @@ func (e imbotExecutor) Execute(ctx context.Context, plan intake.ExecutionPlan) (
 	if err != nil {
 		return intake.ExecutionResult{}, err
 	}
-	return s.startInboundTask(ctx, channel, chat, ev, plan.Trigger)
+	out, err := s.startInboundTask(ctx, channel, chat, ev, plan.Trigger)
+	if err != nil {
+		return intake.ExecutionResult{}, err
+	}
+	s.recordIssueProvenance(ctx, out.IssueID, plan.Trigger)
+	return out, nil
+}
+
+// recordIssueProvenance attaches the intake origin to a newly created task so
+// the Issue shows where it came from (§6.2). Best-effort: the task already
+// exists, and a provenance miss must not fail the delivery. Issues that already
+// carry an external source are left alone (a routed existing task may have been
+// imported from GitHub).
+func (s *IMBotService) recordIssueProvenance(ctx context.Context, issueID int64, t intake.Trigger) {
+	if issueID == 0 {
+		return
+	}
+	externalID := strings.TrimSpace(t.Thread.ThreadExtID)
+	if externalID == "" {
+		externalID = strings.TrimSpace(t.EventID)
+	}
+	if externalID == "" {
+		return
+	}
+	if _, err := s.db.ExecContext(ctx,
+		`UPDATE issues SET external_source = ?, external_id = ?, external_url = ''
+		 WHERE id = ? AND (external_source IS NULL OR external_source = '')`,
+		t.SourceKind, externalID, issueID,
+	); err != nil {
+		slog.Warn("imbot: write issue provenance failed", "issue", issueID, "error", err)
+	}
 }
 
 // startInboundTask is the accept path: a new conversation in the chat's bound

@@ -223,8 +223,9 @@ func (s *Service) Handle(ctx context.Context, t Trigger) (Result, error) {
 	res.IssueID = resolution.IssueID
 	res.WorkspaceID = resolution.WorkspaceID
 
-	decision, reason := decide(policy.Mode, authz.Strength, resolution.Bound, t.ForceNew)
-	executed := shouldExecute(policy.Mode, authz.Strength)
+	decision, reason := decide(policy.Mode, authz, resolution.Bound, t.ForceNew)
+	executed := shouldExecute(policy.Mode, authz.Strength) &&
+		(decision == DecisionAccept || decision == DecisionResume)
 	// The daily cap bounds inferred auto-intake only; explicit requests from an
 	// allow-listed actor always run.
 	if executed && authz.Strength == StrengthInferred && policy.DailyCap > 0 {
@@ -316,8 +317,12 @@ func (s *Service) withinDailyCap(ctx context.Context, t Trigger, cap int64) (boo
 // decide maps authorization strength + mode + thread binding to a decision.
 // ForceNew overrides a bound thread: the user asked for a separate task, so the
 // bound one is not resumed.
-func decide(mode Mode, strength Strength, bound, forceNew bool) (Decision, string) {
-	switch strength {
+//
+// Auto mode executes inferred work only inside a matching rule: an inferred
+// actor with no rule in scope has no mandate to create work (§6.2). Observe
+// mode still records the candidate so it can be calibrated.
+func decide(mode Mode, authz Authorization, bound, forceNew bool) (Decision, string) {
+	switch authz.Strength {
 	case StrengthExplicit:
 		if bound && !forceNew {
 			return DecisionResume, ReasonResumed
@@ -326,6 +331,9 @@ func decide(mode Mode, strength Strength, bound, forceNew bool) (Decision, strin
 	case StrengthInferred:
 		switch mode {
 		case ModeAuto:
+			if len(authz.MatchedRuleIDs) == 0 {
+				return DecisionIgnore, ReasonNoRule
+			}
 			if bound {
 				return DecisionResume, ReasonResumed
 			}

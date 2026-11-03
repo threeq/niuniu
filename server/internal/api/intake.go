@@ -126,6 +126,156 @@ func (h *IntakeHandler) PutSettings(c *gin.Context) {
 	c.JSON(http.StatusOK, view)
 }
 
+// ListRules serves GET /api/projects/:id/intake/rules.
+//
+// @Summary      List intake rules
+// @Description  Rules for a project, optionally filtered by source_kind, priority order.
+// @Tags         Intake
+// @Produce      json
+// @Param        id           path      int     true   "Project ID"
+// @Param        source_kind  query     string  false  "Filter by source kind"
+// @Success      200  {array}   service.IntakeRuleDTO
+// @Failure      401  {object}  Error
+// @Failure      403  {object}  Error
+// @Router       /projects/{id}/intake/rules [get]
+func (h *IntakeHandler) ListRules(c *gin.Context) {
+	pid, ok := h.intakeProjectAccess(c, false)
+	if !ok {
+		return
+	}
+	items, err := h.svc.ListRules(c.Request.Context(), pid, c.Query("source_kind"))
+	if err != nil {
+		h.mapIntakeErr(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, items)
+}
+
+// CreateRule serves POST /api/projects/:id/intake/rules.
+//
+// @Summary      Create an intake rule
+// @Description  Adds a rule and records a policy version for its source.
+// @Tags         Intake
+// @Accept       json
+// @Produce      json
+// @Param        id    path      int                            true  "Project ID"
+// @Param        body  body      service.UpsertIntakeRuleInput  true  "Rule"
+// @Success      201   {object}  service.IntakeRuleDTO
+// @Failure      400   {object}  Error
+// @Failure      401   {object}  Error
+// @Failure      403   {object}  Error
+// @Router       /projects/{id}/intake/rules [post]
+func (h *IntakeHandler) CreateRule(c *gin.Context) {
+	pid, ok := h.intakeProjectAccess(c, true)
+	if !ok {
+		return
+	}
+	var in service.UpsertIntakeRuleInput
+	if err := c.ShouldBindJSON(&in); err != nil {
+		BadRequest(c, "invalid request body")
+		return
+	}
+	item, err := h.svc.CreateRule(c.Request.Context(), pid, in)
+	if err != nil {
+		h.mapIntakeErr(c, err)
+		return
+	}
+	c.JSON(http.StatusCreated, item)
+}
+
+// UpdateRule serves PUT /api/projects/:id/intake/rules/:rid.
+//
+// @Summary      Update an intake rule
+// @Description  Edits a rule in place and records a policy version for its source.
+// @Tags         Intake
+// @Accept       json
+// @Produce      json
+// @Param        id    path      int                            true  "Project ID"
+// @Param        rid   path      int                            true  "Rule ID"
+// @Param        body  body      service.UpsertIntakeRuleInput  true  "Rule"
+// @Success      200   {object}  service.IntakeRuleDTO
+// @Failure      400   {object}  Error
+// @Failure      401   {object}  Error
+// @Failure      403   {object}  Error
+// @Failure      404   {object}  Error
+// @Router       /projects/{id}/intake/rules/{rid} [put]
+func (h *IntakeHandler) UpdateRule(c *gin.Context) {
+	pid, ok := h.intakeProjectAccess(c, true)
+	if !ok {
+		return
+	}
+	rid, ok := ruleIDParam(c)
+	if !ok {
+		return
+	}
+	var in service.UpsertIntakeRuleInput
+	if err := c.ShouldBindJSON(&in); err != nil {
+		BadRequest(c, "invalid request body")
+		return
+	}
+	item, err := h.svc.UpdateRule(c.Request.Context(), pid, rid, in)
+	if err != nil {
+		h.mapIntakeErr(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, item)
+}
+
+// DeleteRule serves DELETE /api/projects/:id/intake/rules/:rid.
+//
+// @Summary      Delete an intake rule
+// @Description  Removes a rule and records a policy version for its source.
+// @Tags         Intake
+// @Param        id   path      int  true  "Project ID"
+// @Param        rid  path      int  true  "Rule ID"
+// @Success      204  "No Content"
+// @Failure      401  {object}  Error
+// @Failure      403  {object}  Error
+// @Failure      404  {object}  Error
+// @Router       /projects/{id}/intake/rules/{rid} [delete]
+func (h *IntakeHandler) DeleteRule(c *gin.Context) {
+	pid, ok := h.intakeProjectAccess(c, true)
+	if !ok {
+		return
+	}
+	rid, ok := ruleIDParam(c)
+	if !ok {
+		return
+	}
+	if err := h.svc.DeleteRule(c.Request.Context(), pid, rid); err != nil {
+		h.mapIntakeErr(c, err)
+		return
+	}
+	c.Status(http.StatusNoContent)
+}
+
+// ListPolicyVersions serves GET /api/projects/:id/intake/policy-versions.
+//
+// @Summary      List intake policy versions
+// @Description  Auditable snapshots for one source, newest first.
+// @Tags         Intake
+// @Produce      json
+// @Param        id           path      int     true   "Project ID"
+// @Param        source_kind  query     string  true   "Source kind"
+// @Param        limit        query     int     false  "Max rows (default 50)"
+// @Success      200  {array}   service.IntakePolicyVersionDTO
+// @Failure      400  {object}  Error
+// @Failure      401  {object}  Error
+// @Failure      403  {object}  Error
+// @Router       /projects/{id}/intake/policy-versions [get]
+func (h *IntakeHandler) ListPolicyVersions(c *gin.Context) {
+	pid, ok := h.intakeProjectAccess(c, false)
+	if !ok {
+		return
+	}
+	items, err := h.svc.ListPolicyVersions(c.Request.Context(), pid, c.Query("source_kind"), intParam(c, "limit"))
+	if err != nil {
+		h.mapIntakeErr(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, items)
+}
+
 // ListDecisions serves GET /api/projects/:id/intake/decisions.
 //
 // @Summary      List intake decisions (calibration queue)
@@ -369,6 +519,15 @@ func (h *IntakeHandler) decisionInProject(c *gin.Context, projectID, decisionID 
 		return false
 	}
 	return true
+}
+
+func ruleIDParam(c *gin.Context) (int64, bool) {
+	id, err := strconv.ParseInt(c.Param("rid"), 10, 64)
+	if err != nil || id <= 0 {
+		BadRequest(c, "invalid rule ID")
+		return 0, false
+	}
+	return id, true
 }
 
 func decisionIDParam(c *gin.Context) (int64, bool) {

@@ -35,12 +35,14 @@ const (
 	ReasonBotList     = "bot_list"
 	ReasonRule        = "rule"
 	ReasonDirect      = "direct_request"
+	ReasonUnlisted    = "unlisted_actor"
 	ReasonDenied      = "denied"
 	ReasonDuplicate   = "duplicate"
 	ReasonObserved    = "observed"
 	ReasonAccepted    = "accepted"
 	ReasonResumed     = "resumed"
 	ReasonOffInferred = "off_inferred"
+	ReasonNoRule      = "no_matching_rule"
 	ReasonDailyCap    = "daily_cap"
 	ReasonDisabled    = "disabled"
 )
@@ -87,25 +89,39 @@ type Authorization struct {
 
 // Evaluate decides how strongly the actor is authorized for this trigger.
 //
-// Order matters: a source-admitted request and an allow-listed actor are
-// explicit even if the actor is also a bot or matches a rule. Rule-matched and
-// bot actors are inferred, never explicit. Actor ids from the message text play
-// no part in this decision.
+// Order matters:
+//
+//  1. An allow-listed actor is explicit. This is the only actor-level grant.
+//  2. A bot is inferred only when it is on BotList; botness is a fact, not a
+//     grant, so a bot outside the list is denied. A bot never becomes explicit
+//     through Trigger.Explicit (source admission).
+//  3. When no allow list is configured, the source's own admission is still the
+//     authorization boundary (an approved, project-bound IM chat) — existing
+//     behaviour. Once any allow list entry exists, only listed actors are
+//     explicit and unlisted actors fall through to the inferred paths.
+//  4. A matching rule makes an unlisted actor inferred.
+//  5. An unlisted actor in a receive-all conversation (Trigger.ReceiveAll) is an
+//     inferred candidate; otherwise denied.
+//
+// Actor ids from the message text play no part in this decision.
 //
 // Keyword rules match normalized tokens as a consecutive sequence, so Latin
 // keywords cannot be smuggled inside a longer word or a different word order.
 // CJK keywords are the one deliberate substring exception — the script has no
-// word boundaries. Inferred work still only executes in auto mode and is
-// bounded by DailyCap.
+// word boundaries. Inferred work only executes in auto mode, inside a matching
+// rule, and is bounded by DailyCap.
 func (p Policy) Evaluate(t Trigger) Authorization {
-	if t.Explicit {
-		return Authorization{Strength: StrengthExplicit, ReasonCode: ReasonDirect}
-	}
 	if contains(p.AllowList, t.Actor.ExtID) {
 		return Authorization{Strength: StrengthExplicit, ReasonCode: ReasonAllowList}
 	}
-	if t.Actor.IsBot && contains(p.BotList, t.Actor.ExtID) {
-		return Authorization{Strength: StrengthInferred, ReasonCode: ReasonBotList}
+	if p.isBot(t) {
+		if contains(p.BotList, t.Actor.ExtID) {
+			return Authorization{Strength: StrengthInferred, ReasonCode: ReasonBotList}
+		}
+		return Authorization{Strength: StrengthDenied, ReasonCode: ReasonDenied}
+	}
+	if len(p.AllowList) == 0 && t.Explicit {
+		return Authorization{Strength: StrengthExplicit, ReasonCode: ReasonDirect}
 	}
 	for _, r := range p.Rules {
 		if r.matches(t) {
@@ -116,7 +132,28 @@ func (p Policy) Evaluate(t Trigger) Authorization {
 			}
 		}
 	}
+	if t.ReceiveAll && len(p.AllowList) > 0 {
+		return Authorization{Strength: StrengthInferred, ReasonCode: ReasonUnlisted}
+	}
 	return Authorization{Strength: StrengthDenied, ReasonCode: ReasonDenied}
+}
+
+// AllowsHighRiskAction reports whether this trigger may stop a task or trigger
+// another high-risk action. Only explicit (allow-listed or, before any allow
+// list exists, source-admitted) non-bot actors qualify. A bot is never allowed
+// — including a bot that was also placed on the allow list, because "a bot must
+// not stop tasks" is absolute.
+func (p Policy) AllowsHighRiskAction(t Trigger) bool {
+	if p.isBot(t) {
+		return false
+	}
+	return p.Evaluate(t).Strength == StrengthExplicit
+}
+
+// isBot treats either adapter-reported botness or bot-list membership as a bot.
+// BotList is how IM (whose payloads carry no bot flag) marks an actor as a bot.
+func (p Policy) isBot(t Trigger) bool {
+	return t.Actor.IsBot || contains(p.BotList, t.Actor.ExtID)
 }
 
 func (r Rule) matches(t Trigger) bool {

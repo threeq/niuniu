@@ -17,6 +17,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/niuniu-dev/niuniu/internal/intake"
 	"github.com/niuniu-dev/niuniu/internal/store"
 )
 
@@ -204,23 +205,7 @@ func (s *IntakeService) UpdateSettings(ctx context.Context, projectID int64, req
 		}); err != nil {
 			return IntakeSettingsView{}, err
 		}
-		snapshot, err := json.Marshal(map[string]any{
-			"source_kind": in.SourceKind,
-			"mode":        in.Mode,
-			"daily_cap":   dailyCap,
-			"allow_list":  nonNilStrings(in.AllowList),
-			"bot_list":    nonNilStrings(in.BotList),
-		})
-		if err != nil {
-			return IntakeSettingsView{}, err
-		}
-		if _, err := qtx.CreateIntakePolicyVersion(ctx, store.CreateIntakePolicyVersionParams{
-			ProjectID:    projectID,
-			SourceKind:   strings.TrimSpace(in.SourceKind),
-			ProjectID_2:  projectID,
-			SourceKind_2: strings.TrimSpace(in.SourceKind),
-			SnapshotJson: string(snapshot),
-		}); err != nil {
+		if err := s.writePolicyVersion(ctx, qtx, projectID, strings.TrimSpace(in.SourceKind)); err != nil {
 			return IntakeSettingsView{}, err
 		}
 	}
@@ -267,6 +252,330 @@ func (s *IntakeService) SetMode(ctx context.Context, projectID int64, sourceKind
 		}
 	}
 	return IntakeSettingDTO{}, fmt.Errorf("setting not found after write")
+}
+
+// ─── Rules + policy versions ─────────────────────────────────────────────────
+
+// IntakeRuleDTO is one intake rule with its structured conditions decoded.
+type IntakeRuleDTO struct {
+	ID          int64                 `json:"id"`
+	ProjectID   int64                 `json:"project_id"`
+	SourceKind  string                `json:"source_kind"`
+	Name        string                `json:"name"`
+	Instruction string                `json:"instruction"`
+	Conditions  intake.RuleConditions `json:"conditions"`
+	Priority    int64                 `json:"priority"`
+	Enabled     bool                  `json:"enabled"`
+	CreatedAt   time.Time             `json:"created_at"`
+}
+
+// UpsertIntakeRuleInput is the create/update body. Enabled defaults to true on
+// create and keeps the current value on update.
+type UpsertIntakeRuleInput struct {
+	SourceKind  string                `json:"source_kind"`
+	Name        string                `json:"name"`
+	Instruction string                `json:"instruction"`
+	Conditions  intake.RuleConditions `json:"conditions"`
+	Priority    int64                 `json:"priority"`
+	Enabled     *bool                 `json:"enabled"`
+}
+
+// IntakePolicyVersionDTO is one auditable policy snapshot.
+type IntakePolicyVersionDTO struct {
+	ID         int64           `json:"id"`
+	ProjectID  int64           `json:"project_id"`
+	SourceKind string          `json:"source_kind"`
+	Version    int64           `json:"version"`
+	Snapshot   json.RawMessage `json:"snapshot"`
+	CreatedAt  time.Time       `json:"created_at"`
+}
+
+// ListRules returns every rule for a project, optionally filtered by source.
+// Order is priority DESC so it matches evaluation order.
+func (s *IntakeService) ListRules(ctx context.Context, projectID int64, sourceKind string) ([]IntakeRuleDTO, error) {
+	rows, err := s.q.ListIntakeRulesByProject(ctx, projectID)
+	if err != nil {
+		return nil, err
+	}
+	sourceKind = strings.TrimSpace(sourceKind)
+	out := make([]IntakeRuleDTO, 0, len(rows))
+	for _, r := range rows {
+		if sourceKind != "" && r.SourceKind != sourceKind {
+			continue
+		}
+		out = append(out, intakeRuleDTO(r))
+	}
+	return out, nil
+}
+
+// CreateRule adds a rule and records a policy version for its source, so the
+// change is auditable and the next event evaluates against it.
+func (s *IntakeService) CreateRule(ctx context.Context, projectID int64, in UpsertIntakeRuleInput) (IntakeRuleDTO, error) {
+	normalized, conditionsJSON, enabled, err := normalizeIntakeRule(in, true)
+	if err != nil {
+		return IntakeRuleDTO{}, err
+	}
+
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return IntakeRuleDTO{}, err
+	}
+	defer tx.Rollback()
+
+	qtx := tx.Queries()
+	row, err := qtx.CreateIntakeRule(ctx, store.CreateIntakeRuleParams{
+		ProjectID:      projectID,
+		SourceKind:     normalized.SourceKind,
+		Name:           normalized.Name,
+		Instruction:    normalized.Instruction,
+		ConditionsJson: conditionsJSON,
+		Priority:       normalized.Priority,
+		Enabled:        enabled,
+	})
+	if err != nil {
+		return IntakeRuleDTO{}, err
+	}
+	if err := s.writePolicyVersion(ctx, qtx, projectID, normalized.SourceKind); err != nil {
+		return IntakeRuleDTO{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return IntakeRuleDTO{}, err
+	}
+	return intakeRuleDTO(row), nil
+}
+
+// UpdateRule edits a rule in place. The source kind is immutable: moving a rule
+// between sources would silently change two policies, so the caller deletes and
+// recreates instead.
+func (s *IntakeService) UpdateRule(ctx context.Context, projectID, ruleID int64, in UpsertIntakeRuleInput) (IntakeRuleDTO, error) {
+	cur, err := s.ruleInProject(ctx, projectID, ruleID)
+	if err != nil {
+		return IntakeRuleDTO{}, err
+	}
+	in.SourceKind = cur.SourceKind
+	normalized, conditionsJSON, enabled, err := normalizeIntakeRule(in, cur.Enabled != 0)
+	if err != nil {
+		return IntakeRuleDTO{}, err
+	}
+
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return IntakeRuleDTO{}, err
+	}
+	defer tx.Rollback()
+
+	qtx := tx.Queries()
+	row, err := qtx.UpdateIntakeRule(ctx, store.UpdateIntakeRuleParams{
+		Name:           normalized.Name,
+		Instruction:    normalized.Instruction,
+		ConditionsJson: conditionsJSON,
+		Priority:       normalized.Priority,
+		Enabled:        enabled,
+		ID:             ruleID,
+	})
+	if err != nil {
+		return IntakeRuleDTO{}, err
+	}
+	if err := s.writePolicyVersion(ctx, qtx, projectID, cur.SourceKind); err != nil {
+		return IntakeRuleDTO{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return IntakeRuleDTO{}, err
+	}
+	return intakeRuleDTO(row), nil
+}
+
+// DeleteRule removes a rule and records a policy version for its source.
+func (s *IntakeService) DeleteRule(ctx context.Context, projectID, ruleID int64) error {
+	cur, err := s.ruleInProject(ctx, projectID, ruleID)
+	if err != nil {
+		return err
+	}
+
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	qtx := tx.Queries()
+	if err := qtx.DeleteIntakeRule(ctx, ruleID); err != nil {
+		return err
+	}
+	if err := s.writePolicyVersion(ctx, qtx, projectID, cur.SourceKind); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+// ListPolicyVersions returns a source's policy history, newest first.
+func (s *IntakeService) ListPolicyVersions(ctx context.Context, projectID int64, sourceKind string, limit int) ([]IntakePolicyVersionDTO, error) {
+	sourceKind = strings.TrimSpace(sourceKind)
+	if sourceKind == "" {
+		return nil, fmt.Errorf("source_kind is required")
+	}
+	rows, err := s.q.ListIntakePolicyVersions(ctx, store.ListIntakePolicyVersionsParams{
+		ProjectID: projectID, SourceKind: sourceKind,
+	})
+	if err != nil {
+		return nil, err
+	}
+	if limit <= 0 || limit > 200 {
+		limit = 50
+	}
+	if len(rows) > limit {
+		rows = rows[:limit]
+	}
+	out := make([]IntakePolicyVersionDTO, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, IntakePolicyVersionDTO{
+			ID: r.ID, ProjectID: r.ProjectID, SourceKind: r.SourceKind,
+			Version: r.Version, Snapshot: json.RawMessage(orJSONObject(r.SnapshotJson)), CreatedAt: r.CreatedAt,
+		})
+	}
+	return out, nil
+}
+
+// writePolicyVersion snapshots the effective policy — settings plus every rule
+// for the source — under the next monotonic version. Called in the same
+// transaction as the settings/rule write so a version never describes a change
+// that did not land.
+func (s *IntakeService) writePolicyVersion(ctx context.Context, qtx *store.Queries, projectID int64, sourceKind string) error {
+	sourceKind = strings.TrimSpace(sourceKind)
+	snapshot := map[string]any{
+		"source_kind": sourceKind,
+		// No stored setting means the runtime policy is off (see
+		// imbotPolicy.LoadPolicy): explicit work only, no inferred work.
+		"mode":       "off",
+		"daily_cap":  int64(0),
+		"allow_list": []string{},
+		"bot_list":   []string{},
+		"rules":      []any{},
+	}
+	row, err := qtx.GetIntakeSetting(ctx, store.GetIntakeSettingParams{ProjectID: projectID, SourceKind: sourceKind})
+	switch {
+	case err == nil:
+		snapshot["mode"] = row.Mode
+		snapshot["daily_cap"] = row.DailyCap
+		snapshot["allow_list"] = decodeStringList(row.AllowListJson)
+		snapshot["bot_list"] = decodeStringList(row.BotListJson)
+	case errors.Is(err, sql.ErrNoRows):
+		// defaults above
+	default:
+		return err
+	}
+
+	rules, err := qtx.ListIntakeRulesByProject(ctx, projectID)
+	if err != nil {
+		return err
+	}
+	rulesSnapshot := make([]map[string]any, 0)
+	for _, r := range rules {
+		if r.SourceKind != sourceKind {
+			continue
+		}
+		var conditions intake.RuleConditions
+		_ = json.Unmarshal([]byte(r.ConditionsJson), &conditions)
+		rulesSnapshot = append(rulesSnapshot, map[string]any{
+			"id":          r.ID,
+			"name":        r.Name,
+			"instruction": r.Instruction,
+			"conditions":  conditions,
+			"priority":    r.Priority,
+			"enabled":     r.Enabled != 0,
+		})
+	}
+	snapshot["rules"] = rulesSnapshot
+
+	encoded, err := json.Marshal(snapshot)
+	if err != nil {
+		return err
+	}
+	_, err = qtx.CreateIntakePolicyVersion(ctx, store.CreateIntakePolicyVersionParams{
+		ProjectID:    projectID,
+		SourceKind:   sourceKind,
+		ProjectID_2:  projectID,
+		SourceKind_2: sourceKind,
+		SnapshotJson: string(encoded),
+	})
+	return err
+}
+
+func (s *IntakeService) ruleInProject(ctx context.Context, projectID, ruleID int64) (store.IntakeRule, error) {
+	rule, err := s.q.GetIntakeRule(ctx, ruleID)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return store.IntakeRule{}, ErrNotFound
+		}
+		return store.IntakeRule{}, err
+	}
+	if rule.ProjectID != projectID {
+		return store.IntakeRule{}, ErrNotFound
+	}
+	return rule, nil
+}
+
+func intakeRuleDTO(r store.IntakeRule) IntakeRuleDTO {
+	var conditions intake.RuleConditions
+	if strings.TrimSpace(r.ConditionsJson) != "" {
+		_ = json.Unmarshal([]byte(r.ConditionsJson), &conditions)
+	}
+	return IntakeRuleDTO{
+		ID:          r.ID,
+		ProjectID:   r.ProjectID,
+		SourceKind:  r.SourceKind,
+		Name:        r.Name,
+		Instruction: r.Instruction,
+		Conditions:  conditions,
+		Priority:    r.Priority,
+		Enabled:     r.Enabled != 0,
+		CreatedAt:   r.CreatedAt,
+	}
+}
+
+// normalizeIntakeRule trims and validates a rule input and encodes its
+// conditions. A rule with no condition group is rejected: it could never match
+// (an empty rule is not a catch-all), so storing it would only mislead.
+func normalizeIntakeRule(in UpsertIntakeRuleInput, defaultEnabled bool) (UpsertIntakeRuleInput, string, int64, error) {
+	in.SourceKind = strings.TrimSpace(in.SourceKind)
+	in.Name = strings.TrimSpace(in.Name)
+	in.Instruction = strings.TrimSpace(in.Instruction)
+	if in.SourceKind == "" {
+		return in, "", 0, fmt.Errorf("source_kind is required")
+	}
+	if in.Name == "" {
+		return in, "", 0, fmt.Errorf("name is required")
+	}
+	in.Conditions.Actors = trimNonEmpty(in.Conditions.Actors)
+	in.Conditions.Keywords = trimNonEmpty(in.Conditions.Keywords)
+	if len(in.Conditions.Actors) == 0 && len(in.Conditions.Keywords) == 0 {
+		return in, "", 0, fmt.Errorf("a rule needs at least one condition (actors or keywords)")
+	}
+	encoded, err := json.Marshal(in.Conditions)
+	if err != nil {
+		return in, "", 0, err
+	}
+	enabled := int64(0)
+	if defaultEnabled {
+		enabled = 1
+	}
+	if in.Enabled != nil {
+		enabled = 0
+		if *in.Enabled {
+			enabled = 1
+		}
+	}
+	return in, string(encoded), enabled, nil
+}
+
+func trimNonEmpty(in []string) []string {
+	out := make([]string, 0, len(in))
+	for _, v := range in {
+		if v = strings.TrimSpace(v); v != "" {
+			out = append(out, v)
+		}
+	}
+	return out
 }
 
 // ListDecisions returns decisions joined with their events. executed/decision

@@ -94,9 +94,16 @@ type Trigger struct {
 	// Explicit marks a request the source has already admitted: a message from
 	// a participant in an approved, project-bound conversation. It is set by
 	// adapter code from that admission decision — never derived from message
-	// text — so a crafted message cannot promote itself. An explicit request
-	// executes in every mode (design §6.3).
+	// text — so a crafted message cannot promote itself. Source admission makes
+	// the request explicit only while no actor allow list is configured; once
+	// one exists, Policy.Evaluate requires the actor to be on it.
 	Explicit bool
+
+	// ReceiveAll marks a conversation the source is reading in full (IM
+	// observe mode) rather than only acting on when addressed. Unlisted actors
+	// there become inferred candidates instead of being denied — they can be
+	// calibrated or, in auto mode, run inside a matching rule.
+	ReceiveAll bool
 
 	// ForceNew asks for a new task even when the conversation is already bound
 	// to one. Adapters set it from an explicit user control (IM `/new`).

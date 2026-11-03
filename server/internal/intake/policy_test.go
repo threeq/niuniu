@@ -82,6 +82,86 @@ func TestPolicyEvaluateDirectRequestBeatsEverything(t *testing.T) {
 	}
 }
 
+func TestPolicyEvaluateAllowListRestrictsAdmittedActors(t *testing.T) {
+	policy := Policy{
+		Mode:      ModeAuto,
+		AllowList: []string{"ou_alice"},
+		Rules:     []Rule{{ID: 11, Enabled: true, Conditions: RuleConditions{Keywords: []string{"deploy"}}}},
+	}
+
+	// The source admitted the chat, but an allow list is configured, so an
+	// unlisted actor is not explicit any more.
+	got := policy.Evaluate(Trigger{
+		Actor: ActorRef{ExtID: "ou_mallory"}, Explicit: true, Text: "do it",
+	})
+	if got.Strength != StrengthDenied || got.ReasonCode != ReasonDenied {
+		t.Fatalf("unlisted admitted actor = %+v, want denied", got)
+	}
+
+	// A matching rule makes the same actor an inferred candidate, not explicit.
+	got = policy.Evaluate(Trigger{
+		Actor: ActorRef{ExtID: "ou_mallory"}, Explicit: true, Text: "please deploy",
+	})
+	if got.Strength != StrengthInferred || got.ReasonCode != ReasonRule || !slices.Equal(got.MatchedRuleIDs, []int64{11}) {
+		t.Fatalf("unlisted rule match = %+v, want inferred/rule [11]", got)
+	}
+}
+
+func TestPolicyEvaluateUnlistedReceiveAllIsCandidate(t *testing.T) {
+	policy := Policy{Mode: ModeObserve, AllowList: []string{"ou_alice"}}
+
+	got := policy.Evaluate(Trigger{Actor: ActorRef{ExtID: "ou_bob"}, Explicit: true, ReceiveAll: true})
+	if got.Strength != StrengthInferred || got.ReasonCode != ReasonUnlisted {
+		t.Fatalf("receive-all unlisted actor = %+v, want inferred/unlisted_actor", got)
+	}
+
+	// Outside a receive-all conversation the same actor is denied.
+	got = policy.Evaluate(Trigger{Actor: ActorRef{ExtID: "ou_bob"}, Explicit: true})
+	if got.Strength != StrengthDenied {
+		t.Fatalf("non-receive-all unlisted actor = %+v, want denied", got)
+	}
+}
+
+func TestPolicyEvaluateBotListIsNeverExplicit(t *testing.T) {
+	policy := Policy{
+		Mode:      ModeAuto,
+		AllowList: []string{"ou_alice"},
+		BotList:   []string{"bot_release"},
+	}
+	got := policy.Evaluate(Trigger{Actor: ActorRef{ExtID: "bot_release"}, Explicit: true, Text: "deploy"})
+	if got.Strength != StrengthInferred || got.ReasonCode != ReasonBotList {
+		t.Fatalf("bot with source admission = %+v, want inferred/bot_list", got)
+	}
+}
+
+func TestAllowsHighRiskAction(t *testing.T) {
+	open := Policy{Mode: ModeOff}
+	listed := Policy{Mode: ModeOff, AllowList: []string{"ou_alice"}, BotList: []string{"bot_release"}}
+
+	tests := []struct {
+		name   string
+		policy Policy
+		actor  ActorRef
+		want   bool
+	}{
+		{"unconfigured chat allows an admitted human", open, ActorRef{ExtID: "ou_bob"}, true},
+		{"listed actor is allowed", listed, ActorRef{ExtID: "ou_alice"}, true},
+		{"unlisted actor is denied", listed, ActorRef{ExtID: "ou_bob"}, false},
+		{"bot list actor is denied", listed, ActorRef{ExtID: "bot_release"}, false},
+		{"adapter-reported bot is denied", open, ActorRef{ExtID: "gh_bot", IsBot: true}, false},
+		{"allow-listed bot is still denied", Policy{
+			AllowList: []string{"bot_release"}, BotList: []string{"bot_release"},
+		}, ActorRef{ExtID: "bot_release"}, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := tt.policy.AllowsHighRiskAction(Trigger{Actor: tt.actor, Explicit: true}); got != tt.want {
+				t.Fatalf("AllowsHighRiskAction = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestContainsKeywordTokenBoundaries(t *testing.T) {
 	tests := []struct {
 		name string

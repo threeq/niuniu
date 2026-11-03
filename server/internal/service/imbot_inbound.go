@@ -15,6 +15,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/niuniu-dev/niuniu/internal/imbot"
+	"github.com/niuniu-dev/niuniu/internal/intake"
 	"github.com/niuniu-dev/niuniu/internal/store"
 )
 
@@ -150,9 +151,17 @@ func (s *IMBotService) HandleInbound(ctx context.Context, ev imbot.InboundEvent)
 		s.handleUse(ctx, channel, chat, ev, rest)
 		return
 	case "delete", "del", "rm", "删除":
+		if !s.allowsHighRiskAction(ctx, chat, ev) {
+			s.pushText(ctx, channel, ev.ChatExtID, ev.ThreadExtID, highRiskDeniedText)
+			return
+		}
 		s.handleDelete(ctx, channel, chat, ev, rest)
 		return
 	case "stop", "停止", "暂停":
+		if !s.allowsHighRiskAction(ctx, chat, ev) {
+			s.pushText(ctx, channel, ev.ChatExtID, ev.ThreadExtID, highRiskDeniedText)
+			return
+		}
 		s.handleStop(ctx, channel, chat, ev)
 		return
 	case "detail", "详情", "info":
@@ -790,6 +799,13 @@ func (s *IMBotService) handlePermissionCallback(ctx context.Context, channel sto
 	if err != nil || pctx.ProjectID != chat.ProjectID.Int64 {
 		return // cross-project or unresolvable — ignore
 	}
+	// Approving a tool is a high-risk action: only an explicit, non-bot actor
+	// may grant it (§6.2). Denying stays open to everyone — it is the safe
+	// direction.
+	if allow && !s.allowsHighRiskAction(ctx, chat, ev) {
+		s.pushText(ctx, channel, ev.ChatExtID, ev.ThreadExtID, highRiskDeniedText)
+		return
+	}
 
 	d := Decision{Allow: allow, Always: always}
 	if !allow {
@@ -905,6 +921,32 @@ func askUserOption(questionsJSON string, optIdx int) (question, label string, ok
 		return "", "", false
 	}
 	return qs[0].Question, qs[0].Options[optIdx].Label, true
+}
+
+// highRiskDeniedText is deliberately jargon-free: the user only needs to know
+// who can grant the permission, not the policy internals.
+const highRiskDeniedText = "你没有权限执行这个操作。停止或删除任务需要项目允许名单内的成员发起。"
+
+// allowsHighRiskAction gates /stop and /delete on the intake policy. A bot can
+// never stop or delete a task, and once an allow list is configured only listed
+// actors qualify. Fail closed: a policy read error denies the action.
+func (s *IMBotService) allowsHighRiskAction(ctx context.Context, chat store.ImBotChat, ev imbot.InboundEvent) bool {
+	if !chat.ProjectID.Valid {
+		return false
+	}
+	policy, err := (imbotPolicy{q: s.q}).LoadPolicy(ctx, chat.ProjectID.Int64, intake.SourceKindIMBot)
+	if err != nil {
+		slog.Warn("imbot: load policy for high-risk action failed", "chat", chat.ID, "error", err)
+		return false
+	}
+	return policy.AllowsHighRiskAction(intake.Trigger{
+		ProjectID:  chat.ProjectID.Int64,
+		SourceKind: intake.SourceKindIMBot,
+		Actor:      intake.ActorRef{ExtID: ev.ActorExtID, Name: ev.ActorName},
+		Text:       ev.Text,
+		Explicit:   true,
+		ReceiveAll: normalizeAgentMode(chat.AgentMode) == AgentModeObserve,
+	})
 }
 
 // handleStop stops the agent currently running the chat's active task (the /stop
