@@ -1067,7 +1067,7 @@ func (h *KanbanHandler) UpdateIssue(c *gin.Context) {
 			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "completion settings are unavailable"})
 			return
 		}
-		if _, err := h.Completion.SetIssueProfile(c.Request.Context(), issueID, profileID); err != nil {
+		if _, err := h.Completion.SetIssueProfile(c.Request.Context(), issueID, userID, profileID); err != nil {
 			if errors.Is(err, sql.ErrNoRows) {
 				NotFound(c, "COMPLETION_PROFILE")
 				return

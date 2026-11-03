@@ -60,6 +60,10 @@ const IntegrationsPage = lazyNamed(() => import('./pages/settings/integrations')
 const AgentsPage = lazyNamed(() => import('./pages/agents'), 'AgentsPage');
 const DashboardsPage = lazyNamed(() => import('./pages/dashboards/dashboards-page'), 'DashboardsPage');
 const DashboardDetail = lazyNamed(() => import('./pages/dashboards/dashboard-detail'), 'DashboardDetail');
+const IntakeReviewPage = lazyNamed(
+  () => import('./pages/intake/intake-review-page'),
+  'IntakeReviewPage',
+);
 
 function requireAuth() {
   return async () => {
@@ -384,6 +388,15 @@ const dashboardDetailRoute = createRoute({
   },
 });
 
+// Global dry-run calibration queue (design §6.7.5). Project scope is chosen on
+// the page; the route is top-level so Mission control and project settings can
+// both link to it.
+const intakeRoute = createRoute({
+  getParentRoute: () => layoutRoute,
+  path: '/intake',
+  component: IntakeReviewPage,
+});
+
 const routeTree = rootRoute.addChildren([
   loginRoute,
   imbotOnboardingRoute,
@@ -419,6 +432,7 @@ const routeTree = rootRoute.addChildren([
     agentsRoute,
     dashboardsRoute,
     dashboardDetailRoute,
+    intakeRoute,
   ]),
 ]);
 

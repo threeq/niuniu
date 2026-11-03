@@ -4,17 +4,19 @@ package service
 // and the per-issue override. Contract surface for design §6.5 / §6.9.
 //
 // Resolution rule (single source of truth, §6.5): issue profile > project
-// default, no per-field merge. EncodeCompletionPolicy flattens the policy into
-// the JSON shape the settings page and MCP tools consume.
+// default, no per-field merge. Resolution itself lives in internal/completion so
+// autohost and this HTTP/MCP surface share one implementation.
 
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
 	"time"
 
+	"github.com/niuniu-dev/niuniu/internal/completion"
 	"github.com/niuniu-dev/niuniu/internal/store"
 )
 
@@ -22,14 +24,9 @@ import (
 // to at least one issue. The assignment is never silently cleared.
 var ErrCompletionProfileInUse = errors.New("completion profile is in use by one or more issues")
 
-// CompletionPolicy is the effective completion configuration.
-type CompletionPolicy struct {
-	AutohostEnabled bool  `json:"autohost_enabled"`
-	MaxRounds       int64 `json:"max_rounds"`
-	TokenBudget     int64 `json:"token_budget"`
-	StopOnDecision  bool  `json:"stop_on_decision"`
-	RequireReview   bool  `json:"require_review"`
-}
+// CompletionPolicy is the effective completion configuration. It is the same
+// type the resolver returns, so the API, MCP surface and autohost cannot drift.
+type CompletionPolicy = completion.Policy
 
 // CompletionSettingsView is the project default returned by GET
 // /completion/settings. A project with no stored row reports the schema
@@ -73,23 +70,34 @@ type CompletionSettingsInput struct {
 // CompletionService backs the completion settings, profile CRUD and the
 // per-issue completion_profile_id override.
 type CompletionService struct {
-	db *store.DB
-	q  *store.Queries
+	db       *store.DB
+	q        *store.Queries
+	resolver *completion.Resolver
 }
 
 func NewCompletionService(db *sql.DB, q *store.Queries) *CompletionService {
-	return &CompletionService{db: store.Wrap(db), q: q}
+	return &CompletionService{db: store.Wrap(db), q: q, resolver: completion.NewResolver(q)}
+}
+
+// ResolvePolicy returns the effective policy for an issue (issue profile >
+// project default). It reads current rows on every call, so a change applies on
+// the next turn without restarting the agent.
+func (s *CompletionService) ResolvePolicy(ctx context.Context, issue store.Issue) (completion.EffectivePolicy, error) {
+	return s.resolver.Resolve(ctx, issue)
+}
+
+// ResolveIssuePolicy is the issue-id form of ResolvePolicy.
+func (s *CompletionService) ResolveIssuePolicy(ctx context.Context, issueID int64) (completion.EffectivePolicy, error) {
+	issue, err := s.q.GetIssue(ctx, issueID)
+	if err != nil {
+		return completion.EffectivePolicy{}, err
+	}
+	return s.resolver.Resolve(ctx, issue)
 }
 
 // defaultCompletionPolicy mirrors the creation defaults in §6.8.
 func defaultCompletionPolicy() CompletionPolicy {
-	return CompletionPolicy{
-		AutohostEnabled: true,
-		MaxRounds:       20,
-		TokenBudget:     0,
-		StopOnDecision:  true,
-		RequireReview:   false,
-	}
+	return completion.DefaultPolicy()
 }
 
 // GetSettings returns the project default, falling back to schema defaults when
@@ -118,7 +126,7 @@ func (s *CompletionService) GetSettings(ctx context.Context, projectID int64) (C
 
 // UpdateSettings upserts the project default from the supplied fields; omitted
 // fields keep the current value (or the default when there is no row yet).
-func (s *CompletionService) UpdateSettings(ctx context.Context, projectID int64, in CompletionSettingsInput) (CompletionSettingsView, error) {
+func (s *CompletionService) UpdateSettings(ctx context.Context, projectID, actorUserID int64, in CompletionSettingsInput) (CompletionSettingsView, error) {
 	cur, err := s.GetSettings(ctx, projectID)
 	if err != nil {
 		return CompletionSettingsView{}, err
@@ -144,6 +152,7 @@ func (s *CompletionService) UpdateSettings(ctx context.Context, projectID int64,
 	}); err != nil {
 		return CompletionSettingsView{}, err
 	}
+	s.auditProject(ctx, projectID, actorUserID, "completion.settings_updated", "project", projectID, policyAuditPayload(p))
 	return s.GetSettings(ctx, projectID)
 }
 
@@ -161,7 +170,7 @@ func (s *CompletionService) ListProfiles(ctx context.Context, projectID int64) (
 }
 
 // CreateProfile adds a named profile. Names are unique per project.
-func (s *CompletionService) CreateProfile(ctx context.Context, projectID int64, in CompletionProfileInput) (CompletionProfileDTO, error) {
+func (s *CompletionService) CreateProfile(ctx context.Context, projectID, actorUserID int64, in CompletionProfileInput) (CompletionProfileDTO, error) {
 	if in.Name == nil || strings.TrimSpace(*in.Name) == "" {
 		return CompletionProfileDTO{}, fmt.Errorf("name is required")
 	}
@@ -186,11 +195,13 @@ func (s *CompletionService) CreateProfile(ctx context.Context, projectID int64, 
 	if err != nil {
 		return CompletionProfileDTO{}, err
 	}
+	s.auditProject(ctx, projectID, actorUserID, "completion.profile_created", "completion_profile", row.ID,
+		profileAuditPayload(row.Name, p))
 	return completionProfileDTO(row), nil
 }
 
 // UpdateProfile applies a partial update. The profile must belong to projectID.
-func (s *CompletionService) UpdateProfile(ctx context.Context, projectID, profileID int64, in CompletionProfileInput) (CompletionProfileDTO, error) {
+func (s *CompletionService) UpdateProfile(ctx context.Context, projectID, profileID, actorUserID int64, in CompletionProfileInput) (CompletionProfileDTO, error) {
 	cur, err := s.q.GetCompletionProfile(ctx, profileID)
 	if err != nil {
 		return CompletionProfileDTO{}, err
@@ -210,13 +221,7 @@ func (s *CompletionService) UpdateProfile(ctx context.Context, projectID, profil
 			}
 		}
 	}
-	p := CompletionPolicy{
-		AutohostEnabled: cur.AutohostEnabled != 0,
-		MaxRounds:       cur.MaxRounds,
-		TokenBudget:     cur.TokenBudget,
-		StopOnDecision:  cur.StopOnDecision != 0,
-		RequireReview:   cur.RequireReview != 0,
-	}
+	p := completionPolicyOfProfile(cur)
 	applyCompletionInput(&p, in)
 	if err := validateCompletionPolicy(p); err != nil {
 		return CompletionProfileDTO{}, err
@@ -233,11 +238,13 @@ func (s *CompletionService) UpdateProfile(ctx context.Context, projectID, profil
 	if err != nil {
 		return CompletionProfileDTO{}, err
 	}
+	s.auditProject(ctx, projectID, actorUserID, "completion.profile_updated", "completion_profile", row.ID,
+		profileAuditPayload(row.Name, p))
 	return completionProfileDTO(row), nil
 }
 
 // DeleteProfile removes a profile unless an issue still references it.
-func (s *CompletionService) DeleteProfile(ctx context.Context, projectID, profileID int64) error {
+func (s *CompletionService) DeleteProfile(ctx context.Context, projectID, profileID, actorUserID int64) error {
 	cur, err := s.q.GetCompletionProfile(ctx, profileID)
 	if err != nil {
 		return err
@@ -252,21 +259,26 @@ func (s *CompletionService) DeleteProfile(ctx context.Context, projectID, profil
 	if n > 0 {
 		return ErrCompletionProfileInUse
 	}
-	return s.q.DeleteCompletionProfile(ctx, profileID)
+	if err := s.q.DeleteCompletionProfile(ctx, profileID); err != nil {
+		return err
+	}
+	s.auditProject(ctx, projectID, actorUserID, "completion.profile_deleted", "completion_profile", profileID,
+		profileAuditPayload(cur.Name, completionPolicyOfProfile(cur)))
+	return nil
 }
 
 // SetIssueProfile sets or clears (nil) an issue's completion profile override.
 // A non-nil profile must belong to the same project as the issue.
-func (s *CompletionService) SetIssueProfile(ctx context.Context, issueID int64, profileID *int64) (store.Issue, error) {
+func (s *CompletionService) SetIssueProfile(ctx context.Context, issueID, actorUserID int64, profileID *int64) (store.Issue, error) {
 	issue, err := s.q.GetIssue(ctx, issueID)
 	if err != nil {
 		return store.Issue{}, err
 	}
+	col, err := s.q.GetColumn(ctx, issue.ColumnID)
+	if err != nil {
+		return store.Issue{}, err
+	}
 	if profileID != nil {
-		col, err := s.q.GetColumn(ctx, issue.ColumnID)
-		if err != nil {
-			return store.Issue{}, err
-		}
 		profile, err := s.q.GetCompletionProfile(ctx, *profileID)
 		if err != nil {
 			return store.Issue{}, err
@@ -275,10 +287,63 @@ func (s *CompletionService) SetIssueProfile(ctx context.Context, issueID int64, 
 			return store.Issue{}, fmt.Errorf("completion profile does not belong to this issue's project")
 		}
 	}
-	return s.q.SetIssueCompletionProfile(ctx, store.SetIssueCompletionProfileParams{
+	updated, err := s.q.SetIssueCompletionProfile(ctx, store.SetIssueCompletionProfileParams{
 		CompletionProfileID: sql.NullInt64{Int64: int64OrZero(profileID), Valid: profileID != nil},
 		ID:                  issueID,
 	})
+	if err != nil {
+		return store.Issue{}, err
+	}
+	payload := `{"completion_profile_id":null}`
+	if profileID != nil {
+		payload = fmt.Sprintf(`{"completion_profile_id":%d}`, *profileID)
+	}
+	s.auditProject(ctx, col.ProjectID, actorUserID, "completion.issue_profile_changed", "issue", issueID, payload)
+	return updated, nil
+}
+
+// auditProject records a completion-policy mutation against the project owner.
+// appendResourceAudit is a no-op for personal ('user') owners — the personal
+// edition is single-user, so updated_at is the whole provenance there — and
+// writes actor + time to org_audit_log for org-owned projects.
+func (s *CompletionService) auditProject(ctx context.Context, projectID, actorUserID int64, action, targetType string, targetID int64, payload string) {
+	if s.db == nil {
+		return
+	}
+	project, err := s.q.GetProject(ctx, projectID)
+	if err != nil {
+		return
+	}
+	appendResourceAudit(ctx, s.db, nil, project.OwnerType, project.OwnerID, actorUserID, action, targetType, targetID, payload)
+}
+
+func policyAuditPayload(p CompletionPolicy) string {
+	b, err := json.Marshal(p)
+	if err != nil {
+		return `{}`
+	}
+	return string(b)
+}
+
+func profileAuditPayload(name string, p CompletionPolicy) string {
+	b, err := json.Marshal(struct {
+		Name string `json:"name"`
+		CompletionPolicy
+	}{Name: name, CompletionPolicy: p})
+	if err != nil {
+		return `{}`
+	}
+	return string(b)
+}
+
+func completionPolicyOfProfile(p store.CompletionProfile) CompletionPolicy {
+	return CompletionPolicy{
+		AutohostEnabled: p.AutohostEnabled != 0,
+		MaxRounds:       p.MaxRounds,
+		TokenBudget:     p.TokenBudget,
+		StopOnDecision:  p.StopOnDecision != 0,
+		RequireReview:   p.RequireReview != 0,
+	}
 }
 
 func (s *CompletionService) ensureNameFree(ctx context.Context, projectID int64, name string, exceptID int64) error {
@@ -296,18 +361,12 @@ func (s *CompletionService) ensureNameFree(ctx context.Context, projectID int64,
 
 func completionProfileDTO(r store.CompletionProfile) CompletionProfileDTO {
 	return CompletionProfileDTO{
-		ID:        r.ID,
-		ProjectID: r.ProjectID,
-		Name:      r.Name,
-		CompletionPolicy: CompletionPolicy{
-			AutohostEnabled: r.AutohostEnabled != 0,
-			MaxRounds:       r.MaxRounds,
-			TokenBudget:     r.TokenBudget,
-			StopOnDecision:  r.StopOnDecision != 0,
-			RequireReview:   r.RequireReview != 0,
-		},
-		CreatedAt: r.CreatedAt,
-		UpdatedAt: r.UpdatedAt,
+		ID:               r.ID,
+		ProjectID:        r.ProjectID,
+		Name:             r.Name,
+		CompletionPolicy: completionPolicyOfProfile(r),
+		CreatedAt:        r.CreatedAt,
+		UpdatedAt:        r.UpdatedAt,
 	}
 }
 

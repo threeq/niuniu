@@ -21,6 +21,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/niuniu-dev/niuniu/internal/agentproxy"
 	"github.com/niuniu-dev/niuniu/internal/api"
+	"github.com/niuniu-dev/niuniu/internal/completion"
 	"github.com/niuniu-dev/niuniu/internal/config"
 	"github.com/niuniu-dev/niuniu/internal/consent"
 	"github.com/niuniu-dev/niuniu/internal/dataconn"
@@ -433,6 +434,14 @@ func New(cfg *config.Config, db *sql.DB, frontendFS fs.FS) *Server {
 		frontendFS: frontendFS,
 	}
 	store.Migrate(db)
+
+	// Projects created before completion policy existed get their
+	// completion_settings row + built-in profiles here. Gated on "no settings
+	// row" so a project whose profiles the user edited/deleted is not re-seeded
+	// on every boot. Best-effort: the resolver falls back to schema defaults.
+	if err := completion.BackfillProjectDefaults(context.Background(), store.Wrap(db)); err != nil {
+		slog.Warn("completion: backfill project defaults failed", "error", err)
+	}
 
 	authz := service.NewAuthz(s.queries, db)
 	s.authzSvc = authz
@@ -918,11 +927,12 @@ func New(cfg *config.Config, db *sql.DB, frontendFS fs.FS) *Server {
 	// before an issue may complete. Empty by default (no floor).
 	s.projectFloorSvc = service.NewProjectFloorService(db, s.queries)
 	s.projectFloorHandler = api.NewProjectFloorHandler(s.projectFloorSvc, authz)
-	// Intake + Completion contract surface (design §6.9). The decision pipeline
-	// wires SetAcceptor later; until then accept answers 501 rather than
-	// silently consuming the queue entry.
+	// Intake + Completion contract surface (design §6.9). The IM service is wired
+	// as the decision acceptor further below (it is constructed after this point);
+	// until then accept answers 501 rather than consuming the queue entry.
 	s.intakeSvc = service.NewIntakeService(db, s.queries)
 	s.intakeHandler = api.NewIntakeHandler(s.intakeSvc, authz)
+	s.intakeHandler.ProviderEnv = s.kanbanSvc
 	s.completionSvc = service.NewCompletionService(db, s.queries)
 	s.completionHandler = api.NewCompletionHandler(s.completionSvc, authz)
 	s.taskBriefSvc = service.NewTaskBriefService(s.queries)
@@ -1698,6 +1708,9 @@ func New(cfg *config.Config, db *sql.DB, frontendFS fs.FS) *Server {
 	// classifier instance.
 	imbotDispatch := service.NewDispatchService(s.kanbanSvc, s.workspaceSvc, s.queries, service.NewPlanRouter())
 	s.imbotSvc.SetInbound(imbotDispatch, s.agentProxy, s.permService)
+	// The calibration queue's accept path reuses the IM executor, so a pending
+	// decision creates (or resumes) the same task an automatic accept would.
+	s.intakeSvc.SetAcceptor(s.imbotSvc)
 	// Let a user answer an agent's ask_user question by tapping an option button in
 	// the chat (the outbound question card carries option buttons).
 	s.imbotSvc.SetAskUserDecider(s.askUserService)

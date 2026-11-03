@@ -285,3 +285,66 @@ func TestHandleInbound_ChatIntakeModeOverridesProjectPolicy(t *testing.T) {
 		t.Fatalf("would_do_json = %s, want the proposed goal", d.WouldDoJson)
 	}
 }
+
+// TestAcceptDecision_ExecutesPendingDecision proves the calibration queue's
+// accept path: a decision recorded by observe mode is replayed through the same
+// executor, creating (or resuming) the task and applying the brief goal.
+func TestAcceptDecision_ExecutesPendingDecision(t *testing.T) {
+	f := newIMBotFixture(t)
+	chat := f.activeChat(t, "oc_accept")
+	chat = f.setChatIntakeMode(t, chat, IntakeModeObserve)
+	ctx := context.Background()
+	if _, err := f.q.UpsertIntakeSetting(ctx, store.UpsertIntakeSettingParams{
+		ProjectID: f.projectID, SourceKind: intake.SourceKindIMBot, Mode: "auto",
+		DailyCap: 10, AllowListJson: `["ou_a"]`, BotListJson: `[]`,
+	}); err != nil {
+		t.Fatalf("seed intake setting: %v", err)
+	}
+	if _, err := f.q.CreateIntakeRule(ctx, store.CreateIntakeRuleParams{
+		ProjectID: f.projectID, SourceKind: intake.SourceKindIMBot, Name: "r",
+		Instruction: "", ConditionsJson: `{"keywords":["部署"]}`, Priority: 0, Enabled: 1,
+	}); err != nil {
+		t.Fatalf("seed rule: %v", err)
+	}
+	targetIssue, targetWS := f.newWorkspace(t, "目标任务", "/tmp/ws-accept")
+	f.router.queue = []PlanTarget{{IssueID: targetIssue, WorkspaceID: targetWS, ProjectID: f.projectID}}
+
+	ev := f.groupMsg(chat.ChatExtID, "e-acc", "请部署到线上", false)
+	ev.ActorExtID = "ou_b"
+	f.svc.HandleInbound(ctx, ev)
+
+	recorded := f.intakeEvent(t, chat.ChatExtID, "e-acc")
+	decisions, err := f.q.ListIntakeDecisionsByEvent(ctx, recorded.ID)
+	if err != nil || len(decisions) != 1 {
+		t.Fatalf("decisions = %v, err = %v", decisions, err)
+	}
+	pending := decisions[0]
+	if pending.Executed != 0 || pending.Decision != "accept" {
+		t.Fatalf("precondition: decision = %+v, want a pending accept", pending)
+	}
+
+	issueID, wsID, err := f.svc.AcceptDecision(ctx, pending)
+	if err != nil {
+		t.Fatalf("accept: %v", err)
+	}
+	if issueID != targetIssue || wsID != targetWS {
+		t.Fatalf("accepted task = (%d,%d), want (%d,%d)", issueID, wsID, targetIssue, targetWS)
+	}
+	if f.router.calls != 1 {
+		t.Fatalf("accept routed %d times, want 1", f.router.calls)
+	}
+	if f.router.lastHint.TitleHint != "请部署到线上" {
+		t.Fatalf("title hint = %q, want the brief goal", f.router.lastHint.TitleHint)
+	}
+	if len(f.deliverer.calls) != 1 || f.deliverer.calls[0].workspaceID != targetWS {
+		t.Fatalf("delivery = %+v", f.deliverer.calls)
+	}
+
+	issue, err := f.q.GetIssue(ctx, targetIssue)
+	if err != nil {
+		t.Fatalf("get issue: %v", err)
+	}
+	if !strings.Contains(issue.GoalCondition, "请部署到线上") {
+		t.Fatalf("goal_condition = %q, want the accepted brief goal", issue.GoalCondition)
+	}
+}

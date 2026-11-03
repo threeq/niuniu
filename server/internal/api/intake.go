@@ -7,12 +7,14 @@
 package api
 
 import (
+	"context"
 	"database/sql"
 	"errors"
 	"net/http"
 	"strconv"
 
 	"github.com/gin-gonic/gin"
+	"github.com/niuniu-dev/niuniu/internal/agentproxy"
 	"github.com/niuniu-dev/niuniu/internal/service"
 )
 
@@ -20,6 +22,11 @@ import (
 type IntakeHandler struct {
 	svc   *service.IntakeService
 	authz *service.Authz
+	// ProviderEnv lets the brief suggestion reuse the issue endpoint's provider
+	// default, so it works even when the host's native CLI login has expired.
+	ProviderEnv interface {
+		ProjectProviderEnv(ctx context.Context, projectID int64, cliType string) []string
+	}
 }
 
 func NewIntakeHandler(svc *service.IntakeService, authz *service.Authz) *IntakeHandler {
@@ -341,17 +348,18 @@ func (h *IntakeHandler) ListDecisions(c *gin.Context) {
 // AcceptDecision serves POST /api/projects/:id/intake/decisions/:did/accept.
 //
 // @Summary      Accept a dry-run intake decision
-// @Description  Executes the decision through the intake pipeline, creating the issue/workspace. Returns 501 until the pipeline is wired.
+// @Description  Executes the decision through the intake pipeline, creating the issue/workspace (or continuing the bound task for a resume). An optional brief body replaces the proposed Task Brief.
 // @Tags         Intake
+// @Accept       json
 // @Produce      json
-// @Param        id   path      int  true  "Project ID"
-// @Param        did  path      int  true  "Decision ID"
-// @Success      200  {object}  service.IntakeDecisionDTO
-// @Failure      400  {object}  Error
-// @Failure      401  {object}  Error
-// @Failure      403  {object}  Error
-// @Failure      404  {object}  Error
-// @Failure      501  {object}  Error
+// @Param        id    path      int                          true   "Project ID"
+// @Param        did   path      int                          true   "Decision ID"
+// @Param        body  body      service.AcceptDecisionInput  false  "Edited Task Brief"
+// @Success      200   {object}  service.IntakeDecisionDTO
+// @Failure      400   {object}  Error
+// @Failure      401   {object}  Error
+// @Failure      403   {object}  Error
+// @Failure      404   {object}  Error
 // @Router       /projects/{id}/intake/decisions/{did}/accept [post]
 func (h *IntakeHandler) AcceptDecision(c *gin.Context) {
 	pid, ok := h.intakeProjectAccess(c, true)
@@ -365,12 +373,120 @@ func (h *IntakeHandler) AcceptDecision(c *gin.Context) {
 	if !h.decisionInProject(c, pid, did) {
 		return
 	}
-	item, err := h.svc.AcceptDecision(c.Request.Context(), did)
+	var in service.AcceptDecisionInput
+	if c.Request.ContentLength > 0 {
+		if err := c.ShouldBindJSON(&in); err != nil {
+			BadRequest(c, "invalid request body")
+			return
+		}
+	}
+	item, err := h.svc.AcceptDecision(c.Request.Context(), did, in.Brief)
 	if err != nil {
 		h.mapIntakeErr(c, err)
 		return
 	}
 	c.JSON(http.StatusOK, item)
+}
+
+// UpdateDecisionBrief serves PATCH /api/projects/:id/intake/decisions/:did.
+//
+// @Summary      Save an edited Task Brief draft
+// @Description  Updates only the pending decision's would-do brief. No issue, workspace or message is created.
+// @Tags         Intake
+// @Accept       json
+// @Produce      json
+// @Param        id    path      int                            true  "Project ID"
+// @Param        did   path      int                            true  "Decision ID"
+// @Param        body  body      service.DecisionBriefDraft     true  "Brief draft"
+// @Success      200   {object}  service.IntakeDecisionDTO
+// @Failure      400   {object}  Error
+// @Failure      401   {object}  Error
+// @Failure      403   {object}  Error
+// @Failure      404   {object}  Error
+// @Router       /projects/{id}/intake/decisions/{did} [patch]
+func (h *IntakeHandler) UpdateDecisionBrief(c *gin.Context) {
+	pid, ok := h.intakeProjectAccess(c, true)
+	if !ok {
+		return
+	}
+	did, ok := decisionIDParam(c)
+	if !ok {
+		return
+	}
+	if !h.decisionInProject(c, pid, did) {
+		return
+	}
+	var in service.DecisionBriefDraft
+	if err := c.ShouldBindJSON(&in); err != nil {
+		BadRequest(c, "invalid request body")
+		return
+	}
+	item, err := h.svc.UpdateDecisionBrief(c.Request.Context(), did, in)
+	if err != nil {
+		h.mapIntakeErr(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, item)
+}
+
+// SuggestGoalCondition serves POST /api/projects/:id/intake/decisions/:did/suggest-goal-condition.
+//
+// @Summary      AI-suggest the brief goal for a pending decision
+// @Description  Reuses the issue goal_condition suggester against the decision's proposed goal + original message. Nothing is persisted.
+// @Tags         Intake
+// @Produce      json
+// @Param        id   path      int  true  "Project ID"
+// @Param        did  path      int  true  "Decision ID"
+// @Success      200  {object}  SuggestGoalConditionResponse
+// @Failure      400  {object}  Error
+// @Failure      401  {object}  Error
+// @Failure      403  {object}  Error
+// @Failure      404  {object}  Error
+// @Failure      429  {object}  Error
+// @Failure      502  {object}  Error
+// @Failure      503  {object}  Error
+// @Router       /projects/{id}/intake/decisions/{did}/suggest-goal-condition [post]
+func (h *IntakeHandler) SuggestGoalCondition(c *gin.Context) {
+	pid, ok := h.intakeProjectAccess(c, false)
+	if !ok {
+		return
+	}
+	did, ok := decisionIDParam(c)
+	if !ok {
+		return
+	}
+	if !h.decisionInProject(c, pid, did) {
+		return
+	}
+	if !agentproxy.NiuniuAgentAvailable() {
+		c.AbortWithStatusJSON(http.StatusServiceUnavailable, gin.H{
+			"error": gin.H{"code": "CLI_UNAVAILABLE", "message": "niuniu-agent CLI not available"},
+		})
+		return
+	}
+	title, description, err := h.svc.SuggestionInput(c.Request.Context(), did)
+	if err != nil {
+		h.mapIntakeErr(c, err)
+		return
+	}
+	var providerEnv []string
+	if h.ProviderEnv != nil {
+		providerEnv = h.ProviderEnv.ProjectProviderEnv(c.Request.Context(), pid, "niuniu")
+	}
+	suggestion, err := agentproxy.SuggestGoalConditionWithEnv(c.Request.Context(), title, description, "", providerEnv)
+	if err != nil {
+		if !agentproxy.NiuniuAgentAvailable() {
+			c.AbortWithStatusJSON(http.StatusServiceUnavailable, gin.H{
+				"error": gin.H{"code": "CLI_UNAVAILABLE", "message": "niuniu-agent CLI not available"},
+			})
+			return
+		}
+		c.AbortWithStatusJSON(http.StatusBadGateway, gin.H{
+			"error": gin.H{"code": "SUGGEST_FAILED", "message": err.Error()},
+		})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"data": SuggestGoalConditionResponse{Suggestion: suggestion}})
 }
 
 // IgnoreDecision serves POST /api/projects/:id/intake/decisions/:did/ignore.
@@ -476,7 +592,7 @@ func (h *IntakeHandler) MCPAcceptDecision(c *gin.Context) {
 	if !h.mcpDecisionAccess(c, did) {
 		return
 	}
-	item, err := h.svc.AcceptDecision(c.Request.Context(), did)
+	item, err := h.svc.AcceptDecision(c.Request.Context(), did, nil)
 	if err != nil {
 		h.mapIntakeErr(c, err)
 		return
