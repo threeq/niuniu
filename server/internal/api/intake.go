@@ -170,6 +170,30 @@ func (h *IntakeHandler) SetPause(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"paused": paused})
 }
 
+// GetCalibration serves GET /api/projects/:id/intake/calibration.
+//
+// @Summary      Read the project's calibration sample
+// @Description  Resolved dry-run decisions (accepted vs ignored), the acceptance rate, per-source breakdown, and whether the auto-mode threshold is met.
+// @Tags         Intake
+// @Produce      json
+// @Param        id   path      int  true  "Project ID"
+// @Success      200  {object}  service.IntakeCalibrationStats
+// @Failure      401  {object}  Error
+// @Failure      403  {object}  Error
+// @Router       /projects/{id}/intake/calibration [get]
+func (h *IntakeHandler) GetCalibration(c *gin.Context) {
+	pid, ok := h.intakeProjectAccess(c, false)
+	if !ok {
+		return
+	}
+	stats, err := h.svc.GetCalibration(c.Request.Context(), pid)
+	if err != nil {
+		h.mapIntakeErr(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, stats)
+}
+
 // ListRules serves GET /api/projects/:id/intake/rules.
 //
 // @Summary      List intake rules

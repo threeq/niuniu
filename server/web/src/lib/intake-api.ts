@@ -105,6 +105,43 @@ export interface IntakeSettings {
   settings: IntakeSetting[]
 }
 
+/** Per-source slice of the calibration sample. acceptance_rate is 0..1. */
+export interface IntakeCalibrationSource {
+  source_kind: IntakeSourceKind | string
+  calibrated: number
+  accepted: number
+  ignored: number
+  pending: number
+  acceptance_rate: number
+}
+
+/** One resolved dry-run decision, listed in the enable-auto dialog. */
+export interface IntakeCalibrationRecord {
+  id: number
+  source_kind: IntakeSourceKind | string
+  actor_name: string
+  actor_ext_id: string
+  outcome: 'accepted' | 'ignored'
+  reason_code: string
+  reason_text: string
+  created_at: string
+}
+
+/** GET /projects/:id/intake/calibration — the trust-ramp sample. */
+export interface IntakeCalibration {
+  project_id: number
+  calibrated: number
+  accepted: number
+  ignored: number
+  pending: number
+  acceptance_rate: number
+  min_calibrated: number
+  min_acceptance_rate: number
+  ready: boolean
+  sources: IntakeCalibrationSource[]
+  recent: IntakeCalibrationRecord[]
+}
+
 export interface IntakeRuleConditions {
   actors?: string[]
   keywords?: string[]
@@ -199,6 +236,13 @@ export const intakeApi = {
 
   setPaused: (projectId: number, paused: boolean) =>
     api.put<{ paused: boolean }>(`/projects/${projectId}/intake/pause`, { paused }),
+
+  // suppressError: the calibration strip renders its own state, and a failed
+  // poll must not raise a toast on every project switch.
+  getCalibration: (projectId: number) =>
+    api.get<IntakeCalibration>(`/projects/${projectId}/intake/calibration`, {
+      suppressError: true,
+    }),
 
   createRule: (projectId: number, input: IntakeRuleInput) =>
     api.post<IntakeRule>(`/projects/${projectId}/intake/rules`, input),
