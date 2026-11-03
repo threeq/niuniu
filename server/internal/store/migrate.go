@@ -870,6 +870,9 @@ func Migrate(db *sql.DB) {
 	// 2026-11-03 Task intake + auto-completion (Epic #755): extend existing
 	// tables for task Brief acceptance items and per-issue completion profiles.
 	migrateIntakeCompletion(db)
+	// Per-chat intake mode (design §6.9): the PATCH /api/imbot/chats/:chatid
+	// field. Backfilled once from the legacy agent_mode mapping in §7.
+	migrateIMBotIntakeMode(db)
 
 	// 2026-11-03 intake events map onto the existing Execution Timeline, so the
 	// issue_exec_events.kind CHECK must admit 'intake' (design §6.7.6).
@@ -997,6 +1000,34 @@ func migrateIMBotAgentEmployee(db *sql.DB) {
 	// the CREATE so a fresh DB gets the column from the table definition and this
 	// call is the no-op instead.
 	addColumnIfNotExists(db, "im_bot_chat_messages", "attachments", "TEXT NOT NULL DEFAULT '[]'")
+}
+
+// migrateIMBotIntakeMode retrofits im_bot_chats.intake_mode (design §6.9) and
+// backfills it once from the legacy agent_mode mapping in §7:
+//
+//	agent_mode='command' → intake_mode='off'
+//	agent_mode='observe' → intake_mode='auto'
+//
+// The backfill runs only when the column is first added — columnExists is
+// checked BEFORE addColumnIfNotExists — so a value the user later chooses in the
+// chat row is never overwritten on a restart. New chats default to 'observe'
+// (dry-run), per decision record #1.
+func migrateIMBotIntakeMode(db *sql.DB) {
+	had, err := columnExists(db, "im_bot_chats", "intake_mode")
+	if err != nil {
+		slog.Warn("migrateIMBotIntakeMode: column probe failed", "error", err)
+		return
+	}
+	addColumnIfNotExists(db, "im_bot_chats", "intake_mode", "TEXT NOT NULL DEFAULT 'observe'")
+	if had {
+		return
+	}
+	if _, err := db.Exec(`UPDATE im_bot_chats SET intake_mode = ` +
+		`CASE WHEN agent_mode = 'observe' THEN 'auto' ELSE 'off' END`); err != nil {
+		slog.Warn("migrateIMBotIntakeMode: backfill failed", "error", err)
+		return
+	}
+	slog.Info("migrateIMBotIntakeMode: im_bot_chats.intake_mode added and backfilled")
 }
 
 // migrateIMBotAllowWechat relaxes the im_bot_channels.channel_type and
@@ -1354,7 +1385,7 @@ func migrateAllowNiuniuCLITypeSQLite(db *sql.DB, w *DB, oldEnum, newEnum string)
 	}
 	markMigration(w, "allow_niuniu_cli_type_v1")
 	slog.Info("migrateAllowNiuniuCLIType: workspaces.cli_type / projects.default_cli_type CHECK widened for 'niuniu'")
-}// (an external knowledge-base MCP endpoint as a first-class KB source kind).
+} // (an external knowledge-base MCP endpoint as a first-class KB source kind).
 // Dual-driver, marker-gated. On fresh installs the schema files already carry
 // 'mcp', so the rebuild is a one-time no-op that reproduces the same table.
 //

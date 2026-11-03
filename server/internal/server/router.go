@@ -335,6 +335,20 @@ func (s *Server) setupRoutes() {
 		mcpGroup.POST("/projects/:id/imbot/chats/:chatid/approve", s.imbotHandler.MCPApproveChat)
 		mcpGroup.GET("/projects/:id/imbot/channels/:cid/status", s.imbotHandler.MCPChannelStatus)
 
+		// Intake + Completion MCP tunnels (design §6.9). Project-scoped routes
+		// share the :id wildcard with the imbot block above; decision routes are
+		// addressed by id alone and resolve their project before authorizing.
+		mcpGroup.GET("/projects/:id/intake/settings", s.intakeHandler.MCPGetSettings)
+		mcpGroup.POST("/projects/:id/intake/mode", s.intakeHandler.MCPSetMode)
+		mcpGroup.GET("/projects/:id/intake/decisions/pending", s.intakeHandler.MCPListPending)
+		mcpGroup.POST("/decisions/:did/accept", s.intakeHandler.MCPAcceptDecision)
+		mcpGroup.POST("/decisions/:did/ignore", s.intakeHandler.MCPIgnoreDecision)
+		mcpGroup.PUT("/projects/:id/completion/settings", s.completionHandler.MCPSetPolicy)
+		mcpGroup.GET("/projects/:id/completion/profiles", s.completionHandler.MCPListProfiles)
+		mcpGroup.POST("/projects/:id/completion/profiles", s.completionHandler.MCPUpsertProfile)
+		mcpGroup.PUT("/issues/:id/completion-profile", s.completionHandler.MCPSetIssueProfile)
+		mcpGroup.GET("/issues/:id/brief", s.taskBriefHandler.GetBrief)
+
 		// External API proxy — universal MCP tool for AI-driven external
 		// API calls. Replaces all old L4 work-item MCP tools.
 		mcpGroup.POST("/external-proxy/call", s.proxyCall)
@@ -756,6 +770,23 @@ func (s *Server) setupRoutes() {
 		projects.GET("/:id/floor", s.projectFloorHandler.GetFloor)
 		projects.PUT("/:id/floor", s.projectFloorHandler.SetFloor)
 
+		// Intake (任务来源) — design §6.9. Settings are per (project, source);
+		// decisions are the dry-run calibration queue.
+		projects.GET("/:id/intake/settings", s.intakeHandler.GetSettings)
+		projects.PUT("/:id/intake/settings", s.intakeHandler.PutSettings)
+		projects.GET("/:id/intake/decisions", s.intakeHandler.ListDecisions)
+		projects.POST("/:id/intake/decisions/:did/accept", s.intakeHandler.AcceptDecision)
+		projects.POST("/:id/intake/decisions/:did/ignore", s.intakeHandler.IgnoreDecision)
+
+		// Completion (自动完成) — project default + named profiles. Independent of
+		// Intake: changing one never affects the other (§6.5).
+		projects.GET("/:id/completion/settings", s.completionHandler.GetSettings)
+		projects.PUT("/:id/completion/settings", s.completionHandler.PutSettings)
+		projects.GET("/:id/completion/profiles", s.completionHandler.ListProfiles)
+		projects.POST("/:id/completion/profiles", s.completionHandler.CreateProfile)
+		projects.PATCH("/:id/completion/profiles/:pid", s.completionHandler.UpdateProfile)
+		projects.DELETE("/:id/completion/profiles/:pid", s.completionHandler.DeleteProfile)
+
 	}
 
 	// Lifecycle groups (registered before /columns group to avoid /:id conflict)
@@ -780,6 +811,11 @@ func (s *Server) setupRoutes() {
 	{
 		issues.GET("/:id", s.kanbanHandler.GetIssue)
 		issues.PUT("/:id", s.kanbanHandler.UpdateIssue)
+		// PATCH is the documented shape for the completion_profile_id extension
+		// (design §6.9); PUT stays for existing callers.
+		issues.PATCH("/:id", s.kanbanHandler.UpdateIssue)
+		// Task Brief: current version + full history (null brief = not from Intake).
+		issues.GET("/:id/brief", s.taskBriefHandler.GetBrief)
 		issues.PUT("/:id/move", s.kanbanHandler.MoveIssue)
 		issues.PUT("/:id/lifecycle", s.kanbanHandler.UpdateIssueLifecycle)
 		// Executable Epic: set parent/issue_type/exec_wave/exec_status.

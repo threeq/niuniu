@@ -10,7 +10,12 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
+	"github.com/niuniu-dev/niuniu/internal/git"
 )
+
+// searchFileHit keeps the internal/git import live so the swagger annotations
+// below (which name git.FileLogEntry / git.FileDiff) resolve during `make docs`.
+type searchFileHit = git.FileLogEntry
 
 // repoSearchMaxFiles caps filename hits. The result list is flat, so a bare "e"
 // over a large repo must not stream every path in the index.

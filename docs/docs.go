@@ -23,6 +23,25 @@ const docTemplate = `{
     "host": "{{.Host}}",
     "basePath": "{{.BasePath}}",
     "paths": {
+        "/app-update/latest": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "system"
+                ],
+                "summary": "Latest desktop release (proxied from the official changelog)",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/releasecheck.Release"
+                        }
+                    }
+                }
+            }
+        },
         "/columns/{id}": {
             "put": {
                 "description": "Update column details",
@@ -50,7 +69,7 @@ const docTemplate = `{
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/api.UpdateColumnRequest"
+                            "$ref": "#/definitions/internal_api.UpdateColumnRequest"
                         }
                     }
                 ],
@@ -64,19 +83,19 @@ const docTemplate = `{
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/api.Error"
+                            "$ref": "#/definitions/internal_api.Error"
                         }
                     },
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/api.Error"
+                            "$ref": "#/definitions/internal_api.Error"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/api.Error"
+                            "$ref": "#/definitions/internal_api.Error"
                         }
                     }
                 }
@@ -109,7 +128,7 @@ const docTemplate = `{
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/api.Error"
+                            "$ref": "#/definitions/internal_api.Error"
                         }
                     }
                 }
@@ -143,14 +162,14 @@ const docTemplate = `{
                         "schema": {
                             "type": "array",
                             "items": {
-                                "$ref": "#/definitions/api.IssueResponse"
+                                "$ref": "#/definitions/internal_api.IssueResponse"
                             }
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/api.Error"
+                            "$ref": "#/definitions/internal_api.Error"
                         }
                     }
                 }
@@ -181,7 +200,7 @@ const docTemplate = `{
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/api.CreateIssueRequest"
+                            "$ref": "#/definitions/internal_api.CreateIssueRequest"
                         }
                     }
                 ],
@@ -189,19 +208,19 @@ const docTemplate = `{
                     "201": {
                         "description": "Created",
                         "schema": {
-                            "$ref": "#/definitions/api.IssueResponse"
+                            "$ref": "#/definitions/internal_api.IssueResponse"
                         }
                     },
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/api.Error"
+                            "$ref": "#/definitions/internal_api.Error"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/api.Error"
+                            "$ref": "#/definitions/internal_api.Error"
                         }
                     }
                 }
@@ -234,7 +253,7 @@ const docTemplate = `{
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/api.UpdateColumnPositionRequest"
+                            "$ref": "#/definitions/internal_api.UpdateColumnPositionRequest"
                         }
                     }
                 ],
@@ -245,19 +264,72 @@ const docTemplate = `{
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/api.Error"
+                            "$ref": "#/definitions/internal_api.Error"
                         }
                     },
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/api.Error"
+                            "$ref": "#/definitions/internal_api.Error"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/api.Error"
+                            "$ref": "#/definitions/internal_api.Error"
+                        }
+                    }
+                }
+            }
+        },
+        "/comments/{id}/resolved": {
+            "patch": {
+                "description": "Set a comment's review verdict. Independent of send-to-agent, which only records delivery — an injected comment stays unresolved until a reviewer judges it.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Review"
+                ],
+                "summary": "Resolve or reopen a comment",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Comment ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Verdict",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.ResolveCommentRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.CommentResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.Error"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.Error"
                         }
                     }
                 }
@@ -292,13 +364,13 @@ const docTemplate = `{
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/api.Error"
+                            "$ref": "#/definitions/internal_api.Error"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/api.Error"
+                            "$ref": "#/definitions/internal_api.Error"
                         }
                     }
                 }
@@ -327,25 +399,25 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/api.DirectoryListResponse"
+                            "$ref": "#/definitions/internal_api.DirectoryListResponse"
                         }
                     },
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/api.Error"
+                            "$ref": "#/definitions/internal_api.Error"
                         }
                     },
                     "403": {
                         "description": "Forbidden",
                         "schema": {
-                            "$ref": "#/definitions/api.Error"
+                            "$ref": "#/definitions/internal_api.Error"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/api.Error"
+                            "$ref": "#/definitions/internal_api.Error"
                         }
                     }
                 }
@@ -374,25 +446,25 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/api.IssueResponse"
+                            "$ref": "#/definitions/internal_api.IssueResponse"
                         }
                     },
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/api.Error"
+                            "$ref": "#/definitions/internal_api.Error"
                         }
                     },
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/api.Error"
+                            "$ref": "#/definitions/internal_api.Error"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/api.Error"
+                            "$ref": "#/definitions/internal_api.Error"
                         }
                     }
                 }
@@ -423,7 +495,7 @@ const docTemplate = `{
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/api.UpdateIssueRequest"
+                            "$ref": "#/definitions/internal_api.UpdateIssueRequest"
                         }
                     }
                 ],
@@ -431,25 +503,25 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/api.IssueResponse"
+                            "$ref": "#/definitions/internal_api.IssueResponse"
                         }
                     },
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/api.Error"
+                            "$ref": "#/definitions/internal_api.Error"
                         }
                     },
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/api.Error"
+                            "$ref": "#/definitions/internal_api.Error"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/api.Error"
+                            "$ref": "#/definitions/internal_api.Error"
                         }
                     }
                 }
@@ -482,7 +554,54 @@ const docTemplate = `{
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/api.Error"
+                            "$ref": "#/definitions/internal_api.Error"
+                        }
+                    }
+                }
+            }
+        },
+        "/issues/{id}/brief": {
+            "get": {
+                "description": "Current brief (highest version) plus all versions, newest first. brief is null for issues that did not come from Intake.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Issues"
+                ],
+                "summary": "Read an issue's Task Brief",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "Issue ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_niuniu-dev_niuniu_internal_service.IssueBriefView"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.Error"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.Error"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.Error"
                         }
                     }
                 }
@@ -515,7 +634,7 @@ const docTemplate = `{
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/api.MoveIssueRequest"
+                            "$ref": "#/definitions/internal_api.MoveIssueRequest"
                         }
                     }
                 ],
@@ -526,13 +645,78 @@ const docTemplate = `{
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/api.Error"
+                            "$ref": "#/definitions/internal_api.Error"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/api.Error"
+                            "$ref": "#/definitions/internal_api.Error"
+                        }
+                    }
+                }
+            }
+        },
+        "/issues/{id}/suggest-goal-condition": {
+            "post": {
+                "description": "Spawn ` + "`" + `claude -p --model haiku` + "`" + ` to propose a completion criterion",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Issues"
+                ],
+                "summary": "AI-suggest a goal_condition for an issue",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Issue ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.SuggestGoalConditionResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.Error"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.Error"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.Error"
+                        }
+                    },
+                    "429": {
+                        "description": "Too Many Requests",
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.Error"
+                        }
+                    },
+                    "502": {
+                        "description": "Bad Gateway",
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.Error"
+                        }
+                    },
+                    "503": {
+                        "description": "Service Unavailable",
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.Error"
                         }
                     }
                 }
@@ -564,19 +748,19 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/api.WorkspaceResponse"
+                            "$ref": "#/definitions/internal_api.WorkspaceResponse"
                         }
                     },
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/api.Error"
+                            "$ref": "#/definitions/internal_api.Error"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/api.Error"
+                            "$ref": "#/definitions/internal_api.Error"
                         }
                     }
                 }
@@ -607,7 +791,7 @@ const docTemplate = `{
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/api.CreateWorkspaceRequest"
+                            "$ref": "#/definitions/internal_api.CreateWorkspaceRequest"
                         }
                     }
                 ],
@@ -615,19 +799,19 @@ const docTemplate = `{
                     "201": {
                         "description": "Created",
                         "schema": {
-                            "$ref": "#/definitions/api.CreateWorkspaceResponse"
+                            "$ref": "#/definitions/internal_api.CreateWorkspaceResponse"
                         }
                     },
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/api.Error"
+                            "$ref": "#/definitions/internal_api.Error"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/api.Error"
+                            "$ref": "#/definitions/internal_api.Error"
                         }
                     }
                 }
@@ -661,20 +845,20 @@ const docTemplate = `{
                         "schema": {
                             "type": "array",
                             "items": {
-                                "$ref": "#/definitions/api.ProjectResponse"
+                                "$ref": "#/definitions/internal_api.ProjectResponse"
                             }
                         }
                     },
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/api.Error"
+                            "$ref": "#/definitions/internal_api.Error"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/api.Error"
+                            "$ref": "#/definitions/internal_api.Error"
                         }
                     }
                 }
@@ -698,7 +882,7 @@ const docTemplate = `{
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/api.CreateProjectRequest"
+                            "$ref": "#/definitions/internal_api.CreateProjectRequest"
                         }
                     }
                 ],
@@ -706,19 +890,19 @@ const docTemplate = `{
                     "201": {
                         "description": "Created",
                         "schema": {
-                            "$ref": "#/definitions/api.ProjectResponse"
+                            "$ref": "#/definitions/internal_api.ProjectResponse"
                         }
                     },
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/api.Error"
+                            "$ref": "#/definitions/internal_api.Error"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/api.Error"
+                            "$ref": "#/definitions/internal_api.Error"
                         }
                     }
                 }
@@ -750,19 +934,19 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/api.ProjectResponse"
+                            "$ref": "#/definitions/internal_api.ProjectResponse"
                         }
                     },
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/api.Error"
+                            "$ref": "#/definitions/internal_api.Error"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/api.Error"
+                            "$ref": "#/definitions/internal_api.Error"
                         }
                     }
                 }
@@ -793,7 +977,7 @@ const docTemplate = `{
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/api.UpdateProjectRequest"
+                            "$ref": "#/definitions/internal_api.UpdateProjectRequest"
                         }
                     }
                 ],
@@ -801,25 +985,25 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/api.ProjectResponse"
+                            "$ref": "#/definitions/internal_api.ProjectResponse"
                         }
                     },
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/api.Error"
+                            "$ref": "#/definitions/internal_api.Error"
                         }
                     },
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/api.Error"
+                            "$ref": "#/definitions/internal_api.Error"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/api.Error"
+                            "$ref": "#/definitions/internal_api.Error"
                         }
                     }
                 }
@@ -852,7 +1036,66 @@ const docTemplate = `{
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/api.Error"
+                            "$ref": "#/definitions/internal_api.Error"
+                        }
+                    }
+                }
+            }
+        },
+        "/projects/{id}/color": {
+            "put": {
+                "description": "Set or clear the project's color token (UI sidebar).",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Projects"
+                ],
+                "summary": "Update project color",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Project ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Color (null to clear)",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.UpdateColorRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.ProjectResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.Error"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.Error"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.Error"
                         }
                     }
                 }
@@ -893,7 +1136,7 @@ const docTemplate = `{
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/api.Error"
+                            "$ref": "#/definitions/internal_api.Error"
                         }
                     }
                 }
@@ -924,7 +1167,7 @@ const docTemplate = `{
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/api.CreateColumnRequest"
+                            "$ref": "#/definitions/internal_api.CreateColumnRequest"
                         }
                     }
                 ],
@@ -938,21 +1181,61 @@ const docTemplate = `{
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/api.Error"
+                            "$ref": "#/definitions/internal_api.Error"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/api.Error"
+                            "$ref": "#/definitions/internal_api.Error"
                         }
                     }
                 }
             }
         },
-        "/repositories": {
+        "/projects/{id}/completion/profiles": {
             "get": {
-                "description": "Get all repositories",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Completion"
+                ],
+                "summary": "List a project's named completion profiles",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "Project ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/github_com_niuniu-dev_niuniu_internal_service.CompletionProfileDTO"
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.Error"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.Error"
+                        }
+                    }
+                }
+            },
+            "post": {
                 "consumes": [
                     "application/json"
                 ],
@@ -960,27 +1243,628 @@ const docTemplate = `{
                     "application/json"
                 ],
                 "tags": [
-                    "Repositories"
+                    "Completion"
                 ],
-                "summary": "List repositories",
+                "summary": "Create a named completion profile",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "Project ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Profile",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/github_com_niuniu-dev_niuniu_internal_service.CompletionProfileInput"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_niuniu-dev_niuniu_internal_service.CompletionProfileDTO"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.Error"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.Error"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.Error"
+                        }
+                    }
+                }
+            }
+        },
+        "/projects/{id}/completion/profiles/{pid}": {
+            "delete": {
+                "description": "Refused with 409 while any issue still references the profile.",
+                "tags": [
+                    "Completion"
+                ],
+                "summary": "Delete a named completion profile",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "Project ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Profile ID",
+                        "name": "pid",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.Error"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.Error"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.Error"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.Error"
+                        }
+                    }
+                }
+            },
+            "patch": {
+                "description": "Partial: omitted fields keep their current value.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Completion"
+                ],
+                "summary": "Edit a named completion profile",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "Project ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Profile ID",
+                        "name": "pid",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Fields to change",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/github_com_niuniu-dev_niuniu_internal_service.CompletionProfileInput"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_niuniu-dev_niuniu_internal_service.CompletionProfileDTO"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.Error"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.Error"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.Error"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.Error"
+                        }
+                    }
+                }
+            }
+        },
+        "/projects/{id}/completion/settings": {
+            "get": {
+                "description": "Falls back to schema defaults when no row has been stored yet.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Completion"
+                ],
+                "summary": "Read a project's default completion policy",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "Project ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_niuniu-dev_niuniu_internal_service.CompletionSettingsView"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.Error"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.Error"
+                        }
+                    }
+                }
+            },
+            "put": {
+                "description": "Partial: omitted fields keep their current value.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Completion"
+                ],
+                "summary": "Update a project's default completion policy",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "Project ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Policy fields",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/github_com_niuniu-dev_niuniu_internal_service.CompletionSettingsInput"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_niuniu-dev_niuniu_internal_service.CompletionSettingsView"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.Error"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.Error"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.Error"
+                        }
+                    }
+                }
+            }
+        },
+        "/projects/{id}/default-cli-type": {
+            "put": {
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Projects"
+                ],
+                "summary": "Update project default agent",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Project ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Default cli_type",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.UpdateDefaultCliTypeRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.ProjectResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.Error"
+                        }
+                    }
+                }
+            }
+        },
+        "/projects/{id}/intake/decisions": {
+            "get": {
+                "description": "Joins each decision with its event. Query: executed=true|false, decision=accept|resume|ignore|unavailable, limit.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Intake"
+                ],
+                "summary": "List intake decisions (calibration queue)",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "Project ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "boolean",
+                        "description": "Filter by execution state",
+                        "name": "executed",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Filter by decision outcome",
+                        "name": "decision",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Max rows (default 100)",
+                        "name": "limit",
+                        "in": "query"
+                    }
+                ],
                 "responses": {
                     "200": {
                         "description": "OK",
                         "schema": {
                             "type": "array",
                             "items": {
-                                "$ref": "#/definitions/api.RepositoryResponse"
+                                "$ref": "#/definitions/github_com_niuniu-dev_niuniu_internal_service.IntakeDecisionDTO"
                             }
                         }
                     },
-                    "500": {
-                        "description": "Internal Server Error",
+                    "400": {
+                        "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/api.Error"
+                            "$ref": "#/definitions/internal_api.Error"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.Error"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.Error"
+                        }
+                    }
+                }
+            }
+        },
+        "/projects/{id}/intake/decisions/{did}/accept": {
+            "post": {
+                "description": "Executes the decision through the intake pipeline, creating the issue/workspace. Returns 501 until the pipeline is wired.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Intake"
+                ],
+                "summary": "Accept a dry-run intake decision",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "Project ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Decision ID",
+                        "name": "did",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_niuniu-dev_niuniu_internal_service.IntakeDecisionDTO"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.Error"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.Error"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.Error"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.Error"
+                        }
+                    },
+                    "501": {
+                        "description": "Not Implemented",
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.Error"
+                        }
+                    }
+                }
+            }
+        },
+        "/projects/{id}/intake/decisions/{did}/ignore": {
+            "post": {
+                "description": "Records why the decision was rejected; a reason is mandatory.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Intake"
+                ],
+                "summary": "Ignore a dry-run intake decision",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "Project ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Decision ID",
+                        "name": "did",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Reason",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/github_com_niuniu-dev_niuniu_internal_service.IgnoreDecisionInput"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_niuniu-dev_niuniu_internal_service.IntakeDecisionDTO"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.Error"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.Error"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.Error"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.Error"
+                        }
+                    }
+                }
+            }
+        },
+        "/projects/{id}/intake/settings": {
+            "get": {
+                "description": "One row per source kind (im_bot/github/ci/email/webhook); kinds without a stored row are rendered with defaults.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Intake"
+                ],
+                "summary": "Read a project's intake settings",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "Project ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_niuniu-dev_niuniu_internal_service.IntakeSettingsView"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.Error"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.Error"
                         }
                     }
                 }
             },
+            "put": {
+                "description": "Upserts each supplied source row and records one policy version per touched source.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Intake"
+                ],
+                "summary": "Write a project's intake settings",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "Project ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Settings to upsert",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/github_com_niuniu-dev_niuniu_internal_service.UpdateIntakeSettingsRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_niuniu-dev_niuniu_internal_service.IntakeSettingsView"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.Error"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.Error"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.Error"
+                        }
+                    }
+                }
+            }
+        },
+        "/repositories": {
             "post": {
                 "description": "Create a new repository. Provide either ` + "`" + `path` + "`" + ` (local directory) or ` + "`" + `remote_url` + "`" + ` (git remote).\nWhen ` + "`" + `remote_url` + "`" + ` is set, the repository is cloned into ~/git-repos/\u003cname\u003e first,\nthen the cloned path is registered. Supports https://, http://, git://, ssh://,\nftp://, ftps://, file://, and SCP-style git@ URLs.\nWhen ` + "`" + `path` + "`" + ` is provided and ` + "`" + `auto_init` + "`" + ` is true, the directory is created and git-init'd if needed.",
                 "consumes": [
@@ -1000,7 +1884,7 @@ const docTemplate = `{
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/api.CreateRepositoryRequest"
+                            "$ref": "#/definitions/internal_api.CreateRepositoryRequest"
                         }
                     }
                 ],
@@ -1008,25 +1892,25 @@ const docTemplate = `{
                     "201": {
                         "description": "Created",
                         "schema": {
-                            "$ref": "#/definitions/api.RepositoryResponse"
+                            "$ref": "#/definitions/internal_api.RepositoryResponse"
                         }
                     },
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/api.Error"
+                            "$ref": "#/definitions/internal_api.Error"
                         }
                     },
                     "409": {
                         "description": "Conflict",
                         "schema": {
-                            "$ref": "#/definitions/api.Error"
+                            "$ref": "#/definitions/internal_api.Error"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/api.Error"
+                            "$ref": "#/definitions/internal_api.Error"
                         }
                     }
                 }
@@ -1058,19 +1942,19 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/api.RepositoryResponse"
+                            "$ref": "#/definitions/internal_api.RepositoryResponse"
                         }
                     },
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/api.Error"
+                            "$ref": "#/definitions/internal_api.Error"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/api.Error"
+                            "$ref": "#/definitions/internal_api.Error"
                         }
                     }
                 }
@@ -1101,7 +1985,7 @@ const docTemplate = `{
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/api.UpdateRepositoryRequest"
+                            "$ref": "#/definitions/internal_api.UpdateRepositoryRequest"
                         }
                     }
                 ],
@@ -1109,25 +1993,25 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/api.RepositoryResponse"
+                            "$ref": "#/definitions/internal_api.RepositoryResponse"
                         }
                     },
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/api.Error"
+                            "$ref": "#/definitions/internal_api.Error"
                         }
                     },
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/api.Error"
+                            "$ref": "#/definitions/internal_api.Error"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/api.Error"
+                            "$ref": "#/definitions/internal_api.Error"
                         }
                     }
                 }
@@ -1166,7 +2050,7 @@ const docTemplate = `{
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/api.Error"
+                            "$ref": "#/definitions/internal_api.Error"
                         }
                     }
                 }
@@ -1192,13 +2076,13 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/service.BranchTree"
+                            "$ref": "#/definitions/github_com_niuniu-dev_niuniu_internal_service.BranchTree"
                         }
                     },
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/api.Error"
+                            "$ref": "#/definitions/internal_api.Error"
                         }
                     }
                 }
@@ -1237,13 +2121,13 @@ const docTemplate = `{
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/api.Error"
+                            "$ref": "#/definitions/internal_api.Error"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/api.Error"
+                            "$ref": "#/definitions/internal_api.Error"
                         }
                     }
                 }
@@ -1286,19 +2170,19 @@ const docTemplate = `{
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/api.Error"
+                            "$ref": "#/definitions/internal_api.Error"
                         }
                     },
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/api.Error"
+                            "$ref": "#/definitions/internal_api.Error"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/api.Error"
+                            "$ref": "#/definitions/internal_api.Error"
                         }
                     }
                 }
@@ -1332,13 +2216,13 @@ const docTemplate = `{
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/api.Error"
+                            "$ref": "#/definitions/internal_api.Error"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/api.Error"
+                            "$ref": "#/definitions/internal_api.Error"
                         }
                     }
                 }
@@ -1374,13 +2258,55 @@ const docTemplate = `{
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/api.Error"
+                            "$ref": "#/definitions/internal_api.Error"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/api.Error"
+                            "$ref": "#/definitions/internal_api.Error"
+                        }
+                    }
+                }
+            }
+        },
+        "/repositories/{id}/branches/checkout-remote": {
+            "put": {
+                "description": "Fetch a remote-tracking branch and make a local branch of the same name current (created with tracking when absent). Branch name passed as query param to support slashes.",
+                "tags": [
+                    "Repositories"
+                ],
+                "summary": "Checkout a remote branch locally",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Repository ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Remote branch name, e.g. origin/feat/x",
+                        "name": "name",
+                        "in": "query",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.Error"
                         }
                     }
                 }
@@ -1417,7 +2343,7 @@ const docTemplate = `{
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/api.Error"
+                            "$ref": "#/definitions/internal_api.Error"
                         }
                     }
                 }
@@ -1463,20 +2389,20 @@ const docTemplate = `{
                         "schema": {
                             "type": "array",
                             "items": {
-                                "$ref": "#/definitions/git.LogEntry"
+                                "$ref": "#/definitions/github_com_niuniu-dev_niuniu_internal_git.LogEntry"
                             }
                         }
                     },
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/api.Error"
+                            "$ref": "#/definitions/internal_api.Error"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/api.Error"
+                            "$ref": "#/definitions/internal_api.Error"
                         }
                     }
                 }
@@ -1509,13 +2435,55 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/git.CommitDetail"
+                            "$ref": "#/definitions/github_com_niuniu-dev_niuniu_internal_git.CommitDetail"
                         }
                     },
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/api.Error"
+                            "$ref": "#/definitions/internal_api.Error"
+                        }
+                    }
+                }
+            }
+        },
+        "/repositories/{id}/commits/{hash}/diff": {
+            "get": {
+                "description": "Get the structured line-level diff for a single commit",
+                "tags": [
+                    "Repositories"
+                ],
+                "summary": "Get commit diff",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Repository ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Commit hash",
+                        "name": "hash",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/github_com_niuniu-dev_niuniu_internal_git.FileDiff"
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.Error"
                         }
                     }
                 }
@@ -1543,7 +2511,7 @@ const docTemplate = `{
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/api.Error"
+                            "$ref": "#/definitions/internal_api.Error"
                         }
                     }
                 }
@@ -1571,7 +2539,7 @@ const docTemplate = `{
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/api.Error"
+                            "$ref": "#/definitions/internal_api.Error"
                         }
                     }
                 }
@@ -1611,20 +2579,20 @@ const docTemplate = `{
                         "schema": {
                             "type": "array",
                             "items": {
-                                "$ref": "#/definitions/git.FileEntry"
+                                "$ref": "#/definitions/github_com_niuniu-dev_niuniu_internal_git.FileEntry"
                             }
                         }
                     },
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/api.Error"
+                            "$ref": "#/definitions/internal_api.Error"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/api.Error"
+                            "$ref": "#/definitions/internal_api.Error"
                         }
                     }
                 }
@@ -1670,13 +2638,123 @@ const docTemplate = `{
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/api.Error"
+                            "$ref": "#/definitions/internal_api.Error"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/api.Error"
+                            "$ref": "#/definitions/internal_api.Error"
+                        }
+                    }
+                }
+            }
+        },
+        "/repositories/{id}/files/history": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Repositories"
+                ],
+                "summary": "Get a file's commit history",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Repository ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "File path",
+                        "name": "path",
+                        "in": "query",
+                        "required": true
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Max commits (default 50, max 200)",
+                        "name": "limit",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/github_com_niuniu-dev_niuniu_internal_git.FileLogEntry"
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.Error"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.Error"
+                        }
+                    }
+                }
+            }
+        },
+        "/repositories/{id}/files/history/{hash}/diff": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Repositories"
+                ],
+                "summary": "Get the diff a commit introduced to one file",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Repository ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Commit hash",
+                        "name": "hash",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "File path as of that commit",
+                        "name": "path",
+                        "in": "query",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_niuniu-dev_niuniu_internal_git.FileDiff"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.Error"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.Error"
                         }
                     }
                 }
@@ -1714,25 +2792,25 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/api.GitStatusResponse"
+                            "$ref": "#/definitions/internal_api.GitStatusResponse"
                         }
                     },
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/api.Error"
+                            "$ref": "#/definitions/internal_api.Error"
                         }
                     },
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/api.Error"
+                            "$ref": "#/definitions/internal_api.Error"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/api.Error"
+                            "$ref": "#/definitions/internal_api.Error"
                         }
                     }
                 }
@@ -1761,7 +2839,7 @@ const docTemplate = `{
                     },
                     {
                         "type": "integer",
-                        "description": "Max commits (default 100, max 500)",
+                        "description": "Max commits; 0 or absent means ALL commits (graph computes the full DAG; the client virtualizes rendering)",
                         "name": "limit",
                         "in": "query"
                     },
@@ -1778,14 +2856,135 @@ const docTemplate = `{
                         "schema": {
                             "type": "array",
                             "items": {
-                                "$ref": "#/definitions/git.GraphCommit"
+                                "$ref": "#/definitions/github_com_niuniu-dev_niuniu_internal_git.GraphCommit"
                             }
                         }
                     },
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/api.Error"
+                            "$ref": "#/definitions/internal_api.Error"
+                        }
+                    }
+                }
+            }
+        },
+        "/repositories/{id}/pull": {
+            "post": {
+                "tags": [
+                    "Repositories"
+                ],
+                "summary": "Pull repository",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Repository ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK"
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.Error"
+                        }
+                    }
+                }
+            }
+        },
+        "/repositories/{id}/push": {
+            "post": {
+                "tags": [
+                    "Repositories"
+                ],
+                "summary": "Push repository",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Repository ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK"
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.Error"
+                        }
+                    }
+                }
+            }
+        },
+        "/repositories/{id}/search": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Repositories"
+                ],
+                "summary": "Search a repository by filename and content",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Repository ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Search query",
+                        "name": "q",
+                        "in": "query",
+                        "required": true
+                    },
+                    {
+                        "type": "boolean",
+                        "description": "Case-sensitive content match",
+                        "name": "case",
+                        "in": "query"
+                    },
+                    {
+                        "type": "boolean",
+                        "description": "Whole-word content match",
+                        "name": "word",
+                        "in": "query"
+                    },
+                    {
+                        "type": "boolean",
+                        "description": "Treat q as a regular expression",
+                        "name": "regex",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.RepoSearchResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.Error"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.Error"
                         }
                     }
                 }
@@ -1817,19 +3016,19 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/service.RepositoryStats"
+                            "$ref": "#/definitions/github_com_niuniu-dev_niuniu_internal_service.RepositoryStats"
                         }
                     },
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/api.Error"
+                            "$ref": "#/definitions/internal_api.Error"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/api.Error"
+                            "$ref": "#/definitions/internal_api.Error"
                         }
                     }
                 }
@@ -1863,20 +3062,20 @@ const docTemplate = `{
                         "schema": {
                             "type": "array",
                             "items": {
-                                "$ref": "#/definitions/git.WorktreeInfo"
+                                "$ref": "#/definitions/github_com_niuniu-dev_niuniu_internal_git.WorktreeInfo"
                             }
                         }
                     },
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/api.Error"
+                            "$ref": "#/definitions/internal_api.Error"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/api.Error"
+                            "$ref": "#/definitions/internal_api.Error"
                         }
                     }
                 }
@@ -1919,19 +3118,19 @@ const docTemplate = `{
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/api.Error"
+                            "$ref": "#/definitions/internal_api.Error"
                         }
                     },
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/api.Error"
+                            "$ref": "#/definitions/internal_api.Error"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/api.Error"
+                            "$ref": "#/definitions/internal_api.Error"
                         }
                     }
                 }
@@ -1973,13 +3172,13 @@ const docTemplate = `{
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/api.Error"
+                            "$ref": "#/definitions/internal_api.Error"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/api.Error"
+                            "$ref": "#/definitions/internal_api.Error"
                         }
                     }
                 }
@@ -1999,7 +3198,7 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/service.SystemDepsInfo"
+                            "$ref": "#/definitions/github_com_niuniu-dev_niuniu_internal_service.SystemDepsInfo"
                         }
                     }
                 }
@@ -2024,7 +3223,7 @@ const docTemplate = `{
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/api.setGitIdentityReq"
+                            "$ref": "#/definitions/internal_api.setGitIdentityReq"
                         }
                     }
                 ],
@@ -2035,7 +3234,7 @@ const docTemplate = `{
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/api.ErrorResponse"
+                            "$ref": "#/definitions/internal_api.ErrorResponse"
                         }
                     }
                 }
@@ -2060,7 +3259,7 @@ const docTemplate = `{
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/api.installReq"
+                            "$ref": "#/definitions/internal_api.installReq"
                         }
                     }
                 ],
@@ -2068,25 +3267,25 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/api.installResp"
+                            "$ref": "#/definitions/internal_api.installResp"
                         }
                     },
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/api.ErrorResponse"
+                            "$ref": "#/definitions/internal_api.ErrorResponse"
                         }
                     },
                     "403": {
                         "description": "Forbidden",
                         "schema": {
-                            "$ref": "#/definitions/api.ErrorResponse"
+                            "$ref": "#/definitions/internal_api.ErrorResponse"
                         }
                     },
                     "409": {
                         "description": "Conflict",
                         "schema": {
-                            "$ref": "#/definitions/api.ErrorResponse"
+                            "$ref": "#/definitions/internal_api.ErrorResponse"
                         }
                     }
                 }
@@ -2127,7 +3326,7 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/api.SystemInfoResponse"
+                            "$ref": "#/definitions/internal_api.SystemInfoResponse"
                         }
                     }
                 }
@@ -2152,14 +3351,14 @@ const docTemplate = `{
                         "schema": {
                             "type": "array",
                             "items": {
-                                "$ref": "#/definitions/api.WorkspaceResponse"
+                                "$ref": "#/definitions/internal_api.WorkspaceResponse"
                             }
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/api.Error"
+                            "$ref": "#/definitions/internal_api.Error"
                         }
                     }
                 }
@@ -2183,7 +3382,7 @@ const docTemplate = `{
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/api.CreateWorkspaceRequest"
+                            "$ref": "#/definitions/internal_api.CreateWorkspaceRequest"
                         }
                     }
                 ],
@@ -2191,19 +3390,295 @@ const docTemplate = `{
                     "201": {
                         "description": "Created",
                         "schema": {
-                            "$ref": "#/definitions/api.CreateWorkspaceResponse"
+                            "$ref": "#/definitions/internal_api.CreateWorkspaceResponse"
                         }
                     },
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/api.Error"
+                            "$ref": "#/definitions/internal_api.Error"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/api.Error"
+                            "$ref": "#/definitions/internal_api.Error"
+                        }
+                    }
+                }
+            }
+        },
+        "/workspaces/batch-delete": {
+            "post": {
+                "description": "Mark workspaces 'deleting' and clean them up in the background. Idempotent: ids already deleting are skipped.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Workspaces"
+                ],
+                "summary": "Batch delete workspaces (async)",
+                "parameters": [
+                    {
+                        "description": "workspace ids + force",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.batchDeleteWorkspacesRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_niuniu-dev_niuniu_internal_service.BatchDeleteResult"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.Error"
+                        }
+                    }
+                }
+            }
+        },
+        "/workspaces/from-directory": {
+            "post": {
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Workspaces"
+                ],
+                "summary": "Create a workspace from a local directory",
+                "parameters": [
+                    {
+                        "description": "Directory + owner",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.CreateFromDirectoryRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.CreateWorkspaceResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.Error"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.Error"
+                        }
+                    }
+                }
+            }
+        },
+        "/workspaces/overview": {
+            "get": {
+                "description": "Aggregated cost / activity / stuck-detection across workspaces accessible to the caller.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Workspaces"
+                ],
+                "summary": "Cross-workspace overview",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "owner filter (user:\u003cid\u003e or org:\u003cslug\u003e)",
+                        "name": "owner",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_niuniu-dev_niuniu_internal_service.WorkspaceOverview"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.Error"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.Error"
+                        }
+                    }
+                }
+            }
+        },
+        "/workspaces/overview/creators": {
+            "get": {
+                "description": "Distinct creators of workspaces inside the requested owner scope.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Workspaces"
+                ],
+                "summary": "Overview creator list",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "owner filter (user:\u003cid\u003e or org:\u003cslug\u003e)",
+                        "name": "owner",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.overviewCreatorsResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.Error"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.Error"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.Error"
+                        }
+                    }
+                }
+            }
+        },
+        "/workspaces/pins": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Workspaces"
+                ],
+                "summary": "List pinned workspaces",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "array",
+                                "items": {
+                                    "type": "integer",
+                                    "format": "int64"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/workspaces/search": {
+            "get": {
+                "description": "Workspace IDs whose user-sent chat messages contain the keyword.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Workspaces"
+                ],
+                "summary": "Search workspaces by conversation content",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "search keyword",
+                        "name": "q",
+                        "in": "query",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "array",
+                                "items": {
+                                    "type": "integer",
+                                    "format": "int64"
+                                }
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.Error"
+                        }
+                    }
+                }
+            }
+        },
+        "/workspaces/sidebar-git": {
+            "get": {
+                "description": "Per-workspace git change/ahead counts for the caller's accessible\nworkspaces. The sidebar list (GET /workspaces) returns instantly\nwithout git; the SPA calls this afterwards and merges the badges.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Workspaces"
+                ],
+                "summary": "Sidebar git status (lazy)",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "me | all | \u003cuser id\u003e",
+                        "name": "created_by",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/internal_api.WorkspaceGitStatusDTO"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.Error"
                         }
                     }
                 }
@@ -2235,19 +3710,19 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/api.WorkspaceResponse"
+                            "$ref": "#/definitions/internal_api.WorkspaceResponse"
                         }
                     },
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/api.Error"
+                            "$ref": "#/definitions/internal_api.Error"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/api.Error"
+                            "$ref": "#/definitions/internal_api.Error"
                         }
                     }
                 }
@@ -2286,19 +3761,19 @@ const docTemplate = `{
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/api.Error"
+                            "$ref": "#/definitions/internal_api.Error"
                         }
                     },
                     "409": {
                         "description": "Conflict",
                         "schema": {
-                            "$ref": "#/definitions/api.Error"
+                            "$ref": "#/definitions/internal_api.Error"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/api.Error"
+                            "$ref": "#/definitions/internal_api.Error"
                         }
                     }
                 }
@@ -2331,7 +3806,7 @@ const docTemplate = `{
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/api.SendInputRequest"
+                            "$ref": "#/definitions/internal_api.SendInputRequest"
                         }
                     }
                 ],
@@ -2342,19 +3817,19 @@ const docTemplate = `{
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/api.Error"
+                            "$ref": "#/definitions/internal_api.Error"
                         }
                     },
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/api.Error"
+                            "$ref": "#/definitions/internal_api.Error"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/api.Error"
+                            "$ref": "#/definitions/internal_api.Error"
                         }
                     }
                 }
@@ -2386,7 +3861,7 @@ const docTemplate = `{
                         "name": "request",
                         "in": "body",
                         "schema": {
-                            "$ref": "#/definitions/api.StartAgentRequest"
+                            "$ref": "#/definitions/internal_api.StartAgentRequest"
                         }
                     }
                 ],
@@ -2397,13 +3872,13 @@ const docTemplate = `{
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/api.Error"
+                            "$ref": "#/definitions/internal_api.Error"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/api.Error"
+                            "$ref": "#/definitions/internal_api.Error"
                         }
                     }
                 }
@@ -2444,7 +3919,7 @@ const docTemplate = `{
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/api.Error"
+                            "$ref": "#/definitions/internal_api.Error"
                         }
                     }
                 }
@@ -2479,13 +3954,13 @@ const docTemplate = `{
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/api.Error"
+                            "$ref": "#/definitions/internal_api.Error"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/api.Error"
+                            "$ref": "#/definitions/internal_api.Error"
                         }
                     }
                 }
@@ -2519,14 +3994,14 @@ const docTemplate = `{
                         "schema": {
                             "type": "array",
                             "items": {
-                                "$ref": "#/definitions/api.CommentResponse"
+                                "$ref": "#/definitions/internal_api.CommentResponse"
                             }
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/api.Error"
+                            "$ref": "#/definitions/internal_api.Error"
                         }
                     }
                 }
@@ -2557,7 +4032,7 @@ const docTemplate = `{
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/api.CreateCommentRequest"
+                            "$ref": "#/definitions/internal_api.CreateCommentRequest"
                         }
                     }
                 ],
@@ -2565,19 +4040,19 @@ const docTemplate = `{
                     "201": {
                         "description": "Created",
                         "schema": {
-                            "$ref": "#/definitions/api.CommentResponse"
+                            "$ref": "#/definitions/internal_api.CommentResponse"
                         }
                     },
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/api.Error"
+                            "$ref": "#/definitions/internal_api.Error"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/api.Error"
+                            "$ref": "#/definitions/internal_api.Error"
                         }
                     }
                 }
@@ -2608,12 +4083,17 @@ const docTemplate = `{
                 "responses": {
                     "200": {
                         "description": "OK",
-                        "schema": {}
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/github_com_niuniu-dev_niuniu_internal_service.RepoDiff"
+                            }
+                        }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/api.Error"
+                            "$ref": "#/definitions/internal_api.Error"
                         }
                     }
                 }
@@ -2654,13 +4134,13 @@ const docTemplate = `{
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/api.Error"
+                            "$ref": "#/definitions/internal_api.Error"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/api.Error"
+                            "$ref": "#/definitions/internal_api.Error"
                         }
                     }
                 }
@@ -2691,7 +4171,7 @@ const docTemplate = `{
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/api.SetEnvRequest"
+                            "$ref": "#/definitions/internal_api.SetEnvRequest"
                         }
                     }
                 ],
@@ -2708,13 +4188,79 @@ const docTemplate = `{
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/api.Error"
+                            "$ref": "#/definitions/internal_api.Error"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/api.Error"
+                            "$ref": "#/definitions/internal_api.Error"
+                        }
+                    }
+                }
+            }
+        },
+        "/workspaces/{id}/pin": {
+            "put": {
+                "tags": [
+                    "Workspaces"
+                ],
+                "summary": "Pin a workspace",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Workspace ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.Error"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.Error"
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "tags": [
+                    "Workspaces"
+                ],
+                "summary": "Unpin a workspace",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Workspace ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.Error"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.Error"
                         }
                     }
                 }
@@ -2753,13 +4299,13 @@ const docTemplate = `{
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/api.Error"
+                            "$ref": "#/definitions/internal_api.Error"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/api.Error"
+                            "$ref": "#/definitions/internal_api.Error"
                         }
                     }
                 }
@@ -2790,7 +4336,7 @@ const docTemplate = `{
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/api.AddRepositoryRequest"
+                            "$ref": "#/definitions/internal_api.AddRepositoryRequest"
                         }
                     }
                 ],
@@ -2802,13 +4348,13 @@ const docTemplate = `{
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/api.Error"
+                            "$ref": "#/definitions/internal_api.Error"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/api.Error"
+                            "$ref": "#/definitions/internal_api.Error"
                         }
                     }
                 }
@@ -2851,13 +4397,13 @@ const docTemplate = `{
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/api.Error"
+                            "$ref": "#/definitions/internal_api.Error"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/api.Error"
+                            "$ref": "#/definitions/internal_api.Error"
                         }
                     }
                 }
@@ -2903,19 +4449,19 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/git.FileDiff"
+                            "$ref": "#/definitions/github_com_niuniu-dev_niuniu_internal_git.FileDiff"
                         }
                     },
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/api.Error"
+                            "$ref": "#/definitions/internal_api.Error"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/api.Error"
+                            "$ref": "#/definitions/internal_api.Error"
                         }
                     }
                 }
@@ -2961,19 +4507,19 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/api.FileContentResponse"
+                            "$ref": "#/definitions/internal_api.FileContentResponse"
                         }
                     },
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/api.Error"
+                            "$ref": "#/definitions/internal_api.Error"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/api.Error"
+                            "$ref": "#/definitions/internal_api.Error"
                         }
                     }
                 }
@@ -3012,19 +4558,19 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/api.BranchesResponse"
+                            "$ref": "#/definitions/internal_api.BranchesResponse"
                         }
                     },
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/api.Error"
+                            "$ref": "#/definitions/internal_api.Error"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/api.Error"
+                            "$ref": "#/definitions/internal_api.Error"
                         }
                     }
                 }
@@ -3064,7 +4610,7 @@ const docTemplate = `{
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/api.CommitRequest"
+                            "$ref": "#/definitions/internal_api.CommitRequest"
                         }
                     }
                 ],
@@ -3075,19 +4621,19 @@ const docTemplate = `{
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/api.Error"
+                            "$ref": "#/definitions/internal_api.Error"
                         }
                     },
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/api.Error"
+                            "$ref": "#/definitions/internal_api.Error"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/api.Error"
+                            "$ref": "#/definitions/internal_api.Error"
                         }
                     }
                 }
@@ -3129,13 +4675,13 @@ const docTemplate = `{
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/api.Error"
+                            "$ref": "#/definitions/internal_api.Error"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/api.Error"
+                            "$ref": "#/definitions/internal_api.Error"
                         }
                     }
                 }
@@ -3184,13 +4730,13 @@ const docTemplate = `{
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/api.Error"
+                            "$ref": "#/definitions/internal_api.Error"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/api.Error"
+                            "$ref": "#/definitions/internal_api.Error"
                         }
                     }
                 }
@@ -3232,13 +4778,13 @@ const docTemplate = `{
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/api.Error"
+                            "$ref": "#/definitions/internal_api.Error"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/api.Error"
+                            "$ref": "#/definitions/internal_api.Error"
                         }
                     }
                 }
@@ -3280,13 +4826,13 @@ const docTemplate = `{
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/api.Error"
+                            "$ref": "#/definitions/internal_api.Error"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/api.Error"
+                            "$ref": "#/definitions/internal_api.Error"
                         }
                     }
                 }
@@ -3325,19 +4871,19 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/api.GitStatusResponse"
+                            "$ref": "#/definitions/internal_api.GitStatusResponse"
                         }
                     },
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/api.Error"
+                            "$ref": "#/definitions/internal_api.Error"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/api.Error"
+                            "$ref": "#/definitions/internal_api.Error"
                         }
                     }
                 }
@@ -3373,13 +4919,13 @@ const docTemplate = `{
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/api.Error"
+                            "$ref": "#/definitions/internal_api.Error"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/api.Error"
+                            "$ref": "#/definitions/internal_api.Error"
                         }
                     }
                 }
@@ -3433,13 +4979,13 @@ const docTemplate = `{
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/api.Error"
+                            "$ref": "#/definitions/internal_api.Error"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/api.Error"
+                            "$ref": "#/definitions/internal_api.Error"
                         }
                     }
                 }
@@ -3447,1018 +4993,7 @@ const docTemplate = `{
         }
     },
     "definitions": {
-        "api.AddRepositoryRequest": {
-            "type": "object",
-            "required": [
-                "repository_id"
-            ],
-            "properties": {
-                "branch": {
-                    "type": "string"
-                },
-                "repository_id": {
-                    "type": "string"
-                }
-            }
-        },
-        "api.BgTaskAggregateDTO": {
-            "type": "object",
-            "properties": {
-                "agent_busy": {
-                    "type": "boolean"
-                },
-                "bash_count": {
-                    "type": "integer"
-                },
-                "cron_count": {
-                    "type": "integer"
-                },
-                "highlight": {
-                    "$ref": "#/definitions/api.BgTaskHighlight"
-                },
-                "subagent_count": {
-                    "type": "integer"
-                },
-                "wakeup_count": {
-                    "type": "integer"
-                }
-            }
-        },
-        "api.BgTaskHighlight": {
-            "type": "object",
-            "properties": {
-                "kind": {
-                    "description": "\"bash\" | \"subagent\" | \"wakeup\"",
-                    "type": "string"
-                },
-                "scheduled_for": {
-                    "description": "RFC3339, set for wakeup",
-                    "type": "string"
-                },
-                "started_at": {
-                    "description": "RFC3339, set for bash/subagent",
-                    "type": "string"
-                },
-                "title": {
-                    "type": "string"
-                }
-            }
-        },
-        "api.BranchesResponse": {
-            "type": "object",
-            "properties": {
-                "branches": {
-                    "type": "array",
-                    "items": {
-                        "type": "string"
-                    }
-                },
-                "current_branch": {
-                    "type": "string"
-                }
-            }
-        },
-        "api.ChecklistStatsDTO": {
-            "type": "object",
-            "properties": {
-                "completed": {
-                    "type": "integer"
-                },
-                "total": {
-                    "type": "integer"
-                }
-            }
-        },
-        "api.ColumnIssueStat": {
-            "type": "object",
-            "properties": {
-                "column_name": {
-                    "type": "string"
-                },
-                "count": {
-                    "type": "integer"
-                }
-            }
-        },
-        "api.CommentResponse": {
-            "type": "object",
-            "properties": {
-                "content": {
-                    "type": "string",
-                    "example": "This is a great comment!"
-                },
-                "created_at": {
-                    "type": "string",
-                    "example": "2026-03-17T12:00:00Z"
-                },
-                "file_path": {
-                    "type": "string",
-                    "example": "/path/to/file.go"
-                },
-                "id": {
-                    "type": "integer"
-                },
-                "line_number": {
-                    "type": "integer",
-                    "example": 42
-                },
-                "sent_to_agent": {
-                    "type": "boolean",
-                    "example": true
-                },
-                "workspace_id": {
-                    "type": "integer"
-                }
-            }
-        },
-        "api.CommitRequest": {
-            "type": "object",
-            "required": [
-                "message"
-            ],
-            "properties": {
-                "message": {
-                    "type": "string"
-                }
-            }
-        },
-        "api.CreateColumnRequest": {
-            "type": "object",
-            "required": [
-                "name"
-            ],
-            "properties": {
-                "lifecycle_mapping": {
-                    "type": "string"
-                },
-                "name": {
-                    "type": "string"
-                },
-                "position": {
-                    "type": "integer"
-                }
-            }
-        },
-        "api.CreateCommentRequest": {
-            "type": "object",
-            "required": [
-                "content",
-                "file_path"
-            ],
-            "properties": {
-                "content": {
-                    "type": "string"
-                },
-                "file_path": {
-                    "type": "string"
-                },
-                "line_number": {
-                    "type": "integer"
-                }
-            }
-        },
-        "api.CreateIssueRequest": {
-            "type": "object",
-            "required": [
-                "title"
-            ],
-            "properties": {
-                "assignee_user_ids": {
-                    "type": "array",
-                    "items": {
-                        "type": "integer"
-                    }
-                },
-                "description": {
-                    "type": "string"
-                },
-                "due_date": {
-                    "type": "string"
-                },
-                "estimate": {
-                    "type": "number"
-                },
-                "estimate_type": {
-                    "type": "string"
-                },
-                "label_ids": {
-                    "type": "array",
-                    "items": {
-                        "type": "integer"
-                    }
-                },
-                "position": {
-                    "type": "integer"
-                },
-                "priority": {
-                    "type": "integer"
-                },
-                "start_date": {
-                    "type": "string"
-                },
-                "title": {
-                    "type": "string"
-                }
-            }
-        },
-        "api.CreateProjectRequest": {
-            "type": "object",
-            "required": [
-                "name"
-            ],
-            "properties": {
-                "description": {
-                    "type": "string"
-                },
-                "name": {
-                    "type": "string"
-                }
-            }
-        },
-        "api.CreateRepositoryRequest": {
-            "type": "object",
-            "properties": {
-                "auto_init": {
-                    "description": "Pointer to distinguish between unset and false",
-                    "type": "boolean"
-                },
-                "name": {
-                    "type": "string"
-                },
-                "path": {
-                    "type": "string"
-                },
-                "remote_url": {
-                    "type": "string"
-                }
-            }
-        },
-        "api.CreateWorkspaceErrorEntry": {
-            "type": "object",
-            "properties": {
-                "error": {
-                    "type": "string"
-                },
-                "repository_id": {
-                    "type": "string"
-                }
-            }
-        },
-        "api.CreateWorkspaceOwnerRequest": {
-            "type": "object",
-            "properties": {
-                "id": {
-                    "type": "integer"
-                },
-                "type": {
-                    "type": "string"
-                }
-            }
-        },
-        "api.CreateWorkspaceRequest": {
-            "type": "object",
-            "properties": {
-                "issue_id": {
-                    "description": "nullable int64",
-                    "type": "integer"
-                },
-                "name": {
-                    "type": "string"
-                },
-                "owner": {
-                    "$ref": "#/definitions/api.CreateWorkspaceOwnerRequest"
-                },
-                "repos": {
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/api.RepoBranchRequest"
-                    }
-                }
-            }
-        },
-        "api.CreateWorkspaceResponse": {
-            "type": "object",
-            "properties": {
-                "errors": {
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/api.CreateWorkspaceErrorEntry"
-                    }
-                },
-                "id": {
-                    "type": "string"
-                },
-                "issue_id": {
-                    "type": "string"
-                },
-                "path": {
-                    "type": "string"
-                },
-                "repositories": {
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/api.CreateWorkspaceSuccessRepo"
-                    }
-                },
-                "status": {
-                    "type": "string"
-                },
-                "warnings": {
-                    "type": "array",
-                    "items": {
-                        "type": "string"
-                    }
-                }
-            }
-        },
-        "api.CreateWorkspaceSuccessRepo": {
-            "type": "object",
-            "properties": {
-                "branch": {
-                    "type": "string"
-                },
-                "id": {
-                    "type": "string"
-                },
-                "repository_id": {
-                    "type": "string"
-                },
-                "worktree_path": {
-                    "type": "string"
-                }
-            }
-        },
-        "api.DirectoryEntry": {
-            "type": "object",
-            "properties": {
-                "name": {
-                    "type": "string"
-                },
-                "path": {
-                    "type": "string"
-                }
-            }
-        },
-        "api.DirectoryListResponse": {
-            "type": "object",
-            "properties": {
-                "directories": {
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/api.DirectoryEntry"
-                    }
-                },
-                "parent": {
-                    "type": "string"
-                },
-                "path": {
-                    "type": "string"
-                }
-            }
-        },
-        "api.Error": {
-            "type": "object",
-            "properties": {
-                "error": {
-                    "$ref": "#/definitions/api.ErrorDetail"
-                }
-            }
-        },
-        "api.ErrorDetail": {
-            "type": "object",
-            "properties": {
-                "code": {
-                    "type": "string",
-                    "example": "PROJECT_NOT_FOUND"
-                },
-                "details": {},
-                "message": {
-                    "type": "string",
-                    "example": "Project not found"
-                }
-            }
-        },
-        "api.ErrorResponse": {
-            "type": "object",
-            "properties": {
-                "error": {
-                    "$ref": "#/definitions/api.ErrorDetail"
-                }
-            }
-        },
-        "api.FileContentResponse": {
-            "type": "object",
-            "properties": {
-                "content": {
-                    "type": "string"
-                },
-                "path": {
-                    "type": "string"
-                },
-                "size": {
-                    "type": "integer"
-                }
-            }
-        },
-        "api.GitStatusResponse": {
-            "type": "object",
-            "properties": {
-                "added": {
-                    "type": "array",
-                    "items": {
-                        "type": "string"
-                    }
-                },
-                "deleted": {
-                    "type": "array",
-                    "items": {
-                        "type": "string"
-                    }
-                },
-                "modified": {
-                    "type": "array",
-                    "items": {
-                        "type": "string"
-                    }
-                },
-                "untracked": {
-                    "type": "array",
-                    "items": {
-                        "type": "string"
-                    }
-                }
-            }
-        },
-        "api.IssueAssigneeResponse": {
-            "type": "object",
-            "properties": {
-                "display_name": {
-                    "type": "string"
-                },
-                "id": {
-                    "type": "integer"
-                },
-                "username": {
-                    "type": "string"
-                }
-            }
-        },
-        "api.IssueResponse": {
-            "type": "object",
-            "properties": {
-                "actual_time": {
-                    "type": "number"
-                },
-                "assignees": {
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/api.IssueAssigneeResponse"
-                    }
-                },
-                "checklist_stats": {
-                    "$ref": "#/definitions/api.ChecklistStatsDTO"
-                },
-                "column_id": {
-                    "type": "integer"
-                },
-                "created_at": {
-                    "type": "string",
-                    "example": "2026-03-17T12:00:00Z"
-                },
-                "description": {
-                    "type": "string",
-                    "example": "Add JWT-based user authentication"
-                },
-                "due_date": {
-                    "type": "string"
-                },
-                "estimate": {
-                    "type": "number"
-                },
-                "estimate_type": {
-                    "type": "string"
-                },
-                "id": {
-                    "type": "integer"
-                },
-                "labels": {
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/api.LabelResponse"
-                    }
-                },
-                "lifecycle_status": {
-                    "type": "string",
-                    "example": "created"
-                },
-                "position": {
-                    "type": "integer",
-                    "example": 0
-                },
-                "priority": {
-                    "type": "integer",
-                    "example": 1
-                },
-                "project_id": {
-                    "type": "integer"
-                },
-                "start_date": {
-                    "type": "string"
-                },
-                "title": {
-                    "type": "string",
-                    "example": "Implement user authentication"
-                },
-                "updated_at": {
-                    "type": "string",
-                    "example": "2026-03-17T12:00:00Z"
-                }
-            }
-        },
-        "api.LabelResponse": {
-            "type": "object",
-            "properties": {
-                "color": {
-                    "type": "string"
-                },
-                "created_at": {
-                    "type": "string"
-                },
-                "created_by": {
-                    "type": "integer"
-                },
-                "description": {
-                    "type": "string"
-                },
-                "id": {
-                    "type": "integer"
-                },
-                "name": {
-                    "type": "string"
-                },
-                "project_id": {
-                    "type": "integer"
-                }
-            }
-        },
-        "api.MoveIssueRequest": {
-            "type": "object",
-            "required": [
-                "column_id"
-            ],
-            "properties": {
-                "column_id": {
-                    "type": "integer"
-                },
-                "position": {
-                    "type": "integer",
-                    "minimum": 0
-                }
-            }
-        },
-        "api.OwnerDTO": {
-            "type": "object",
-            "properties": {
-                "id": {
-                    "type": "integer"
-                },
-                "name": {
-                    "type": "string"
-                },
-                "slug": {
-                    "type": "string"
-                },
-                "type": {
-                    "type": "string"
-                }
-            }
-        },
-        "api.ProjectRepositoryBinding": {
-            "type": "object",
-            "properties": {
-                "name": {
-                    "type": "string"
-                },
-                "path": {
-                    "type": "string"
-                },
-                "project_default_branch": {
-                    "type": "string"
-                },
-                "repo_default_branch": {
-                    "type": "string"
-                },
-                "repository_id": {
-                    "type": "integer"
-                }
-            }
-        },
-        "api.ProjectResponse": {
-            "type": "object",
-            "properties": {
-                "created_at": {
-                    "type": "string",
-                    "example": "2026-03-17T12:00:00Z"
-                },
-                "description": {
-                    "type": "string",
-                    "example": "A sample project"
-                },
-                "id": {
-                    "type": "integer"
-                },
-                "issue_stats": {
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/api.ColumnIssueStat"
-                    }
-                },
-                "name": {
-                    "type": "string",
-                    "example": "My Project"
-                },
-                "owner": {
-                    "$ref": "#/definitions/api.OwnerDTO"
-                },
-                "repositories": {
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/api.ProjectRepositoryBinding"
-                    }
-                },
-                "status": {
-                    "type": "string",
-                    "example": "active"
-                },
-                "updated_at": {
-                    "type": "string",
-                    "example": "2026-03-17T12:00:00Z"
-                },
-                "ws_stats": {
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/api.WsStatusStat"
-                    }
-                }
-            }
-        },
-        "api.RepoBranchRequest": {
-            "type": "object",
-            "required": [
-                "branch",
-                "repo_id"
-            ],
-            "properties": {
-                "branch": {
-                    "description": "Branch is the base branch the new worktree forks from. Required so the\nserver never silently falls back to a guessed default (e.g. \"main\") that\nmay not exist in the repo — that fallback used to leave the workspace\nshell in place with no worktree on disk and the failure swallowed.",
-                    "type": "string"
-                },
-                "repo_id": {
-                    "description": "int64",
-                    "type": "integer"
-                }
-            }
-        },
-        "api.RepositoryResponse": {
-            "type": "object",
-            "properties": {
-                "created_at": {
-                    "type": "string",
-                    "example": "2026-03-17T12:00:00Z"
-                },
-                "default_branch": {
-                    "type": "string",
-                    "example": "main"
-                },
-                "git_remote": {
-                    "type": "string",
-                    "example": "https://github.com/niuniu-dev/niuniu.git"
-                },
-                "id": {
-                    "type": "integer"
-                },
-                "name": {
-                    "type": "string",
-                    "example": "My Repository"
-                },
-                "owner": {
-                    "$ref": "#/definitions/api.OwnerDTO"
-                },
-                "path": {
-                    "type": "string",
-                    "example": "/path/to/repo"
-                },
-                "total_branches": {
-                    "type": "integer",
-                    "example": 3
-                },
-                "updated_at": {
-                    "type": "string",
-                    "example": "2026-03-17T12:00:00Z"
-                }
-            }
-        },
-        "api.SendInputRequest": {
-            "type": "object",
-            "required": [
-                "input"
-            ],
-            "properties": {
-                "input": {
-                    "type": "string"
-                }
-            }
-        },
-        "api.SetEnvRequest": {
-            "type": "object",
-            "properties": {
-                "env": {
-                    "type": "object",
-                    "additionalProperties": {
-                        "type": "string"
-                    }
-                }
-            }
-        },
-        "api.StartAgentRequest": {
-            "type": "object",
-            "properties": {
-                "prompt": {
-                    "type": "string"
-                }
-            }
-        },
-        "api.SystemInfoResponse": {
-            "type": "object",
-            "properties": {
-                "disk_drives": {
-                    "description": "Windows drive letters, empty on Linux",
-                    "type": "array",
-                    "items": {
-                        "type": "string"
-                    }
-                },
-                "os": {
-                    "description": "\"windows\" or \"linux\"",
-                    "type": "string"
-                }
-            }
-        },
-        "api.TaskStatsDTO": {
-            "type": "object",
-            "properties": {
-                "completed": {
-                    "type": "integer"
-                },
-                "current_task": {
-                    "type": "string"
-                },
-                "total": {
-                    "type": "integer"
-                }
-            }
-        },
-        "api.UpdateColumnPositionRequest": {
-            "type": "object",
-            "properties": {
-                "position": {
-                    "type": "integer"
-                }
-            }
-        },
-        "api.UpdateColumnRequest": {
-            "type": "object",
-            "required": [
-                "name"
-            ],
-            "properties": {
-                "name": {
-                    "type": "string"
-                }
-            }
-        },
-        "api.UpdateIssueRequest": {
-            "type": "object",
-            "required": [
-                "title"
-            ],
-            "properties": {
-                "actual_time": {
-                    "type": "number"
-                },
-                "description": {
-                    "type": "string"
-                },
-                "due_date": {
-                    "type": "string"
-                },
-                "estimate": {
-                    "type": "number"
-                },
-                "estimate_type": {
-                    "type": "string"
-                },
-                "priority": {
-                    "type": "integer"
-                },
-                "start_date": {
-                    "type": "string"
-                },
-                "title": {
-                    "type": "string"
-                }
-            }
-        },
-        "api.UpdateProjectRequest": {
-            "type": "object",
-            "required": [
-                "name"
-            ],
-            "properties": {
-                "description": {
-                    "type": "string"
-                },
-                "name": {
-                    "type": "string"
-                }
-            }
-        },
-        "api.UpdateRepositoryRequest": {
-            "type": "object",
-            "required": [
-                "name",
-                "path"
-            ],
-            "properties": {
-                "default_branch": {
-                    "type": "string"
-                },
-                "git_remote": {
-                    "type": "string"
-                },
-                "name": {
-                    "type": "string"
-                },
-                "path": {
-                    "type": "string"
-                }
-            }
-        },
-        "api.WorkspaceResponse": {
-            "type": "object",
-            "properties": {
-                "agent_pid": {
-                    "type": "integer",
-                    "example": 12345
-                },
-                "agent_status": {
-                    "type": "string",
-                    "example": "idle"
-                },
-                "ahead_count": {
-                    "type": "integer"
-                },
-                "archived_at": {
-                    "type": "string"
-                },
-                "bg_tasks": {
-                    "$ref": "#/definitions/api.BgTaskAggregateDTO"
-                },
-                "changes_count": {
-                    "type": "integer"
-                },
-                "created_at": {
-                    "type": "string",
-                    "example": "2026-03-17T12:00:00Z"
-                },
-                "created_by": {
-                    "type": "integer"
-                },
-                "harness_id": {
-                    "type": "integer"
-                },
-                "id": {
-                    "type": "string"
-                },
-                "is_archived": {
-                    "type": "integer"
-                },
-                "issue_id": {
-                    "type": "string"
-                },
-                "lifecycle_status": {
-                    "type": "string"
-                },
-                "name": {
-                    "type": "string",
-                    "example": "My Workspace"
-                },
-                "owner": {
-                    "$ref": "#/definitions/api.OwnerDTO"
-                },
-                "path": {
-                    "type": "string",
-                    "example": "/path/to/workspace"
-                },
-                "project_name": {
-                    "type": "string"
-                },
-                "project_owner_id": {
-                    "type": "integer"
-                },
-                "project_owner_name": {
-                    "type": "string"
-                },
-                "project_owner_type": {
-                    "type": "string"
-                },
-                "schedule_count": {
-                    "type": "integer"
-                },
-                "status": {
-                    "type": "string",
-                    "example": "active"
-                },
-                "task_stats": {
-                    "$ref": "#/definitions/api.TaskStatsDTO"
-                },
-                "updated_at": {
-                    "type": "string",
-                    "example": "2026-03-17T12:00:00Z"
-                },
-                "worktrees": {
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/api.WorktreeSidebarDTO"
-                    }
-                }
-            }
-        },
-        "api.WorktreeSidebarDTO": {
-            "type": "object",
-            "properties": {
-                "ahead_count": {
-                    "type": "integer"
-                },
-                "base_branch": {
-                    "type": "string"
-                },
-                "branch": {
-                    "type": "string"
-                },
-                "changes_count": {
-                    "type": "integer"
-                },
-                "name": {
-                    "type": "string"
-                },
-                "repo_name": {
-                    "type": "string"
-                }
-            }
-        },
-        "api.WsStatusStat": {
-            "type": "object",
-            "properties": {
-                "count": {
-                    "type": "integer"
-                },
-                "status": {
-                    "type": "string"
-                }
-            }
-        },
-        "api.installReq": {
-            "type": "object",
-            "properties": {
-                "name": {
-                    "type": "string"
-                }
-            }
-        },
-        "api.installResp": {
-            "type": "object",
-            "properties": {
-                "fallback_url": {
-                    "type": "string"
-                },
-                "job_id": {
-                    "type": "string"
-                }
-            }
-        },
-        "api.setGitIdentityReq": {
-            "type": "object",
-            "properties": {
-                "email": {
-                    "type": "string"
-                },
-                "name": {
-                    "type": "string"
-                }
-            }
-        },
-        "git.CommitDetail": {
+        "github_com_niuniu-dev_niuniu_internal_git.CommitDetail": {
             "type": "object",
             "properties": {
                 "author": {
@@ -4473,7 +5008,7 @@ const docTemplate = `{
                 "files_changed": {
                     "type": "array",
                     "items": {
-                        "$ref": "#/definitions/git.FileChange"
+                        "$ref": "#/definitions/github_com_niuniu-dev_niuniu_internal_git.FileChange"
                     }
                 },
                 "hash": {
@@ -4487,7 +5022,7 @@ const docTemplate = `{
                 }
             }
         },
-        "git.DiffHunk": {
+        "github_com_niuniu-dev_niuniu_internal_git.DiffHunk": {
             "type": "object",
             "properties": {
                 "header": {
@@ -4497,7 +5032,7 @@ const docTemplate = `{
                 "lines": {
                     "type": "array",
                     "items": {
-                        "$ref": "#/definitions/git.DiffLine"
+                        "$ref": "#/definitions/github_com_niuniu-dev_niuniu_internal_git.DiffLine"
                     }
                 },
                 "new_count": {
@@ -4514,14 +5049,13 @@ const docTemplate = `{
                 }
             }
         },
-        "git.DiffLine": {
+        "github_com_niuniu-dev_niuniu_internal_git.DiffLine": {
             "type": "object",
             "properties": {
                 "content": {
                     "type": "string"
                 },
                 "new_line": {
-                    "description": "OldLine/NewLine are 1-based line numbers, 0 when the line does not exist\non that side (adds have no OldLine, deletes have no NewLine).",
                     "type": "integer"
                 },
                 "no_newline": {
@@ -4529,6 +5063,7 @@ const docTemplate = `{
                     "type": "boolean"
                 },
                 "old_line": {
+                    "description": "OldLine/NewLine are 1-based line numbers, 0 when the line does not exist\non that side (adds have no OldLine, deletes have no NewLine).",
                     "type": "integer"
                 },
                 "type": {
@@ -4537,7 +5072,7 @@ const docTemplate = `{
                 }
             }
         },
-        "git.FileChange": {
+        "github_com_niuniu-dev_niuniu_internal_git.FileChange": {
             "type": "object",
             "properties": {
                 "path": {
@@ -4548,7 +5083,7 @@ const docTemplate = `{
                 }
             }
         },
-        "git.FileDiff": {
+        "github_com_niuniu-dev_niuniu_internal_git.FileDiff": {
             "type": "object",
             "properties": {
                 "additions": {
@@ -4560,11 +5095,11 @@ const docTemplate = `{
                 "hunks": {
                     "type": "array",
                     "items": {
-                        "$ref": "#/definitions/git.DiffHunk"
+                        "$ref": "#/definitions/github_com_niuniu-dev_niuniu_internal_git.DiffHunk"
                     }
                 },
                 "is_binary": {
-                    "description": "IsBinary is true only when git reported the file as an actual binary blob\n(\"Binary files ... differ\" / \"GIT binary patch\"). A diff with zero hunks is\nNOT necessarily binary - mode-only changes (chmod +x), pure renames and\nempty files also produce no hunks.",
+                    "description": "IsBinary is true only when git reported the file as an actual binary blob\n(\"Binary files ... differ\" / \"GIT binary patch\"). A diff with zero hunks is\nNOT necessarily binary — mode-only changes (chmod +x), pure renames and\nempty files also produce no hunks. Clients must gate the \"can't preview\"\nmessage on this flag, never on len(Hunks) == 0.",
                     "type": "boolean"
                 },
                 "new_mode": {
@@ -4590,7 +5125,7 @@ const docTemplate = `{
                 }
             }
         },
-        "git.FileEntry": {
+        "github_com_niuniu-dev_niuniu_internal_git.FileEntry": {
             "type": "object",
             "properties": {
                 "mode": {
@@ -4611,7 +5146,27 @@ const docTemplate = `{
                 }
             }
         },
-        "git.GraphCommit": {
+        "github_com_niuniu-dev_niuniu_internal_git.FileLogEntry": {
+            "type": "object",
+            "properties": {
+                "author": {
+                    "type": "string"
+                },
+                "date": {
+                    "type": "string"
+                },
+                "hash": {
+                    "type": "string"
+                },
+                "message": {
+                    "type": "string"
+                },
+                "path_at_commit": {
+                    "type": "string"
+                }
+            }
+        },
+        "github_com_niuniu-dev_niuniu_internal_git.GraphCommit": {
             "type": "object",
             "properties": {
                 "author": {
@@ -4646,7 +5201,7 @@ const docTemplate = `{
                 }
             }
         },
-        "git.LogEntry": {
+        "github_com_niuniu-dev_niuniu_internal_git.LogEntry": {
             "type": "object",
             "properties": {
                 "author": {
@@ -4663,7 +5218,7 @@ const docTemplate = `{
                 }
             }
         },
-        "git.WorktreeInfo": {
+        "github_com_niuniu-dev_niuniu_internal_git.WorktreeInfo": {
             "type": "object",
             "properties": {
                 "branch": {
@@ -4680,7 +5235,58 @@ const docTemplate = `{
                 }
             }
         },
-        "service.BranchTree": {
+        "github_com_niuniu-dev_niuniu_internal_integration.ExternalComment": {
+            "type": "object",
+            "properties": {
+                "author": {
+                    "type": "string"
+                },
+                "body": {
+                    "type": "string"
+                },
+                "created_at": {
+                    "description": "as-provided by source (RFC3339 for GitHub, \"YYYY-MM-DD HH:MM:SS\" for TAPD)",
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "url": {
+                    "description": "direct link to the comment in the external UI",
+                    "type": "string"
+                }
+            }
+        },
+        "github_com_niuniu-dev_niuniu_internal_service.BatchDeleteResult": {
+            "type": "object",
+            "properties": {
+                "accepted": {
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                },
+                "skipped": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/github_com_niuniu-dev_niuniu_internal_service.BatchSkippedItem"
+                    }
+                }
+            }
+        },
+        "github_com_niuniu-dev_niuniu_internal_service.BatchSkippedItem": {
+            "type": "object",
+            "properties": {
+                "id": {
+                    "type": "integer"
+                },
+                "reason": {
+                    "description": "not_found | has_changes | already_deleting | error",
+                    "type": "string"
+                }
+            }
+        },
+        "github_com_niuniu-dev_niuniu_internal_service.BranchTree": {
             "type": "object",
             "properties": {
                 "current_branch": {
@@ -4700,7 +5306,191 @@ const docTemplate = `{
                 }
             }
         },
-        "service.GitIdentity": {
+        "github_com_niuniu-dev_niuniu_internal_service.CommentAnchor": {
+            "type": "object",
+            "properties": {
+                "context": {
+                    "$ref": "#/definitions/github_com_niuniu-dev_niuniu_internal_service.CommentContext"
+                },
+                "current": {
+                    "description": "Current is what the anchored line looks like NOW, when that differs from the\nsnapshot in Context. Judging \"did this actually get fixed?\" needs both sides:\nContext is what the reviewer commented on, Current is what replaced it. Nil\nwhen the line is unchanged (Context already shows it) or when the anchor is\noutdated (there is no current line to show).",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/github_com_niuniu-dev_niuniu_internal_service.CommentContext"
+                        }
+                    ]
+                },
+                "current_blob_sha": {
+                    "description": "CurrentBlobSha is the file's blob hash right now; \"\" when the file is gone\nor unreadable. Callers re-pin a relocated comment to it.",
+                    "type": "string"
+                },
+                "effective_line": {
+                    "type": "integer"
+                },
+                "original_line": {
+                    "type": "integer"
+                },
+                "side": {
+                    "type": "string"
+                },
+                "status": {
+                    "type": "string"
+                }
+            }
+        },
+        "github_com_niuniu-dev_niuniu_internal_service.CommentContext": {
+            "type": "object",
+            "properties": {
+                "after": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "before": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "line": {
+                    "type": "string"
+                }
+            }
+        },
+        "github_com_niuniu-dev_niuniu_internal_service.CompletionProfileDTO": {
+            "type": "object",
+            "properties": {
+                "autohost_enabled": {
+                    "type": "boolean"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "integer"
+                },
+                "max_rounds": {
+                    "type": "integer"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "project_id": {
+                    "type": "integer"
+                },
+                "require_review": {
+                    "type": "boolean"
+                },
+                "stop_on_decision": {
+                    "type": "boolean"
+                },
+                "token_budget": {
+                    "type": "integer"
+                },
+                "updated_at": {
+                    "type": "string"
+                }
+            }
+        },
+        "github_com_niuniu-dev_niuniu_internal_service.CompletionProfileInput": {
+            "type": "object",
+            "properties": {
+                "autohost_enabled": {
+                    "type": "boolean"
+                },
+                "max_rounds": {
+                    "type": "integer"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "require_review": {
+                    "type": "boolean"
+                },
+                "stop_on_decision": {
+                    "type": "boolean"
+                },
+                "token_budget": {
+                    "type": "integer"
+                }
+            }
+        },
+        "github_com_niuniu-dev_niuniu_internal_service.CompletionSettingsInput": {
+            "type": "object",
+            "properties": {
+                "autohost_enabled": {
+                    "type": "boolean"
+                },
+                "max_rounds": {
+                    "type": "integer"
+                },
+                "require_review": {
+                    "type": "boolean"
+                },
+                "stop_on_decision": {
+                    "type": "boolean"
+                },
+                "token_budget": {
+                    "type": "integer"
+                }
+            }
+        },
+        "github_com_niuniu-dev_niuniu_internal_service.CompletionSettingsView": {
+            "type": "object",
+            "properties": {
+                "autohost_enabled": {
+                    "type": "boolean"
+                },
+                "max_rounds": {
+                    "type": "integer"
+                },
+                "project_id": {
+                    "type": "integer"
+                },
+                "require_review": {
+                    "type": "boolean"
+                },
+                "stop_on_decision": {
+                    "type": "boolean"
+                },
+                "token_budget": {
+                    "type": "integer"
+                },
+                "updated_at": {
+                    "type": "string"
+                }
+            }
+        },
+        "github_com_niuniu-dev_niuniu_internal_service.CreatorBrief": {
+            "type": "object",
+            "properties": {
+                "display_name": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "integer"
+                },
+                "username": {
+                    "type": "string"
+                }
+            }
+        },
+        "github_com_niuniu-dev_niuniu_internal_service.DeliverySpec": {
+            "type": "object",
+            "properties": {
+                "reply_mode": {
+                    "type": "string"
+                },
+                "source_kind": {
+                    "type": "string"
+                },
+                "thread_ext_id": {
+                    "type": "string"
+                }
+            }
+        },
+        "github_com_niuniu-dev_niuniu_internal_service.GitIdentity": {
             "type": "object",
             "properties": {
                 "configured": {
@@ -4714,7 +5504,241 @@ const docTemplate = `{
                 }
             }
         },
-        "service.RepositoryStats": {
+        "github_com_niuniu-dev_niuniu_internal_service.IgnoreDecisionInput": {
+            "type": "object",
+            "properties": {
+                "reason": {
+                    "type": "string"
+                },
+                "reason_code": {
+                    "type": "string"
+                },
+                "reason_text": {
+                    "type": "string"
+                }
+            }
+        },
+        "github_com_niuniu-dev_niuniu_internal_service.IntakeDecisionDTO": {
+            "type": "object",
+            "properties": {
+                "actor_ext_id": {
+                    "type": "string"
+                },
+                "actor_name": {
+                    "type": "string"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "decision": {
+                    "type": "string"
+                },
+                "event_id": {
+                    "type": "integer"
+                },
+                "event_kind": {
+                    "type": "string"
+                },
+                "executed": {
+                    "type": "boolean"
+                },
+                "id": {
+                    "type": "integer"
+                },
+                "issue_id": {
+                    "type": "integer"
+                },
+                "matched_rule_ids": {
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                },
+                "mode_at_decision": {
+                    "type": "string"
+                },
+                "payload": {
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                },
+                "policy_version": {
+                    "type": "integer"
+                },
+                "project_id": {
+                    "type": "integer"
+                },
+                "reason_code": {
+                    "type": "string"
+                },
+                "reason_text": {
+                    "type": "string"
+                },
+                "source_kind": {
+                    "type": "string"
+                },
+                "strength": {
+                    "type": "string"
+                },
+                "thread_ext_id": {
+                    "type": "string"
+                },
+                "workspace_id": {
+                    "type": "integer"
+                },
+                "would_do": {
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                }
+            }
+        },
+        "github_com_niuniu-dev_niuniu_internal_service.IntakeSettingDTO": {
+            "type": "object",
+            "properties": {
+                "allow_list": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "bot_list": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "daily_cap": {
+                    "type": "integer"
+                },
+                "mode": {
+                    "type": "string"
+                },
+                "source_kind": {
+                    "type": "string"
+                },
+                "updated_at": {
+                    "type": "string"
+                }
+            }
+        },
+        "github_com_niuniu-dev_niuniu_internal_service.IntakeSettingInput": {
+            "type": "object",
+            "properties": {
+                "allow_list": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "bot_list": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "daily_cap": {
+                    "type": "integer"
+                },
+                "mode": {
+                    "type": "string"
+                },
+                "source_kind": {
+                    "type": "string"
+                }
+            }
+        },
+        "github_com_niuniu-dev_niuniu_internal_service.IntakeSettingsView": {
+            "type": "object",
+            "properties": {
+                "project_id": {
+                    "type": "integer"
+                },
+                "settings": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/github_com_niuniu-dev_niuniu_internal_service.IntakeSettingDTO"
+                    }
+                }
+            }
+        },
+        "github_com_niuniu-dev_niuniu_internal_service.IssueBriefView": {
+            "type": "object",
+            "properties": {
+                "brief": {
+                    "$ref": "#/definitions/github_com_niuniu-dev_niuniu_internal_service.TaskBriefView"
+                },
+                "goal_condition": {
+                    "type": "string"
+                },
+                "issue_id": {
+                    "type": "integer"
+                },
+                "versions": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/github_com_niuniu-dev_niuniu_internal_service.TaskBriefView"
+                    }
+                }
+            }
+        },
+        "github_com_niuniu-dev_niuniu_internal_service.Provenance": {
+            "type": "object",
+            "properties": {
+                "actor_ext_id": {
+                    "type": "string"
+                },
+                "decision_id": {
+                    "type": "integer"
+                },
+                "policy_version": {
+                    "type": "integer"
+                },
+                "rule_ids": {
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                },
+                "strength": {
+                    "type": "string"
+                }
+            }
+        },
+        "github_com_niuniu-dev_niuniu_internal_service.RepoDiff": {
+            "type": "object",
+            "properties": {
+                "base_branch": {
+                    "type": "string"
+                },
+                "clone_url": {
+                    "description": "CloneURL is the registered repository's git remote, or \"\" when the repo\nhas no remote (or is unresolved). The desktop local-runner reads it to\nseed-clone an empty bound directory (#478); the SPA ignores it.",
+                    "type": "string"
+                },
+                "current_branch": {
+                    "description": "CurrentBranch is the worktree's own checked-out branch (HEAD). Sourced\nfrom the worktree row directly so it is present even for stale/orphan\nassociations (the sidebar's repo JOIN would drop those).",
+                    "type": "string"
+                },
+                "files": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/github_com_niuniu-dev_niuniu_internal_git.FileDiff"
+                    }
+                },
+                "name": {
+                    "type": "string"
+                },
+                "repository_id": {
+                    "type": "integer"
+                },
+                "worktree_path": {
+                    "type": "string"
+                }
+            }
+        },
+        "github_com_niuniu-dev_niuniu_internal_service.RepositoryStats": {
             "type": "object",
             "properties": {
                 "last_commit_date": {
@@ -4731,9 +5755,13 @@ const docTemplate = `{
                 }
             }
         },
-        "service.SystemDepsInfo": {
+        "github_com_niuniu-dev_niuniu_internal_service.SystemDepsInfo": {
             "type": "object",
             "properties": {
+                "browser_cli_login": {
+                    "description": "BrowserCLILogin is true when the server can host an interactive agent-CLI\nlogin inside a browser terminal (GET /ws/cli-login/:tool/terminal). This is\nhow team-edition users log in: the server runs in a container where the\nnative-terminal launch used by personal mode is impossible, so the CLI runs\nserver-side in a PTY and the browser is the terminal (#677). Decorated by\nSystemDepsHandler. Admin-only — the SPA also gates the button on role.",
+                    "type": "boolean"
+                },
                 "can_install": {
                     "type": "boolean"
                 },
@@ -4750,26 +5778,84 @@ const docTemplate = `{
                 "tools": {
                     "type": "array",
                     "items": {
-                        "$ref": "#/definitions/service.ToolStatus"
+                        "$ref": "#/definitions/github_com_niuniu-dev_niuniu_internal_service.ToolStatus"
                     }
                 }
             }
         },
-        "service.ToolExtras": {
+        "github_com_niuniu-dev_niuniu_internal_service.TaskBriefView": {
             "type": "object",
             "properties": {
-                "git_identity": {
-                    "$ref": "#/definitions/service.GitIdentity"
+                "acceptance": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "delivery": {
+                    "$ref": "#/definitions/github_com_niuniu-dev_niuniu_internal_service.DeliverySpec"
+                },
+                "goal": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "integer"
+                },
+                "intake_decision_id": {
+                    "type": "integer"
+                },
+                "issue_id": {
+                    "type": "integer"
+                },
+                "policy_version": {
+                    "type": "integer"
+                },
+                "provenance": {
+                    "$ref": "#/definitions/github_com_niuniu-dev_niuniu_internal_service.Provenance"
+                },
+                "scope_in": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "scope_out": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "version": {
+                    "type": "integer"
                 }
             }
         },
-        "service.ToolStatus": {
+        "github_com_niuniu-dev_niuniu_internal_service.ToolExtras": {
+            "type": "object",
+            "properties": {
+                "git_identity": {
+                    "$ref": "#/definitions/github_com_niuniu-dev_niuniu_internal_service.GitIdentity"
+                }
+            }
+        },
+        "github_com_niuniu-dev_niuniu_internal_service.ToolStatus": {
             "type": "object",
             "properties": {
                 "extras": {
-                    "$ref": "#/definitions/service.ToolExtras"
+                    "$ref": "#/definitions/github_com_niuniu-dev_niuniu_internal_service.ToolExtras"
                 },
                 "found": {
+                    "type": "boolean"
+                },
+                "installable": {
+                    "description": "Installable mirrors whether Install would actually run a package-manager\ncommand for this tool right now (vs. fall back to a redirect URL). It\ncaptures per-tool nuance the page-level CanInstall cannot:\n  - \"claude\" depends on npm (which ships with node), NOT the OS PM, so\n    claude is installable on a LTSC Windows box that has node but no\n    winget — even though CanInstall is false.\n  - \"node\"/\"python3\"/\"git\" need an OS PM (winget/brew/apt-get).\n  - Always false in team edition.\nThe SPA gates per-tool install buttons on this; CanInstall stays the\npage-level \"system PM available\" signal used by the top-of-page message.",
+                    "type": "boolean"
+                },
+                "logged_in": {
+                    "description": "LoggedIn reports whether this CLI already has credentials on the server.\nOnly meaningful for the agent CLIs that have a login flow (claude, codex);\nnil for every other tool so the SPA can distinguish \"not applicable\" from\n\"applicable but not logged in\". Best-effort: on macOS Claude keeps its\ntoken in the Keychain, so a false here can still mean logged-in (see\nclaudehome.CredsExistInConfigDir).",
                     "type": "boolean"
                 },
                 "name": {
@@ -4783,9 +5869,1667 @@ const docTemplate = `{
                 }
             }
         },
+        "github_com_niuniu-dev_niuniu_internal_service.UpdateIntakeSettingsRequest": {
+            "type": "object",
+            "properties": {
+                "settings": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/github_com_niuniu-dev_niuniu_internal_service.IntakeSettingInput"
+                    }
+                }
+            }
+        },
+        "github_com_niuniu-dev_niuniu_internal_service.WorkspaceOverview": {
+            "type": "object",
+            "properties": {
+                "summary": {
+                    "$ref": "#/definitions/github_com_niuniu-dev_niuniu_internal_service.WorkspaceOverviewSummary"
+                },
+                "workspaces": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/github_com_niuniu-dev_niuniu_internal_service.WorkspaceOverviewItem"
+                    }
+                }
+            }
+        },
+        "github_com_niuniu-dev_niuniu_internal_service.WorkspaceOverviewItem": {
+            "type": "object",
+            "properties": {
+                "ahead_count": {
+                    "description": "aggregate commits ahead of base across worktrees",
+                    "type": "integer"
+                },
+                "ai_message_count": {
+                    "type": "integer"
+                },
+                "cache_creation_tokens": {
+                    "type": "integer"
+                },
+                "cache_read_tokens": {
+                    "type": "integer"
+                },
+                "changes_count": {
+                    "description": "aggregate uncommitted changes across worktrees",
+                    "type": "integer"
+                },
+                "created_by": {
+                    "description": "creator user ID, nil if NULL",
+                    "type": "integer"
+                },
+                "input_tokens": {
+                    "type": "integer"
+                },
+                "is_archived": {
+                    "type": "boolean"
+                },
+                "is_stuck": {
+                    "description": "running but no activity for \u003e2h",
+                    "type": "boolean"
+                },
+                "last_activity_at": {
+                    "type": "string"
+                },
+                "message_count": {
+                    "type": "integer"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "output_tokens": {
+                    "type": "integer"
+                },
+                "owner_id": {
+                    "type": "integer"
+                },
+                "owner_type": {
+                    "type": "string"
+                },
+                "project_name": {
+                    "type": "string"
+                },
+                "session_status": {
+                    "type": "string"
+                },
+                "status": {
+                    "type": "string"
+                },
+                "updated_at": {
+                    "type": "string"
+                },
+                "user_message_count": {
+                    "description": "Token usage by type (lifetime, from workspace_stats). Cost in $ is no\nlonger surfaced (we record tokens, not money).",
+                    "type": "integer"
+                },
+                "workspace_id": {
+                    "type": "integer"
+                }
+            }
+        },
+        "github_com_niuniu-dev_niuniu_internal_service.WorkspaceOverviewSummary": {
+            "type": "object",
+            "properties": {
+                "active_count": {
+                    "description": "status running/needs_review/attention",
+                    "type": "integer"
+                },
+                "ai_message_count": {
+                    "type": "integer"
+                },
+                "cache_creation_tokens": {
+                    "type": "integer"
+                },
+                "cache_read_tokens": {
+                    "type": "integer"
+                },
+                "input_tokens": {
+                    "type": "integer"
+                },
+                "output_tokens": {
+                    "type": "integer"
+                },
+                "stuck_count": {
+                    "type": "integer"
+                },
+                "total_count": {
+                    "type": "integer"
+                },
+                "user_message_count": {
+                    "description": "Aggregate token usage + message counts across the (filtered) set.",
+                    "type": "integer"
+                }
+            }
+        },
+        "internal_api.AddRepositoryRequest": {
+            "type": "object",
+            "required": [
+                "repository_id"
+            ],
+            "properties": {
+                "branch": {
+                    "type": "string"
+                },
+                "repository_id": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_api.BgTaskAggregateDTO": {
+            "type": "object",
+            "properties": {
+                "agent_busy": {
+                    "type": "boolean"
+                },
+                "bash_count": {
+                    "type": "integer"
+                },
+                "cron_count": {
+                    "type": "integer"
+                },
+                "highlight": {
+                    "$ref": "#/definitions/internal_api.BgTaskHighlight"
+                },
+                "subagent_count": {
+                    "type": "integer"
+                },
+                "wakeup_count": {
+                    "type": "integer"
+                }
+            }
+        },
+        "internal_api.BgTaskHighlight": {
+            "type": "object",
+            "properties": {
+                "kind": {
+                    "description": "\"bash\" | \"subagent\" | \"wakeup\"",
+                    "type": "string"
+                },
+                "scheduled_for": {
+                    "description": "RFC3339, set for wakeup",
+                    "type": "string"
+                },
+                "started_at": {
+                    "description": "RFC3339, set for bash/subagent",
+                    "type": "string"
+                },
+                "title": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_api.BranchesResponse": {
+            "type": "object",
+            "properties": {
+                "branches": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "current_branch": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_api.ChecklistStatsDTO": {
+            "type": "object",
+            "properties": {
+                "completed": {
+                    "type": "integer"
+                },
+                "total": {
+                    "type": "integer"
+                }
+            }
+        },
+        "internal_api.ColumnIssueStat": {
+            "type": "object",
+            "properties": {
+                "column_name": {
+                    "type": "string"
+                },
+                "count": {
+                    "type": "integer"
+                }
+            }
+        },
+        "internal_api.CommentResponse": {
+            "type": "object",
+            "properties": {
+                "anchor": {
+                    "description": "Anchor is the position re-derived against CURRENT content, present on the\nlist endpoint. Read anchor.status before trusting line_number: \"outdated\"\nmeans the comment's target is gone and the line must not be rendered as if\nit still pointed at the reviewed code.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/github_com_niuniu-dev_niuniu_internal_service.CommentAnchor"
+                        }
+                    ]
+                },
+                "blob_sha": {
+                    "type": "string"
+                },
+                "commit_sha": {
+                    "description": "CommitSha/BlobSha pin the version the reviewer read; ContextLines is the\nJSON snapshot of the surrounding source used to relocate the anchor.",
+                    "type": "string"
+                },
+                "content": {
+                    "type": "string",
+                    "example": "This is a great comment!"
+                },
+                "context_lines": {
+                    "type": "string"
+                },
+                "created_at": {
+                    "type": "string",
+                    "example": "2026-03-17T12:00:00Z"
+                },
+                "file_path": {
+                    "type": "string",
+                    "example": "/path/to/file.go"
+                },
+                "id": {
+                    "type": "integer"
+                },
+                "line_number": {
+                    "type": "integer",
+                    "example": 42
+                },
+                "repo": {
+                    "type": "string",
+                    "example": "niuniu"
+                },
+                "resolved": {
+                    "description": "Resolved is the REVIEW verdict, independent of SentToAgent (delivery).",
+                    "type": "boolean",
+                    "example": false
+                },
+                "resolved_at": {
+                    "type": "string"
+                },
+                "resolved_by": {
+                    "type": "string"
+                },
+                "sent_to_agent": {
+                    "type": "boolean",
+                    "example": true
+                },
+                "side": {
+                    "description": "Side is \"old\" (a line the diff deletes) or \"new\" — old-side anchoring is\nwhat makes deleted lines commentable.",
+                    "type": "string",
+                    "example": "new"
+                },
+                "workspace_id": {
+                    "type": "integer"
+                }
+            }
+        },
+        "internal_api.CommitRequest": {
+            "type": "object",
+            "required": [
+                "message"
+            ],
+            "properties": {
+                "message": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_api.ContentSearchResponse": {
+            "type": "object",
+            "properties": {
+                "engine": {
+                    "type": "string"
+                },
+                "files": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/internal_api.contentFileResult"
+                    }
+                },
+                "totalMatches": {
+                    "description": "TotalMatches counts match lines actually returned (post-truncation).",
+                    "type": "integer"
+                },
+                "truncated": {
+                    "description": "Truncated is true when results were cut short for ANY reason. Clients must\nshow this — a silently truncated list reads as \"that's all there is\".",
+                    "type": "boolean"
+                },
+                "truncatedReason": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_api.CreateColumnRequest": {
+            "type": "object",
+            "required": [
+                "name"
+            ],
+            "properties": {
+                "lifecycle_mapping": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "position": {
+                    "type": "integer"
+                }
+            }
+        },
+        "internal_api.CreateCommentRequest": {
+            "type": "object",
+            "required": [
+                "content",
+                "file_path"
+            ],
+            "properties": {
+                "content": {
+                    "type": "string"
+                },
+                "context_lines": {
+                    "description": "ContextLines is an optional caller-supplied anchor snapshot (JSON). The old\nside of a diff isn't in the working tree, so only the client that rendered\nthe diff can snapshot it; new-side comments omit it and the server snapshots.",
+                    "type": "string"
+                },
+                "file_path": {
+                    "type": "string"
+                },
+                "line_number": {
+                    "type": "integer"
+                },
+                "repo": {
+                    "type": "string"
+                },
+                "side": {
+                    "description": "Side is \"old\" (a line the diff DELETES) or \"new\" (default). Old-side is how\na reviewer says \"you shouldn't have deleted this\" — impossible to express\nwhile comments could only anchor to new-side line numbers.",
+                    "type": "string"
+                }
+            }
+        },
+        "internal_api.CreateFromDirectoryRequest": {
+            "type": "object",
+            "required": [
+                "dir"
+            ],
+            "properties": {
+                "cli_type": {
+                    "description": "CliType picks the agent CLI (\"claude\" default / \"codex\").",
+                    "type": "string"
+                },
+                "dir": {
+                    "description": "Dir is the local directory the user picked. Already a git repo =\u003e bound\nin place; otherwise auto-init'd (with default .gitignore + Git LFS, #233).",
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "owner": {
+                    "$ref": "#/definitions/internal_api.CreateWorkspaceOwnerRequest"
+                },
+                "workflow_template_id": {
+                    "description": "WorkflowTemplateID optionally pre-selects a workflow (project_templates).\nReserved for the create wizard (#236); not yet consumed server-side.",
+                    "type": "integer"
+                }
+            }
+        },
+        "internal_api.CreateIssueRequest": {
+            "type": "object",
+            "required": [
+                "title"
+            ],
+            "properties": {
+                "assignee_user_ids": {
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                },
+                "description": {
+                    "type": "string"
+                },
+                "due_date": {
+                    "type": "string"
+                },
+                "estimate": {
+                    "type": "number"
+                },
+                "estimate_type": {
+                    "type": "string"
+                },
+                "exec_wave": {
+                    "type": "integer"
+                },
+                "issue_type": {
+                    "type": "string"
+                },
+                "label_ids": {
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                },
+                "parent_issue_id": {
+                    "description": "Executable Epic (optional): ParentIssueID attaches this issue as a child of\nan Epic (nil = top-level), IssueType is 'task' (default) or 'epic', ExecWave\nis the child execution wave.",
+                    "type": "integer"
+                },
+                "position": {
+                    "type": "integer"
+                },
+                "priority": {
+                    "type": "integer"
+                },
+                "start_date": {
+                    "type": "string"
+                },
+                "title": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_api.CreateProjectRequest": {
+            "type": "object",
+            "required": [
+                "name"
+            ],
+            "properties": {
+                "description": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_api.CreateRepositoryRequest": {
+            "type": "object",
+            "properties": {
+                "auto_init": {
+                    "description": "Pointer to distinguish between unset and false",
+                    "type": "boolean"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "path": {
+                    "type": "string"
+                },
+                "remote_url": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_api.CreateWorkspaceErrorEntry": {
+            "type": "object",
+            "properties": {
+                "error": {
+                    "type": "string"
+                },
+                "repository_id": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_api.CreateWorkspaceOwnerRequest": {
+            "type": "object",
+            "properties": {
+                "id": {
+                    "type": "integer"
+                },
+                "type": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_api.CreateWorkspaceRequest": {
+            "type": "object",
+            "properties": {
+                "cli_type": {
+                    "description": "CliType picks the agent CLI for the workspace. \"claude\" (default) or\n\"codex\". Empty string normalizes to \"claude\" in the SQL layer.\nImmutable after create: PATCH /api/workspaces/:id rejects this field.",
+                    "type": "string"
+                },
+                "issue_id": {
+                    "description": "nullable int64",
+                    "type": "integer"
+                },
+                "mcp_servers": {
+                    "description": "workspace-scoped MCP server names",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "name": {
+                    "type": "string"
+                },
+                "no_repo": {
+                    "description": "NoRepo creates a plain owner-isolated directory with no git worktrees\n(office / non-code tasks). When true, Repos must be empty; when false,\nat least one repo is required. See docs/architecture/workspace-model.md.",
+                    "type": "boolean"
+                },
+                "owner": {
+                    "$ref": "#/definitions/internal_api.CreateWorkspaceOwnerRequest"
+                },
+                "project_id": {
+                    "description": "ProjectID lets the SPA create a project-scoped workspace without binding\nit to a specific issue. When set, used to prefill any project-default\nscenes (see WorkspaceService.Create scene-layer prefill). Ignored if\nIssueID is also set — issue's project takes precedence.",
+                    "type": "integer"
+                },
+                "repos": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/internal_api.RepoBranchRequest"
+                    }
+                }
+            }
+        },
+        "internal_api.CreateWorkspaceResponse": {
+            "type": "object",
+            "properties": {
+                "errors": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/internal_api.CreateWorkspaceErrorEntry"
+                    }
+                },
+                "id": {
+                    "type": "string"
+                },
+                "is_studio": {
+                    "description": "IsStudio marks a studio workspace (#232) so the SPA can show the delivery\nhint (#238). Omitted (false) for regular workspaces.",
+                    "type": "boolean"
+                },
+                "issue_id": {
+                    "type": "string"
+                },
+                "path": {
+                    "type": "string"
+                },
+                "repositories": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/internal_api.CreateWorkspaceSuccessRepo"
+                    }
+                },
+                "repository_id": {
+                    "description": "RepositoryID is set by the studio from-directory flow (#232) so the client\ncan reference the auto-created/bound repo. Omitted by other create paths.",
+                    "type": "string"
+                },
+                "status": {
+                    "type": "string"
+                },
+                "warnings": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                }
+            }
+        },
+        "internal_api.CreateWorkspaceSuccessRepo": {
+            "type": "object",
+            "properties": {
+                "branch": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "repository_id": {
+                    "type": "string"
+                },
+                "worktree_path": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_api.DirectoryEntry": {
+            "type": "object",
+            "properties": {
+                "name": {
+                    "type": "string"
+                },
+                "path": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_api.DirectoryListResponse": {
+            "type": "object",
+            "properties": {
+                "directories": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/internal_api.DirectoryEntry"
+                    }
+                },
+                "parent": {
+                    "type": "string"
+                },
+                "path": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_api.Error": {
+            "type": "object",
+            "properties": {
+                "error": {
+                    "$ref": "#/definitions/internal_api.ErrorDetail"
+                }
+            }
+        },
+        "internal_api.ErrorDetail": {
+            "type": "object",
+            "properties": {
+                "code": {
+                    "type": "string",
+                    "example": "PROJECT_NOT_FOUND"
+                },
+                "details": {},
+                "message": {
+                    "type": "string",
+                    "example": "Project not found"
+                }
+            }
+        },
+        "internal_api.ErrorResponse": {
+            "type": "object",
+            "properties": {
+                "error": {
+                    "$ref": "#/definitions/internal_api.ErrorDetail"
+                }
+            }
+        },
+        "internal_api.FileContentResponse": {
+            "type": "object",
+            "properties": {
+                "content": {
+                    "type": "string"
+                },
+                "path": {
+                    "type": "string"
+                },
+                "size": {
+                    "type": "integer"
+                }
+            }
+        },
+        "internal_api.GitStatusResponse": {
+            "type": "object",
+            "properties": {
+                "added": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "deleted": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "modified": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "untracked": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                }
+            }
+        },
+        "internal_api.IssueAssigneeResponse": {
+            "type": "object",
+            "properties": {
+                "display_name": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "integer"
+                },
+                "username": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_api.IssueResponse": {
+            "type": "object",
+            "properties": {
+                "actual_time": {
+                    "type": "number"
+                },
+                "assignees": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/internal_api.IssueAssigneeResponse"
+                    }
+                },
+                "checklist_stats": {
+                    "$ref": "#/definitions/internal_api.ChecklistStatsDTO"
+                },
+                "column_id": {
+                    "type": "integer"
+                },
+                "completion_profile_id": {
+                    "description": "CompletionProfileID is the issue-level completion profile override.\nNil means the issue inherits the project default (§6.5).",
+                    "type": "integer"
+                },
+                "created_at": {
+                    "type": "string",
+                    "example": "2026-03-17T12:00:00Z"
+                },
+                "description": {
+                    "type": "string",
+                    "example": "Add JWT-based user authentication"
+                },
+                "due_date": {
+                    "type": "string"
+                },
+                "estimate": {
+                    "type": "number"
+                },
+                "estimate_type": {
+                    "type": "string"
+                },
+                "exec_status": {
+                    "type": "string"
+                },
+                "exec_status_reason": {
+                    "description": "ExecStatusReason is the human-readable reason behind a terminal exec_status\n(blocked-needs-human / abandoned-with-reason, spec §19). Nil when empty.",
+                    "type": "string"
+                },
+                "exec_wave": {
+                    "type": "integer"
+                },
+                "external_comments_snapshot": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/github_com_niuniu-dev_niuniu_internal_integration.ExternalComment"
+                    }
+                },
+                "external_comments_snapshot_at": {
+                    "type": "string"
+                },
+                "external_id": {
+                    "type": "string"
+                },
+                "external_source": {
+                    "description": "External tracker linkage. Empty when the issue is not linked to any\nexternal source. ExternalSource is the provider name (e.g. \"github\");\nExternalID is canonical (\"owner/repo#123\"); ExternalURL is the\nupstream permalink.",
+                    "type": "string"
+                },
+                "external_url": {
+                    "type": "string"
+                },
+                "goal_condition": {
+                    "description": "GoalCondition is the per-issue autohost LLM-judge stop condition.\nEmpty string means \"use the workspace-level fallback (or no judge)\".",
+                    "type": "string"
+                },
+                "has_workspace": {
+                    "description": "HasWorkspace (spec 2026-09-28 §3 frontend flag): the issue owns a live\n(non-archived) workspace, so its parent/child relations are frozen — the\nUI hides the parent/child entries the server guardrail would 409 anyway.",
+                    "type": "boolean"
+                },
+                "id": {
+                    "type": "integer"
+                },
+                "issue_type": {
+                    "type": "string"
+                },
+                "labels": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/internal_api.LabelResponse"
+                    }
+                },
+                "lifecycle_status": {
+                    "type": "string",
+                    "example": "created"
+                },
+                "parent_issue_id": {
+                    "description": "Executable Epic: ParentIssueID is the parent Epic (nil = top-level),\nIssueType is 'task' | 'epic', ExecWave is the child execution wave,\nExecStatus is the Epic execution lifecycle (idle/running/done/failed/paused).",
+                    "type": "integer"
+                },
+                "position": {
+                    "type": "integer",
+                    "example": 0
+                },
+                "priority": {
+                    "type": "integer",
+                    "example": 1
+                },
+                "project_id": {
+                    "type": "integer"
+                },
+                "start_date": {
+                    "type": "string"
+                },
+                "title": {
+                    "type": "string",
+                    "example": "Implement user authentication"
+                },
+                "updated_at": {
+                    "type": "string",
+                    "example": "2026-03-17T12:00:00Z"
+                }
+            }
+        },
+        "internal_api.LabelResponse": {
+            "type": "object",
+            "properties": {
+                "color": {
+                    "type": "string"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "created_by": {
+                    "type": "integer"
+                },
+                "description": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "integer"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "project_id": {
+                    "type": "integer"
+                }
+            }
+        },
+        "internal_api.MoveIssueRequest": {
+            "type": "object",
+            "required": [
+                "column_id"
+            ],
+            "properties": {
+                "column_id": {
+                    "type": "integer"
+                },
+                "position": {
+                    "type": "integer",
+                    "minimum": 0
+                }
+            }
+        },
+        "internal_api.OwnerDTO": {
+            "type": "object",
+            "properties": {
+                "id": {
+                    "type": "integer"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "slug": {
+                    "type": "string"
+                },
+                "type": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_api.ProjectRepositoryBinding": {
+            "type": "object",
+            "properties": {
+                "name": {
+                    "type": "string"
+                },
+                "path": {
+                    "type": "string"
+                },
+                "project_default_branch": {
+                    "type": "string"
+                },
+                "repo_default_branch": {
+                    "type": "string"
+                },
+                "repository_id": {
+                    "type": "integer"
+                }
+            }
+        },
+        "internal_api.ProjectResponse": {
+            "type": "object",
+            "properties": {
+                "color": {
+                    "type": "string",
+                    "example": "emerald"
+                },
+                "created_at": {
+                    "type": "string",
+                    "example": "2026-03-17T12:00:00Z"
+                },
+                "default_cli_type": {
+                    "type": "string",
+                    "example": "claude"
+                },
+                "description": {
+                    "type": "string",
+                    "example": "A sample project"
+                },
+                "env_provider_group": {
+                    "description": "EnvProviderGroup is the provider-group default binding ('' = none).",
+                    "type": "string"
+                },
+                "env_provider_id": {
+                    "type": "integer"
+                },
+                "id": {
+                    "type": "integer"
+                },
+                "issue_stats": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/internal_api.ColumnIssueStat"
+                    }
+                },
+                "name": {
+                    "type": "string",
+                    "example": "My Project"
+                },
+                "owner": {
+                    "$ref": "#/definitions/internal_api.OwnerDTO"
+                },
+                "repositories": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/internal_api.ProjectRepositoryBinding"
+                    }
+                },
+                "status": {
+                    "type": "string",
+                    "example": "active"
+                },
+                "updated_at": {
+                    "type": "string",
+                    "example": "2026-03-17T12:00:00Z"
+                },
+                "ws_stats": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/internal_api.WsStatusStat"
+                    }
+                }
+            }
+        },
+        "internal_api.RepoBranchRequest": {
+            "type": "object",
+            "required": [
+                "branch",
+                "repo_id"
+            ],
+            "properties": {
+                "branch": {
+                    "description": "Branch is the base branch the new worktree forks from. Required so the\nserver never silently falls back to a guessed default (e.g. \"main\") that\nmay not exist in the repo — that fallback used to leave the workspace\nshell in place with no worktree on disk and the failure swallowed.",
+                    "type": "string"
+                },
+                "repo_id": {
+                    "description": "int64",
+                    "type": "integer"
+                }
+            }
+        },
+        "internal_api.RepoSearchResponse": {
+            "type": "object",
+            "properties": {
+                "content": {
+                    "$ref": "#/definitions/internal_api.ContentSearchResponse"
+                },
+                "contentError": {
+                    "type": "string"
+                },
+                "files": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/internal_api.repoFileHit"
+                    }
+                },
+                "filesTruncated": {
+                    "type": "boolean"
+                },
+                "query": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_api.RepositoryResponse": {
+            "type": "object",
+            "properties": {
+                "created_at": {
+                    "type": "string",
+                    "example": "2026-03-17T12:00:00Z"
+                },
+                "default_branch": {
+                    "type": "string",
+                    "example": "main"
+                },
+                "git_remote": {
+                    "type": "string",
+                    "example": "https://github.com/niuniu-dev/niuniu.git"
+                },
+                "id": {
+                    "type": "integer"
+                },
+                "name": {
+                    "type": "string",
+                    "example": "My Repository"
+                },
+                "owner": {
+                    "$ref": "#/definitions/internal_api.OwnerDTO"
+                },
+                "path": {
+                    "type": "string",
+                    "example": "/path/to/repo"
+                },
+                "total_branches": {
+                    "type": "integer",
+                    "example": 3
+                },
+                "updated_at": {
+                    "type": "string",
+                    "example": "2026-03-17T12:00:00Z"
+                },
+                "warnings": {
+                    "description": "Warnings carries non-fatal notices from create (e.g. WARN_GIT_LFS_MISSING\nwhen auto-init could not enable Git LFS). Omitted when empty.",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                }
+            }
+        },
+        "internal_api.ResolveCommentRequest": {
+            "type": "object",
+            "required": [
+                "resolved"
+            ],
+            "properties": {
+                "by": {
+                    "type": "string"
+                },
+                "resolved": {
+                    "description": "Resolved is the review verdict. Pointer so an omitted field is rejected\nrather than silently read as false (un-resolving a comment by accident).",
+                    "type": "boolean"
+                }
+            }
+        },
+        "internal_api.SendInputRequest": {
+            "type": "object",
+            "required": [
+                "input"
+            ],
+            "properties": {
+                "input": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_api.SetEnvRequest": {
+            "type": "object",
+            "properties": {
+                "env": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "string"
+                    }
+                }
+            }
+        },
+        "internal_api.StartAgentRequest": {
+            "type": "object",
+            "properties": {
+                "prompt": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_api.SuggestGoalConditionResponse": {
+            "type": "object",
+            "properties": {
+                "suggestion": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_api.SystemInfoResponse": {
+            "type": "object",
+            "properties": {
+                "data_dir": {
+                    "description": "DataDir is the niuniu data dir (~/.niuniu), Unix-style. The SPA uses it to\ndisable selecting this dir or any descendant and to surface an inline\nerror before submit. The backend enforces the same rule in ValidatePath.",
+                    "type": "string"
+                },
+                "disk_drives": {
+                    "description": "Windows drive letters, empty on Linux",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "home_dir": {
+                    "description": "HomeDir is the directory picker's only default location — the picker must\nnever open in (or allow selecting) the ~/.niuniu data dir.",
+                    "type": "string"
+                },
+                "os": {
+                    "description": "\"windows\" or \"linux\"",
+                    "type": "string"
+                }
+            }
+        },
+        "internal_api.TaskStatsDTO": {
+            "type": "object",
+            "properties": {
+                "completed": {
+                    "type": "integer"
+                },
+                "current_task": {
+                    "type": "string"
+                },
+                "total": {
+                    "type": "integer"
+                }
+            }
+        },
+        "internal_api.UpdateColorRequest": {
+            "type": "object",
+            "properties": {
+                "color": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_api.UpdateColumnPositionRequest": {
+            "type": "object",
+            "properties": {
+                "position": {
+                    "type": "integer"
+                }
+            }
+        },
+        "internal_api.UpdateColumnRequest": {
+            "type": "object",
+            "required": [
+                "name"
+            ],
+            "properties": {
+                "name": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_api.UpdateDefaultCliTypeRequest": {
+            "type": "object",
+            "required": [
+                "default_cli_type"
+            ],
+            "properties": {
+                "default_cli_type": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_api.UpdateIssueRequest": {
+            "type": "object",
+            "required": [
+                "title"
+            ],
+            "properties": {
+                "actual_time": {
+                    "type": "number"
+                },
+                "completion_profile_id": {
+                    "description": "CompletionProfileID distinguishes three cases: absent (unchanged), null\n(clear the override and inherit the project default), or a profile id.\njson.RawMessage is required because *int64 cannot tell null from absent.",
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                },
+                "description": {
+                    "type": "string"
+                },
+                "due_date": {
+                    "type": "string"
+                },
+                "estimate": {
+                    "type": "number"
+                },
+                "estimate_type": {
+                    "type": "string"
+                },
+                "goal_condition": {
+                    "type": "string"
+                },
+                "priority": {
+                    "type": "integer"
+                },
+                "start_date": {
+                    "type": "string"
+                },
+                "title": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_api.UpdateProjectRequest": {
+            "type": "object",
+            "required": [
+                "name"
+            ],
+            "properties": {
+                "description": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_api.UpdateRepositoryRequest": {
+            "type": "object",
+            "required": [
+                "name",
+                "path"
+            ],
+            "properties": {
+                "default_branch": {
+                    "type": "string"
+                },
+                "git_remote": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "path": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_api.WorkspaceGitStatusDTO": {
+            "type": "object",
+            "properties": {
+                "ahead_count": {
+                    "type": "integer"
+                },
+                "changes_count": {
+                    "type": "integer"
+                },
+                "workspace_id": {
+                    "type": "string"
+                },
+                "worktrees": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/internal_api.WorktreeGitStatusDTO"
+                    }
+                }
+            }
+        },
+        "internal_api.WorkspaceResponse": {
+            "type": "object",
+            "properties": {
+                "active_env_provider_name": {
+                    "description": "ActiveEnvProviderName is the provider NAME this workspace's agent\nprocess actually spawned with ('' = none recorded yet). Read-only:\nmaintained server-side at each spawn.",
+                    "type": "string"
+                },
+                "agent_pid": {
+                    "type": "integer",
+                    "example": 12345
+                },
+                "agent_status": {
+                    "type": "string",
+                    "example": "idle"
+                },
+                "ahead_count": {
+                    "type": "integer"
+                },
+                "archived_at": {
+                    "type": "string"
+                },
+                "bg_tasks": {
+                    "$ref": "#/definitions/internal_api.BgTaskAggregateDTO"
+                },
+                "changes_count": {
+                    "type": "integer"
+                },
+                "cli_type": {
+                    "type": "string",
+                    "example": "claude"
+                },
+                "codex_approval_policy": {
+                    "type": "string"
+                },
+                "codex_sandbox_mode": {
+                    "description": "Codex-only fields. Always populated for codex workspaces (defaults\napplied if column is empty). Ignored by the SPA for claude workspaces.",
+                    "type": "string"
+                },
+                "created_at": {
+                    "type": "string",
+                    "example": "2026-03-17T12:00:00Z"
+                },
+                "created_by": {
+                    "type": "integer"
+                },
+                "creator_owner": {
+                    "$ref": "#/definitions/internal_api.OwnerDTO"
+                },
+                "env_provider_group": {
+                    "description": "EnvProviderGroup is the provider-group binding ('' = none). Mutually\nexclusive with EnvProviderID; the workspace resolves the group's best\nusable member in manual order.",
+                    "type": "string"
+                },
+                "env_provider_id": {
+                    "description": "EnvProviderID is the directly-bound subscription-platform provider (issue\n#653). nil = no direct binding (env comes from scene/ explicit workspace_env).",
+                    "type": "integer"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "is_archived": {
+                    "type": "integer"
+                },
+                "is_studio": {
+                    "description": "IsStudio marks workspaces created via the studio \"from local directory\"\nflow (#232). The SPA shows the delivery hint (#238) when true.",
+                    "type": "integer"
+                },
+                "issue_id": {
+                    "type": "string"
+                },
+                "issue_type": {
+                    "description": "IssueType is the linked issue's type ('task'|'epic'). Omitted for regular\ntasks and workspaces with no linked issue; the SPA renders an Epic marker\nin the sidebar only when this is \"epic\".",
+                    "type": "string"
+                },
+                "last_message_at": {
+                    "type": "string"
+                },
+                "lifecycle_status": {
+                    "type": "string"
+                },
+                "message_count": {
+                    "type": "integer"
+                },
+                "name": {
+                    "type": "string",
+                    "example": "My Workspace"
+                },
+                "owner": {
+                    "$ref": "#/definitions/internal_api.OwnerDTO"
+                },
+                "parent_issue_id": {
+                    "description": "ParentIssueID is the linked issue's parent (the Epic it belongs to).\nPresent only when the linked issue is a sub-issue; the SPA renders a\nsub-issue marker in the sidebar when this is set.",
+                    "type": "integer"
+                },
+                "path": {
+                    "type": "string",
+                    "example": "/path/to/workspace"
+                },
+                "project_name": {
+                    "type": "string"
+                },
+                "project_owner_id": {
+                    "type": "integer"
+                },
+                "project_owner_name": {
+                    "type": "string"
+                },
+                "project_owner_type": {
+                    "type": "string"
+                },
+                "schedule_count": {
+                    "type": "integer"
+                },
+                "status": {
+                    "type": "string",
+                    "example": "active"
+                },
+                "task_stats": {
+                    "$ref": "#/definitions/internal_api.TaskStatsDTO"
+                },
+                "updated_at": {
+                    "type": "string",
+                    "example": "2026-03-17T12:00:00Z"
+                },
+                "worktrees": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/internal_api.WorktreeSidebarDTO"
+                    }
+                }
+            }
+        },
+        "internal_api.WorktreeGitStatusDTO": {
+            "type": "object",
+            "properties": {
+                "ahead_count": {
+                    "type": "integer"
+                },
+                "changes_count": {
+                    "type": "integer"
+                },
+                "name": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_api.WorktreeSidebarDTO": {
+            "type": "object",
+            "properties": {
+                "ahead_count": {
+                    "type": "integer"
+                },
+                "base_branch": {
+                    "type": "string"
+                },
+                "branch": {
+                    "type": "string"
+                },
+                "changes_count": {
+                    "type": "integer"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "repo_name": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_api.WsStatusStat": {
+            "type": "object",
+            "properties": {
+                "count": {
+                    "type": "integer"
+                },
+                "status": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_api.batchDeleteWorkspacesRequest": {
+            "type": "object",
+            "required": [
+                "workspace_ids"
+            ],
+            "properties": {
+                "force": {
+                    "description": "Force skips the per-workspace uncommitted/unmerged change check. When\nfalse, a workspace with changes is reported in ` + "`" + `skipped` + "`" + ` (reason\n\"has_changes\") instead of being destroyed.",
+                    "type": "boolean"
+                },
+                "workspace_ids": {
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                }
+            }
+        },
+        "internal_api.contentFileResult": {
+            "type": "object",
+            "properties": {
+                "matches": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/internal_api.contentMatch"
+                    }
+                },
+                "path": {
+                    "description": "Path is workspace-root-relative with forward slashes, e.g.\n\".worktrees/niuniu-main/internal/api/filetree.go\".",
+                    "type": "string"
+                },
+                "repo": {
+                    "description": "Repo is the ` + "`" + `.worktrees/\u003cname\u003e` + "`" + ` subdir, or \"\" for workspace-root files.",
+                    "type": "string"
+                },
+                "truncated": {
+                    "description": "Truncated means this file hit contentMaxPerFile and has more matches.",
+                    "type": "boolean"
+                }
+            }
+        },
+        "internal_api.contentMatch": {
+            "type": "object",
+            "properties": {
+                "after": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "before": {
+                    "description": "Before/After hold up to ` + "`" + `context` + "`" + ` lines around the match. The git-grep\nfallback cannot label context lines unambiguously, so it returns none.",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "columns": {
+                    "description": "Columns are [start,end) BYTE offsets of each match within Text, letting\nthe client highlight the hit. Only ripgrep reports these.",
+                    "type": "array",
+                    "items": {
+                        "type": "array",
+                        "items": {
+                            "type": "integer"
+                        }
+                    }
+                },
+                "line": {
+                    "type": "integer"
+                },
+                "lineTruncated": {
+                    "description": "LineTruncated marks a line cut to contentMaxLineLen.",
+                    "type": "boolean"
+                },
+                "text": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_api.installReq": {
+            "type": "object",
+            "properties": {
+                "name": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_api.installResp": {
+            "type": "object",
+            "properties": {
+                "fallback_url": {
+                    "type": "string"
+                },
+                "job_id": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_api.overviewCreatorsResponse": {
+            "type": "object",
+            "properties": {
+                "data": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/github_com_niuniu-dev_niuniu_internal_service.CreatorBrief"
+                    }
+                }
+            }
+        },
+        "internal_api.repoFileHit": {
+            "type": "object",
+            "properties": {
+                "name": {
+                    "type": "string"
+                },
+                "path": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_api.setGitIdentityReq": {
+            "type": "object",
+            "properties": {
+                "email": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                }
+            }
+        },
+        "releasecheck.Asset": {
+            "type": "object",
+            "properties": {
+                "browser_download_url": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                }
+            }
+        },
+        "releasecheck.Release": {
+            "type": "object",
+            "properties": {
+                "assets": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/releasecheck.Asset"
+                    }
+                },
+                "html_url": {
+                    "type": "string"
+                },
+                "notes": {
+                    "type": "string"
+                },
+                "published_at": {
+                    "type": "string"
+                },
+                "tag_name": {
+                    "type": "string"
+                }
+            }
+        },
+        "sql.NullString": {
+            "type": "object",
+            "properties": {
+                "string": {
+                    "type": "string"
+                },
+                "valid": {
+                    "description": "Valid is true if String is not NULL",
+                    "type": "boolean"
+                }
+            }
+        },
         "store.Column": {
             "type": "object",
             "properties": {
+                "auto_advance": {
+                    "type": "integer"
+                },
                 "id": {
                     "type": "integer"
                 },
@@ -4795,11 +7539,17 @@ const docTemplate = `{
                 "name": {
                     "type": "string"
                 },
+                "phase_prompt": {
+                    "$ref": "#/definitions/sql.NullString"
+                },
                 "position": {
                     "type": "integer"
                 },
                 "project_id": {
                     "type": "integer"
+                },
+                "reviewer_agent": {
+                    "$ref": "#/definitions/sql.NullString"
                 }
             }
         }

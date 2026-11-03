@@ -112,6 +112,14 @@ type Server struct {
 	projectFloorSvc      *service.ProjectFloorService
 	projectFloorHandler  *api.ProjectFloorHandler
 
+	// Intake (任务来源) + Completion (自动完成) contract surface (design §6.9).
+	intakeSvc         *service.IntakeService
+	intakeHandler     *api.IntakeHandler
+	completionSvc     *service.CompletionService
+	completionHandler *api.CompletionHandler
+	taskBriefSvc      *service.TaskBriefService
+	taskBriefHandler  *api.TaskBriefHandler
+
 	// External credential management (encrypted token storage).
 	intgKeyring          *crypto.Keyring
 	extCredSvc           *service.ExternalCredentialService
@@ -916,6 +924,18 @@ func New(cfg *config.Config, db *sql.DB, frontendFS fs.FS) *Server {
 	// before an issue may complete. Empty by default (no floor).
 	s.projectFloorSvc = service.NewProjectFloorService(db, s.queries)
 	s.projectFloorHandler = api.NewProjectFloorHandler(s.projectFloorSvc, authz)
+	// Intake + Completion contract surface (design §6.9). The decision pipeline
+	// wires SetAcceptor later; until then accept answers 501 rather than
+	// silently consuming the queue entry.
+	s.intakeSvc = service.NewIntakeService(db, s.queries)
+	s.intakeHandler = api.NewIntakeHandler(s.intakeSvc, authz)
+	s.completionSvc = service.NewCompletionService(db, s.queries)
+	s.completionHandler = api.NewCompletionHandler(s.completionSvc, authz)
+	s.taskBriefSvc = service.NewTaskBriefService(s.queries)
+	s.taskBriefHandler = api.NewTaskBriefHandler(s.taskBriefSvc, authz)
+	// PATCH /api/issues/:id carries completion_profile_id; the kanban handler owns
+	// that route, so give it the completion service.
+	s.kanbanHandler.Completion = s.completionSvc
 	s.worktreeHandler = api.NewWorktreeHandler(s.worktreeSvc)
 	s.agentHandler = api.NewAgentHandler(s.agentMgr, s.workspaceSvc)
 	s.agentHandler.Authz = authz

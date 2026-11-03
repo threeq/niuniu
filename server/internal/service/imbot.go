@@ -234,6 +234,7 @@ type IMBotChatDTO struct {
 	ChatName      string    `json:"chat_name"`
 	BindMode      string    `json:"bind_mode"`
 	AgentMode     string    `json:"agent_mode"`
+	IntakeMode    string    `json:"intake_mode"`
 	PinnedIssueID *int64    `json:"pinned_issue_id"`
 	ActiveIssueID *int64    `json:"active_issue_id"`
 	Status        string    `json:"status"`
@@ -269,6 +270,7 @@ func chatDTO(r store.ImBotChat) IMBotChatDTO {
 		ChatName:      r.ChatName,
 		BindMode:      r.BindMode,
 		AgentMode:     normalizeAgentMode(r.AgentMode),
+		IntakeMode:    normalizeIntakeMode(r.IntakeMode),
 		PinnedIssueID: nullInt64Ptr(r.PinnedIssueID),
 		ActiveIssueID: nullInt64Ptr(r.ActiveIssueID),
 		Status:        r.Status,
@@ -1001,6 +1003,9 @@ type PatchChatInput struct {
 	// AgentMode switches the Agent-employee initiative level ("command" |
 	// "observe"). Empty preserves the current value, like the other fields here.
 	AgentMode string
+	// IntakeMode switches this chat's intake mode ("off" | "observe" | "auto").
+	// Empty preserves the current value.
+	IntakeMode string
 }
 
 // PatchChatByOwner is the owner-level counterpart of PatchChat: it edits a chat's
@@ -1098,6 +1103,21 @@ func (s *IMBotService) applyChatPatch(ctx context.Context, cur store.ImBotChat, 
 			// reminder about something from days ago, which reads as the bot being
 			// broken. A mode change is an explicit "start fresh from here".
 			s.retirePendingObservations(ctx, cur.ID)
+		}
+	}
+	// intake_mode is its own UPDATE for the same stale-row reason: the hot
+	// inbound path rewrites the chat through UpdateIMBotChat and would otherwise
+	// revert a mode the user just changed.
+	if want := strings.TrimSpace(in.IntakeMode); want != "" {
+		mode := normalizeIntakeMode(want)
+		if mode != normalizeIntakeMode(cur.IntakeMode) {
+			updated, merr := s.q.UpdateIMBotChatIntakeMode(ctx, store.UpdateIMBotChatIntakeModeParams{
+				IntakeMode: mode, ID: cur.ID,
+			})
+			if merr != nil {
+				return IMBotChatDTO{}, merr
+			}
+			row = updated
 		}
 	}
 	return chatDTO(row), nil

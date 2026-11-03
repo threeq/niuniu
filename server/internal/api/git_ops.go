@@ -6,8 +6,13 @@ import (
 	"strconv"
 
 	"github.com/gin-gonic/gin"
+	"github.com/niuniu-dev/niuniu/internal/git"
 	"github.com/niuniu-dev/niuniu/internal/service"
 )
+
+// FileDiffResponse keeps the internal/git import live so the GetFileDiff swagger
+// annotation (which names git.FileDiff) resolves during `make docs`.
+type FileDiffResponse = git.FileDiff
 
 type GitOpsHandler struct {
 	gitOpsSvc *service.GitOpsService

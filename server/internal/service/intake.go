@@ -1,0 +1,479 @@
+package service
+
+// Intake (任务来源) configuration + dry-run decision queue — the contract surface
+// defined in design §6.9. This is deliberately the *contract* layer: it reads and
+// writes intake_settings / intake_decisions and exposes stable JSON shapes for the
+// frontend. The decision pipeline itself (dedupe → authorize → resolve → decide)
+// lives in the intake package; when it lands it satisfies IntakeDecisionAcceptor
+// and the accept endpoint starts producing issues. Until then accept returns
+// ErrDecisionAcceptorUnavailable instead of silently dropping the queue entry.
+
+import (
+	"context"
+	"database/sql"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"strings"
+	"time"
+
+	"github.com/niuniu-dev/niuniu/internal/store"
+)
+
+// ErrDecisionAcceptorUnavailable is returned by AcceptDecision when no pipeline
+// is wired yet. The handler maps it to 501 so the UI can distinguish "not built
+// yet" from a real failure.
+var ErrDecisionAcceptorUnavailable = errors.New("intake decision acceptor is not wired")
+
+// Intake source kinds carry the same values as intake_settings.source_kind.
+// Unknown kinds are accepted (forward-compatible); these are the ones the
+// settings page pre-renders with defaults.
+var intakeSourceKinds = []string{"im_bot", "github", "ci", "email", "webhook"}
+
+// Defaults mirror the schema defaults in §6.8.
+const (
+	defaultIntakeMode     = "observe"
+	defaultIntakeDailyCap = 4
+)
+
+var validIntakeModes = map[string]bool{"off": true, "observe": true, "auto": true}
+
+// IntakeSettingDTO is one (project, source) intake configuration.
+type IntakeSettingDTO struct {
+	SourceKind string     `json:"source_kind"`
+	Mode       string     `json:"mode"`
+	DailyCap   int64      `json:"daily_cap"`
+	AllowList  []string   `json:"allow_list"`
+	BotList    []string   `json:"bot_list"`
+	UpdatedAt  *time.Time `json:"updated_at,omitempty"`
+}
+
+// IntakeSettingsView is the GET /intake/settings response. Every known source
+// kind is present: kinds without a stored row are rendered with defaults so the
+// settings page never has to synthesize them.
+type IntakeSettingsView struct {
+	ProjectID int64              `json:"project_id"`
+	Settings  []IntakeSettingDTO `json:"settings"`
+}
+
+// IntakeSettingInput is one settings row in a PUT body.
+type IntakeSettingInput struct {
+	SourceKind string   `json:"source_kind"`
+	Mode       string   `json:"mode"`
+	DailyCap   *int64   `json:"daily_cap"`
+	AllowList  []string `json:"allow_list"`
+	BotList    []string `json:"bot_list"`
+}
+
+// UpdateIntakeSettingsRequest is the PUT /intake/settings body.
+type UpdateIntakeSettingsRequest struct {
+	Settings []IntakeSettingInput `json:"settings"`
+}
+
+// IntakeDecisionDTO is one dry-run decision in the calibration queue, joined with
+// its originating event so the page can render source/actor/thread without a
+// second round trip.
+type IntakeDecisionDTO struct {
+	ID             int64           `json:"id"`
+	EventID        int64           `json:"event_id"`
+	ProjectID      int64           `json:"project_id"`
+	SourceKind     string          `json:"source_kind"`
+	EventKind      string          `json:"event_kind"`
+	ActorExtID     string          `json:"actor_ext_id"`
+	ActorName      string          `json:"actor_name"`
+	ThreadExtID    string          `json:"thread_ext_id"`
+	ModeAtDecision string          `json:"mode_at_decision"`
+	Strength       string          `json:"strength"`
+	Decision       string          `json:"decision"`
+	Executed       bool            `json:"executed"`
+	ReasonCode     string          `json:"reason_code"`
+	ReasonText     string          `json:"reason_text"`
+	MatchedRuleIDs []int64         `json:"matched_rule_ids"`
+	PolicyVersion  int64           `json:"policy_version"`
+	IssueID        *int64          `json:"issue_id"`
+	WorkspaceID    *int64          `json:"workspace_id"`
+	WouldDo        json.RawMessage `json:"would_do"`
+	Payload        json.RawMessage `json:"payload"`
+	CreatedAt      time.Time       `json:"created_at"`
+}
+
+// IgnoreDecisionInput records why a dry-run decision was rejected. A reason is
+// mandatory: it is what makes the accept-rate metric meaningful.
+type IgnoreDecisionInput struct {
+	Reason     string `json:"reason"`
+	ReasonCode string `json:"reason_code"`
+	ReasonText string `json:"reason_text"`
+}
+
+// IntakeDecisionAcceptor executes an accepted dry-run decision (creates the
+// issue/workspace from the suggested Task Brief). Implemented by the intake
+// pipeline; nil until Phase 1.
+type IntakeDecisionAcceptor interface {
+	AcceptDecision(ctx context.Context, decision store.IntakeDecision) (issueID, workspaceID int64, err error)
+}
+
+// IntakeService backs the intake configuration + calibration queue endpoints.
+type IntakeService struct {
+	db       *store.DB
+	q        *store.Queries
+	acceptor IntakeDecisionAcceptor
+}
+
+func NewIntakeService(db *sql.DB, q *store.Queries) *IntakeService {
+	return &IntakeService{db: store.Wrap(db), q: q}
+}
+
+// SetAcceptor wires the decision pipeline. Called from server.go once it exists.
+func (s *IntakeService) SetAcceptor(a IntakeDecisionAcceptor) { s.acceptor = a }
+
+// GetSettings returns every known source kind, stored rows first-class and
+// missing kinds filled with schema defaults.
+func (s *IntakeService) GetSettings(ctx context.Context, projectID int64) (IntakeSettingsView, error) {
+	rows, err := s.q.ListIntakeSettingsByProject(ctx, projectID)
+	if err != nil {
+		return IntakeSettingsView{}, err
+	}
+	byKind := make(map[string]store.IntakeSetting, len(rows))
+	for _, r := range rows {
+		byKind[r.SourceKind] = r
+	}
+	view := IntakeSettingsView{ProjectID: projectID, Settings: make([]IntakeSettingDTO, 0, len(byKind)+len(intakeSourceKinds))}
+	seen := make(map[string]bool, len(byKind))
+	for _, kind := range intakeSourceKinds {
+		if r, ok := byKind[kind]; ok {
+			view.Settings = append(view.Settings, intakeSettingDTO(r))
+			seen[kind] = true
+			continue
+		}
+		view.Settings = append(view.Settings, IntakeSettingDTO{
+			SourceKind: kind,
+			Mode:       defaultIntakeMode,
+			DailyCap:   defaultIntakeDailyCap,
+			AllowList:  []string{},
+			BotList:    []string{},
+		})
+	}
+	// Any customized kind outside the known set still appears.
+	for _, r := range rows {
+		if !seen[r.SourceKind] {
+			view.Settings = append(view.Settings, intakeSettingDTO(r))
+		}
+	}
+	return view, nil
+}
+
+// UpdateSettings upserts each provided row and, per §6.8, writes one policy
+// version snapshot per touched (project, source) so the change is auditable.
+func (s *IntakeService) UpdateSettings(ctx context.Context, projectID int64, req UpdateIntakeSettingsRequest) (IntakeSettingsView, error) {
+	if len(req.Settings) == 0 {
+		return IntakeSettingsView{}, fmt.Errorf("settings must not be empty")
+	}
+	for _, in := range req.Settings {
+		if err := validateIntakeSetting(in); err != nil {
+			return IntakeSettingsView{}, err
+		}
+	}
+
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return IntakeSettingsView{}, err
+	}
+	defer tx.Rollback()
+
+	qtx := tx.Queries()
+	for _, in := range req.Settings {
+		dailyCap := int64(defaultIntakeDailyCap)
+		if in.DailyCap != nil {
+			dailyCap = *in.DailyCap
+		}
+		allowJSON, err := json.Marshal(nonNilStrings(in.AllowList))
+		if err != nil {
+			return IntakeSettingsView{}, err
+		}
+		botJSON, err := json.Marshal(nonNilStrings(in.BotList))
+		if err != nil {
+			return IntakeSettingsView{}, err
+		}
+		if _, err := qtx.UpsertIntakeSetting(ctx, store.UpsertIntakeSettingParams{
+			ProjectID:     projectID,
+			SourceKind:    strings.TrimSpace(in.SourceKind),
+			Mode:          in.Mode,
+			DailyCap:      dailyCap,
+			AllowListJson: string(allowJSON),
+			BotListJson:   string(botJSON),
+		}); err != nil {
+			return IntakeSettingsView{}, err
+		}
+		snapshot, err := json.Marshal(map[string]any{
+			"source_kind": in.SourceKind,
+			"mode":        in.Mode,
+			"daily_cap":   dailyCap,
+			"allow_list":  nonNilStrings(in.AllowList),
+			"bot_list":    nonNilStrings(in.BotList),
+		})
+		if err != nil {
+			return IntakeSettingsView{}, err
+		}
+		if _, err := qtx.CreateIntakePolicyVersion(ctx, store.CreateIntakePolicyVersionParams{
+			ProjectID:    projectID,
+			SourceKind:   strings.TrimSpace(in.SourceKind),
+			ProjectID_2:  projectID,
+			SourceKind_2: strings.TrimSpace(in.SourceKind),
+			SnapshotJson: string(snapshot),
+		}); err != nil {
+			return IntakeSettingsView{}, err
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return IntakeSettingsView{}, err
+	}
+	return s.GetSettings(ctx, projectID)
+}
+
+// SetMode is the narrow write used by the intake_set_mode MCP tool: it changes
+// one source's mode and leaves the allow/bot lists and cap untouched.
+func (s *IntakeService) SetMode(ctx context.Context, projectID int64, sourceKind, mode string) (IntakeSettingDTO, error) {
+	sourceKind = strings.TrimSpace(sourceKind)
+	if sourceKind == "" {
+		return IntakeSettingDTO{}, fmt.Errorf("source_kind is required")
+	}
+	if !validIntakeModes[mode] {
+		return IntakeSettingDTO{}, fmt.Errorf("mode must be one of off, observe, auto")
+	}
+	cur, err := s.q.GetIntakeSetting(ctx, store.GetIntakeSettingParams{
+		ProjectID: projectID, SourceKind: sourceKind,
+	})
+	allow := []string{}
+	bot := []string{}
+	dailyCap := int64(defaultIntakeDailyCap)
+	if err == nil {
+		allow = decodeStringList(cur.AllowListJson)
+		bot = decodeStringList(cur.BotListJson)
+		dailyCap = cur.DailyCap
+	} else if !errors.Is(err, sql.ErrNoRows) {
+		return IntakeSettingDTO{}, err
+	}
+	view, err := s.UpdateSettings(ctx, projectID, UpdateIntakeSettingsRequest{
+		Settings: []IntakeSettingInput{{
+			SourceKind: sourceKind, Mode: mode, DailyCap: &dailyCap, AllowList: allow, BotList: bot,
+		}},
+	})
+	if err != nil {
+		return IntakeSettingDTO{}, err
+	}
+	for _, st := range view.Settings {
+		if st.SourceKind == sourceKind {
+			return st, nil
+		}
+	}
+	return IntakeSettingDTO{}, fmt.Errorf("setting not found after write")
+}
+
+// ListDecisions returns decisions joined with their events. executed/decision
+// are optional filters; the calibration queue passes executed=0&decision=accept.
+func (s *IntakeService) ListDecisions(ctx context.Context, projectID int64, executed *bool, decision string, limit int) ([]IntakeDecisionDTO, error) {
+	if limit <= 0 || limit > 500 {
+		limit = 100
+	}
+	query := `
+SELECT d.id, d.event_id, d.project_id, d.mode_at_decision, d.strength, d.decision,
+       d.executed, d.reason_code, d.reason_text, d.matched_rule_ids_json,
+       d.policy_version, d.issue_id, d.workspace_id, d.would_do_json, d.created_at,
+       e.source_kind, e.event_kind, e.actor_ext_id, e.actor_name, e.thread_ext_id, e.payload_json
+FROM intake_decisions d
+JOIN intake_events e ON e.id = d.event_id
+WHERE d.project_id = ?`
+	args := []any{projectID}
+	if executed != nil {
+		query += " AND d.executed = ?"
+		if *executed {
+			args = append(args, 1)
+		} else {
+			args = append(args, 0)
+		}
+	}
+	if decision != "" {
+		query += " AND d.decision = ?"
+		args = append(args, decision)
+	}
+	query += " ORDER BY d.created_at DESC, d.id DESC LIMIT ?"
+	args = append(args, limit)
+
+	rows, err := s.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	out := make([]IntakeDecisionDTO, 0)
+	for rows.Next() {
+		var (
+			d         IntakeDecisionDTO
+			executedV int64
+			matched   string
+			wouldDo   string
+			payload   string
+			issueID   sql.NullInt64
+			workspace sql.NullInt64
+		)
+		if err := rows.Scan(
+			&d.ID, &d.EventID, &d.ProjectID, &d.ModeAtDecision, &d.Strength, &d.Decision,
+			&executedV, &d.ReasonCode, &d.ReasonText, &matched,
+			&d.PolicyVersion, &issueID, &workspace, &wouldDo, &d.CreatedAt,
+			&d.SourceKind, &d.EventKind, &d.ActorExtID, &d.ActorName, &d.ThreadExtID, &payload,
+		); err != nil {
+			return nil, err
+		}
+		d.Executed = executedV != 0
+		d.MatchedRuleIDs = decodeInt64List(matched)
+		d.WouldDo = json.RawMessage(orJSONObject(wouldDo))
+		d.Payload = json.RawMessage(orJSONObject(payload))
+		if issueID.Valid {
+			v := issueID.Int64
+			d.IssueID = &v
+		}
+		if workspace.Valid {
+			v := workspace.Int64
+			d.WorkspaceID = &v
+		}
+		out = append(out, d)
+	}
+	return out, rows.Err()
+}
+
+// GetDecision returns one decision for authorization before accept/ignore.
+func (s *IntakeService) GetDecision(ctx context.Context, decisionID int64) (store.IntakeDecision, error) {
+	return s.q.GetIntakeDecision(ctx, decisionID)
+}
+
+// AcceptDecision executes a pending dry-run decision through the wired pipeline.
+func (s *IntakeService) AcceptDecision(ctx context.Context, decisionID int64) (IntakeDecisionDTO, error) {
+	d, err := s.q.GetIntakeDecision(ctx, decisionID)
+	if err != nil {
+		return IntakeDecisionDTO{}, err
+	}
+	if d.Executed != 0 {
+		return IntakeDecisionDTO{}, fmt.Errorf("decision %d is already executed", decisionID)
+	}
+	if s.acceptor == nil {
+		return IntakeDecisionDTO{}, ErrDecisionAcceptorUnavailable
+	}
+	issueID, workspaceID, err := s.acceptor.AcceptDecision(ctx, d)
+	if err != nil {
+		return IntakeDecisionDTO{}, err
+	}
+	updated, err := s.q.SetIntakeDecisionExecuted(ctx, store.SetIntakeDecisionExecutedParams{
+		IssueID:     sql.NullInt64{Int64: issueID, Valid: issueID > 0},
+		WorkspaceID: sql.NullInt64{Int64: workspaceID, Valid: workspaceID > 0},
+		ID:          decisionID,
+	})
+	if err != nil {
+		return IntakeDecisionDTO{}, err
+	}
+	return s.decisionByID(ctx, updated.ProjectID, updated.ID)
+}
+
+// IgnoreDecision re-labels a pending decision as ignored, recording the reason.
+func (s *IntakeService) IgnoreDecision(ctx context.Context, decisionID int64, in IgnoreDecisionInput) (IntakeDecisionDTO, error) {
+	reasonText := strings.TrimSpace(in.ReasonText)
+	if reasonText == "" {
+		reasonText = strings.TrimSpace(in.Reason)
+	}
+	reasonCode := strings.TrimSpace(in.ReasonCode)
+	if reasonText == "" && reasonCode == "" {
+		return IntakeDecisionDTO{}, fmt.Errorf("a reason is required to ignore a decision")
+	}
+	d, err := s.q.GetIntakeDecision(ctx, decisionID)
+	if err != nil {
+		return IntakeDecisionDTO{}, err
+	}
+	if d.Executed != 0 {
+		return IntakeDecisionDTO{}, fmt.Errorf("decision %d is already executed", decisionID)
+	}
+	updated, err := s.q.SetIntakeDecisionOutcome(ctx, store.SetIntakeDecisionOutcomeParams{
+		Decision:   "ignore",
+		ReasonCode: reasonCode,
+		ReasonText: reasonText,
+		ID:         decisionID,
+	})
+	if err != nil {
+		return IntakeDecisionDTO{}, err
+	}
+	return s.decisionByID(ctx, updated.ProjectID, updated.ID)
+}
+
+// decisionByID re-reads one decision through the joined list query so accept and
+// ignore return the same shape the queue list does.
+func (s *IntakeService) decisionByID(ctx context.Context, projectID, decisionID int64) (IntakeDecisionDTO, error) {
+	items, err := s.ListDecisions(ctx, projectID, nil, "", 500)
+	if err != nil {
+		return IntakeDecisionDTO{}, err
+	}
+	for _, it := range items {
+		if it.ID == decisionID {
+			return it, nil
+		}
+	}
+	return IntakeDecisionDTO{}, sql.ErrNoRows
+}
+
+func intakeSettingDTO(r store.IntakeSetting) IntakeSettingDTO {
+	updated := r.UpdatedAt
+	return IntakeSettingDTO{
+		SourceKind: r.SourceKind,
+		Mode:       r.Mode,
+		DailyCap:   r.DailyCap,
+		AllowList:  decodeStringList(r.AllowListJson),
+		BotList:    decodeStringList(r.BotListJson),
+		UpdatedAt:  &updated,
+	}
+}
+
+func validateIntakeSetting(in IntakeSettingInput) error {
+	if strings.TrimSpace(in.SourceKind) == "" {
+		return fmt.Errorf("source_kind is required")
+	}
+	if !validIntakeModes[in.Mode] {
+		return fmt.Errorf("mode must be one of off, observe, auto")
+	}
+	if in.DailyCap != nil && *in.DailyCap < 0 {
+		return fmt.Errorf("daily_cap must be >= 0")
+	}
+	return nil
+}
+
+func decodeStringList(raw string) []string {
+	out := []string{}
+	if strings.TrimSpace(raw) == "" {
+		return out
+	}
+	if err := json.Unmarshal([]byte(raw), &out); err != nil || out == nil {
+		return []string{}
+	}
+	return out
+}
+
+func decodeInt64List(raw string) []int64 {
+	out := []int64{}
+	if strings.TrimSpace(raw) == "" {
+		return out
+	}
+	if err := json.Unmarshal([]byte(raw), &out); err != nil || out == nil {
+		return []int64{}
+	}
+	return out
+}
+
+func nonNilStrings(in []string) []string {
+	if in == nil {
+		return []string{}
+	}
+	return in
+}
+
+func orJSONObject(raw string) string {
+	if strings.TrimSpace(raw) == "" {
+		return "{}"
+	}
+	return raw
+}

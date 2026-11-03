@@ -1031,6 +1031,9 @@ func (s *KanbanService) loadIssueDetail(ctx context.Context, issueID int64) (Iss
 			IssueType:     row.IssueType,
 			ExecWave:      row.ExecWave,
 			ExecStatus:    row.ExecStatus,
+			// Same lock-step rule: without this the issue-level completion
+			// profile override silently reads as null on GET /issues/:id.
+			CompletionProfileID: row.CompletionProfileID,
 			CreatedAt:     row.CreatedAt,
 			UpdatedAt:     row.UpdatedAt,
 			// Same lock-step rule as above: GetIssueDetail SELECTs i.*, so the
