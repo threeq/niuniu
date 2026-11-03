@@ -132,7 +132,7 @@ const getChecklistStats = `-- name: GetChecklistStats :one
 SELECT
     COUNT(*) as total,
     CAST(COALESCE(SUM(CASE WHEN is_completed = 1 THEN 1 ELSE 0 END), 0) AS INTEGER) as completed
-FROM issue_checklists WHERE issue_id = ?
+FROM issue_checklists WHERE issue_id = ? AND kind = 'task'
 `
 
 type GetChecklistStatsRow struct {

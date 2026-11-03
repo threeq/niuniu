@@ -19,10 +19,11 @@ DELETE FROM issue_checklists WHERE id = ?;
 SELECT * FROM issue_checklists WHERE id = ?;
 
 -- name: GetChecklistStats :one
+-- Execution progress only. Brief acceptance rows are tracked separately.
 SELECT
     COUNT(*) as total,
     CAST(COALESCE(SUM(CASE WHEN is_completed = 1 THEN 1 ELSE 0 END), 0) AS INTEGER) as completed
-FROM issue_checklists WHERE issue_id = ?;
+FROM issue_checklists WHERE issue_id = ? AND kind = 'task';
 
 -- name: ListChecklistsByIssueAndKind :many
 SELECT * FROM issue_checklists WHERE issue_id = ? AND kind = ? ORDER BY position;
