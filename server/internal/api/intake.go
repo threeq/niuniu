@@ -329,6 +329,7 @@ func (h *IntakeHandler) ListPolicyVersions(c *gin.Context) {
 // @Param        id        path      int   true   "Project ID"
 // @Param        executed  query     bool  false  "Filter by execution state"
 // @Param        decision  query     string false  "Filter by decision outcome"
+// @Param        source_kind query   string false  "Filter by source kind (im_bot/github/ci/email/webhook)"
 // @Param        limit     query     int   false  "Max rows (default 100)"
 // @Success      200  {array}   service.IntakeDecisionDTO
 // @Failure      400  {object}  Error
@@ -340,7 +341,8 @@ func (h *IntakeHandler) ListDecisions(c *gin.Context) {
 	if !ok {
 		return
 	}
-	items, err := h.svc.ListDecisions(c.Request.Context(), pid, executedFilter(c), c.Query("decision"), intParam(c, "limit"))
+	items, err := h.svc.ListDecisions(c.Request.Context(), pid, executedFilter(c),
+		c.Query("decision"), c.Query("source_kind"), intParam(c, "limit"))
 	if err != nil {
 		h.mapIntakeErr(c, err)
 		return
@@ -578,7 +580,7 @@ func (h *IntakeHandler) MCPListPending(c *gin.Context) {
 		return
 	}
 	executed := false
-	items, err := h.svc.ListDecisions(c.Request.Context(), pid, &executed, "accept", intParam(c, "limit"))
+	items, err := h.svc.ListDecisions(c.Request.Context(), pid, &executed, "accept", c.Query("source_kind"), intParam(c, "limit"))
 	if err != nil {
 		h.mapIntakeErr(c, err)
 		return

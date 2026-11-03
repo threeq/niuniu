@@ -90,6 +90,11 @@
     "provenance": {
       "title": "来源追溯",
       "source": "来源",
+      "repository": "仓库",
+      "thread": "会话线程",
+      "event": "事件",
+      "eventId": "事件 ID",
+      "openSource": "打开来源",
       "actor": "发起人",
       "strength": "强度",
       "rules": "命中规则",

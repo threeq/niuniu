@@ -67,6 +67,11 @@ type ProvenanceEventView struct {
 	Payload     json.RawMessage `json:"payload"`
 	ReceivedAt  time.Time       `json:"received_at"`
 	RuleNames   []string        `json:"rule_names"`
+	// Text and URL are source-neutral projections of Payload: adapters keep
+	// their own raw shape (IM marshals Go field names, GitHub the REST JSON), so
+	// the popover reads these instead of guessing keys.
+	Text string `json:"text"`
+	URL  string `json:"url"`
 }
 
 // IssueBriefView is the GET /api/issues/:id/brief response. Brief is null for
@@ -228,6 +233,8 @@ func (s *TaskBriefService) provenanceEvent(ctx context.Context, prov Provenance)
 		Payload:     payload,
 		ReceivedAt:  event.ReceivedAt,
 		RuleNames:   []string{},
+		Text:        provenancePayloadText(payload),
+		URL:         provenancePayloadURL(payload),
 	}
 	for _, ruleID := range prov.RuleIDs {
 		if rule, rerr := s.q.GetIntakeRule(ctx, ruleID); rerr == nil && rule.Name != "" {
@@ -235,6 +242,37 @@ func (s *TaskBriefService) provenanceEvent(ctx context.Context, prov Provenance)
 		}
 	}
 	return view
+}
+
+// provenancePayloadText extracts the original message body from an adapter's
+// raw payload. Adapters are not required to agree on casing: the IM adapter
+// marshals Go field names, the GitHub adapter the REST JSON.
+func provenancePayloadText(payload json.RawMessage) string {
+	var m map[string]any
+	if len(payload) == 0 || json.Unmarshal(payload, &m) != nil {
+		return ""
+	}
+	for _, key := range []string{"Text", "text", "Body", "body"} {
+		if s, ok := m[key].(string); ok && strings.TrimSpace(s) != "" {
+			return s
+		}
+	}
+	return ""
+}
+
+// provenancePayloadURL extracts the upstream permalink so the provenance panel
+// can link back to the exact comment/review/CI run.
+func provenancePayloadURL(payload json.RawMessage) string {
+	var m map[string]any
+	if len(payload) == 0 || json.Unmarshal(payload, &m) != nil {
+		return ""
+	}
+	for _, key := range []string{"SourceURL", "sourceURL", "html_url", "URL", "url"} {
+		if s, ok := m[key].(string); ok && strings.TrimSpace(s) != "" {
+			return s
+		}
+	}
+	return ""
 }
 
 func taskBriefView(r store.TaskBrief) TaskBriefView {

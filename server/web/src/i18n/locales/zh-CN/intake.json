@@ -256,6 +256,8 @@
     "description": "牛牛在观察模式下记录的工作。采纳后才会真正创建任务。",
     "project": "项目",
     "projectPlaceholder": "选择项目",
+    "source": "来源",
+    "sourceAll": "全部来源",
     "refresh": "刷新",
     "loadError": "加载待校准决策失败",
     "retry": "重试",

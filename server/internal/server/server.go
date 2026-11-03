@@ -116,6 +116,7 @@ type Server struct {
 	intakeSvc         *service.IntakeService
 	intakeHandler     *api.IntakeHandler
 	githubSourceSvc   *service.GithubSourceService
+	githubReplySvc    *service.GithubReplyDispatcher
 	completionSvc     *service.CompletionService
 	completionHandler *api.CompletionHandler
 	taskBriefSvc      *service.TaskBriefService
@@ -1726,6 +1727,11 @@ func New(cfg *config.Config, db *sql.DB, frontendFS fs.FS) *Server {
 	s.githubSourceSvc = service.NewGithubSourceService(db, s.queries, s.extCredSvc)
 	s.githubSourceSvc.SetInbound(imbotDispatch, s.agentProxy)
 	s.intakeHandler.Github = s.githubSourceSvc
+	// Outbound half: a finished turn in a workspace bound to a PR/issue thread
+	// is posted back as a comment. Guarded by the owner's github write grant and
+	// idempotent per turn (see github_reply.go).
+	s.githubReplySvc = service.NewGithubReplyDispatcher(s.eventBus, s.githubSourceSvc)
+	s.githubReplySvc.Start()
 	if cfg.Intake.GitHubPollCron != "" {
 		s.scheduler.RegisterGitHubPoll(cfg.Intake.GitHubPollCron, s.githubSourceSvc.RunOnce)
 	}
@@ -1840,6 +1846,9 @@ func (s *Server) Shutdown() {
 	}
 	if s.imbotDispatcher != nil {
 		s.imbotDispatcher.Stop()
+	}
+	if s.githubReplySvc != nil {
+		s.githubReplySvc.Stop()
 	}
 	if s.imbotEmployee != nil {
 		s.imbotEmployee.Stop()

@@ -17,7 +17,12 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sh
 import { EmptyState } from '@/components/shared/empty-state'
 import { useProjects } from '@/lib/hooks/use-projects'
 import { useMediaQuery } from '@/hooks/use-media-query'
-import { intakeApi, type IntakeDecision, type IntakeDecisionFilter } from '@/lib/intake-api'
+import {
+  intakeApi,
+  type IntakeDecision,
+  type IntakeDecisionFilter,
+  type IntakeSourceKind,
+} from '@/lib/intake-api'
 import { cn } from '@/lib/utils'
 import { DecisionList } from '@/components/intake/decision-list'
 import { DecisionDetail } from '@/components/intake/decision-detail'
@@ -28,8 +33,21 @@ type QueueFilter = 'all' | 'accept' | 'resume' | 'ignore'
 
 const FILTERS: QueueFilter[] = ['all', 'accept', 'resume', 'ignore']
 
-function filterParams(filter: QueueFilter): IntakeDecisionFilter {
-  return { executed: false, decision: filter === 'all' ? undefined : filter, limit: 100 }
+const SOURCE_KINDS: IntakeSourceKind[] = ['im_bot', 'github', 'ci', 'email', 'webhook']
+
+const ALL_SOURCES = 'all'
+
+function isSourceKind(value: string | undefined): value is IntakeSourceKind {
+  return !!value && (SOURCE_KINDS as string[]).includes(value)
+}
+
+function filterParams(filter: QueueFilter, source: string): IntakeDecisionFilter {
+  return {
+    executed: false,
+    decision: filter === 'all' ? undefined : filter,
+    source_kind: isSourceKind(source) ? source : undefined,
+    limit: 100,
+  }
 }
 
 export function IntakeReviewPage() {
@@ -48,6 +66,7 @@ export function IntakeReviewPage() {
 
   const [pickedProjectId, setPickedProjectId] = useState<number | null>(search.project ?? null)
   const [filter, setFilter] = useState<QueueFilter>('all')
+  const [source, setSource] = useState<string>(search.source ?? ALL_SOURCES)
   const [activeId, setActiveId] = useState<number | null>(null)
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set())
   const [seenIds, setSeenIds] = useState<Set<number>>(new Set())
@@ -59,8 +78,8 @@ export function IntakeReviewPage() {
   const projectId = pickedProjectId ?? search.project ?? projects?.[0]?.id ?? null
 
   const decisionsQuery = useQuery({
-    queryKey: ['intake-decisions', projectId, filter],
-    queryFn: () => intakeApi.listDecisions(projectId as number, filterParams(filter)),
+    queryKey: ['intake-decisions', projectId, filter, source],
+    queryFn: () => intakeApi.listDecisions(projectId as number, filterParams(filter, source)),
     enabled: projectId !== null,
     retry: 1,
     refetchInterval: 30_000,
@@ -73,15 +92,14 @@ export function IntakeReviewPage() {
     retry: 1,
   })
 
-  // Chat / source deep links narrow the queue client-side: decisions already
-  // carry the originating conversation id and source kind, so no extra endpoint
-  // is needed. Mission control's per-source rows land here with ?source=.
+  // The source filter is applied server-side (source_kind query param) so a
+  // mission-control drill-down narrows the query, not just the rendered rows.
+  // The chat deep link stays client-side: decisions carry the conversation id.
   const decisions = useMemo(() => {
-    let all = decisionsQuery.data ?? []
-    if (search.chat) all = all.filter((d) => d.payload?.ChatExtID === search.chat)
-    if (search.source) all = all.filter((d) => d.source_kind === search.source)
+    const all = decisionsQuery.data ?? []
+    if (search.chat) return all.filter((d) => d.payload?.ChatExtID === search.chat)
     return all
-  }, [decisionsQuery.data, search.chat, search.source])
+  }, [decisionsQuery.data, search.chat])
 
   // Keep a valid selection as the list changes (accept/ignore removes a row)
   // without an effect: falling back to the first row is derived at render time.
@@ -283,6 +301,33 @@ export function IntakeReviewPage() {
               {(projects ?? []).map((project) => (
                 <SelectItem key={project.id} value={String(project.id)}>
                   {project.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <label className="text-xs text-warm-text-muted" htmlFor="intake-source">
+            {t('review.source')}
+          </label>
+          <Select
+            value={source}
+            onValueChange={(value) => {
+              setSource(value)
+              setActiveId(null)
+              resetSelection()
+            }}
+          >
+            <SelectTrigger
+              id="intake-source"
+              className="h-8 w-36"
+              aria-label={t('review.source')}
+            >
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value={ALL_SOURCES}>{t('review.sourceAll')}</SelectItem>
+              {SOURCE_KINDS.map((kind) => (
+                <SelectItem key={kind} value={kind}>
+                  {t(`source.${kind}`, { defaultValue: kind })}
                 </SelectItem>
               ))}
             </SelectContent>

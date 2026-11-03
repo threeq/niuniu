@@ -256,6 +256,8 @@
     "description": "Work niuniu recorded while observing. Nothing is created until you accept it.",
     "project": "Project",
     "projectPlaceholder": "Choose a project",
+    "source": "Source",
+    "sourceAll": "All sources",
     "refresh": "Refresh",
     "loadError": "Failed to load calibration decisions",
     "retry": "Retry",

@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
+  ArrowUpRight,
   ChevronDown,
   ChevronRight,
   History,
@@ -582,11 +583,19 @@ function ProvenancePopover({
         : t('brief.provenance.noRules')
 
   const rawText =
-    event && typeof event.payload?.Text === 'string' ? (event.payload.Text as string) : ''
+    event?.text ||
+    (event && typeof event.payload?.Text === 'string' ? (event.payload.Text as string) : '')
   const attachments =
     event && Array.isArray(event.payload?.Attachments)
       ? (event.payload.Attachments as { Name?: string }[])
       : []
+  const eventLabel = event
+    ? t(`githubEvent.${event.event_kind}`, {
+        ns: 'intake',
+        defaultValue: event.event_kind,
+      })
+    : ''
+  const threadLabel = event?.thread_ext_id ? `#${event.thread_ext_id}` : ''
 
   return (
     <Popover>
@@ -611,6 +620,28 @@ function ProvenancePopover({
               label={t('brief.provenance.source')}
               value={t(`intake.source.${sourceKind}`, { ns: 'intake', defaultValue: sourceKind })}
             />
+            {event?.source_ref && (
+              <ProvenanceRow
+                label={t('brief.provenance.repository')}
+                value={event.source_ref}
+              />
+            )}
+            <ProvenanceRow
+              label={t('brief.provenance.thread')}
+              value={threadLabel || '—'}
+            />
+            {event && (
+              <>
+                <ProvenanceRow
+                  label={t('brief.provenance.event')}
+                  value={eventLabel || '—'}
+                />
+                <ProvenanceRow
+                  label={t('brief.provenance.eventId')}
+                  value={event.event_ext_id || '—'}
+                />
+              </>
+            )}
             <ProvenanceRow label={t('brief.provenance.actor')} value={actor || '—'} />
             <div className="flex items-start gap-2">
               <dt className="w-20 shrink-0 text-warm-text-muted">{t('brief.provenance.strength')}</dt>
@@ -653,8 +684,19 @@ function ProvenancePopover({
               <span className="text-xs text-warm-text-muted">{t('brief.provenance.noEvent')}</span>
             )}
             {event && (
-              <span className="text-[11px] text-warm-text-muted">
-                {t('brief.provenance.receivedAt', { time: formatTime(event.received_at) })}
+              <span className="flex flex-wrap items-center gap-2 text-[11px] text-warm-text-muted">
+                <span>{t('brief.provenance.receivedAt', { time: formatTime(event.received_at) })}</span>
+                {event.url && (
+                  <a
+                    href={event.url}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex items-center gap-0.5 text-brand hover:underline"
+                  >
+                    {t('brief.provenance.openSource')}
+                    <ArrowUpRight className="h-3 w-3" aria-hidden />
+                  </a>
+                )}
               </span>
             )}
           </div>

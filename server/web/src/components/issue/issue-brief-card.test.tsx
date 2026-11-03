@@ -173,4 +173,35 @@ describe('IssueBriefCard', () => {
     expect(screen.getByText('#42')).toBeInTheDocument()
     expect(screen.getByText('登录接口又 500 了，麻烦看下')).toBeInTheDocument()
   })
+
+  it('shows repo, thread, event and a permalink for a GitHub-origin brief', async () => {
+    const url = 'https://github.com/acme/foo/pull/42#issuecomment-1'
+    mockedGetBrief.mockResolvedValue(
+      briefResponse({
+        provenance_event: {
+          source_kind: 'github',
+          event_kind: 'issue_comment',
+          actor_ext_id: 'alice',
+          actor_name: 'alice',
+          thread_ext_id: '99',
+          event_ext_id: 'issue_comment:99:1700000000',
+          source_ref: 'acme/foo',
+          payload: { body: 'please fix', html_url: url },
+          received_at: '2026-11-03T09:59:00Z',
+          rule_names: [],
+          text: 'please fix',
+          url,
+        },
+      }),
+    )
+    renderCard()
+    await screen.findByText('修复登录接口 500')
+    fireEvent.click(screen.getByRole('button', { name: '来源追溯' }))
+
+    expect(await screen.findByText('acme/foo')).toBeInTheDocument()
+    expect(screen.getByText('#99')).toBeInTheDocument()
+    expect(screen.getByText('issue_comment:99:1700000000')).toBeInTheDocument()
+    expect(screen.getByText('please fix')).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: /打开来源/ })).toHaveAttribute('href', url)
+  })
 })

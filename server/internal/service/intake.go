@@ -633,9 +633,10 @@ func trimNonEmpty(in []string) []string {
 	return out
 }
 
-// ListDecisions returns decisions joined with their events. executed/decision
-// are optional filters; the calibration queue passes executed=0&decision=accept.
-func (s *IntakeService) ListDecisions(ctx context.Context, projectID int64, executed *bool, decision string, limit int) ([]IntakeDecisionDTO, error) {
+// ListDecisions returns decisions joined with their events. executed/decision/
+// sourceKind are optional filters; the calibration queue passes
+// executed=0&decision=accept and narrows by source when the user picks one.
+func (s *IntakeService) ListDecisions(ctx context.Context, projectID int64, executed *bool, decision, sourceKind string, limit int) ([]IntakeDecisionDTO, error) {
 	if limit <= 0 || limit > 500 {
 		limit = 100
 	}
@@ -659,6 +660,10 @@ WHERE d.project_id = ?`
 	if decision != "" {
 		query += " AND d.decision = ?"
 		args = append(args, decision)
+	}
+	if sourceKind = strings.TrimSpace(sourceKind); sourceKind != "" {
+		query += " AND e.source_kind = ?"
+		args = append(args, sourceKind)
 	}
 	query += " ORDER BY d.created_at DESC, d.id DESC LIMIT ?"
 	args = append(args, limit)
@@ -890,7 +895,7 @@ func (s *IntakeService) IgnoreDecision(ctx context.Context, decisionID int64, in
 // decisionByID re-reads one decision through the joined list query so accept and
 // ignore return the same shape the queue list does.
 func (s *IntakeService) decisionByID(ctx context.Context, projectID, decisionID int64) (IntakeDecisionDTO, error) {
-	items, err := s.ListDecisions(ctx, projectID, nil, "", 500)
+	items, err := s.ListDecisions(ctx, projectID, nil, "", "", 500)
 	if err != nil {
 		return IntakeDecisionDTO{}, err
 	}

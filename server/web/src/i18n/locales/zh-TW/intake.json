@@ -256,6 +256,8 @@
     "description": "牛牛在觀察模式下記錄的工作。採納後才會真正建立任務。",
     "project": "專案",
     "projectPlaceholder": "選擇專案",
+    "source": "來源",
+    "sourceAll": "全部來源",
     "refresh": "重新整理",
     "loadError": "載入待校準決策失敗",
     "retry": "重試",

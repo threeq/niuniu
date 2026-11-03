@@ -2330,6 +2330,28 @@ CREATE TABLE IF NOT EXISTS github_thread_bindings (
     UNIQUE(project_id, repo, thread_ext_id)
 );
 
+-- Outbound result delivery: one row per (workspace, finished turn). The UNIQUE
+-- key makes a duplicated bus event or a retry a no-op instead of a second
+-- comment. status: pending | sent | failed | blocked (blocked = a guard refused
+-- the write; nothing was sent). error carries the guard reason or API error.
+CREATE TABLE IF NOT EXISTS github_reply_deliveries (
+    id            BIGSERIAL PRIMARY KEY,
+    project_id    BIGINT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    repo          TEXT NOT NULL,
+    thread_ext_id TEXT NOT NULL,
+    issue_id      BIGINT NOT NULL DEFAULT 0,
+    workspace_id  BIGINT NOT NULL DEFAULT 0,
+    event_key     TEXT NOT NULL,
+    status        TEXT NOT NULL DEFAULT 'pending',
+    comment_id    BIGINT NOT NULL DEFAULT 0,
+    comment_url   TEXT NOT NULL DEFAULT '',
+    error         TEXT NOT NULL DEFAULT '',
+    created_at    TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at    TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(workspace_id, event_key)
+);
+CREATE INDEX IF NOT EXISTS idx_github_reply_deliveries_issue ON github_reply_deliveries(issue_id, created_at);
+
 -- Task Brief: append-only 1:N versions per issue; current version = MAX(version).
 -- Provenance links back to the intake decision that created the brief.
 CREATE TABLE IF NOT EXISTS task_briefs (

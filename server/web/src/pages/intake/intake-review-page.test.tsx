@@ -4,14 +4,14 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 
 const navigateMock = vi.fn()
+const searchMock = vi.hoisted(() => ({ current: {} as Record<string, unknown> }))
 
 vi.mock('@tanstack/react-router', () => ({
   Link: ({ children, to }: { children: React.ReactNode; to?: string }) => (
     <a href={to ?? '#'}>{children}</a>
   ),
   useNavigate: () => navigateMock,
-  // Deep-link search is empty in these tests; the chat filter stays off.
-  useSearch: () => ({}),
+  useSearch: () => searchMock.current,
 }))
 
 vi.mock('react-i18next', () => ({
@@ -93,6 +93,7 @@ function renderPage() {
 describe('IntakeReviewPage', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    searchMock.current = {}
     vi.mocked(intakeApi.listDecisions).mockResolvedValue([decision()])
     vi.mocked(intakeApi.listRules).mockResolvedValue([
       {
@@ -116,6 +117,7 @@ describe('IntakeReviewPage', () => {
       expect(intakeApi.listDecisions).toHaveBeenCalledWith(1, {
         executed: false,
         decision: undefined,
+        source_kind: undefined,
         limit: 100,
       }),
     )
@@ -135,9 +137,25 @@ describe('IntakeReviewPage', () => {
       expect(intakeApi.listDecisions).toHaveBeenLastCalledWith(1, {
         executed: false,
         decision: 'ignore',
+        source_kind: undefined,
         limit: 100,
       }),
     )
+  })
+
+  it('narrows the queue to one source (server-side filter)', async () => {
+    searchMock.current = { source: 'github' }
+    renderPage()
+
+    await waitFor(() =>
+      expect(intakeApi.listDecisions).toHaveBeenCalledWith(1, {
+        executed: false,
+        decision: undefined,
+        source_kind: 'github',
+        limit: 100,
+      }),
+    )
+    expect(screen.getByLabelText('review.source')).toBeInTheDocument()
   })
 
   it('accepts with the edited brief and opens the created workspace', async () => {

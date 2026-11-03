@@ -85,6 +85,7 @@ export interface IntakeDecision {
 export interface IntakeDecisionFilter {
   executed?: boolean
   decision?: IntakeDecisionKind
+  source_kind?: IntakeSourceKind
   limit?: number
 }
 
@@ -255,6 +256,7 @@ export const intakeApi = {
       params: {
         executed: filter.executed === undefined ? undefined : filter.executed ? 'true' : 'false',
         decision: filter.decision,
+        source_kind: filter.source_kind,
         limit: filter.limit,
       },
       suppressError: true,

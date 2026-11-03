@@ -90,6 +90,11 @@
     "provenance": {
       "title": "Provenance",
       "source": "Source",
+      "repository": "Repository",
+      "thread": "Thread",
+      "event": "Event",
+      "eventId": "Event ID",
+      "openSource": "Open source",
       "actor": "Actor",
       "strength": "Strength",
       "rules": "Matched rules",

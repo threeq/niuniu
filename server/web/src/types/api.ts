@@ -218,6 +218,9 @@ export interface BriefProvenanceEvent {
   payload: Record<string, unknown>
   received_at: string
   rule_names: string[]
+  /** Source-neutral projections of payload (adapter raw shapes differ). */
+  text?: string
+  url?: string
 }
 
 /** Returned by GET /issues/:id/brief; brief is null for non-Intake issues. */

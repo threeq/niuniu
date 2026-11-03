@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"strconv"
 	"testing"
 
@@ -183,6 +184,21 @@ func TestTaskBriefWriter_RejectsInvalidInput(t *testing.T) {
 	require.ErrorIs(t, err, sql.ErrNoRows)
 }
 
+// The provenance projection reads whichever casing the adapter's raw payload
+// uses (IM marshals Go field names, GitHub the REST JSON field names).
+func TestProvenancePayloadProjection(t *testing.T) {
+	require.Equal(t, "登录接口 500", provenancePayloadText(json.RawMessage(`{"Text":"登录接口 500"}`)))
+	require.Equal(t, "please fix", provenancePayloadText(json.RawMessage(`{"body":"please fix"}`)))
+	require.Empty(t, provenancePayloadText(json.RawMessage(`{}`)))
+	require.Empty(t, provenancePayloadText(nil))
+
+	require.Equal(t, "https://github.com/acme/foo/pull/1#c",
+		provenancePayloadURL(json.RawMessage(`{"html_url":"https://github.com/acme/foo/pull/1#c"}`)))
+	require.Equal(t, "https://example.test/x",
+		provenancePayloadURL(json.RawMessage(`{"SourceURL":"https://example.test/x"}`)))
+	require.Empty(t, provenancePayloadURL(nil))
+}
+
 func TestTaskBriefRead_ProvenanceEventAndCreatedBy(t *testing.T) {
 	q, db, issueID, projectID := briefFixture(t)
 	ctx := context.Background()
@@ -232,6 +248,9 @@ func TestTaskBriefRead_ProvenanceEventAndCreatedBy(t *testing.T) {
 	require.Equal(t, "thread-1", view.ProvenanceEvent.ThreadExtID)
 	require.Equal(t, []string{"线上缺陷自动接单"}, view.ProvenanceEvent.RuleNames)
 	require.Contains(t, string(view.ProvenanceEvent.Payload), "登录接口又 500 了")
+	// Source-neutral projections so the UI never has to know adapter shapes.
+	require.Equal(t, "登录接口又 500 了，麻烦看下", view.ProvenanceEvent.Text)
+	require.Empty(t, view.ProvenanceEvent.URL)
 
 	// A brief with no decision has no event rather than an empty one.
 	_, db2, issue2, _ := briefFixture(t)
