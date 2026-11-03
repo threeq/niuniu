@@ -64,6 +64,21 @@ func TestPolicyEvaluate(t *testing.T) {
 	}
 }
 
+func TestPolicyEvaluateDirectRequestBeatsEverything(t *testing.T) {
+	policy := Policy{
+		Mode: ModeOff,
+		Rules: []Rule{
+			{ID: 11, Enabled: true, Conditions: RuleConditions{Keywords: []string{"deploy"}}},
+		},
+	}
+	// An unknown actor would otherwise be denied; the source already admitted
+	// the conversation, so the message is an explicit request.
+	got := policy.Evaluate(Trigger{Actor: ActorRef{ExtID: "ou_unknown"}, Text: "deploy", Explicit: true})
+	if got.Strength != StrengthExplicit || got.ReasonCode != ReasonDirect {
+		t.Fatalf("got %+v, want explicit/direct_request", got)
+	}
+}
+
 func TestPolicyEvaluateFirstMatchingRuleWins(t *testing.T) {
 	policy := Policy{
 		Rules: []Rule{

@@ -59,7 +59,6 @@ type Config struct {
 	Upgrade           UpgradeConfig           `mapstructure:"upgrade"`
 	ImageOptimization ImageOptimizationConfig `mapstructure:"image_optimization"`
 	Orchestration     OrchestrationConfig     `mapstructure:"orchestration"`
-	Intake            IntakeConfig            `mapstructure:"intake"`
 	Telemetry         TelemetryConfig         `mapstructure:"telemetry"`
 	DataDir           string                  // computed at load time, not from config file (~/.niuniu)
 }
@@ -73,13 +72,6 @@ type Config struct {
 // start (see Load, mirroring server.id) and rewritten by the /api/config setter
 // via Save.
 type TelemetryConfig struct {
-	Enabled bool `mapstructure:"enabled"`
-}
-
-// IntakeConfig gates the task-intake pipeline (Epic #755). It is off by
-// default: the Phase 1 skeleton is wired into DI but has no inbound callers
-// yet, so leaving it off keeps every existing behaviour unchanged.
-type IntakeConfig struct {
 	Enabled bool `mapstructure:"enabled"`
 }
 
@@ -494,7 +486,6 @@ func Load() (*Config, error) {
 	viper.SetDefault("orchestration.max_concurrent_workspaces", 5)
 	viper.SetDefault("orchestration.chain_cost_budget_usd", 10.0)
 	viper.SetDefault("orchestration.chain_cost_warn_ratio", 0.8)
-	viper.SetDefault("intake.enabled", false)
 	// Anonymous personal-edition telemetry defaults ON (opt-out). Only takes
 	// effect on Auth.Enabled=false instances; see TelemetryConfig.
 	viper.SetDefault("telemetry.enabled", true)

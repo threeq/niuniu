@@ -62,11 +62,16 @@ type DecisionRecord struct {
 }
 
 // ExecutionPlan is handed to the executor for an accepted or resumed trigger.
+// IssueID/WorkspaceID are the resolved task: for a resume they name the task to
+// continue; for an accept they are whatever the resolver found (possibly zero —
+// the executor then routes a new task).
 type ExecutionPlan struct {
-	Decision   Decision
-	Trigger    Trigger
-	Brief      TaskBrief
-	DecisionID int64
+	Decision    Decision
+	Trigger     Trigger
+	Brief       TaskBrief
+	DecisionID  int64
+	IssueID     int64
+	WorkspaceID int64
 }
 
 // ExecutionResult reports the task the execution produced.
@@ -205,13 +210,17 @@ func (s *Service) Handle(ctx context.Context, t Trigger) (Result, error) {
 			return res, fmt.Errorf("intake: resolve task: %w", err)
 		}
 	}
-	if resolution.Thread.ThreadExtID == "" {
+	// A resolver that returned nothing at all (denied, or no conversation
+	// context) falls back to the trigger's thread. A resolver that DID find a
+	// task in a threadless conversation (an IM pinned chat or active pointer)
+	// keeps its issue/workspace ids even though ThreadExtID is empty.
+	if resolution.Thread == (ThreadRef{}) {
 		resolution.Thread = t.Thread
 	}
 	res.IssueID = resolution.IssueID
 	res.WorkspaceID = resolution.WorkspaceID
 
-	decision, reason := decide(policy.Mode, authz.Strength, resolution.Bound)
+	decision, reason := decide(policy.Mode, authz.Strength, resolution.Bound, t.ForceNew)
 	executed := shouldExecute(policy.Mode, authz.Strength)
 	res.Decision = decision
 	res.ReasonCode = reason
@@ -257,10 +266,12 @@ func (s *Service) Handle(ctx context.Context, t Trigger) (Result, error) {
 		brief.Provenance.DecisionID = decisionID
 	}
 	out, err := s.executor.Execute(ctx, ExecutionPlan{
-		Decision:   decision,
-		Trigger:    t,
-		Brief:      *brief,
-		DecisionID: decisionID,
+		Decision:    decision,
+		Trigger:     t,
+		Brief:       *brief,
+		DecisionID:  decisionID,
+		IssueID:     resolution.IssueID,
+		WorkspaceID: resolution.WorkspaceID,
 	})
 	if err != nil {
 		return res, fmt.Errorf("intake: execute: %w", err)
@@ -276,10 +287,12 @@ func (s *Service) Handle(ctx context.Context, t Trigger) (Result, error) {
 }
 
 // decide maps authorization strength + mode + thread binding to a decision.
-func decide(mode Mode, strength Strength, bound bool) (Decision, string) {
+// ForceNew overrides a bound thread: the user asked for a separate task, so the
+// bound one is not resumed.
+func decide(mode Mode, strength Strength, bound, forceNew bool) (Decision, string) {
 	switch strength {
 	case StrengthExplicit:
-		if bound {
+		if bound && !forceNew {
 			return DecisionResume, ReasonResumed
 		}
 		return DecisionAccept, ReasonAccepted

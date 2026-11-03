@@ -32,7 +32,6 @@ import (
 	"github.com/niuniu-dev/niuniu/internal/imbot/telegram"
 	"github.com/niuniu-dev/niuniu/internal/imbot/wechat"
 	"github.com/niuniu-dev/niuniu/internal/imbot/wework"
-	"github.com/niuniu-dev/niuniu/internal/intake"
 	"github.com/niuniu-dev/niuniu/internal/integration"
 	"github.com/niuniu-dev/niuniu/internal/integration/crypto"
 	"github.com/niuniu-dev/niuniu/internal/kbindex"
@@ -174,10 +173,7 @@ type Server struct {
 	// IM Bot remote channels (Epic #555): project-level channel CRUD + pairing,
 	// a ConnectorManager of per-channel outbound long connections, and an
 	// event-bus dispatcher pushing outbound notifications.
-	imbotSvc        *service.IMBotService
-	// intakeSvc is the task-intake pipeline skeleton (Epic #755). Disabled
-	// until Intake.Enabled is set; no inbound path calls it yet.
-	intakeSvc            *intake.Service
+	imbotSvc             *service.IMBotService
 	integrationHealthSvc *service.IntegrationHealthService
 	// integrationDraftSvc is the shared draft -> lint -> confirm -> publish ->
 	// verify/rollback pipeline for both onboarding lines (Epic #726 / #734).
@@ -442,11 +438,9 @@ func New(cfg *config.Config, db *sql.DB, frontendFS fs.FS) *Server {
 	s.authzSvc = authz
 	s.mcpSessions = service.NewMCPSessionService(s.queries)
 
-	// Task intake skeleton (Epic #755 / issue #983): the Source/Trigger
-	// abstractions and the Handle pipeline are wired here, but disabled by
-	// default and not called from any inbound path. Phase 1 supplies the
-	// store-backed collaborators and IM adapter.
-	s.intakeSvc = intake.NewService(intake.Deps{Enabled: cfg.Intake.Enabled})
+	// Task intake (Epic #755): the pipeline is owned by IMBotService, whose
+	// inbound handler is its first Source adapter. It needs no separate wiring
+	// here — see service.NewIMBotService.
 
 	// Event bus (initialized early — needed by KanbanService and others)
 	s.eventBus = event.NewBus()

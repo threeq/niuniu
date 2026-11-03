@@ -4,10 +4,11 @@
 //
 //	dedupe -> authorize -> resolve task -> decide -> record -> execute
 //
-// This package currently holds the Phase 1 skeleton only: the abstractions,
-// policy evaluation and Task Brief rendering, plus a service that is wired into
-// DI but disabled by default and not called from any inbound path. Existing IM
-// and autohost behaviour is therefore unchanged.
+// The IM bot is the first Source adapter (Phase 1): its inbound handler
+// normalizes an admitted chat message into a Trigger and runs it through this
+// pipeline, while IM-only behaviour (pairing, slash commands, conversation
+// switching, permission callbacks) stays in the IM adapter. Later phases add
+// GitHub / CI / webhook sources on the same pipeline.
 //
 // External text is data, never instructions: authorization is decided by code
 // (Policy.Evaluate) and cannot be changed by message content.
@@ -84,6 +85,22 @@ type Trigger struct {
 	Attachments []Attachment
 	Raw         json.RawMessage
 	ReceivedAt  time.Time
+
+	// ConversationExtID is the source's conversation container — for IM, the
+	// group/DM chat id. Thread.ThreadExtID is the narrower topic inside it.
+	// Adapters that have no such split leave it empty and use SourceRef.
+	ConversationExtID string
+
+	// Explicit marks a request the source has already admitted: a message from
+	// a participant in an approved, project-bound conversation. It is set by
+	// adapter code from that admission decision — never derived from message
+	// text — so a crafted message cannot promote itself. An explicit request
+	// executes in every mode (design §6.3).
+	Explicit bool
+
+	// ForceNew asks for a new task even when the conversation is already bound
+	// to one. Adapters set it from an explicit user control (IM `/new`).
+	ForceNew bool
 }
 
 // Source is one inbound adapter. Normalize must be pure: it maps a platform

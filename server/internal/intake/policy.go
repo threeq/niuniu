@@ -31,6 +31,7 @@ const (
 	ReasonAllowList   = "allow_list"
 	ReasonBotList     = "bot_list"
 	ReasonRule        = "rule"
+	ReasonDirect      = "direct_request"
 	ReasonDenied      = "denied"
 	ReasonDuplicate   = "duplicate"
 	ReasonObserved    = "observed"
@@ -82,10 +83,14 @@ type Authorization struct {
 
 // Evaluate decides how strongly the actor is authorized for this trigger.
 //
-// Order matters: an allow-listed actor is explicit even if it is also a bot or
-// matches a rule. Rule-matched and bot actors are inferred, never explicit.
-// Actor ids from the message text play no part in this decision.
+// Order matters: a source-admitted request and an allow-listed actor are
+// explicit even if the actor is also a bot or matches a rule. Rule-matched and
+// bot actors are inferred, never explicit. Actor ids from the message text play
+// no part in this decision.
 func (p Policy) Evaluate(t Trigger) Authorization {
+	if t.Explicit {
+		return Authorization{Strength: StrengthExplicit, ReasonCode: ReasonDirect}
+	}
 	if contains(p.AllowList, t.Actor.ExtID) {
 		return Authorization{Strength: StrengthExplicit, ReasonCode: ReasonAllowList}
 	}

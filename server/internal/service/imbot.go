@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/niuniu-dev/niuniu/internal/imbot"
+	"github.com/niuniu-dev/niuniu/internal/intake"
 	"github.com/niuniu-dev/niuniu/internal/integration/crypto"
 	"github.com/niuniu-dev/niuniu/internal/store"
 )
@@ -59,6 +60,12 @@ type IMBotService struct {
 	adapters map[imbot.ChannelType]imbot.ChannelAdapter
 
 	mgr *imbot.ConnectorManager // set post-construction to break a wiring cycle
+
+	// intake is the platform-neutral task-intake pipeline (Epic #755). Every
+	// admitted, routable inbound message runs through it; the IM collaborators
+	// live in imbot_intake.go. Always enabled: an explicit message in an
+	// approved chat must execute, which is exactly the pre-extraction behaviour.
+	intake *intake.Service
 
 	// --- inbound (W2), wired via SetInbound after construction ---
 	dispatch  TaskRouter        // continue-or-create issue+workspace in the bound project
@@ -179,7 +186,17 @@ func (s *IMBotService) SetInbound(dispatch TaskRouter, deliverer MessageDelivere
 // NewIMBotService wires the dependencies. adapters is the same registry handed
 // to the ConnectorManager so test/welcome pushes reuse the exact adapters.
 func NewIMBotService(q *store.Queries, rawDB *sql.DB, kr *crypto.Keyring, authz *Authz, adapters map[imbot.ChannelType]imbot.ChannelAdapter) *IMBotService {
-	return &IMBotService{q: q, db: store.Wrap(rawDB), keyring: kr, authz: authz, adapters: adapters}
+	s := &IMBotService{q: q, db: store.Wrap(rawDB), keyring: kr, authz: authz, adapters: adapters}
+	// The pipeline's collaborators hold *IMBotService (not a snapshot of its
+	// fields) so inbound wiring done later via SetInbound is picked up.
+	s.intake = intake.NewService(intake.Deps{
+		Enabled:  true,
+		Store:    imbotIntakeStore{q: q},
+		Policies: imbotPolicy{q: q},
+		Resolver: imbotResolver{svc: s},
+		Executor: imbotExecutor{svc: s},
+	})
+	return s
 }
 
 // SetAskUserDecider wires the ask-user answer write-back so a user can answer an

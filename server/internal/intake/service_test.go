@@ -210,6 +210,47 @@ func TestHandleBoundThreadResumes(t *testing.T) {
 	}
 }
 
+func TestHandleDirectRequestExecutesWithoutPolicy(t *testing.T) {
+	// The IM adapter marks an approved chat's message Explicit, so it is
+	// authorized without any allow-list entry (the chat pairing was the
+	// admission decision) and still executes in off mode.
+	svc, _, _, _, executor := newHarness(Policy{Mode: ModeOff})
+	tg := trigger("", "帮我做张表")
+	tg.Explicit = true
+
+	res, err := svc.Handle(context.Background(), tg)
+	if err != nil {
+		t.Fatalf("Handle: %v", err)
+	}
+	if res.Strength != StrengthExplicit || res.Decision != DecisionAccept || !res.Executed {
+		t.Fatalf("result = %+v", res)
+	}
+	if len(executor.plans) != 1 || executor.plans[0].Decision != DecisionAccept {
+		t.Fatalf("plans = %+v", executor.plans)
+	}
+}
+
+func TestHandleForceNewDoesNotResumeBoundThread(t *testing.T) {
+	svc, _, _, resolver, executor := newHarness(allowPolicy())
+	resolver.resolution = Resolution{
+		Thread:  ThreadRef{ThreadExtID: "thread-1", IssueID: 5, WorkspaceID: 6},
+		IssueID: 5, WorkspaceID: 6, Bound: true,
+	}
+	tg := trigger("ou_alice", "另起一个任务")
+	tg.ForceNew = true
+
+	res, err := svc.Handle(context.Background(), tg)
+	if err != nil {
+		t.Fatalf("Handle: %v", err)
+	}
+	if res.Decision != DecisionAccept || res.ReasonCode != ReasonAccepted {
+		t.Fatalf("result = %+v", res)
+	}
+	if len(executor.plans) != 1 || executor.plans[0].Decision != DecisionAccept {
+		t.Fatalf("plans = %+v", executor.plans)
+	}
+}
+
 func TestHandleObserveRecordsDryRunWithoutSideEffects(t *testing.T) {
 	policy := Policy{
 		Version: 3,
