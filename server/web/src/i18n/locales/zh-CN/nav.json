@@ -5,6 +5,7 @@
   "menu": {
     "projects": "项目",
     "workspaces": "工作空间",
+    "intake": "待校准",
     "repositories": "仓库",
     "knowledgeBases": "知识库",
     "scenes": "场景",

@@ -780,8 +780,13 @@ func (s *Server) setupRoutes() {
 		projects.DELETE("/:id/intake/rules/:rid", s.intakeHandler.DeleteRule)
 		projects.GET("/:id/intake/policy-versions", s.intakeHandler.ListPolicyVersions)
 		projects.GET("/:id/intake/decisions", s.intakeHandler.ListDecisions)
+		projects.PATCH("/:id/intake/decisions/:did", s.intakeHandler.UpdateDecisionBrief)
 		projects.POST("/:id/intake/decisions/:did/accept", s.intakeHandler.AcceptDecision)
 		projects.POST("/:id/intake/decisions/:did/ignore", s.intakeHandler.IgnoreDecision)
+		// One CLI subprocess per call: same per-user budget as the issue route.
+		projects.POST("/:id/intake/decisions/:did/suggest-goal-condition",
+			auth.RateLimitUserMiddleware(0.1, 3),
+			s.intakeHandler.SuggestGoalCondition)
 
 		// Completion (自动完成) — project default + named profiles. Independent of
 		// Intake: changing one never affects the other (§6.5).

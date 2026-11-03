@@ -5,6 +5,7 @@
   "menu": {
     "projects": "Projects",
     "workspaces": "Workspaces",
+    "intake": "Needs calibration",
     "repositories": "Repositories",
     "knowledgeBases": "Knowledge bases",
     "scenes": "Scenes",

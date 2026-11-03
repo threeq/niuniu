@@ -75,6 +75,7 @@ func setupIntakeCompletion(t *testing.T) (*gin.Engine, *sql.DB) {
 	g.GET("/projects/:id/intake/settings", intakeHandler.GetSettings)
 	g.PUT("/projects/:id/intake/settings", intakeHandler.PutSettings)
 	g.GET("/projects/:id/intake/decisions", intakeHandler.ListDecisions)
+	g.PATCH("/projects/:id/intake/decisions/:did", intakeHandler.UpdateDecisionBrief)
 	g.POST("/projects/:id/intake/decisions/:did/accept", intakeHandler.AcceptDecision)
 	g.POST("/projects/:id/intake/decisions/:did/ignore", intakeHandler.IgnoreDecision)
 	g.GET("/projects/:id/completion/settings", completionHandler.GetSettings)
@@ -213,6 +214,49 @@ func TestIntakeDecisions_QueueIgnoreAndAccept(t *testing.T) {
 	// Cross-owner MCP decision access is forbidden.
 	w = doJSON(t, r, http.MethodPost, "/mcp/decisions/20/accept", "1", "")
 	assert.Equal(t, http.StatusForbidden, w.Code, w.Body.String())
+}
+
+// TestIntakeDecision_BriefDraft covers the queue's edit-and-save path: the
+// draft replaces the proposed brief on the pending decision and nothing else
+// changes (still pending, still the same issue count).
+func TestIntakeDecision_BriefDraft(t *testing.T) {
+	r, db := setupIntakeCompletion(t)
+
+	w := doJSON(t, r, http.MethodPatch, "/api/projects/1/intake/decisions/10", "1",
+		`{"Goal":"修复登录接口 500","Acceptance":["复现并定位","","补测试"],"ScopeIn":["api/auth"],"ScopeOut":["frontend"]}`)
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+	updated := decodeBody[service.IntakeDecisionDTO](t, w)
+	assert.False(t, updated.Executed)
+	assert.Equal(t, "accept", updated.Decision)
+
+	var wd struct {
+		Brief struct {
+			Goal       string   `json:"Goal"`
+			Acceptance []string `json:"Acceptance"`
+			ScopeIn    []string `json:"ScopeIn"`
+			ScopeOut   []string `json:"ScopeOut"`
+		} `json:"brief"`
+	}
+	require.NoError(t, json.Unmarshal(updated.WouldDo, &wd))
+	assert.Equal(t, "修复登录接口 500", wd.Brief.Goal)
+	assert.Equal(t, []string{"复现并定位", "补测试"}, wd.Brief.Acceptance)
+	assert.Equal(t, []string{"api/auth"}, wd.Brief.ScopeIn)
+	assert.Equal(t, []string{"frontend"}, wd.Brief.ScopeOut)
+
+	// Saving a draft is not an accept: no extra issue is created.
+	var issues int
+	require.NoError(t, db.QueryRow(`SELECT COUNT(*) FROM issues WHERE column_id = 1`).Scan(&issues))
+	assert.Equal(t, 1, issues)
+
+	// A decision cannot be drafted through another project's route.
+	w = doJSON(t, r, http.MethodPatch, "/api/projects/1/intake/decisions/20", "1", `{"Goal":"x"}`)
+	assert.Equal(t, http.StatusNotFound, w.Code, w.Body.String())
+
+	// An ignored decision is no longer a proposal and rejects drafts.
+	w = doJSON(t, r, http.MethodPost, "/api/projects/1/intake/decisions/10/ignore", "1", `{"reason":"duplicate"}`)
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+	w = doJSON(t, r, http.MethodPatch, "/api/projects/1/intake/decisions/10", "1", `{"Goal":"x"}`)
+	assert.Equal(t, http.StatusBadRequest, w.Code, w.Body.String())
 }
 
 func TestCompletionSettings_DefaultsThenPartialUpdate(t *testing.T) {

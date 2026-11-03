@@ -106,6 +106,22 @@ type IgnoreDecisionInput struct {
 	ReasonText string `json:"reason_text"`
 }
 
+// DecisionBriefDraft is the editable Task Brief of a pending decision. Field
+// names intentionally mirror the stored would_do_json shape (a Go-marshaled
+// intake.TaskBrief) so a draft replaces the proposed brief without a second
+// representation.
+type DecisionBriefDraft struct {
+	Goal       string   `json:"Goal"`
+	Acceptance []string `json:"Acceptance"`
+	ScopeIn    []string `json:"ScopeIn"`
+	ScopeOut   []string `json:"ScopeOut"`
+}
+
+// AcceptDecisionInput is the optional accept body: the user's edited brief.
+type AcceptDecisionInput struct {
+	Brief *DecisionBriefDraft `json:"brief"`
+}
+
 // IntakeDecisionAcceptor executes an accepted dry-run decision (creates the
 // issue/workspace from the suggested Task Brief). Implemented by the intake
 // pipeline; nil until Phase 1.
@@ -656,7 +672,9 @@ func (s *IntakeService) GetDecision(ctx context.Context, decisionID int64) (stor
 }
 
 // AcceptDecision executes a pending dry-run decision through the wired pipeline.
-func (s *IntakeService) AcceptDecision(ctx context.Context, decisionID int64) (IntakeDecisionDTO, error) {
+// A non-nil draft replaces the proposed brief before execution, so the issue is
+// created from exactly what the user saw in the calibration queue.
+func (s *IntakeService) AcceptDecision(ctx context.Context, decisionID int64, draft *DecisionBriefDraft) (IntakeDecisionDTO, error) {
 	d, err := s.q.GetIntakeDecision(ctx, decisionID)
 	if err != nil {
 		return IntakeDecisionDTO{}, err
@@ -664,8 +682,21 @@ func (s *IntakeService) AcceptDecision(ctx context.Context, decisionID int64) (I
 	if d.Executed != 0 {
 		return IntakeDecisionDTO{}, fmt.Errorf("decision %d is already executed", decisionID)
 	}
+	if d.Decision != "accept" && d.Decision != "resume" {
+		return IntakeDecisionDTO{}, fmt.Errorf("decision %d is %s and cannot be accepted", decisionID, d.Decision)
+	}
 	if s.acceptor == nil {
 		return IntakeDecisionDTO{}, ErrDecisionAcceptorUnavailable
+	}
+	if draft != nil {
+		merged, err := mergeBriefDraft(d.WouldDoJson, *draft)
+		if err != nil {
+			return IntakeDecisionDTO{}, err
+		}
+		if err := s.writeWouldDo(ctx, decisionID, merged); err != nil {
+			return IntakeDecisionDTO{}, err
+		}
+		d.WouldDoJson = string(merged)
 	}
 	issueID, workspaceID, err := s.acceptor.AcceptDecision(ctx, d)
 	if err != nil {
@@ -680,6 +711,112 @@ func (s *IntakeService) AcceptDecision(ctx context.Context, decisionID int64) (I
 		return IntakeDecisionDTO{}, err
 	}
 	return s.decisionByID(ctx, updated.ProjectID, updated.ID)
+}
+
+// UpdateDecisionBrief saves the user's edited brief on a pending decision. It
+// has no side effects beyond the draft itself: no issue, workspace or message
+// is created until the decision is accepted.
+func (s *IntakeService) UpdateDecisionBrief(ctx context.Context, decisionID int64, draft DecisionBriefDraft) (IntakeDecisionDTO, error) {
+	d, err := s.q.GetIntakeDecision(ctx, decisionID)
+	if err != nil {
+		return IntakeDecisionDTO{}, err
+	}
+	if d.Executed != 0 {
+		return IntakeDecisionDTO{}, fmt.Errorf("decision %d is already executed", decisionID)
+	}
+	if d.Decision != "accept" && d.Decision != "resume" {
+		return IntakeDecisionDTO{}, fmt.Errorf("decision %d is %s and has no brief", decisionID, d.Decision)
+	}
+	merged, err := mergeBriefDraft(d.WouldDoJson, draft)
+	if err != nil {
+		return IntakeDecisionDTO{}, err
+	}
+	if err := s.writeWouldDo(ctx, decisionID, merged); err != nil {
+		return IntakeDecisionDTO{}, err
+	}
+	return s.decisionByID(ctx, d.ProjectID, decisionID)
+}
+
+// SuggestionInput returns the title/description pair used to draft a brief with
+// the existing goal_condition suggestion. The title is the proposed goal; the
+// description is the original message text from the event payload.
+func (s *IntakeService) SuggestionInput(ctx context.Context, decisionID int64) (title, description string, err error) {
+	d, err := s.q.GetIntakeDecision(ctx, decisionID)
+	if err != nil {
+		return "", "", err
+	}
+	var wd struct {
+		Brief *intake.TaskBrief `json:"brief"`
+	}
+	if len(d.WouldDoJson) > 0 {
+		_ = json.Unmarshal([]byte(d.WouldDoJson), &wd)
+	}
+	if wd.Brief != nil {
+		title = strings.TrimSpace(wd.Brief.Goal)
+	}
+	ev, err := s.q.GetIntakeEvent(ctx, d.EventID)
+	if err != nil {
+		return "", "", err
+	}
+	var payload struct {
+		Text string `json:"Text"`
+	}
+	if len(ev.PayloadJson) > 0 {
+		_ = json.Unmarshal([]byte(ev.PayloadJson), &payload)
+	}
+	description = strings.TrimSpace(payload.Text)
+	if title == "" {
+		title = briefFirstLine(description)
+	}
+	if description == "" {
+		description = title
+	}
+	return title, description, nil
+}
+
+func (s *IntakeService) writeWouldDo(ctx context.Context, decisionID int64, raw []byte) error {
+	res, err := s.db.ExecContext(ctx,
+		`UPDATE intake_decisions SET would_do_json = ? WHERE id = ? AND executed = 0`,
+		string(raw), decisionID)
+	if err != nil {
+		return err
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		return fmt.Errorf("decision %d is already executed", decisionID)
+	}
+	return nil
+}
+
+// mergeBriefDraft replaces the goal/acceptance/scope fields of the stored
+// would_do while preserving delivery, provenance and the decision/thread keys.
+func mergeBriefDraft(existing string, draft DecisionBriefDraft) ([]byte, error) {
+	doc := map[string]any{}
+	if existing = strings.TrimSpace(existing); existing != "" {
+		if err := json.Unmarshal([]byte(existing), &doc); err != nil {
+			return nil, fmt.Errorf("invalid decision brief: %w", err)
+		}
+	}
+	brief, _ := doc["brief"].(map[string]any)
+	if brief == nil {
+		brief = map[string]any{}
+	}
+	brief["Goal"] = strings.TrimSpace(draft.Goal)
+	brief["Acceptance"] = trimNonEmpty(draft.Acceptance)
+	brief["ScopeIn"] = trimNonEmpty(draft.ScopeIn)
+	brief["ScopeOut"] = trimNonEmpty(draft.ScopeOut)
+	doc["brief"] = brief
+	return json.Marshal(doc)
+}
+
+func briefFirstLine(s string) string {
+	if i := strings.IndexByte(s, '\n'); i >= 0 {
+		return strings.TrimSpace(s[:i])
+	}
+	return strings.TrimSpace(s)
 }
 
 // IgnoreDecision re-labels a pending decision as ignored, recording the reason.
