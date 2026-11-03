@@ -605,6 +605,69 @@ const docTemplate = `{
                         }
                     }
                 }
+            },
+            "put": {
+                "description": "Appends a new version and returns the updated current brief plus the full history. delivery/provenance are inherited from the current version when omitted.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Issues"
+                ],
+                "summary": "Edit an issue's Task Brief",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "Issue ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Brief fields",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/github_com_niuniu-dev_niuniu_internal_service.TaskBriefInput"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_niuniu-dev_niuniu_internal_service.IssueBriefView"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.Error"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.Error"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.Error"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.Error"
+                        }
+                    }
+                }
             }
         },
         "/issues/{id}/move": {
@@ -1628,16 +1691,19 @@ const docTemplate = `{
                 }
             }
         },
-        "/projects/{id}/intake/decisions/{did}/accept": {
-            "post": {
-                "description": "Executes the decision through the intake pipeline, creating the issue/workspace. Returns 501 until the pipeline is wired.",
+        "/projects/{id}/intake/decisions/{did}": {
+            "patch": {
+                "description": "Updates only the pending decision's would-do brief. No issue, workspace or message is created.",
+                "consumes": [
+                    "application/json"
+                ],
                 "produces": [
                     "application/json"
                 ],
                 "tags": [
                     "Intake"
                 ],
-                "summary": "Accept a dry-run intake decision",
+                "summary": "Save an edited Task Brief draft",
                 "parameters": [
                     {
                         "type": "integer",
@@ -1652,6 +1718,15 @@ const docTemplate = `{
                         "name": "did",
                         "in": "path",
                         "required": true
+                    },
+                    {
+                        "description": "Brief draft",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/github_com_niuniu-dev_niuniu_internal_service.DecisionBriefDraft"
+                        }
                     }
                 ],
                 "responses": {
@@ -1684,9 +1759,74 @@ const docTemplate = `{
                         "schema": {
                             "$ref": "#/definitions/internal_api.Error"
                         }
+                    }
+                }
+            }
+        },
+        "/projects/{id}/intake/decisions/{did}/accept": {
+            "post": {
+                "description": "Executes the decision through the intake pipeline, creating the issue/workspace (or continuing the bound task for a resume). An optional brief body replaces the proposed Task Brief.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Intake"
+                ],
+                "summary": "Accept a dry-run intake decision",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "Project ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
                     },
-                    "501": {
-                        "description": "Not Implemented",
+                    {
+                        "type": "integer",
+                        "description": "Decision ID",
+                        "name": "did",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Edited Task Brief",
+                        "name": "body",
+                        "in": "body",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_niuniu-dev_niuniu_internal_service.AcceptDecisionInput"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_niuniu-dev_niuniu_internal_service.IntakeDecisionDTO"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.Error"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.Error"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.Error"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
                         "schema": {
                             "$ref": "#/definitions/internal_api.Error"
                         }
@@ -1744,6 +1884,372 @@ const docTemplate = `{
                         "schema": {
                             "$ref": "#/definitions/internal_api.Error"
                         }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.Error"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.Error"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.Error"
+                        }
+                    }
+                }
+            }
+        },
+        "/projects/{id}/intake/decisions/{did}/suggest-goal-condition": {
+            "post": {
+                "description": "Reuses the issue goal_condition suggester against the decision's proposed goal + original message. Nothing is persisted.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Intake"
+                ],
+                "summary": "AI-suggest the brief goal for a pending decision",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "Project ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Decision ID",
+                        "name": "did",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.SuggestGoalConditionResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.Error"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.Error"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.Error"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.Error"
+                        }
+                    },
+                    "429": {
+                        "description": "Too Many Requests",
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.Error"
+                        }
+                    },
+                    "502": {
+                        "description": "Bad Gateway",
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.Error"
+                        }
+                    },
+                    "503": {
+                        "description": "Service Unavailable",
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.Error"
+                        }
+                    }
+                }
+            }
+        },
+        "/projects/{id}/intake/policy-versions": {
+            "get": {
+                "description": "Auditable snapshots for one source, newest first.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Intake"
+                ],
+                "summary": "List intake policy versions",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "Project ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Source kind",
+                        "name": "source_kind",
+                        "in": "query",
+                        "required": true
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Max rows (default 50)",
+                        "name": "limit",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/github_com_niuniu-dev_niuniu_internal_service.IntakePolicyVersionDTO"
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.Error"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.Error"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.Error"
+                        }
+                    }
+                }
+            }
+        },
+        "/projects/{id}/intake/rules": {
+            "get": {
+                "description": "Rules for a project, optionally filtered by source_kind, priority order.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Intake"
+                ],
+                "summary": "List intake rules",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "Project ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Filter by source kind",
+                        "name": "source_kind",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/github_com_niuniu-dev_niuniu_internal_service.IntakeRuleDTO"
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.Error"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.Error"
+                        }
+                    }
+                }
+            },
+            "post": {
+                "description": "Adds a rule and records a policy version for its source.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Intake"
+                ],
+                "summary": "Create an intake rule",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "Project ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Rule",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/github_com_niuniu-dev_niuniu_internal_service.UpsertIntakeRuleInput"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_niuniu-dev_niuniu_internal_service.IntakeRuleDTO"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.Error"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.Error"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.Error"
+                        }
+                    }
+                }
+            }
+        },
+        "/projects/{id}/intake/rules/{rid}": {
+            "put": {
+                "description": "Edits a rule in place and records a policy version for its source.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Intake"
+                ],
+                "summary": "Update an intake rule",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "Project ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Rule ID",
+                        "name": "rid",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Rule",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/github_com_niuniu-dev_niuniu_internal_service.UpsertIntakeRuleInput"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_niuniu-dev_niuniu_internal_service.IntakeRuleDTO"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.Error"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.Error"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.Error"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.Error"
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "description": "Removes a rule and records a policy version for its source.",
+                "tags": [
+                    "Intake"
+                ],
+                "summary": "Delete an intake rule",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "Project ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Rule ID",
+                        "name": "rid",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
                     },
                     "401": {
                         "description": "Unauthorized",
@@ -5235,6 +5741,23 @@ const docTemplate = `{
                 }
             }
         },
+        "github_com_niuniu-dev_niuniu_internal_intake.RuleConditions": {
+            "type": "object",
+            "properties": {
+                "actors": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "keywords": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                }
+            }
+        },
         "github_com_niuniu-dev_niuniu_internal_integration.ExternalComment": {
             "type": "object",
             "properties": {
@@ -5254,6 +5777,14 @@ const docTemplate = `{
                 "url": {
                     "description": "direct link to the comment in the external UI",
                     "type": "string"
+                }
+            }
+        },
+        "github_com_niuniu-dev_niuniu_internal_service.AcceptDecisionInput": {
+            "type": "object",
+            "properties": {
+                "brief": {
+                    "$ref": "#/definitions/github_com_niuniu-dev_niuniu_internal_service.DecisionBriefDraft"
                 }
             }
         },
@@ -5476,6 +6007,32 @@ const docTemplate = `{
                 }
             }
         },
+        "github_com_niuniu-dev_niuniu_internal_service.DecisionBriefDraft": {
+            "type": "object",
+            "properties": {
+                "Acceptance": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "Goal": {
+                    "type": "string"
+                },
+                "ScopeIn": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "ScopeOut": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                }
+            }
+        },
         "github_com_niuniu-dev_niuniu_internal_service.DeliverySpec": {
             "type": "object",
             "properties": {
@@ -5592,6 +6149,64 @@ const docTemplate = `{
                     "items": {
                         "type": "integer"
                     }
+                }
+            }
+        },
+        "github_com_niuniu-dev_niuniu_internal_service.IntakePolicyVersionDTO": {
+            "type": "object",
+            "properties": {
+                "created_at": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "integer"
+                },
+                "project_id": {
+                    "type": "integer"
+                },
+                "snapshot": {
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                },
+                "source_kind": {
+                    "type": "string"
+                },
+                "version": {
+                    "type": "integer"
+                }
+            }
+        },
+        "github_com_niuniu-dev_niuniu_internal_service.IntakeRuleDTO": {
+            "type": "object",
+            "properties": {
+                "conditions": {
+                    "$ref": "#/definitions/github_com_niuniu-dev_niuniu_internal_intake.RuleConditions"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "enabled": {
+                    "type": "boolean"
+                },
+                "id": {
+                    "type": "integer"
+                },
+                "instruction": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "priority": {
+                    "type": "integer"
+                },
+                "project_id": {
+                    "type": "integer"
+                },
+                "source_kind": {
+                    "type": "string"
                 }
             }
         },
@@ -5783,6 +6398,38 @@ const docTemplate = `{
                 }
             }
         },
+        "github_com_niuniu-dev_niuniu_internal_service.TaskBriefInput": {
+            "type": "object",
+            "properties": {
+                "acceptance": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "delivery": {
+                    "$ref": "#/definitions/github_com_niuniu-dev_niuniu_internal_service.DeliverySpec"
+                },
+                "goal": {
+                    "type": "string"
+                },
+                "provenance": {
+                    "$ref": "#/definitions/github_com_niuniu-dev_niuniu_internal_service.Provenance"
+                },
+                "scope_in": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "scope_out": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                }
+            }
+        },
         "github_com_niuniu-dev_niuniu_internal_service.TaskBriefView": {
             "type": "object",
             "properties": {
@@ -5877,6 +6524,29 @@ const docTemplate = `{
                     "items": {
                         "$ref": "#/definitions/github_com_niuniu-dev_niuniu_internal_service.IntakeSettingInput"
                     }
+                }
+            }
+        },
+        "github_com_niuniu-dev_niuniu_internal_service.UpsertIntakeRuleInput": {
+            "type": "object",
+            "properties": {
+                "conditions": {
+                    "$ref": "#/definitions/github_com_niuniu-dev_niuniu_internal_intake.RuleConditions"
+                },
+                "enabled": {
+                    "type": "boolean"
+                },
+                "instruction": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "priority": {
+                    "type": "integer"
+                },
+                "source_kind": {
+                    "type": "string"
                 }
             }
         },

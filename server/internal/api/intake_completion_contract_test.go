@@ -51,7 +51,7 @@ func setupIntakeCompletion(t *testing.T) (*gin.Engine, *sql.DB) {
 	authz := service.NewAuthz(q, db)
 	intakeSvc := service.NewIntakeService(db, q)
 	completionSvc := service.NewCompletionService(db, q)
-	briefSvc := service.NewTaskBriefService(q)
+	briefSvc := service.NewTaskBriefService(q, store.Wrap(db))
 	kanbanSvc := service.NewKanbanService(db, q, service.NewIssueActivityService(q), nil, nil)
 
 	intakeHandler := api.NewIntakeHandler(intakeSvc, authz)
@@ -85,6 +85,7 @@ func setupIntakeCompletion(t *testing.T) (*gin.Engine, *sql.DB) {
 	g.PATCH("/projects/:id/completion/profiles/:pid", completionHandler.UpdateProfile)
 	g.DELETE("/projects/:id/completion/profiles/:pid", completionHandler.DeleteProfile)
 	g.GET("/issues/:id/brief", briefHandler.GetBrief)
+	g.PUT("/issues/:id/brief", briefHandler.PutBrief)
 	g.PATCH("/issues/:id", kanbanHandler.UpdateIssue)
 
 	m := r.Group("/mcp")
@@ -283,6 +284,37 @@ func TestCompletionSettings_DefaultsThenPartialUpdate(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, w.Code)
 }
 
+// TestCompletion_OwnerScope pins the same owner boundary on every completion
+// route, HTTP and MCP, so a project's settings and profiles are never readable
+// or writable by another owner.
+func TestCompletion_OwnerScope(t *testing.T) {
+	r, _ := setupIntakeCompletion(t)
+
+	cases := []struct {
+		method, path, uid, body string
+	}{
+		{http.MethodGet, "/api/projects/1/completion/settings", "2", ""},
+		{http.MethodPut, "/api/projects/1/completion/settings", "2", `{"max_rounds":1}`},
+		{http.MethodGet, "/api/projects/1/completion/profiles", "2", ""},
+		{http.MethodPost, "/api/projects/1/completion/profiles", "2", `{"name":"x"}`},
+		{http.MethodPut, "/mcp/projects/1/completion/settings", "2", `{"max_rounds":1}`},
+		{http.MethodGet, "/mcp/projects/1/completion/profiles", "2", ""},
+		{http.MethodPut, "/mcp/issues/1/completion-profile", "2", `{"profile_id":null}`},
+	}
+	for _, tc := range cases {
+		w := doJSON(t, r, tc.method, tc.path, tc.uid, tc.body)
+		assert.Equal(t, http.StatusForbidden, w.Code, "%s %s: %s", tc.method, tc.path, w.Body.String())
+	}
+
+	// Unauthenticated is 401, never an unrestricted default.
+	w := doJSON(t, r, http.MethodGet, "/api/projects/1/completion/settings", "", "")
+	assert.Equal(t, http.StatusUnauthorized, w.Code)
+
+	// An unknown issue is a 404, not a permissive write.
+	w = doJSON(t, r, http.MethodPut, "/mcp/issues/999/completion-profile", "1", `{"profile_id":null}`)
+	assert.Equal(t, http.StatusNotFound, w.Code, w.Body.String())
+}
+
 func TestCompletionProfiles_CRUDAndReferenceGuard(t *testing.T) {
 	r, _ := setupIntakeCompletion(t)
 
@@ -361,6 +393,58 @@ func TestIssueBrief_NullThenVersioned(t *testing.T) {
 
 	w = doJSON(t, r, http.MethodGet, "/api/issues/999/brief", "1", "")
 	assert.Equal(t, http.StatusNotFound, w.Code, w.Body.String())
+}
+
+// TestIssueBrief_PutAppendsVersion covers the write half of the brief contract:
+// an edit appends a version, refreshes acceptance + goal_condition, and leaves
+// manual checklist items alone. Delivery is inherited from the previous version.
+func TestIssueBrief_PutAppendsVersion(t *testing.T) {
+	r, db := setupIntakeCompletion(t)
+	mustExec(t, db, `INSERT INTO issue_checklists (issue_id, title, is_completed, position, kind) VALUES (1,'manual task',0,0,'task')`)
+
+	w := doJSON(t, r, http.MethodPut, "/api/issues/1/brief", "1",
+		`{"goal":"  ship it  ","acceptance":[" tests pass ","","docs updated"],"scope_in":["server"],`+
+			`"delivery":{"source_kind":"im_bot","thread_ext_id":"thread-1","reply_mode":"thread"}}`)
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+	view := decodeBody[service.IssueBriefView](t, w)
+	require.NotNil(t, view.Brief)
+	assert.EqualValues(t, 1, view.Brief.Version)
+	assert.Equal(t, "ship it", view.Brief.Goal)
+	assert.Equal(t, []string{"tests pass", "docs updated"}, view.Brief.Acceptance)
+	assert.Equal(t, []string{"server"}, view.Brief.ScopeIn)
+	assert.Equal(t, "im_bot", view.Brief.Delivery.SourceKind)
+	assert.Equal(t, "ship it\n\n验收标准（全部满足才算完成）：\n- tests pass\n- docs updated", view.GoalCondition)
+	require.Len(t, view.Versions, 1)
+
+	// Acceptance is materialized; the manual execution item is untouched.
+	var acceptance, tasks int
+	require.NoError(t, db.QueryRow(`SELECT COUNT(*) FROM issue_checklists WHERE issue_id = 1 AND kind = 'acceptance'`).Scan(&acceptance))
+	require.NoError(t, db.QueryRow(`SELECT COUNT(*) FROM issue_checklists WHERE issue_id = 1 AND kind = 'task'`).Scan(&tasks))
+	assert.Equal(t, 2, acceptance)
+	assert.Equal(t, 1, tasks)
+
+	// A second edit appends v2, inherits delivery, and clears the old acceptance.
+	w = doJSON(t, r, http.MethodPut, "/api/issues/1/brief", "1", `{"goal":"ship it wider"}`)
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+	view = decodeBody[service.IssueBriefView](t, w)
+	assert.EqualValues(t, 2, view.Brief.Version)
+	assert.Equal(t, "ship it wider", view.Brief.Goal)
+	assert.Empty(t, view.Brief.Acceptance)
+	assert.Equal(t, "im_bot", view.Brief.Delivery.SourceKind, "delivery inherited from the previous version")
+	assert.Equal(t, "thread-1", view.Brief.Delivery.ThreadExtID)
+	require.Len(t, view.Versions, 2)
+	require.NoError(t, db.QueryRow(`SELECT COUNT(*) FROM issue_checklists WHERE issue_id = 1 AND kind = 'acceptance'`).Scan(&acceptance))
+	assert.Equal(t, 0, acceptance)
+
+	// Authorization, scope and validation match GET.
+	w = doJSON(t, r, http.MethodPut, "/api/issues/1/brief", "", `{"goal":"x"}`)
+	assert.Equal(t, http.StatusUnauthorized, w.Code)
+	w = doJSON(t, r, http.MethodPut, "/api/issues/1/brief", "2", `{"goal":"x"}`)
+	assert.Equal(t, http.StatusForbidden, w.Code)
+	w = doJSON(t, r, http.MethodPut, "/api/issues/999/brief", "1", `{"goal":"x"}`)
+	assert.Equal(t, http.StatusNotFound, w.Code, w.Body.String())
+	w = doJSON(t, r, http.MethodPut, "/api/issues/1/brief", "1", `{"goal":"   "}`)
+	assert.Equal(t, http.StatusBadRequest, w.Code, w.Body.String())
 }
 
 func TestPatchIssue_CompletionProfileField(t *testing.T) {

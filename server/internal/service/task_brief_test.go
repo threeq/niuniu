@@ -91,7 +91,7 @@ func TestTaskBriefWriter_AppendVersionMaterializesAcceptance(t *testing.T) {
 	require.EqualValues(t, 1, detail.ChecklistTotal)
 
 	// The read surface decodes the stored JSON into the stable contract.
-	briefSvc := NewTaskBriefService(q)
+	briefSvc := NewTaskBriefService(q, db)
 	view, err := briefSvc.GetIssueBrief(ctx, issueID)
 	require.NoError(t, err)
 	require.NotNil(t, view.Brief)
@@ -153,14 +153,14 @@ func TestTaskBriefWriter_AppendVersionMaterializesAcceptance(t *testing.T) {
 }
 
 func TestIssueBrief_NoBriefFallsBackToGoalCondition(t *testing.T) {
-	q, _, issueID := briefFixture(t)
+	q, db, issueID := briefFixture(t)
 	ctx := context.Background()
 
 	require.NoError(t, q.UpdateIssueGoalCondition(ctx, store.UpdateIssueGoalConditionParams{
 		GoalCondition: "legacy goal", ID: issueID,
 	}))
 
-	view, err := NewTaskBriefService(q).GetIssueBrief(ctx, issueID)
+	view, err := NewTaskBriefService(q, db).GetIssueBrief(ctx, issueID)
 	require.NoError(t, err)
 	require.Nil(t, view.Brief)
 	require.Equal(t, "legacy goal", view.GoalCondition)
