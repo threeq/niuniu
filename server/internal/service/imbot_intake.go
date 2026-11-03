@@ -441,16 +441,12 @@ func (s *IMBotService) AcceptDecision(ctx context.Context, d store.IntakeDecisio
 		plan.IssueID, plan.WorkspaceID = d.IssueID.Int64, d.WorkspaceID.Int64
 	}
 
+	// The executor persists the accepted Brief (version 1), which renders
+	// goal_condition and materializes acceptance rows, so accept only has to
+	// hand it the edited brief.
 	res, err := imbotExecutor{svc: s}.Execute(ctx, plan)
 	if err != nil {
 		return 0, 0, err
-	}
-	if plan.Decision == intake.DecisionAccept && wd.Brief != nil && strings.TrimSpace(wd.Brief.Goal) != "" {
-		if _, err := s.db.ExecContext(ctx,
-			`UPDATE issues SET goal_condition = ? WHERE id = ?`,
-			wd.Brief.GoalCondition(), res.IssueID); err != nil {
-			slog.Warn("imbot: write brief goal_condition failed", "issue", res.IssueID, "error", err)
-		}
 	}
 	return res.IssueID, res.WorkspaceID, nil
 }
