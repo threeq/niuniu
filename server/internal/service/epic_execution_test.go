@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -386,7 +387,10 @@ func TestEpicExecution_OnWorkspaceCreated_ChildKickedOff(t *testing.T) {
 
 	e.svc.OnWorkspaceCreated(e.ctx, store.Workspace{ID: 1, Path: "/ws/c", IssueID: sql.NullInt64{Int64: child.ID, Valid: true}})
 	require.Len(t, proxy.kickoffs, 1)
-	assert.Equal(t, "# Build API\n\nUse JWT.", proxy.kickoffs[0])
+	// The kickoff carries the issue content AND the orchestrator handle: a child
+	// can report to its parent epic through same-project workspace messaging.
+	assert.True(t, strings.HasPrefix(proxy.kickoffs[0], "# Build API\n\nUse JWT."), "kickoff must start with the issue content")
+	assert.Contains(t, proxy.kickoffs[0], "send_workspace_message")
 }
 
 func TestEpicExecution_OnWorkspaceCreated_StandaloneNoKickoff(t *testing.T) {
@@ -916,4 +920,3 @@ func TestEpicExecution_ModeB_PartialMultiRepoMergeBlocksWithoutWaveEngine(t *tes
 	assert.Contains(t, iss.ExecStatusReason.String, "repo-b")
 	assert.Equal(t, "running", e.execStatus(t, epicID), "epic untouched: no wave-engine failure policy on the orchestration path")
 }
-

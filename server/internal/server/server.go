@@ -102,6 +102,8 @@ type Server struct {
 	mcpRegistry          *service.ClaudeMCPRegistry
 	mcpDetector          *service.WorkspaceMCPDetector
 	teamHandler          *api.TeamHandler
+	workspaceMessageSvc     *service.WorkspaceMessageService
+	workspaceMessageHandler *api.WorkspaceMessageHandler
 	memorySvc            *service.MemoryService
 	memoryHandler        *api.MemoryHandler
 	cleanupSvc           *service.WorkspaceCleanupService
@@ -763,6 +765,11 @@ func New(cfg *config.Config, db *sql.DB, frontendFS fs.FS) *Server {
 	inboxRoot := filepath.Join(cfg.DataDir, "inbox")
 	inboxSvc := service.NewInboxService(inboxRoot, s.queries, s.eventBus)
 	s.teamHandler = &api.TeamHandler{Q: s.queries, WorkspaceSvc: s.workspaceSvc, EventBus: s.eventBus, InboxSvc: inboxSvc, Authz: authz}
+	// Cross-workspace agent messaging (same-project scope). Delivery reuses
+	// the agent proxy's normal message path, so an inbound message queues,
+	// starts an idle workspace and shows up in its chat like any other.
+	s.workspaceMessageSvc = service.NewWorkspaceMessageService(s.queries, s.agentProxy)
+	s.workspaceMessageHandler = &api.WorkspaceMessageHandler{Svc: s.workspaceMessageSvc}
 
 	// Hourly MCP session-token maintenance. A workspace can live for weeks with
 	// idle 停留 gaps between activity; the fixed TTL alone would let its token

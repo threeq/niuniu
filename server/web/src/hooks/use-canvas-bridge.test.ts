@@ -29,7 +29,7 @@ function makeBlob(bytes = 10): Blob {
 beforeEach(() => {
   vi.clearAllMocks();
   useChatInputBridge.setState({ pending: null });
-  useAttachmentStore.setState({ attachments: [] });
+  useAttachmentStore.setState({ attachmentsByWorkspace: {}, pendingByWorkspace: {} });
 });
 
 describe('useCanvasBridge', () => {
@@ -53,7 +53,7 @@ describe('useCanvasBridge', () => {
     expect(pending?.autoSend).toBe(true);
     expect(pending?.attachments?.[0]?.path).toBe('.attachments/annotation.png');
     // autoSend rides the attachment via the bridge, not the attachment store.
-    expect(useAttachmentStore.getState().attachments).toHaveLength(0);
+    expect(useAttachmentStore.getState().attachmentsByWorkspace['7'] ?? []).toHaveLength(0);
   });
 
   it('stages the attachment in the store for review when autoSend is false', async () => {
@@ -71,7 +71,7 @@ describe('useCanvasBridge', () => {
     const pending = useChatInputBridge.getState().pending;
     expect(pending?.autoSend).toBe(false);
     expect(pending?.attachments).toBeUndefined();
-    expect(useAttachmentStore.getState().attachments[0]?.path).toBe('.attachments/annotation.png');
+    expect(useAttachmentStore.getState().attachmentsByWorkspace['7']?.[0]?.path).toBe('.attachments/annotation.png');
   });
 
   it('rejects an oversized image without touching the network', async () => {

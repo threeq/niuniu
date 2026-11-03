@@ -8,10 +8,23 @@ interface FileResult {
   isDir: boolean;
 }
 
+interface PendingAttachment {
+  name: string;
+  size: number;
+}
+
+/**
+ * Chat-input attachment state, SCOPED PER WORKSPACE.
+ *
+ * A single flat list leaked drafts across conversations: upload a document in
+ * workspace A, switch to B, and A's attachment was still sitting in B's input
+ * (and would be sent there). Every read/write below is keyed by workspace id,
+ * so each conversation keeps its own staged files and switching back restores
+ * exactly what was staged there.
+ */
 interface AttachmentState {
-  attachments: ChatAttachment[];
-  /** Files currently uploading — show a spinner tag. */
-  pendingAttachments: { name: string; size: number }[];
+  attachmentsByWorkspace: Record<string, ChatAttachment[]>;
+  pendingByWorkspace: Record<string, PendingAttachment[]>;
   uploading: boolean;
   filePickerActive: boolean;
   filePickerQuery: string;
@@ -19,12 +32,12 @@ interface AttachmentState {
   filePickerSelectedIndex: number;
   filePickerLoading: boolean;
 
-  addAttachment: (attachment: ChatAttachment) => void;
-  removeAttachment: (path: string) => void;
-  clearAttachments: () => void;
-  addPendingAttachment: (name: string, size: number) => void;
-  movePendingToAttachment: (name: string, attachment: ChatAttachment) => void;
-  removePendingAttachment: (name: string) => void;
+  addAttachment: (workspaceId: string, attachment: ChatAttachment) => void;
+  removeAttachment: (workspaceId: string, path: string) => void;
+  clearAttachments: (workspaceId: string) => void;
+  addPendingAttachment: (workspaceId: string, name: string, size: number) => void;
+  movePendingToAttachment: (workspaceId: string, name: string, attachment: ChatAttachment) => void;
+  removePendingAttachment: (workspaceId: string, name: string) => void;
   setUploading: (uploading: boolean) => void;
   openFilePicker: () => void;
   closeFilePicker: () => void;
@@ -36,9 +49,24 @@ interface AttachmentState {
   filePickerMoveDown: () => void;
 }
 
+// Stable empty arrays: selectors must not hand back a fresh [] on every call,
+// or useSyncExternalStore would see a new snapshot each render.
+const EMPTY_ATTACHMENTS: ChatAttachment[] = [];
+const EMPTY_PENDING: PendingAttachment[] = [];
+
+export const selectWorkspaceAttachments =
+  (workspaceId: string) =>
+  (s: AttachmentState): ChatAttachment[] =>
+    s.attachmentsByWorkspace[workspaceId] ?? EMPTY_ATTACHMENTS;
+
+export const selectWorkspacePendingAttachments =
+  (workspaceId: string) =>
+  (s: AttachmentState): PendingAttachment[] =>
+    s.pendingByWorkspace[workspaceId] ?? EMPTY_PENDING;
+
 export const useAttachmentStore = create<AttachmentState>((set) => ({
-  attachments: [],
-  pendingAttachments: [],
+  attachmentsByWorkspace: {},
+  pendingByWorkspace: {},
   uploading: false,
   filePickerActive: false,
   filePickerQuery: '',
@@ -46,31 +74,69 @@ export const useAttachmentStore = create<AttachmentState>((set) => ({
   filePickerSelectedIndex: 0,
   filePickerLoading: false,
 
-  addAttachment: (attachment) =>
+  addAttachment: (workspaceId, attachment) =>
     set((s) => {
-      if (s.attachments.some((a) => a.path === attachment.path)) return s;
-      return { attachments: [...s.attachments, attachment] };
+      const current = s.attachmentsByWorkspace[workspaceId] ?? EMPTY_ATTACHMENTS;
+      if (current.some((a) => a.path === attachment.path)) return s;
+      return {
+        attachmentsByWorkspace: {
+          ...s.attachmentsByWorkspace,
+          [workspaceId]: [...current, attachment],
+        },
+      };
     }),
-  removeAttachment: (path) =>
+  removeAttachment: (workspaceId, path) =>
     set((s) => ({
-      attachments: s.attachments.filter((a) => a.path !== path),
-      pendingAttachments: s.pendingAttachments.filter((p) => p.name !== path),
+      attachmentsByWorkspace: {
+        ...s.attachmentsByWorkspace,
+        [workspaceId]: (s.attachmentsByWorkspace[workspaceId] ?? EMPTY_ATTACHMENTS).filter(
+          (a) => a.path !== path,
+        ),
+      },
+      pendingByWorkspace: {
+        ...s.pendingByWorkspace,
+        [workspaceId]: (s.pendingByWorkspace[workspaceId] ?? EMPTY_PENDING).filter(
+          (p) => p.name !== path,
+        ),
+      },
     })),
-  clearAttachments: () => set({ attachments: [], pendingAttachments: [] }),
-  addPendingAttachment: (name, size) =>
+  clearAttachments: (workspaceId) =>
     set((s) => ({
-      pendingAttachments: [...s.pendingAttachments, { name, size }],
+      attachmentsByWorkspace: { ...s.attachmentsByWorkspace, [workspaceId]: [] },
+      pendingByWorkspace: { ...s.pendingByWorkspace, [workspaceId]: [] },
     })),
-  movePendingToAttachment: (name, attachment) =>
+  addPendingAttachment: (workspaceId, name, size) =>
+    set((s) => {
+      const current = s.pendingByWorkspace[workspaceId] ?? EMPTY_PENDING;
+      return {
+        pendingByWorkspace: {
+          ...s.pendingByWorkspace,
+          [workspaceId]: [...current, { name, size }],
+        },
+      };
+    }),
+  movePendingToAttachment: (workspaceId, name, attachment) =>
+    set((s) => {
+      const pending = (s.pendingByWorkspace[workspaceId] ?? EMPTY_PENDING).filter(
+        (p) => p.name !== name,
+      );
+      const current = s.attachmentsByWorkspace[workspaceId] ?? EMPTY_ATTACHMENTS;
+      const attachments = current.some((a) => a.path === attachment.path)
+        ? current
+        : [...current, attachment];
+      return {
+        pendingByWorkspace: { ...s.pendingByWorkspace, [workspaceId]: pending },
+        attachmentsByWorkspace: { ...s.attachmentsByWorkspace, [workspaceId]: attachments },
+      };
+    }),
+  removePendingAttachment: (workspaceId, name) =>
     set((s) => ({
-      pendingAttachments: s.pendingAttachments.filter((p) => p.name !== name),
-      attachments: s.attachments.some((a) => a.path === attachment.path)
-        ? s.attachments
-        : [...s.attachments, attachment],
-    })),
-  removePendingAttachment: (name) =>
-    set((s) => ({
-      pendingAttachments: s.pendingAttachments.filter((p) => p.name !== name),
+      pendingByWorkspace: {
+        ...s.pendingByWorkspace,
+        [workspaceId]: (s.pendingByWorkspace[workspaceId] ?? EMPTY_PENDING).filter(
+          (p) => p.name !== name,
+        ),
+      },
     })),
   setUploading: (uploading) => set({ uploading }),
   openFilePicker: () => set({ filePickerActive: true, filePickerQuery: '', filePickerResults: [], filePickerSelectedIndex: 0 }),
@@ -79,6 +145,15 @@ export const useAttachmentStore = create<AttachmentState>((set) => ({
   setFilePickerResults: (results) => set({ filePickerResults: results }),
   setFilePickerSelectedIndex: (index) => set({ filePickerSelectedIndex: index }),
   setFilePickerLoading: (loading) => set({ filePickerLoading: loading }),
-  filePickerMoveUp: () => set((s) => ({ filePickerSelectedIndex: Math.max(0, s.filePickerSelectedIndex - 1) })),
-  filePickerMoveDown: () => set((s) => ({ filePickerSelectedIndex: Math.min(s.filePickerResults.length - 1, s.filePickerSelectedIndex + 1) })),
+  filePickerMoveUp: () =>
+    set((s) => ({
+      filePickerSelectedIndex: Math.max(0, s.filePickerSelectedIndex - 1),
+    })),
+  filePickerMoveDown: () =>
+    set((s) => ({
+      filePickerSelectedIndex: Math.min(
+        Math.max(0, s.filePickerResults.length - 1),
+        s.filePickerSelectedIndex + 1,
+      ),
+    })),
 }));
