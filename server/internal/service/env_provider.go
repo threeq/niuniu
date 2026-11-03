@@ -239,10 +239,15 @@ func (s *EnvProviderService) SeedDefaults(ctx context.Context) error {
 			Name: "DeepSeek", Platform: "deepseek",
 			// DeepSeek exposes both an Anthropic-compatible and an OpenAI-compatible
 			// endpoint, so one provider serves Claude (anthropic) and Codex/Qwen (openai).
-			BaseUrls: `{"anthropic":"https://api.deepseek.com/anthropic","openai":"https://api.deepseek.com/v1"}`,
-			Model:    "deepseek-v4-pro[1m]", HaikuModel: "deepseek-v4-flash", SonnetModel: "deepseek-v4-pro[1m]", OpusModel: "deepseek-v4-pro[1m]",
+			// Default models follow the DeepSeek coding setup: flash[1m] everywhere a
+			// long-context tier is wanted (default/sonnet/opus/codex), plain flash for
+			// the cheap tiers (haiku/subagent).
+			BaseUrls:   `{"anthropic":"https://api.deepseek.com/anthropic","openai":"https://api.deepseek.com/v1"}`,
+			Model:      "deepseek-v4-flash[1m]",
+			CodexModel: "deepseek-v4-flash[1m]",
+			HaikuModel: "deepseek-v4-flash", SonnetModel: "deepseek-v4-flash[1m]", OpusModel: "deepseek-v4-flash[1m]",
 			SubagentModel: "deepseek-v4-flash", ContextWindow: 1_000_000, ApiKey: "${ACCOUNT:DeepSeek}",
-			ExtraEnv: `{"CLAUDE_CODE_EFFORT_LEVEL":"max"}`,
+			ExtraEnv: `{"CLAUDE_CODE_AUTO_COMPACT_WINDOW":"786432","CLAUDE_CODE_EFFORT_LEVEL":"max"}`,
 		},
 		{
 			Name: "通义千问", Platform: "qwen",
