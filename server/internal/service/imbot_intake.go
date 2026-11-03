@@ -415,7 +415,36 @@ func (e imbotExecutor) Execute(ctx context.Context, plan intake.ExecutionPlan) (
 		return intake.ExecutionResult{}, err
 	}
 	s.recordIssueProvenance(ctx, out.IssueID, plan.Trigger)
+	e.persistBrief(ctx, out.IssueID, plan)
 	return out, nil
+}
+
+// persistBrief stores the accepted trigger's Brief as version 1, which also
+// renders issues.goal_condition and materializes the acceptance rows.
+//
+// An issue that already has a Brief keeps it: the router may have continued an
+// existing task, and continuation reuses the current definition of done. A new
+// version is appended only on an explicit scope expansion (the Brief API), not
+// on every accepted message. Best-effort: the task and its workspace already
+// exist, so a Brief write failure must not fail the delivery —
+// CreatePlanInProject already seeded goal_condition with the task text.
+func (e imbotExecutor) persistBrief(ctx context.Context, issueID int64, plan intake.ExecutionPlan) {
+	if e.svc == nil || e.svc.db == nil || issueID == 0 {
+		return
+	}
+	if _, err := e.svc.q.GetLatestTaskBrief(ctx, issueID); err == nil {
+		return
+	} else if !errors.Is(err, sql.ErrNoRows) {
+		slog.Warn("imbot: read current task brief failed", "issue", issueID, "error", err)
+		return
+	}
+	brief := plan.Brief
+	if brief.Provenance.DecisionID == 0 {
+		brief.Provenance.DecisionID = plan.DecisionID
+	}
+	if _, err := NewTaskBriefWriter(e.svc.db).Append(ctx, issueID, brief); err != nil {
+		slog.Warn("imbot: persist task brief failed", "issue", issueID, "error", err)
+	}
 }
 
 // recordIssueProvenance attaches the intake origin to a newly created task so

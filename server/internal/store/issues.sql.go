@@ -132,8 +132,8 @@ const getIssueDetail = `-- name: GetIssueDetail :one
 SELECT
     i.id, i.column_id, i.title, i.description, i.priority, i.position, i.lifecycle_status, i.start_date, i.due_date, i.estimate_type, i.estimate, i.actual_time, i.external_source, i.external_id, i.external_url, i.external_snapshot_at, i.external_comments_snapshot, i.external_comments_snapshot_at, i.goal_condition, i.parent_issue_id, i.issue_type, i.exec_wave, i.exec_status, i.exec_status_reason, i.completion_profile_id, i.created_at, i.updated_at, i.created_by,
     c.project_id AS project_id,
-    (SELECT CAST(COUNT(*) AS INTEGER) FROM issue_checklists WHERE issue_id = i.id) AS checklist_total,
-    (SELECT CAST(COALESCE(SUM(CASE WHEN is_completed = 1 THEN 1 ELSE 0 END), 0) AS INTEGER) FROM issue_checklists WHERE issue_id = i.id) AS checklist_completed
+    (SELECT CAST(COUNT(*) AS INTEGER) FROM issue_checklists WHERE issue_id = i.id AND kind = 'task') AS checklist_total,
+    (SELECT CAST(COALESCE(SUM(CASE WHEN is_completed = 1 THEN 1 ELSE 0 END), 0) AS INTEGER) FROM issue_checklists WHERE issue_id = i.id AND kind = 'task') AS checklist_completed
 FROM issues i
 JOIN columns c ON c.id = i.column_id
 WHERE i.id = ?
