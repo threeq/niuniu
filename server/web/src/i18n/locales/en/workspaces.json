@@ -347,6 +347,15 @@
       "searchIssue": "Search issue...",
       "noAvailableIssue": "No available issues",
       "issueHint": "Optional: only shows incomplete issues not linked to a workspace",
+      "project": "Project",
+      "selectProject": "Select a project",
+      "noProject": "No projects available",
+      "projectRequired": "Select a project",
+      "nameAndNewIssue": "Workspace name / new issue title",
+      "nameRequiredForNewIssue": "Enter a name (it becomes the new issue's title)",
+      "inheritTitle": "Inherited from the project",
+      "inheritNoRepos": "This project binds no repositories - a plain-directory workspace will be created",
+      "inheritRepos": "{{count}} repositories: {{names}}",
       "noRepo": {
         "label": "No repository (office / plain-directory task)",
         "hint": "Create a plain directory with no git worktrees. Good for non-code tasks."

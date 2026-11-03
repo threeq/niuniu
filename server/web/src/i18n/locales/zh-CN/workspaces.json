@@ -347,6 +347,15 @@
       "searchIssue": "搜索问题...",
       "noAvailableIssue": "没有可用的问题",
       "issueHint": "可选：仅显示未完成且未关联工作空间的问题",
+      "project": "项目",
+      "selectProject": "选择项目",
+      "noProject": "暂无可用项目",
+      "projectRequired": "请选择项目",
+      "nameAndNewIssue": "工作空间名称 / 新问题标题",
+      "nameRequiredForNewIssue": "请填写名称（将作为新问题的标题）",
+      "inheritTitle": "将继承项目默认配置",
+      "inheritNoRepos": "该项目未绑定仓库，将创建无仓库工作空间",
+      "inheritRepos": "仓库 {{count}} 个：{{names}}",
       "noRepo": {
         "label": "无仓库（办公 / 纯目录任务）",
         "hint": "创建一个不含 git worktree 的普通目录，适合非代码类任务。"

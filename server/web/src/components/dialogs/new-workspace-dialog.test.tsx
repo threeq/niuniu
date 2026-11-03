@@ -10,167 +10,107 @@ function withQuery(ui: React.ReactNode) {
   return <QueryClientProvider client={qc}>{ui}</QueryClientProvider>;
 }
 
-describe('NewWorkspaceDialog default repos', () => {
+const projects = [
+  { id: 7, name: 'Proj A' },
+  { id: 8, name: 'Proj B' },
+] as any;
+
+const issues = [
+  { id: 42, title: 'Fix login', project_id: 7, project_name: 'Proj A', lifecycle_status: 'todo' },
+] as any;
+
+const inheritRepos = {
+  repos: [
+    {
+      repository: { id: 10, name: 'alpha', path: '/x', default_branch: 'main' },
+      branches: ['main'],
+      preferred_branch: 'main',
+    },
+  ],
+} as any;
+
+/**
+ * New flow: a workspace is ALWAYS bound to an issue. The dialog asks for
+ * owner → project → issue; with no issue picked, the typed name becomes a new
+ * issue's title. Repositories/scenes are inherited from the project server-side
+ * (the dialog no longer offers a repo picker).
+ */
+describe('NewWorkspaceDialog (issue-bound flow)', () => {
   beforeEach(() => {
-    vi.spyOn(apiModule.api, 'listRepositories').mockResolvedValue([
-      { id: 10, name: 'alpha', path: '/x', default_branch: 'main' } as any,
-    ]);
-    vi.spyOn(apiModule.api, 'listAvailableIssuesForWorkspace').mockResolvedValue([]);
-    // listTeams may or may not be called but mock to be safe
-    if ('listTeams' in apiModule.api) {
-      vi.spyOn(apiModule.api, 'listTeams' as any).mockResolvedValue([]);
-    }
+    vi.spyOn(apiModule.api, 'get').mockImplementation((path: string) => {
+      if (path === '/projects') return Promise.resolve(projects);
+      return Promise.resolve([]);
+    });
+    vi.spyOn(apiModule.api, 'listAvailableIssuesForWorkspace').mockResolvedValue(issues);
+    vi.spyOn(apiModule.api, 'getProjectWorkspaceDefaults').mockResolvedValue(inheritRepos);
+    vi.spyOn(apiModule.api, 'createWorkspace').mockResolvedValue({} as any);
   });
 
   afterEach(() => vi.restoreAllMocks());
 
-  it('does not call issue-defaults when defaultIssueId is not provided', async () => {
-    const spy = vi.spyOn(apiModule.api, 'getWorkspaceIssueDefaults');
-    render(withQuery(<NewWorkspaceDialog open={true} onOpenChange={() => {}} />));
-    // give effects a couple of ticks
-    await new Promise(r => setTimeout(r, 50));
-    expect(spy).not.toHaveBeenCalled();
-  });
-
-  it('pre-selects repos returned by issue-defaults', async () => {
-    vi.spyOn(apiModule.api, 'getWorkspaceIssueDefaults').mockResolvedValue({
-      repos: [
-        {
-          repository: { id: 10, name: 'alpha', path: '/x', default_branch: 'main' } as any,
-          branches: ['main', 'dev'],
-          preferred_branch: 'main',
-        },
-      ],
-    });
-    render(withQuery(
-      <NewWorkspaceDialog open={true} onOpenChange={() => {}} defaultIssueId="42" />
-    ));
-    await waitFor(() => expect(screen.getByText('alpha')).toBeInTheDocument(), { timeout: 2000 });
-
-    // Verify the preferred branch was seeded: find the branch <select> with value "main"
-    const selects = document.querySelectorAll('select');
-    const branchSelect = Array.from(selects).find(
-      (el) => (el as HTMLSelectElement).value === 'main' && el.querySelector('option[value="main"]')
-    );
-    expect(branchSelect).toBeTruthy();
-  });
-
-  it('does not clobber user-added repo when defaults arrive late', async () => {
-    let resolveDefaults!: (v: any) => void;
-    vi.spyOn(apiModule.api, 'getWorkspaceIssueDefaults').mockReturnValue(
-      new Promise(res => { resolveDefaults = res; }) as any
-    );
-    vi.spyOn(apiModule.api, 'getRepositoryBranches').mockResolvedValue(['main']);
-    vi.spyOn(apiModule.api, 'listRepositories').mockResolvedValue([
-      { id: 10, name: 'alpha', path: '/x', default_branch: 'main' } as any,
-      { id: 20, name: 'beta',  path: '/y', default_branch: 'main' } as any,
-    ]);
-
+  async function pickProject(projectId: string) {
+    const select = document.querySelector('#projectSelect') as HTMLSelectElement;
+    await waitFor(() => expect(select.options.length).toBeGreaterThan(1));
     const user = userEvent.setup();
-    render(withQuery(
-      <NewWorkspaceDialog open={true} onOpenChange={() => {}} defaultIssueId="42" />
-    ));
+    await user.selectOptions(select, projectId);
+    return user;
+  }
 
-    // Wait for the repo select to appear with repos loaded
-    const repoSelect = await waitFor(() => {
-      const sel = document.querySelector('#repoSelect') as HTMLSelectElement;
-      // The select is available and has options beyond the placeholder
-      if (!sel || sel.options.length <= 1) throw new Error('repos not loaded yet');
-      return sel;
-    }, { timeout: 2000 });
-
-    // Select "alpha" (id=10) and click Add
-    // The add-repo button is the first outline button adjacent to the repoSelect
-    await user.selectOptions(repoSelect, '10');
-    // Find the button that is a sibling/adjacent to the repoSelect (not cancel/submit)
-    // It's the button inside the flex gap-2 container with the repo select
-    const repoSelectContainer = repoSelect.parentElement!;
-    const addButton = repoSelectContainer.querySelector('button') as HTMLButtonElement;
-    expect(addButton).toBeTruthy();
-    await user.click(addButton);
-
-    // Wait for alpha to appear in the selected repos list (after branch fetch)
-    await waitFor(() => {
-      expect(screen.getByText('alpha')).toBeInTheDocument();
-    }, { timeout: 2000 });
-
-    // Now resolve defaults with "beta" — since initializedRef.current is already true,
-    // the seeding effect should NOT run and should NOT replace "alpha" with "beta"
-    resolveDefaults({
-      repos: [
-        {
-          repository: { id: 20, name: 'beta', path: '/y', default_branch: 'main' } as any,
-          branches: ['main'],
-          preferred_branch: 'main',
-        },
-      ],
-    });
-
-    // Give effects time to run
-    await new Promise(r => setTimeout(r, 100));
-
-    // alpha must still be present in the selected repos list; beta must NOT
-    // appear there (it may appear as a dropdown option, but not as a selected repo name).
-    const selectedNames = screen
-      .queryAllByTestId('selected-repo-name')
-      .map(el => el.textContent);
-    expect(selectedNames).toContain('alpha');
-    expect(selectedNames).not.toContain('beta');
-  });
-
-  it('reuses an already-registered repo when adding via local directory', async () => {
-    // beforeEach registers repo id=10 at path '/x'. Selecting that same path
-    // from the directory source must reuse it (no createRepository call).
-    vi.spyOn(apiModule.api, 'getRepositoryBranches').mockResolvedValue(['main']);
-    const createSpy = vi.spyOn(apiModule.api, 'createRepository');
-
-    const user = userEvent.setup();
+  it('requires a project before creating', async () => {
     render(withQuery(<NewWorkspaceDialog open={true} onOpenChange={() => {}} />));
-
-    // Switch the repo source toggle to "本地目录" (local directory).
-    const dirRadio = await screen.findByRole('radio', { name: '本地目录' });
-    await user.click(dirRadio);
-
-    // Type the registered repo's path; blur commits it to the dialog.
-    const dirInput = screen.getByPlaceholderText('/path/to/directory');
-    await user.click(dirInput);
-    await user.type(dirInput, '/x');
-    await user.tab();
-
-    // Click the directory "添加" button.
-    await user.click(screen.getByRole('button', { name: '添加' }));
-
-    await waitFor(
-      () => expect(screen.getByText('alpha')).toBeInTheDocument(),
-      { timeout: 2000 }
-    );
-    expect(createSpy).not.toHaveBeenCalled();
+    const submit = await screen.findByRole('button', { name: '创建' });
+    expect(submit).toBeDisabled();
   });
 
-  it('reseeds defaults each time the dialog reopens', async () => {
-    const getSpy = vi.spyOn(apiModule.api, 'getWorkspaceIssueDefaults').mockResolvedValue({
-      repos: [
-        {
-          repository: { id: 10, name: 'alpha', path: '/x', default_branch: 'main' } as any,
-          branches: ['main'],
-          preferred_branch: 'main',
-        },
-      ],
-    });
-    const { rerender } = render(withQuery(
-      <NewWorkspaceDialog open={true} onOpenChange={() => {}} defaultIssueId="42" />
-    ));
-    await waitFor(() => expect(screen.getByText('alpha')).toBeInTheDocument());
+  it('creates with project_id + name when no issue is picked (name becomes the new issue title)', async () => {
+    render(withQuery(<NewWorkspaceDialog open={true} onOpenChange={() => {}} />));
+    const user = await pickProject('7');
 
-    // close
-    rerender(withQuery(
-      <NewWorkspaceDialog open={false} onOpenChange={() => {}} defaultIssueId="42" />
-    ));
-    // reopen
-    rerender(withQuery(
-      <NewWorkspaceDialog open={true} onOpenChange={() => {}} defaultIssueId="42" />
-    ));
-    await waitFor(() => expect(screen.getByText('alpha')).toBeInTheDocument());
-    expect(getSpy).toHaveBeenCalled(); // at least once on reopen
+    // Inherited defaults are shown read-only.
+    await waitFor(() => expect(screen.getByText(/alpha/)).toBeInTheDocument());
+
+    await user.type(screen.getByPlaceholderText(/工作空间名称|Workspace name/i), '订单服务重构');
+    await user.click(screen.getByRole('button', { name: '创建' }));
+
+    await waitFor(() => expect(apiModule.api.createWorkspace).toHaveBeenCalledTimes(1));
+    const payload = vi.mocked(apiModule.api.createWorkspace).mock.calls[0][0] as any;
+    expect(payload.project_id).toBe(7);
+    expect(payload.name).toBe('订单服务重构');
+    // No issue picked → the server creates one; no issue_id in the payload.
+    expect(payload.issue_id).toBeUndefined();
+    // Repositories are inherited, never hand-picked here.
+    expect(payload.repos).toEqual([]);
+  });
+
+  it('creates bound to the picked issue, and fills the name from its title', async () => {
+    render(withQuery(<NewWorkspaceDialog open={true} onOpenChange={() => {}} />));
+    const user = await pickProject('7');
+
+    // Open the issue picker and select #42.
+    await user.click(screen.getByRole('button', { name: /选择问题|Select.*issue/i }));
+    await user.click(await screen.findByText('Fix login'));
+
+    const nameInput = screen.getByPlaceholderText(/工作空间名称|Workspace name/i) as HTMLInputElement;
+    expect(nameInput.value).toBe('Fix login');
+
+    await user.click(screen.getByRole('button', { name: '创建' }));
+    await waitFor(() => expect(apiModule.api.createWorkspace).toHaveBeenCalledTimes(1));
+    const payload = vi.mocked(apiModule.api.createWorkspace).mock.calls[0][0] as any;
+    expect(payload.project_id).toBe(7);
+    expect(payload.issue_id).toBe(42);
+  });
+
+  it('clears a picked issue when the project changes', async () => {
+    render(withQuery(<NewWorkspaceDialog open={true} onOpenChange={() => {}} />));
+    const user = await pickProject('7');
+
+    await user.click(screen.getByRole('button', { name: /选择问题|Select.*issue/i }));
+    await user.click(await screen.findByText('Fix login'));
+    expect(screen.getByText(/#42 Fix login/)).toBeInTheDocument();
+
+    const select = document.querySelector('#projectSelect') as HTMLSelectElement;
+    await user.selectOptions(select, '8');
+    // Issue belongs to project 7 — it must not survive a project switch.
+    await waitFor(() => expect(screen.queryByText(/#42 Fix login/)).not.toBeInTheDocument());
   });
 });

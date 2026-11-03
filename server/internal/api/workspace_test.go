@@ -193,3 +193,75 @@ func TestCreateFromDirectory_ReusesExistingRepo(t *testing.T) {
 		"SELECT COUNT(*) FROM repositories").Scan(&repoCount))
 	require.Equal(t, 1, repoCount, "expected the directory to be registered once")
 }
+
+// TestCreateWorkspace_RequiresIssueOrProject pins the invariant that a
+// workspace is always bound to an issue: with neither issue_id nor project_id
+// the request is rejected up-front.
+func TestCreateWorkspace_RequiresIssueOrProject(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	srv, _ := testutil.SetupTestServer(t)
+
+	body := bytes.NewBufferString(`{"name":"x","repos":[]}`)
+	req, _ := http.NewRequest("POST", "/api/workspaces", body)
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	srv.Engine().ServeHTTP(w, req)
+	require.Equal(t, http.StatusBadRequest, w.Code, "body=%s", w.Body.String())
+}
+
+// TestCreateWorkspace_FromProjectAutoCreatesIssue: creating straight from a
+// project (no issue picked) auto-creates the backing issue in that project's
+// first column and returns the workspace bound to it — the same creation path
+// as an issue-based create, so project defaults are inherited.
+func TestCreateWorkspace_FromProjectAutoCreatesIssue(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	srv, db := testutil.SetupTestServer(t)
+	q := store.New(db)
+	ctx := context.Background()
+
+	proj, err := q.CreateProject(ctx, store.CreateProjectParams{Name: "p-auto", OwnerType: "user", OwnerID: 1})
+	require.NoError(t, err)
+	_, err = q.CreateColumn(ctx, store.CreateColumnParams{ProjectID: proj.ID, Name: "todo", Position: 0})
+	require.NoError(t, err)
+
+	payload, _ := json.Marshal(map[string]any{
+		"name":       "订单服务重构",
+		"project_id": proj.ID,
+		"repos":      []any{},
+		// No auth user in the test server: state the project's owner
+		// explicitly, exactly as the SPA does.
+		"owner": map[string]any{"type": "user", "id": 1},
+	})
+	req, _ := http.NewRequest("POST", "/api/workspaces", bytes.NewBuffer(payload))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	srv.Engine().ServeHTTP(w, req)
+	require.Equal(t, http.StatusCreated, w.Code, "body=%s", w.Body.String())
+
+	var resp struct {
+		ID      string `json:"id"`
+		IssueID string `json:"issue_id"`
+	}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+	require.NotEmpty(t, resp.ID)
+	require.NotEmpty(t, resp.IssueID, "workspace must be bound to an issue")
+
+	// The issue exists, carries the typed name, and sits in the project.
+	issueID, err := strconv.ParseInt(resp.IssueID, 10, 64)
+	require.NoError(t, err)
+	issue, err := q.GetIssue(ctx, issueID)
+	require.NoError(t, err)
+	require.Equal(t, "订单服务重构", issue.Title)
+
+	cols, err := q.ListColumnsByProject(ctx, proj.ID)
+	require.NoError(t, err)
+	require.Equal(t, cols[0].ID, issue.ColumnID)
+
+	// And the workspace row points at that issue.
+	wsID, err := strconv.ParseInt(resp.ID, 10, 64)
+	require.NoError(t, err)
+	ws, err := q.GetWorkspace(ctx, wsID)
+	require.NoError(t, err)
+	require.True(t, ws.IssueID.Valid)
+	require.Equal(t, issueID, ws.IssueID.Int64)
+}
