@@ -32,7 +32,7 @@ func TestPolicyEvaluate(t *testing.T) {
 		wantReason string
 	}{
 		{"allow listed actor is explicit", "ou_alice", false, "hello", StrengthExplicit, nil, ReasonAllowList},
-		{"allow list wins over bot list", "ou_alice", true, "hello", StrengthExplicit, nil, ReasonAllowList},
+		{"bot never becomes explicit through the allow list", "ou_alice", true, "hello", StrengthDenied, nil, ReasonDenied},
 		{"bot list actor is inferred", "bot_release", true, "build it", StrengthInferred, nil, ReasonBotList},
 		{"bot outside bot list is denied", "bot_other", true, "build it", StrengthDenied, nil, ReasonDenied},
 		{"keyword rule is case-insensitive", "ou_dave", false, "please DEPLOY now", StrengthInferred, []int64{11}, ReasonRule},
@@ -185,6 +185,94 @@ func TestAllowsHighRiskAction(t *testing.T) {
 				t.Fatalf("AllowsHighRiskAction = %v, want %v", got, tt.want)
 			}
 		})
+	}
+}
+
+// TestPolicyEvaluateGitHubLogins covers the GitHub actor rules: logins map onto
+// the allow/bot lists case-insensitively (and accept the "@login" form), an
+// unlisted login is only inferred inside a receive-all scope, and a bot never
+// becomes explicit — even when its login is on the allow list.
+func TestPolicyEvaluateGitHubLogins(t *testing.T) {
+	policy := Policy{
+		SourceKind: SourceKindGitHub,
+		Version:    3,
+		Mode:       ModeAuto,
+		AllowList:  []string{"Alice", "@Carol"},
+		BotList:    []string{"dependabot[bot]"},
+		Rules: []Rule{
+			{ID: 21, Enabled: true, Conditions: RuleConditions{Actors: []string{"Review-Helper"}}},
+		},
+	}
+
+	tests := []struct {
+		name       string
+		actorID    string
+		isBot      bool
+		receiveAll bool
+		want       Strength
+		wantReason string
+		wantRules  []int64
+	}{
+		{"allow list login is case-insensitive", "alice", false, true, StrengthExplicit, ReasonAllowList, nil},
+		{"allow list accepts @login", "@alice", false, true, StrengthExplicit, ReasonAllowList, nil},
+		{"allow list accepts an uppercase login", "CAROL", false, true, StrengthExplicit, ReasonAllowList, nil},
+		{"unlisted login in a polled repo is a candidate", "mallory", false, true, StrengthInferred, ReasonUnlisted, nil},
+		{"unlisted login outside receive-all is denied", "mallory", false, false, StrengthDenied, ReasonDenied, nil},
+		{"listed GitHub bot is inferred", "dependabot[bot]", true, true, StrengthInferred, ReasonBotList, nil},
+		{"bot list match is case-insensitive", "Dependabot[Bot]", true, true, StrengthInferred, ReasonBotList, nil},
+		{"unlisted GitHub bot is denied", "github-actions[bot]", true, true, StrengthDenied, ReasonDenied, nil},
+		{"allow-listed bot is still denied", "alice", true, true, StrengthDenied, ReasonDenied, nil},
+		{"rule actor match is case-insensitive", "review-helper", false, true, StrengthInferred, ReasonRule, []int64{21}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := policy.Evaluate(Trigger{
+				SourceKind: SourceKindGitHub,
+				Actor:      ActorRef{ExtID: tt.actorID, IsBot: tt.isBot},
+				ReceiveAll: tt.receiveAll,
+			})
+			if got.Strength != tt.want {
+				t.Fatalf("strength = %q, want %q", got.Strength, tt.want)
+			}
+			if got.ReasonCode != tt.wantReason {
+				t.Fatalf("reason = %q, want %q", got.ReasonCode, tt.wantReason)
+			}
+			if !slices.Equal(got.MatchedRuleIDs, tt.wantRules) {
+				t.Fatalf("matched rules = %v, want %v", got.MatchedRuleIDs, tt.wantRules)
+			}
+		})
+	}
+}
+
+func TestPolicyEvaluateEmptyActorNeverMatches(t *testing.T) {
+	// A blank login must not inherit a grant from a blank allow-list entry.
+	policy := Policy{SourceKind: SourceKindGitHub, AllowList: []string{"", "@"}}
+	if got := policy.Evaluate(Trigger{SourceKind: SourceKindGitHub, Actor: ActorRef{ExtID: ""}}); got.Strength != StrengthDenied {
+		t.Fatalf("empty actor = %+v, want denied", got)
+	}
+}
+
+func TestAllowsHighRiskActionGitHubBot(t *testing.T) {
+	// A GitHub App bot whose login somehow sits on the allow list still cannot
+	// stop a task. This is the "bot cannot stop" guarantee for GitHub.
+	policy := Policy{
+		SourceKind: SourceKindGitHub,
+		AllowList:  []string{"dependabot[bot]"},
+		BotList:    []string{"dependabot[bot]"},
+	}
+	if policy.AllowsHighRiskAction(Trigger{
+		SourceKind: SourceKindGitHub,
+		Actor:      ActorRef{ExtID: "Dependabot[Bot]", IsBot: true},
+	}) {
+		t.Fatal("a GitHub bot must never be allowed to stop a task")
+	}
+	if policy.AllowsHighRiskAction(Trigger{
+		SourceKind: SourceKindGitHub,
+		Actor:      ActorRef{ExtID: "dependabot[bot]", IsBot: false},
+	}) {
+		// The bot-list entry alone marks it as a bot.
+		t.Fatal("a bot-list actor must never be allowed to stop a task")
 	}
 }
 

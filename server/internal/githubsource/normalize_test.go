@@ -110,6 +110,53 @@ func TestNormalizeCheckRun_OnlyCompleted(t *testing.T) {
 	}
 }
 
+func TestIsBot(t *testing.T) {
+	tests := []struct {
+		name string
+		u    user
+		want bool
+	}{
+		{"github app bot user", user{Login: "dependabot[bot]", Type: "Bot"}, true},
+		{"bot type without suffix", user{Login: "some-app", Type: "Bot"}, true},
+		{"bot suffix without type", user{Login: "github-actions[bot]", Type: "User"}, true},
+		{"suffix is case-insensitive", user{Login: "Dependabot[BOT]"}, true},
+		{"human account", user{Login: "alice", Type: "User"}, false},
+		{"empty actor", user{}, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := IsBot(tt.u); got != tt.want {
+				t.Fatalf("IsBot(%+v) = %v, want %v", tt.u, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestNormalizeCheckRun_AppBotLogin(t *testing.T) {
+	run := checkRun{
+		ID: 3, Name: "ci", Conclusion: "success",
+		App: &appRef{Name: "GitHub Actions", Slug: "github-actions", Owner: &user{Login: "acme"}},
+	}
+	trig, ok := NormalizeCheckRun(1, "acme/foo", run)
+	if !ok {
+		t.Fatal("expected a trigger")
+	}
+	if !trig.Actor.IsBot {
+		t.Fatalf("check run actor must be a bot: %+v", trig.Actor)
+	}
+	// The canonical bot-user login — not the owner's human login — is what a
+	// bot list entry ("github-actions[bot]") matches.
+	if trig.Actor.ExtID != "github-actions[bot]" {
+		t.Fatalf("actor login = %q, want github-actions[bot]", trig.Actor.ExtID)
+	}
+
+	// No app block at all: still a bot, just without a login.
+	trig, ok = NormalizeCheckRun(1, "acme/foo", checkRun{ID: 4, Name: "ci", Conclusion: "failure"})
+	if !ok || !trig.Actor.IsBot {
+		t.Fatalf("app-less check run must still be a bot: %+v", trig.Actor)
+	}
+}
+
 func TestNormalizeWorkflowRun(t *testing.T) {
 	pending := workflowRun{ID: 1, Status: "in_progress"}
 	if _, ok := NormalizeWorkflowRun(1, "acme/foo", pending); ok {

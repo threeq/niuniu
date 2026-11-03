@@ -96,10 +96,11 @@ type Authorization struct {
 //
 // Order matters:
 //
-//  1. An allow-listed actor is explicit. This is the only actor-level grant.
-//  2. A bot is inferred only when it is on BotList; botness is a fact, not a
-//     grant, so a bot outside the list is denied. A bot never becomes explicit
-//     through Trigger.Explicit (source admission).
+//  1. A bot is inferred only when it is on BotList; botness is a fact, not a
+//     grant, so a bot outside the list is denied. A bot never becomes explicit —
+//     not through the allow list, and not through Trigger.Explicit (source
+//     admission). "A bot must not stop tasks" is absolute.
+//  2. An allow-listed actor is explicit. This is the only actor-level grant.
 //  3. When no allow list is configured, the source's own admission is still the
 //     authorization boundary (an approved, project-bound IM chat) — existing
 //     behaviour. Once any allow list entry exists, only listed actors are
@@ -116,11 +117,8 @@ type Authorization struct {
 // word boundaries. Inferred work only executes in auto mode, inside a matching
 // rule, and is bounded by DailyCap.
 func (p Policy) Evaluate(t Trigger) Authorization {
-	if contains(p.AllowList, t.Actor.ExtID) {
-		return Authorization{Strength: StrengthExplicit, ReasonCode: ReasonAllowList}
-	}
 	if p.isBot(t) {
-		if contains(p.BotList, t.Actor.ExtID) {
+		if p.actorIn(p.BotList, t.Actor.ExtID) {
 			// Bots are scope-limited like every inferred actor: attach the
 			// matching rule (if any) so auto mode can require it before acting.
 			return Authorization{
@@ -131,11 +129,14 @@ func (p Policy) Evaluate(t Trigger) Authorization {
 		}
 		return Authorization{Strength: StrengthDenied, ReasonCode: ReasonDenied}
 	}
+	if p.actorIn(p.AllowList, t.Actor.ExtID) {
+		return Authorization{Strength: StrengthExplicit, ReasonCode: ReasonAllowList}
+	}
 	if len(p.AllowList) == 0 && t.Explicit {
 		return Authorization{Strength: StrengthExplicit, ReasonCode: ReasonDirect}
 	}
 	for _, r := range p.Rules {
-		if r.matches(t) {
+		if r.matches(p, t) {
 			return Authorization{
 				Strength:       StrengthInferred,
 				MatchedRuleIDs: []int64{r.ID},
@@ -168,43 +169,63 @@ func (p Policy) AllowsHighRiskAction(t Trigger) bool {
 // isBot treats either adapter-reported botness or bot-list membership as a bot.
 // BotList is how IM (whose payloads carry no bot flag) marks an actor as a bot.
 func (p Policy) isBot(t Trigger) bool {
-	return t.Actor.IsBot || contains(p.BotList, t.Actor.ExtID)
+	return t.Actor.IsBot || p.actorIn(p.BotList, t.Actor.ExtID)
+}
+
+// actorIn reports whether actor is in a configured actor list. Matching goes
+// through actorKey, so GitHub logins compare case-insensitively and accept the
+// "@login" form; every other source's ids remain opaque exact strings. An empty
+// actor id never matches — it cannot inherit a grant from a blank list entry.
+func (p Policy) actorIn(list []string, actor string) bool {
+	want := p.actorKey(actor)
+	if want == "" {
+		return false
+	}
+	for _, v := range list {
+		if p.actorKey(v) == want {
+			return true
+		}
+	}
+	return false
+}
+
+// actorKey canonicalizes one external actor id for comparison. GitHub logins
+// are case-insensitive and are commonly written with a leading "@", so both
+// forms map to the same key. Other sources' ids are opaque and exact.
+func (p Policy) actorKey(raw string) string {
+	id := strings.TrimSpace(raw)
+	if p.SourceKind != SourceKindGitHub {
+		return id
+	}
+	id = strings.TrimPrefix(id, "@")
+	return strings.ToLower(id)
 }
 
 // matchedRuleIDs returns the highest-priority matching rule, as a single-element
 // slice for the decision record. Evaluation stops at the first match.
 func (p Policy) matchedRuleIDs(t Trigger) []int64 {
 	for _, r := range p.Rules {
-		if r.matches(t) {
+		if r.matches(p, t) {
 			return []int64{r.ID}
 		}
 	}
 	return nil
 }
 
-func (r Rule) matches(t Trigger) bool {
+func (r Rule) matches(p Policy, t Trigger) bool {
 	if !r.Enabled {
 		return false
 	}
 	if len(r.Conditions.Actors) == 0 && len(r.Conditions.Keywords) == 0 {
 		return false
 	}
-	if len(r.Conditions.Actors) > 0 && !contains(r.Conditions.Actors, t.Actor.ExtID) {
+	if len(r.Conditions.Actors) > 0 && !p.actorIn(r.Conditions.Actors, t.Actor.ExtID) {
 		return false
 	}
 	if len(r.Conditions.Keywords) > 0 && !containsKeyword(t.Text, r.Conditions.Keywords) {
 		return false
 	}
 	return true
-}
-
-func contains(list []string, want string) bool {
-	for _, v := range list {
-		if v == want {
-			return true
-		}
-	}
-	return false
 }
 
 func containsKeyword(text string, keywords []string) bool {
