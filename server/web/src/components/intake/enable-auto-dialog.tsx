@@ -48,8 +48,8 @@ export function EnableAutoDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-lg">
         <DialogHeader>
-          <DialogTitle>{t('calibration.dialog.title')}</DialogTitle>
-          <DialogDescription>{t('calibration.dialog.description')}</DialogDescription>
+          <DialogTitle>{t('intake.calibration.dialog.title')}</DialogTitle>
+          <DialogDescription>{t('intake.calibration.dialog.description')}</DialogDescription>
         </DialogHeader>
         {open ? (
           <EnableAutoForm
@@ -110,7 +110,7 @@ function EnableAutoForm({
 
   function submit() {
     if (selected.size === 0) {
-      setError(t('calibration.dialog.noSelection'))
+      setError(t('intake.calibration.dialog.noSelection'))
       return
     }
     onConfirm([...selected])
@@ -120,13 +120,13 @@ function EnableAutoForm({
     <div className="space-y-4">
       <section className="rounded-md border border-warm-border bg-warm-surface px-3 py-2">
         <p className="text-sm font-medium tabular-nums">
-          {t('calibration.summary', {
+          {t('intake.calibration.summary', {
             count: calibration.calibrated,
             rate: percent(calibration.acceptance_rate),
           })}
         </p>
         <p className="mt-0.5 text-xs text-warm-text-muted tabular-nums">
-          {t('calibration.dialog.sample', {
+          {t('intake.calibration.dialog.sample', {
             calibrated: calibration.calibrated,
             accepted: calibration.accepted,
             ignored: calibration.ignored,
@@ -136,7 +136,7 @@ function EnableAutoForm({
       </section>
 
       <section className="space-y-2">
-        <h4 className="text-sm font-medium">{t('calibration.dialog.sourcesTitle')}</h4>
+        <h4 className="text-sm font-medium">{t('intake.calibration.dialog.sourcesTitle')}</h4>
         <div className="space-y-2">
           {sources.map((source) => (
             <SourceRow
@@ -152,9 +152,9 @@ function EnableAutoForm({
       </section>
 
       <section className="space-y-1.5">
-        <h4 className="text-sm font-medium">{t('calibration.dialog.recentTitle')}</h4>
+        <h4 className="text-sm font-medium">{t('intake.calibration.dialog.recentTitle')}</h4>
         {calibration.recent.length === 0 ? (
-          <p className="text-xs text-warm-text-muted">{t('calibration.dialog.recentEmpty')}</p>
+          <p className="text-xs text-warm-text-muted">{t('intake.calibration.dialog.recentEmpty')}</p>
         ) : (
           <ul className="max-h-40 space-y-1 overflow-y-auto">
             {calibration.recent.map((record) => (
@@ -167,8 +167,8 @@ function EnableAutoForm({
                   className="text-xs font-normal"
                 >
                   {record.outcome === 'accepted'
-                    ? t('calibration.dialog.outcomeAccepted')
-                    : t('calibration.dialog.outcomeIgnored')}
+                    ? t('intake.calibration.dialog.outcomeAccepted')
+                    : t('intake.calibration.dialog.outcomeIgnored')}
                 </Badge>
                 <span className="truncate">
                   {t(`intake.source.${record.source_kind}`, {
@@ -184,16 +184,16 @@ function EnableAutoForm({
         )}
       </section>
 
-      <p className="text-xs text-warm-text-muted">{t('calibration.dialog.pauseNote')}</p>
-      {error ? <p className="text-xs text-destructive">{error}</p> : null}
+      <p className="text-xs text-warm-text-muted">{t('intake.calibration.dialog.pauseNote')}</p>
+      {error ? <p className="text-xs text-destructive-text">{error}</p> : null}
 
       <DialogFooter>
         <Button type="button" variant="ghost" onClick={onCancel} disabled={pending}>
-          {t('calibration.dialog.cancel')}
+          {t('intake.calibration.dialog.cancel')}
         </Button>
         <Button type="button" onClick={submit} disabled={pending || selected.size === 0}>
           <Zap className="mr-1.5 h-4 w-4" aria-hidden="true" />
-          {pending ? t('calibration.dialog.confirming') : t('calibration.dialog.confirm')}
+          {pending ? t('intake.calibration.dialog.confirming') : t('intake.calibration.dialog.confirm')}
         </Button>
       </DialogFooter>
     </div>
@@ -236,7 +236,7 @@ function SourceRow({
               </Badge>
             ) : null}
             <span className="text-xs text-warm-text-muted tabular-nums">
-              {t('calibration.dialog.sourceStats', {
+              {t('intake.calibration.dialog.sourceStats', {
                 calibrated: source.calibrated,
                 rate: percent(source.acceptance_rate),
               })}
@@ -245,7 +245,7 @@ function SourceRow({
           {setting ? (
             <>
               <p className="mt-1 text-xs text-warm-text-muted tabular-nums">
-                {t('calibration.dialog.sourceDetail', {
+                {t('intake.calibration.dialog.sourceDetail', {
                   cap: setting.daily_cap,
                   rules: rules.length,
                   members: setting.allow_list.length,
@@ -253,32 +253,32 @@ function SourceRow({
               </p>
               <p className="mt-0.5 text-xs text-warm-text-muted">
                 {setting.allow_list.length > 0
-                  ? t('calibration.dialog.allowList', { list: setting.allow_list.join(', ') })
-                  : t('calibration.dialog.allowListEmpty')}
+                  ? t('intake.calibration.dialog.allowList', { list: setting.allow_list.join(', ') })
+                  : t('intake.calibration.dialog.allowListEmpty')}
               </p>
               <p className="mt-0.5 text-xs text-warm-text-muted">
                 {rules.length > 0
-                  ? t('calibration.dialog.rules', {
+                  ? t('intake.calibration.dialog.rules', {
                       list: rules.map((rule) => rule.name).join(', '),
                     })
-                  : t('calibration.dialog.rulesEmpty')}
+                  : t('intake.calibration.dialog.rulesEmpty')}
               </p>
               {rules.length === 0 ? (
-                <p className="mt-1 flex items-center gap-1 text-xs text-destructive">
+                <p className="mt-1 flex items-center gap-1 text-xs text-destructive-text">
                   <AlertTriangle className="h-3.5 w-3.5" aria-hidden="true" />
-                  {t('calibration.dialog.noRules')}
+                  {t('intake.calibration.dialog.noRules')}
                 </p>
               ) : null}
               {setting.daily_cap === 0 ? (
-                <p className="mt-1 flex items-center gap-1 text-xs text-destructive">
+                <p className="mt-1 flex items-center gap-1 text-xs text-destructive-text">
                   <AlertTriangle className="h-3.5 w-3.5" aria-hidden="true" />
-                  {t('calibration.dialog.zeroCap')}
+                  {t('intake.calibration.dialog.zeroCap')}
                 </p>
               ) : null}
             </>
           ) : (
             <p className="mt-1 text-xs text-warm-text-muted">
-              {t('calibration.dialog.settingsMissing')}
+              {t('intake.calibration.dialog.settingsMissing')}
             </p>
           )}
         </div>

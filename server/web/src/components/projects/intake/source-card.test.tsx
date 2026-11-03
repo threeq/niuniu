@@ -4,6 +4,17 @@ import type { IntakeSetting } from '@/lib/intake-api'
 import { SourceCard } from './source-card'
 import { draftFromSettings } from './intake-utils'
 
+vi.mock('@tanstack/react-router', () => ({
+  Link: ({
+    children,
+    to,
+  }: {
+    children: React.ReactNode
+    to?: string
+    search?: Record<string, unknown>
+  }) => <a href={to}>{children}</a>,
+}))
+
 const source: IntakeSetting = {
   source_kind: 'im_bot',
   mode: 'observe',

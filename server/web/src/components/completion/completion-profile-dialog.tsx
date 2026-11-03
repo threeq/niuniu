@@ -78,7 +78,7 @@ function ProfileForm({ projectId, profile, onDone }: ProfileFormProps) {
             aria-invalid={nameTouched && !nameValid}
           />
           {nameTouched && !nameValid ? (
-            <p className="text-xs text-destructive">{t('completion.profileNameRequired')}</p>
+            <p className="text-xs text-destructive-text">{t('completion.profileNameRequired')}</p>
           ) : null}
         </div>
         <CompletionPolicyFields

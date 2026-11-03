@@ -114,7 +114,7 @@ export function RuleDialog({ projectId, sourceKind, rule, open, onOpenChange, ac
               placeholder={t('intake.rules.namePlaceholder')}
               aria-invalid={nameError || undefined}
             />
-            {nameError ? <p className="text-xs text-destructive">{t('intake.rules.requiredName')}</p> : null}
+            {nameError ? <p className="text-xs text-destructive-text">{t('intake.rules.requiredName')}</p> : null}
           </div>
 
           <div className="space-y-1.5">
@@ -153,7 +153,7 @@ export function RuleDialog({ projectId, sourceKind, rule, open, onOpenChange, ac
             removeLabel={(v) => t('intake.rules.removeKeyword', { keyword: v })}
           />
           {conditionError ? (
-            <p className="text-xs text-destructive">{t('intake.rules.requiredCondition')}</p>
+            <p className="text-xs text-destructive-text">{t('intake.rules.requiredCondition')}</p>
           ) : null}
 
           <div className="flex flex-wrap items-end gap-6">

@@ -282,7 +282,7 @@ export function IntakePolicyPanel({ projectId, onDirtyChange, onNavigateSection 
         </div>
       </div>
       <p className="text-xs text-muted-foreground">{t('intake.pauseHint')}</p>
-      {invalid ? <p className="text-xs text-destructive">{t('intake.saveInvalid')}</p> : null}
+      {invalid ? <p className="text-xs text-destructive-text">{t('intake.saveInvalid')}</p> : null}
 
       {settingsQuery.isLoading ? (
         <LoadingSkeleton variant="card" count={2} />

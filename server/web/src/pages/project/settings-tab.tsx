@@ -218,7 +218,7 @@ export function ProjectSettingsTab({ projectId, initialSection, onIntakeDirtyCha
   ];
 
   return (
-    <div className="p-6 space-y-6 max-w-2xl">
+    <div className="p-4 space-y-6 max-w-3xl sm:p-6">
       <h2 className="text-lg font-semibold">{t('tabs.settings.title')}</h2>
 
       {/* Sub-tab nav strip */}
@@ -300,7 +300,7 @@ export function ProjectSettingsTab({ projectId, initialSection, onIntakeDirtyCha
         <form onSubmit={saveBasic} className="border rounded-lg p-4 space-y-4">
           <h3 className="text-sm font-semibold">{t('tabs.settings.basicInfo')}</h3>
           <div className="grid gap-2">
-            <label className="text-sm font-medium">{t('tabs.settings.projectName')} <span className="text-destructive">*</span></label>
+            <label className="text-sm font-medium">{t('tabs.settings.projectName')} <span className="text-destructive-text">*</span></label>
             <Input value={name} onChange={(e) => setName(e.target.value)} disabled={savingBasic} />
           </div>
           <div className="grid gap-2">
@@ -414,7 +414,7 @@ export function ProjectSettingsTab({ projectId, initialSection, onIntakeDirtyCha
                       size="sm"
                       onClick={() => removeMut.mutate(b.repository_id)}
                       disabled={removeMut.isPending}
-                      className="text-destructive hover:text-destructive/80 hover:bg-destructive/10"
+                      className="text-destructive-text hover:text-destructive-text/80 hover:bg-destructive/10"
                     >
                       <X className="h-4 w-4" />
                     </Button>
@@ -481,7 +481,7 @@ export function ProjectSettingsTab({ projectId, initialSection, onIntakeDirtyCha
           navigation + at-a-glance status. */}
       {activeSection === 'danger' && (
         <div className="border border-destructive/30 rounded-lg p-4 space-y-4 bg-destructive/5">
-          <h3 className="text-sm font-semibold text-destructive">
+          <h3 className="text-sm font-semibold text-destructive-text">
             {t('tabs.settings.dangerZone')}
           </h3>
 
@@ -532,7 +532,7 @@ export function ProjectSettingsTab({ projectId, initialSection, onIntakeDirtyCha
           {/* Delete project */}
           <div className="flex items-start justify-between gap-4 pt-3 border-t border-destructive/20">
             <div className="flex-1 min-w-0">
-              <div className="text-sm font-medium text-destructive">
+              <div className="text-sm font-medium text-destructive-text">
                 {t('detail.menu.delete')}
               </div>
               <div className="text-xs text-warm-text-muted mt-1">

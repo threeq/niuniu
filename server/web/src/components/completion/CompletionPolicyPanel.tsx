@@ -229,7 +229,7 @@ export function CompletionPolicyPanel({ projectId }: Props) {
                           variant="ghost"
                           size="sm"
                           aria-label={t('completion.deleteNamedProfile', { name: label })}
-                          className="text-destructive hover:text-destructive/80 hover:bg-destructive/10"
+                          className="text-destructive-text hover:text-destructive-text/80 hover:bg-destructive/10"
                           disabled={deleteMut.isPending}
                           onClick={() => void handleDelete(profile)}
                         >

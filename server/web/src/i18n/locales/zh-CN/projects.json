@@ -923,6 +923,7 @@
     "chatExtIdPlaceholder": "聊天外部 id",
     "chatNamePlaceholder": "聊天名称（可选）",
     "removeChatConfirm": "移除聊天「{{name}}」？",
+    "removeChat": "移除聊天",
     "bindProject": "意图路由",
     "bindWorkspace": "钉死任务",
     "pendingTitle": "有 {{count}} 个聊天待配对",

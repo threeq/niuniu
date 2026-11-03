@@ -923,6 +923,7 @@
     "chatExtIdPlaceholder": "Chat external id",
     "chatNamePlaceholder": "Chat name (optional)",
     "removeChatConfirm": "Remove chat \"{{name}}\"?",
+    "removeChat": "Remove chat",
     "bindProject": "Intent routing",
     "bindWorkspace": "Pinned task",
     "pendingTitle": "{{count}} chat(s) awaiting pairing",

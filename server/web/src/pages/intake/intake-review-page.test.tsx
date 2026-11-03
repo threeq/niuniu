@@ -277,24 +277,24 @@ describe('IntakeReviewPage', () => {
     )
     renderPage()
 
-    expect(await screen.findByText('calibration.summary')).toBeInTheDocument()
-    expect(screen.getByText('calibration.needCount')).toBeInTheDocument()
-    expect(screen.queryByText('calibration.readyCta')).not.toBeInTheDocument()
+    expect(await screen.findByText('intake.calibration.summary')).toBeInTheDocument()
+    expect(screen.getByText('intake.calibration.needCount')).toBeInTheDocument()
+    expect(screen.queryByText('intake.calibration.readyCta')).not.toBeInTheDocument()
   })
 
   it('opens the enable-auto dialog with the sample and affected sources, then enables them', async () => {
     renderPage()
 
-    fireEvent.click(await screen.findByText('calibration.readyCta'))
+    fireEvent.click(await screen.findByText('intake.calibration.readyCta'))
 
-    expect(await screen.findByText('calibration.dialog.title')).toBeInTheDocument()
-    expect(screen.getByText('calibration.dialog.sourcesTitle')).toBeInTheDocument()
-    expect(screen.getByText('calibration.dialog.sample')).toBeInTheDocument()
-    expect(screen.getByText('calibration.dialog.allowList', { exact: false })).toBeInTheDocument()
-    expect(screen.getByText('calibration.dialog.rules', { exact: false })).toBeInTheDocument()
-    expect(screen.getByText('calibration.dialog.pauseNote')).toBeInTheDocument()
+    expect(await screen.findByText('intake.calibration.dialog.title')).toBeInTheDocument()
+    expect(screen.getByText('intake.calibration.dialog.sourcesTitle')).toBeInTheDocument()
+    expect(screen.getByText('intake.calibration.dialog.sample')).toBeInTheDocument()
+    expect(screen.getByText('intake.calibration.dialog.allowList', { exact: false })).toBeInTheDocument()
+    expect(screen.getByText('intake.calibration.dialog.rules', { exact: false })).toBeInTheDocument()
+    expect(screen.getByText('intake.calibration.dialog.pauseNote')).toBeInTheDocument()
 
-    fireEvent.click(screen.getByText('calibration.dialog.confirm'))
+    fireEvent.click(screen.getByText('intake.calibration.dialog.confirm'))
 
     await waitFor(() =>
       expect(intakeApi.updateSettings).toHaveBeenCalledWith(1, [
