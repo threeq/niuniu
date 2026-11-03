@@ -900,6 +900,18 @@ func (m *AgentManager) OnAgentEvent(ctx context.Context, workspaceID int64, even
 		// No status_changed broadcast here -- proxy.go broadcasts
 		// workspace.agent_done which covers invalidation + toast.
 		m.startReviewTimer(workspaceID)
+	case "attention":
+		// A deliberate autohost stop (rounds/token budget exhausted, or the
+		// worker requested a human decision). Same attention status as error,
+		// but WITHOUT the queue rollback: nothing failed, so re-queueing the
+		// user message would wrongly restart the parked work.
+		m.cancelReviewTimer(workspaceID)
+		if err := m.q.UpdateWorkspaceStatus(ctx, store.UpdateWorkspaceStatusParams{
+			Status: "attention",
+			ID:     workspaceID,
+		}); err != nil {
+			slog.Error("update workspace status to attention", "error", err, "workspaceID", workspaceID)
+		}
 	case "error":
 		m.cancelReviewTimer(workspaceID)
 		if err := m.q.UpdateWorkspaceStatus(ctx, store.UpdateWorkspaceStatusParams{
