@@ -146,13 +146,14 @@
       "webhook": "Webhook"
     },
     "mode": {
-      "label": "模式",
+      "label": "默认接活模式",
       "off": "关闭",
       "observe": "观察",
       "auto": "自动",
       "offDescription": "只响应明确 @ 牛牛的消息。",
       "observeDescription": "记录本来会接的任务，不自动执行。",
-      "autoDescription": "在规则和每日上限内自动接活。"
+      "autoDescription": "在规则和每日上限内自动接活。",
+      "defaultHint": "该来源的项目默认值；单个 IM 会话可在「IM 接入设置」中单独覆盖。"
     },
     "calibration": {
       "summary": "已校准 {{count}} 条 · 认可率 {{rate}}%",
