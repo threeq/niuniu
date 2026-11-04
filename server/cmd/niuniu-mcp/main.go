@@ -648,8 +648,10 @@ func registerProjectTools(s *server.MCPServer, api *apiClient, pid string) {
 	// skipped with reason "forbidden".
 	s.AddTool(
 		mcp.NewTool("batch_delete_issues",
-			mcp.WithDescription("Batch-delete issues (hard delete, irreversible)."),
+			mcp.WithDescription("Batch-delete issues (hard delete, irreversible). Each issue's workspace is deleted too; "+
+				"an issue whose workspace has uncommitted/unmerged changes is skipped with reason has_changes unless force=true."),
 			mcp.WithArray("issue_ids", mcp.Description("Issue IDs to delete"), mcp.Required()),
+			mcp.WithBoolean("force", mcp.Description("Delete even when a workspace has uncommitted/unmerged changes")),
 		),
 		func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 			args := req.GetArguments()
@@ -657,6 +659,9 @@ func registerProjectTools(s *server.MCPServer, api *apiClient, pid string) {
 				return mcp.NewToolResultError("issue_ids is required"), nil
 			}
 			body := map[string]any{"issue_ids": args["issue_ids"]}
+			if force, _ := args["force"].(bool); force {
+				body["force"] = true
+			}
 			data, err := api.post("/mcp/issues/batch/delete", body)
 			if err != nil {
 				return mcp.NewToolResultError(err.Error()), nil
@@ -759,8 +764,11 @@ func (c *apiClient) getChecklistItem(issueID string, itemID int64) (mcpChecklist
 func registerIssueWriteTools(s *server.MCPServer, api *apiClient) {
 	s.AddTool(
 		mcp.NewTool("delete_issue",
-			mcp.WithDescription("Delete an issue. Destructive: the title is read first for the receipt. Cross-tenant/no-access issues return 403/404."),
+			mcp.WithDescription("Delete an issue (and its workspace). Destructive: the title is read first for the receipt. "+
+				"Cross-tenant/no-access issues return 403/404. If the issue's workspace has uncommitted or unmerged changes, "+
+				"the call fails with the change list unless force=true."),
 			mcp.WithNumber("issue_id", mcp.Description("Issue ID to delete"), mcp.Required()),
+			mcp.WithBoolean("force", mcp.Description("Delete even when the workspace has uncommitted/unmerged changes")),
 		),
 		func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 			args := req.GetArguments()
@@ -775,7 +783,11 @@ func registerIssueWriteTools(s *server.MCPServer, api *apiClient) {
 			if err != nil {
 				return mcp.NewToolResultError(err.Error()), nil
 			}
-			if err := api.doDelete("/mcp/issues/" + issueID); err != nil {
+			path := "/mcp/issues/" + issueID
+			if force, _ := args["force"].(bool); force {
+				path += "?force=true"
+			}
+			if err := api.doDelete(path); err != nil {
 				return mcp.NewToolResultError(err.Error()), nil
 			}
 			out, _ := json.Marshal(map[string]any{

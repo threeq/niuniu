@@ -721,6 +721,11 @@ func New(cfg *config.Config, db *sql.DB, frontendFS fs.FS) *Server {
 	s.issueTimelineHandler = api.NewIssueTimelineHandler(s.issueCommentSvc, s.issueActivitySvc, execEventSvc)
 	s.issueTimelineHandler.Authz = authz
 	s.kanbanHandler = api.NewKanbanHandler(s.kanbanSvc, s.issueChecklistSvc)
+	// Issue deletion also tears down its workspace(s) with the same
+	// uncommitted-changes guard as DELETE /workspaces/:id.
+	s.kanbanHandler.WorkspaceSvc = s.workspaceSvc
+	s.kanbanHandler.AgentMgr = s.agentMgr
+	s.kanbanHandler.Proxy = s.agentProxy
 	s.kanbanHandler.Authz = authz
 
 	// Managed-task handler (定时任务): backs the create_managed_task MCP tool —
