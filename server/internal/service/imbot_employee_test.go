@@ -423,17 +423,17 @@ func TestEmployeeSweep_OffIntakeDoesNotEvaluate(t *testing.T) {
 	}
 }
 
-// TestEmployeeSweep_InheritUsesProjectPolicy: a chat in "inherit project" mode
-// must resolve against the project's im_bot setting, so an auto project lets the
-// proactive verdict start a task even though the chat carries no explicit mode.
-func TestEmployeeSweep_InheritUsesProjectPolicy(t *testing.T) {
+// TestEmployeeSweep_LegacyInheritProposesOnly: a legacy "inherit project" chat
+// now resolves to observe (there is no project default mode), so the proactive
+// verdict is recorded as a dry-run and nothing starts.
+func TestEmployeeSweep_LegacyInheritProposesOnly(t *testing.T) {
 	f := newIMBotFixture(t)
 	chat := f.activeChat(t, "oc_inherit_sweep")
 	chat = f.setChatAgentMode(t, chat, AgentModeObserve)
 	chat = f.setChatIntakeMode(t, chat, IntakeModeInherit)
 	ctx := context.Background()
 	if _, err := f.q.UpsertIntakeSetting(ctx, store.UpsertIntakeSettingParams{
-		ProjectID: f.projectID, SourceKind: "im_bot", Mode: "auto",
+		ProjectID: f.projectID, SourceKind: "im_bot", Enabled: 1, Mode: "auto",
 		DailyCap: 10, AllowListJson: `[]`, BotListJson: `[]`,
 	}); err != nil {
 		t.Fatalf("seed intake setting: %v", err)

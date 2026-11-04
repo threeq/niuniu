@@ -492,6 +492,50 @@ type GitRemoteCredential struct {
 	UpdatedAt   time.Time    `json:"updated_at"`
 }
 
+type GithubReplyDelivery struct {
+	ID          int64     `json:"id"`
+	ProjectID   int64     `json:"project_id"`
+	Repo        string    `json:"repo"`
+	ThreadExtID string    `json:"thread_ext_id"`
+	IssueID     int64     `json:"issue_id"`
+	WorkspaceID int64     `json:"workspace_id"`
+	EventKey    string    `json:"event_key"`
+	Status      string    `json:"status"`
+	CommentID   int64     `json:"comment_id"`
+	CommentUrl  string    `json:"comment_url"`
+	Error       string    `json:"error"`
+	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
+}
+
+type GithubSourcePollState struct {
+	ID           int64          `json:"id"`
+	ProjectID    int64          `json:"project_id"`
+	Repo         string         `json:"repo"`
+	Stream       string         `json:"stream"`
+	SinceTs      sql.NullString `json:"since_ts"`
+	Etag         string         `json:"etag"`
+	FailureCount int64          `json:"failure_count"`
+	BackoffUntil sql.NullString `json:"backoff_until"`
+	LastPolledAt sql.NullString `json:"last_polled_at"`
+	LastError    string         `json:"last_error"`
+}
+
+type GithubThreadBinding struct {
+	ID          int64          `json:"id"`
+	ProjectID   int64          `json:"project_id"`
+	Repo        string         `json:"repo"`
+	ThreadExtID string         `json:"thread_ext_id"`
+	IssueID     int64          `json:"issue_id"`
+	WorkspaceID int64          `json:"workspace_id"`
+	State       string         `json:"state"`
+	EndedReason string         `json:"ended_reason"`
+	LastEventID string         `json:"last_event_id"`
+	LastEventAt sql.NullString `json:"last_event_at"`
+	CreatedAt   time.Time      `json:"created_at"`
+	UpdatedAt   time.Time      `json:"updated_at"`
+}
+
 type HarnessCheck struct {
 	ID          int64         `json:"id"`
 	WorkspaceID int64         `json:"workspace_id"`
@@ -675,6 +719,7 @@ type IntakeSetting struct {
 	ID            int64     `json:"id"`
 	ProjectID     int64     `json:"project_id"`
 	SourceKind    string    `json:"source_kind"`
+	Enabled       int64     `json:"enabled"`
 	Mode          string    `json:"mode"`
 	DailyCap      int64     `json:"daily_cap"`
 	AllowListJson string    `json:"allow_list_json"`

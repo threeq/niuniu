@@ -193,7 +193,13 @@
       "activeHint": "已校準的來源已開啟自動。可隨時暫停，恢復無需重新校準。"
     },
     "autoNeedsCalibration": "已為 {{sources}} 選擇自動，但校準樣本未達門檻（{{calibrated}}/{{min}} 條，認可率 {{rate}}%）。設定會生效，但建議先多觀察一段時間。",
-    "calibrationProgress": "校準進度：{{count}}/{{min}} 條 · 認可率 {{rate}}%。"
+    "calibrationProgress": "校準進度：{{count}}/{{min}} 條 · 認可率 {{rate}}%。",
+    "enabledLabel": "來源開關",
+    "enabledOn": "啟用",
+    "enabledOff": "關閉",
+    "enabledHintIM": "已啟用。每個 IM 會話在「IM 接入設定」中各自選擇 關閉 / 觀察 / 自動。",
+    "enabledHint": "已啟用。該來源依其接活規則處理。",
+    "disabledHint": "已關閉。該來源的訊息不會進入任務流程。"
   },
   "completion": {
     "title": "自動完成",

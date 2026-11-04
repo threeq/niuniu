@@ -13,6 +13,7 @@ import {
 function setting(over: Partial<IntakeSetting> = {}): IntakeSetting {
   return {
     source_kind: 'im_bot',
+    enabled: true,
     mode: 'observe',
     daily_cap: 4,
     allow_list: ['ou_alice'],

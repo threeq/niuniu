@@ -15,7 +15,6 @@ import { useIsMobile } from '@/hooks/use-media-query'
 import { confirm } from '@/lib/confirm'
 import {
   intakeApi,
-  type IntakeMode,
   type IntakeRule,
   type IntakeSettingInput,
   type IntakeSettings,
@@ -240,7 +239,7 @@ export function IntakePolicyPanel({ projectId, onDirtyChange, onNavigateSection 
     saveMutation.mutate(rows)
   }
 
-  const changeMode = (kind: string, mode: IntakeMode) => patchDraft(kind, { mode })
+  const changeEnabled = (kind: string, enabled: boolean) => patchDraft(kind, { enabled })
 
   const connectSource = (kind: IntakeSourceKind) => {
     const target = CONNECTABLE_SOURCES[kind]
@@ -320,8 +319,7 @@ export function IntakePolicyPanel({ projectId, onDirtyChange, onNavigateSection 
                   canConnect={Boolean(CONNECTABLE_SOURCES[source.source_kind])}
                   pending={pending[source.source_kind] ?? 0}
                   ruleCount={(rulesByKind[source.source_kind] ?? []).length}
-                  isMobile={isMobile}
-                  onModeChange={(mode) => changeMode(source.source_kind, mode)}
+                  onEnabledChange={(enabled) => changeEnabled(source.source_kind, enabled)}
                   onOpenConfig={() => setConfigKind(source.source_kind)}
                   onConnect={() => connectSource(source.source_kind)}
                 />

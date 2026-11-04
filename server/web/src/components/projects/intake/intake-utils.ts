@@ -29,6 +29,9 @@ export const CONNECTABLE_SOURCES: Partial<Record<IntakeSourceKind, 'imbot' | 'ex
 export interface DraftSetting {
   // daily cap is kept as a string so a cleared input stays cleared while editing.
   daily_cap: string
+  // enabled is the project-wide source switch; mode remains for the backend
+  // (IM chats carry their own, and non-IM sources keep their stored value).
+  enabled: boolean
   mode: IntakeMode
   allow_list: string[]
   bot_list: string[]
@@ -40,6 +43,7 @@ export function draftFromSettings(settings: IntakeSetting[]): DraftMap {
   const out: DraftMap = {}
   for (const s of settings) {
     out[s.source_kind] = {
+      enabled: s.enabled,
       mode: s.mode,
       daily_cap: String(s.daily_cap),
       allow_list: [...(s.allow_list ?? [])],
@@ -79,6 +83,7 @@ export function settingDiffers(draft: DraftSetting | undefined, server: IntakeSe
   if (!draft) return false
   const cap = dailyCapValue(draft.daily_cap)
   return (
+    draft.enabled !== (server.enabled ?? true) ||
     draft.mode !== server.mode ||
     cap === null ||
     cap !== server.daily_cap ||
@@ -96,6 +101,7 @@ export function changedInputs(settings: IntakeSetting[], draft: DraftMap): Intak
     if (cap === null) continue
     out.push({
       source_kind: server.source_kind,
+      enabled: row.enabled,
       mode: row.mode,
       daily_cap: cap,
       allow_list: row.allow_list,

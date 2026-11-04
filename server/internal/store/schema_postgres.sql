@@ -2195,6 +2195,7 @@ CREATE TABLE IF NOT EXISTS intake_settings (
     id              BIGSERIAL PRIMARY KEY,
     project_id      BIGINT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
     source_kind     TEXT NOT NULL,
+    enabled         INTEGER NOT NULL DEFAULT 1,
     mode            TEXT NOT NULL DEFAULT 'observe',
     daily_cap       INTEGER NOT NULL DEFAULT 4,
     allow_list_json TEXT NOT NULL DEFAULT '[]',

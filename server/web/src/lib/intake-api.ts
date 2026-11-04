@@ -98,6 +98,8 @@ export interface IntakeDecisionFilter {
  *  with schema defaults (observe / cap 4 / empty lists). */
 export interface IntakeSetting {
   source_kind: IntakeSourceKind
+  /** Project-wide switch. IM chats still carry their own mode. */
+  enabled: boolean
   mode: IntakeMode
   daily_cap: number
   allow_list: string[]
@@ -359,6 +361,7 @@ export const intakeApi = {
 /** PUT body row. */
 export interface IntakeSettingInput {
   source_kind: IntakeSourceKind
+  enabled?: boolean
   mode: IntakeMode
   daily_cap: number
   allow_list: string[]

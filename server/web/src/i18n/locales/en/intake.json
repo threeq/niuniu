@@ -193,7 +193,13 @@
       "activeHint": "Auto is on for the calibrated sources. You can pause any time; resuming needs no re-calibration."
     },
     "autoNeedsCalibration": "Auto is selected for {{sources}}, but the calibration sample is still below the threshold ({{calibrated}}/{{min}} decisions, {{rate}}% accepted). The setting will apply, but consider observing longer first.",
-    "calibrationProgress": "Calibration: {{count}}/{{min}} decisions · {{rate}}% accepted."
+    "calibrationProgress": "Calibration: {{count}}/{{min}} decisions · {{rate}}% accepted.",
+    "enabledLabel": "Source switch",
+    "enabledOn": "On",
+    "enabledOff": "Off",
+    "enabledHintIM": "On. Each IM chat chooses its own intake mode (Off / Observe / Auto) in IM settings.",
+    "enabledHint": "On. This source is handled by its intake rules.",
+    "disabledHint": "Off. Messages from this source never enter the task pipeline."
   },
   "completion": {
     "title": "Completion policy",

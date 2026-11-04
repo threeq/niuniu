@@ -6644,6 +6644,10 @@ const docTemplate = `{
                 "daily_cap": {
                     "type": "integer"
                 },
+                "enabled": {
+                    "description": "Enabled is the project-wide switch for this source. IM chats still carry\ntheir own mode; a disabled source is off for every one of them.",
+                    "type": "boolean"
+                },
                 "mode": {
                     "type": "string"
                 },
@@ -6672,6 +6676,10 @@ const docTemplate = `{
                 },
                 "daily_cap": {
                     "type": "integer"
+                },
+                "enabled": {
+                    "description": "Enabled is optional: nil preserves the stored value (default true for a\nsource that has never been configured), so callers that only touch mode\ndo not silently re-enable a source the user turned off.",
+                    "type": "boolean"
                 },
                 "mode": {
                     "type": "string"

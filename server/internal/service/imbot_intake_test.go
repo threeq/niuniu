@@ -249,7 +249,7 @@ func TestHandleInbound_ChatIntakeModeOverridesProjectPolicy(t *testing.T) {
 	// Project policy says auto, with a rule matching the message, so the project
 	// setting alone would execute.
 	_, err := f.q.UpsertIntakeSetting(ctx, store.UpsertIntakeSettingParams{
-		ProjectID: f.projectID, SourceKind: intake.SourceKindIMBot, Mode: "auto",
+		ProjectID: f.projectID, SourceKind: intake.SourceKindIMBot, Enabled: 1, Mode: "auto",
 		DailyCap: 10, AllowListJson: `["ou_a"]`, BotListJson: `[]`,
 	})
 	if err != nil {
@@ -287,34 +287,38 @@ func TestHandleInbound_ChatIntakeModeOverridesProjectPolicy(t *testing.T) {
 	}
 }
 
-// TestHandleInbound_InheritUsesProjectPolicy proves the "inherit project" chat
-// mode: a chat with no explicit mode lets the project's im_bot setting decide,
-// so the same inferred message that dry-runs under observe executes under auto.
-func TestHandleInbound_InheritUsesProjectPolicy(t *testing.T) {
+// TestHandleInbound_LegacyInheritFallsBackToObserve: "inherit project" no
+// longer exists (the project card is a plain switch), so a legacy chat carrying
+// it resolves to the conservative dry-run mode and executes nothing.
+func TestHandleInbound_LegacyInheritFallsBackToObserve(t *testing.T) {
 	f := newIMBotFixture(t)
 	chat := f.activeChat(t, "oc_inherit")
+	chat = f.setChatAgentMode(t, chat, AgentModeObserve)
 	chat = f.setChatIntakeMode(t, chat, IntakeModeInherit)
 	ctx := context.Background()
 	if _, err := f.q.UpsertIntakeSetting(ctx, store.UpsertIntakeSettingParams{
-		ProjectID: f.projectID, SourceKind: intake.SourceKindIMBot, Mode: "auto",
+		ProjectID: f.projectID, SourceKind: intake.SourceKindIMBot, Enabled: 1, Mode: "auto",
 		DailyCap: 10, AllowListJson: `["ou_a"]`, BotListJson: `[]`,
 	}); err != nil {
 		t.Fatalf("seed intake setting: %v", err)
 	}
-	if _, err := f.q.CreateIntakeRule(ctx, store.CreateIntakeRuleParams{
-		ProjectID: f.projectID, SourceKind: intake.SourceKindIMBot, Name: "r",
-		Instruction: "", ConditionsJson: `{"keywords":["部署"]}`, Priority: 0, Enabled: 1,
-	}); err != nil {
-		t.Fatalf("seed rule: %v", err)
-	}
 	f.router.queue = []PlanTarget{{IssueID: f.issueID, WorkspaceID: f.wsID, ProjectID: f.projectID}}
 
-	ev := f.groupMsg(chat.ChatExtID, "e-inherit", "请部署到线上", false)
+	ev := f.groupMsg(chat.ChatExtID, "e-inherit", "请部署到线上", true)
 	ev.ActorExtID = "ou_b"
 	f.svc.HandleInbound(ctx, ev)
 
-	if f.router.calls != 1 {
-		t.Fatalf("inherit + project auto executed %d times, want 1", f.router.calls)
+	if f.router.calls != 0 {
+		t.Fatalf("legacy inherit executed %d times, want 0", f.router.calls)
+	}
+	pending, err := f.q.ListPendingIntakeDecisions(ctx, store.ListPendingIntakeDecisionsParams{
+		ProjectID: f.projectID, Decision: "accept",
+	})
+	if err != nil {
+		t.Fatalf("list pending decisions: %v", err)
+	}
+	if len(pending) != 1 {
+		t.Fatalf("pending decisions = %d, want 1", len(pending))
 	}
 }
 
@@ -327,7 +331,7 @@ func TestAcceptDecision_ExecutesPendingDecision(t *testing.T) {
 	chat = f.setChatIntakeMode(t, chat, IntakeModeObserve)
 	ctx := context.Background()
 	if _, err := f.q.UpsertIntakeSetting(ctx, store.UpsertIntakeSettingParams{
-		ProjectID: f.projectID, SourceKind: intake.SourceKindIMBot, Mode: "auto",
+		ProjectID: f.projectID, SourceKind: intake.SourceKindIMBot, Enabled: 1, Mode: "auto",
 		DailyCap: 10, AllowListJson: `["ou_a"]`, BotListJson: `[]`,
 	}); err != nil {
 		t.Fatalf("seed intake setting: %v", err)

@@ -895,6 +895,23 @@ func migrateIntakeCompletion(db *sql.DB) {
 	addColumnIfNotExists(db, "issue_checklists", "kind", "TEXT NOT NULL DEFAULT 'task'")
 	addColumnIfNotExists(db, "issue_checklists", "brief_id", fk+" DEFAULT NULL REFERENCES task_briefs(id) ON DELETE SET NULL")
 	addColumnIfNotExists(db, "issues", "completion_profile_id", fk+" DEFAULT NULL REFERENCES completion_profiles(id) ON DELETE SET NULL")
+	// Source enablement moved from "mode = off" to an explicit switch: the card
+	// is now a global on/off, while IM chats carry their own mode. Backfill from
+	// the old representation so a source the user had turned off stays off.
+	hadEnabled, _ := columnExists(db, "intake_settings", "enabled")
+	addColumnIfNotExists(db, "intake_settings", "enabled", "INTEGER NOT NULL DEFAULT 1")
+	if !hadEnabled {
+		// One-shot: after the switch exists the UI owns it, so re-running this on
+		// every boot would flip a source the user later re-enabled back off.
+		if _, err := db.Exec(`UPDATE intake_settings SET enabled = 0 WHERE mode = 'off'`); err != nil {
+			slog.Warn("backfill intake_settings.enabled failed", "error", err)
+		}
+	}
+	// "inherit project" no longer exists (there is no project default mode):
+	// chats carrying it fall back to the conservative dry-run mode.
+	if _, err := db.Exec(`UPDATE im_bot_chats SET intake_mode = 'observe' WHERE intake_mode = 'inherit'`); err != nil {
+		slog.Warn("migrate im_bot_chats.intake_mode inherit failed", "error", err)
+	}
 
 	// Indexes live here, not in the schema files: on an upgraded DB the schema
 	// runs BEFORE the columns above exist, so CREATE INDEX there would fail.
