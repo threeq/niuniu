@@ -958,7 +958,7 @@
     "agentModeCommand": "聽命令",
     "agentModeCommandHint": "只在被 @ 提到、私聊或使用命令時才行動。",
     "agentModeObserve": "旁聽模式",
-    "agentModeObserveHint": "記錄群裡的討論並定期分析，必要時主動提醒或直接開始任務。",
+    "agentModeObserveHint": "記錄群組的討論並定期分析，必要時提醒；發現的任務會進入待校準，需你確認後才開始。",
     "intakeModeTitle": "接活模式",
     "intakeMode": {
       "inherit": "繼承專案",

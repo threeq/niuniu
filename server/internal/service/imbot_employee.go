@@ -512,15 +512,14 @@ func (e *IMBotEmployee) considerChat(ctx context.Context, chat store.ImBotChat) 
 			"chat", chat.ID, "action", action)
 		return
 	}
-	// Starting a task is intake work, not mere chatter: it is gated by the chat's
-	// intake mode (design §6.3). In auto the employee starts the task as before;
-	// in observe the proposal is RECORDED as a dry-run decision (would-do) and
-	// nothing is created, delivered, or announced; in off inferred work is not
-	// evaluated at all. The dry-run path sends no message, so it must not consume
-	// the interruption budget — nothing was interrupted.
-	if action == EmployeeActionTask && strings.TrimSpace(verdict.Task) != "" &&
-		(e.svc.effectiveChatIntakeMode(ctx, chat) != intake.ModeAuto ||
-			e.svc.intakePaused(ctx, chat.ProjectID.Int64)) {
+	// A proactive task is never started on the employee's own initiative: by the
+	// time it fires (quiet period / message threshold), the conversation may have
+	// moved on, so automatic start would create work the user never asked for.
+	// It is always RECORDED as a dry-run decision and waits in the calibration
+	// queue for an explicit accept. In off mode inferred work is not evaluated at
+	// all (proposeTask records nothing). The dry-run path sends no message, so it
+	// must not consume the interruption budget — nothing was interrupted.
+	if action == EmployeeActionTask && strings.TrimSpace(verdict.Task) != "" {
 		e.proposeTask(ctx, chat, verdict)
 		return
 	}
@@ -536,8 +535,6 @@ func (e *IMBotEmployee) considerChat(ctx context.Context, chat store.ImBotChat) 
 		e.answer(ctx, chat, verdict.Message)
 	case EmployeeActionNotify:
 		e.notify(ctx, chat, verdict.Message)
-	case EmployeeActionTask:
-		e.startTask(ctx, chat, verdict)
 	default:
 		slog.Debug("imbot: employee verdict none", "chat", chat.ID, "messages", len(msgs))
 	}
@@ -578,12 +575,17 @@ func (s *IMBotService) intakePaused(ctx context.Context, projectID int64) bool {
 }
 
 // proposeTask records a proactive task verdict as a dry-run decision instead of
-// starting it. Observe mode writes the would-do payload the calibration queue
-// shows; off records nothing. Zero side effects: no issue, no workspace, no
-// message, no delivery.
+// starting it. Observe and auto both write the would-do payload the calibration
+// queue shows — the difference is what the QUEUE does with it, not whether the
+// employee may bypass review. Off records nothing (inferred work is not
+// evaluated), and a paused project records nothing either. Zero side effects:
+// no issue, no workspace, no message, no delivery.
 func (e *IMBotEmployee) proposeTask(ctx context.Context, chat store.ImBotChat, verdict EmployeeVerdict) {
 	mode := e.svc.effectiveChatIntakeMode(ctx, chat)
-	if mode != intake.ModeObserve || !chat.ProjectID.Valid {
+	if mode == intake.ModeOff || !chat.ProjectID.Valid {
+		return
+	}
+	if e.svc.intakePaused(ctx, chat.ProjectID.Int64) {
 		return
 	}
 	channel, err := e.q.GetIMBotChannel(ctx, chat.ChannelID)
@@ -900,9 +902,6 @@ const employeeNotifyPrefix = "🐂 牛牛主动提醒：\n\n"
 // message never resolves to this row — resolveTask looks up the thread id the
 // platform actually sent, which is never this sentinel — so the binding grants
 // outbound delivery without capturing inbound routing.
-func proactiveThreadExtID(issueID int64) string {
-	return proactiveThreadPrefix + strconv.FormatInt(issueID, 10)
-}
 
 // proactiveThreadPrefix namespaces the synthetic binding key. It contains a colon
 // and a non-numeric prefix, so it can never equal a Lark `omt_*` id, a decimal
@@ -914,100 +913,6 @@ const proactiveThreadPrefix = "niuniu:proactive:"
 // keep the chat as an outbound target while blanking the thread.
 func isProactiveThreadExtID(threadExtID string) bool {
 	return strings.HasPrefix(threadExtID, proactiveThreadPrefix)
-}
-
-// startTask acts on a "task" verdict: create a real task in the chat's project
-// through the same routing core the @-mention path uses, tell the chat what was
-// picked up, and deliver the work description to the agent.
-//
-// Reusing RouteInProject (rather than a bespoke create) means a proactively-started
-// task is indistinguishable from a user-started one — it appears on the kanban, it
-// has a workspace, and follow-up chat messages continue it via the active pointer.
-func (e *IMBotEmployee) startTask(ctx context.Context, chat store.ImBotChat, verdict EmployeeVerdict) {
-	task := strings.TrimSpace(verdict.Task)
-	if task == "" {
-		// A "task" verdict with no description cannot be acted on; fall back to
-		// speaking up, so the observation is not silently lost.
-		e.notify(ctx, chat, verdict.Message)
-		return
-	}
-	if e.svc.dispatch == nil || !chat.ProjectID.Valid {
-		return
-	}
-	projectID := chat.ProjectID.Int64
-	owner, ok := e.svc.projectOwner(ctx, projectID)
-	if !ok {
-		return
-	}
-	channel, err := e.q.GetIMBotChannel(ctx, chat.ChannelID)
-	if err != nil || channel.Status != "active" {
-		return
-	}
-
-	target, err := e.svc.dispatch.RouteInProject(ctx, owner, projectID, task, RouteHint{ForceNew: true})
-	if err != nil {
-		slog.Warn("imbot: employee start task failed", "chat", chat.ID, "project", projectID, "error", err)
-		return
-	}
-	// A router can return a zero-valued target WITHOUT an error (nothing resolved).
-	// Announcing that would post a bogus "#0" the user cannot reach, write a
-	// binding for issue 0, and claim work started when none did — so treat it as a
-	// failure and stay silent rather than lying about having started something.
-	if target.IssueID == 0 || target.WorkspaceID == 0 {
-		slog.Warn("imbot: employee got an incomplete route target; not announcing",
-			"chat", chat.ID, "project", projectID, "issue", target.IssueID, "workspace", target.WorkspaceID)
-		return
-	}
-
-	// Bind the task to this chat WITHOUT touching the chat's active pointer.
-	//
-	// The two halves of that matter separately:
-	//   - The binding is what makes the agent's eventual result reach the chat
-	//     (IMBotDispatcher.resolveTargets only pushes to chats bound to the issue);
-	//     without it the employee would start work and then silently swallow the
-	//     outcome, which defeats the whole point of reporting back.
-	//   - NOT repointing the active pointer is what stops the proactive task from
-	//     hijacking the next bare follow-up a human types. The pointer is where a
-	//     human's unqualified message lands, and it belongs to the conversation THEY
-	//     are having; moving it from a background sweep would send their "再补一段结论"
-	//     into the robot's self-started task.
-	// The team opts in explicitly via the `#<id>` reference announced below.
-	if _, cerr := e.q.CreateIMBotThread(ctx, store.CreateIMBotThreadParams{
-		ChatID: chat.ID, ThreadExtID: proactiveThreadExtID(target.IssueID),
-		IssueID: target.IssueID, WorkspaceID: target.WorkspaceID,
-	}); cerr != nil {
-		// Non-fatal: the task itself is real and on the kanban; only the chat
-		// notification of its result is lost.
-		slog.Warn("imbot: employee bind task to chat failed", "chat", chat.ID, "issue", target.IssueID, "error", cerr)
-	}
-
-	// Announce BEFORE delivering, so the team sees why work started before the
-	// agent's own output begins arriving. The `#<id>` is how they opt in to it.
-	notice := employeeNotifyPrefix + "我从大家的讨论里发现一件可以做的事，已经开始处理：\n\n" +
-		formatTaskRef(target.IssueID, taskHeadline(task)) +
-		"\n\n回复 `#" + strconv.FormatInt(target.IssueID, 10) + " <你的补充>` 可以继续这件事。"
-	if extra := strings.TrimSpace(verdict.Message); extra != "" {
-		notice += "\n\n" + truncateOutbound(extra)
-	}
-	e.svc.pushText(ctx, channel, chat.ChatExtID, "", notice)
-
-	if e.svc.deliverer == nil {
-		return
-	}
-	ws, err := e.q.GetWorkspace(ctx, target.WorkspaceID)
-	if err != nil {
-		return
-	}
-	if _, _, derr := e.svc.deliverer.Deliver(ctx, target.WorkspaceID, ws.Path, task, ""); derr != nil {
-		slog.Warn("imbot: employee deliver failed", "workspace", target.WorkspaceID, "error", derr)
-	}
-	slog.Info("imbot: employee started task", "chat", chat.ID, "issue", target.IssueID)
-}
-
-// taskHeadline reduces a work description to a one-line label for the `#<id> …`
-// reference posted to the chat.
-func taskHeadline(task string) string {
-	return clipDetail(task, 40)
 }
 
 // normalizeEmployeeAction maps a model-supplied action to a known constant,

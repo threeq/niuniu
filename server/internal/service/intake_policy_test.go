@@ -195,12 +195,17 @@ func TestHandleInferredDailyCapIsAtomic(t *testing.T) {
 	}
 
 	executor := &countingExecutor{}
+	// The triggers carry a fixed timestamp, so the pipeline clock must be pinned
+	// to it too — otherwise the staleness window compares it against wall time and
+	// drops every event as stale.
+	fixed := time.Date(2026, 11, 3, 10, 0, 0, 0, time.UTC)
 	pipeline := intake.NewService(intake.Deps{
 		Enabled:  true,
 		Store:    imbotIntakeStore{q: f.q},
 		Policies: imbotPolicy{q: f.q},
 		Resolver: passThroughResolver{},
 		Executor: executor,
+		Clock:    func() time.Time { return fixed },
 	})
 
 	const events = 20

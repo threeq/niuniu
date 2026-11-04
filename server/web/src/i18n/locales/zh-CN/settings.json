@@ -499,7 +499,7 @@
     "agentModeCommand": "听命令",
     "agentModeCommandHint": "只在被 @ 提到、私聊或使用命令时才行动。",
     "agentModeObserve": "旁听模式",
-    "agentModeObserveHint": "记录群里的讨论并定期分析，必要时主动提醒或直接开始任务。",
+    "agentModeObserveHint": "记录群里的讨论并定期分析，必要时提醒；发现的任务会进入待校准，需你确认后才开始。",
     "agentModeOk": "员工模式已更新",
     "unbindConfirm": "解除绑定「{{name}}」？该群需要重新审批才能再次路由。",
     "unbind": "解除绑定",

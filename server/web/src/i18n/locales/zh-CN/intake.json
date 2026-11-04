@@ -150,10 +150,11 @@
       "off": "关闭",
       "observe": "观察",
       "auto": "自动",
-      "offDescription": "只响应明确 @ 牛牛的消息。",
-      "observeDescription": "记录本来会接的任务，不自动执行。",
-      "autoDescription": "在规则和每日上限内自动接活。",
-      "defaultHint": "该来源的项目默认值；单个 IM 会话可在「IM 接入设置」中单独覆盖。"
+      "offDescription": "只处理明确 @ 或私聊的请求；群里其他消息不记录。",
+      "observeDescription": "不自动建任务。符合条件的外部消息进入「待校准」队列，由你逐条采纳或忽略；适合先积累样本。",
+      "autoDescription": "命中规则的请求直接建任务（受每日上限约束），不需要你确认；建议先完成校准再开启。",
+      "defaultHint": "该来源的项目默认值；单个 IM 会话可在「IM 接入设置」中单独覆盖。",
+      "chooseHint": "不确定选哪个？先用「观察」积累样本；校准达到 10 条且认可率 80% 以上再开「自动」。"
     },
     "calibration": {
       "summary": "已校准 {{count}} 条 · 认可率 {{rate}}%",
