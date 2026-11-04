@@ -1719,6 +1719,12 @@ func (s *KanbanService) moveIssueLegacyNoTx(ctx context.Context, issueID int64, 
 	return nil
 }
 
+// ListIssueWorkspaces returns every workspace bound to the issue (1:1 in
+// practice; archived rows included so issue deletion can clean them up too).
+func (s *KanbanService) ListIssueWorkspaces(ctx context.Context, issueID int64) ([]store.Workspace, error) {
+	return s.q.GetWorkspacesByIssue(ctx, sql.NullInt64{Int64: issueID, Valid: true})
+}
+
 func (s *KanbanService) DeleteIssue(ctx context.Context, id int64) error {
 	// Capture the parent before deletion so we can re-derive its type afterwards
 	// (it may have just lost its last child and should revert from Epic to task).

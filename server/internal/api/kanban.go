@@ -11,6 +11,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/niuniu-dev/niuniu/internal/agentproxy"
+	"github.com/niuniu-dev/niuniu/internal/git"
 	"github.com/niuniu-dev/niuniu/internal/service"
 	"github.com/niuniu-dev/niuniu/internal/store"
 )
@@ -64,13 +65,19 @@ func toColumnDTO(c store.Column) ColumnDTO {
 }
 
 type KanbanHandler struct {
-	svc           *service.KanbanService
-	checklistSvc  *service.IssueChecklistService
-	Authz         *service.Authz
+	svc          *service.KanbanService
+	checklistSvc *service.IssueChecklistService
+	Authz        *service.Authz
 	// Orchestrator auto-starts orchestration when an issue is created directly into
 	// an `instruct` column (spec §13 stage 8 / §3 "建 issue 即起编排"). Optional;
 	// nil-safe (creation just lands the card). Wired to *service.EpicExecutionService.
 	Orchestrator IssueCreateOrchestrator
+	// Issue deletion tears down the issue's workspace(s) through the SAME path
+	// as DELETE /workspaces/:id — including the "uncommitted/unmerged changes"
+	// guard and stopping the running agent/PTY first.
+	WorkspaceSvc *service.WorkspaceService
+	AgentMgr     *service.AgentManager
+	Proxy        *agentproxy.AgentProxy
 }
 
 // IssueCreateOrchestrator is the create-into-column orchestration hook used by the
@@ -1132,8 +1139,8 @@ func (h *KanbanHandler) SuggestGoalCondition(c *gin.Context) {
 			"error", err)
 		c.AbortWithStatusJSON(http.StatusBadGateway, gin.H{
 			"error": gin.H{
-				"code":           "SUGGEST_FAILED",
-				"message":        err.Error(),
+				"code":    "SUGGEST_FAILED",
+				"message": err.Error(),
 			},
 		})
 		return
@@ -1214,6 +1221,48 @@ func (h *KanbanHandler) MoveIssue(c *gin.Context) {
 // @Success      204
 // @Failure      500  {object}  Error
 // @Router       /issues/{id} [delete]
+// issueWorkspaceChanges collects the uncommitted/unmerged change list across
+// the issue's LIVE workspaces (archived rows have no worktree left to lose).
+// Mirrors WorkspaceService.CheckWorkspaceChanges, which backs the workspace
+// delete endpoint's 409.
+func (h *KanbanHandler) issueWorkspaceChanges(ctx context.Context, workspaces []store.Workspace) ([]git.WorktreeChangeStatus, error) {
+	if h.WorkspaceSvc == nil {
+		return nil, nil
+	}
+	var changes []git.WorktreeChangeStatus
+	for _, ws := range workspaces {
+		if ws.IsArchived == 1 {
+			continue
+		}
+		cs, err := h.WorkspaceSvc.CheckWorkspaceChanges(ctx, ws.ID)
+		if err != nil {
+			return nil, err
+		}
+		changes = append(changes, cs...)
+	}
+	return changes, nil
+}
+
+// teardownIssueWorkspaces stops and deletes every workspace bound to the issue,
+// in the same order as DELETE /workspaces/:id (stop PTY -> drop proxy session ->
+// remove from disk/DB).
+func (h *KanbanHandler) teardownIssueWorkspaces(ctx context.Context, workspaces []store.Workspace) error {
+	for _, ws := range workspaces {
+		if h.AgentMgr != nil {
+			_ = h.AgentMgr.Stop(ctx, ws.ID)
+		}
+		if h.Proxy != nil {
+			h.Proxy.RemoveSession(ctx, ws.ID)
+		}
+		if h.WorkspaceSvc != nil {
+			if err := h.WorkspaceSvc.Delete(ctx, ws.ID); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
 func (h *KanbanHandler) DeleteIssue(c *gin.Context) {
 	userID := c.GetInt64("auth_user_id")
 	issueID, err := strconv.ParseInt(c.Param("id"), 10, 64)
@@ -1227,7 +1276,38 @@ func (h *KanbanHandler) DeleteIssue(c *gin.Context) {
 			return
 		}
 	}
-	if err := h.svc.DeleteIssue(c.Request.Context(), issueID); err != nil {
+	ctx := c.Request.Context()
+	force := c.Query("force") == "true"
+
+	workspaces, err := h.svc.ListIssueWorkspaces(ctx, issueID)
+	if err != nil {
+		InternalError(c, err)
+		return
+	}
+
+	// Same guard as workspace deletion: a live workspace with uncommitted or
+	// unmerged changes is NOT destroyed silently — 409 carries the change list
+	// so the client can show exactly what would be lost and re-send with force.
+	if !force {
+		changes, cerr := h.issueWorkspaceChanges(ctx, workspaces)
+		if cerr != nil {
+			InternalError(c, cerr)
+			return
+		}
+		if len(changes) > 0 {
+			RespondErrorWithDetails(c, http.StatusConflict, "WORKSPACE_HAS_CHANGES",
+				"工作空间有未提交或未合并的变更", changes)
+			return
+		}
+	}
+
+	if derr := h.teardownIssueWorkspaces(ctx, workspaces); derr != nil {
+		slog.Warn("DeleteIssue: workspace delete failed", "issueID", issueID, "error", derr)
+		InternalError(c, derr)
+		return
+	}
+
+	if err := h.svc.DeleteIssue(ctx, issueID); err != nil {
 		InternalError(c, err)
 		return
 	}
@@ -1380,6 +1460,10 @@ type batchPriorityRequest struct {
 }
 type batchDeleteRequest struct {
 	IssueIDs []int64 `json:"issue_ids" binding:"required"`
+	// Force skips the per-issue uncommitted/unmerged change guard. Without it an
+	// issue whose workspace has changes is reported in `skipped` with reason
+	// "has_changes" instead of being destroyed (same contract as single delete).
+	Force bool `json:"force"`
 }
 
 // authorizeIssues partitions issueIDs into (authorized, skipped). When auth
@@ -1463,7 +1547,38 @@ func (h *KanbanHandler) BatchDeleteIssues(c *gin.Context) {
 		return
 	}
 	ok, skipped := h.authorizeIssues(c, userID, req.IssueIDs)
-	res, err := h.svc.BatchDeleteIssues(c.Request.Context(), ok)
+
+	// Deleting an issue deletes its workspace. Apply the same guard as the
+	// single-delete path per issue: with changes present and no force, skip it
+	// (report "has_changes") rather than silently destroying work.
+	ctx := c.Request.Context()
+	deletable := make([]int64, 0, len(ok))
+	for _, id := range ok {
+		workspaces, werr := h.svc.ListIssueWorkspaces(ctx, id)
+		if werr != nil {
+			skipped = append(skipped, service.SkippedItem{ID: id, Reason: "not_found"})
+			continue
+		}
+		if !req.Force {
+			changes, cerr := h.issueWorkspaceChanges(ctx, workspaces)
+			if cerr != nil {
+				InternalError(c, cerr)
+				return
+			}
+			if len(changes) > 0 {
+				skipped = append(skipped, service.SkippedItem{ID: id, Reason: "has_changes"})
+				continue
+			}
+		}
+		if derr := h.teardownIssueWorkspaces(ctx, workspaces); derr != nil {
+			slog.Warn("BatchDeleteIssues: workspace delete failed", "issueID", id, "error", derr)
+			skipped = append(skipped, service.SkippedItem{ID: id, Reason: "workspace_delete_failed"})
+			continue
+		}
+		deletable = append(deletable, id)
+	}
+
+	res, err := h.svc.BatchDeleteIssues(ctx, deletable)
 	if err != nil {
 		InternalError(c, err)
 		return
