@@ -355,7 +355,7 @@ func TestAcceptDecision_ExecutesPendingDecision(t *testing.T) {
 		t.Fatalf("precondition: decision = %+v, want a pending accept", pending)
 	}
 
-	issueID, wsID, err := f.svc.AcceptDecision(ctx, pending)
+	issueID, wsID, err := f.svc.AcceptDecision(ctx, pending, 0)
 	if err != nil {
 		t.Fatalf("accept: %v", err)
 	}

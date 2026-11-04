@@ -71,6 +71,11 @@ export interface IntakeDecision {
   strength: IntakeStrength | string
   decision: IntakeDecisionKind | string
   executed: boolean
+  /** Queue state derived by the server: pending | accepted | ignored. */
+  status?: 'pending' | 'accepted' | 'ignored'
+  /** The task was recorded but handing the message to its agent failed. */
+  delivery_failed?: boolean
+  delivery_error?: string
   reason_code: string
   reason_text: string
   matched_rule_ids: number[]
@@ -317,10 +322,18 @@ export const intakeApi = {
       { brief },
     ),
 
-  accept: (projectId: number, decisionId: number, brief?: IntakeBriefDraft) =>
+  accept: (
+    projectId: number,
+    decisionId: number,
+    brief?: IntakeBriefDraft,
+    targetIssueId?: number | null,
+  ) =>
     api.post<IntakeDecision>(
       `/projects/${projectId}/intake/decisions/${decisionId}/accept`,
-      brief ? { brief } : undefined,
+      {
+        ...(brief ? { brief } : {}),
+        ...(targetIssueId ? { target_issue_id: targetIssueId } : {}),
+      },
     ),
 
   ignore: (projectId: number, decisionId: number, reasonCode: string, reasonText?: string) =>

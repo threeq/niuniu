@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link, useSearch } from '@tanstack/react-router'
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { Inbox, RefreshCw, Zap } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
@@ -26,7 +26,6 @@ import { useMediaQuery } from '@/hooks/use-media-query'
 import {
   intakeApi,
   type IntakeDecision,
-  type IntakeDecisionFilter,
   type IntakeSourceKind,
 } from '@/lib/intake-api'
 import { cn } from '@/lib/utils'
@@ -36,25 +35,21 @@ import { EnableAutoDialog } from '@/components/intake/enable-auto-dialog'
 import { IgnoreReasonDialog } from '@/components/intake/ignore-reason-dialog'
 import type { IgnoreReason } from '@/components/intake/ignore-reason'
 
-type QueueFilter = 'all' | 'accept' | 'resume' | 'ignore'
-
-const FILTERS: QueueFilter[] = ['all', 'accept', 'resume', 'ignore']
+type QueueView = 'pending' | 'history'
 
 const SOURCE_KINDS: IntakeSourceKind[] = ['im_bot', 'github', 'ci', 'email', 'webhook']
 
 const ALL_SOURCES = 'all'
+const ALL_PROJECTS = 'all'
 
 function isSourceKind(value: string | undefined): value is IntakeSourceKind {
   return !!value && (SOURCE_KINDS as string[]).includes(value)
 }
 
-function filterParams(filter: QueueFilter, source: string): IntakeDecisionFilter {
-  return {
-    executed: false,
-    decision: filter === 'all' ? undefined : filter,
-    source_kind: isSourceKind(source) ? source : undefined,
-    limit: 100,
-  }
+function decisionStatus(decision: IntakeDecision): 'pending' | 'accepted' | 'ignored' {
+  if (decision.status) return decision.status
+  if (decision.decision === 'ignore') return 'ignored'
+  return decision.executed ? 'accepted' : 'pending'
 }
 
 export function IntakeReviewPage() {
@@ -72,7 +67,7 @@ export function IntakeReviewPage() {
   }
 
   const [pickedProjectId, setPickedProjectId] = useState<number | null>(search.project ?? null)
-  const [filter, setFilter] = useState<QueueFilter>('all')
+  const [view, setView] = useState<QueueView>('pending')
   const [source, setSource] = useState<string>(search.source ?? ALL_SOURCES)
   const [activeId, setActiveId] = useState<number | null>(null)
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set())
@@ -81,58 +76,94 @@ export function IntakeReviewPage() {
   const [batchOpen, setBatchOpen] = useState(false)
   const [enableOpen, setEnableOpen] = useState(false)
 
-  // Default to the deep-linked project, else the first one, without an effect:
-  // the derived id is what the queries use and an explicit choice overrides it.
-  const projectId = pickedProjectId ?? search.project ?? projects?.[0]?.id ?? null
+  // No project is required: the default view spans every accessible project and
+  // groups the queue by project. Picking one narrows the list.
+  const projectFilter = pickedProjectId
+  const projectIds = useMemo(
+    () => (projectFilter !== null ? [projectFilter] : (projects ?? []).map((p) => p.id)),
+    [projectFilter, projects],
+  )
+  const projectName = useMemo(() => {
+    const map = new Map<number, string>()
+    for (const project of projects ?? []) map.set(project.id, project.name)
+    return map
+  }, [projects])
 
-  const decisionsQuery = useQuery({
-    queryKey: ['intake-decisions', projectId, filter, source],
-    queryFn: () => intakeApi.listDecisions(projectId as number, filterParams(filter, source)),
-    enabled: projectId !== null,
-    retry: 1,
-    refetchInterval: 30_000,
+  const decisionQueries = useQueries({
+    queries: projectIds.map((pid) => ({
+      queryKey: ['intake-decisions', pid, view, source],
+      queryFn: () =>
+        intakeApi.listDecisions(pid, {
+          executed: view === 'pending' ? false : undefined,
+          source_kind: isSourceKind(source) ? source : undefined,
+          limit: 100,
+        }),
+      retry: 1,
+      refetchInterval: 30_000,
+    })),
   })
 
-  const rulesQuery = useQuery({
-    queryKey: ['intake-rules', projectId],
-    queryFn: () => intakeApi.listRules(projectId as number),
-    enabled: projectId !== null,
-    retry: 1,
-  })
+  const isLoading = decisionQueries.some((query) => query.isLoading)
+  const isError = decisionQueries.length > 0 && decisionQueries.every((query) => query.isError)
+  const isFetching = decisionQueries.some((query) => query.isFetching)
 
-  // The trust-ramp sample: resolved dry-runs (accept vs ignore) and whether the
-  // auto-mode threshold is reached. Polled so the strip stays current while the
-  // user works through the queue.
-  const calibrationQuery = useQuery({
-    queryKey: ['intake-calibration', projectId],
-    queryFn: () => intakeApi.getCalibration(projectId as number),
-    enabled: projectId !== null,
-    retry: 1,
-    refetchInterval: 30_000,
-  })
-
-  // Only needed to render the confirmation dialog's allow list / caps, and to
-  // switch the selected sources to auto without dropping their other fields.
-  const settingsQuery = useQuery({
-    queryKey: ['intake-settings', projectId],
-    queryFn: () => intakeApi.getSettings(projectId as number),
-    enabled: projectId !== null,
-    retry: 1,
-  })
-
-  // The source filter is applied server-side (source_kind query param) so a
-  // mission-control drill-down narrows the query, not just the rendered rows.
-  // The chat deep link stays client-side: decisions carry the conversation id.
+  // The history view is everything that is no longer pending (accepted or
+  // ignored); the pending view keeps only actionable rows.
   const decisions = useMemo(() => {
-    const all = decisionsQuery.data ?? []
-    if (search.chat) return all.filter((d) => d.payload?.ChatExtID === search.chat)
-    return all
-  }, [decisionsQuery.data, search.chat])
+    const all = decisionQueries.flatMap((query) => query.data ?? [])
+    const scoped = search.chat
+      ? all.filter((d) => d.payload?.ChatExtID === search.chat)
+      : all
+    return scoped.filter((d) =>
+      view === 'pending' ? decisionStatus(d) === 'pending' : decisionStatus(d) !== 'pending',
+    )
+  }, [decisionQueries, search.chat, view])
 
-  // Keep a valid selection as the list changes (accept/ignore removes a row)
-  // without an effect: falling back to the first row is derived at render time.
+  // Group by project in the sidebar order; projects without rows are omitted.
+  const groups = useMemo(() => {
+    const byProject = new Map<number, IntakeDecision[]>()
+    for (const decision of decisions) {
+      const list = byProject.get(decision.project_id) ?? []
+      list.push(decision)
+      byProject.set(decision.project_id, list)
+    }
+    const ordered = projectIds.filter((id) => byProject.has(id))
+    for (const id of byProject.keys()) if (!ordered.includes(id)) ordered.push(id)
+    return ordered.map((id) => ({
+      projectId: id,
+      name: projectName.get(id) ?? `#${id}`,
+      items: byProject.get(id) ?? [],
+    }))
+  }, [decisions, projectIds, projectName])
+
   const active = decisions.find((d) => d.id === activeId) ?? decisions[0] ?? null
   const activeDecisionId = active?.id ?? null
+
+  // Rules and calibration belong to a single project. When "all projects" is
+  // shown, follow the selected decision; fall back to the picked project.
+  const contextProjectId = active?.project_id ?? projectFilter ?? null
+
+  const rulesQuery = useQuery({
+    queryKey: ['intake-rules', contextProjectId],
+    queryFn: () => intakeApi.listRules(contextProjectId as number),
+    enabled: contextProjectId !== null,
+    retry: 1,
+  })
+
+  const calibrationQuery = useQuery({
+    queryKey: ['intake-calibration', contextProjectId],
+    queryFn: () => intakeApi.getCalibration(contextProjectId as number),
+    enabled: contextProjectId !== null,
+    retry: 1,
+    refetchInterval: 30_000,
+  })
+
+  const settingsQuery = useQuery({
+    queryKey: ['intake-settings', contextProjectId],
+    queryFn: () => intakeApi.getSettings(contextProjectId as number),
+    enabled: contextProjectId !== null,
+    retry: 1,
+  })
 
   function selectDecision(decision: IntakeDecision) {
     setActiveId(decision.id)
@@ -153,11 +184,18 @@ export function IntakeReviewPage() {
     setSelectedIds(new Set())
   }
 
+  function refreshAll() {
+    for (const query of decisionQueries) void query.refetch()
+  }
+
   const batchIgnore = useMutation({
     mutationFn: async (reason: IgnoreReason) => {
       const ids = [...selectedIds]
+      const byProject = new Map(decisions.map((d) => [d.id, d.project_id]))
       for (const id of ids) {
-        await intakeApi.ignore(projectId as number, id, reason.code, reason.text)
+        const pid = byProject.get(id)
+        if (pid === undefined) continue
+        await intakeApi.ignore(pid, id, reason.code, reason.text)
       }
       return ids.length
     },
@@ -176,7 +214,9 @@ export function IntakeReviewPage() {
   const enableAuto = useMutation({
     mutationFn: (sourceKinds: string[]) => {
       const current = settingsQuery.data
-      if (!current) throw new Error(t('intake.calibration.dialog.settingsUnavailable'))
+      if (!current || contextProjectId === null) {
+        throw new Error(t('intake.calibration.dialog.settingsUnavailable'))
+      }
       const rows = current.settings
         .filter((setting) => sourceKinds.includes(setting.source_kind))
         .map((setting) => ({
@@ -186,13 +226,13 @@ export function IntakeReviewPage() {
           allow_list: setting.allow_list,
           bot_list: setting.bot_list,
         }))
-      return intakeApi.updateSettings(projectId as number, rows)
+      return intakeApi.updateSettings(contextProjectId, rows)
     },
     onSuccess: () => {
       setEnableOpen(false)
       toast.success(t('intake.calibration.dialog.enabledToast'))
-      queryClient.invalidateQueries({ queryKey: ['intake-calibration', projectId] })
-      queryClient.invalidateQueries({ queryKey: ['intake-settings', projectId] })
+      queryClient.invalidateQueries({ queryKey: ['intake-calibration', contextProjectId] })
+      queryClient.invalidateQueries({ queryKey: ['intake-settings', contextProjectId] })
       queryClient.invalidateQueries({ queryKey: ['intake-decisions'] })
     },
     onError: (error) => {
@@ -206,33 +246,32 @@ export function IntakeReviewPage() {
 
   const calibration = calibrationQuery.data
   const ready = calibration?.ready === true
-  // Once every source with calibration history is already on auto, the CTA has
-  // nothing left to do; show the active state instead of re-suggesting it.
   const calibratedKinds = (calibration?.sources ?? []).filter((s) => s.calibrated > 0)
   const allCalibratedOnAuto =
     calibratedKinds.length > 0 &&
     calibratedKinds.every(
-      (source) =>
-        settingsQuery.data?.settings.find((s) => s.source_kind === source.source_kind)?.mode ===
+      (sourceEntry) =>
+        settingsQuery.data?.settings.find((s) => s.source_kind === sourceEntry.source_kind)?.mode ===
         'auto',
     )
 
   const listColumn = (
     <div className="flex h-full flex-col">
       <div className="flex flex-wrap items-center gap-1 border-b border-warm-border px-2 py-2">
-        {FILTERS.map((value) => (
+        {(['pending', 'history'] as QueueView[]).map((value) => (
           <Button
             key={value}
             type="button"
-            variant={filter === value ? 'secondary' : 'ghost'}
+            variant={view === value ? 'secondary' : 'ghost'}
             size="sm"
-            className={cn('h-7 px-2 text-xs', filter === value && 'font-semibold')}
+            className={cn('h-7 px-2 text-xs', view === value && 'font-semibold')}
             onClick={() => {
-              setFilter(value)
+              setView(value)
+              setActiveId(null)
               resetSelection()
             }}
           >
-            {t(`review.filter.${value}`)}
+            {t(`review.view.${value}`)}
           </Button>
         ))}
         <Button
@@ -240,45 +279,42 @@ export function IntakeReviewPage() {
           variant="ghost"
           size="icon"
           className="ml-auto h-7 w-7"
-          onClick={() => void decisionsQuery.refetch()}
+          onClick={refreshAll}
           aria-label={t('review.refresh')}
           title={t('review.refresh')}
         >
-          <RefreshCw className={cn('h-3.5 w-3.5', decisionsQuery.isFetching && 'animate-spin')} />
+          <RefreshCw className={cn('h-3.5 w-3.5', isFetching && 'animate-spin')} />
         </Button>
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto">
-        {decisionsQuery.isLoading && <ListSkeleton />}
+        {isLoading && <ListSkeleton />}
 
-        {!decisionsQuery.isLoading && decisionsQuery.isError && (
+        {!isLoading && isError && (
           <div className="flex flex-col items-center gap-3 px-4 py-12 text-center">
             <p className="text-sm text-warm-text-muted">{t('review.loadError')}</p>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={() => void decisionsQuery.refetch()}
-            >
+            <Button type="button" variant="outline" size="sm" onClick={refreshAll}>
               {t('intake.retry')}
             </Button>
           </div>
         )}
 
-        {!decisionsQuery.isLoading && !decisionsQuery.isError && decisions.length === 0 && (
+        {!isLoading && !isError && decisions.length === 0 && (
           <EmptyState
             size="compact"
             icon={<Inbox className="h-10 w-10 text-muted-foreground" />}
-            title={filter === 'ignore' ? t('review.emptyIgnoredTitle') : t('review.emptyTitle')}
+            title={view === 'history' ? t('review.emptyHistoryTitle') : t('review.emptyTitle')}
             description={
-              filter === 'ignore' ? t('review.emptyIgnoredDescription') : t('review.emptyDescription')
+              view === 'history'
+                ? t('review.emptyHistoryDescription')
+                : t('review.emptyDescription')
             }
             action={
-              filter !== 'ignore' && projectId !== null ? (
+              view === 'pending' && projectFilter !== null ? (
                 <Button asChild variant="outline" size="sm">
                   <Link
                     to="/projects/$id"
-                    params={{ id: String(projectId) }}
+                    params={{ id: String(projectFilter) }}
                     search={{ tab: 'settings', section: 'intake' }}
                   >
                     {t('review.goToSources')}
@@ -289,15 +325,29 @@ export function IntakeReviewPage() {
           />
         )}
 
-        {!decisionsQuery.isLoading && !decisionsQuery.isError && decisions.length > 0 && (
-          <DecisionList
-            decisions={decisions}
-            activeId={activeDecisionId}
-            selectedIds={selectedIds}
-            seenIds={seenIds}
-            onSelect={selectDecision}
-            onToggleSelect={toggleSelected}
-          />
+        {!isLoading && !isError && decisions.length > 0 && (
+          <div>
+            {groups.map((group) => (
+              <section key={group.projectId}>
+                <div className="sticky top-0 z-10 flex items-center gap-2 border-b border-warm-border bg-warm-surface px-3 py-1.5">
+                  <span className="truncate text-xs font-semibold text-warm-text">
+                    {group.name}
+                  </span>
+                  <span className="text-xs text-warm-text-muted tabular-nums">
+                    {group.items.length}
+                  </span>
+                </div>
+                <DecisionList
+                  decisions={group.items}
+                  activeId={activeDecisionId}
+                  selectedIds={selectedIds}
+                  seenIds={seenIds}
+                  onSelect={selectDecision}
+                  onToggleSelect={toggleSelected}
+                />
+              </section>
+            ))}
+          </div>
         )}
       </div>
 
@@ -350,13 +400,10 @@ export function IntakeReviewPage() {
           <p className="text-xs text-warm-text-muted">{t('review.description')}</p>
         </div>
         <div className="ml-auto flex items-center gap-2">
-          <label className="text-xs text-warm-text-muted" htmlFor="intake-project">
-            {t('review.project')}
-          </label>
           <Select
-            value={projectId !== null ? String(projectId) : undefined}
+            value={projectFilter !== null ? String(projectFilter) : ALL_PROJECTS}
             onValueChange={(value) => {
-              setPickedProjectId(Number(value))
+              setPickedProjectId(value === ALL_PROJECTS ? null : Number(value))
               setActiveId(null)
               resetSelection()
             }}
@@ -370,6 +417,7 @@ export function IntakeReviewPage() {
               <SelectValue placeholder={t('review.projectPlaceholder')} />
             </SelectTrigger>
             <SelectContent>
+              <SelectItem value={ALL_PROJECTS}>{t('review.allProjects')}</SelectItem>
               {(projects ?? []).map((project) => (
                 <SelectItem key={project.id} value={String(project.id)}>
                   {project.name}
@@ -377,9 +425,6 @@ export function IntakeReviewPage() {
               ))}
             </SelectContent>
           </Select>
-          <label className="text-xs text-warm-text-muted" htmlFor="intake-source">
-            {t('review.source')}
-          </label>
           <Select
             value={source}
             onValueChange={(value) => {
@@ -411,7 +456,7 @@ export function IntakeReviewPage() {
               </Badge>
               <Link
                 to="/intake"
-                search={projectId !== null ? { project: projectId } : {}}
+                search={projectFilter !== null ? { project: projectFilter } : {}}
                 className="text-xs text-brand hover:underline"
               >
                 {t('review.clearChatFilter')}
@@ -421,7 +466,7 @@ export function IntakeReviewPage() {
         </div>
       </div>
 
-      {projectId !== null && calibration ? (
+      {projectFilter !== null && calibration ? (
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-warm-border bg-warm-surface px-4 py-2">
           <span className="text-xs font-medium text-warm-text tabular-nums">
             {t('intake.calibration.summary', {
@@ -497,7 +542,7 @@ export function IntakeReviewPage() {
         onConfirm={(reason) => batchIgnore.mutate(reason)}
       />
 
-      {calibration ? (
+      {calibration && contextProjectId !== null ? (
         <EnableAutoDialog
           open={enableOpen}
           onOpenChange={setEnableOpen}

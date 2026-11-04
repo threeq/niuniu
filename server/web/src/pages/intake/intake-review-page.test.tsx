@@ -165,27 +165,25 @@ describe('IntakeReviewPage', () => {
     await waitFor(() =>
       expect(intakeApi.listDecisions).toHaveBeenCalledWith(1, {
         executed: false,
-        decision: undefined,
         source_kind: undefined,
         limit: 100,
       }),
     )
     expect((await screen.findAllByText('修复登录接口 500')).length).toBeGreaterThan(0)
     expect(screen.getAllByText('review.strength.inferred').length).toBeGreaterThan(0)
-    expect(screen.getByText('线上缺陷自动接单')).toBeInTheDocument()
+    expect(await screen.findByText('线上缺陷自动接单')).toBeInTheDocument()
     expect(screen.getByText('登录接口又 500 了')).toBeInTheDocument()
   })
 
-  it('requests the ignore filter', async () => {
+  it('switches to history and drops the executed filter', async () => {
     renderPage()
     await screen.findAllByText('修复登录接口 500')
 
-    fireEvent.click(screen.getByText('review.filter.ignore'))
+    fireEvent.click(screen.getByText('review.view.history'))
 
     await waitFor(() =>
       expect(intakeApi.listDecisions).toHaveBeenLastCalledWith(1, {
-        executed: false,
-        decision: 'ignore',
+        executed: undefined,
         source_kind: undefined,
         limit: 100,
       }),
@@ -199,7 +197,6 @@ describe('IntakeReviewPage', () => {
     await waitFor(() =>
       expect(intakeApi.listDecisions).toHaveBeenCalledWith(1, {
         executed: false,
-        decision: undefined,
         source_kind: 'github',
         limit: 100,
       }),
@@ -221,12 +218,17 @@ describe('IntakeReviewPage', () => {
     fireEvent.click(screen.getByText('review.accept'))
 
     await waitFor(() =>
-      expect(intakeApi.accept).toHaveBeenCalledWith(1, 1, {
-        Goal: '修复并补回归测试',
-        Acceptance: ['复现并定位'],
-        ScopeIn: ['api/auth'],
-        ScopeOut: [],
-      }),
+      expect(intakeApi.accept).toHaveBeenCalledWith(
+        1,
+        1,
+        {
+          Goal: '修复并补回归测试',
+          Acceptance: ['复现并定位'],
+          ScopeIn: ['api/auth'],
+          ScopeOut: [],
+        },
+        null,
+      ),
     )
     await waitFor(() =>
       expect(navigateMock).toHaveBeenCalledWith({
@@ -249,6 +251,7 @@ describe('IntakeReviewPage', () => {
 
   it('shows the empty state when the queue has no decisions', async () => {
     vi.mocked(intakeApi.listDecisions).mockResolvedValue([])
+    searchMock.current = { project: 1 }
     renderPage()
 
     expect(await screen.findByText('review.emptyTitle')).toBeInTheDocument()
@@ -256,6 +259,7 @@ describe('IntakeReviewPage', () => {
   })
 
   it('shows the calibration sample but never suggests auto below the threshold', async () => {
+    searchMock.current = { project: 1 }
     vi.mocked(intakeApi.getCalibration).mockResolvedValue(
       calibration({
         calibrated: 4,
@@ -283,6 +287,7 @@ describe('IntakeReviewPage', () => {
   })
 
   it('opens the enable-auto dialog with the sample and affected sources, then enables them', async () => {
+    searchMock.current = { project: 1 }
     renderPage()
 
     fireEvent.click(await screen.findByText('intake.calibration.readyCta'))

@@ -91,6 +91,9 @@ type IntakeDecisionDTO struct {
 	Strength       string          `json:"strength"`
 	Decision       string          `json:"decision"`
 	Executed       bool            `json:"executed"`
+	// Status is the queue-facing state derived from decision+executed:
+	// pending | accepted | ignored. Deriving it keeps the schema unchanged.
+	Status         string          `json:"status"`
 	ReasonCode     string          `json:"reason_code"`
 	ReasonText     string          `json:"reason_text"`
 	MatchedRuleIDs []int64         `json:"matched_rule_ids"`
@@ -99,7 +102,26 @@ type IntakeDecisionDTO struct {
 	WorkspaceID    *int64          `json:"workspace_id"`
 	WouldDo        json.RawMessage `json:"would_do"`
 	Payload        json.RawMessage `json:"payload"`
-	CreatedAt      time.Time       `json:"created_at"`
+	// DeliveryFailed reports that the task/workspace was created and recorded,
+	// but handing the message to its agent failed. The entry still counts as
+	// accepted — the UI warns so the user can open the task manually.
+	DeliveryFailed bool      `json:"delivery_failed,omitempty"`
+	DeliveryError  string    `json:"delivery_error,omitempty"`
+	CreatedAt      time.Time `json:"created_at"`
+}
+
+// decisionStatus maps the stored decision+executed pair onto the three states
+// the review queue renders. Ignored wins over executed because an ignored
+// decision never executes.
+func decisionStatus(decision string, executed bool) string {
+	switch {
+	case decision == "ignore":
+		return "ignored"
+	case executed:
+		return "accepted"
+	default:
+		return "pending"
+	}
 }
 
 // IgnoreDecisionInput records why a dry-run decision was rejected. A reason is
@@ -121,16 +143,19 @@ type DecisionBriefDraft struct {
 	ScopeOut   []string `json:"ScopeOut"`
 }
 
-// AcceptDecisionInput is the optional accept body: the user's edited brief.
+// AcceptDecisionInput is the optional accept body: the user's edited brief and
+// an optional target task. A non-zero TargetIssueID forces the resume path —
+// the message is delivered to that task's workspace instead of creating one.
 type AcceptDecisionInput struct {
-	Brief *DecisionBriefDraft `json:"brief"`
+	Brief         *DecisionBriefDraft `json:"brief"`
+	TargetIssueID *int64              `json:"target_issue_id"`
 }
 
 // IntakeDecisionAcceptor executes an accepted dry-run decision (creates the
 // issue/workspace from the suggested Task Brief). Implemented by the intake
 // pipeline; nil until Phase 1.
 type IntakeDecisionAcceptor interface {
-	AcceptDecision(ctx context.Context, decision store.IntakeDecision) (issueID, workspaceID int64, err error)
+	AcceptDecision(ctx context.Context, decision store.IntakeDecision, targetIssueID int64) (issueID, workspaceID int64, err error)
 }
 
 // IntakeService backs the intake configuration + calibration queue endpoints.
@@ -836,6 +861,7 @@ WHERE d.project_id = ?`
 			return nil, err
 		}
 		d.Executed = executedV != 0
+		d.Status = decisionStatus(d.Decision, d.Executed)
 		d.MatchedRuleIDs = decodeInt64List(matched)
 		d.WouldDo = json.RawMessage(orJSONObject(wouldDo))
 		d.Payload = json.RawMessage(orJSONObject(payload))
@@ -860,7 +886,7 @@ func (s *IntakeService) GetDecision(ctx context.Context, decisionID int64) (stor
 // AcceptDecision executes a pending dry-run decision through the wired pipeline.
 // A non-nil draft replaces the proposed brief before execution, so the issue is
 // created from exactly what the user saw in the calibration queue.
-func (s *IntakeService) AcceptDecision(ctx context.Context, decisionID int64, draft *DecisionBriefDraft) (IntakeDecisionDTO, error) {
+func (s *IntakeService) AcceptDecision(ctx context.Context, decisionID int64, draft *DecisionBriefDraft, targetIssueID int64) (IntakeDecisionDTO, error) {
 	d, err := s.q.GetIntakeDecision(ctx, decisionID)
 	if err != nil {
 		return IntakeDecisionDTO{}, err
@@ -884,9 +910,11 @@ func (s *IntakeService) AcceptDecision(ctx context.Context, decisionID int64, dr
 		}
 		d.WouldDoJson = string(merged)
 	}
-	issueID, workspaceID, err := s.acceptor.AcceptDecision(ctx, d)
-	if err != nil {
-		return IntakeDecisionDTO{}, err
+	issueID, workspaceID, execErr := s.acceptor.AcceptDecision(ctx, d, targetIssueID)
+	if execErr != nil && (issueID == 0 || workspaceID == 0) {
+		// Nothing durable was produced: keep the decision pending so it can be
+		// retried.
+		return IntakeDecisionDTO{}, execErr
 	}
 	updated, err := s.q.SetIntakeDecisionExecuted(ctx, store.SetIntakeDecisionExecutedParams{
 		IssueID:     sql.NullInt64{Int64: issueID, Valid: issueID > 0},
@@ -896,7 +924,15 @@ func (s *IntakeService) AcceptDecision(ctx context.Context, decisionID int64, dr
 	if err != nil {
 		return IntakeDecisionDTO{}, err
 	}
-	return s.decisionByID(ctx, updated.ProjectID, updated.ID)
+	dto, derr := s.decisionByID(ctx, updated.ProjectID, updated.ID)
+	if derr != nil {
+		return IntakeDecisionDTO{}, derr
+	}
+	if execErr != nil {
+		dto.DeliveryFailed = true
+		dto.DeliveryError = execErr.Error()
+	}
+	return dto, nil
 }
 
 // UpdateDecisionBrief saves the user's edited brief on a pending decision. It

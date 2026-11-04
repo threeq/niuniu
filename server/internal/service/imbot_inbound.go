@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"mime"
 	"net/http"
@@ -229,13 +230,17 @@ func (s *IMBotService) HandleInbound(ctx context.Context, ev imbot.InboundEvent)
 // dir, then referenced both in the content (`[附件: ...]` suffix, matching the
 // WebUI send format) and in the attachments JSON the deliverer forwards. It is a
 // no-op when no deliverer is wired (tests) or the workspace has vanished.
-func (s *IMBotService) deliverToWorkspace(ctx context.Context, channel store.ImBotChannel, ev imbot.InboundEvent, wsID int64, text string) {
+//
+// It returns an error when the message could not be handed to the workspace's
+// agent. Callers on the accept path must propagate it: silence here is what
+// makes the queue show "accepted" for a task that never started.
+func (s *IMBotService) deliverToWorkspace(ctx context.Context, channel store.ImBotChannel, ev imbot.InboundEvent, wsID int64, text string) error {
 	if s.deliverer == nil {
-		return
+		return errors.New("imbot: no deliverer wired")
 	}
 	ws, err := s.q.GetWorkspace(ctx, wsID)
 	if err != nil {
-		return
+		return fmt.Errorf("imbot: load workspace %d: %w", wsID, err)
 	}
 	// Mark the message with the 🐂 "正在执行中" reaction now that it is committed
 	// to this workspace's agent; it is cleared when the agent finishes (agent_done).
@@ -258,7 +263,9 @@ func (s *IMBotService) deliverToWorkspace(ctx context.Context, channel store.ImB
 	}
 	if _, _, derr := s.deliverer.Deliver(ctx, wsID, ws.Path, content, attachJSON); derr != nil {
 		slog.Warn("imbot: deliver failed", "workspace", wsID, "error", derr)
+		return fmt.Errorf("imbot: deliver to workspace %d: %w", wsID, derr)
 	}
+	return nil
 }
 
 // savedAttachment is one materialized inbound file, in the exact JSON shape the
@@ -337,7 +344,9 @@ func (s *IMBotService) switchToConversation(ctx context.Context, channel store.I
 			"已切换到会话 #"+strconv.FormatInt(t.issueID, 10)+" - "+t.title+"。接下来的消息都会发给它。")
 		return
 	}
-	s.deliverToWorkspace(ctx, channel, ev, t.wsID, body)
+	if err := s.deliverToWorkspace(ctx, channel, ev, t.wsID, body); err != nil {
+		slog.Warn("imbot: deliver failed", "workspace", t.wsID, "error", err)
+	}
 }
 
 // startIssueWorkspace starts a backing workspace for an existing project issue
@@ -381,7 +390,9 @@ func (s *IMBotService) startIssueWorkspace(ctx context.Context, channel store.Im
 	// Announce the picked-up task, then deliver the issue's content so the agent
 	// starts working from the kanban card.
 	s.replyTaskMarker(ctx, channel, ev, target.IssueID)
-	s.deliverToWorkspace(ctx, channel, ev, target.WorkspaceID, issueStartPrompt(issue, body))
+	if err := s.deliverToWorkspace(ctx, channel, ev, target.WorkspaceID, issueStartPrompt(issue, body)); err != nil {
+		slog.Warn("imbot: deliver failed", "workspace", target.WorkspaceID, "error", err)
+	}
 	return true
 }
 

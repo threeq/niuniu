@@ -874,6 +874,117 @@
                 }
             }
         },
+        "/mission-control": {
+            "get": {
+                "description": "Two independent panels: Intake (today accepted / pending / approval / misfire / duplicate / event-to-start, per source+chat daily counts) and Completion (in progress / stuck / first pass / avg rounds / fake completion / interventions / today tokens+cost). Scoped to the caller's accessible projects; ?owner=user:\u003cid\u003e|org:\u003cslug\u003e narrows further.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "MissionControl"
+                ],
+                "summary": "Mission control metrics",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "owner filter",
+                        "name": "owner",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_niuniu-dev_niuniu_internal_service.MissionControlView"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.Error"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.Error"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.Error"
+                        }
+                    }
+                }
+            }
+        },
+        "/mission-control/pause": {
+            "put": {
+                "description": "Flips the intake stop switch on all accessible projects (or the ?owner= subset). Pausing only stops inferred/auto work; explicit requests keep flowing.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "MissionControl"
+                ],
+                "summary": "Pause or resume intake for every project in scope",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "owner filter",
+                        "name": "owner",
+                        "in": "query"
+                    },
+                    {
+                        "description": "Pause state",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "type": "object",
+                            "properties": {
+                                "paused": {
+                                    "type": "boolean"
+                                }
+                            }
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "properties": {
+                                "paused": {
+                                    "type": "boolean"
+                                },
+                                "projects": {
+                                    "type": "integer"
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.Error"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.Error"
+                        }
+                    }
+                }
+            }
+        },
         "/projects": {
             "get": {
                 "description": "Get all projects",
@@ -1617,6 +1728,47 @@
                 }
             }
         },
+        "/projects/{id}/intake/calibration": {
+            "get": {
+                "description": "Resolved dry-run decisions (accepted vs ignored), the acceptance rate, per-source breakdown, and whether the auto-mode threshold is met.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Intake"
+                ],
+                "summary": "Read the project's calibration sample",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "Project ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_niuniu-dev_niuniu_internal_service.IntakeCalibrationStats"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.Error"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.Error"
+                        }
+                    }
+                }
+            }
+        },
         "/projects/{id}/intake/decisions": {
             "get": {
                 "description": "Joins each decision with its event. Query: executed=true|false, decision=accept|resume|ignore|unavailable, limit.",
@@ -1645,6 +1797,12 @@
                         "type": "string",
                         "description": "Filter by decision outcome",
                         "name": "decision",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Filter by source kind (im_bot/github/ci/email/webhook)",
+                        "name": "source_kind",
                         "in": "query"
                     },
                     {
@@ -1971,6 +2129,75 @@
                     },
                     "503": {
                         "description": "Service Unavailable",
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.Error"
+                        }
+                    }
+                }
+            }
+        },
+        "/projects/{id}/intake/pause": {
+            "put": {
+                "description": "While paused the pipeline forces every source to mode off: explicit requests keep working, inferred/observe work stops immediately.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Intake"
+                ],
+                "summary": "Pause or resume intake for a project",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "Project ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Pause state",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "type": "object",
+                            "properties": {
+                                "paused": {
+                                    "type": "boolean"
+                                }
+                            }
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "properties": {
+                                "paused": {
+                                    "type": "boolean"
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.Error"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.Error"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
                         "schema": {
                             "$ref": "#/definitions/internal_api.Error"
                         }
@@ -5779,6 +6006,9 @@
             "properties": {
                 "brief": {
                     "$ref": "#/definitions/github_com_niuniu-dev_niuniu_internal_service.DecisionBriefDraft"
+                },
+                "target_issue_id": {
+                    "type": "integer"
                 }
             }
         },
@@ -5893,6 +6123,10 @@
                     "type": "string"
                 },
                 "id": {
+                    "type": "integer"
+                },
+                "issue_count": {
+                    "description": "IssueCount is how many issues currently select this profile. The UI shows\nit and refuses deletion while non-zero (design §6.7.4); the server still\nenforces the same guard in DeleteProfile.",
                     "type": "integer"
                 },
                 "max_rounds": {
@@ -6069,6 +6303,121 @@
                 }
             }
         },
+        "github_com_niuniu-dev_niuniu_internal_service.IntakeCalibrationRecord": {
+            "type": "object",
+            "properties": {
+                "actor_ext_id": {
+                    "type": "string"
+                },
+                "actor_name": {
+                    "type": "string"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "integer"
+                },
+                "outcome": {
+                    "description": "accepted | ignored",
+                    "type": "string"
+                },
+                "reason_code": {
+                    "type": "string"
+                },
+                "reason_text": {
+                    "type": "string"
+                },
+                "source_kind": {
+                    "type": "string"
+                }
+            }
+        },
+        "github_com_niuniu-dev_niuniu_internal_service.IntakeCalibrationSourceStats": {
+            "type": "object",
+            "properties": {
+                "acceptance_rate": {
+                    "type": "number"
+                },
+                "accepted": {
+                    "type": "integer"
+                },
+                "calibrated": {
+                    "type": "integer"
+                },
+                "ignored": {
+                    "type": "integer"
+                },
+                "pending": {
+                    "type": "integer"
+                },
+                "source_kind": {
+                    "type": "string"
+                }
+            }
+        },
+        "github_com_niuniu-dev_niuniu_internal_service.IntakeCalibrationStats": {
+            "type": "object",
+            "properties": {
+                "acceptance_rate": {
+                    "type": "number"
+                },
+                "accepted": {
+                    "type": "integer"
+                },
+                "calibrated": {
+                    "type": "integer"
+                },
+                "ignored": {
+                    "type": "integer"
+                },
+                "min_acceptance_rate": {
+                    "type": "number"
+                },
+                "min_calibrated": {
+                    "type": "integer"
+                },
+                "pending": {
+                    "type": "integer"
+                },
+                "project_id": {
+                    "type": "integer"
+                },
+                "ready": {
+                    "type": "boolean"
+                },
+                "recent": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/github_com_niuniu-dev_niuniu_internal_service.IntakeCalibrationRecord"
+                    }
+                },
+                "sources": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/github_com_niuniu-dev_niuniu_internal_service.IntakeCalibrationSourceStats"
+                    }
+                }
+            }
+        },
+        "github_com_niuniu-dev_niuniu_internal_service.IntakeDailyCount": {
+            "type": "object",
+            "properties": {
+                "count": {
+                    "type": "integer"
+                },
+                "day": {
+                    "description": "YYYY-MM-DD, local time",
+                    "type": "string"
+                },
+                "source_kind": {
+                    "type": "string"
+                },
+                "thread_ext_id": {
+                    "type": "string"
+                }
+            }
+        },
         "github_com_niuniu-dev_niuniu_internal_service.IntakeDecisionDTO": {
             "type": "object",
             "properties": {
@@ -6083,6 +6432,13 @@
                 },
                 "decision": {
                     "type": "string"
+                },
+                "delivery_error": {
+                    "type": "string"
+                },
+                "delivery_failed": {
+                    "description": "DeliveryFailed reports that the task/workspace was created and recorded,\nbut handing the message to its agent failed. The entry still counts as\naccepted — the UI warns so the user can open the task manually.",
+                    "type": "boolean"
                 },
                 "event_id": {
                     "type": "integer"
@@ -6127,6 +6483,10 @@
                     "type": "string"
                 },
                 "source_kind": {
+                    "type": "string"
+                },
+                "status": {
+                    "description": "Status is the queue-facing state derived from decision+executed:\npending | accepted | ignored. Deriving it keeps the schema unchanged.",
                     "type": "string"
                 },
                 "strength": {
@@ -6262,6 +6622,10 @@
         "github_com_niuniu-dev_niuniu_internal_service.IntakeSettingsView": {
             "type": "object",
             "properties": {
+                "paused": {
+                    "description": "Paused is the project-level stop switch: while true the pipeline forces\nevery source to mode off, so inferred/observe work stops immediately\nwhile explicit requests keep working.",
+                    "type": "boolean"
+                },
                 "project_id": {
                     "type": "integer"
                 },
@@ -6285,11 +6649,95 @@
                 "issue_id": {
                     "type": "integer"
                 },
+                "provenance_event": {
+                    "$ref": "#/definitions/github_com_niuniu-dev_niuniu_internal_service.ProvenanceEventView"
+                },
                 "versions": {
                     "type": "array",
                     "items": {
                         "$ref": "#/definitions/github_com_niuniu-dev_niuniu_internal_service.TaskBriefView"
                     }
+                }
+            }
+        },
+        "github_com_niuniu-dev_niuniu_internal_service.MissionControlCompletion": {
+            "type": "object",
+            "properties": {
+                "metrics": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/github_com_niuniu-dev_niuniu_internal_service.MissionControlMetric"
+                    }
+                }
+            }
+        },
+        "github_com_niuniu-dev_niuniu_internal_service.MissionControlIntake": {
+            "type": "object",
+            "properties": {
+                "metrics": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/github_com_niuniu-dev_niuniu_internal_service.MissionControlMetric"
+                    }
+                },
+                "paused": {
+                    "type": "boolean"
+                },
+                "per_chat": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/github_com_niuniu-dev_niuniu_internal_service.IntakeDailyCount"
+                    }
+                },
+                "per_source": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/github_com_niuniu-dev_niuniu_internal_service.IntakeDailyCount"
+                    }
+                },
+                "project_count": {
+                    "type": "integer"
+                }
+            }
+        },
+        "github_com_niuniu-dev_niuniu_internal_service.MissionControlMetric": {
+            "type": "object",
+            "properties": {
+                "denom": {
+                    "type": "integer"
+                },
+                "drill": {
+                    "description": "intake | intake_source | workspaces | tokens",
+                    "type": "string"
+                },
+                "key": {
+                    "type": "string"
+                },
+                "num": {
+                    "description": "Num/Denom carry the sample the value was computed from (e.g. 3 of 12) so\nthe tile can show a muted ratio without the server sending prose.",
+                    "type": "integer"
+                },
+                "status": {
+                    "description": "ok | warning | no_data",
+                    "type": "string"
+                },
+                "unit": {
+                    "description": "count | percent | minutes | rounds | tokens | usd",
+                    "type": "string"
+                },
+                "value": {
+                    "type": "number"
+                }
+            }
+        },
+        "github_com_niuniu-dev_niuniu_internal_service.MissionControlView": {
+            "type": "object",
+            "properties": {
+                "completion": {
+                    "$ref": "#/definitions/github_com_niuniu-dev_niuniu_internal_service.MissionControlCompletion"
+                },
+                "intake": {
+                    "$ref": "#/definitions/github_com_niuniu-dev_niuniu_internal_service.MissionControlIntake"
                 }
             }
         },
@@ -6312,6 +6760,54 @@
                     }
                 },
                 "strength": {
+                    "type": "string"
+                }
+            }
+        },
+        "github_com_niuniu-dev_niuniu_internal_service.ProvenanceEventView": {
+            "type": "object",
+            "properties": {
+                "actor_ext_id": {
+                    "type": "string"
+                },
+                "actor_name": {
+                    "type": "string"
+                },
+                "event_ext_id": {
+                    "type": "string"
+                },
+                "event_kind": {
+                    "type": "string"
+                },
+                "payload": {
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                },
+                "received_at": {
+                    "type": "string"
+                },
+                "rule_names": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "source_kind": {
+                    "type": "string"
+                },
+                "source_ref": {
+                    "type": "string"
+                },
+                "text": {
+                    "description": "Text and URL are source-neutral projections of Payload: adapters keep\ntheir own raw shape (IM marshals Go field names, GitHub the REST JSON), so\nthe popover reads these instead of guessing keys.",
+                    "type": "string"
+                },
+                "thread_ext_id": {
+                    "type": "string"
+                },
+                "url": {
                     "type": "string"
                 }
             }
@@ -6435,6 +6931,9 @@
                 },
                 "created_at": {
                     "type": "string"
+                },
+                "created_by": {
+                    "type": "integer"
                 },
                 "delivery": {
                     "$ref": "#/definitions/github_com_niuniu-dev_niuniu_internal_service.DeliverySpec"

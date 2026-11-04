@@ -34,10 +34,24 @@ export function StrengthBadge({ strength }: { strength: string }) {
   )
 }
 
-function decisionLabelKey(decision: string) {
-  return decision === 'accept' || decision === 'resume' || decision === 'ignore' || decision === 'unavailable'
-    ? `review.decision.${decision}`
-    : null
+/** Queue state badge: pending / accepted / ignored. The accept-vs-resume
+ *  distinction is intentionally not shown — the reviewer picks the target when
+ *  accepting, and the internal classification is noise in a list. */
+export function StatusBadge({ decision }: { decision: IntakeDecision }) {
+  const { t } = useTranslation('intake')
+  const status =
+    decision.status ?? (decision.decision === 'ignore' ? 'ignored' : decision.executed ? 'accepted' : 'pending')
+  const tone =
+    status === 'accepted'
+      ? 'bg-brand-soft text-brand'
+      : status === 'ignored'
+        ? 'bg-warm-muted text-warm-text-muted'
+        : 'bg-warm-muted text-warm-text'
+  return (
+    <span className={cn('inline-flex shrink-0 items-center rounded-md px-1.5 py-0.5 text-xs font-medium', tone)}>
+      {t(`review.status.${status}`)}
+    </span>
+  )
 }
 
 interface DecisionListProps {
@@ -69,7 +83,6 @@ export function DecisionList({
           (decision.payload?.Text ?? '').trim() ||
           t('review.noSummary')
         const thread = decision.thread_ext_id || decision.payload?.ThreadExtID || ''
-        const labelKey = decisionLabelKey(decision.decision)
         return (
           <li key={decision.id} className="relative flex items-start gap-2 px-3 py-3">
             {!seenIds.has(decision.id) && (
@@ -104,11 +117,7 @@ export function DecisionList({
               <div className="mt-1 flex items-center gap-2 text-xs text-warm-text-muted">
                 <span className="tabular-nums">{relative(decision.created_at)}</span>
                 <StrengthBadge strength={decision.strength} />
-                {labelKey && decision.decision !== 'accept' && (
-                  <span className="rounded bg-warm-muted px-1.5 py-0.5 font-medium">
-                    {t(labelKey)}
-                  </span>
-                )}
+                <StatusBadge decision={decision} />
               </div>
               <p className="mt-1 line-clamp-2 text-sm break-words">{summary}</p>
             </Button>
