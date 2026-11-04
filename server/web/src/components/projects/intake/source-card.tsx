@@ -118,6 +118,7 @@ export function SourceCard({
             </div>
           )}
           <p className="text-xs text-muted-foreground">{t(`intake.mode.${mode}Description`)}</p>
+          <p className="text-xs text-muted-foreground">{t('intake.mode.defaultHint')}</p>
 
           <p className="text-xs text-muted-foreground tabular-nums">
             {t('intake.summary', { cap, rules: ruleCount, members: draft.allow_list.length })}

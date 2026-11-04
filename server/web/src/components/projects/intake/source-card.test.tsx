@@ -51,7 +51,7 @@ describe('SourceCard', () => {
     renderCard({ connected: false })
     expect(screen.getByText('未连接')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: '接入' })).toBeInTheDocument()
-    expect(screen.queryByRole('group', { name: '模式' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('group', { name: '默认接活模式' })).not.toBeInTheDocument()
   })
 
   it('switches mode from the desktop segmented control', () => {
@@ -64,8 +64,8 @@ describe('SourceCard', () => {
 
   it('uses a Select on mobile', () => {
     renderCard({ isMobile: true })
-    expect(screen.queryByRole('group', { name: '模式' })).not.toBeInTheDocument()
-    expect(screen.getByRole('combobox', { name: '模式' })).toBeInTheDocument()
+    expect(screen.queryByRole('group', { name: '默认接活模式' })).not.toBeInTheDocument()
+    expect(screen.getByRole('combobox', { name: '默认接活模式' })).toBeInTheDocument()
   })
 
   it('summarises cap, rules and allowed members', () => {

@@ -957,14 +957,15 @@
     "agentModeTitle": "員工模式",
     "agentModeCommand": "聽命令",
     "agentModeCommandHint": "只在被 @ 提到、私聊或使用命令時才行動。",
-    "agentModeObserve": "主動觀察",
+    "agentModeObserve": "旁聽模式",
     "agentModeObserveHint": "記錄群裡的討論並定期分析，必要時主動提醒或直接開始任務。",
     "intakeModeTitle": "接活模式",
     "intakeMode": {
       "inherit": "繼承專案",
       "off": "關閉",
       "observe": "觀察",
-      "auto": "自動"
+      "auto": "自動",
+      "inheritEffective": "繼承專案（{{mode}}）"
     },
     "intakeModeOverridden": "已覆蓋專案預設",
     "intakeModeObserveHint": "訊息會被記錄到待校準，不會自動行動。",
@@ -1012,7 +1013,8 @@
       "webhookUrlHint": "將此 URL 填入平臺的回撥 / 伺服器 URL 配置，並完成 URL 驗證。",
       "channelIdLabel": "渠道 ID（channel_id）",
       "channelIdHint": "回到對話把這個數字告訴助手，即可繼續連通性測試。"
-    }
+    },
+    "intakeModeProjectHint": "接活模式：預設繼承專案設定（專案設定 → 任務來源），可在此為單一會話覆蓋。"
   },
   "credentialOnboarding": {
     "pageTitle": "憑據錄入",

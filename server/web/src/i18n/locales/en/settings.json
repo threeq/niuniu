@@ -498,7 +498,7 @@
     "agentModeTitle": "Employee mode",
     "agentModeCommand": "On command",
     "agentModeCommandHint": "Act only when @-mentioned, messaged directly, or given a command.",
-    "agentModeObserve": "Observe actively",
+    "agentModeObserve": "Listen mode",
     "agentModeObserveHint": "Record the discussion and review it periodically; speak up or start a task when warranted.",
     "agentModeOk": "Employee mode updated",
     "unbindConfirm": "Unbind \"{{name}}\"? The chat must be re-approved before it routes again.",

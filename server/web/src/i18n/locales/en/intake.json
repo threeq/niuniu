@@ -146,13 +146,14 @@
       "webhook": "Webhook"
     },
     "mode": {
-      "label": "Mode",
+      "label": "Default intake mode",
       "off": "Off",
       "observe": "Observe",
       "auto": "Auto",
       "offDescription": "Only respond when niuniu is explicitly addressed.",
       "observeDescription": "Record work it would pick up, without acting.",
-      "autoDescription": "Accept work within rules and the daily cap."
+      "autoDescription": "Accept work within rules and the daily cap.",
+      "defaultHint": "Project default for this source. A single IM chat can override it in IM settings."
     },
     "calibration": {
       "summary": "Calibrated {{count}} · acceptance rate {{rate}}%",

@@ -957,14 +957,15 @@
     "agentModeTitle": "Employee mode",
     "agentModeCommand": "On command",
     "agentModeCommandHint": "Act only when @-mentioned, messaged directly, or given a command.",
-    "agentModeObserve": "Observe actively",
+    "agentModeObserve": "Listen mode",
     "agentModeObserveHint": "Record the discussion and review it periodically; speak up or start a task when warranted.",
     "intakeModeTitle": "Intake mode",
     "intakeMode": {
       "inherit": "Inherit project",
       "off": "Off",
       "observe": "Observe",
-      "auto": "Auto"
+      "auto": "Auto",
+      "inheritEffective": "Inherit ({{mode}})"
     },
     "intakeModeOverridden": "Overrides project default",
     "intakeModeObserveHint": "Messages are recorded for calibration; the bot will not act on its own.",
@@ -1012,7 +1013,8 @@
       "webhookUrlHint": "Paste this URL into the platform's callback / server URL config and complete URL verification.",
       "channelIdLabel": "Channel ID (channel_id)",
       "channelIdHint": "Go back to the chat and tell the assistant this number to continue the connectivity test."
-    }
+    },
+    "intakeModeProjectHint": "Intake mode: inherits the project default (Project settings → Task sources); override it here for this chat."
   },
   "credentialOnboarding": {
     "pageTitle": "Credential entry",

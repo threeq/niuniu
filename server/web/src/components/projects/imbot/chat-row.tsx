@@ -295,11 +295,19 @@ export function ChatRow({ projectId, chat, canManage }: Props) {
               disabled={setIntakeMode.isPending}
             >
               <SelectTrigger
-                className="h-8 w-28"
+                className="h-8 w-32"
                 aria-label={t('imbot.intakeModeTitle')}
-                title={t('imbot.intakeModeTitle')}
+                title={t('imbot.intakeModeProjectHint')}
               >
-                <SelectValue />
+                {/* Show what "inherit" actually resolves to, so the row and the
+                    project default don't look like two independent switches. */}
+                <SelectValue>
+                  {chatIntakeMode === 'inherit'
+                    ? t('imbot.intakeMode.inheritEffective', {
+                        mode: t(`imbot.intakeMode.${effectiveIntakeMode}`),
+                      })
+                    : t(`imbot.intakeMode.${chatIntakeMode}`)}
+                </SelectValue>
               </SelectTrigger>
               <SelectContent>
                 {INTAKE_MODES.map((mode) => (
