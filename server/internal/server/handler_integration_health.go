@@ -47,7 +47,9 @@ type integrationHealthNotifier struct {
 
 // NotifyIntegrationHealth broadcasts a station-in notification (the SPA
 // invalidates the integration lists and shows a localized toast) and pushes a
-// short text to the owner's active IM chats when the alert has an owner.
+// short text to the owner's active IM chats when the alert has an owner and
+// needs action. Recovery alerts stay station-in: the source is healthy again,
+// so an IM push would only be noise.
 func (n *integrationHealthNotifier) NotifyIntegrationHealth(ctx context.Context, alert service.IntegrationHealthAlert) {
 	if n.hub != nil {
 		n.hub.Broadcast(notify.Notification{
@@ -64,11 +66,21 @@ func (n *integrationHealthNotifier) NotifyIntegrationHealth(ctx context.Context,
 		})
 	}
 	// IM Bot push is owner-scoped; a global provider has no owner, so it is
-	// station-in only. Best-effort -- a push failure must not break the sweep.
-	if n.imbotSvc != nil && alert.OwnerType != "" && alert.OwnerID != 0 {
+	// station-in only. Recovery is station-in only too: the source is healthy
+	// again and needs no action, so pushing it would just be noise in every one
+	// of the owner's chats. Best-effort -- a push failure must not break the
+	// sweep.
+	if n.imbotSvc != nil && integrationAlertPushesToIM(alert) {
 		n.imbotSvc.NotifyOwnerText(ctx, service.OwnerRef{Type: alert.OwnerType, ID: alert.OwnerID},
 			"[集成健康] "+alert.Name+"："+alert.Message)
 	}
+}
+
+// integrationAlertPushesToIM reports whether an alert also reaches the owner's
+// IM chats. Recovery needs no action, so it stays station-in only; an alert
+// without an owner (a global provider) has no chat to push to.
+func integrationAlertPushesToIM(alert service.IntegrationHealthAlert) bool {
+	return alert.OwnerType != "" && alert.OwnerID != 0 && alert.Kind != service.AlertRecovered
 }
 
 // probe runs (or re-runs) the health probe for one source immediately.

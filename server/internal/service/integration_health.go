@@ -72,7 +72,7 @@ type IntegrationHealthAlert struct {
 	OwnerType   string
 	OwnerID     int64
 	Name        string
-	Kind        string // AlertAutoDisabled | AlertDrift
+	Kind        string // AlertAutoDisabled | AlertDrift | AlertRecovered
 	Message     string
 }
 

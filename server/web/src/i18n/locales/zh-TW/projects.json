@@ -958,15 +958,15 @@
     "agentModeCommand": "聽命令",
     "agentModeCommandHint": "只在被 @ 提到、私聊或使用命令時才行動。",
     "agentModeObserve": "旁聽模式",
-    "agentModeObserveHint": "記錄群組的討論並定期分析，必要時提醒；發現的任務會進入待校準，需你確認後才開始。",
-    "intakeModeTitle": "回應方式",
+    "agentModeObserveHint": "記錄群裡的討論並定期分析，必要時提醒；發現的任務會進入待校準，需你確認後才開始。",
+    "intakeModeTitle": "應答方式",
     "intakeMode": {
       "inherit": "繼承專案",
       "off": "關閉",
       "observe": "觀察",
       "auto": "自動化",
       "inheritEffective": "繼承專案（{{mode}}）",
-      "respond": "僅回應"
+      "respond": "僅響應"
     },
     "intakeModeOverridden": "已覆蓋專案預設",
     "intakeModeObserveHint": "訊息會被記錄到待校準，不會自動行動。",
@@ -1015,8 +1015,8 @@
       "channelIdLabel": "渠道 ID（channel_id）",
       "channelIdHint": "回到對話把這個數字告訴助手，即可繼續連通性測試。"
     },
-    "intakeModeProjectHint": "接活模式：預設繼承專案設定（專案設定 → 任務來源），可在此為單一會話覆蓋。",
-    "intakeModeAutoHint": "群組未命中規則的訊息、背景分析結果會進入待校準；命中的在每日上限內直接執行。"
+    "intakeModeProjectHint": "接活模式：預設繼承專案設定（專案設定 → 任務來源），可在此為單個會話覆蓋。",
+    "intakeModeAutoHint": "群裡未命中規則的訊息、後臺分析結果會進入待校準；命中的在每日上限內直接執行。"
   },
   "credentialOnboarding": {
     "pageTitle": "憑據錄入",
