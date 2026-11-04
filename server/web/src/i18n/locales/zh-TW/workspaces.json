@@ -354,7 +354,7 @@
       "nameAndNewIssue": "工作空間名稱 / 新問題標題",
       "nameRequiredForNewIssue": "請填寫名稱（將作為新問題的標題）",
       "inheritTitle": "將繼承專案預設配置",
-      "inheritNoRepos": "該專案未綁定倉庫，將建立無倉庫工作空間",
+      "inheritNoRepos": "該專案未繫結倉庫，將建立無倉庫工作空間",
       "inheritRepos": "倉庫 {{count}} 個：{{names}}",
       "noRepo": {
         "label": "無倉庫（辦公 / 純目錄任務）",
