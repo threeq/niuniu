@@ -221,11 +221,11 @@ func TestEffectiveChatIntakeMode(t *testing.T) {
 		legacy bool
 		want   intake.Mode
 	}{
-		{"migrated observe chat is auto", chat("observe", "auto"), false, intake.ModeAuto},
-		{"migrated command chat is off", chat("command", "off"), false, intake.ModeOff},
-		{"new chat defaults to observe", chat("command", "observe"), false, intake.ModeObserve},
-		{"inherit defers to project policy", chat("command", "inherit"), false, ""},
-		{"unknown intake degrades to observe", chat("command", ""), false, intake.ModeObserve},
+		{"auto chat is auto", chat("observe", "auto"), false, intake.ModeAuto},
+		{"respond chat is off", chat("command", "respond"), false, intake.ModeOff},
+		{"legacy observe value maps to auto", chat("command", "observe"), false, intake.ModeAuto},
+		{"legacy inherit maps to respond", chat("command", "inherit"), false, intake.ModeOff},
+		{"unknown intake degrades to respond", chat("command", ""), false, intake.ModeOff},
 		{"rollback observe→auto", chat("observe", "off"), true, intake.ModeAuto},
 		{"rollback command→off", chat("command", "auto"), true, intake.ModeOff},
 		{"rollback empty agent degrades to command", chat("", "auto"), true, intake.ModeOff},

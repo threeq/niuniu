@@ -142,15 +142,16 @@ func TestObserveMode_SlashCommandAndHashCountAsAddressed(t *testing.T) {
 }
 
 // TestCommandMode_KeepsNoTranscript guards backwards compatibility: a chat that
-// never opted in must behave exactly as before — every message routed, nothing
-// recorded. Enabling the feature must cost existing chats nothing.
+// never opted in routes an addressed message and records nothing. Ambient
+// chatter is not routed at all, so enabling the feature costs existing chats
+// nothing.
 func TestCommandMode_KeepsNoTranscript(t *testing.T) {
 	f := newIMBotFixture(t)
-	chat := f.activeChat(t, "oc_command") // default mode
+	chat := f.activeChat(t, "oc_command") // default mode: respond
 	f.router.queue = []PlanTarget{{IssueID: f.issueID, WorkspaceID: f.wsID, ProjectID: f.projectID}}
 	ctx := context.Background()
 
-	f.svc.HandleInbound(ctx, f.groupMsg(chat.ChatExtID, "e-cmd", "明天要交季度报告了", false))
+	f.svc.HandleInbound(ctx, f.groupMsg(chat.ChatExtID, "e-cmd", "明天要交季度报告了", true))
 
 	if got := f.router.calls; got != 1 {
 		t.Fatalf("command-mode message routed %d times, want 1", got)

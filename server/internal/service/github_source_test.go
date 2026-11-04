@@ -217,14 +217,15 @@ func TestGithubSource_UnlistedActorDoesNotTakeWork(t *testing.T) {
 	svc.SetInbound(f.router, f.deliverer)
 
 	// An unlisted human in a polled repository is an inferred candidate, but
-	// auto mode requires a matching rule before it can create work.
+	// auto mode requires a matching rule before it can create work. Without one
+	// the candidate is recorded as a pending suggestion, never executed.
 	trig := githubTestTrigger(f.projectID)
 	trig.Actor = intake.ActorRef{ExtID: "mallory", Name: "mallory"}
 	res, err := svc.intake.Handle(ctx, trig)
 	if err != nil {
 		t.Fatalf("handle unlisted: %v", err)
 	}
-	if res.Executed || res.Decision != intake.DecisionIgnore || res.ReasonCode != intake.ReasonNoRule {
+	if res.Executed || res.Decision != intake.DecisionAccept || res.ReasonCode != intake.ReasonNoRule {
 		t.Fatalf("unlisted actor took work: %+v", res)
 	}
 

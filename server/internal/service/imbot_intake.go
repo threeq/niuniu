@@ -51,6 +51,11 @@ type imbotSource struct {
 	// legacyChatMode is the rollback switch for the agent_mode -> intake_mode
 	// semantics migration (design §7). See effectiveChatIntakeMode.
 	legacyChatMode bool
+	// addressed reports that this message was aimed at the bot (@mention, DM,
+	// slash/# control, a bound thread or workspace) rather than overheard. Only
+	// an addressed message carries explicit authority; ambient chatter in an
+	// auto chat is an inferred candidate and must pass the rule gate.
+	addressed bool
 }
 
 func (imbotSource) Kind() string { return intake.SourceKindIMBot }
@@ -98,11 +103,13 @@ func (src imbotSource) Normalize(
 		Raw:               raw,
 		ReceivedAt:        triggerTime(ev),
 		ConversationExtID: ev.ChatExtID,
-		// Chat pairing admitted the conversation, not the actor. This still
-		// grants explicit authority while no allow list is configured (the
-		// pre-policy behaviour), and once one exists Policy.Evaluate requires
-		// the actor to be on it.
-		Explicit: true,
+		// Chat pairing admitted the conversation, not the actor. An addressed
+		// message still grants explicit authority while no allow list is
+		// configured (the pre-policy behaviour); once one exists Policy.Evaluate
+		// requires the actor to be on it. Ambient chatter is never explicit —
+		// otherwise an auto chat with no allow list would execute every
+		// overheard sentence instead of filing it as a suggestion.
+		Explicit: src.addressed,
 		// An auto chat reads every message; unlisted actors there are inferred
 		// candidates rather than denied.
 		ReceiveAll: mode == intake.ModeAuto,
@@ -488,7 +495,7 @@ func (s *IMBotService) AcceptDecision(ctx context.Context, d store.IntakeDecisio
 		return 0, 0, fmt.Errorf("intake accept: load chat: %w", err)
 	}
 
-	src := imbotSource{legacyChatMode: s.legacyChatIntakeMode}
+	src := imbotSource{legacyChatMode: s.legacyChatIntakeMode, addressed: true}
 	trig := src.Normalize(inb, channel, chat, inb.Text, true)
 
 	var wd struct {

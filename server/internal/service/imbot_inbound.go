@@ -114,15 +114,15 @@ func (s *IMBotService) HandleInbound(ctx context.Context, ev imbot.InboundEvent)
 	// Auto chats are read in full: ambient messages feed the suggestion analysis
 	// and may match a rule. Respond chats only act on messages aimed at the bot,
 	// so unaddressed chatter is dropped before it reaches the pipeline.
+	addressed := addressedToBot(ev, text) || s.conversationallyAddressed(ctx, chat, ev.ThreadExtID)
 	if s.effectiveChatIntakeMode(ctx, chat) == intake.ModeAuto {
-		addressed := addressedToBot(ev, text) || s.conversationallyAddressed(ctx, chat, ev.ThreadExtID)
 		s.recordObservation(ctx, chat, ev, observedText, addressed)
 		// Analysis is message-driven: tell the employee this chat has new material.
 		// Non-blocking, so the connector goroutine never waits on a model call.
 		if s.employee != nil {
 			s.employee.Notify(chat.ID)
 		}
-	} else if !addressedToBot(ev, text) && !s.conversationallyAddressed(ctx, chat, ev.ThreadExtID) {
+	} else if !addressed {
 		slog.Debug("imbot: ignored (respond mode, not addressed)", "chat", chat.ID, "actor", ev.ActorExtID)
 		return
 	}
@@ -205,7 +205,7 @@ func (s *IMBotService) HandleInbound(ctx context.Context, ev imbot.InboundEvent)
 	// chat intake_mode only governs INFERRED work, so an explicit message still
 	// executes in off/observe mode exactly as it did before the extraction
 	// (design §6.3, §7.1).
-	res, err := s.intake.Handle(ctx, imbotSource{legacyChatMode: s.legacyChatIntakeMode}.Normalize(ev, channel, chat, text, forceNew))
+	res, err := s.intake.Handle(ctx, imbotSource{legacyChatMode: s.legacyChatIntakeMode, addressed: addressed}.Normalize(ev, channel, chat, text, forceNew))
 	if err != nil {
 		slog.Warn("imbot: intake failed", "channel", channel.ID, "chat", chat.ID, "project", routeProjectID, "error", err)
 		return
