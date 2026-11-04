@@ -499,7 +499,7 @@
     "agentModeCommand": "聽命令",
     "agentModeCommandHint": "只在被 @ 提到、私聊或使用命令時才行動。",
     "agentModeObserve": "旁聽模式",
-    "agentModeObserveHint": "記錄群組的討論並定期分析，必要時提醒；發現的任務會進入待校準，需你確認後才開始。",
+    "agentModeObserveHint": "記錄群裡的討論並定期分析，必要時提醒；發現的任務會進入待校準，需你確認後才開始。",
     "agentModeOk": "員工模式已更新",
     "unbindConfirm": "解除繫結「{{name}}」？該群需要重新審批才能再次路由。",
     "unbind": "解除繫結",
@@ -509,11 +509,11 @@
     "renameSave": "儲存",
     "renameOk": "已重新命名",
     "intakeMode": {
-      "respond": "僅回應",
+      "respond": "僅響應",
       "auto": "自動化"
     },
-    "intakeModeAutoHint": "群組未命中規則的訊息、背景分析結果會進入待校準；命中的在每日上限內直接執行。",
-    "intakeModeTitle": "回應方式"
+    "intakeModeAutoHint": "群裡未命中規則的訊息、後臺分析結果會進入待校準；命中的在每日上限內直接執行。",
+    "intakeModeTitle": "應答方式"
   },
   "orchestration": {
     "title": "編排成本護欄",
