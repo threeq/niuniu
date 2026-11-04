@@ -3,9 +3,20 @@ import { useTranslation } from 'react-i18next'
 import { Link, useSearch } from '@tanstack/react-router'
 import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { Inbox, RefreshCw, Zap } from 'lucide-react'
+import { ChevronDown, ChevronRight, Inbox, RefreshCw, Trash2, Zap } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from '@/components/ui/alert-dialog'
 import {
   Select,
   SelectContent,
@@ -40,7 +51,6 @@ type QueueView = 'pending' | 'history'
 const SOURCE_KINDS: IntakeSourceKind[] = ['im_bot', 'github', 'ci', 'email', 'webhook']
 
 const ALL_SOURCES = 'all'
-const ALL_PROJECTS = 'all'
 
 function isSourceKind(value: string | undefined): value is IntakeSourceKind {
   return !!value && (SOURCE_KINDS as string[]).includes(value)
@@ -56,7 +66,7 @@ export function IntakeReviewPage() {
   const { t } = useTranslation('intake')
   const queryClient = useQueryClient()
   const isDesktop = useMediaQuery('(min-width: 768px)')
-  const { projects, isLoading: projectsLoading } = useProjects()
+  const { projects } = useProjects()
   // Deep link from an IM chat row: preselect the project and narrow the queue to
   // that conversation (design §6.7.7). Mission control drills here with
   // ?source=<kind> for a per-source view.
@@ -66,7 +76,6 @@ export function IntakeReviewPage() {
     source?: string
   }
 
-  const [pickedProjectId, setPickedProjectId] = useState<number | null>(search.project ?? null)
   const [view, setView] = useState<QueueView>('pending')
   const [source, setSource] = useState<string>(search.source ?? ALL_SOURCES)
   const [activeId, setActiveId] = useState<number | null>(null)
@@ -76,9 +85,18 @@ export function IntakeReviewPage() {
   const [batchOpen, setBatchOpen] = useState(false)
   const [enableOpen, setEnableOpen] = useState(false)
 
-  // No project is required: the default view spans every accessible project and
-  // groups the queue by project. Picking one narrows the list.
-  const projectFilter = pickedProjectId
+  // No project selector: the queue spans every accessible project and groups by
+  // project. A deep link (?project=) still narrows it.
+  const projectFilter = search.project ?? null
+  const [collapsed, setCollapsed] = useState<Set<number>>(new Set())
+  function toggleGroup(projectId: number) {
+    setCollapsed((current) => {
+      const next = new Set(current)
+      if (next.has(projectId)) next.delete(projectId)
+      else next.add(projectId)
+      return next
+    })
+  }
   const projectIds = useMemo(
     () => (projectFilter !== null ? [projectFilter] : (projects ?? []).map((p) => p.id)),
     [projectFilter, projects],
@@ -211,6 +229,28 @@ export function IntakeReviewPage() {
     },
   })
 
+  const batchDelete = useMutation({
+    mutationFn: async () => {
+      const ids = [...selectedIds]
+      const byProject = new Map(decisions.map((d) => [d.id, d.project_id]))
+      for (const id of ids) {
+        const pid = byProject.get(id)
+        if (pid === undefined) continue
+        await intakeApi.deleteDecision(pid, id)
+      }
+      return ids.length
+    },
+    onSuccess: (count) => {
+      resetSelection()
+      toast.success(t('review.deletedCount', { count }))
+      queryClient.invalidateQueries({ queryKey: ['intake-decisions'] })
+    },
+    onError: (error) => {
+      toast.error(error instanceof Error ? error.message : t('review.deleteFailed'))
+      queryClient.invalidateQueries({ queryKey: ['intake-decisions'] })
+    },
+  })
+
   const enableAuto = useMutation({
     mutationFn: (sourceKinds: string[]) => {
       const current = settingsQuery.data
@@ -327,26 +367,41 @@ export function IntakeReviewPage() {
 
         {!isLoading && !isError && decisions.length > 0 && (
           <div>
-            {groups.map((group) => (
-              <section key={group.projectId}>
-                <div className="sticky top-0 z-10 flex items-center gap-2 border-b border-warm-border bg-warm-surface px-3 py-1.5">
-                  <span className="truncate text-xs font-semibold text-warm-text">
-                    {group.name}
-                  </span>
-                  <span className="text-xs text-warm-text-muted tabular-nums">
-                    {group.items.length}
-                  </span>
-                </div>
-                <DecisionList
-                  decisions={group.items}
-                  activeId={activeDecisionId}
-                  selectedIds={selectedIds}
-                  seenIds={seenIds}
-                  onSelect={selectDecision}
-                  onToggleSelect={toggleSelected}
-                />
-              </section>
-            ))}
+            {groups.map((group) => {
+              const isCollapsed = collapsed.has(group.projectId)
+              return (
+                <section key={group.projectId}>
+                  <button
+                    type="button"
+                    onClick={() => toggleGroup(group.projectId)}
+                    aria-expanded={!isCollapsed}
+                    className="sticky top-0 z-10 flex w-full items-center gap-1.5 border-b border-warm-border bg-warm-surface px-3 py-1.5 text-left hover:bg-accent"
+                  >
+                    {isCollapsed ? (
+                      <ChevronRight className="h-3.5 w-3.5 text-warm-text-muted" aria-hidden />
+                    ) : (
+                      <ChevronDown className="h-3.5 w-3.5 text-warm-text-muted" aria-hidden />
+                    )}
+                    <span className="truncate text-xs font-semibold text-warm-text">
+                      {group.name}
+                    </span>
+                    <span className="text-xs text-warm-text-muted tabular-nums">
+                      {group.items.length}
+                    </span>
+                  </button>
+                  {!isCollapsed && (
+                    <DecisionList
+                      decisions={group.items}
+                      activeId={activeDecisionId}
+                      selectedIds={selectedIds}
+                      seenIds={seenIds}
+                      onSelect={selectDecision}
+                      onToggleSelect={toggleSelected}
+                    />
+                  )}
+                </section>
+              )
+            })}
           </div>
         )}
       </div>
@@ -365,6 +420,37 @@ export function IntakeReviewPage() {
           >
             {t('review.batchIgnore')}
           </Button>
+          <AlertDialog>
+            <AlertDialogTrigger asChild>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="h-7 gap-1 px-2 text-xs text-destructive-text hover:bg-destructive/10 hover:text-destructive-text"
+                disabled={batchDelete.isPending}
+              >
+                <Trash2 className="h-3.5 w-3.5" aria-hidden />
+                {t('review.batchDelete')}
+              </Button>
+            </AlertDialogTrigger>
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>
+                  {t('review.deleteSelectedTitle', { count: selectedIds.size })}
+                </AlertDialogTitle>
+                <AlertDialogDescription>{t('review.deleteDescription')}</AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel>{t('review.cancel')}</AlertDialogCancel>
+                <AlertDialogAction
+                  className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                  onClick={() => batchDelete.mutate()}
+                >
+                  {t('review.delete')}
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
           <Button
             type="button"
             variant="ghost"
@@ -400,31 +486,6 @@ export function IntakeReviewPage() {
           <p className="text-xs text-warm-text-muted">{t('review.description')}</p>
         </div>
         <div className="ml-auto flex items-center gap-2">
-          <Select
-            value={projectFilter !== null ? String(projectFilter) : ALL_PROJECTS}
-            onValueChange={(value) => {
-              setPickedProjectId(value === ALL_PROJECTS ? null : Number(value))
-              setActiveId(null)
-              resetSelection()
-            }}
-          >
-            <SelectTrigger
-              id="intake-project"
-              className="h-8 w-44"
-              aria-label={t('review.project')}
-              disabled={projectsLoading || !projects?.length}
-            >
-              <SelectValue placeholder={t('review.projectPlaceholder')} />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value={ALL_PROJECTS}>{t('review.allProjects')}</SelectItem>
-              {(projects ?? []).map((project) => (
-                <SelectItem key={project.id} value={String(project.id)}>
-                  {project.name}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
           <Select
             value={source}
             onValueChange={(value) => {
@@ -466,7 +527,7 @@ export function IntakeReviewPage() {
         </div>
       </div>
 
-      {projectFilter !== null && calibration ? (
+      {contextProjectId !== null && calibration ? (
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-warm-border bg-warm-surface px-4 py-2">
           <span className="text-xs font-medium text-warm-text tabular-nums">
             {t('intake.calibration.summary', {

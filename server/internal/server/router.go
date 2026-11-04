@@ -799,6 +799,7 @@ func (s *Server) setupRoutes() {
 		projects.DELETE("/:id/intake/webhook/:bid", s.intakeHandler.DeleteWebhookBinding)
 		projects.GET("/:id/intake/decisions", s.intakeHandler.ListDecisions)
 		projects.PATCH("/:id/intake/decisions/:did", s.intakeHandler.UpdateDecisionBrief)
+		projects.DELETE("/:id/intake/decisions/:did", s.intakeHandler.DeleteDecision)
 		projects.POST("/:id/intake/decisions/:did/accept", s.intakeHandler.AcceptDecision)
 		projects.POST("/:id/intake/decisions/:did/ignore", s.intakeHandler.IgnoreDecision)
 		// One CLI subprocess per call: same per-user budget as the issue route.

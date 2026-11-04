@@ -3,7 +3,9 @@ package lark
 import (
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"strings"
+	"time"
 
 	"google.golang.org/protobuf/encoding/protowire"
 
@@ -76,6 +78,10 @@ func parseMessageEvent(env larkEventEnvelope) (imbot.InboundEvent, bool, error) 
 			MessageID   string `json:"message_id"`
 			ChatID      string `json:"chat_id"`
 			ThreadID    string `json:"thread_id"`
+			// CreateTime is the platform's send time in epoch milliseconds. It is
+			// what the intake staleness check uses: delivery time is not send time
+			// when a reconnect replays a backlog.
+			CreateTime  string `json:"create_time"`
 			MessageType string `json:"message_type"`
 			// ChatType is "p2p" for a 1:1 DM and "group" for a group chat. It is
 			// what lets the service observe a group silently while treating a DM as
@@ -142,8 +148,20 @@ func parseMessageEvent(env larkEventEnvelope) (imbot.InboundEvent, bool, error) 
 		// addressed regardless, so only report a real inline mention here.
 		Mentioned: mentioned,
 		EventID:   eventID(env, e.Message.MessageID),
+		SentAt:    parseEpochMillis(e.Message.CreateTime),
 	}
 	return ev, true, nil
+}
+
+// parseEpochMillis converts Feishu's millisecond timestamp string to a time.
+// An absent or malformed value yields the zero time, which the intake layer
+// reads as "unknown, use arrival time".
+func parseEpochMillis(raw string) time.Time {
+	ms, err := strconv.ParseInt(strings.TrimSpace(raw), 10, 64)
+	if err != nil || ms <= 0 {
+		return time.Time{}
+	}
+	return time.UnixMilli(ms)
 }
 
 // leadsWithMention reports whether text begins with one of the @-mention

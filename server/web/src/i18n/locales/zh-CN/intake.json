@@ -419,6 +419,15 @@
     "alreadyAccepted": "该建议已被采纳。",
     "executedTask": "执行任务",
     "emptyHistoryTitle": "暂无历史",
-    "emptyHistoryDescription": "已采纳和已忽略的建议会显示在这里。"
+    "emptyHistoryDescription": "已采纳和已忽略的建议会显示在这里。",
+    "delete": "删除",
+    "deleteTitle": "删除这条记录？",
+    "deleteDescription": "只删除队列记录，不会删除已经创建的任务。",
+    "deleted": "已删除",
+    "deletedCount": "已删除 {{count}} 条",
+    "deleteFailed": "删除失败",
+    "batchDelete": "删除所选",
+    "deleteSelectedTitle": "删除所选的 {{count}} 条记录？",
+    "staleReason": "消息到达过晚（超出时效窗口），已记录但未执行。"
   }
 }

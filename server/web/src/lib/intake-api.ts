@@ -342,6 +342,12 @@ export const intakeApi = {
       { reason_code: reasonCode, reason_text: reasonText ?? '' },
     ),
 
+  // Removes the queue entry only; the event and any created task stay.
+  deleteDecision: (projectId: number, decisionId: number) =>
+    api.delete<{ deleted: number }>(
+      `/projects/${projectId}/intake/decisions/${decisionId}`,
+    ),
+
   // suppressError: the editor maps 503/429/502 into its own localized message.
   suggestGoal: (projectId: number, decisionId: number) =>
     apiFetch<{ data: { suggestion: string } }>(

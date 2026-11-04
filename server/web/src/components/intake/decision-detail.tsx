@@ -3,8 +3,19 @@ import { useTranslation } from 'react-i18next'
 import { useNavigate } from '@tanstack/react-router'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { AlertTriangle, ArrowUpRight, HelpCircle, Paperclip } from 'lucide-react'
+import { AlertTriangle, ArrowUpRight, HelpCircle, Paperclip, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from '@/components/ui/alert-dialog'
 import { Input } from '@/components/ui/input'
 import {
   Select,
@@ -130,6 +141,15 @@ export function DecisionDetail({ decision, rules, rulesFailed }: DecisionDetailP
     onError: (error) => toast.error(errorMessage(error, t('review.acceptFailed'))),
   })
 
+  const remove = useMutation({
+    mutationFn: () => intakeApi.deleteDecision(decision.project_id, decision.id),
+    onSuccess: () => {
+      toast.success(t('review.deleted'))
+      refresh()
+    },
+    onError: (error) => toast.error(errorMessage(error, t('review.deleteFailed'))),
+  })
+
   const ignore = useMutation({
     mutationFn: (reason: IgnoreReason) =>
       intakeApi.ignore(decision.project_id, decision.id, reason.code, reason.text),
@@ -176,6 +196,38 @@ export function DecisionDetail({ decision, rules, rulesFailed }: DecisionDetailP
             <span className="ml-auto text-xs text-warm-text-muted tabular-nums">
               {relative(decision.created_at)}
             </span>
+            <AlertDialog>
+              <AlertDialogTrigger asChild>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="h-6 w-6 text-destructive-text hover:bg-destructive/10 hover:text-destructive-text"
+                  aria-label={t('review.delete')}
+                  title={t('review.delete')}
+                  disabled={remove.isPending}
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                </Button>
+              </AlertDialogTrigger>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>{t('review.deleteTitle')}</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    {t('review.deleteDescription')}
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel>{t('review.cancel')}</AlertDialogCancel>
+                  <AlertDialogAction
+                    className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                    onClick={() => remove.mutate()}
+                  >
+                    {t('review.delete')}
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
           </div>
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
             <span className="text-warm-text-muted">{t('review.actor')}</span>
@@ -343,7 +395,10 @@ export function DecisionDetail({ decision, rules, rulesFailed }: DecisionDetailP
             <AlertTriangle className="mr-1 inline h-3.5 w-3.5" aria-hidden />
             {decision.decision === 'ignore'
               ? t('review.alreadyIgnored', {
-                  reason: decision.reason_text || decision.reason_code || t('review.noReason'),
+                  reason:
+                    decision.reason_code === 'stale'
+                      ? t('review.staleReason')
+                      : decision.reason_text || decision.reason_code || t('review.noReason'),
                 })
               : status === 'accepted'
                 ? t('review.alreadyAccepted')

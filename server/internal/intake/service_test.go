@@ -645,3 +645,44 @@ func TestProposeSkipsWhilePaused(t *testing.T) {
 		t.Fatalf("paused proposal recorded or stored something")
 	}
 }
+
+// A trigger delivered after the staleness window is recorded for audit but never
+// executed: a reconnect can replay a backlog the conversation has moved past.
+func TestHandleStaleTriggerRecordedNotExecuted(t *testing.T) {
+	svc, store, _, _, executor := newHarness(Policy{Mode: ModeAuto, AllowList: []string{"alice"}})
+	now := time.Unix(1000, 0)
+	tg := trigger("alice", "这条太旧了")
+	tg.ReceivedAt = now.Add(-11 * time.Minute)
+
+	res, err := svc.Handle(context.Background(), tg)
+	if err != nil {
+		t.Fatalf("handle: %v", err)
+	}
+	if res.ReasonCode != ReasonStale || res.Decision != DecisionIgnore {
+		t.Fatalf("result = %+v, want stale/ignore", res)
+	}
+	if len(executor.plans) != 0 {
+		t.Fatalf("stale trigger executed %d plan(s)", len(executor.plans))
+	}
+	if len(store.decisions) != 1 || store.decisions[0].ReasonCode != ReasonStale {
+		t.Fatalf("decisions = %+v, want one stale record", store.decisions)
+	}
+}
+
+// Inside the window the trigger runs normally.
+func TestHandleRecentTriggerExecutes(t *testing.T) {
+	svc, _, _, _, executor := newHarness(Policy{Mode: ModeAuto, AllowList: []string{"alice"}})
+	tg := trigger("alice", "正常消息")
+	tg.ReceivedAt = time.Unix(1000, 0).Add(-2 * time.Minute)
+
+	res, err := svc.Handle(context.Background(), tg)
+	if err != nil {
+		t.Fatalf("handle: %v", err)
+	}
+	if res.ReasonCode == ReasonStale {
+		t.Fatalf("recent trigger marked stale: %+v", res)
+	}
+	if len(executor.plans) != 1 {
+		t.Fatalf("executed %d plans, want 1", len(executor.plans))
+	}
+}

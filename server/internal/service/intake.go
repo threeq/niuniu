@@ -883,6 +883,25 @@ func (s *IntakeService) GetDecision(ctx context.Context, decisionID int64) (stor
 	return s.q.GetIntakeDecision(ctx, decisionID)
 }
 
+// DeleteDecision removes one queue entry. The originating event stays: it is the
+// audit trail, and the dedupe key must keep suppressing a redelivery. Deleting
+// an accepted entry does not touch the task it produced.
+func (s *IntakeService) DeleteDecision(ctx context.Context, projectID, decisionID int64) error {
+	res, err := s.db.ExecContext(ctx,
+		`DELETE FROM intake_decisions WHERE id = ? AND project_id = ?`, decisionID, projectID)
+	if err != nil {
+		return err
+	}
+	deleted, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if deleted == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
+}
+
 // AcceptDecision executes a pending dry-run decision through the wired pipeline.
 // A non-nil draft replaces the proposed brief before execution, so the issue is
 // created from exactly what the user saw in the calibration queue.

@@ -412,13 +412,22 @@
     "targetExisting": "選擇已有任務",
     "targetSearch": "搜尋任務",
     "targetPick": "選擇一個任務",
-    "targetEmpty": "沒有符合的任務",
+    "targetEmpty": "沒有匹配的任務",
     "loading": "載入中…",
     "acceptedButDeliveryFailed": "任務已記錄，但訊息未投遞給它：{{message}}",
     "acceptedIntoTask": "已傳送到任務 #{{id}}",
     "alreadyAccepted": "該建議已被採納。",
     "executedTask": "執行任務",
-    "emptyHistoryTitle": "尚無歷史",
-    "emptyHistoryDescription": "已採納和已忽略的建議會顯示在這裡。"
+    "emptyHistoryTitle": "暫無歷史",
+    "emptyHistoryDescription": "已採納和已忽略的建議會顯示在這裡。",
+    "delete": "刪除",
+    "deleteTitle": "刪除這條記錄？",
+    "deleteDescription": "只刪除佇列記錄，不會刪除已經建立的任務。",
+    "deleted": "已刪除",
+    "deletedCount": "已刪除 {{count}} 條",
+    "deleteFailed": "刪除失敗",
+    "batchDelete": "刪除所選",
+    "deleteSelectedTitle": "刪除所選的 {{count}} 條記錄？",
+    "staleReason": "訊息到達過晚（超出時效視窗），已記錄但未執行。"
   }
 }
