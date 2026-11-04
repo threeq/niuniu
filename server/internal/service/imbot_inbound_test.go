@@ -702,7 +702,7 @@ func TestHandleWebhook_ChallengeAndMessage(t *testing.T) {
 	// 2. A real message event body routes + delivers through HandleInbound.
 	body := `{"schema":"2.0","header":{"event_id":"wh-1","event_type":"im.message.receive_v1","token":"vtok"},
 	  "event":{"sender":{"sender_id":{"open_id":"ou_x"}},
-	  "message":{"message_id":"om","chat_id":"oc_hook","message_type":"text","content":"{\"text\":\"通过webhook建任务\"}"}}}`
+	  "message":{"message_id":"om","chat_id":"oc_hook","chat_type":"p2p","message_type":"text","content":"{\"text\":\"通过webhook建任务\"}"}}}`
 	msgReq := httptest.NewRequest("POST", "/api/imbot/webhook/1", strings.NewReader(body))
 	if _, isCh, err := f.svc.HandleWebhook(ctx, f.channelID, msgReq); err != nil || isCh {
 		t.Fatalf("message webhook: isCh=%v err=%v", isCh, err)

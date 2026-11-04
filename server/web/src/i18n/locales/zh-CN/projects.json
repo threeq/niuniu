@@ -959,13 +959,14 @@
     "agentModeCommandHint": "只在被 @ 提到、私聊或使用命令时才行动。",
     "agentModeObserve": "旁听模式",
     "agentModeObserveHint": "记录群里的讨论并定期分析，必要时提醒；发现的任务会进入待校准，需你确认后才开始。",
-    "intakeModeTitle": "接活模式",
+    "intakeModeTitle": "应答方式",
     "intakeMode": {
       "inherit": "继承项目",
       "off": "关闭",
       "observe": "观察",
-      "auto": "自动",
-      "inheritEffective": "继承项目（{{mode}}）"
+      "auto": "自动化",
+      "inheritEffective": "继承项目（{{mode}}）",
+      "respond": "仅响应"
     },
     "intakeModeOverridden": "已覆盖项目默认",
     "intakeModeObserveHint": "消息会被记录到待校准，不会自动行动。",
@@ -1014,7 +1015,8 @@
       "channelIdLabel": "渠道 ID（channel_id）",
       "channelIdHint": "回到对话把这个数字告诉助手，即可继续连通性测试。"
     },
-    "intakeModeProjectHint": "接活模式：默认继承项目设置（项目设置 → 任务来源），可在此为单个会话覆盖。"
+    "intakeModeProjectHint": "接活模式：默认继承项目设置（项目设置 → 任务来源），可在此为单个会话覆盖。",
+    "intakeModeAutoHint": "群里未命中规则的消息、后台分析结果会进入待校准；命中的在每日上限内直接执行。"
   },
   "credentialOnboarding": {
     "pageTitle": "凭据录入",

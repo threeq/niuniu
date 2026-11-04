@@ -3,22 +3,26 @@ package intake
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 )
 
 type fakeStore struct {
-	event        EventRecord
-	eventErr     error
-	eventCalls   int
-	lastEvent    Trigger
-	decisions    []DecisionRecord
-	marked       []markedExecution
-	decisionID   int64
-	reserved     int64
-	reserveCalls int
-	reserveErr   error
-	released     int
+	suggestions    []PendingSuggestion
+	suggestionsErr error
+	consumed       []int64
+	event          EventRecord
+	eventErr       error
+	eventCalls     int
+	lastEvent      Trigger
+	decisions      []DecisionRecord
+	marked         []markedExecution
+	decisionID     int64
+	reserved       int64
+	reserveCalls   int
+	reserveErr     error
+	released       int
 }
 
 type markedExecution struct {
@@ -42,6 +46,15 @@ func (f *fakeStore) RecordDecision(ctx context.Context, rec DecisionRecord) (int
 
 func (f *fakeStore) MarkExecuted(ctx context.Context, decisionID int64, res ExecutionResult) error {
 	f.marked = append(f.marked, markedExecution{decisionID: decisionID, result: res})
+	return nil
+}
+
+func (f *fakeStore) ListPendingSuggestions(ctx context.Context, projectID int64, conversationExtID string) ([]PendingSuggestion, error) {
+	return f.suggestions, f.suggestionsErr
+}
+
+func (f *fakeStore) MarkSuggestionsConsumed(ctx context.Context, ids []int64) error {
+	f.consumed = append(f.consumed, ids...)
 	return nil
 }
 
@@ -328,9 +341,10 @@ func TestHandleAutoInferredExecutes(t *testing.T) {
 	}
 }
 
-func TestHandleAutoInferredWithoutRuleIsIgnored(t *testing.T) {
-	// A bot is inferred by bot_list, but inferred work only executes inside a
-	// matching rule — so with no rule it must not create a task.
+func TestHandleAutoInferredWithoutRuleBecomesSuggestion(t *testing.T) {
+	// A bot is inferred by bot_list. Inferred work only executes inside a
+	// matching rule, so with no rule it must not create a task — instead it is
+	// recorded as a pending suggestion for the review queue.
 	policy := Policy{
 		Mode:    ModeAuto,
 		BotList: []string{"bot_release"},
@@ -343,14 +357,14 @@ func TestHandleAutoInferredWithoutRuleIsIgnored(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Handle: %v", err)
 	}
-	if res.Decision != DecisionIgnore || res.ReasonCode != ReasonNoRule || res.Executed {
+	if res.Decision != DecisionAccept || res.ReasonCode != ReasonNoRule || res.Executed {
 		t.Fatalf("result = %+v", res)
 	}
 	if len(executor.plans) != 0 || len(store.marked) != 0 {
 		t.Fatalf("inferred work without a rule executed")
 	}
-	if store.decisions[0].WouldDo != nil || store.decisions[0].Brief != nil {
-		t.Fatalf("ignored inferred decision carried a brief")
+	if len(store.decisions) != 1 || store.decisions[0].WouldDo == nil {
+		t.Fatalf("suggestion not recorded as a dry-run decision: %+v", store.decisions)
 	}
 }
 
@@ -699,5 +713,54 @@ func TestHandleRecentTriggerExecutes(t *testing.T) {
 	}
 	if len(executor.plans) != 1 {
 		t.Fatalf("executed %d plans, want 1", len(executor.plans))
+	}
+}
+
+// An automatic execution absorbs the conversation's pending suggestions: their
+// goals ride along in the executed text, and they are marked consumed so they
+// are never acted on twice.
+func TestHandleExecutesConsumesPendingSuggestions(t *testing.T) {
+	policy := Policy{Mode: ModeOff, AllowList: []string{"ou_alice"}}
+	svc, store, _, _, executor := newHarness(policy)
+	store.suggestions = []PendingSuggestion{{ID: 91, Goal: "补一条日报"}, {ID: 92, Goal: "检查昨天数据"}}
+
+	tg := trigger("ou_alice", "发一下日报")
+	tg.ConversationExtID = "chat-1"
+	res, err := svc.Handle(context.Background(), tg)
+	if err != nil {
+		t.Fatalf("Handle: %v", err)
+	}
+	if !res.Executed {
+		t.Fatalf("explicit request did not execute: %+v", res)
+	}
+	if len(store.consumed) != 2 || store.consumed[0] != 91 || store.consumed[1] != 92 {
+		t.Fatalf("consumed = %v, want [91 92]", store.consumed)
+	}
+	if len(executor.plans) != 1 {
+		t.Fatalf("plans = %d, want 1", len(executor.plans))
+	}
+	if text := executor.plans[0].Trigger.Text; !strings.Contains(text, "补一条日报") || !strings.Contains(text, "检查昨天数据") {
+		t.Fatalf("execution text missing pending goals: %q", text)
+	}
+}
+
+// A non-executing decision (denied or dry-run) must leave the suggestions for a
+// later execution.
+func TestHandleNonExecutionLeavesSuggestions(t *testing.T) {
+	policy := Policy{Mode: ModeAuto, BotList: []string{"bot_x"}}
+	svc, store, _, _, executor := newHarness(policy)
+	store.suggestions = []PendingSuggestion{{ID: 91, Goal: "补一条日报"}}
+
+	tg := trigger("bot_x", "build it")
+	tg.Actor.IsBot = true
+	tg.ConversationExtID = "chat-1"
+	if _, err := svc.Handle(context.Background(), tg); err != nil {
+		t.Fatalf("Handle: %v", err)
+	}
+	if len(executor.plans) != 0 {
+		t.Fatalf("executed %d plans, want 0", len(executor.plans))
+	}
+	if len(store.consumed) != 0 {
+		t.Fatalf("consumed = %v, want none", store.consumed)
 	}
 }

@@ -1981,7 +1981,7 @@ CREATE TABLE IF NOT EXISTS im_bot_chats (
     --   'auto'    — create tasks within the project policy and daily cap.
     -- No CHECK for the same retrofit reason as agent_mode; validated in the
     -- service layer (normalizeIntakeMode).
-    intake_mode     TEXT NOT NULL DEFAULT 'observe',
+    intake_mode     TEXT NOT NULL DEFAULT 'respond',
     pinned_issue_id INTEGER,
     active_issue_id INTEGER,
     status          TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','active','disabled')),
@@ -2351,6 +2351,10 @@ CREATE TABLE IF NOT EXISTS intake_decisions (
     policy_version        INTEGER NOT NULL DEFAULT 0,
     issue_id              INTEGER,
     workspace_id          INTEGER,
+    -- Conversation the decision came from, so a later automatic execution can
+    -- consume that conversation's pending suggestions exactly once.
+    conversation_ext_id TEXT NOT NULL DEFAULT '',
+    consumed_at     TIMESTAMP DEFAULT NULL,
     would_do_json         TEXT NOT NULL DEFAULT '{}',
     created_at            TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );

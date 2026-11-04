@@ -51,11 +51,18 @@ function actorLabel(decision: IntakeDecision, unknown: string): string {
 export function StatusBadge({ decision }: { decision: IntakeDecision }) {
   const { t } = useTranslation('intake')
   const status =
-    decision.status ?? (decision.decision === 'ignore' ? 'ignored' : decision.executed ? 'accepted' : 'pending')
+    decision.status ??
+    (decision.decision === 'ignore'
+      ? 'ignored'
+      : decision.consumed
+        ? 'consumed'
+        : decision.executed
+          ? 'accepted'
+          : 'pending')
   const tone =
     status === 'accepted'
       ? 'bg-brand-soft text-brand'
-      : status === 'ignored'
+      : status === 'ignored' || status === 'consumed'
         ? 'bg-warm-muted text-warm-text-muted'
         : 'bg-warm-muted text-warm-text'
   return (

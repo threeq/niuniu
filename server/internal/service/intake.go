@@ -98,6 +98,9 @@ type IntakeDecisionDTO struct {
 	Strength       string          `json:"strength"`
 	Decision       string          `json:"decision"`
 	Executed       bool            `json:"executed"`
+	// Consumed marks a suggestion that a later automatic execution already
+	// absorbed; it is never processed again.
+	Consumed       bool            `json:"consumed"`
 	// Status is the queue-facing state derived from decision+executed:
 	// pending | accepted | ignored. Deriving it keeps the schema unchanged.
 	Status         string          `json:"status"`
@@ -120,10 +123,12 @@ type IntakeDecisionDTO struct {
 // decisionStatus maps the stored decision+executed pair onto the three states
 // the review queue renders. Ignored wins over executed because an ignored
 // decision never executes.
-func decisionStatus(decision string, executed bool) string {
+func decisionStatus(decision string, executed, consumed bool) string {
 	switch {
 	case decision == "ignore":
 		return "ignored"
+	case consumed:
+		return "consumed"
 	case executed:
 		return "accepted"
 	default:
@@ -841,7 +846,7 @@ func (s *IntakeService) ListDecisions(ctx context.Context, projectID int64, exec
 	query := `
 SELECT d.id, d.event_id, d.project_id, d.mode_at_decision, d.strength, d.decision,
        d.executed, d.reason_code, d.reason_text, d.matched_rule_ids_json,
-       d.policy_version, d.issue_id, d.workspace_id, d.would_do_json, d.created_at,
+       d.policy_version, d.issue_id, d.workspace_id, d.consumed_at, d.would_do_json, d.created_at,
        e.source_kind, e.event_kind, e.actor_ext_id, e.actor_name, e.thread_ext_id, e.payload_json
 FROM intake_decisions d
 JOIN intake_events e ON e.id = d.event_id
@@ -853,6 +858,8 @@ WHERE d.project_id = ?`
 			args = append(args, 1)
 		} else {
 			args = append(args, 0)
+			// Consumed suggestions are no longer pending.
+			query += " AND d.consumed_at IS NULL"
 		}
 	}
 	if decision != "" {
@@ -882,17 +889,19 @@ WHERE d.project_id = ?`
 			payload   string
 			issueID   sql.NullInt64
 			workspace sql.NullInt64
+			consumed  sql.NullTime
 		)
 		if err := rows.Scan(
 			&d.ID, &d.EventID, &d.ProjectID, &d.ModeAtDecision, &d.Strength, &d.Decision,
 			&executedV, &d.ReasonCode, &d.ReasonText, &matched,
-			&d.PolicyVersion, &issueID, &workspace, &wouldDo, &d.CreatedAt,
+			&d.PolicyVersion, &issueID, &workspace, &consumed, &wouldDo, &d.CreatedAt,
 			&d.SourceKind, &d.EventKind, &d.ActorExtID, &d.ActorName, &d.ThreadExtID, &payload,
 		); err != nil {
 			return nil, err
 		}
 		d.Executed = executedV != 0
-		d.Status = decisionStatus(d.Decision, d.Executed)
+		d.Consumed = consumed.Valid
+		d.Status = decisionStatus(d.Decision, d.Executed, d.Consumed)
 		d.MatchedRuleIDs = decodeInt64List(matched)
 		d.WouldDo = json.RawMessage(orJSONObject(wouldDo))
 		d.Payload = json.RawMessage(orJSONObject(payload))

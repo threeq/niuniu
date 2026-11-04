@@ -352,29 +352,29 @@ func TestIMBotOwner_PatchChat_IntakeMode(t *testing.T) {
 	r, _, pendingChat, _, _, _ := setupIMBotOwner(t)
 	path := "/api/imbot/chats/" + itoa(pendingChat)
 
-	// New chats default to observe (dry-run) — never auto-create on day one.
+	// New chats default to respond — only explicit @/DM requests act.
 	w := ownerReq(t, r, http.MethodPatch, path, "1", `{"bind_mode":"project"}`)
 	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
 	var resp map[string]any
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
-	assert.Equal(t, "observe", resp["intake_mode"])
+	assert.Equal(t, "respond", resp["intake_mode"])
 
 	w = ownerReq(t, r, http.MethodPatch, path, "1", `{"intake_mode":"auto"}`)
 	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
 	assert.Equal(t, "auto", resp["intake_mode"])
 
-	// Inherit is a first-class mode: the chat defers to the project setting.
+	// Legacy "inherit" maps onto respond: the per-chat model has no inheritance.
 	w = ownerReq(t, r, http.MethodPatch, path, "1", `{"intake_mode":"inherit"}`)
 	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
-	assert.Equal(t, "inherit", resp["intake_mode"])
+	assert.Equal(t, "respond", resp["intake_mode"])
 
-	// Unrecognized values degrade to observe rather than erroring or enabling.
+	// Unrecognized values degrade to respond rather than erroring or enabling.
 	w = ownerReq(t, r, http.MethodPatch, path, "1", `{"intake_mode":"yolo"}`)
 	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
-	assert.Equal(t, "observe", resp["intake_mode"])
+	assert.Equal(t, "respond", resp["intake_mode"])
 
 	// A different owner cannot change the mode.
 	w = ownerReq(t, r, http.MethodPatch, path, "2", `{"intake_mode":"off"}`)

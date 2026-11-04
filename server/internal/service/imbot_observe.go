@@ -38,11 +38,14 @@ const (
 // agent_mode: agent_mode decides whether the bot analyzes chatter at all, while
 // intake_mode decides whether observed work may become a task.
 const (
-	// IntakeModeOff: only explicit requests create or continue a task.
-	IntakeModeOff = "off"
-	// IntakeModeObserve: record dry-run decisions for human calibration.
+	// IntakeModeRespond: only explicit requests create or continue a task;
+	// ambient messages are ignored and no background analysis runs.
+	IntakeModeRespond = "respond"
+	// Legacy values kept for un-migrated rows; reads map them onto respond/auto.
+	IntakeModeOff     = "off"
 	IntakeModeObserve = "observe"
-	// IntakeModeAuto: create tasks within the project policy and daily cap.
+	// IntakeModeAuto: explicit requests run, ambient messages run inside a
+	// matching rule and the daily cap, and unmatched ones become suggestions.
 	IntakeModeAuto = "auto"
 	// IntakeModeInherit: follow the project's im_bot source setting. Stored as an
 	// explicit value rather than NULL because the migration-added column is NOT
@@ -51,18 +54,17 @@ const (
 )
 
 // normalizeIntakeMode validates an intake_mode value from the API or the DB.
-// Unrecognized values degrade to IntakeModeObserve — the safe dry-run default
-// that never creates a task on its own (§7 decision record #1).
+// The model is two modes; legacy values map onto them (off/inherit → respond,
+// observe → auto, because suggest-only now lives inside auto). Anything
+// unrecognized degrades to respond — it never starts work on its own.
 func normalizeIntakeMode(mode string) string {
 	switch strings.TrimSpace(mode) {
-	case IntakeModeOff:
-		return IntakeModeOff
-	case IntakeModeAuto:
+	case IntakeModeAuto, IntakeModeObserve:
 		return IntakeModeAuto
-	case IntakeModeInherit:
-		return IntakeModeInherit
+	case IntakeModeRespond, IntakeModeOff, IntakeModeInherit:
+		return IntakeModeRespond
 	default:
-		return IntakeModeObserve
+		return IntakeModeRespond
 	}
 }
 

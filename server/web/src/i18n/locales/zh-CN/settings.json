@@ -507,7 +507,13 @@
     "rename": "重命名",
     "renameLabel": "机器人名称",
     "renameSave": "保存",
-    "renameOk": "已重命名"
+    "renameOk": "已重命名",
+    "intakeMode": {
+      "respond": "仅响应",
+      "auto": "自动化"
+    },
+    "intakeModeAutoHint": "群里未命中规则的消息、后台分析结果会进入待校准；命中的在每日上限内直接执行。",
+    "intakeModeTitle": "应答方式"
   },
   "orchestration": {
     "title": "编排成本护栏",

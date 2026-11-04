@@ -6489,6 +6489,10 @@ const docTemplate = `{
                 "actor_name": {
                     "type": "string"
                 },
+                "consumed": {
+                    "description": "Consumed marks a suggestion that a later automatic execution already\nabsorbed; it is never processed again.",
+                    "type": "boolean"
+                },
                 "created_at": {
                     "type": "string"
                 },

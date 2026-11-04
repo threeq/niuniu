@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"database/sql"
 	"strconv"
 	"strings"
 	"testing"
@@ -220,11 +221,11 @@ func TestEffectiveChatIntakeMode(t *testing.T) {
 		legacy bool
 		want   intake.Mode
 	}{
-		{"migrated observe chat is auto", chat("observe", "auto"), false, intake.ModeAuto},
-		{"migrated command chat is off", chat("command", "off"), false, intake.ModeOff},
-		{"new chat defaults to observe", chat("command", "observe"), false, intake.ModeObserve},
-		{"inherit defers to project policy", chat("command", "inherit"), false, ""},
-		{"unknown intake degrades to observe", chat("command", ""), false, intake.ModeObserve},
+		{"auto chat is auto", chat("observe", "auto"), false, intake.ModeAuto},
+		{"respond chat is off", chat("command", "respond"), false, intake.ModeOff},
+		{"legacy observe value maps to auto", chat("command", "observe"), false, intake.ModeAuto},
+		{"legacy inherit maps to respond", chat("command", "inherit"), false, intake.ModeOff},
+		{"unknown intake degrades to respond", chat("command", ""), false, intake.ModeOff},
 		{"rollback observe→auto", chat("observe", "off"), true, intake.ModeAuto},
 		{"rollback command→off", chat("command", "auto"), true, intake.ModeOff},
 		{"rollback empty agent degrades to command", chat("", "auto"), true, intake.ModeOff},
@@ -238,59 +239,50 @@ func TestEffectiveChatIntakeMode(t *testing.T) {
 	}
 }
 
-// TestHandleInbound_ChatIntakeModeOverridesProjectPolicy proves the chat-level
-// mode reaches the pipeline: a project policy of auto must not start work when
-// the chat itself is in observe (dry-run).
-func TestHandleInbound_ChatIntakeModeOverridesProjectPolicy(t *testing.T) {
+// TestHandleInbound_RespondChatIgnoresProjectPolicy proves the chat-level mode
+// wins: a project policy of auto must not touch ambient messages in a respond
+// chat — they are dropped before the pipeline sees them.
+func TestHandleInbound_RespondChatIgnoresProjectPolicy(t *testing.T) {
 	f := newIMBotFixture(t)
 	chat := f.activeChat(t, "oc_chatmode")
-	chat = f.setChatIntakeMode(t, chat, IntakeModeObserve)
+	chat = f.setChatIntakeMode(t, chat, IntakeModeRespond)
 	ctx := context.Background()
-	// Project policy says auto, with a rule matching the message, so the project
-	// setting alone would execute.
-	_, err := f.q.UpsertIntakeSetting(ctx, store.UpsertIntakeSettingParams{
+	if _, err := f.q.UpsertIntakeSetting(ctx, store.UpsertIntakeSettingParams{
 		ProjectID: f.projectID, SourceKind: intake.SourceKindIMBot, Enabled: 1, Mode: "auto",
 		DailyCap: 10, AllowListJson: `["ou_a"]`, BotListJson: `[]`,
-	})
-	if err != nil {
+	}); err != nil {
 		t.Fatalf("seed intake setting: %v", err)
 	}
-	_, err = f.q.CreateIntakeRule(ctx, store.CreateIntakeRuleParams{
+	if _, err := f.q.CreateIntakeRule(ctx, store.CreateIntakeRuleParams{
 		ProjectID: f.projectID, SourceKind: intake.SourceKindIMBot, Name: "r",
 		Instruction: "", ConditionsJson: `{"keywords":["部署"]}`, Priority: 0, Enabled: 1,
-	})
-	if err != nil {
+	}); err != nil {
 		t.Fatalf("seed rule: %v", err)
 	}
 	f.router.queue = []PlanTarget{{IssueID: f.issueID, WorkspaceID: f.wsID, ProjectID: f.projectID}}
 
-	// A non-listed actor whose message matches the rule is inferred; the chat's
-	// observe mode must record it instead of executing.
 	ev := f.groupMsg(chat.ChatExtID, "e-dry", "请部署到线上", false)
 	ev.ActorExtID = "ou_b"
 	f.svc.HandleInbound(ctx, ev)
 
 	if f.router.calls != 0 {
-		t.Fatalf("chat observe mode executed %d times, want 0", f.router.calls)
+		t.Fatalf("respond chat executed %d times, want 0", f.router.calls)
 	}
-	recorded := f.intakeEvent(t, chat.ChatExtID, "e-dry")
-	decisions, err := f.q.ListIntakeDecisionsByEvent(ctx, recorded.ID)
-	if err != nil || len(decisions) != 1 {
-		t.Fatalf("decisions = %v, err = %v", decisions, err)
+	pending, err := f.q.ListPendingIntakeDecisions(ctx, store.ListPendingIntakeDecisionsParams{
+		ProjectID: f.projectID, Decision: "accept",
+	})
+	if err != nil {
+		t.Fatalf("list pending decisions: %v", err)
 	}
-	d := decisions[0]
-	if d.Executed != 0 || d.Decision != "accept" || d.ModeAtDecision != IntakeModeObserve {
-		t.Fatalf("decision = %+v, want an unexecuted accept recorded in observe mode", d)
-	}
-	if !strings.Contains(d.WouldDoJson, "请部署到线上") {
-		t.Fatalf("would_do_json = %s, want the proposed goal", d.WouldDoJson)
+	if len(pending) != 0 {
+		t.Fatalf("respond chat recorded %d suggestions, want 0", len(pending))
 	}
 }
 
-// TestHandleInbound_LegacyInheritFallsBackToObserve: "inherit project" no
-// longer exists (the project card is a plain switch), so a legacy chat carrying
-// it resolves to the conservative dry-run mode and executes nothing.
-func TestHandleInbound_LegacyInheritFallsBackToObserve(t *testing.T) {
+// TestHandleInbound_LegacyInheritFallsBackToRespond: "inherit project" no
+// longer exists, so a legacy chat carrying it resolves to respond: inferred
+// ambient work is not executed and produces no suggestion.
+func TestHandleInbound_LegacyInheritFallsBackToRespond(t *testing.T) {
 	f := newIMBotFixture(t)
 	chat := f.activeChat(t, "oc_inherit")
 	chat = f.setChatAgentMode(t, chat, AgentModeObserve)
@@ -317,8 +309,8 @@ func TestHandleInbound_LegacyInheritFallsBackToObserve(t *testing.T) {
 	if err != nil {
 		t.Fatalf("list pending decisions: %v", err)
 	}
-	if len(pending) != 1 {
-		t.Fatalf("pending decisions = %d, want 1", len(pending))
+	if len(pending) != 0 {
+		t.Fatalf("respond chat recorded %d suggestions, want 0", len(pending))
 	}
 }
 
@@ -328,7 +320,7 @@ func TestHandleInbound_LegacyInheritFallsBackToObserve(t *testing.T) {
 func TestAcceptDecision_ExecutesPendingDecision(t *testing.T) {
 	f := newIMBotFixture(t)
 	chat := f.activeChat(t, "oc_accept")
-	chat = f.setChatIntakeMode(t, chat, IntakeModeObserve)
+	chat = f.setChatIntakeMode(t, chat, IntakeModeAuto)
 	ctx := context.Background()
 	if _, err := f.q.UpsertIntakeSetting(ctx, store.UpsertIntakeSettingParams{
 		ProjectID: f.projectID, SourceKind: intake.SourceKindIMBot, Enabled: 1, Mode: "auto",
@@ -336,12 +328,7 @@ func TestAcceptDecision_ExecutesPendingDecision(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("seed intake setting: %v", err)
 	}
-	if _, err := f.q.CreateIntakeRule(ctx, store.CreateIntakeRuleParams{
-		ProjectID: f.projectID, SourceKind: intake.SourceKindIMBot, Name: "r",
-		Instruction: "", ConditionsJson: `{"keywords":["部署"]}`, Priority: 0, Enabled: 1,
-	}); err != nil {
-		t.Fatalf("seed rule: %v", err)
-	}
+	// No rule: the message does not execute, it becomes a suggestion.
 	targetIssue, targetWS := f.newWorkspace(t, "目标任务", "/tmp/ws-accept")
 	f.router.queue = []PlanTarget{{IssueID: targetIssue, WorkspaceID: targetWS, ProjectID: f.projectID}}
 
@@ -382,5 +369,63 @@ func TestAcceptDecision_ExecutesPendingDecision(t *testing.T) {
 	}
 	if !strings.Contains(issue.GoalCondition, "请部署到线上") {
 		t.Fatalf("goal_condition = %q, want the accepted brief goal", issue.GoalCondition)
+	}
+}
+
+// Accepting one suggestion by hand acts on exactly that decision. Only an
+// automatic execution folds the conversation's other pending suggestions into
+// its work and marks them consumed; the manual path must leave them pending so
+// the reviewer can still act on each one.
+func TestAcceptDecision_DoesNotConsumeSiblingSuggestions(t *testing.T) {
+	f := newIMBotFixture(t)
+	chat := f.activeChat(t, "oc_manual")
+	f.setChatIntakeMode(t, chat, IntakeModeAuto)
+	ctx := context.Background()
+	if _, err := f.q.UpsertIntakeSetting(ctx, store.UpsertIntakeSettingParams{
+		ProjectID: f.projectID, SourceKind: intake.SourceKindIMBot, Enabled: 1, Mode: "auto",
+		DailyCap: 10, AllowListJson: `["ou_listed"]`, BotListJson: `[]`,
+	}); err != nil {
+		t.Fatalf("seed intake setting: %v", err)
+	}
+	targetIssue, targetWS := f.newWorkspace(t, "目标任务", "/tmp/ws-manual")
+	f.router.queue = []PlanTarget{{IssueID: targetIssue, WorkspaceID: targetWS, ProjectID: f.projectID}}
+
+	// Two ambient messages with no matching rule → two pending suggestions.
+	f.svc.HandleInbound(ctx, f.groupMsg(chat.ChatExtID, "e-m1", "整理周报", false))
+	f.svc.HandleInbound(ctx, f.groupMsg(chat.ChatExtID, "e-m2", "清理旧分支", false))
+
+	pending, err := f.q.ListPendingIntakeDecisions(ctx, store.ListPendingIntakeDecisionsParams{
+		ProjectID: f.projectID, Decision: "accept",
+	})
+	if err != nil || len(pending) != 2 {
+		t.Fatalf("pending = %v (err %v), want 2 suggestions", pending, err)
+	}
+
+	accepted := pending[0]
+	issueID, wsID, err := f.svc.AcceptDecision(ctx, accepted, 0)
+	if err != nil {
+		t.Fatalf("accept: %v", err)
+	}
+	// Mirror IntakeService.AcceptDecision: the manual path marks only the chosen
+	// decision executed.
+	if _, err := f.q.SetIntakeDecisionExecuted(ctx, store.SetIntakeDecisionExecutedParams{
+		IssueID:     sql.NullInt64{Int64: issueID, Valid: issueID > 0},
+		WorkspaceID: sql.NullInt64{Int64: wsID, Valid: wsID > 0},
+		ID:          accepted.ID,
+	}); err != nil {
+		t.Fatalf("mark executed: %v", err)
+	}
+
+	after, err := f.q.ListPendingIntakeDecisions(ctx, store.ListPendingIntakeDecisionsParams{
+		ProjectID: f.projectID, Decision: "accept",
+	})
+	if err != nil {
+		t.Fatalf("list pending after accept: %v", err)
+	}
+	if len(after) != 1 || after[0].ID != pending[1].ID {
+		t.Fatalf("pending after accept = %v, want only suggestion %d untouched", after, pending[1].ID)
+	}
+	if after[0].ConsumedAt.Valid {
+		t.Fatalf("suggestion %d was consumed by a manual accept", after[0].ID)
 	}
 }

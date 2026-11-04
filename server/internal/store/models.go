@@ -670,6 +670,8 @@ type IntakeDecision struct {
 	PolicyVersion      int64         `json:"policy_version"`
 	IssueID            sql.NullInt64 `json:"issue_id"`
 	WorkspaceID        sql.NullInt64 `json:"workspace_id"`
+	ConversationExtID  string        `json:"conversation_ext_id"`
+	ConsumedAt         sql.NullTime  `json:"consumed_at"`
 	WouldDoJson        string        `json:"would_do_json"`
 	CreatedAt          time.Time     `json:"created_at"`
 }
