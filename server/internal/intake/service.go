@@ -64,8 +64,11 @@ type DecisionRecord struct {
 	MatchedRuleIDs []int64
 	PolicyVersion  int64
 	Thread         ThreadRef
-	Brief          *TaskBrief
-	WouldDo        *WouldDo
+	// ConversationExtID scopes the decision to one chat, so a later automatic
+	// execution can consume that chat's pending suggestions exactly once.
+	ConversationExtID string
+	Brief             *TaskBrief
+	WouldDo           *WouldDo
 }
 
 // ExecutionPlan is handed to the executor for an accepted or resumed trigger.
@@ -114,6 +117,18 @@ type Store interface {
 	// ReleaseDailySlot returns a reservation when the pipeline failed before
 	// executing anything.
 	ReleaseDailySlot(ctx context.Context, projectID int64, sourceKind, day string) error
+	// ListPendingSuggestions returns the unconsumed dry-run suggestions raised in
+	// one conversation, oldest first.
+	ListPendingSuggestions(ctx context.Context, projectID int64, conversationExtID string) ([]PendingSuggestion, error)
+	// MarkSuggestionsConsumed marks suggestions as handled. Each is consumed at
+	// most once, so it is never folded into two executions.
+	MarkSuggestionsConsumed(ctx context.Context, ids []int64) error
+}
+
+// PendingSuggestion is one queued suggestion a later execution should absorb.
+type PendingSuggestion struct {
+	ID   int64
+	Goal string
 }
 
 // PolicyProvider loads the effective policy for one project+source. A project
@@ -277,7 +292,7 @@ func (s *Service) Handle(ctx context.Context, t Trigger) (Result, error) {
 	if s.staleAfter > 0 && !t.ReceivedAt.IsZero() && s.clock().Sub(t.ReceivedAt) > s.staleAfter {
 		decision, reason = DecisionIgnore, ReasonStale
 	}
-	executed := shouldExecute(policy.Mode, authz.Strength) &&
+	executed := shouldExecute(policy.Mode, authz) &&
 		(decision == DecisionAccept || decision == DecisionResume)
 	// The daily cap bounds inferred auto-intake only; explicit requests from an
 	// allow-listed actor always run. The slot is claimed atomically BEFORE
@@ -301,6 +316,29 @@ func (s *Service) Handle(ctx context.Context, t Trigger) (Result, error) {
 	}
 	res.Decision = decision
 	res.ReasonCode = reason
+
+	// An automatic execution absorbs the suggestions this conversation has been
+	// holding: their goals ride along with the work, and they are marked handled
+	// after a successful run so the same suggestion is never acted on twice.
+	var consumedIDs []int64
+	if executed && t.ConversationExtID != "" {
+		suggestions, serr := s.store.ListPendingSuggestions(ctx, t.ProjectID, t.ConversationExtID)
+		if serr != nil {
+			return res, fmt.Errorf("intake: list pending suggestions: %w", serr)
+		}
+		if len(suggestions) > 0 {
+			var b strings.Builder
+			b.WriteString(t.Text)
+			b.WriteString("\n\n[此前待处理的消息/建议，本次一并执行]\n")
+			for _, sug := range suggestions {
+				b.WriteString("- ")
+				b.WriteString(strings.TrimSpace(sug.Goal))
+				b.WriteString("\n")
+				consumedIDs = append(consumedIDs, sug.ID)
+			}
+			t.Text = b.String()
+		}
+	}
 
 	var brief *TaskBrief
 	var wouldDo *WouldDo
@@ -326,9 +364,10 @@ func (s *Service) Handle(ctx context.Context, t Trigger) (Result, error) {
 		ReasonCode:     reason,
 		MatchedRuleIDs: authz.MatchedRuleIDs,
 		PolicyVersion:  policy.Version,
-		Thread:         resolution.Thread,
-		Brief:          brief,
-		WouldDo:        wouldDo,
+		Thread:            resolution.Thread,
+		ConversationExtID: t.ConversationExtID,
+		Brief:             brief,
+		WouldDo:           wouldDo,
 	})
 	if err != nil {
 		// Nothing executed, so return the claimed slot.
@@ -362,6 +401,11 @@ func (s *Service) Handle(ctx context.Context, t Trigger) (Result, error) {
 	}
 	if err := s.store.MarkExecuted(ctx, decisionID, out); err != nil {
 		return res, fmt.Errorf("intake: mark executed: %w", err)
+	}
+	if len(consumedIDs) > 0 {
+		if err := s.store.MarkSuggestionsConsumed(ctx, consumedIDs); err != nil {
+			return res, fmt.Errorf("intake: mark suggestions consumed: %w", err)
+		}
 	}
 
 	res.Executed = true
@@ -477,7 +521,9 @@ func decide(mode Mode, authz Authorization, bound, forceNew bool) (Decision, str
 		switch mode {
 		case ModeAuto:
 			if len(authz.MatchedRuleIDs) == 0 {
-				return DecisionIgnore, ReasonNoRule
+				// No rule matched: the message does not execute, but it is
+				// recorded as a pending suggestion for the review queue.
+				return DecisionAccept, ReasonNoRule
 			}
 			if bound {
 				return DecisionResume, ReasonResumed
@@ -498,9 +544,9 @@ func decide(mode Mode, authz Authorization, bound, forceNew bool) (Decision, str
 
 // shouldExecute reports whether the pipeline may create or resume a task.
 // Explicit work always runs (any mode); inferred work only runs in auto mode.
-func shouldExecute(mode Mode, strength Strength) bool {
-	if strength == StrengthExplicit {
+func shouldExecute(mode Mode, authz Authorization) bool {
+	if authz.Strength == StrengthExplicit {
 		return true
 	}
-	return strength == StrengthInferred && mode == ModeAuto
+	return authz.Strength == StrengthInferred && mode == ModeAuto && len(authz.MatchedRuleIDs) > 0
 }

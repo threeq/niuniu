@@ -907,10 +907,18 @@ func migrateIntakeCompletion(db *sql.DB) {
 			slog.Warn("backfill intake_settings.enabled failed", "error", err)
 		}
 	}
-	// "inherit project" no longer exists (there is no project default mode):
-	// chats carrying it fall back to the conservative dry-run mode.
-	if _, err := db.Exec(`UPDATE im_bot_chats SET intake_mode = 'observe' WHERE intake_mode = 'inherit'`); err != nil {
-		slog.Warn("migrate im_bot_chats.intake_mode inherit failed", "error", err)
+	// The per-chat model collapsed to two modes: respond (only explicit
+	// requests) and auto. Suggest-only behaviour now lives inside auto, so a
+	// legacy observe chat keeps its capability; inherit/off become conservative.
+	addColumnIfNotExists(db, "intake_decisions", "conversation_ext_id", "TEXT NOT NULL DEFAULT ''")
+	addColumnIfNotExists(db, "intake_decisions", "consumed_at", "TIMESTAMP DEFAULT NULL")
+	for _, q := range []string{
+		`UPDATE im_bot_chats SET intake_mode = 'respond' WHERE intake_mode IN ('off','inherit')`,
+		`UPDATE im_bot_chats SET intake_mode = 'auto' WHERE intake_mode = 'observe'`,
+	} {
+		if _, err := db.Exec(q); err != nil {
+			slog.Warn("migrate im_bot_chats.intake_mode failed", "sql", q, "error", err)
+		}
 	}
 
 	// Indexes live here, not in the schema files: on an upgraded DB the schema

@@ -103,9 +103,9 @@ func (src imbotSource) Normalize(
 		// pre-policy behaviour), and once one exists Policy.Evaluate requires
 		// the actor to be on it.
 		Explicit: true,
-		// An observe-mode chat reads every message; unlisted actors there are
-		// inferred candidates rather than denied.
-		ReceiveAll: normalizeAgentMode(chat.AgentMode) == AgentModeObserve,
+		// An auto chat reads every message; unlisted actors there are inferred
+		// candidates rather than denied.
+		ReceiveAll: mode == intake.ModeAuto,
 		ForceNew:   forceNew,
 		// The chat's own intake mode governs this trigger (design §6.9).
 		Mode: mode,
@@ -141,14 +141,10 @@ func effectiveChatIntakeMode(chat store.ImBotChat, legacy bool) intake.Mode {
 		return intake.ModeOff
 	}
 	switch normalizeIntakeMode(chat.IntakeMode) {
-	case IntakeModeOff:
-		return intake.ModeOff
 	case IntakeModeAuto:
 		return intake.ModeAuto
-	case IntakeModeInherit:
-		return ""
 	default:
-		return intake.ModeObserve
+		return intake.ModeOff
 	}
 }
 
@@ -252,6 +248,7 @@ func (st imbotIntakeStore) RecordDecision(ctx context.Context, rec intake.Decisi
 		PolicyVersion:      rec.PolicyVersion,
 		IssueID:            validID(rec.Thread.IssueID),
 		WorkspaceID:        validID(rec.Thread.WorkspaceID),
+		ConversationExtID:  rec.ConversationExtID,
 		WouldDoJson:        wouldDo,
 	})
 	if err != nil {
@@ -267,6 +264,41 @@ func (st imbotIntakeStore) MarkExecuted(ctx context.Context, decisionID int64, r
 		ID:          decisionID,
 	})
 	return err
+}
+
+// ListPendingSuggestions returns the unconsumed dry-run suggestions raised in one
+// conversation, decoding each one's proposed goal.
+func (st imbotIntakeStore) ListPendingSuggestions(ctx context.Context, projectID int64, conversationExtID string) ([]intake.PendingSuggestion, error) {
+	rows, err := st.q.ListPendingSuggestionsForConversation(ctx, store.ListPendingSuggestionsForConversationParams{
+		ProjectID: projectID, ConversationExtID: conversationExtID,
+	})
+	if err != nil {
+		return nil, err
+	}
+	out := make([]intake.PendingSuggestion, 0, len(rows))
+	for _, row := range rows {
+		var wd struct {
+			Brief *intake.TaskBrief `json:"brief"`
+		}
+		_ = json.Unmarshal([]byte(row.WouldDoJson), &wd)
+		goal := ""
+		if wd.Brief != nil {
+			goal = wd.Brief.Goal
+		}
+		out = append(out, intake.PendingSuggestion{ID: row.ID, Goal: goal})
+	}
+	return out, nil
+}
+
+// MarkSuggestionsConsumed marks each suggestion handled. It is idempotent and
+// skips rows another execution already consumed.
+func (st imbotIntakeStore) MarkSuggestionsConsumed(ctx context.Context, ids []int64) error {
+	for _, id := range ids {
+		if err := st.q.MarkIntakeDecisionsConsumed(ctx, id); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (st imbotIntakeStore) ReserveDailySlot(ctx context.Context, projectID int64, sourceKind, day string, cap int64) (bool, error) {

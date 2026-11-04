@@ -402,7 +402,9 @@ export function DecisionDetail({ decision, rules, rulesFailed }: DecisionDetailP
                 })
               : status === 'accepted'
                 ? t('review.alreadyAccepted')
-                : t('review.notAcceptable')}
+                : status === 'consumed'
+                  ? t('review.alreadyConsumed')
+                  : t('review.notAcceptable')}
           </section>
         )}
       </div>

@@ -507,7 +507,13 @@
     "rename": "Rename",
     "renameLabel": "Bot name",
     "renameSave": "Save",
-    "renameOk": "Renamed"
+    "renameOk": "Renamed",
+    "intakeMode": {
+      "respond": "Respond only",
+      "auto": "Automatic"
+    },
+    "intakeModeAutoHint": "Unmatched group messages and background findings go to the review queue; matched ones run within the daily cap.",
+    "intakeModeTitle": "Response mode"
   },
   "orchestration": {
     "title": "Orchestration Cost Guardrails",

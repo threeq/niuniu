@@ -320,8 +320,10 @@ func TestEmployeeSweep_TaskVerdictNeverStartsWork(t *testing.T) {
 	if n := len(f.deliverer.calls); n != 0 {
 		t.Fatalf("proactive verdict delivered %d messages, want 0", n)
 	}
-	if n := len(f.adapter.pushes); n != 0 {
-		t.Fatalf("proactive verdict pushed %d messages, want 0", n)
+	// Exactly one reminder telling the chat a suggestion was queued — no task
+	// announcement (there is no task yet).
+	if n := len(f.adapter.pushes); n != 1 || !strings.Contains(f.adapter.pushes[0].Text, "待校准") {
+		t.Fatalf("proactive verdict pushes = %+v, want one review-queue reminder", f.adapter.pushes)
 	}
 
 	pending, err := f.q.ListPendingIntakeDecisions(context.Background(), store.ListPendingIntakeDecisionsParams{
@@ -363,8 +365,8 @@ func TestEmployeeSweep_ObserveIntakeRecordsDryRun(t *testing.T) {
 	if n := len(f.deliverer.calls); n != 0 {
 		t.Fatalf("dry-run delivered %d messages, want 0", n)
 	}
-	if n := len(f.adapter.pushes); n != 0 {
-		t.Fatalf("dry-run pushed %d messages, want 0: %+v", n, f.adapter.pushes)
+	if n := len(f.adapter.pushes); n != 1 || !strings.Contains(f.adapter.pushes[0].Text, "待校准") {
+		t.Fatalf("suggestion pushes = %+v, want one review-queue reminder", f.adapter.pushes)
 	}
 
 	pending, err := f.q.ListPendingIntakeDecisions(context.Background(), store.ListPendingIntakeDecisionsParams{
@@ -380,8 +382,8 @@ func TestEmployeeSweep_ObserveIntakeRecordsDryRun(t *testing.T) {
 	if d.Executed != 0 {
 		t.Errorf("dry-run decision executed=%d, want 0", d.Executed)
 	}
-	if d.ModeAtDecision != IntakeModeObserve {
-		t.Errorf("mode_at_decision = %q, want observe", d.ModeAtDecision)
+	if d.ModeAtDecision != IntakeModeAuto {
+		t.Errorf("mode_at_decision = %q, want auto", d.ModeAtDecision)
 	}
 	if d.Strength != "inferred" || d.ReasonCode != "observed" {
 		t.Errorf("decision meta = strength %q reason %q, want inferred/observed", d.Strength, d.ReasonCode)
@@ -423,10 +425,9 @@ func TestEmployeeSweep_OffIntakeDoesNotEvaluate(t *testing.T) {
 	}
 }
 
-// TestEmployeeSweep_LegacyInheritProposesOnly: a legacy "inherit project" chat
-// now resolves to observe (there is no project default mode), so the proactive
-// verdict is recorded as a dry-run and nothing starts.
-func TestEmployeeSweep_LegacyInheritProposesOnly(t *testing.T) {
+// TestEmployeeSweep_LegacyInheritDoesNotAnalyze: a legacy "inherit project" chat
+// resolves to respond (the conservative mode), so no background analysis runs.
+func TestEmployeeSweep_LegacyInheritDoesNotAnalyze(t *testing.T) {
 	f := newIMBotFixture(t)
 	chat := f.activeChat(t, "oc_inherit_sweep")
 	chat = f.setChatAgentMode(t, chat, AgentModeObserve)
@@ -446,10 +447,8 @@ func TestEmployeeSweep_LegacyInheritProposesOnly(t *testing.T) {
 	}})
 	emp.sweep(ctx)
 
-	// Inherit resolves to the project's auto mode, which means the proposal is
-	// recordable — but never auto-started.
 	if f.router.calls != 0 {
-		t.Fatalf("inherit + project auto routed %d times, want 0", f.router.calls)
+		t.Fatalf("respond chat routed %d times, want 0", f.router.calls)
 	}
 	pending, err := f.q.ListPendingIntakeDecisions(ctx, store.ListPendingIntakeDecisionsParams{
 		ProjectID: f.projectID, Decision: "accept",
@@ -457,8 +456,11 @@ func TestEmployeeSweep_LegacyInheritProposesOnly(t *testing.T) {
 	if err != nil {
 		t.Fatalf("list pending decisions: %v", err)
 	}
-	if len(pending) != 1 {
-		t.Fatalf("pending decisions = %d, want 1", len(pending))
+	if len(pending) != 0 {
+		t.Fatalf("respond chat recorded %d suggestions, want 0", len(pending))
+	}
+	if n := len(f.adapter.pushes); n != 0 {
+		t.Fatalf("respond chat pushed %d messages, want 0", n)
 	}
 }
 
@@ -530,22 +532,37 @@ func TestEmployeeSweep_AnalysisErrorRetriesNextSweep(t *testing.T) {
 
 // TestEmployeeSweep_SkipsThinAndCommandModeChats: a discussion still forming is
 // not worth a model call, and a chat that never opted in must never be analyzed.
-func TestEmployeeSweep_SkipsThinAndCommandModeChats(t *testing.T) {
+func TestEmployeeSweep_SkipsRespondModeChats(t *testing.T) {
 	f := newIMBotFixture(t)
-	thin := f.observeChat(t, "oc_thin")
-	seedChatter(t, f, thin, employeeMinMessages-1)
-
-	// A command-mode chat with a transcript (e.g. left over from a mode switch)
-	// must be excluded by the query, not merely by having no messages.
-	cmdChat := f.activeChat(t, "oc_cmdmode")
-	seedChatter(t, f, cmdChat, employeeMinMessages+2)
+	// A respond-mode chat (the default) has a transcript from before a switch,
+	// but must not be analyzed: background analysis belongs to auto mode.
+	respondChat := f.activeChat(t, "oc_respond")
+	seedChatter(t, f, respondChat, employeeMinMessages+2)
 
 	an := &fakeAnalyzer{verdict: EmployeeVerdict{Action: EmployeeActionNotify, Message: "x"}}
 	emp := NewIMBotEmployee(f.svc, f.q, an)
 	emp.sweep(context.Background())
 
 	if len(an.transcripts) != 0 {
-		t.Fatalf("analyzer called %d times, want 0 (thin batch + command-mode chat)", len(an.transcripts))
+		t.Fatalf("analyzer called %d times on a respond-mode chat, want 0", len(an.transcripts))
+	}
+}
+
+// A recent batch below the 30-message threshold is not ready yet.
+func TestEmployeeSweep_ThinRecentBatchNotAnalyzed(t *testing.T) {
+	f := newIMBotFixture(t)
+	chat := f.observeChat(t, "oc_thin")
+	ctx := context.Background()
+	for i := 0; i < employeeMinMessages-1; i++ {
+		f.svc.recordObservation(ctx, chat, imbot.InboundEvent{ActorExtID: "ou_a"}, "讨论 "+itoa(int64(i)), false)
+	}
+
+	an := &fakeAnalyzer{verdict: EmployeeVerdict{Action: EmployeeActionNotify, Message: "x"}}
+	emp := NewIMBotEmployee(f.svc, f.q, an)
+	emp.sweep(ctx)
+
+	if len(an.transcripts) != 0 {
+		t.Fatalf("analyzer called %d times on a thin recent batch, want 0", len(an.transcripts))
 	}
 }
 
@@ -1814,8 +1831,10 @@ func TestEmployeeNotify_BelowThresholdStaysQuiet(t *testing.T) {
 }
 
 // batchReady is the gate both the nudge and the heartbeat go through.
-func TestEmployeeBatchReady_QuietPeriodAndBackstop(t *testing.T) {
-	emp := &IMBotEmployee{quiet: time.Minute}
+// batchReady: 30 messages OR 30 minutes of accumulation, and never on an empty
+// backlog.
+func TestEmployeeBatchReady_ThresholdOrAge(t *testing.T) {
+	emp := &IMBotEmployee{}
 	now := time.Now()
 	emp.nowFn = func() time.Time { return now }
 
@@ -1827,25 +1846,20 @@ func TestEmployeeBatchReady_QuietPeriodAndBackstop(t *testing.T) {
 		return out
 	}
 
-	// Still talking: threshold met but the chat is not quiet -> not ready. This is
-	// the "don't judge a conversation mid-sentence" rule.
-	if emp.batchReady(full(2 * time.Second)) {
-		t.Error("analyzed a batch while the chat was still active")
+	if emp.batchReady(nil) {
+		t.Error("empty batch became ready")
 	}
-	// Fell quiet -> ready.
-	if !emp.batchReady(full(2 * time.Minute)) {
-		t.Error("a quiet, full batch was not ready")
+	if !emp.batchReady(full(0)) {
+		t.Error("30-message batch was not ready")
 	}
-	// Below threshold never becomes ready by aging alone.
-	if emp.batchReady([]store.ImBotChatMessage{{ID: 1, CreatedAt: now.Add(-24 * time.Hour)}}) {
-		t.Error("a tiny batch became ready just by getting old")
+	if emp.batchReady([]store.ImBotChatMessage{{ID: 1, CreatedAt: now}}) {
+		t.Error("a single fresh message became ready")
 	}
-	// A never-quiet but very old batch hits the backstop, so a permanently busy
-	// group is not starved.
-	busy := full(employeeMaxPendingAge + time.Hour)
-	busy[len(busy)-1].CreatedAt = now // newest is right now => never quiet
-	if !emp.batchReady(busy) {
-		t.Error("continuously busy chat was starved; backstop did not fire")
+	if !emp.batchReady([]store.ImBotChatMessage{{ID: 1, CreatedAt: now.Add(-31 * time.Minute)}}) {
+		t.Error("a 31-minute-old message was not ready")
+	}
+	if emp.batchReady([]store.ImBotChatMessage{{ID: 1, CreatedAt: now.Add(-20 * time.Minute)}}) {
+		t.Error("a 20-minute-old message became ready too early")
 	}
 }
 
@@ -1884,11 +1898,12 @@ func TestEmployeeTuning_NotTooEager(t *testing.T) {
 	if employeeSweepInterval < 20*time.Minute {
 		t.Errorf("employeeSweepInterval = %s is short enough to act as a poll again", employeeSweepInterval)
 	}
-	// The starvation backstop must be well clear of the quiet period, or it becomes
-	// a second cadence rather than a rare safety net.
-	if employeeMaxPendingAge < 10*employeeQuietPeriod {
-		t.Errorf("employeeMaxPendingAge %s too close to the quiet period %s",
-			employeeMaxPendingAge, employeeQuietPeriod)
+	// The spec is 30 messages or 30 minutes; both must stay conservative.
+	if employeeMinMessages < 30 {
+		t.Errorf("employeeMinMessages = %d, want at least 30", employeeMinMessages)
+	}
+	if employeeQuietPeriod < 30*time.Minute {
+		t.Errorf("employeeQuietPeriod = %s, want at least 30m", employeeQuietPeriod)
 	}
 }
 

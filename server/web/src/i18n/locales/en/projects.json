@@ -959,13 +959,14 @@
     "agentModeCommandHint": "Act only when @-mentioned, messaged directly, or given a command.",
     "agentModeObserve": "Listen mode",
     "agentModeObserveHint": "Records the group discussion and analyzes it periodically; discovered work goes to the review queue and only starts after you accept it.",
-    "intakeModeTitle": "Intake mode",
+    "intakeModeTitle": "Response mode",
     "intakeMode": {
       "inherit": "Inherit project",
       "off": "Off",
       "observe": "Observe",
-      "auto": "Auto",
-      "inheritEffective": "Inherit ({{mode}})"
+      "auto": "Automatic",
+      "inheritEffective": "Inherit ({{mode}})",
+      "respond": "Respond only"
     },
     "intakeModeOverridden": "Overrides project default",
     "intakeModeObserveHint": "Messages are recorded for calibration; the bot will not act on its own.",
@@ -1014,7 +1015,8 @@
       "channelIdLabel": "Channel ID (channel_id)",
       "channelIdHint": "Go back to the chat and tell the assistant this number to continue the connectivity test."
     },
-    "intakeModeProjectHint": "Intake mode: inherits the project default (Project settings → Task sources); override it here for this chat."
+    "intakeModeProjectHint": "Intake mode: inherits the project default (Project settings → Task sources); override it here for this chat.",
+    "intakeModeAutoHint": "Unmatched group messages and background findings go to the review queue; matched ones run within the daily cap."
   },
   "credentialOnboarding": {
     "pageTitle": "Credential entry",

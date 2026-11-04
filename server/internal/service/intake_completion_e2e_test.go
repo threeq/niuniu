@@ -579,9 +579,9 @@ func TestE2E_UnlistedActorDenied(t *testing.T) {
 	ctx := context.Background()
 	chat := f.activeChat(t, "oc_denied")
 
-	// auto (not observe) means the chat does not "receive all", so an unlisted
-	// actor has no inferred path either.
-	f.setChatIntakeMode(t, chat, IntakeModeAuto)
+	// A respond chat does not "receive all", so an unlisted actor has no
+	// inferred path and is denied outright.
+	f.setChatIntakeMode(t, chat, IntakeModeRespond)
 	if _, err := NewIntakeService(f.db, f.q).UpdateSettings(ctx, f.projectID, UpdateIntakeSettingsRequest{
 		Settings: []IntakeSettingInput{{
 			SourceKind: intake.SourceKindIMBot,

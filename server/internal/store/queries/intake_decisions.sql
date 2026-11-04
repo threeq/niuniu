@@ -2,8 +2,8 @@
 INSERT INTO intake_decisions (
     event_id, project_id, mode_at_decision, strength, decision, executed,
     reason_code, reason_text, matched_rule_ids_json, policy_version,
-    issue_id, workspace_id, would_do_json
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    issue_id, workspace_id, conversation_ext_id, would_do_json
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 RETURNING *;
 
 -- name: GetIntakeDecision :one
@@ -13,7 +13,7 @@ SELECT * FROM intake_decisions WHERE id = ?;
 -- Calibration queue: decisions recorded but not executed (observe mode) for
 -- the requested decision outcome, newest first.
 SELECT * FROM intake_decisions
-WHERE project_id = ? AND executed = 0 AND decision = ?
+WHERE project_id = ? AND executed = 0 AND decision = ? AND consumed_at IS NULL
 ORDER BY created_at DESC, id DESC;
 
 -- name: ListIntakeDecisionsByProject :many
@@ -49,3 +49,17 @@ FROM intake_decisions d
 JOIN intake_events e ON e.id = d.event_id
 WHERE d.project_id = ? AND e.source_kind = ? AND d.executed = 1
   AND d.created_at >= ?;
+
+-- name: ListPendingSuggestionsForConversation :many
+-- Pending suggestions raised in one conversation. A later automatic execution in
+-- that conversation folds them into its work and marks them consumed, so the
+-- same suggestion is never acted on twice.
+SELECT * FROM intake_decisions
+WHERE project_id = ? AND conversation_ext_id = ?
+  AND executed = 0 AND consumed_at IS NULL
+  AND decision IN ('accept','resume')
+ORDER BY created_at ASC, id ASC;
+
+-- name: MarkIntakeDecisionsConsumed :exec
+UPDATE intake_decisions SET consumed_at = CURRENT_TIMESTAMP
+WHERE id = ? AND consumed_at IS NULL;

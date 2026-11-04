@@ -412,7 +412,8 @@
     "status": {
       "pending": "待處理",
       "accepted": "已採納",
-      "ignored": "已忽略"
+      "ignored": "已忽略",
+      "consumed": "已處理"
     },
     "allProjects": "全部專案",
     "target": "執行位置",
@@ -436,6 +437,7 @@
     "deleteFailed": "刪除失敗",
     "batchDelete": "刪除所選",
     "deleteSelectedTitle": "刪除所選的 {{count}} 條記錄？",
-    "staleReason": "訊息到達過晚（超出時效視窗），已記錄但未執行。"
+    "staleReason": "訊息到達過晚（超出時效視窗），已記錄但未執行。",
+    "alreadyConsumed": "該建議已被後續的自動執行一併處理。"
   }
 }

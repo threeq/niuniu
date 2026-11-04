@@ -111,29 +111,20 @@ func (s *IMBotService) HandleInbound(ctx context.Context, ev imbot.InboundEvent)
 		text = attachmentPlaceholder(ev.Attachments)
 	}
 
-	// Agent-employee observation layer (issue #664). In observe mode the bot acts
-	// like a colleague sitting in the chat: every message is recorded, but only a
-	// message actually AIMED at the bot takes over the conversation. Ambient
-	// chatter is left to the periodic proactive analysis (imbot_employee.go), so a
-	// busy group does not spawn a task per overheard sentence. A command-mode chat
-	// (the default, and every pre-existing chat) skips this entirely and behaves
-	// exactly as before.
-	if normalizeAgentMode(chat.AgentMode) == AgentModeObserve {
-		// Addressed either by the message's own wording (@mention / DM / command) or
-		// by context (a workspace-pinned chat, or a follow-up inside a thread already
-		// bound to a task — those must not be dropped for lacking a fresh @mention).
+	// Auto chats are read in full: ambient messages feed the suggestion analysis
+	// and may match a rule. Respond chats only act on messages aimed at the bot,
+	// so unaddressed chatter is dropped before it reaches the pipeline.
+	if s.effectiveChatIntakeMode(ctx, chat) == intake.ModeAuto {
 		addressed := addressedToBot(ev, text) || s.conversationallyAddressed(ctx, chat, ev.ThreadExtID)
 		s.recordObservation(ctx, chat, ev, observedText, addressed)
 		// Analysis is message-driven: tell the employee this chat has new material.
-		// Non-blocking (it only wakes a worker), so the connector goroutine handling
-		// this message never waits on a model call.
+		// Non-blocking, so the connector goroutine never waits on a model call.
 		if s.employee != nil {
 			s.employee.Notify(chat.ID)
 		}
-		if !addressed {
-			slog.Debug("imbot: observed (not addressed)", "chat", chat.ID, "actor", ev.ActorExtID)
-			return
-		}
+	} else if !addressedToBot(ev, text) && !s.conversationallyAddressed(ctx, chat, ev.ThreadExtID) {
+		slog.Debug("imbot: ignored (respond mode, not addressed)", "chat", chat.ID, "actor", ev.ActorExtID)
+		return
 	}
 
 	// Slash commands (optional; the channel already binds a single project).

@@ -72,7 +72,9 @@ export interface IntakeDecision {
   decision: IntakeDecisionKind | string
   executed: boolean
   /** Queue state derived by the server: pending | accepted | ignored. */
-  status?: 'pending' | 'accepted' | 'ignored'
+  status?: 'pending' | 'accepted' | 'ignored' | 'consumed'
+  /** Absorbed by a later automatic execution; never processed again. */
+  consumed?: boolean
   /** The task was recorded but handing the message to its agent failed. */
   delivery_failed?: boolean
   delivery_error?: string

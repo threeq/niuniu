@@ -412,7 +412,8 @@
     "status": {
       "pending": "Pending",
       "accepted": "Accepted",
-      "ignored": "Ignored"
+      "ignored": "Ignored",
+      "consumed": "Handled"
     },
     "allProjects": "All projects",
     "target": "Run on",
@@ -436,6 +437,7 @@
     "deleteFailed": "Delete failed",
     "batchDelete": "Delete selected",
     "deleteSelectedTitle": "Delete the {{count}} selected entries?",
-    "staleReason": "Message arrived too late (older than the staleness window); recorded but not executed."
+    "staleReason": "Message arrived too late (older than the staleness window); recorded but not executed.",
+    "alreadyConsumed": "This suggestion was already absorbed by a later automatic execution."
   }
 }

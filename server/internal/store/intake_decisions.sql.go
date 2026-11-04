@@ -38,9 +38,9 @@ const createIntakeDecision = `-- name: CreateIntakeDecision :one
 INSERT INTO intake_decisions (
     event_id, project_id, mode_at_decision, strength, decision, executed,
     reason_code, reason_text, matched_rule_ids_json, policy_version,
-    issue_id, workspace_id, would_do_json
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-RETURNING id, event_id, project_id, mode_at_decision, strength, decision, executed, reason_code, reason_text, matched_rule_ids_json, policy_version, issue_id, workspace_id, would_do_json, created_at
+    issue_id, workspace_id, conversation_ext_id, would_do_json
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+RETURNING id, event_id, project_id, mode_at_decision, strength, decision, executed, reason_code, reason_text, matched_rule_ids_json, policy_version, issue_id, workspace_id, conversation_ext_id, consumed_at, would_do_json, created_at
 `
 
 type CreateIntakeDecisionParams struct {
@@ -56,6 +56,7 @@ type CreateIntakeDecisionParams struct {
 	PolicyVersion      int64         `json:"policy_version"`
 	IssueID            sql.NullInt64 `json:"issue_id"`
 	WorkspaceID        sql.NullInt64 `json:"workspace_id"`
+	ConversationExtID  string        `json:"conversation_ext_id"`
 	WouldDoJson        string        `json:"would_do_json"`
 }
 
@@ -73,6 +74,7 @@ func (q *Queries) CreateIntakeDecision(ctx context.Context, arg CreateIntakeDeci
 		arg.PolicyVersion,
 		arg.IssueID,
 		arg.WorkspaceID,
+		arg.ConversationExtID,
 		arg.WouldDoJson,
 	)
 	var i IntakeDecision
@@ -90,6 +92,8 @@ func (q *Queries) CreateIntakeDecision(ctx context.Context, arg CreateIntakeDeci
 		&i.PolicyVersion,
 		&i.IssueID,
 		&i.WorkspaceID,
+		&i.ConversationExtID,
+		&i.ConsumedAt,
 		&i.WouldDoJson,
 		&i.CreatedAt,
 	)
@@ -97,7 +101,7 @@ func (q *Queries) CreateIntakeDecision(ctx context.Context, arg CreateIntakeDeci
 }
 
 const getIntakeDecision = `-- name: GetIntakeDecision :one
-SELECT id, event_id, project_id, mode_at_decision, strength, decision, executed, reason_code, reason_text, matched_rule_ids_json, policy_version, issue_id, workspace_id, would_do_json, created_at FROM intake_decisions WHERE id = ?
+SELECT id, event_id, project_id, mode_at_decision, strength, decision, executed, reason_code, reason_text, matched_rule_ids_json, policy_version, issue_id, workspace_id, conversation_ext_id, consumed_at, would_do_json, created_at FROM intake_decisions WHERE id = ?
 `
 
 func (q *Queries) GetIntakeDecision(ctx context.Context, id int64) (IntakeDecision, error) {
@@ -117,6 +121,8 @@ func (q *Queries) GetIntakeDecision(ctx context.Context, id int64) (IntakeDecisi
 		&i.PolicyVersion,
 		&i.IssueID,
 		&i.WorkspaceID,
+		&i.ConversationExtID,
+		&i.ConsumedAt,
 		&i.WouldDoJson,
 		&i.CreatedAt,
 	)
@@ -124,7 +130,7 @@ func (q *Queries) GetIntakeDecision(ctx context.Context, id int64) (IntakeDecisi
 }
 
 const listIntakeDecisionsByEvent = `-- name: ListIntakeDecisionsByEvent :many
-SELECT id, event_id, project_id, mode_at_decision, strength, decision, executed, reason_code, reason_text, matched_rule_ids_json, policy_version, issue_id, workspace_id, would_do_json, created_at FROM intake_decisions WHERE event_id = ? ORDER BY created_at DESC, id DESC
+SELECT id, event_id, project_id, mode_at_decision, strength, decision, executed, reason_code, reason_text, matched_rule_ids_json, policy_version, issue_id, workspace_id, conversation_ext_id, consumed_at, would_do_json, created_at FROM intake_decisions WHERE event_id = ? ORDER BY created_at DESC, id DESC
 `
 
 func (q *Queries) ListIntakeDecisionsByEvent(ctx context.Context, eventID int64) ([]IntakeDecision, error) {
@@ -150,6 +156,8 @@ func (q *Queries) ListIntakeDecisionsByEvent(ctx context.Context, eventID int64)
 			&i.PolicyVersion,
 			&i.IssueID,
 			&i.WorkspaceID,
+			&i.ConversationExtID,
+			&i.ConsumedAt,
 			&i.WouldDoJson,
 			&i.CreatedAt,
 		); err != nil {
@@ -167,7 +175,7 @@ func (q *Queries) ListIntakeDecisionsByEvent(ctx context.Context, eventID int64)
 }
 
 const listIntakeDecisionsByProject = `-- name: ListIntakeDecisionsByProject :many
-SELECT id, event_id, project_id, mode_at_decision, strength, decision, executed, reason_code, reason_text, matched_rule_ids_json, policy_version, issue_id, workspace_id, would_do_json, created_at FROM intake_decisions
+SELECT id, event_id, project_id, mode_at_decision, strength, decision, executed, reason_code, reason_text, matched_rule_ids_json, policy_version, issue_id, workspace_id, conversation_ext_id, consumed_at, would_do_json, created_at FROM intake_decisions
 WHERE project_id = ?
 ORDER BY created_at DESC, id DESC
 LIMIT ?
@@ -201,6 +209,8 @@ func (q *Queries) ListIntakeDecisionsByProject(ctx context.Context, arg ListInta
 			&i.PolicyVersion,
 			&i.IssueID,
 			&i.WorkspaceID,
+			&i.ConversationExtID,
+			&i.ConsumedAt,
 			&i.WouldDoJson,
 			&i.CreatedAt,
 		); err != nil {
@@ -218,8 +228,8 @@ func (q *Queries) ListIntakeDecisionsByProject(ctx context.Context, arg ListInta
 }
 
 const listPendingIntakeDecisions = `-- name: ListPendingIntakeDecisions :many
-SELECT id, event_id, project_id, mode_at_decision, strength, decision, executed, reason_code, reason_text, matched_rule_ids_json, policy_version, issue_id, workspace_id, would_do_json, created_at FROM intake_decisions
-WHERE project_id = ? AND executed = 0 AND decision = ?
+SELECT id, event_id, project_id, mode_at_decision, strength, decision, executed, reason_code, reason_text, matched_rule_ids_json, policy_version, issue_id, workspace_id, conversation_ext_id, consumed_at, would_do_json, created_at FROM intake_decisions
+WHERE project_id = ? AND executed = 0 AND decision = ? AND consumed_at IS NULL
 ORDER BY created_at DESC, id DESC
 `
 
@@ -253,6 +263,8 @@ func (q *Queries) ListPendingIntakeDecisions(ctx context.Context, arg ListPendin
 			&i.PolicyVersion,
 			&i.IssueID,
 			&i.WorkspaceID,
+			&i.ConversationExtID,
+			&i.ConsumedAt,
 			&i.WouldDoJson,
 			&i.CreatedAt,
 		); err != nil {
@@ -269,11 +281,78 @@ func (q *Queries) ListPendingIntakeDecisions(ctx context.Context, arg ListPendin
 	return items, nil
 }
 
+const listPendingSuggestionsForConversation = `-- name: ListPendingSuggestionsForConversation :many
+SELECT id, event_id, project_id, mode_at_decision, strength, decision, executed, reason_code, reason_text, matched_rule_ids_json, policy_version, issue_id, workspace_id, conversation_ext_id, consumed_at, would_do_json, created_at FROM intake_decisions
+WHERE project_id = ? AND conversation_ext_id = ?
+  AND executed = 0 AND consumed_at IS NULL
+  AND decision IN ('accept','resume')
+ORDER BY created_at ASC, id ASC
+`
+
+type ListPendingSuggestionsForConversationParams struct {
+	ProjectID         int64  `json:"project_id"`
+	ConversationExtID string `json:"conversation_ext_id"`
+}
+
+// Pending suggestions raised in one conversation. A later automatic execution in
+// that conversation folds them into its work and marks them consumed, so the
+// same suggestion is never acted on twice.
+func (q *Queries) ListPendingSuggestionsForConversation(ctx context.Context, arg ListPendingSuggestionsForConversationParams) ([]IntakeDecision, error) {
+	rows, err := q.db.QueryContext(ctx, listPendingSuggestionsForConversation, arg.ProjectID, arg.ConversationExtID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []IntakeDecision{}
+	for rows.Next() {
+		var i IntakeDecision
+		if err := rows.Scan(
+			&i.ID,
+			&i.EventID,
+			&i.ProjectID,
+			&i.ModeAtDecision,
+			&i.Strength,
+			&i.Decision,
+			&i.Executed,
+			&i.ReasonCode,
+			&i.ReasonText,
+			&i.MatchedRuleIdsJson,
+			&i.PolicyVersion,
+			&i.IssueID,
+			&i.WorkspaceID,
+			&i.ConversationExtID,
+			&i.ConsumedAt,
+			&i.WouldDoJson,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const markIntakeDecisionsConsumed = `-- name: MarkIntakeDecisionsConsumed :exec
+UPDATE intake_decisions SET consumed_at = CURRENT_TIMESTAMP
+WHERE id = ? AND consumed_at IS NULL
+`
+
+func (q *Queries) MarkIntakeDecisionsConsumed(ctx context.Context, id int64) error {
+	_, err := q.db.ExecContext(ctx, markIntakeDecisionsConsumed, id)
+	return err
+}
+
 const setIntakeDecisionExecuted = `-- name: SetIntakeDecisionExecuted :one
 UPDATE intake_decisions
 SET executed = 1, issue_id = ?, workspace_id = ?
 WHERE id = ? AND executed = 0
-RETURNING id, event_id, project_id, mode_at_decision, strength, decision, executed, reason_code, reason_text, matched_rule_ids_json, policy_version, issue_id, workspace_id, would_do_json, created_at
+RETURNING id, event_id, project_id, mode_at_decision, strength, decision, executed, reason_code, reason_text, matched_rule_ids_json, policy_version, issue_id, workspace_id, conversation_ext_id, consumed_at, would_do_json, created_at
 `
 
 type SetIntakeDecisionExecutedParams struct {
@@ -302,6 +381,8 @@ func (q *Queries) SetIntakeDecisionExecuted(ctx context.Context, arg SetIntakeDe
 		&i.PolicyVersion,
 		&i.IssueID,
 		&i.WorkspaceID,
+		&i.ConversationExtID,
+		&i.ConsumedAt,
 		&i.WouldDoJson,
 		&i.CreatedAt,
 	)
@@ -312,7 +393,7 @@ const setIntakeDecisionOutcome = `-- name: SetIntakeDecisionOutcome :one
 UPDATE intake_decisions
 SET decision = ?, reason_code = ?, reason_text = ?
 WHERE id = ?
-RETURNING id, event_id, project_id, mode_at_decision, strength, decision, executed, reason_code, reason_text, matched_rule_ids_json, policy_version, issue_id, workspace_id, would_do_json, created_at
+RETURNING id, event_id, project_id, mode_at_decision, strength, decision, executed, reason_code, reason_text, matched_rule_ids_json, policy_version, issue_id, workspace_id, conversation_ext_id, consumed_at, would_do_json, created_at
 `
 
 type SetIntakeDecisionOutcomeParams struct {
@@ -345,6 +426,8 @@ func (q *Queries) SetIntakeDecisionOutcome(ctx context.Context, arg SetIntakeDec
 		&i.PolicyVersion,
 		&i.IssueID,
 		&i.WorkspaceID,
+		&i.ConversationExtID,
+		&i.ConsumedAt,
 		&i.WouldDoJson,
 		&i.CreatedAt,
 	)

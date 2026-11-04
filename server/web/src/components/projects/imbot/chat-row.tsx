@@ -27,7 +27,7 @@ interface Props {
   canManage: boolean;
 }
 
-const INTAKE_MODES: ImBotIntakeMode[] = ['off', 'observe', 'auto'];
+const INTAKE_MODES: ImBotIntakeMode[] = ['respond', 'auto'];
 
 export function ChatRow({ projectId, chat, canManage }: Props) {
   const { t } = useTranslation('projects');
@@ -130,8 +130,9 @@ export function ChatRow({ projectId, chat, canManage }: Props) {
   // resolves to, so the override badge compares values rather than provenance.
   // No project default any more: every chat carries its own mode. A legacy row
   // that still says "inherit" is shown (and eventually written back) as observe.
-  const rawIntakeMode: ImBotIntakeMode = chat.intake_mode ?? 'observe';
-  const chatIntakeMode: ImBotIntakeMode = rawIntakeMode === 'inherit' ? 'observe' : rawIntakeMode;
+  const rawIntakeMode: ImBotIntakeMode = chat.intake_mode ?? 'respond';
+  const chatIntakeMode: ImBotIntakeMode =
+    rawIntakeMode === 'auto' || rawIntakeMode === 'observe' ? 'auto' : 'respond';
   const pendingCount = (pendingDecisions.data ?? []).filter(
     (d) =>
       !d.executed &&
@@ -355,9 +356,9 @@ export function ChatRow({ projectId, chat, canManage }: Props) {
         )}
       </div>
 
-      {chatIntakeMode === 'observe' && (
+      {chatIntakeMode === 'auto' && (
         <p className="pl-7 text-xs text-warm-text-muted">
-          {t('imbot.intakeModeObserveHint')}
+          {t('imbot.intakeModeAutoHint')}
         </p>
       )}
       {pendingCount > 0 && (

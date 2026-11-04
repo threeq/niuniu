@@ -56,9 +56,10 @@ function isSourceKind(value: string | undefined): value is IntakeSourceKind {
   return !!value && (SOURCE_KINDS as string[]).includes(value)
 }
 
-function decisionStatus(decision: IntakeDecision): 'pending' | 'accepted' | 'ignored' {
+function decisionStatus(decision: IntakeDecision): 'pending' | 'accepted' | 'ignored' | 'consumed' {
   if (decision.status) return decision.status
   if (decision.decision === 'ignore') return 'ignored'
+  if (decision.consumed) return 'consumed'
   return decision.executed ? 'accepted' : 'pending'
 }
 

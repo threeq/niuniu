@@ -96,10 +96,10 @@ describe('ChatRow intake mode', () => {
     listDecisions.mockResolvedValue([])
   })
 
-  it('renders a legacy inherit row as observe', async () => {
+  it('renders a legacy inherit row as respond only', async () => {
     renderRow({ intake_mode: 'inherit' })
 
-    expect(await screen.findByRole('combobox', { name: '接活模式' })).toHaveTextContent('观察')
+    expect(await screen.findByRole('combobox', { name: '接活模式' })).toHaveTextContent('仅响应')
   })
 
   it('links to the calibration queue with this conversation counted', async () => {

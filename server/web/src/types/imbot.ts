@@ -16,7 +16,9 @@ export type ImBotAgentMode = 'command' | 'observe';
 
 // Per-chat intake mode (design §6.9). 'inherit' follows the project's im_bot
 // source setting; the other three override it for this chat only.
-export type ImBotIntakeMode = 'inherit' | 'off' | 'observe' | 'auto';
+// Two modes only. Legacy values (inherit/off/observe) can still arrive from an
+// un-migrated row and are normalized in the UI.
+export type ImBotIntakeMode = 'respond' | 'auto' | 'inherit' | 'off' | 'observe';
 
 export interface ImBotChannel {
   id: number;

@@ -124,20 +124,22 @@ const (
 	// model call per handful of lines and — worse — judged discussions that had barely
 	// started. A colleague who forms an opinion after four messages is the one who
 	// interrupts mid-sentence. 20 lines is enough for a topic to actually take shape.
-	employeeMinMessages = 20
+	employeeMinMessages = 30
 
 	// employeeQuietPeriod is how long a chat must be SILENT before an accumulated
 	// batch is analyzed. Reaching the threshold mid-conversation is not a reason to
 	// judge it — the next line may change what the discussion is even about. Waiting
 	// for a lull means the employee reads a finished thought, which is both cheaper
 	// (one call per topic, not per 20 lines) and better-informed.
-	employeeQuietPeriod = 3 * time.Minute
+	// A chat accumulates longer than this (with at least one unanalyzed message)
+	// and the batch is analyzed even below the message threshold.
+	employeeQuietPeriod = 30 * time.Minute
 
 	// employeeMaxPendingAge forces an analysis on a chat that keeps talking without
 	// ever falling quiet, so a continuously busy group is not starved by the
 	// quiet-period rule. Well above the quiet period: the point is a backstop, not a
 	// second cadence.
-	employeeMaxPendingAge = 2 * time.Hour
+	employeeMaxPendingAge = 30 * time.Minute
 
 	// employeeBatchLimit bounds one analysis batch so a very busy chat cannot
 	// produce an unbounded prompt.
@@ -271,23 +273,24 @@ func (e *IMBotEmployee) Start() {
 // Below the message threshold nothing is analyzed regardless of age: a two-line
 // exchange does not become worth a model call just by getting old.
 func (e *IMBotEmployee) batchReady(msgs []store.ImBotChatMessage) bool {
-	if len(msgs) < employeeMinMessages {
+	// No messages, no analysis: the timer path must never spend a model call on
+	// an empty backlog.
+	if len(msgs) == 0 {
 		return false
 	}
+	if len(msgs) >= employeeMinMessages {
+		return true
+	}
 	now := e.now()
-	newest, oldest := msgs[0].CreatedAt, msgs[0].CreatedAt
+	oldest := msgs[0].CreatedAt
 	for _, m := range msgs {
-		if m.CreatedAt.After(newest) {
-			newest = m.CreatedAt
-		}
 		if m.CreatedAt.Before(oldest) {
 			oldest = m.CreatedAt
 		}
 	}
-	if now.Sub(newest) >= e.quietPeriod() {
-		return true
-	}
-	return now.Sub(oldest) >= employeeMaxPendingAge
+	// The age threshold is fixed at 30 minutes; the overridable quiet value is
+	// only the post-notify debounce.
+	return now.Sub(oldest) >= employeeQuietPeriod
 }
 
 // Notify tells the employee that a chat just recorded a message, so analysis is
@@ -461,6 +464,11 @@ func (e *IMBotEmployee) sweep(ctx context.Context) {
 // than silently dropping it. Conversely, once a verdict is obtained the batch is
 // always stamped — even for "none" — so the same discussion is never reconsidered.
 func (e *IMBotEmployee) considerChat(ctx context.Context, chat store.ImBotChat) {
+	// Background analysis is part of the auto mode only: a respond chat does not
+	// want the bot reading along at all.
+	if e.svc.effectiveChatIntakeMode(ctx, chat) != intake.ModeAuto {
+		return
+	}
 	msgs, err := e.q.ListUnanalyzedIMBotChatMessages(ctx, store.ListUnanalyzedIMBotChatMessagesParams{
 		ChatID: chat.ID, Limit: employeeBatchLimit,
 	})
@@ -607,6 +615,16 @@ func (e *IMBotEmployee) proposeTask(ctx context.Context, chat store.ImBotChat, v
 	}
 	slog.Info("imbot: employee task recorded as dry-run proposal",
 		"chat", chat.ID, "decision", res.DecisionID, "reason", res.ReasonCode)
+
+	// Tell the chat the suggestion exists. It is NOT started: auto mode still
+	// requires an accept in the review queue, and the reminder is what makes the
+	// suggestion discoverable without reading the queue.
+	notice := "我从最近的讨论里整理出一条待确认的任务：\n\n" +
+		truncateOutbound(verdict.Task) + "\n\n已放入待校准，确认后才会开始。"
+	if extra := strings.TrimSpace(verdict.Message); extra != "" {
+		notice += "\n\n" + truncateOutbound(extra)
+	}
+	e.svc.pushText(ctx, channel, chat.ChatExtID, "", notice)
 }
 
 // actionableVerdict reports whether an acting verdict actually has something to
