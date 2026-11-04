@@ -1030,7 +1030,7 @@ Thread 映射：
 ### 14.2 与设计的已知差异 / 待办
 
 1. **`im_bot_inbox` 读切换尚未执行**。本版本按 §7.2 做 Phase 1 双写，读路径仍是 `im_bot_inbox`（`server/internal/service/imbot_inbound.go` 的早期去重守卫）。读切换、保留一版、删除的步骤见运行手册 §5.2；必须在下一版本执行。
-2. **未保存来源配置时运行时按 `off` 处理**。`GET /intake/settings` 对无存储行显示 schema 默认 `observe`，但 `imbotPolicy.LoadPolicy` 对无行返回 `ModeOff`（只接受显式请求）。上线时必须至少保存一次该来源配置，才会写入 `intake_settings` 并按所选模式运行。运行手册 §3 步骤 4 已将其列为必做项。
+2. **来源配置默认行已自动回填**。服务启动时为缺少配置的项目写入每个来源的 `intake_settings` 默认行（`observe`、`daily_cap=4`、空名单），新建项目在创建时写入；界面显示的模式与 `imbotPolicy.LoadPolicy` 解析的实际模式因此一致（此前无存储行时 UI 显示 `observe`、运行期按 `off`，已修复）。
 3. **团队版 GitHub `webhook_secret` 尚无表单入口**。SPA 的 GitHub 凭据对话框只渲染 PAT；团队版需通过 API 写入（见运行手册 §4.2）。后续可在凭据对话框补充可选 `webhook_secret` 字段。
 4. **GitHub Enterprise BaseURL 未暴露配置**。个人版轮询固定 `https://api.github.com`；`GithubSourceService.SetPollerBaseURL` 目前仅供代码/测试使用。
 5. **实现新增了 §6.8 未列出的 4 张运行期表**：`intake_project_state`（项目暂停开关）、`intake_daily_usage`（daily cap 原子占位，TOCTOU 修复）、`github_source_poll_state`（轮询游标/退避）、`github_thread_bindings`（PR/issue thread 绑定与续接）。它们不改变设计语义，运维说明见运行手册 §5.4。

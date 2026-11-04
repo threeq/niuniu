@@ -450,6 +450,13 @@ func New(cfg *config.Config, db *sql.DB, frontendFS fs.FS) *Server {
 		slog.Warn("completion: backfill project defaults failed", "error", err)
 	}
 
+	// Projects created before intake settings existed need explicit rows: the
+	// settings UI renders the schema default (observe) for a missing row, but
+	// the intake policy loader fails closed to off.
+	if err := service.BackfillIntakeProjectDefaults(context.Background(), store.Wrap(db)); err != nil {
+		slog.Warn("intake: backfill project defaults failed", "error", err)
+	}
+
 	authz := service.NewAuthz(s.queries, db)
 	s.authzSvc = authz
 	s.mcpSessions = service.NewMCPSessionService(s.queries)

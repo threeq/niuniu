@@ -127,10 +127,10 @@ intake:
 1. **升级并启动服务**，确认 `/api/health` 返回正常、启动日志无迁移错误。
 2. **配置 GitHub PAT**：`设置 → 集成` 添加 GitHub 凭据（详见 [`docs/integrations.md`](../integrations.md) §1–§2）。
 3. **给项目挂 GitHub 外部源**：项目设置 → 外部源 → 添加 `owner/repo`。这一步创建 `project_external_sources` 行，轮询按它取数。
-4. **保存任务来源配置（必须做一次）**：
-   项目设置 → **任务来源** → GitHub 卡片 → 选择模式并保存。
+4. **确认任务来源配置**：
+   启动时服务会为缺少配置的项目回填每个来源的 `intake_settings` 默认行（`mode=observe`、`daily_cap=4`、空 allow/bot list），新建项目在创建时即写入。界面显示的模式与运行期实际模式因此始终一致。
 
-   > 重要：设置页对没有存储行的来源显示 `observe`，但运行时空行按 `off` 处理（只接受显式请求）。只有 `PUT /api/projects/:id/intake/settings` 真正写入 `intake_settings` 后，才会按所选模式记录/执行。上线时至少保存一次；首次建议 `observe`。
+   > 仍建议在项目设置 → **任务来源** → GitHub 卡片 中保存一次，以配置 allow list、bot list、rules 与 daily cap；默认行只有 `observe` + 每日 4 个 + 空名单。
 
    等价的 API 调用：
 

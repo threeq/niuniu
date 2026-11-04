@@ -146,6 +146,9 @@ func (s *ProjectService) Create(ctx context.Context, params CreateProjectParams)
 	if err := completion.EnsureProjectDefaults(ctx, s.db, project.ID); err != nil {
 		slog.Warn("seed completion defaults failed", "project_id", project.ID, "error", err)
 	}
+	if err := EnsureIntakeProjectDefaults(ctx, s.db, project.ID); err != nil {
+		slog.Warn("seed intake defaults failed", "project_id", project.ID, "error", err)
+	}
 	if s.notifyHub != nil {
 		s.notifyHub.Broadcast(notify.Notification{Topic: notify.TopicProject, Action: "updated", ID: project.ID})
 	}
