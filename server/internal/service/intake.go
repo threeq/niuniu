@@ -42,6 +42,9 @@ var validIntakeModes = map[string]bool{"off": true, "observe": true, "auto": tru
 // IntakeSettingDTO is one (project, source) intake configuration.
 type IntakeSettingDTO struct {
 	SourceKind string     `json:"source_kind"`
+	// Enabled is the project-wide switch for this source. IM chats still carry
+	// their own mode; a disabled source is off for every one of them.
+	Enabled    bool       `json:"enabled"`
 	Mode       string     `json:"mode"`
 	DailyCap   int64      `json:"daily_cap"`
 	AllowList  []string   `json:"allow_list"`
@@ -64,6 +67,10 @@ type IntakeSettingsView struct {
 // IntakeSettingInput is one settings row in a PUT body.
 type IntakeSettingInput struct {
 	SourceKind string   `json:"source_kind"`
+	// Enabled is optional: nil preserves the stored value (default true for a
+	// source that has never been configured), so callers that only touch mode
+	// do not silently re-enable a source the user turned off.
+	Enabled    *bool    `json:"enabled"`
 	Mode       string   `json:"mode"`
 	DailyCap   *int64   `json:"daily_cap"`
 	AllowList  []string `json:"allow_list"`
@@ -197,6 +204,7 @@ func (s *IntakeService) GetSettings(ctx context.Context, projectID int64) (Intak
 		}
 		view.Settings = append(view.Settings, IntakeSettingDTO{
 			SourceKind: kind,
+			Enabled:    true,
 			Mode:       defaultIntakeMode,
 			DailyCap:   defaultIntakeDailyCap,
 			AllowList:  []string{},
@@ -397,6 +405,17 @@ func (s *IntakeService) UpdateSettings(ctx context.Context, projectID int64, req
 		}
 	}
 
+	// Existing rows decide the default for an omitted enabled flag: callers that
+	// only change rules or mode must not re-enable a source the user turned off.
+	existing, err := s.q.ListIntakeSettingsByProject(ctx, projectID)
+	if err != nil {
+		return IntakeSettingsView{}, err
+	}
+	enabledByKind := make(map[string]bool, len(existing))
+	for _, row := range existing {
+		enabledByKind[row.SourceKind] = row.Enabled != 0
+	}
+
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return IntakeSettingsView{}, err
@@ -405,9 +424,17 @@ func (s *IntakeService) UpdateSettings(ctx context.Context, projectID int64, req
 
 	qtx := tx.Queries()
 	for _, in := range req.Settings {
+		kind := strings.TrimSpace(in.SourceKind)
 		dailyCap := int64(defaultIntakeDailyCap)
 		if in.DailyCap != nil {
 			dailyCap = *in.DailyCap
+		}
+		enabled := true
+		if cur, ok := enabledByKind[kind]; ok {
+			enabled = cur
+		}
+		if in.Enabled != nil {
+			enabled = *in.Enabled
 		}
 		allowJSON, err := json.Marshal(nonNilStrings(in.AllowList))
 		if err != nil {
@@ -419,7 +446,8 @@ func (s *IntakeService) UpdateSettings(ctx context.Context, projectID int64, req
 		}
 		if _, err := qtx.UpsertIntakeSetting(ctx, store.UpsertIntakeSettingParams{
 			ProjectID:     projectID,
-			SourceKind:    strings.TrimSpace(in.SourceKind),
+			SourceKind:    kind,
+			Enabled:       boolToInt64(enabled),
 			Mode:          in.Mode,
 			DailyCap:      dailyCap,
 			AllowListJson: string(allowJSON),
@@ -463,6 +491,9 @@ func (s *IntakeService) SetMode(ctx context.Context, projectID int64, sourceKind
 	view, err := s.UpdateSettings(ctx, projectID, UpdateIntakeSettingsRequest{
 		Settings: []IntakeSettingInput{{
 			SourceKind: sourceKind, Mode: mode, DailyCap: &dailyCap, AllowList: allow, BotList: bot,
+			// MCP mode writes are the legacy path: off means disabled, any other
+			// mode means the source is on.
+			Enabled: boolPtr(mode != "off"),
 		}},
 	})
 	if err != nil {
@@ -1108,6 +1139,7 @@ func intakeSettingDTO(r store.IntakeSetting) IntakeSettingDTO {
 	updated := r.UpdatedAt
 	return IntakeSettingDTO{
 		SourceKind: r.SourceKind,
+		Enabled:    r.Enabled != 0,
 		Mode:       r.Mode,
 		DailyCap:   r.DailyCap,
 		AllowList:  decodeStringList(r.AllowListJson),
@@ -1164,3 +1196,6 @@ func orJSONObject(raw string) string {
 	}
 	return raw
 }
+
+// boolPtr returns a pointer to v, for the optional Enabled input.
+func boolPtr(v bool) *bool { return &v }

@@ -7,9 +7,10 @@ SELECT * FROM intake_settings WHERE project_id = ? ORDER BY source_kind;
 -- name: UpsertIntakeSetting :one
 -- One settings row per (project, source). Writing settings is also what creates
 -- a policy version, but that snapshot is taken by the caller in one transaction.
-INSERT INTO intake_settings (project_id, source_kind, mode, daily_cap, allow_list_json, bot_list_json)
-VALUES (?, ?, ?, ?, ?, ?)
+INSERT INTO intake_settings (project_id, source_kind, enabled, mode, daily_cap, allow_list_json, bot_list_json)
+VALUES (?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT(project_id, source_kind) DO UPDATE SET
+    enabled = excluded.enabled,
     mode = excluded.mode,
     daily_cap = excluded.daily_cap,
     allow_list_json = excluded.allow_list_json,

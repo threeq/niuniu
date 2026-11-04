@@ -17,6 +17,7 @@ vi.mock('@tanstack/react-router', () => ({
 
 const source: IntakeSetting = {
   source_kind: 'im_bot',
+  enabled: true,
   mode: 'observe',
   daily_cap: 4,
   allow_list: ['ou_alice'],
@@ -24,7 +25,7 @@ const source: IntakeSetting = {
 }
 
 function renderCard(over: Partial<React.ComponentProps<typeof SourceCard>> = {}) {
-  const onModeChange = vi.fn()
+  const onEnabledChange = vi.fn()
   const onOpenConfig = vi.fn()
   const onConnect = vi.fn()
   render(
@@ -36,36 +37,39 @@ function renderCard(over: Partial<React.ComponentProps<typeof SourceCard>> = {})
       canConnect
       pending={2}
       ruleCount={3}
-      isMobile={false}
-      onModeChange={onModeChange}
+      onEnabledChange={onEnabledChange}
       onOpenConfig={onOpenConfig}
       onConnect={onConnect}
       {...over}
     />,
   )
-  return { onModeChange, onOpenConfig, onConnect }
+  return { onEnabledChange, onOpenConfig, onConnect }
 }
 
 describe('SourceCard', () => {
-  it('shows no mode control for an unconnected source', () => {
+  it('shows no switch for an unconnected source', () => {
     renderCard({ connected: false })
     expect(screen.getByText('未连接')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: '接入' })).toBeInTheDocument()
-    expect(screen.queryByRole('group', { name: '默认接活模式' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('group', { name: '来源开关' })).not.toBeInTheDocument()
   })
 
-  it('switches mode from the desktop segmented control', () => {
-    const { onModeChange } = renderCard()
-    const auto = screen.getByRole('button', { name: '自动' })
-    expect(auto).toHaveAttribute('aria-pressed', 'false')
-    fireEvent.click(auto)
-    expect(onModeChange).toHaveBeenCalledWith('auto')
+  it('toggles the source on and off', () => {
+    const { onEnabledChange } = renderCard()
+    const off = screen.getByRole('button', { name: '关闭' })
+    const on = screen.getByRole('button', { name: '启用' })
+    expect(on).toHaveAttribute('aria-pressed', 'true')
+
+    fireEvent.click(off)
+    expect(onEnabledChange).toHaveBeenCalledWith(false)
+
+    fireEvent.click(on)
+    expect(onEnabledChange).toHaveBeenCalledWith(true)
   })
 
-  it('uses a Select on mobile', () => {
-    renderCard({ isMobile: true })
-    expect(screen.queryByRole('group', { name: '默认接活模式' })).not.toBeInTheDocument()
-    expect(screen.getByRole('combobox', { name: '默认接活模式' })).toBeInTheDocument()
+  it('explains that IM chats carry their own intake mode', () => {
+    renderCard()
+    expect(screen.getByText(/每个 IM 会话/)).toBeInTheDocument()
   })
 
   it('summarises cap, rules and allowed members', () => {

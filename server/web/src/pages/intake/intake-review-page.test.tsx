@@ -119,6 +119,7 @@ const settings = (): IntakeSettings => ({
   settings: [
     {
       source_kind: 'im_bot',
+      enabled: true,
       mode: 'observe',
       daily_cap: 4,
       allow_list: ['ou_1'],
@@ -305,6 +306,7 @@ describe('IntakeReviewPage', () => {
       expect(intakeApi.updateSettings).toHaveBeenCalledWith(1, [
         {
           source_kind: 'im_bot',
+          enabled: true,
           mode: 'auto',
           daily_cap: 4,
           allow_list: ['ou_1'],

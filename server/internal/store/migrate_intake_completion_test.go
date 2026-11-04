@@ -246,12 +246,12 @@ func TestIntakeCompletionQueries(t *testing.T) {
 
 	// Settings upsert: one row per (project, source), mode updated in place.
 	_, err = q.UpsertIntakeSetting(ctx, UpsertIntakeSettingParams{
-		ProjectID: 1, SourceKind: "im_bot", Mode: "observe", DailyCap: 4,
+		ProjectID: 1, SourceKind: "im_bot", Enabled: 1, Mode: "observe", DailyCap: 4,
 		AllowListJson: "[]", BotListJson: "[]",
 	})
 	require.NoError(t, err)
 	got, err := q.UpsertIntakeSetting(ctx, UpsertIntakeSettingParams{
-		ProjectID: 1, SourceKind: "im_bot", Mode: "auto", DailyCap: 6,
+		ProjectID: 1, SourceKind: "im_bot", Enabled: 1, Mode: "auto", DailyCap: 6,
 		AllowListJson: "[]", BotListJson: "[]",
 	})
 	require.NoError(t, err)

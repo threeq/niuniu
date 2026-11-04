@@ -193,7 +193,13 @@
       "activeHint": "已校准的来源已开启自动。可随时暂停，恢复无需重新校准。"
     },
     "autoNeedsCalibration": "已为 {{sources}} 选择自动，但校准样本未达门槛（{{calibrated}}/{{min}} 条，认可率 {{rate}}%）。设置会生效，但建议先多观察一段时间。",
-    "calibrationProgress": "校准进度：{{count}}/{{min}} 条 · 认可率 {{rate}}%。"
+    "calibrationProgress": "校准进度：{{count}}/{{min}} 条 · 认可率 {{rate}}%。",
+    "enabledLabel": "来源开关",
+    "enabledOn": "启用",
+    "enabledOff": "关闭",
+    "enabledHintIM": "已启用。每个 IM 会话在「IM 接入设置」中各自选择 关闭 / 观察 / 自动。",
+    "enabledHint": "已启用。该来源按其接活规则处理。",
+    "disabledHint": "已关闭。该来源的消息不会进入任务流程。"
   },
   "completion": {
     "title": "自动完成",

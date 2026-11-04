@@ -54,15 +54,6 @@ function chat(over: Partial<ImBotChat> = {}): ImBotChat {
   }
 }
 
-function projectSettings(mode: 'off' | 'observe' | 'auto') {
-  return {
-    project_id: 1,
-    paused: false,
-    settings: [
-      { source_kind: 'im_bot', mode, daily_cap: 4, allow_list: [], bot_list: [] },
-    ],
-  }
-}
 
 function decision(over: Partial<IntakeDecision> = {}): IntakeDecision {
   return {
@@ -102,31 +93,13 @@ function renderRow(over: Partial<ImBotChat> = {}) {
 
 describe('ChatRow intake mode', () => {
   beforeEach(() => {
-    getSettings.mockResolvedValue(projectSettings('observe'))
     listDecisions.mockResolvedValue([])
   })
 
-  it('shows inherit as the selected mode and explains the observe default', async () => {
-    renderRow()
-
-    expect(await screen.findByRole('combobox', { name: '接活模式' })).toHaveTextContent('继承项目')
-    expect(screen.getByText('消息会被记录到待校准，不会自动行动。')).toBeInTheDocument()
-    expect(screen.queryByText('已覆盖项目默认')).not.toBeInTheDocument()
-  })
-
-  it('badges a chat mode that differs from the project default', async () => {
-    renderRow({ intake_mode: 'auto' })
-
-    expect(await screen.findByText('已覆盖项目默认')).toBeInTheDocument()
-    expect(screen.queryByText('消息会被记录到待校准，不会自动行动。')).not.toBeInTheDocument()
-  })
-
-  it('does not badge an explicit mode equal to the project default', async () => {
-    getSettings.mockResolvedValue(projectSettings('observe'))
-    renderRow({ intake_mode: 'observe' })
+  it('renders a legacy inherit row as observe', async () => {
+    renderRow({ intake_mode: 'inherit' })
 
     expect(await screen.findByRole('combobox', { name: '接活模式' })).toHaveTextContent('观察')
-    expect(screen.queryByText('已覆盖项目默认')).not.toBeInTheDocument()
   })
 
   it('links to the calibration queue with this conversation counted', async () => {

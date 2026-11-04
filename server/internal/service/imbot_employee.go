@@ -541,22 +541,15 @@ func (e *IMBotEmployee) considerChat(ctx context.Context, chat store.ImBotChat) 
 }
 
 // effectiveChatIntakeMode resolves this chat's intake mode, honoring the rollback
-// switch. An inherit chat resolves against the project's im_bot policy because
-// this path decides from the chat mode directly and never reaches the intake
-// pipeline's own policy load. A lookup failure fails closed to off.
+// switch. There is no project default mode any more (the project card is a plain
+// on/off switch), so a legacy "inherit" chat resolves to the conservative
+// dry-run mode instead of reading the source policy.
 func (s *IMBotService) effectiveChatIntakeMode(ctx context.Context, chat store.ImBotChat) intake.Mode {
 	mode := effectiveChatIntakeMode(chat, s.legacyChatIntakeMode)
 	if mode != "" {
 		return mode
 	}
-	if !chat.ProjectID.Valid {
-		return intake.ModeOff
-	}
-	pol, err := (imbotPolicy{q: s.q}).LoadPolicy(ctx, chat.ProjectID.Int64, intake.SourceKindIMBot)
-	if err != nil {
-		return intake.ModeOff
-	}
-	return pol.Mode
+	return intake.ModeObserve
 }
 
 // intakePaused reports the project stop switch for paths that decide from the

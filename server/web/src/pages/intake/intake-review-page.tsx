@@ -261,6 +261,7 @@ export function IntakeReviewPage() {
         .filter((setting) => sourceKinds.includes(setting.source_kind))
         .map((setting) => ({
           source_kind: setting.source_kind as IntakeSourceKind,
+          enabled: true,
           mode: 'auto' as const,
           daily_cap: setting.daily_cap,
           allow_list: setting.allow_list,

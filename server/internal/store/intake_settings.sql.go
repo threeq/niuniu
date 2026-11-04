@@ -35,7 +35,7 @@ func (q *Queries) GetIntakeProjectState(ctx context.Context, projectID int64) (I
 }
 
 const getIntakeSetting = `-- name: GetIntakeSetting :one
-SELECT id, project_id, source_kind, mode, daily_cap, allow_list_json, bot_list_json, updated_at FROM intake_settings WHERE project_id = ? AND source_kind = ?
+SELECT id, project_id, source_kind, enabled, mode, daily_cap, allow_list_json, bot_list_json, updated_at FROM intake_settings WHERE project_id = ? AND source_kind = ?
 `
 
 type GetIntakeSettingParams struct {
@@ -50,6 +50,7 @@ func (q *Queries) GetIntakeSetting(ctx context.Context, arg GetIntakeSettingPara
 		&i.ID,
 		&i.ProjectID,
 		&i.SourceKind,
+		&i.Enabled,
 		&i.Mode,
 		&i.DailyCap,
 		&i.AllowListJson,
@@ -60,7 +61,7 @@ func (q *Queries) GetIntakeSetting(ctx context.Context, arg GetIntakeSettingPara
 }
 
 const listIntakeSettingsByProject = `-- name: ListIntakeSettingsByProject :many
-SELECT id, project_id, source_kind, mode, daily_cap, allow_list_json, bot_list_json, updated_at FROM intake_settings WHERE project_id = ? ORDER BY source_kind
+SELECT id, project_id, source_kind, enabled, mode, daily_cap, allow_list_json, bot_list_json, updated_at FROM intake_settings WHERE project_id = ? ORDER BY source_kind
 `
 
 func (q *Queries) ListIntakeSettingsByProject(ctx context.Context, projectID int64) ([]IntakeSetting, error) {
@@ -76,6 +77,7 @@ func (q *Queries) ListIntakeSettingsByProject(ctx context.Context, projectID int
 			&i.ID,
 			&i.ProjectID,
 			&i.SourceKind,
+			&i.Enabled,
 			&i.Mode,
 			&i.DailyCap,
 			&i.AllowListJson,
@@ -117,20 +119,22 @@ func (q *Queries) UpsertIntakeProjectState(ctx context.Context, arg UpsertIntake
 }
 
 const upsertIntakeSetting = `-- name: UpsertIntakeSetting :one
-INSERT INTO intake_settings (project_id, source_kind, mode, daily_cap, allow_list_json, bot_list_json)
-VALUES (?, ?, ?, ?, ?, ?)
+INSERT INTO intake_settings (project_id, source_kind, enabled, mode, daily_cap, allow_list_json, bot_list_json)
+VALUES (?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT(project_id, source_kind) DO UPDATE SET
+    enabled = excluded.enabled,
     mode = excluded.mode,
     daily_cap = excluded.daily_cap,
     allow_list_json = excluded.allow_list_json,
     bot_list_json = excluded.bot_list_json,
     updated_at = CURRENT_TIMESTAMP
-RETURNING id, project_id, source_kind, mode, daily_cap, allow_list_json, bot_list_json, updated_at
+RETURNING id, project_id, source_kind, enabled, mode, daily_cap, allow_list_json, bot_list_json, updated_at
 `
 
 type UpsertIntakeSettingParams struct {
 	ProjectID     int64  `json:"project_id"`
 	SourceKind    string `json:"source_kind"`
+	Enabled       int64  `json:"enabled"`
 	Mode          string `json:"mode"`
 	DailyCap      int64  `json:"daily_cap"`
 	AllowListJson string `json:"allow_list_json"`
@@ -143,6 +147,7 @@ func (q *Queries) UpsertIntakeSetting(ctx context.Context, arg UpsertIntakeSetti
 	row := q.db.QueryRowContext(ctx, upsertIntakeSetting,
 		arg.ProjectID,
 		arg.SourceKind,
+		arg.Enabled,
 		arg.Mode,
 		arg.DailyCap,
 		arg.AllowListJson,
@@ -153,6 +158,7 @@ func (q *Queries) UpsertIntakeSetting(ctx context.Context, arg UpsertIntakeSetti
 		&i.ID,
 		&i.ProjectID,
 		&i.SourceKind,
+		&i.Enabled,
 		&i.Mode,
 		&i.DailyCap,
 		&i.AllowListJson,

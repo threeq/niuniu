@@ -27,7 +27,7 @@ interface Props {
   canManage: boolean;
 }
 
-const INTAKE_MODES: ImBotIntakeMode[] = ['inherit', 'off', 'observe', 'auto'];
+const INTAKE_MODES: ImBotIntakeMode[] = ['off', 'observe', 'auto'];
 
 export function ChatRow({ projectId, chat, canManage }: Props) {
   const { t } = useTranslation('projects');
@@ -106,12 +106,6 @@ export function ChatRow({ projectId, chat, canManage }: Props) {
     onError: (e) => toast.error(e instanceof Error ? e.message : String(e)),
   });
 
-  const intakeSettings = useQuery({
-    queryKey: ['intake-settings', projectId],
-    queryFn: () => intakeApi.getSettings(projectId),
-    retry: false,
-  });
-
   // Pending calibration decisions for this project; the key is shared across
   // rows so the whole channel card costs one request. Counted per chat below.
   const pendingDecisions = useQuery({
@@ -134,14 +128,10 @@ export function ChatRow({ projectId, chat, canManage }: Props) {
   // A row written before intake_mode existed carries no value; treat it as the
   // backend's dry-run default. The project's own im_bot mode is what "inherit"
   // resolves to, so the override badge compares values rather than provenance.
-  const chatIntakeMode: ImBotIntakeMode = chat.intake_mode ?? 'observe';
-  const projectIntakeMode: ImBotIntakeMode =
-    (intakeSettings.data?.settings.find((s) => s.source_kind === 'im_bot')
-      ?.mode as ImBotIntakeMode | undefined) ?? 'observe';
-  const effectiveIntakeMode =
-    chatIntakeMode === 'inherit' ? projectIntakeMode : chatIntakeMode;
-  const intakeOverridden =
-    chatIntakeMode !== 'inherit' && chatIntakeMode !== projectIntakeMode;
+  // No project default any more: every chat carries its own mode. A legacy row
+  // that still says "inherit" is shown (and eventually written back) as observe.
+  const rawIntakeMode: ImBotIntakeMode = chat.intake_mode ?? 'observe';
+  const chatIntakeMode: ImBotIntakeMode = rawIntakeMode === 'inherit' ? 'observe' : rawIntakeMode;
   const pendingCount = (pendingDecisions.data ?? []).filter(
     (d) =>
       !d.executed &&
@@ -297,17 +287,9 @@ export function ChatRow({ projectId, chat, canManage }: Props) {
               <SelectTrigger
                 className="h-8 w-32"
                 aria-label={t('imbot.intakeModeTitle')}
-                title={t('imbot.intakeModeProjectHint')}
+                title={t('imbot.intakeModeTitle')}
               >
-                {/* Show what "inherit" actually resolves to, so the row and the
-                    project default don't look like two independent switches. */}
-                <SelectValue>
-                  {chatIntakeMode === 'inherit'
-                    ? t('imbot.intakeMode.inheritEffective', {
-                        mode: t(`imbot.intakeMode.${effectiveIntakeMode}`),
-                      })
-                    : t(`imbot.intakeMode.${chatIntakeMode}`)}
-                </SelectValue>
+                <SelectValue />
               </SelectTrigger>
               <SelectContent>
                 {INTAKE_MODES.map((mode) => (
@@ -317,11 +299,6 @@ export function ChatRow({ projectId, chat, canManage }: Props) {
                 ))}
               </SelectContent>
             </Select>
-            {intakeOverridden && (
-              <Badge variant="outline" className="text-xs font-normal text-warm-text-muted">
-                {t('imbot.intakeModeOverridden')}
-              </Badge>
-            )}
           </div>
         ) : (
           <Badge variant="secondary">{t(`imbot.intakeMode.${chatIntakeMode}`)}</Badge>
@@ -378,7 +355,7 @@ export function ChatRow({ projectId, chat, canManage }: Props) {
         )}
       </div>
 
-      {effectiveIntakeMode === 'observe' && (
+      {chatIntakeMode === 'observe' && (
         <p className="pl-7 text-xs text-warm-text-muted">
           {t('imbot.intakeModeObserveHint')}
         </p>

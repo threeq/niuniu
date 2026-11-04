@@ -79,6 +79,12 @@ func (src imbotSource) Normalize(
 	if err != nil {
 		raw = nil
 	}
+	// There is no project default mode any more: a legacy "inherit" chat (no
+	// explicit mode) resolves to the conservative dry-run mode.
+	mode := effectiveChatIntakeMode(chat, src.legacyChatMode)
+	if mode == "" {
+		mode = intake.ModeObserve
+	}
 	return intake.Trigger{
 		ProjectID:         chat.ProjectID.Int64,
 		SourceKind:        intake.SourceKindIMBot,
@@ -101,9 +107,8 @@ func (src imbotSource) Normalize(
 		// inferred candidates rather than denied.
 		ReceiveAll: normalizeAgentMode(chat.AgentMode) == AgentModeObserve,
 		ForceNew:   forceNew,
-		// The chat's own intake mode is finer-grained than the project+source
-		// setting, so it governs this trigger (design §6.9).
-		Mode: effectiveChatIntakeMode(chat, src.legacyChatMode),
+		// The chat's own intake mode governs this trigger (design §6.9).
+		Mode: mode,
 	}
 }
 
@@ -304,7 +309,13 @@ func (p imbotPolicy) LoadPolicy(ctx context.Context, projectID int64, sourceKind
 	})
 	switch {
 	case err == nil:
-		pol.Mode = intakeMode(row.Mode)
+		// The project switch is authoritative: a disabled source is off for every
+		// chat, whatever mode the chat itself carries.
+		if row.Enabled == 0 {
+			pol.Mode = intake.ModeOff
+		} else {
+			pol.Mode = intakeMode(row.Mode)
+		}
 		pol.DailyCap = row.DailyCap
 		pol.AllowList = decodeStringList(row.AllowListJson)
 		pol.BotList = decodeStringList(row.BotListJson)
