@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -144,16 +146,26 @@ type Deps struct {
 	// Clock stamps events that arrive without a ReceivedAt. Defaults to
 	// time.Now.
 	Clock func() time.Time
+	// StaleAfter drops triggers older than this instead of executing them: a
+	// message the platform delivers after a reconnect (or a backlog replay) must
+	// not spawn work for a conversation that has moved on. Zero uses
+	// DefaultStaleAfter; a negative value disables the check.
+	StaleAfter time.Duration
 }
+
+// DefaultStaleAfter is how old a trigger may be before it is recorded as stale
+// instead of executed.
+const DefaultStaleAfter = 10 * time.Minute
 
 // Service runs the intake pipeline.
 type Service struct {
-	enabled  bool
-	store    Store
-	policies PolicyProvider
-	resolver TaskResolver
-	executor Executor
-	clock    func() time.Time
+	enabled    bool
+	store      Store
+	policies   PolicyProvider
+	resolver   TaskResolver
+	executor   Executor
+	clock      func() time.Time
+	staleAfter time.Duration
 }
 
 // NewService builds the intake service. It is inert until Enabled is set, so
@@ -163,13 +175,23 @@ func NewService(deps Deps) *Service {
 	if clock == nil {
 		clock = time.Now
 	}
+	stale := deps.StaleAfter
+	if stale == 0 {
+		stale = DefaultStaleAfter
+		if raw := strings.TrimSpace(os.Getenv("NIUNIU_INTAKE_STALE_AFTER_MINUTES")); raw != "" {
+			if minutes, err := strconv.Atoi(raw); err == nil {
+				stale = time.Duration(minutes) * time.Minute
+			}
+		}
+	}
 	return &Service{
-		enabled:  deps.Enabled,
-		store:    deps.Store,
-		policies: deps.Policies,
-		resolver: deps.Resolver,
-		executor: deps.Executor,
-		clock:    clock,
+		enabled:    deps.Enabled,
+		store:      deps.Store,
+		policies:   deps.Policies,
+		resolver:   deps.Resolver,
+		executor:   deps.Executor,
+		clock:      clock,
+		staleAfter: stale,
 	}
 }
 
@@ -248,6 +270,12 @@ func (s *Service) Handle(ctx context.Context, t Trigger) (Result, error) {
 	// are still recorded for audit, but never create or resume work.
 	if resolution.Ended {
 		decision, reason = DecisionIgnore, ReasonThreadEnded
+	}
+	// A trigger older than the staleness window is recorded but never executed:
+	// after a reconnect the platform can replay a backlog, and acting on it
+	// would start work for a conversation that has moved on.
+	if s.staleAfter > 0 && !t.ReceivedAt.IsZero() && s.clock().Sub(t.ReceivedAt) > s.staleAfter {
+		decision, reason = DecisionIgnore, ReasonStale
 	}
 	executed := shouldExecute(policy.Mode, authz.Strength) &&
 		(decision == DecisionAccept || decision == DecisionResume)

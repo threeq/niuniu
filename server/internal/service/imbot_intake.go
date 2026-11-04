@@ -90,7 +90,7 @@ func (src imbotSource) Normalize(
 		Text:              text,
 		Attachments:       atts,
 		Raw:               raw,
-		ReceivedAt:        time.Now(),
+		ReceivedAt:        triggerTime(ev),
 		ConversationExtID: ev.ChatExtID,
 		// Chat pairing admitted the conversation, not the actor. This still
 		// grants explicit authority while no allow list is configured (the
@@ -105,6 +105,16 @@ func (src imbotSource) Normalize(
 		// setting, so it governs this trigger (design §6.9).
 		Mode: effectiveChatIntakeMode(chat, src.legacyChatMode),
 	}
+}
+
+// triggerTime is the platform's send time, falling back to arrival time when
+// the adapter could not determine it. Staleness compares against this, so a
+// backlog delivered after a reconnect is judged by when it was sent.
+func triggerTime(ev imbot.InboundEvent) time.Time {
+	if !ev.SentAt.IsZero() {
+		return ev.SentAt
+	}
+	return time.Now()
 }
 
 // effectiveChatIntakeMode resolves the intake mode that governs one chat.

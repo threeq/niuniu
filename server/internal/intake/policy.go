@@ -46,6 +46,10 @@ const (
 	ReasonDailyCap    = "daily_cap"
 	ReasonDisabled    = "disabled"
 	ReasonThreadEnded = "thread_ended"
+	// ReasonStale marks a trigger that arrived too late to act on (a backlog
+	// replay after a reconnect, or a platform redelivery). Recorded for audit,
+	// never executed.
+	ReasonStale = "stale"
 )
 
 // RuleConditions narrows when a rule applies. Every non-empty group must match;

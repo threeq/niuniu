@@ -17,6 +17,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"time"
 )
 
 // ErrWebhookUnauthorized is returned by an adapter's VerifyWebhook when the
@@ -152,6 +153,11 @@ type InboundEvent struct {
 	CallbackData string              // interaction-button payload (e.g. permission:approve:<reqID>)
 	EventID      string              // platform event id, for idempotent dedupe
 	Raw          map[string]any
+	// SentAt is when the platform says the message was sent. Zero when the
+	// adapter cannot tell; the intake layer then falls back to arrival time.
+	// Staleness must use send time, not arrival time — a reconnect can deliver a
+	// backlog that is already minutes or hours old.
+	SentAt time.Time
 
 	// --- Agent employee signals (issue #664) ---
 	// These three let the service tell "a user is talking to the bot" apart from

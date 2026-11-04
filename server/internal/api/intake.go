@@ -424,6 +424,38 @@ func (h *IntakeHandler) AcceptDecision(c *gin.Context) {
 	c.JSON(http.StatusOK, item)
 }
 
+// DeleteDecision serves DELETE /api/projects/:id/intake/decisions/:did.
+//
+// @Summary      Delete a calibration-queue entry
+// @Description  Removes the decision row. The originating event and any task the decision produced are left untouched.
+// @Tags         Intake
+// @Produce      json
+// @Param        id    path      int  true  "Project ID"
+// @Param        did   path      int  true  "Decision ID"
+// @Success      200   {object}  map[string]int64
+// @Failure      401   {object}  Error
+// @Failure      403   {object}  Error
+// @Failure      404   {object}  Error
+// @Router       /projects/{id}/intake/decisions/{did} [delete]
+func (h *IntakeHandler) DeleteDecision(c *gin.Context) {
+	pid, ok := h.intakeProjectAccess(c, true)
+	if !ok {
+		return
+	}
+	did, ok := decisionIDParam(c)
+	if !ok {
+		return
+	}
+	if !h.decisionInProject(c, pid, did) {
+		return
+	}
+	if err := h.svc.DeleteDecision(c.Request.Context(), pid, did); err != nil {
+		h.mapIntakeErr(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"deleted": did})
+}
+
 // UpdateDecisionBrief serves PATCH /api/projects/:id/intake/decisions/:did.
 //
 // @Summary      Save an edited Task Brief draft

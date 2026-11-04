@@ -3404,6 +3404,45 @@ paths:
       tags:
       - Intake
   /projects/{id}/intake/decisions/{did}:
+    delete:
+      description: Removes the decision row. The originating event and any task the
+        decision produced are left untouched.
+      parameters:
+      - description: Project ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: Decision ID
+        in: path
+        name: did
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              format: int64
+              type: integer
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/internal_api.Error'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/internal_api.Error'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/internal_api.Error'
+      summary: Delete a calibration-queue entry
+      tags:
+      - Intake
     patch:
       consumes:
       - application/json
