@@ -77,7 +77,8 @@
         "ask_user": "提問",
         "terminal": "終態",
         "intervention": "人工干預",
-        "cost": "成本"
+        "cost": "成本",
+        "intake": "接活"
       }
     },
     "checkpointTimeline": {
@@ -274,7 +275,8 @@
     "groupName": "分組: {{group}}",
     "checklist": {
       "title": "Checklist",
-      "addPlaceholder": "新增專案..."
+      "addPlaceholder": "新增專案...",
+      "executionSection": "執行清單"
     },
     "description": {
       "label": "描述",
@@ -613,6 +615,8 @@
         "repos": "倉庫",
         "labels": "標籤",
         "board": "看板",
+        "intake": "任務來源",
+        "completion": "自動完成",
         "externalSources": "外部源",
         "memory": "記憶",
         "imbot": "IM 機器人",
@@ -919,6 +923,7 @@
     "chatExtIdPlaceholder": "聊天外部 id",
     "chatNamePlaceholder": "聊天名稱（可選）",
     "removeChatConfirm": "移除聊天「{{name}}」？",
+    "removeChat": "移除聊天",
     "bindProject": "意圖路由",
     "bindWorkspace": "釘死任務",
     "pendingTitle": "有 {{count}} 個聊天待配對",
@@ -954,6 +959,16 @@
     "agentModeCommandHint": "只在被 @ 提到、私聊或使用命令時才行動。",
     "agentModeObserve": "主動觀察",
     "agentModeObserveHint": "記錄群裡的討論並定期分析，必要時主動提醒或直接開始任務。",
+    "intakeModeTitle": "接活模式",
+    "intakeMode": {
+      "inherit": "繼承專案",
+      "off": "關閉",
+      "observe": "觀察",
+      "auto": "自動"
+    },
+    "intakeModeOverridden": "已覆蓋專案預設",
+    "intakeModeObserveHint": "訊息會被記錄到待校準，不會自動行動。",
+    "intakePendingLink": "檢視待校準 {{count}}",
     "wechat": {
       "scanHint": "請使用微信「掃一掃」掃描下方二維碼以連線機器人。",
       "starting": "正在獲取二維碼…",

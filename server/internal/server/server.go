@@ -21,6 +21,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/niuniu-dev/niuniu/internal/agentproxy"
 	"github.com/niuniu-dev/niuniu/internal/api"
+	"github.com/niuniu-dev/niuniu/internal/completion"
 	"github.com/niuniu-dev/niuniu/internal/config"
 	"github.com/niuniu-dev/niuniu/internal/consent"
 	"github.com/niuniu-dev/niuniu/internal/dataconn"
@@ -111,6 +112,21 @@ type Server struct {
 	projectFloorSvc      *service.ProjectFloorService
 	projectFloorHandler  *api.ProjectFloorHandler
 
+	// Intake (任务来源) + Completion (自动完成) contract surface (design §6.9).
+	intakeSvc            *service.IntakeService
+	intakeHandler        *api.IntakeHandler
+	githubSourceSvc      *service.GithubSourceService
+	githubReplySvc       *service.GithubReplyDispatcher
+	webhookSourceSvc     *service.WebhookSourceService
+	intakeWebhookHandler *api.IntegrationWebhookHandler
+	completionSvc        *service.CompletionService
+	completionHandler    *api.CompletionHandler
+	taskBriefSvc         *service.TaskBriefService
+	taskBriefHandler     *api.TaskBriefHandler
+	// Mission control: the two independent metric panels + global intake pause.
+	missionControlSvc     *service.MissionControlService
+	missionControlHandler *api.MissionControlHandler
+
 	// External credential management (encrypted token storage).
 	intgKeyring          *crypto.Keyring
 	extCredSvc           *service.ExternalCredentialService
@@ -165,7 +181,7 @@ type Server struct {
 	// IM Bot remote channels (Epic #555): project-level channel CRUD + pairing,
 	// a ConnectorManager of per-channel outbound long connections, and an
 	// event-bus dispatcher pushing outbound notifications.
-	imbotSvc        *service.IMBotService
+	imbotSvc             *service.IMBotService
 	integrationHealthSvc *service.IntegrationHealthService
 	// integrationDraftSvc is the shared draft -> lint -> confirm -> publish ->
 	// verify/rollback pipeline for both onboarding lines (Epic #726 / #734).
@@ -426,9 +442,28 @@ func New(cfg *config.Config, db *sql.DB, frontendFS fs.FS) *Server {
 	}
 	store.Migrate(db)
 
+	// Projects created before completion policy existed get their
+	// completion_settings row + built-in profiles here. Gated on "no settings
+	// row" so a project whose profiles the user edited/deleted is not re-seeded
+	// on every boot. Best-effort: the resolver falls back to schema defaults.
+	if err := completion.BackfillProjectDefaults(context.Background(), store.Wrap(db)); err != nil {
+		slog.Warn("completion: backfill project defaults failed", "error", err)
+	}
+
+	// Projects created before intake settings existed need explicit rows: the
+	// settings UI renders the schema default (observe) for a missing row, but
+	// the intake policy loader fails closed to off.
+	if err := service.BackfillIntakeProjectDefaults(context.Background(), store.Wrap(db)); err != nil {
+		slog.Warn("intake: backfill project defaults failed", "error", err)
+	}
+
 	authz := service.NewAuthz(s.queries, db)
 	s.authzSvc = authz
 	s.mcpSessions = service.NewMCPSessionService(s.queries)
+
+	// Task intake (Epic #755): the pipeline is owned by IMBotService, whose
+	// inbound handler is its first Source adapter. It needs no separate wiring
+	// here — see service.NewIMBotService.
 
 	// Event bus (initialized early — needed by KanbanService and others)
 	s.eventBus = event.NewBus()
@@ -911,6 +946,23 @@ func New(cfg *config.Config, db *sql.DB, frontendFS fs.FS) *Server {
 	// before an issue may complete. Empty by default (no floor).
 	s.projectFloorSvc = service.NewProjectFloorService(db, s.queries)
 	s.projectFloorHandler = api.NewProjectFloorHandler(s.projectFloorSvc, authz)
+	// Intake + Completion contract surface (design §6.9). The IM service is wired
+	// as the decision acceptor further below (it is constructed after this point);
+	// until then accept answers 501 rather than consuming the queue entry.
+	s.intakeSvc = service.NewIntakeService(db, s.queries)
+	s.intakeHandler = api.NewIntakeHandler(s.intakeSvc, authz)
+	s.intakeHandler.ProviderEnv = s.kanbanSvc
+	s.completionSvc = service.NewCompletionService(db, s.queries)
+	s.completionHandler = api.NewCompletionHandler(s.completionSvc, authz)
+	s.taskBriefSvc = service.NewTaskBriefService(s.queries, store.Wrap(db))
+	s.taskBriefHandler = api.NewTaskBriefHandler(s.taskBriefSvc, authz)
+	// Mission control reads across the Intake/Completion tables, so it is built
+	// after intakeSvc (it reuses its pause get/set) and owns no writes of its own.
+	s.missionControlSvc = service.NewMissionControlService(store.Wrap(db), s.queries, authz, s.intakeSvc)
+	s.missionControlHandler = &api.MissionControlHandler{Svc: s.missionControlSvc, DB: db}
+	// PATCH /api/issues/:id carries completion_profile_id; the kanban handler owns
+	// that route, so give it the completion service.
+	s.kanbanHandler.Completion = s.completionSvc
 	s.worktreeHandler = api.NewWorktreeHandler(s.worktreeSvc)
 	s.agentHandler = api.NewAgentHandler(s.agentMgr, s.workspaceSvc)
 	s.agentHandler.Authz = authz
@@ -1655,6 +1707,8 @@ func New(cfg *config.Config, db *sql.DB, frontendFS fs.FS) *Server {
 		imbot.ChannelWechat:   wechat.New(),
 	}
 	s.imbotSvc = service.NewIMBotService(s.queries, db, keyring, s.authzSvc, imbotAdapters)
+	// Rollback switch for the per-chat agent_mode → intake_mode migration (§7.1).
+	s.imbotSvc.SetIntakeLegacyChatMode(s.cfg.Intake.LegacyChatMode)
 	// Health alerts now reach both channels: station-in hub + IM Bot (#744).
 	s.integrationHealthSvc.SetNotifier(&integrationHealthNotifier{hub: s.notifyHub, imbotSvc: s.imbotSvc})
 	// Egress data-governance alerts (#747) use the same two channels. The
@@ -1677,6 +1731,32 @@ func New(cfg *config.Config, db *sql.DB, frontendFS fs.FS) *Server {
 	// classifier instance.
 	imbotDispatch := service.NewDispatchService(s.kanbanSvc, s.workspaceSvc, s.queries, service.NewPlanRouter())
 	s.imbotSvc.SetInbound(imbotDispatch, s.agentProxy, s.permService)
+	// The calibration queue's accept path reuses the IM executor, so a pending
+	// decision creates (or resumes) the same task an automatic accept would.
+	s.intakeSvc.SetAcceptor(s.imbotSvc)
+
+	// GitHub Source adapter (Epic #755 / design §6.10): poll bound repos,
+	// normalize events, and run them through the same Intake pipeline. Polling is
+	// outbound only, so the personal edition needs no public webhook endpoint.
+	s.githubSourceSvc = service.NewGithubSourceService(db, s.queries, s.extCredSvc)
+	s.githubSourceSvc.SetInbound(imbotDispatch, s.agentProxy)
+	s.intakeHandler.Github = s.githubSourceSvc
+	// Outbound half: a finished turn in a workspace bound to a PR/issue thread
+	// is posted back as a comment. Guarded by the owner's github write grant and
+	// idempotent per turn (see github_reply.go).
+	s.githubReplySvc = service.NewGithubReplyDispatcher(s.eventBus, s.githubSourceSvc)
+	s.githubReplySvc.Start()
+	if cfg.Intake.GitHubPollCron != "" {
+		s.scheduler.RegisterGitHubPoll(cfg.Intake.GitHubPollCron, s.githubSourceSvc.RunOnce)
+	}
+	// Team-edition inbound Sources (design §6.10): GitHub webhook plus the
+	// email/generic webhook adapters. They normalize to the same Trigger shape
+	// and run through the same Intake pipeline as polling, so dedupe, actor
+	// scope, the daily cap and audit are identical.
+	s.webhookSourceSvc = service.NewWebhookSourceService(db, s.queries, s.extCredSvc)
+	s.webhookSourceSvc.SetInbound(imbotDispatch, s.agentProxy)
+	s.intakeHandler.Webhook = s.webhookSourceSvc
+	s.intakeWebhookHandler = api.NewIntegrationWebhookHandler(s.webhookSourceSvc)
 	// Let a user answer an agent's ask_user question by tapping an option button in
 	// the chat (the outbound question card carries option buttons).
 	s.imbotSvc.SetAskUserDecider(s.askUserService)
@@ -1788,6 +1868,9 @@ func (s *Server) Shutdown() {
 	}
 	if s.imbotDispatcher != nil {
 		s.imbotDispatcher.Stop()
+	}
+	if s.githubReplySvc != nil {
+		s.githubReplySvc.Stop()
 	}
 	if s.imbotEmployee != nil {
 		s.imbotEmployee.Stop()

@@ -20,14 +20,36 @@ import (
 
 // observeChat seeds an active chat routed to the fixture project and switches it
 // into observe mode, which is the only mode that records a transcript.
+//
+// It also sets intake_mode=auto, which is what the design §7.1 migration writes
+// for a pre-existing agent_mode=observe chat: "within budget, act directly"
+// behaviour is preserved. Tests exercising the new dry-run default set
+// intake_mode=observe explicitly (see setChatIntakeMode).
 func (f *imbotFixture) observeChat(t *testing.T, chatExtID string) store.ImBotChat {
 	t.Helper()
 	chat := f.activeChat(t, chatExtID)
+	row := f.setChatAgentMode(t, chat, AgentModeObserve)
+	return f.setChatIntakeMode(t, row, IntakeModeAuto)
+}
+
+func (f *imbotFixture) setChatAgentMode(t *testing.T, chat store.ImBotChat, mode string) store.ImBotChat {
+	t.Helper()
 	row, err := f.q.UpdateIMBotChatAgentMode(context.Background(), store.UpdateIMBotChatAgentModeParams{
-		AgentMode: AgentModeObserve, ID: chat.ID,
+		AgentMode: mode, ID: chat.ID,
 	})
 	if err != nil {
-		t.Fatalf("set observe mode: %v", err)
+		t.Fatalf("set agent mode %q: %v", mode, err)
+	}
+	return row
+}
+
+func (f *imbotFixture) setChatIntakeMode(t *testing.T, chat store.ImBotChat, mode string) store.ImBotChat {
+	t.Helper()
+	row, err := f.q.UpdateIMBotChatIntakeMode(context.Background(), store.UpdateIMBotChatIntakeModeParams{
+		IntakeMode: mode, ID: chat.ID,
+	})
+	if err != nil {
+		t.Fatalf("set intake mode %q: %v", mode, err)
 	}
 	return row
 }
@@ -323,6 +345,119 @@ func TestEmployeeSweep_TaskStartsWorkAndAnnounces(t *testing.T) {
 	// The announcement must tell the team how to continue it.
 	if !strings.Contains(pushes[0].Text, "#"+itoa(f.issueID)) {
 		t.Errorf("announcement missing the task ref: %q", pushes[0].Text)
+	}
+}
+
+// TestEmployeeSweep_ObserveIntakeRecordsDryRun is the dry-run contract (design
+// §6.3): with the chat in intake observe mode, a proactive task verdict must be
+// recorded as an executed=0 decision carrying the would-do payload — and must
+// produce ZERO side effects: no issue/workspace (router), no delivery, and no
+// proactive message.
+func TestEmployeeSweep_ObserveIntakeRecordsDryRun(t *testing.T) {
+	f := newIMBotFixture(t)
+	chat := f.activeChat(t, "oc_dryrun")
+	chat = f.setChatAgentMode(t, chat, AgentModeObserve)
+	chat = f.setChatIntakeMode(t, chat, IntakeModeObserve)
+	seedChatter(t, f, chat, employeeMinMessages)
+	f.router.queue = []PlanTarget{{IssueID: f.issueID, WorkspaceID: f.wsID, ProjectID: f.projectID}}
+
+	an := &fakeAnalyzer{verdict: EmployeeVerdict{
+		Action: EmployeeActionTask, Message: "我先起个草稿", Task: "整理本季度的销售数据并生成报告",
+	}}
+	emp := NewIMBotEmployee(f.svc, f.q, an)
+	emp.sweep(context.Background())
+
+	if f.router.calls != 0 {
+		t.Fatalf("dry-run routed %d times, want 0", f.router.calls)
+	}
+	if n := len(f.deliverer.calls); n != 0 {
+		t.Fatalf("dry-run delivered %d messages, want 0", n)
+	}
+	if n := len(f.adapter.pushes); n != 0 {
+		t.Fatalf("dry-run pushed %d messages, want 0: %+v", n, f.adapter.pushes)
+	}
+
+	pending, err := f.q.ListPendingIntakeDecisions(context.Background(), store.ListPendingIntakeDecisionsParams{
+		ProjectID: f.projectID, Decision: "accept",
+	})
+	if err != nil {
+		t.Fatalf("list pending decisions: %v", err)
+	}
+	if len(pending) != 1 {
+		t.Fatalf("pending decisions = %d, want 1", len(pending))
+	}
+	d := pending[0]
+	if d.Executed != 0 {
+		t.Errorf("dry-run decision executed=%d, want 0", d.Executed)
+	}
+	if d.ModeAtDecision != IntakeModeObserve {
+		t.Errorf("mode_at_decision = %q, want observe", d.ModeAtDecision)
+	}
+	if d.Strength != "inferred" || d.ReasonCode != "observed" {
+		t.Errorf("decision meta = strength %q reason %q, want inferred/observed", d.Strength, d.ReasonCode)
+	}
+	if !strings.Contains(d.WouldDoJson, "整理本季度的销售数据并生成报告") {
+		t.Errorf("would_do_json missing the proposed goal: %s", d.WouldDoJson)
+	}
+	if !strings.Contains(d.WouldDoJson, `"decision":"accept"`) {
+		t.Errorf("would_do_json missing the decision: %s", d.WouldDoJson)
+	}
+}
+
+// TestEmployeeSweep_OffIntakeDoesNotEvaluate: off mode does not evaluate inferred
+// work at all, so the verdict is dropped without recording anything.
+func TestEmployeeSweep_OffIntakeDoesNotEvaluate(t *testing.T) {
+	f := newIMBotFixture(t)
+	chat := f.activeChat(t, "oc_off")
+	chat = f.setChatAgentMode(t, chat, AgentModeObserve)
+	chat = f.setChatIntakeMode(t, chat, IntakeModeOff)
+	seedChatter(t, f, chat, employeeMinMessages)
+
+	emp := NewIMBotEmployee(f.svc, f.q, &fakeAnalyzer{verdict: EmployeeVerdict{
+		Action: EmployeeActionTask, Task: "整理季度数据",
+	}})
+	emp.sweep(context.Background())
+
+	if f.router.calls != 0 || len(f.adapter.pushes) != 0 || len(f.deliverer.calls) != 0 {
+		t.Fatalf("off mode produced side effects: router=%d pushes=%d deliveries=%d",
+			f.router.calls, len(f.adapter.pushes), len(f.deliverer.calls))
+	}
+	pending, err := f.q.ListPendingIntakeDecisions(context.Background(), store.ListPendingIntakeDecisionsParams{
+		ProjectID: f.projectID, Decision: "accept",
+	})
+	if err != nil {
+		t.Fatalf("list pending decisions: %v", err)
+	}
+	if len(pending) != 0 {
+		t.Fatalf("off mode recorded %d pending decisions, want 0", len(pending))
+	}
+}
+
+// TestEmployeeSweep_InheritUsesProjectPolicy: a chat in "inherit project" mode
+// must resolve against the project's im_bot setting, so an auto project lets the
+// proactive verdict start a task even though the chat carries no explicit mode.
+func TestEmployeeSweep_InheritUsesProjectPolicy(t *testing.T) {
+	f := newIMBotFixture(t)
+	chat := f.activeChat(t, "oc_inherit_sweep")
+	chat = f.setChatAgentMode(t, chat, AgentModeObserve)
+	chat = f.setChatIntakeMode(t, chat, IntakeModeInherit)
+	ctx := context.Background()
+	if _, err := f.q.UpsertIntakeSetting(ctx, store.UpsertIntakeSettingParams{
+		ProjectID: f.projectID, SourceKind: "im_bot", Mode: "auto",
+		DailyCap: 10, AllowListJson: `[]`, BotListJson: `[]`,
+	}); err != nil {
+		t.Fatalf("seed intake setting: %v", err)
+	}
+	seedChatter(t, f, chat, employeeMinMessages)
+	f.router.queue = []PlanTarget{{IssueID: f.issueID, WorkspaceID: f.wsID, ProjectID: f.projectID}}
+
+	emp := NewIMBotEmployee(f.svc, f.q, &fakeAnalyzer{verdict: EmployeeVerdict{
+		Action: EmployeeActionTask, Task: "整理季度数据",
+	}})
+	emp.sweep(ctx)
+
+	if f.router.calls != 1 {
+		t.Fatalf("inherit + project auto routed %d times, want 1", f.router.calls)
 	}
 }
 

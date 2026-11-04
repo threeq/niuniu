@@ -5,8 +5,10 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strings"
 
+	"github.com/niuniu-dev/niuniu/internal/completion"
 	"github.com/niuniu-dev/niuniu/internal/notify"
 	"github.com/niuniu-dev/niuniu/internal/store"
 )
@@ -141,6 +143,12 @@ func (s *ProjectService) Create(ctx context.Context, params CreateProjectParams)
 	}
 	appendResourceAudit(ctx, s.db, nil, params.OwnerType, params.OwnerID, 0, "project.created", "project", project.ID,
 		resourceAuditPayload(params.Name))
+	if err := completion.EnsureProjectDefaults(ctx, s.db, project.ID); err != nil {
+		slog.Warn("seed completion defaults failed", "project_id", project.ID, "error", err)
+	}
+	if err := EnsureIntakeProjectDefaults(ctx, s.db, project.ID); err != nil {
+		slog.Warn("seed intake defaults failed", "project_id", project.ID, "error", err)
+	}
 	if s.notifyHub != nil {
 		s.notifyHub.Broadcast(notify.Notification{Topic: notify.TopicProject, Action: "updated", ID: project.ID})
 	}

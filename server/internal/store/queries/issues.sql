@@ -10,12 +10,14 @@ SELECT * FROM issues WHERE id = ?;
 -- separate GetChecklistStats call). Two correlated subqueries hit the
 -- (issue_id, position) index on issue_checklists; for a single issue
 -- this is cheap and keeps SQLite/Postgres parity (no LATERAL, no
--- GROUP BY mismatch).
+-- GROUP BY mismatch). Stats cover manual execution items only: Brief
+-- acceptance items are definition-of-done progress, shown on the Task
+-- Brief card instead of the execution checklist counter.
 SELECT
     i.*,
     c.project_id AS project_id,
-    (SELECT CAST(COUNT(*) AS INTEGER) FROM issue_checklists WHERE issue_id = i.id) AS checklist_total,
-    (SELECT CAST(COALESCE(SUM(CASE WHEN is_completed = 1 THEN 1 ELSE 0 END), 0) AS INTEGER) FROM issue_checklists WHERE issue_id = i.id) AS checklist_completed
+    (SELECT CAST(COUNT(*) AS INTEGER) FROM issue_checklists WHERE issue_id = i.id AND kind = 'task') AS checklist_total,
+    (SELECT CAST(COALESCE(SUM(CASE WHEN is_completed = 1 THEN 1 ELSE 0 END), 0) AS INTEGER) FROM issue_checklists WHERE issue_id = i.id AND kind = 'task') AS checklist_completed
 FROM issues i
 JOIN columns c ON c.id = i.column_id
 WHERE i.id = ?;
@@ -157,3 +159,10 @@ UPDATE issues SET goal_condition = ?, updated_at = CURRENT_TIMESTAMP WHERE id = 
 -- name: UpdateIssuePriority :exec
 -- Lightweight single-field update used by the batch priority endpoint.
 UPDATE issues SET priority = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?;
+
+-- name: SetIssueCompletionProfile :one
+-- NULL clears the issue-level override so it inherits the project default.
+UPDATE issues
+SET completion_profile_id = ?, updated_at = CURRENT_TIMESTAMP
+WHERE id = ?
+RETURNING *;

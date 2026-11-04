@@ -145,6 +145,15 @@ SET agent_mode = ?, updated_at = CURRENT_TIMESTAMP
 WHERE id = ?
 RETURNING *;
 
+-- name: UpdateIMBotChatIntakeMode :one
+-- Per-chat intake mode (design section 6.9): inherit | off | observe | auto. Separate
+-- UPDATE for the same stale-row reason as agent_mode above; validated in the
+-- service layer because the migration-added column carries no CHECK.
+UPDATE im_bot_chats
+SET intake_mode = ?, updated_at = CURRENT_TIMESTAMP
+WHERE id = ?
+RETURNING *;
+
 -- name: ListObserveIMBotChats :many
 -- Every active chat opted into observation mode, for the periodic proactive
 -- analyzer sweep. Only chats already routed to a project can produce work.

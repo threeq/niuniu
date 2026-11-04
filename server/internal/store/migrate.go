@@ -866,6 +866,83 @@ func Migrate(db *sql.DB) {
 	// 2026-08-27 Agent employee (issue #664): the chat observation log plus the
 	// per-chat agent_mode that opts a chat into observe-and-act-proactively.
 	migrateIMBotAgentEmployee(db)
+
+	// 2026-11-03 Task intake + auto-completion (Epic #755): extend existing
+	// tables for task Brief acceptance items and per-issue completion profiles.
+	migrateIntakeCompletion(db)
+	// Per-chat intake mode (design §6.9): the PATCH /api/imbot/chats/:chatid
+	// field. Backfilled once from the legacy agent_mode mapping in §7.
+	migrateIMBotIntakeMode(db)
+
+	// 2026-11-03 intake events map onto the existing Execution Timeline, so the
+	// issue_exec_events.kind CHECK must admit 'intake' (design §6.7.6).
+	migrateIntakeExecEventKind(db)
+}
+
+// migrateIntakeCompletion retrofits the intake/completion columns onto existing
+// databases. The eight new tables are created by schema.sql / schema_postgres.sql
+// on every startup (CREATE TABLE IF NOT EXISTS), so only the columns added to
+// pre-existing tables need handling here.
+//
+// Defaults preserve current behavior exactly: every legacy checklist row becomes
+// kind='task' with no brief, and every issue inherits the project completion
+// default (completion_profile_id NULL). No CHECK is added to these migration
+// columns (SQLite cannot add one via ALTER TABLE); fresh DBs get none either, so
+// the two paths stay equivalent.
+func migrateIntakeCompletion(db *sql.DB) {
+	fk := fkType()
+
+	addColumnIfNotExists(db, "issue_checklists", "kind", "TEXT NOT NULL DEFAULT 'task'")
+	addColumnIfNotExists(db, "issue_checklists", "brief_id", fk+" DEFAULT NULL REFERENCES task_briefs(id) ON DELETE SET NULL")
+	addColumnIfNotExists(db, "issues", "completion_profile_id", fk+" DEFAULT NULL REFERENCES completion_profiles(id) ON DELETE SET NULL")
+
+	// Indexes live here, not in the schema files: on an upgraded DB the schema
+	// runs BEFORE the columns above exist, so CREATE INDEX there would fail.
+	for _, idx := range []string{
+		`CREATE INDEX IF NOT EXISTS idx_issue_checklists_brief ON issue_checklists(brief_id)`,
+		`CREATE INDEX IF NOT EXISTS idx_issues_completion_profile ON issues(completion_profile_id)`,
+	} {
+		if _, err := db.Exec(idx); err != nil {
+			slog.Warn("create intake/completion index failed", "sql", idx, "error", err)
+		}
+	}
+}
+
+// migrateIntakeExecEventKind admits 'intake' to issue_exec_events.kind so an
+// intake event can be projected onto the existing ExecutionTimeline (design
+// §6.7.6: reuse the timeline, add intake/intervention copy only). Fresh DBs get
+// the widened CHECK from the schema files; SQLite cannot ALTER a CHECK, so
+// upgraded DBs are rebuilt from their stored DDL, and Postgres swaps the named
+// constraint in place.
+func migrateIntakeExecEventKind(db *sql.DB) {
+	const (
+		oldEnum = "('advance','gate','ask_user','terminal','cost','intervention')"
+		newEnum = "('advance','gate','ask_user','terminal','cost','intervention','intake')"
+	)
+	w := Wrap(db)
+	if migrationApplied(w, "allow_intake_exec_event_kind_v1") {
+		return
+	}
+
+	if Driver == "postgres" {
+		stmts := []string{
+			`ALTER TABLE issue_exec_events DROP CONSTRAINT IF EXISTS issue_exec_events_kind_check`,
+			`ALTER TABLE issue_exec_events ADD CONSTRAINT issue_exec_events_kind_check
+				CHECK (kind IN ('advance','gate','ask_user','terminal','cost','intervention','intake'))`,
+		}
+		for _, s := range stmts {
+			if _, err := db.Exec(s); err != nil {
+				slog.Warn("migrateIntakeExecEventKind (pg): step failed", "error", err)
+				return // leave marker unset; next start retries
+			}
+		}
+	} else if err := rebuildSQLiteWidenCheck(db, "issue_exec_events", oldEnum, newEnum); err != nil {
+		slog.Warn("migrateIntakeExecEventKind (sqlite): rebuild failed", "error", err)
+		return // leave marker unset; next start retries
+	}
+
+	markMigration(w, "allow_intake_exec_event_kind_v1")
+	slog.Info("migrateIntakeExecEventKind: issue_exec_events.kind widened for 'intake'")
 }
 
 // migrateIMBotAgentEmployee retrofits the Agent-employee (issue #664) data model
@@ -923,6 +1000,34 @@ func migrateIMBotAgentEmployee(db *sql.DB) {
 	// the CREATE so a fresh DB gets the column from the table definition and this
 	// call is the no-op instead.
 	addColumnIfNotExists(db, "im_bot_chat_messages", "attachments", "TEXT NOT NULL DEFAULT '[]'")
+}
+
+// migrateIMBotIntakeMode retrofits im_bot_chats.intake_mode (design §6.9) and
+// backfills it once from the legacy agent_mode mapping in §7:
+//
+//	agent_mode='command' → intake_mode='off'
+//	agent_mode='observe' → intake_mode='auto'
+//
+// The backfill runs only when the column is first added — columnExists is
+// checked BEFORE addColumnIfNotExists — so a value the user later chooses in the
+// chat row is never overwritten on a restart. New chats default to 'observe'
+// (dry-run), per decision record #1.
+func migrateIMBotIntakeMode(db *sql.DB) {
+	had, err := columnExists(db, "im_bot_chats", "intake_mode")
+	if err != nil {
+		slog.Warn("migrateIMBotIntakeMode: column probe failed", "error", err)
+		return
+	}
+	addColumnIfNotExists(db, "im_bot_chats", "intake_mode", "TEXT NOT NULL DEFAULT 'observe'")
+	if had {
+		return
+	}
+	if _, err := db.Exec(`UPDATE im_bot_chats SET intake_mode = ` +
+		`CASE WHEN agent_mode = 'observe' THEN 'auto' ELSE 'off' END`); err != nil {
+		slog.Warn("migrateIMBotIntakeMode: backfill failed", "error", err)
+		return
+	}
+	slog.Info("migrateIMBotIntakeMode: im_bot_chats.intake_mode added and backfilled")
 }
 
 // migrateIMBotAllowWechat relaxes the im_bot_channels.channel_type and
@@ -1280,7 +1385,7 @@ func migrateAllowNiuniuCLITypeSQLite(db *sql.DB, w *DB, oldEnum, newEnum string)
 	}
 	markMigration(w, "allow_niuniu_cli_type_v1")
 	slog.Info("migrateAllowNiuniuCLIType: workspaces.cli_type / projects.default_cli_type CHECK widened for 'niuniu'")
-}// (an external knowledge-base MCP endpoint as a first-class KB source kind).
+} // (an external knowledge-base MCP endpoint as a first-class KB source kind).
 // Dual-driver, marker-gated. On fresh installs the schema files already carry
 // 'mcp', so the rebuild is a one-time no-op that reproduces the same table.
 //

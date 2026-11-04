@@ -77,7 +77,8 @@
         "ask_user": "Asked you",
         "terminal": "Terminal state",
         "intervention": "Intervention",
-        "cost": "Cost"
+        "cost": "Cost",
+        "intake": "Intake"
       }
     },
     "checkpointTimeline": {
@@ -274,7 +275,8 @@
     "groupName": "Group: {{group}}",
     "checklist": {
       "title": "Checklist",
-      "addPlaceholder": "Add an item..."
+      "addPlaceholder": "Add an item...",
+      "executionSection": "Execution checklist"
     },
     "description": {
       "label": "Description",
@@ -613,6 +615,8 @@
         "repos": "Repositories",
         "labels": "Labels",
         "board": "Board",
+        "intake": "Intake",
+        "completion": "Completion",
         "externalSources": "External sources",
         "memory": "Memory",
         "imbot": "IM bot",
@@ -919,6 +923,7 @@
     "chatExtIdPlaceholder": "Chat external id",
     "chatNamePlaceholder": "Chat name (optional)",
     "removeChatConfirm": "Remove chat \"{{name}}\"?",
+    "removeChat": "Remove chat",
     "bindProject": "Intent routing",
     "bindWorkspace": "Pinned task",
     "pendingTitle": "{{count}} chat(s) awaiting pairing",
@@ -954,6 +959,16 @@
     "agentModeCommandHint": "Act only when @-mentioned, messaged directly, or given a command.",
     "agentModeObserve": "Observe actively",
     "agentModeObserveHint": "Record the discussion and review it periodically; speak up or start a task when warranted.",
+    "intakeModeTitle": "Intake mode",
+    "intakeMode": {
+      "inherit": "Inherit project",
+      "off": "Off",
+      "observe": "Observe",
+      "auto": "Auto"
+    },
+    "intakeModeOverridden": "Overrides project default",
+    "intakeModeObserveHint": "Messages are recorded for calibration; the bot will not act on its own.",
+    "intakePendingLink": "Review {{count}} awaiting calibration",
     "wechat": {
       "scanHint": "Scan the QR code below with WeChat (Discover → Scan) to connect the bot.",
       "starting": "Fetching QR code…",

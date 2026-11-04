@@ -188,6 +188,11 @@ func main() {
 		// the guidance agent. The pid closure is captured at registration time;
 		// no project_id argument is exposed to the agent.
 		registerIMBotTools(s, api, pid)
+		// Intake (任务来源) + Completion (自动完成) contract tools (§6.9): ten
+		// tools split across the two capabilities, all registered together since
+		// each capability is independently configurable.
+		registerIntakeTools(s, api, pid)
+		registerCompletionTools(s, api, pid)
 		// Generic credential-link tools (issue #727): mint a one-time secure
 		// link for a provider credential or data source, and query whether a
 		// credential is stored (boolean only). Project-scoped like the IM Bot

@@ -60,6 +60,10 @@ const IntegrationsPage = lazyNamed(() => import('./pages/settings/integrations')
 const AgentsPage = lazyNamed(() => import('./pages/agents'), 'AgentsPage');
 const DashboardsPage = lazyNamed(() => import('./pages/dashboards/dashboards-page'), 'DashboardsPage');
 const DashboardDetail = lazyNamed(() => import('./pages/dashboards/dashboard-detail'), 'DashboardDetail');
+const IntakeReviewPage = lazyNamed(
+  () => import('./pages/intake/intake-review-page'),
+  'IntakeReviewPage',
+);
 
 function requireAuth() {
   return async () => {
@@ -384,6 +388,29 @@ const dashboardDetailRoute = createRoute({
   },
 });
 
+// Global dry-run calibration queue (design §6.7.5). Project scope is chosen on
+// the page; the route is top-level so Mission control and project settings can
+// both link to it.
+const intakeRoute = createRoute({
+  getParentRoute: () => layoutRoute,
+  path: '/intake',
+  // Deep-link support: an IM chat row links here filtered to that conversation
+  // (?project=<id>&chat=<chat_ext_id>, design §6.7.7) and a Mission control
+  // per-source row drills here filtered to that source (?source=<kind>). Every
+  // key stays optional so the global queue keeps its existing bare URL.
+  validateSearch: (
+    search: Record<string, unknown>,
+  ): { project?: number; chat?: string; source?: string } => {
+    const out: { project?: number; chat?: string; source?: string } = {};
+    const project = Number(search.project);
+    if (Number.isFinite(project) && project > 0) out.project = project;
+    if (typeof search.chat === 'string' && search.chat) out.chat = search.chat;
+    if (typeof search.source === 'string' && search.source) out.source = search.source;
+    return out;
+  },
+  component: IntakeReviewPage,
+});
+
 const routeTree = rootRoute.addChildren([
   loginRoute,
   imbotOnboardingRoute,
@@ -419,6 +446,7 @@ const routeTree = rootRoute.addChildren([
     agentsRoute,
     dashboardsRoute,
     dashboardDetailRoute,
+    intakeRoute,
   ]),
 ]);
 

@@ -135,6 +135,11 @@ CREATE TABLE IF NOT EXISTS issues (
     exec_wave           INTEGER NOT NULL DEFAULT 0,
     exec_status         TEXT NOT NULL DEFAULT 'idle' CHECK (exec_status IN ('idle','running','done','failed','paused','reviewing','gate_checking','gate_blocked','waiting_input','abandoned')),
     exec_status_reason  TEXT,
+    -- completion_profile_id: issue-level auto-completion profile. NULL inherits
+    -- the project default (completion_settings). Added to existing DBs by
+    -- migrate.go (addColumnIfNotExists); FK to completion_profiles is added in
+    -- the deferred block at the end of this file.
+    completion_profile_id BIGINT DEFAULT NULL,
     created_at          TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at          TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     created_by          BIGINT DEFAULT NULL -- FK to users added in deferred block below
@@ -148,7 +153,7 @@ CREATE TABLE IF NOT EXISTS issue_exec_events (
     id           BIGSERIAL PRIMARY KEY,
     issue_id     BIGINT NOT NULL REFERENCES issues(id) ON DELETE CASCADE,
     workspace_id BIGINT,
-    kind         TEXT NOT NULL CHECK (kind IN ('advance','gate','ask_user','terminal','cost','intervention')),
+    kind         TEXT NOT NULL CHECK (kind IN ('advance','gate','ask_user','terminal','cost','intervention','intake')),
     summary      TEXT NOT NULL,
     detail_json  TEXT,
     cost_usd     DOUBLE PRECISION NOT NULL DEFAULT 0,
@@ -165,6 +170,12 @@ CREATE TABLE IF NOT EXISTS issue_checklists (
     title        TEXT NOT NULL,
     is_completed INTEGER NOT NULL DEFAULT 0,
     position     INTEGER NOT NULL DEFAULT 0,
+    -- kind separates manual/agent execution items ('task', the default and the
+    -- pre-existing behavior) from Brief-materialized acceptance items
+    -- ('acceptance'). Added to existing DBs by migrate.go without a CHECK; the
+    -- FK to task_briefs is added in the deferred block at the end of this file.
+    kind         TEXT NOT NULL DEFAULT 'task',
+    brief_id     BIGINT DEFAULT NULL,
     created_at   TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at   TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
@@ -1918,6 +1929,10 @@ CREATE TABLE IF NOT EXISTS im_bot_chats (
     -- would make fresh and upgraded schemas diverge. Validated in the service layer
     -- (normalizeAgentMode) instead.
     agent_mode      TEXT NOT NULL DEFAULT 'command',
+    -- intake_mode (design 2026-11-03 §6.9): inherit | off | observe (default) | auto.
+    -- No CHECK for the same retrofit reason as agent_mode; validated in the
+    -- service layer (normalizeIntakeMode).
+    intake_mode     TEXT NOT NULL DEFAULT 'observe',
     pinned_issue_id BIGINT,
     active_issue_id BIGINT,
     status          TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','active','disabled')),
@@ -2165,3 +2180,240 @@ CREATE TABLE IF NOT EXISTS workspace_shares (
     created_at     TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 CREATE INDEX IF NOT EXISTS idx_workspace_shares_workspace ON workspace_shares(workspace_id);
+
+-- ============================================================
+-- Task intake (任务来源) + auto-completion (自动完成).
+-- Spec: docs/superpowers/specs/2026-11-03-intake-completion-autonomy-design.md
+-- §6.8. JSON payloads are stored as TEXT on both drivers; CHECK constraints
+-- are deliberately omitted so new enum values do not require a table rebuild.
+-- ============================================================
+
+-- Per project + source intake configuration. mode is off | observe | auto;
+-- observe records dry-run decisions without creating issues. UNIQUE makes the
+-- settings row addressable by (project_id, source_kind) for upserts.
+CREATE TABLE IF NOT EXISTS intake_settings (
+    id              BIGSERIAL PRIMARY KEY,
+    project_id      BIGINT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    source_kind     TEXT NOT NULL,
+    mode            TEXT NOT NULL DEFAULT 'observe',
+    daily_cap       INTEGER NOT NULL DEFAULT 4,
+    allow_list_json TEXT NOT NULL DEFAULT '[]',
+    bot_list_json   TEXT NOT NULL DEFAULT '[]',
+    updated_at      TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(project_id, source_kind)
+);
+
+-- Project-level intake pause. A missing row means not paused. While paused the
+-- pipeline forces every source to mode off: explicit requests keep working
+-- (mode off still runs them) but inferred/observe work stops immediately and
+-- resuming needs no re-calibration.
+CREATE TABLE IF NOT EXISTS intake_project_state (
+    project_id BIGINT PRIMARY KEY REFERENCES projects(id) ON DELETE CASCADE,
+    paused     INTEGER NOT NULL DEFAULT 0,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Ordered intake rules evaluated per source; higher priority wins.
+CREATE TABLE IF NOT EXISTS intake_rules (
+    id              BIGSERIAL PRIMARY KEY,
+    project_id      BIGINT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    source_kind     TEXT NOT NULL,
+    name            TEXT NOT NULL,
+    instruction     TEXT NOT NULL,
+    conditions_json TEXT NOT NULL DEFAULT '{}',
+    priority        INTEGER NOT NULL DEFAULT 0,
+    enabled         INTEGER NOT NULL DEFAULT 1,
+    created_at      TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Append-only snapshot of settings+rules per change, so an intake decision can
+-- be traced to the exact policy it was made under.
+CREATE TABLE IF NOT EXISTS intake_policy_versions (
+    id            BIGSERIAL PRIMARY KEY,
+    project_id    BIGINT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    source_kind   TEXT NOT NULL,
+    version       INTEGER NOT NULL,
+    snapshot_json TEXT NOT NULL DEFAULT '{}',
+    created_at    TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(project_id, source_kind, version)
+);
+
+-- Inbound event log. The natural key (source_kind, source_ref, event_ext_id)
+-- makes redelivery idempotent: a repeated event inserts no new row.
+CREATE TABLE IF NOT EXISTS intake_events (
+    id            BIGSERIAL PRIMARY KEY,
+    project_id    BIGINT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    source_kind   TEXT NOT NULL,
+    source_ref    TEXT NOT NULL,
+    event_ext_id  TEXT NOT NULL,
+    event_kind    TEXT NOT NULL,
+    actor_ext_id  TEXT NOT NULL DEFAULT '',
+    actor_name    TEXT NOT NULL DEFAULT '',
+    thread_ext_id TEXT NOT NULL DEFAULT '',
+    payload_json  TEXT NOT NULL DEFAULT '{}',
+    received_at   TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(source_kind, source_ref, event_ext_id)
+);
+CREATE INDEX IF NOT EXISTS idx_intake_events_project ON intake_events(project_id, received_at);
+
+-- Decision taken for an event. executed=0 is a dry-run record (observe mode);
+-- strength is explicit | inferred | denied, decision is accept | resume |
+-- ignore | unavailable (plain TEXT so new values need no migration).
+CREATE TABLE IF NOT EXISTS intake_decisions (
+    id                    BIGSERIAL PRIMARY KEY,
+    event_id              BIGINT NOT NULL REFERENCES intake_events(id) ON DELETE CASCADE,
+    project_id            BIGINT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    mode_at_decision      TEXT NOT NULL,
+    strength              TEXT NOT NULL,
+    decision              TEXT NOT NULL,
+    executed              INTEGER NOT NULL DEFAULT 0,
+    reason_code           TEXT NOT NULL DEFAULT '',
+    reason_text           TEXT NOT NULL DEFAULT '',
+    matched_rule_ids_json TEXT NOT NULL DEFAULT '[]',
+    policy_version        INTEGER NOT NULL DEFAULT 0,
+    issue_id              BIGINT,
+    workspace_id          BIGINT,
+    would_do_json         TEXT NOT NULL DEFAULT '{}',
+    created_at            TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_intake_decisions_pending ON intake_decisions(project_id, executed, decision);
+
+-- Daily inferred-intake reservations: one row per (project, source, local day).
+-- Reservation is a single atomic INSERT ... ON CONFLICT DO UPDATE ... WHERE
+-- used < cap, so concurrent inferred events cannot all pass a check-then-act
+-- window and overshoot daily_cap.
+CREATE TABLE IF NOT EXISTS intake_daily_usage (
+    id          BIGSERIAL PRIMARY KEY,
+    project_id  BIGINT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    source_kind TEXT NOT NULL,
+    day         TEXT NOT NULL,
+    used        INTEGER NOT NULL DEFAULT 0,
+    UNIQUE(project_id, source_kind, day)
+);
+
+-- GitHub Source polling cursors (Epic #755 / design §6.10). One row per
+-- (project, repo, event stream): the since/ETag cursor plus failure backoff.
+-- Timestamps are RFC3339 text for SQLite/PostgreSQL parity.
+CREATE TABLE IF NOT EXISTS github_source_poll_state (
+    id             BIGSERIAL PRIMARY KEY,
+    project_id     BIGINT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    repo           TEXT NOT NULL,
+    stream         TEXT NOT NULL,
+    since_ts       TEXT,
+    etag           TEXT NOT NULL DEFAULT '',
+    failure_count  INTEGER NOT NULL DEFAULT 0,
+    backoff_until  TEXT,
+    last_polled_at TEXT,
+    last_error     TEXT NOT NULL DEFAULT '',
+    UNIQUE(project_id, repo, stream)
+);
+
+-- GitHub thread bindings (Epic #755 / design §6.10). One row per
+-- (project, repo, PR/issue number): the upstream thread -> task mapping, so a
+-- later comment resumes the same workspace instead of being triaged again.
+-- state='ended' after the PR closes/merges; the thread stops being a work
+-- target and further events are ignored. last_event_* is the per-thread read
+-- position (the repo-wide poll cursor lives in github_source_poll_state).
+CREATE TABLE IF NOT EXISTS github_thread_bindings (
+    id            BIGSERIAL PRIMARY KEY,
+    project_id    BIGINT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    repo          TEXT NOT NULL,
+    thread_ext_id TEXT NOT NULL,
+    issue_id      BIGINT NOT NULL DEFAULT 0,
+    workspace_id  BIGINT NOT NULL DEFAULT 0,
+    state         TEXT NOT NULL DEFAULT 'open',
+    ended_reason  TEXT NOT NULL DEFAULT '',
+    last_event_id TEXT NOT NULL DEFAULT '',
+    last_event_at TEXT,
+    created_at    TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at    TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(project_id, repo, thread_ext_id)
+);
+
+-- Outbound result delivery: one row per (workspace, finished turn). The UNIQUE
+-- key makes a duplicated bus event or a retry a no-op instead of a second
+-- comment. status: pending | sent | failed | blocked (blocked = a guard refused
+-- the write; nothing was sent). error carries the guard reason or API error.
+CREATE TABLE IF NOT EXISTS github_reply_deliveries (
+    id            BIGSERIAL PRIMARY KEY,
+    project_id    BIGINT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    repo          TEXT NOT NULL,
+    thread_ext_id TEXT NOT NULL,
+    issue_id      BIGINT NOT NULL DEFAULT 0,
+    workspace_id  BIGINT NOT NULL DEFAULT 0,
+    event_key     TEXT NOT NULL,
+    status        TEXT NOT NULL DEFAULT 'pending',
+    comment_id    BIGINT NOT NULL DEFAULT 0,
+    comment_url   TEXT NOT NULL DEFAULT '',
+    error         TEXT NOT NULL DEFAULT '',
+    created_at    TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at    TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(workspace_id, event_key)
+);
+CREATE INDEX IF NOT EXISTS idx_github_reply_deliveries_issue ON github_reply_deliveries(issue_id, created_at);
+
+-- Task Brief: append-only 1:N versions per issue; current version = MAX(version).
+-- Provenance links back to the intake decision that created the brief.
+CREATE TABLE IF NOT EXISTS task_briefs (
+    id                 BIGSERIAL PRIMARY KEY,
+    issue_id           BIGINT NOT NULL REFERENCES issues(id) ON DELETE CASCADE,
+    version            INTEGER NOT NULL,
+    goal               TEXT NOT NULL DEFAULT '',
+    acceptance_json    TEXT NOT NULL DEFAULT '[]',
+    scope_in_json      TEXT NOT NULL DEFAULT '[]',
+    scope_out_json     TEXT NOT NULL DEFAULT '[]',
+    delivery_json      TEXT NOT NULL DEFAULT '{}',
+    provenance_json    TEXT NOT NULL DEFAULT '{}',
+    intake_decision_id BIGINT,
+    policy_version     INTEGER NOT NULL DEFAULT 0,
+    created_by         BIGINT,
+    created_at         TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(issue_id, version)
+);
+CREATE INDEX IF NOT EXISTS idx_task_briefs_issue ON task_briefs(issue_id, version);
+
+-- Project-level auto-completion defaults (one row per project).
+CREATE TABLE IF NOT EXISTS completion_settings (
+    project_id       BIGINT PRIMARY KEY REFERENCES projects(id) ON DELETE CASCADE,
+    autohost_enabled INTEGER NOT NULL DEFAULT 1,
+    max_rounds       INTEGER NOT NULL DEFAULT 20,
+    token_budget     INTEGER NOT NULL DEFAULT 0,
+    stop_on_decision INTEGER NOT NULL DEFAULT 1,
+    require_review   INTEGER NOT NULL DEFAULT 0,
+    updated_at       TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Named auto-completion profiles; an issue may point at one via
+-- issues.completion_profile_id and otherwise inherits the project default.
+CREATE TABLE IF NOT EXISTS completion_profiles (
+    id               BIGSERIAL PRIMARY KEY,
+    project_id       BIGINT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    name             TEXT NOT NULL,
+    autohost_enabled INTEGER NOT NULL DEFAULT 1,
+    max_rounds       INTEGER NOT NULL DEFAULT 20,
+    token_budget     INTEGER NOT NULL DEFAULT 0,
+    stop_on_decision INTEGER NOT NULL DEFAULT 1,
+    require_review   INTEGER NOT NULL DEFAULT 0,
+    created_at       TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at       TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(project_id, name)
+);
+
+-- Deferred FKs for columns declared before their parent table existed.
+-- Guarded on column existence because on upgraded DBs these columns are added
+-- by migrate.go, which runs AFTER schema execution; migrate.go adds the same
+-- constraints inline for that path.
+DO $$ BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_issue_checklists_brief_id')
+       AND EXISTS (SELECT 1 FROM information_schema.columns
+                   WHERE table_schema = 'public' AND table_name = 'issue_checklists' AND column_name = 'brief_id') THEN
+        ALTER TABLE issue_checklists ADD CONSTRAINT fk_issue_checklists_brief_id
+            FOREIGN KEY (brief_id) REFERENCES task_briefs(id) ON DELETE SET NULL;
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_issues_completion_profile_id')
+       AND EXISTS (SELECT 1 FROM information_schema.columns
+                   WHERE table_schema = 'public' AND table_name = 'issues' AND column_name = 'completion_profile_id') THEN
+        ALTER TABLE issues ADD CONSTRAINT fk_issues_completion_profile_id
+            FOREIGN KEY (completion_profile_id) REFERENCES completion_profiles(id) ON DELETE SET NULL;
+    END IF;
+END $$;

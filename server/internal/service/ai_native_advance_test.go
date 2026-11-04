@@ -537,6 +537,69 @@ func TestAdvanceIssue_CompleteColumn_CleanWorkspaceMoves(t *testing.T) {
 	assert.Equal(t, doneID, issueColumn(t, e, issueID))
 }
 
+// RequireReview completion policy: a direct move into the done lane is refused
+// and the agent is told to route to the human-review column instead (design
+// §6.5 review gate).
+func TestAdvanceIssue_CompleteColumn_RequireReviewRefused(t *testing.T) {
+	e := setupEpicTest(t)
+	e.svc.SetAgentProxy(&fakeAgentProxy{})
+	execEvents := service.NewExecEventService(e.db)
+	e.svc.SetExecEventService(execEvents)
+	pid, _, implID := makeProjectWithColumns(t, e)
+	doneID := makeCompleteColumn(t, e, pid)
+	makeColumn(t, e, pid, "人工审查", 8)
+	issueID := makeStandaloneIssue(t, e, implID, "高风险改动", "")
+	e.makeWorkspace(t, issueID)
+
+	_, err := e.q.UpsertCompletionSettings(e.ctx, store.UpsertCompletionSettingsParams{
+		ProjectID:       pid,
+		AutohostEnabled: 1,
+		MaxRounds:       20,
+		StopOnDecision:  1,
+		RequireReview:   1,
+	})
+	require.NoError(t, err)
+	e.svc.SetCompletionDirtyChecker(func(_ context.Context, _ store.Workspace) (bool, string) {
+		return false, ""
+	})
+
+	_, err = e.svc.AdvanceIssue(e.ctx, service.AdvanceIssueInput{
+		IssueID: issueID, ToColumn: strconv.FormatInt(doneID, 10), CallerUserID: 1,
+	})
+	require.Error(t, err, "RequireReview must refuse a direct move into 完成")
+	assert.Contains(t, err.Error(), "人工审查")
+	assert.Equal(t, implID, issueColumn(t, e, issueID), "card stays put when the review gate refuses")
+
+	evs, lerr := execEvents.List(e.ctx, issueID)
+	require.NoError(t, lerr)
+	require.Len(t, evs, 1)
+	assert.Equal(t, "intervention", evs[0].Kind)
+	assert.Contains(t, evs[0].Summary, "人工审查")
+}
+
+// An unresolvable completion policy must fail closed: the done-lane move is
+// refused rather than treated as "no review required".
+func TestAdvanceIssue_CompleteColumn_PolicyResolveFailureFailsClosed(t *testing.T) {
+	e := setupEpicTest(t)
+	e.svc.SetAgentProxy(&fakeAgentProxy{})
+	pid, _, implID := makeProjectWithColumns(t, e)
+	doneID := makeCompleteColumn(t, e, pid)
+	issueID := makeStandaloneIssue(t, e, implID, "改需求", "")
+	e.makeWorkspace(t, issueID)
+	e.svc.SetCompletionDirtyChecker(func(_ context.Context, _ store.Workspace) (bool, string) {
+		return false, ""
+	})
+	_, derr := e.db.ExecContext(e.ctx, `DROP TABLE completion_settings`)
+	require.NoError(t, derr)
+
+	_, err := e.svc.AdvanceIssue(e.ctx, service.AdvanceIssueInput{
+		IssueID: issueID, ToColumn: strconv.FormatInt(doneID, 10), CallerUserID: 1,
+	})
+	require.Error(t, err, "an unresolvable policy must refuse the done move")
+	assert.Contains(t, err.Error(), "无法解析自动完成策略")
+	assert.Equal(t, implID, issueColumn(t, e, issueID), "card stays put on fail-closed")
+}
+
 // --- complete-column epic-child auto-merge (epic 自动执行逻辑优化, ws-568) ---
 
 // An epic CHILD advanced into the done lane has its worktree committed + merged

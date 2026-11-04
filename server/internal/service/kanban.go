@@ -12,6 +12,7 @@ import (
 
 	"golang.org/x/sync/errgroup"
 
+	"github.com/niuniu-dev/niuniu/internal/completion"
 	"github.com/niuniu-dev/niuniu/internal/event"
 	"github.com/niuniu-dev/niuniu/internal/notify"
 	"github.com/niuniu-dev/niuniu/internal/store"
@@ -1031,6 +1032,9 @@ func (s *KanbanService) loadIssueDetail(ctx context.Context, issueID int64) (Iss
 			IssueType:     row.IssueType,
 			ExecWave:      row.ExecWave,
 			ExecStatus:    row.ExecStatus,
+			// Same lock-step rule: without this the issue-level completion
+			// profile override silently reads as null on GET /issues/:id.
+			CompletionProfileID: row.CompletionProfileID,
 			CreatedAt:     row.CreatedAt,
 			UpdatedAt:     row.UpdatedAt,
 			// Same lock-step rule as above: GetIssueDetail SELECTs i.*, so the
@@ -1988,8 +1992,24 @@ func (s *KanbanService) CreateProjectWithDefaults(ctx context.Context, name, des
 	// be dead code given current routing.
 	appendResourceAudit(ctx, s.db, nil, ownerType, ownerID, 0, "project.created", "project", project.ID,
 		resourceAuditPayload(name))
+	s.seedProjectDefaults(ctx, project.ID)
 
 	return project, nil
+}
+
+// seedProjectDefaults gives a fresh project its completion_settings row, the
+// built-in named profiles (design §6.7.4), and the per-source intake settings
+// rows. Best-effort: both resolvers fall back to schema defaults when rows are
+// missing, so a seed failure must not turn a successful project creation into a
+// 500 — except that intake's loader falls back to off, not the UI's observe,
+// which is why the rows are seeded eagerly.
+func (s *KanbanService) seedProjectDefaults(ctx context.Context, projectID int64) {
+	if err := completion.EnsureProjectDefaults(ctx, s.db, projectID); err != nil {
+		slog.Warn("seed completion defaults failed", "project_id", projectID, "error", err)
+	}
+	if err := EnsureIntakeProjectDefaults(ctx, s.db, projectID); err != nil {
+		slog.Warn("seed intake defaults failed", "project_id", projectID, "error", err)
+	}
 }
 
 // ColumnSeed describes one kanban column to create when seeding a project from
@@ -2081,6 +2101,7 @@ func (s *KanbanService) CreateProjectWithColumns(ctx context.Context, name, desc
 
 	appendResourceAudit(ctx, s.db, nil, ownerType, ownerID, 0, "project.created", "project", project.ID,
 		resourceAuditPayload(name))
+	s.seedProjectDefaults(ctx, project.ID)
 
 	return project, nil
 }

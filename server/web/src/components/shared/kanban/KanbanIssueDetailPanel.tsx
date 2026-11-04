@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next'
 import { X, Trash2 } from 'lucide-react'
 import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query'
 import { api } from '@/lib/api'
+import { isDoneColumn, isReviewColumn } from '@/lib/kanban-columns'
 import type { Issue, Column } from '@/types/api'
 import { useIssueChecklists } from '@/lib/hooks/use-issue-checklists'
 import { useIssueComments } from '@/lib/hooks/use-issue-comments'
@@ -10,12 +11,14 @@ import { useIssueTimeline } from '@/lib/hooks/use-issue-timeline'
 import { IssueProperties } from '@/components/issue/issue-properties'
 import { IssueDescription } from '@/components/issue/issue-description'
 import { IssueGoalConditionPanel } from '@/components/issue/issue-goal-condition-panel'
+import { IssueBriefCard } from '@/components/issue/issue-brief-card'
 import { IssueChecklist } from '@/components/issue/issue-checklist'
 import { IssueTimeline } from '@/components/issue/issue-timeline'
 import { IssueCommentInput } from '@/components/issue/issue-comment-input'
 import { toast } from 'sonner'
 import { ExecutionTimeline } from '@/components/issue/execution-timeline'
 import { IssueWorkspace } from '@/components/issue/issue-workspace'
+import { IssueCompletionPolicyCard } from '@/components/issue/issue-completion-policy-card'
 import { ExternalIssueHeader } from './ExternalIssueHeader'
 import { ExternalCommentsSnapshot } from './ExternalCommentsSnapshot'
 import { EpicHierarchyControl } from './EpicHierarchyControl'
@@ -23,28 +26,6 @@ import { EpicDetailSection } from './EpicDetailSection'
 import { IssueQuickCreateDialog } from './issue-quick-create-dialog'
 import { isIMEComposing } from '@/lib/ime'
 import { confirm } from '@/lib/confirm'
-
-// Board-column identification. The board is user-authored, so a column is
-// recognised by its NAME as well as its lifecycle mapping — the AI-native board
-// ships 「审查」/「完成」 with no lifecycle set on 人工审查.
-const REVIEW_COLUMN_NAME = '审查'
-const DONE_COLUMN_NAME = '完成'
-
-/** Does this column represent the review lane? */
-function isReviewColumn(c: Column): boolean {
-  return (
-    c.name.includes(REVIEW_COLUMN_NAME) ||
-    (c.lifecycle_mapping ?? '').toLowerCase().includes('review')
-  )
-}
-
-/** Does this column represent the done lane? */
-function isDoneColumn(c: Column): boolean {
-  return (
-    c.name.includes(DONE_COLUMN_NAME) ||
-    (c.lifecycle_mapping ?? '').toLowerCase().includes('complete')
-  )
-}
 
 const lifecycleColors: Record<string, string> = {
   created: 'bg-muted-foreground',
@@ -316,6 +297,11 @@ export function KanbanIssueDetailPanel({ issueId, columns, onClose, onOpenIssue 
         )}
 
         <IssueWorkspace issueId={numericId} issueTitle={issue.title} />
+
+        <IssueBriefCard issueId={numericId} />
+
+        {/* Completion policy (design §6.7.6): inherit / named profile + source. */}
+        <IssueCompletionPolicyCard issue={issue} onUpdate={handleUpdate} />
 
         <IssueDescription description={issue.description ?? ''} onSave={(desc) => handleUpdate({ description: desc })} />
         <IssueGoalConditionPanel

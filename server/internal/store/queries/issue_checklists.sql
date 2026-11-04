@@ -19,7 +19,32 @@ DELETE FROM issue_checklists WHERE id = ?;
 SELECT * FROM issue_checklists WHERE id = ?;
 
 -- name: GetChecklistStats :one
+-- Execution progress only. Brief acceptance rows are tracked separately.
 SELECT
     COUNT(*) as total,
     CAST(COALESCE(SUM(CASE WHEN is_completed = 1 THEN 1 ELSE 0 END), 0) AS INTEGER) as completed
-FROM issue_checklists WHERE issue_id = ?;
+FROM issue_checklists WHERE issue_id = ? AND kind = 'task';
+
+-- name: ListChecklistsByIssueAndKind :many
+SELECT * FROM issue_checklists WHERE issue_id = ? AND kind = ? ORDER BY position;
+
+-- name: CreateChecklistWithKind :one
+-- Materializes a Brief acceptance item (kind='acceptance', brief_id set) at the
+-- next position. Manual checklist rows keep using CreateChecklist.
+INSERT INTO issue_checklists (issue_id, title, position, kind, brief_id)
+VALUES (?, ?, COALESCE((SELECT MAX(ic.position) FROM issue_checklists ic WHERE ic.issue_id = ?), -1) + 1, ?, ?)
+RETURNING *;
+
+-- name: DeleteAcceptanceChecklistsForIssue :exec
+-- Regenerating acceptance items removes only the Brief-materialized rows; manual
+-- kind='task' rows are never touched.
+DELETE FROM issue_checklists WHERE issue_id = ? AND kind = 'acceptance';
+
+-- name: DeleteAcceptanceChecklistsForBrief :exec
+DELETE FROM issue_checklists WHERE brief_id = ?;
+
+-- name: GetChecklistStatsByKind :one
+SELECT
+    COUNT(*) as total,
+    CAST(COALESCE(SUM(CASE WHEN is_completed = 1 THEN 1 ELSE 0 END), 0) AS INTEGER) as completed
+FROM issue_checklists WHERE issue_id = ? AND kind = ?;

@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
 import { api } from '@/lib/api'
+import { confirm } from '@/lib/confirm'
 import type { Project } from '@/types/api'
 import { KanbanHeaderSlotContext } from '@/components/shared/kanban/kanban-header-slot'
 import { ProjectKanbanPage } from './project-kanban-page'
@@ -23,7 +24,11 @@ export function ProjectDetailPage({
   initialSettingsSection,
 }: ProjectDetailPageProps) {
   const { t } = useTranslation('projects')
+  const { t: tIntake } = useTranslation('intake')
   const [activeTab, setActiveTab] = useState<'kanban' | 'memory' | 'settings'>(initialTab ?? 'kanban')
+  // Unsaved intake edits live inside the settings tab; switching top-level tabs
+  // unmounts it, so warn here as well as on route changes.
+  const [settingsDirty, setSettingsDirty] = useState(false)
   // The kanban toolbar (rendered deep inside the board) portals itself into this
   // slot, merging into the tab row as a single 40px header. A ref-callback into
   // state so the portal target is available after the slot element mounts.
@@ -62,7 +67,22 @@ export function ProjectDetailPage({
         {(['kanban', 'memory', 'settings'] as const).map((tab) => (
           <button
             key={tab}
-            onClick={() => setActiveTab(tab)}
+            onClick={() => {
+              if (tab === activeTab) return
+              if (activeTab === 'settings' && settingsDirty) {
+                void confirm({
+                  title: tIntake('intake.unsavedLeaveTitle'),
+                  description: tIntake('intake.unsavedLeaveDescription'),
+                  confirmText: tIntake('intake.unsavedLeaveConfirm'),
+                  cancelText: tIntake('intake.unsavedLeaveCancel'),
+                  destructive: true,
+                }).then((ok) => {
+                  if (ok) setActiveTab(tab)
+                })
+                return
+              }
+              setActiveTab(tab)
+            }}
             className={`h-full flex items-center px-2 text-sm font-medium border-b-2 -mb-px transition-colors shrink-0 sm:px-3 ${
               activeTab === tab
                 ? 'border-b-info text-info'
@@ -87,7 +107,11 @@ export function ProjectDetailPage({
           )}
           {activeTab === 'settings' && (
             <div className="h-full overflow-y-auto">
-              <ProjectSettingsTab projectId={projectIdNum} initialSection={initialSettingsSection} />
+              <ProjectSettingsTab
+                projectId={projectIdNum}
+                initialSection={initialSettingsSection}
+                onIntakeDirtyChange={setSettingsDirty}
+              />
             </div>
           )}
         </div>

@@ -165,6 +165,6 @@ it('closes via onOpenChange', async () => {
   wrap(<KBDocumentReader kbId={1} doc={doc} onOpenChange={onOpenChange} />)
 
   await waitFor(() => expect(screen.getByText('body')).toBeInTheDocument())
-  fireEvent.click(screen.getByRole('button', { name: /close/i }))
+  fireEvent.click(screen.getByRole('button', { name: /关闭/ }))
   expect(onOpenChange).toHaveBeenCalledWith(false)
 })

@@ -77,7 +77,8 @@
         "ask_user": "提问",
         "terminal": "终态",
         "intervention": "人工干预",
-        "cost": "成本"
+        "cost": "成本",
+        "intake": "接活"
       }
     },
     "checkpointTimeline": {
@@ -274,7 +275,8 @@
     "groupName": "分组: {{group}}",
     "checklist": {
       "title": "Checklist",
-      "addPlaceholder": "添加项目..."
+      "addPlaceholder": "添加项目...",
+      "executionSection": "执行清单"
     },
     "description": {
       "label": "描述",
@@ -613,6 +615,8 @@
         "repos": "仓库",
         "labels": "标签",
         "board": "看板",
+        "intake": "任务来源",
+        "completion": "自动完成",
         "externalSources": "外部源",
         "memory": "记忆",
         "imbot": "IM 机器人",
@@ -919,6 +923,7 @@
     "chatExtIdPlaceholder": "聊天外部 id",
     "chatNamePlaceholder": "聊天名称（可选）",
     "removeChatConfirm": "移除聊天「{{name}}」？",
+    "removeChat": "移除聊天",
     "bindProject": "意图路由",
     "bindWorkspace": "钉死任务",
     "pendingTitle": "有 {{count}} 个聊天待配对",
@@ -954,6 +959,16 @@
     "agentModeCommandHint": "只在被 @ 提到、私聊或使用命令时才行动。",
     "agentModeObserve": "主动观察",
     "agentModeObserveHint": "记录群里的讨论并定期分析，必要时主动提醒或直接开始任务。",
+    "intakeModeTitle": "接活模式",
+    "intakeMode": {
+      "inherit": "继承项目",
+      "off": "关闭",
+      "observe": "观察",
+      "auto": "自动"
+    },
+    "intakeModeOverridden": "已覆盖项目默认",
+    "intakeModeObserveHint": "消息会被记录到待校准，不会自动行动。",
+    "intakePendingLink": "查看待校准 {{count}}",
     "wechat": {
       "scanHint": "请使用微信「扫一扫」扫描下方二维码以连接机器人。",
       "starting": "正在获取二维码…",

@@ -10,6 +10,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/niuniu-dev/niuniu/internal/completion"
 	"github.com/niuniu-dev/niuniu/internal/sceneenv"
 	"github.com/niuniu-dev/niuniu/internal/store"
 )
@@ -97,6 +98,17 @@ const autohostConditionRecoverTemplate = `上一轮以错误结束。请先诊�
 // natural-language phrases like "我完成了 X 之后再做 Y".
 const autohostStopSentinel = "[AUTOHOST_DONE]"
 
+// autohostHumanActionSentinel is the marker a worker emits when it needs a
+// human design/tradeoff decision it must not make on its own (design §6.5
+// "Stop by impact"). The rest of that line is the question surfaced to the
+// user; the watchdog then stops the loop into attention instead of spinning.
+const autohostHumanActionSentinel = "[AUTOHOST_HUMAN_ACTION]"
+
+// autohostAcceptanceKind is the issue_checklists.kind value that materializes a
+// Task Brief acceptance item (design §6.4). Only these rows gate completion —
+// manual kind='task' progress rows never block it.
+const autohostAcceptanceKind = "acceptance"
+
 // autohostBgWaitMsg is the transient (non-persisted) ping shown when the
 // continue-budget is exhausted but background work is still in flight, so the
 // watchdog stops continuing and schedules a paced resume to re-check later.
@@ -170,9 +182,9 @@ func (s *WorkspaceSession) readAutohostRecoverPrompt(ctx context.Context) string
 // sentinel once met); otherwise the plain continue prompt is used.
 func (s *WorkspaceSession) buildAutohostContinuePrompt(ctx context.Context, condition string) string {
 	if c := strings.TrimSpace(condition); c != "" {
-		return fmt.Sprintf(autohostConditionContinueTemplate, c)
+		return s.augmentAutohostPrompt(ctx, fmt.Sprintf(autohostConditionContinueTemplate, c))
 	}
-	return s.readAutohostContinuePrompt(ctx)
+	return s.augmentAutohostPrompt(ctx, s.readAutohostContinuePrompt(ctx))
 }
 
 // buildAutohostRecoverPrompt is the error-recovery counterpart of
@@ -181,9 +193,107 @@ func (s *WorkspaceSession) buildAutohostContinuePrompt(ctx context.Context, cond
 // prompt.
 func (s *WorkspaceSession) buildAutohostRecoverPrompt(ctx context.Context, condition string) string {
 	if c := strings.TrimSpace(condition); c != "" {
-		return fmt.Sprintf(autohostConditionRecoverTemplate, c)
+		return s.augmentAutohostPrompt(ctx, fmt.Sprintf(autohostConditionRecoverTemplate, c))
 	}
-	return s.readAutohostRecoverPrompt(ctx)
+	return s.augmentAutohostPrompt(ctx, s.readAutohostRecoverPrompt(ctx))
+}
+
+// augmentAutohostPrompt appends the two policy-driven instructions to a
+// continue/recover prompt:
+//   - the outstanding Task Brief acceptance items (each must be marked complete
+//     via update_checklist_item once done — the watchdog validates them before
+//     accepting [AUTOHOST_DONE]);
+//   - the [AUTOHOST_HUMAN_ACTION] escape hatch when StopOnDecision is on.
+//
+// It is a no-op for sessions not bound to an issue (standalone workspaces), so
+// the legacy plain/condition prompts are byte-identical there.
+func (s *WorkspaceSession) augmentAutohostPrompt(ctx context.Context, base string) string {
+	if s.issueID <= 0 || s.q == nil {
+		return base
+	}
+	policy, ok, err := s.autohostEffectivePolicy(ctx)
+	if err != nil || !ok {
+		// The watchdog fails closed on a policy error before this prompt is
+		// used; return the base prompt rather than guessing at policy values.
+		return base
+	}
+	var b strings.Builder
+	b.WriteString(base)
+	if unmet, aerr := s.unmetAcceptance(ctx); aerr == nil && len(unmet) > 0 {
+		b.WriteString("\n\n以下验收项尚未标记完成；完成每一项后请调用 update_checklist_item 将其勾选（completed=true）：\n")
+		for _, item := range unmet {
+			fmt.Fprintf(&b, "- %s\n", item)
+		}
+	}
+	if policy.StopOnDecision {
+		b.WriteString("\n如果你遇到必须由我（人类）裁决的设计或取舍决策，请停止推进，并在回复末尾【单独一行】输出：\n")
+		b.WriteString(autohostHumanActionSentinel + " <需要我决定的具体问题>\n")
+	}
+	return b.String()
+}
+
+// autohostEffectivePolicy resolves the issue's effective completion policy
+// (design §6.5). It reads fresh rows on every call, which is exactly what makes
+// a settings/profile change take effect on the NEXT turn without restarting the
+// agent.
+//
+// resolved=false with a nil error means the session is deliberately not
+// issue-bound; callers then keep the legacy NIUNIU_AUTOHOST_* env behavior. For
+// an issue-bound session a resolution error is returned to the caller, which
+// MUST fail closed (stop the watchdog) rather than silently degrade to the
+// permissive env defaults — a DB hiccup must never let a task be declared done.
+func (s *WorkspaceSession) autohostEffectivePolicy(ctx context.Context) (completion.EffectivePolicy, bool, error) {
+	if s.issueID <= 0 || s.q == nil {
+		return completion.EffectivePolicy{}, false, nil
+	}
+	policy, err := completion.NewResolver(s.q).ResolveIssueID(ctx, s.issueID)
+	if err != nil {
+		return completion.EffectivePolicy{}, false, err
+	}
+	return policy, true, nil
+}
+
+// unmetAcceptance returns the Task Brief acceptance items not yet completed for
+// the current issue. No brief (zero acceptance rows) yields nil — a hand-created
+// issue without a Brief keeps the pre-Brief completion behavior. Manual
+// kind='task' checklist rows are deliberately excluded (design §6.4).
+//
+// A query error is returned (not swallowed): the caller must fail closed so a
+// transient DB failure can never be read as "all acceptance items are done".
+func (s *WorkspaceSession) unmetAcceptance(ctx context.Context) ([]string, error) {
+	if s.issueID <= 0 || s.q == nil {
+		return nil, nil
+	}
+	rows, err := s.q.ListChecklistsByIssueAndKind(ctx, store.ListChecklistsByIssueAndKindParams{
+		IssueID: s.issueID,
+		Kind:    autohostAcceptanceKind,
+	})
+	if err != nil {
+		return nil, err
+	}
+	var unmet []string
+	for _, r := range rows {
+		if r.IsCompleted == 0 {
+			unmet = append(unmet, r.Title)
+		}
+	}
+	return unmet, nil
+}
+
+// autohostHumanActionQuestion extracts the question following the
+// [AUTOHOST_HUMAN_ACTION] marker. ok reports whether the worker asked for a
+// human decision at all; an empty question still counts (generic wording is
+// supplied by the caller).
+func autohostHumanActionQuestion(text string) (string, bool) {
+	idx := strings.Index(text, autohostHumanActionSentinel)
+	if idx < 0 {
+		return "", false
+	}
+	rest := strings.TrimSpace(text[idx+len(autohostHumanActionSentinel):])
+	if nl := strings.IndexByte(rest, '\n'); nl >= 0 {
+		rest = strings.TrimSpace(rest[:nl])
+	}
+	return rest, true
 }
 
 // readAutohostStringEnv mirrors readAutohostIntEnv for free-text overrides.
@@ -308,22 +418,28 @@ func lastMeaningfulLine(s string) string {
 }
 
 // autohostMaybeContinue is called by SendLoop after a clean turn ends with an
-// empty queue. It returns (shouldContinue, prompt) using a pure sentinel +
-// budget decision tree (the LLM completion judge subsystem was removed; the
-// user's completion condition is now routed into the injected continue prompt
-// instead — see buildAutohostContinuePrompt):
+// empty queue. It returns (shouldContinue, prompt):
 //
 //  1. user Stop landed → stop
 //  2. permission mode != autohost → stop (watchdog not applicable)
-//  3. continue budget <= 0 → stop (auto-continue disabled)
-//  4. queue non-empty → yield to the dequeue instead of injecting a continue
-//  5. sentinel hit in last text → stop (agent self-declared done)
-//  6. consec budget exhausted → schedule a paced bg-wait resume if background
-//     work is pending, else stop
-//  7. else → increment consec and inject the (condition-aware) continue prompt
+//  3. effective completion policy (issue-bound) disables autohost → stop
+//  4. continue budget <= 0 → stop (auto-continue disabled)
+//  5. queue non-empty → yield to the dequeue instead of injecting a continue
+//  6. worker asked for a human decision ([AUTOHOST_HUMAN_ACTION]) → attention
+//  7. agent self-declared done ([AUTOHOST_DONE]) → validate Task Brief
+//     acceptance: all met → stop (clean completion); unmet → keep going, or at
+//     the cap stop into attention with one structured question
+//  8. token budget reached → attention with one structured question
+//  9. consec budget exhausted → schedule a paced bg-wait resume if background
+//     work is pending, else attention with one structured question
+//  10. else → increment consec and inject the (condition-aware) continue prompt
+//
+// The effective policy is resolved from the DB on every call, so a settings or
+// profile change takes effect on the NEXT turn without restarting the agent.
 func (s *WorkspaceSession) autohostMaybeContinue(ctx context.Context) (bool, string) {
 	s.mu.Lock()
 	s.autohostScheduledWait = false
+	s.autohostAttention = ""
 	stopReq := s.stopRequested
 	s.mu.Unlock()
 	// A user Stop landed between turn-end and here: don't continue a session
@@ -335,7 +451,28 @@ func (s *WorkspaceSession) autohostMaybeContinue(ctx context.Context) (bool, str
 	if s.readPermissionMode(ctx) != AutohostMode {
 		return false, ""
 	}
+
+	policy, hasPolicy, perr := s.autohostEffectivePolicy(ctx)
+	if perr != nil {
+		// Fail closed: an issue-bound session that cannot read its policy must
+		// not fall back to the permissive legacy budgets. Park into attention so
+		// a human checks the configuration instead of the task silently ending.
+		slog.Error("autohost: resolve completion policy failed; stopping into attention",
+			"workspace_id", s.workspaceID, "issue_id", s.issueID, "error", perr)
+		s.setAutohostAttention(autohostPolicyUnavailableQuestion())
+		return false, ""
+	}
 	budget := s.readAutohostBudget(ctx)
+	var tokenBudget int64
+	if hasPolicy {
+		if !policy.AutohostEnabled {
+			slog.Info("autohost: disabled by completion policy",
+				"workspace_id", s.workspaceID, "issue_id", s.issueID)
+			return false, ""
+		}
+		budget = int(policy.MaxRounds)
+		tokenBudget = policy.TokenBudget
+	}
 	if budget <= 0 {
 		return false, ""
 	}
@@ -357,6 +494,7 @@ func (s *WorkspaceSession) autohostMaybeContinue(ctx context.Context) (bool, str
 	s.mu.Lock()
 	lastText := s.joinedAssistantContent()
 	consec := s.autohostConsec
+	chainTokens := s.autohostChainTokens
 	wasCompact := s.compactTurnActive
 	s.compactTurnActive = false
 	s.mu.Unlock()
@@ -371,8 +509,52 @@ func (s *WorkspaceSession) autohostMaybeContinue(ctx context.Context) (bool, str
 		return true, s.buildAutohostContinuePrompt(ctx, condition)
 	}
 
+	// Stop by impact: the worker flagged a decision only a human may make.
+	if question, ok := autohostHumanActionQuestion(lastText); ok {
+		s.setAutohostAttention(autohostDecisionQuestion(question))
+		slog.Info("autohost: worker requested a human decision, stopping into attention",
+			"workspace_id", s.workspaceID, "consec", consec)
+		return false, ""
+	}
+
 	if autohostShouldStop(lastText) {
-		slog.Info("autohost: sentinel stop", "workspace_id", s.workspaceID, "consec", consec)
+		unmet, aerr := s.unmetAcceptance(ctx)
+		if aerr != nil {
+			// Fail closed: never accept a sentinel when the acceptance list
+			// could not be read — "unknown" must not mean "all done".
+			slog.Error("autohost: acceptance lookup failed; refusing completion",
+				"workspace_id", s.workspaceID, "issue_id", s.issueID, "error", aerr)
+			s.setAutohostAttention(autohostAcceptanceUnavailableQuestion())
+			return false, ""
+		}
+		if len(unmet) == 0 {
+			slog.Info("autohost: sentinel accepted, acceptance complete",
+				"workspace_id", s.workspaceID, "consec", consec)
+			return false, ""
+		}
+		// The model says done but the Task Brief's acceptance items are not all
+		// ticked. Do not announce completion; continue the work. At the cap we
+		// must hand over to a human with a single structured question.
+		slog.Info("autohost: sentinel rejected, acceptance incomplete",
+			"workspace_id", s.workspaceID, "consec", consec, "unmet", len(unmet))
+		if tokenBudget > 0 && chainTokens >= tokenBudget {
+			s.setAutohostAttention(autohostTokenBudgetQuestion(chainTokens, tokenBudget, unmet))
+			return false, ""
+		}
+		if consec >= budget {
+			s.setAutohostAttention(autohostAcceptanceCapQuestion(budget, unmet))
+			return false, ""
+		}
+		s.mu.Lock()
+		s.autohostConsec = consec + 1
+		s.mu.Unlock()
+		return true, s.buildAutohostContinuePrompt(ctx, condition)
+	}
+
+	if tokenBudget > 0 && chainTokens >= tokenBudget {
+		s.setAutohostAttention(autohostTokenBudgetQuestion(chainTokens, tokenBudget, s.acceptanceListForQuestion(ctx)))
+		slog.Info("autohost: token budget exhausted, stopping into attention",
+			"workspace_id", s.workspaceID, "tokens", chainTokens, "budget", tokenBudget)
 		return false, ""
 	}
 
@@ -386,7 +568,8 @@ func (s *WorkspaceSession) autohostMaybeContinue(ctx context.Context) (bool, str
 		if s.hasPendingBgWork() && s.scheduleBgWaitResume(ctx) {
 			return false, ""
 		}
-		slog.Info("autohost: budget exhausted, stopping",
+		s.setAutohostAttention(autohostRoundsCapQuestion(budget, s.acceptanceListForQuestion(ctx)))
+		slog.Info("autohost: round budget exhausted, stopping into attention",
 			"workspace_id", s.workspaceID, "consec", consec, "budget", budget)
 		return false, ""
 	}
@@ -399,6 +582,88 @@ func (s *WorkspaceSession) autohostMaybeContinue(ctx context.Context) (bool, str
 	return true, s.buildAutohostContinuePrompt(ctx, condition)
 }
 
+// setAutohostAttention records why the watchdog deliberately stopped into
+// attention. SendLoop peeks it to finalize with the attention status and to
+// surface the structured question, without taking the error/rollback path.
+func (s *WorkspaceSession) setAutohostAttention(reason string) {
+	s.mu.Lock()
+	s.autohostAttention = reason
+	s.mu.Unlock()
+}
+
+// peekAutohostAttention returns the pending attention reason without clearing
+// it; finalizeSendLoopTurn owns the clear so a mid-loop read stays safe.
+func (s *WorkspaceSession) peekAutohostAttention() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.autohostAttention
+}
+
+// acceptanceListForQuestion is the display-only acceptance list embedded in a
+// structured question. A lookup failure is surfaced inline — the question is
+// still asked, and the failure is never treated as "all done".
+func (s *WorkspaceSession) acceptanceListForQuestion(ctx context.Context) []string {
+	unmet, err := s.unmetAcceptance(ctx)
+	if err != nil {
+		slog.Warn("autohost: acceptance lookup failed while building question",
+			"workspace_id", s.workspaceID, "issue_id", s.issueID, "error", err)
+		return []string{"（验收项读取失败，请人工核对）"}
+	}
+	return unmet
+}
+
+func autohostPolicyUnavailableQuestion() string {
+	return "⏸ 自动托管已暂停：无法解析本任务的自动完成策略（可能是配置或数据库异常）。\n" +
+		"请检查项目「自动完成」设置或 issue 指定的 profile 后重试。"
+}
+
+func autohostAcceptanceUnavailableQuestion() string {
+	return "⏸ 自动托管已暂停：无法读取 Task Brief 的验收项，因此不会宣布完成。\n" +
+		"请检查数据库与任务配置，确认验收项后决定是否继续。"
+}
+
+func autohostDecisionQuestion(question string) string {
+	if strings.TrimSpace(question) == "" {
+		question = "当前任务需要人工裁决一个设计/取舍问题（worker 未提供具体问题）。"
+	}
+	return "⏸ 自动托管已暂停：需要你做一个决策后才能继续。\n问题：" + question +
+		"\n请直接回复你的决定；我会带着它继续推进。"
+}
+
+func autohostRoundsCapQuestion(budget int, unmet []string) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "⏸ 自动托管已暂停：已达到最大轮数（%d 轮），任务仍未完成。", budget)
+	writeUnmetAcceptance(&b, unmet)
+	b.WriteString("\n请回答：是增加轮数预算继续推进，还是调整任务范围/验收标准后重试？")
+	return b.String()
+}
+
+func autohostTokenBudgetQuestion(used, budget int64, unmet []string) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "⏸ 自动托管已暂停：已达到 token 预算（%d / %d），上下文已保留。", used, budget)
+	writeUnmetAcceptance(&b, unmet)
+	b.WriteString("\n请回答：是调高 token 预算继续，还是收缩任务范围后重试？")
+	return b.String()
+}
+
+func autohostAcceptanceCapQuestion(budget int, unmet []string) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "⏸ 自动托管已暂停：已达到最大轮数（%d 轮），Task Brief 验收项仍未全部完成。", budget)
+	writeUnmetAcceptance(&b, unmet)
+	b.WriteString("\n请回答：是放宽/调整验收标准，还是继续投入更多轮次完成剩余验收项？")
+	return b.String()
+}
+
+func writeUnmetAcceptance(b *strings.Builder, unmet []string) {
+	if len(unmet) == 0 {
+		return
+	}
+	b.WriteString("\n未完成的验收项：")
+	for _, item := range unmet {
+		fmt.Fprintf(b, "\n- %s", item)
+	}
+}
+
 // autohostReset clears the consecutive-continue counter. Called by SendLoop
 // whenever a turn's content comes from outside the watchdog (initial dispatch
 // or DB-queue dequeue).
@@ -406,6 +671,8 @@ func (s *WorkspaceSession) autohostReset() {
 	s.mu.Lock()
 	s.autohostConsec = 0
 	s.autohostScheduledWait = false
+	s.autohostChainTokens = 0
+	s.autohostAttention = ""
 	s.mu.Unlock()
 }
 
@@ -426,6 +693,18 @@ func (s *WorkspaceSession) autohostMaybeRecover(ctx context.Context) (bool, stri
 	if s.readPermissionMode(ctx) != AutohostMode {
 		return false, ""
 	}
+	// Recovery is part of the Completion capability: a policy with autohost
+	// switched off must stop retrying too (resolved fresh each turn).
+	policy, hasPolicy, perr := s.autohostEffectivePolicy(ctx)
+	if perr != nil {
+		// Fail closed on a policy read failure (see autohostMaybeContinue).
+		slog.Error("autohost: resolve completion policy failed during recovery; stopping",
+			"workspace_id", s.workspaceID, "issue_id", s.issueID, "error", perr)
+		return false, ""
+	}
+	if hasPolicy && !policy.AutohostEnabled {
+		return false, ""
+	}
 	budget := s.readAutohostErrorBudget(ctx)
 	if budget <= 0 {
 		return false, ""
@@ -435,7 +714,20 @@ func (s *WorkspaceSession) autohostMaybeRecover(ctx context.Context) (bool, stri
 	s.mu.Lock()
 	consec := s.autohostErrorConsec
 	lastText := s.joinedAssistantContent()
+	chainTokens := s.autohostChainTokens
 	s.mu.Unlock()
+
+	// Token budget bounds recovery too — an error loop must not burn past it.
+	if hasPolicy && policy.TokenBudget > 0 && chainTokens >= policy.TokenBudget {
+		slog.Info("autohost: token budget exhausted during recovery, stopping",
+			"workspace_id", s.workspaceID, "tokens", chainTokens, "budget", policy.TokenBudget)
+		return false, ""
+	}
+	if _, ok := autohostHumanActionQuestion(lastText); ok {
+		slog.Info("autohost: worker requested a human decision during an error turn, stopping",
+			"workspace_id", s.workspaceID, "consec", consec)
+		return false, ""
+	}
 
 	if consec >= budget {
 		slog.Info("autohost: error budget exhausted, stopping",

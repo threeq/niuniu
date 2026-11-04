@@ -1,683 +1,6 @@
 basePath: /api
 definitions:
-  api.AddRepositoryRequest:
-    properties:
-      branch:
-        type: string
-      repository_id:
-        type: string
-    required:
-    - repository_id
-    type: object
-  api.BgTaskAggregateDTO:
-    properties:
-      agent_busy:
-        type: boolean
-      bash_count:
-        type: integer
-      cron_count:
-        type: integer
-      highlight:
-        $ref: '#/definitions/api.BgTaskHighlight'
-      subagent_count:
-        type: integer
-      wakeup_count:
-        type: integer
-    type: object
-  api.BgTaskHighlight:
-    properties:
-      kind:
-        description: '"bash" | "subagent" | "wakeup"'
-        type: string
-      scheduled_for:
-        description: RFC3339, set for wakeup
-        type: string
-      started_at:
-        description: RFC3339, set for bash/subagent
-        type: string
-      title:
-        type: string
-    type: object
-  api.BranchesResponse:
-    properties:
-      branches:
-        items:
-          type: string
-        type: array
-      current_branch:
-        type: string
-    type: object
-  api.ChecklistStatsDTO:
-    properties:
-      completed:
-        type: integer
-      total:
-        type: integer
-    type: object
-  api.ColumnIssueStat:
-    properties:
-      column_name:
-        type: string
-      count:
-        type: integer
-    type: object
-  api.CommentResponse:
-    properties:
-      content:
-        example: This is a great comment!
-        type: string
-      created_at:
-        example: "2026-03-17T12:00:00Z"
-        type: string
-      file_path:
-        example: /path/to/file.go
-        type: string
-      id:
-        type: integer
-      line_number:
-        example: 42
-        type: integer
-      sent_to_agent:
-        example: true
-        type: boolean
-      workspace_id:
-        type: integer
-    type: object
-  api.CommitRequest:
-    properties:
-      message:
-        type: string
-    required:
-    - message
-    type: object
-  api.CreateColumnRequest:
-    properties:
-      lifecycle_mapping:
-        type: string
-      name:
-        type: string
-      position:
-        type: integer
-    required:
-    - name
-    type: object
-  api.CreateCommentRequest:
-    properties:
-      content:
-        type: string
-      file_path:
-        type: string
-      line_number:
-        type: integer
-    required:
-    - content
-    - file_path
-    type: object
-  api.CreateIssueRequest:
-    properties:
-      assignee_user_ids:
-        items:
-          type: integer
-        type: array
-      description:
-        type: string
-      due_date:
-        type: string
-      estimate:
-        type: number
-      estimate_type:
-        type: string
-      label_ids:
-        items:
-          type: integer
-        type: array
-      position:
-        type: integer
-      priority:
-        type: integer
-      start_date:
-        type: string
-      title:
-        type: string
-    required:
-    - title
-    type: object
-  api.CreateProjectRequest:
-    properties:
-      description:
-        type: string
-      name:
-        type: string
-    required:
-    - name
-    type: object
-  api.CreateRepositoryRequest:
-    properties:
-      auto_init:
-        description: Pointer to distinguish between unset and false
-        type: boolean
-      name:
-        type: string
-      path:
-        type: string
-      remote_url:
-        type: string
-    type: object
-  api.CreateWorkspaceErrorEntry:
-    properties:
-      error:
-        type: string
-      repository_id:
-        type: string
-    type: object
-  api.CreateWorkspaceOwnerRequest:
-    properties:
-      id:
-        type: integer
-      type:
-        type: string
-    type: object
-  api.CreateWorkspaceRequest:
-    properties:
-      issue_id:
-        description: nullable int64
-        type: integer
-      name:
-        type: string
-      owner:
-        $ref: '#/definitions/api.CreateWorkspaceOwnerRequest'
-      repos:
-        items:
-          $ref: '#/definitions/api.RepoBranchRequest'
-        type: array
-    type: object
-  api.CreateWorkspaceResponse:
-    properties:
-      errors:
-        items:
-          $ref: '#/definitions/api.CreateWorkspaceErrorEntry'
-        type: array
-      id:
-        type: string
-      issue_id:
-        type: string
-      path:
-        type: string
-      repositories:
-        items:
-          $ref: '#/definitions/api.CreateWorkspaceSuccessRepo'
-        type: array
-      status:
-        type: string
-      warnings:
-        items:
-          type: string
-        type: array
-    type: object
-  api.CreateWorkspaceSuccessRepo:
-    properties:
-      branch:
-        type: string
-      id:
-        type: string
-      repository_id:
-        type: string
-      worktree_path:
-        type: string
-    type: object
-  api.DirectoryEntry:
-    properties:
-      name:
-        type: string
-      path:
-        type: string
-    type: object
-  api.DirectoryListResponse:
-    properties:
-      directories:
-        items:
-          $ref: '#/definitions/api.DirectoryEntry'
-        type: array
-      parent:
-        type: string
-      path:
-        type: string
-    type: object
-  api.Error:
-    properties:
-      error:
-        $ref: '#/definitions/api.ErrorDetail'
-    type: object
-  api.ErrorDetail:
-    properties:
-      code:
-        example: PROJECT_NOT_FOUND
-        type: string
-      details: {}
-      message:
-        example: Project not found
-        type: string
-    type: object
-  api.ErrorResponse:
-    properties:
-      error:
-        $ref: '#/definitions/api.ErrorDetail'
-    type: object
-  api.FileContentResponse:
-    properties:
-      content:
-        type: string
-      path:
-        type: string
-      size:
-        type: integer
-    type: object
-  api.GitStatusResponse:
-    properties:
-      added:
-        items:
-          type: string
-        type: array
-      deleted:
-        items:
-          type: string
-        type: array
-      modified:
-        items:
-          type: string
-        type: array
-      untracked:
-        items:
-          type: string
-        type: array
-    type: object
-  api.IssueAssigneeResponse:
-    properties:
-      display_name:
-        type: string
-      id:
-        type: integer
-      username:
-        type: string
-    type: object
-  api.IssueResponse:
-    properties:
-      actual_time:
-        type: number
-      assignees:
-        items:
-          $ref: '#/definitions/api.IssueAssigneeResponse'
-        type: array
-      checklist_stats:
-        $ref: '#/definitions/api.ChecklistStatsDTO'
-      column_id:
-        type: integer
-      created_at:
-        example: "2026-03-17T12:00:00Z"
-        type: string
-      description:
-        example: Add JWT-based user authentication
-        type: string
-      due_date:
-        type: string
-      estimate:
-        type: number
-      estimate_type:
-        type: string
-      id:
-        type: integer
-      labels:
-        items:
-          $ref: '#/definitions/api.LabelResponse'
-        type: array
-      lifecycle_status:
-        example: created
-        type: string
-      position:
-        example: 0
-        type: integer
-      priority:
-        example: 1
-        type: integer
-      project_id:
-        type: integer
-      start_date:
-        type: string
-      title:
-        example: Implement user authentication
-        type: string
-      updated_at:
-        example: "2026-03-17T12:00:00Z"
-        type: string
-    type: object
-  api.LabelResponse:
-    properties:
-      color:
-        type: string
-      created_at:
-        type: string
-      created_by:
-        type: integer
-      description:
-        type: string
-      id:
-        type: integer
-      name:
-        type: string
-      project_id:
-        type: integer
-    type: object
-  api.MoveIssueRequest:
-    properties:
-      column_id:
-        type: integer
-      position:
-        minimum: 0
-        type: integer
-    required:
-    - column_id
-    type: object
-  api.OwnerDTO:
-    properties:
-      id:
-        type: integer
-      name:
-        type: string
-      slug:
-        type: string
-      type:
-        type: string
-    type: object
-  api.ProjectRepositoryBinding:
-    properties:
-      name:
-        type: string
-      path:
-        type: string
-      project_default_branch:
-        type: string
-      repo_default_branch:
-        type: string
-      repository_id:
-        type: integer
-    type: object
-  api.ProjectResponse:
-    properties:
-      created_at:
-        example: "2026-03-17T12:00:00Z"
-        type: string
-      description:
-        example: A sample project
-        type: string
-      id:
-        type: integer
-      issue_stats:
-        items:
-          $ref: '#/definitions/api.ColumnIssueStat'
-        type: array
-      name:
-        example: My Project
-        type: string
-      owner:
-        $ref: '#/definitions/api.OwnerDTO'
-      repositories:
-        items:
-          $ref: '#/definitions/api.ProjectRepositoryBinding'
-        type: array
-      status:
-        example: active
-        type: string
-      updated_at:
-        example: "2026-03-17T12:00:00Z"
-        type: string
-      ws_stats:
-        items:
-          $ref: '#/definitions/api.WsStatusStat'
-        type: array
-    type: object
-  api.RepoBranchRequest:
-    properties:
-      branch:
-        description: |-
-          Branch is the base branch the new worktree forks from. Required so the
-          server never silently falls back to a guessed default (e.g. "main") that
-          may not exist in the repo — that fallback used to leave the workspace
-          shell in place with no worktree on disk and the failure swallowed.
-        type: string
-      repo_id:
-        description: int64
-        type: integer
-    required:
-    - branch
-    - repo_id
-    type: object
-  api.RepositoryResponse:
-    properties:
-      created_at:
-        example: "2026-03-17T12:00:00Z"
-        type: string
-      default_branch:
-        example: main
-        type: string
-      git_remote:
-        example: https://github.com/niuniu-dev/niuniu.git
-        type: string
-      id:
-        type: integer
-      name:
-        example: My Repository
-        type: string
-      owner:
-        $ref: '#/definitions/api.OwnerDTO'
-      path:
-        example: /path/to/repo
-        type: string
-      total_branches:
-        example: 3
-        type: integer
-      updated_at:
-        example: "2026-03-17T12:00:00Z"
-        type: string
-    type: object
-  api.SendInputRequest:
-    properties:
-      input:
-        type: string
-    required:
-    - input
-    type: object
-  api.SetEnvRequest:
-    properties:
-      env:
-        additionalProperties:
-          type: string
-        type: object
-    type: object
-  api.StartAgentRequest:
-    properties:
-      prompt:
-        type: string
-    type: object
-  api.SystemInfoResponse:
-    properties:
-      disk_drives:
-        description: Windows drive letters, empty on Linux
-        items:
-          type: string
-        type: array
-      os:
-        description: '"windows" or "linux"'
-        type: string
-    type: object
-  api.TaskStatsDTO:
-    properties:
-      completed:
-        type: integer
-      current_task:
-        type: string
-      total:
-        type: integer
-    type: object
-  api.UpdateColumnPositionRequest:
-    properties:
-      position:
-        type: integer
-    type: object
-  api.UpdateColumnRequest:
-    properties:
-      name:
-        type: string
-    required:
-    - name
-    type: object
-  api.UpdateIssueRequest:
-    properties:
-      actual_time:
-        type: number
-      description:
-        type: string
-      due_date:
-        type: string
-      estimate:
-        type: number
-      estimate_type:
-        type: string
-      priority:
-        type: integer
-      start_date:
-        type: string
-      title:
-        type: string
-    required:
-    - title
-    type: object
-  api.UpdateProjectRequest:
-    properties:
-      description:
-        type: string
-      name:
-        type: string
-    required:
-    - name
-    type: object
-  api.UpdateRepositoryRequest:
-    properties:
-      default_branch:
-        type: string
-      git_remote:
-        type: string
-      name:
-        type: string
-      path:
-        type: string
-    required:
-    - name
-    - path
-    type: object
-  api.WorkspaceResponse:
-    properties:
-      agent_pid:
-        example: 12345
-        type: integer
-      agent_status:
-        example: idle
-        type: string
-      ahead_count:
-        type: integer
-      archived_at:
-        type: string
-      bg_tasks:
-        $ref: '#/definitions/api.BgTaskAggregateDTO'
-      changes_count:
-        type: integer
-      created_at:
-        example: "2026-03-17T12:00:00Z"
-        type: string
-      created_by:
-        type: integer
-      harness_id:
-        type: integer
-      id:
-        type: string
-      is_archived:
-        type: integer
-      issue_id:
-        type: string
-      lifecycle_status:
-        type: string
-      name:
-        example: My Workspace
-        type: string
-      owner:
-        $ref: '#/definitions/api.OwnerDTO'
-      path:
-        example: /path/to/workspace
-        type: string
-      project_name:
-        type: string
-      project_owner_id:
-        type: integer
-      project_owner_name:
-        type: string
-      project_owner_type:
-        type: string
-      schedule_count:
-        type: integer
-      status:
-        example: active
-        type: string
-      task_stats:
-        $ref: '#/definitions/api.TaskStatsDTO'
-      updated_at:
-        example: "2026-03-17T12:00:00Z"
-        type: string
-      worktrees:
-        items:
-          $ref: '#/definitions/api.WorktreeSidebarDTO'
-        type: array
-    type: object
-  api.WorktreeSidebarDTO:
-    properties:
-      ahead_count:
-        type: integer
-      base_branch:
-        type: string
-      branch:
-        type: string
-      changes_count:
-        type: integer
-      name:
-        type: string
-      repo_name:
-        type: string
-    type: object
-  api.WsStatusStat:
-    properties:
-      count:
-        type: integer
-      status:
-        type: string
-    type: object
-  api.installReq:
-    properties:
-      name:
-        type: string
-    type: object
-  api.installResp:
-    properties:
-      fallback_url:
-        type: string
-      job_id:
-        type: string
-    type: object
-  api.setGitIdentityReq:
-    properties:
-      email:
-        type: string
-      name:
-        type: string
-    type: object
-  git.CommitDetail:
+  github_com_niuniu-dev_niuniu_internal_git.CommitDetail:
     properties:
       author:
         type: string
@@ -687,7 +10,7 @@ definitions:
         type: string
       files_changed:
         items:
-          $ref: '#/definitions/git.FileChange'
+          $ref: '#/definitions/github_com_niuniu-dev_niuniu_internal_git.FileChange'
         type: array
       hash:
         type: string
@@ -696,7 +19,7 @@ definitions:
       short_hash:
         type: string
     type: object
-  git.DiffHunk:
+  github_com_niuniu-dev_niuniu_internal_git.DiffHunk:
     properties:
       header:
         description: |-
@@ -705,7 +28,7 @@ definitions:
         type: string
       lines:
         items:
-          $ref: '#/definitions/git.DiffLine'
+          $ref: '#/definitions/github_com_niuniu-dev_niuniu_internal_git.DiffLine'
         type: array
       new_count:
         type: integer
@@ -716,33 +39,33 @@ definitions:
       old_start:
         type: integer
     type: object
-  git.DiffLine:
+  github_com_niuniu-dev_niuniu_internal_git.DiffLine:
     properties:
       content:
         type: string
       new_line:
+        type: integer
+      no_newline:
+        description: NoNewline marks a line followed by git's "\ No newline at end
+          of file".
+        type: boolean
+      old_line:
         description: |-
           OldLine/NewLine are 1-based line numbers, 0 when the line does not exist
           on that side (adds have no OldLine, deletes have no NewLine).
-        type: integer
-      no_newline:
-        description: NoNewline marks a line followed by git's "\ No newline at end of
-          file".
-        type: boolean
-      old_line:
         type: integer
       type:
         description: context|add|delete
         type: string
     type: object
-  git.FileChange:
+  github_com_niuniu-dev_niuniu_internal_git.FileChange:
     properties:
       path:
         type: string
       status:
         type: string
     type: object
-  git.FileDiff:
+  github_com_niuniu-dev_niuniu_internal_git.FileDiff:
     properties:
       additions:
         type: integer
@@ -750,14 +73,15 @@ definitions:
         type: integer
       hunks:
         items:
-          $ref: '#/definitions/git.DiffHunk'
+          $ref: '#/definitions/github_com_niuniu-dev_niuniu_internal_git.DiffHunk'
         type: array
       is_binary:
         description: |-
           IsBinary is true only when git reported the file as an actual binary blob
           ("Binary files ... differ" / "GIT binary patch"). A diff with zero hunks is
-          NOT necessarily binary - mode-only changes (chmod +x), pure renames and
-          empty files also produce no hunks.
+          NOT necessarily binary — mode-only changes (chmod +x), pure renames and
+          empty files also produce no hunks. Clients must gate the "can't preview"
+          message on this flag, never on len(Hunks) == 0.
         type: boolean
       new_mode:
         type: string
@@ -779,7 +103,7 @@ definitions:
         description: added|modified|deleted|renamed|copied
         type: string
     type: object
-  git.FileEntry:
+  github_com_niuniu-dev_niuniu_internal_git.FileEntry:
     properties:
       mode:
         type: string
@@ -793,7 +117,20 @@ definitions:
         description: '"file" or "dir"'
         type: string
     type: object
-  git.GraphCommit:
+  github_com_niuniu-dev_niuniu_internal_git.FileLogEntry:
+    properties:
+      author:
+        type: string
+      date:
+        type: string
+      hash:
+        type: string
+      message:
+        type: string
+      path_at_commit:
+        type: string
+    type: object
+  github_com_niuniu-dev_niuniu_internal_git.GraphCommit:
     properties:
       author:
         type: string
@@ -816,7 +153,7 @@ definitions:
       short_hash:
         type: string
     type: object
-  git.LogEntry:
+  github_com_niuniu-dev_niuniu_internal_git.LogEntry:
     properties:
       author:
         type: string
@@ -827,7 +164,7 @@ definitions:
       message:
         type: string
     type: object
-  git.WorktreeInfo:
+  github_com_niuniu-dev_niuniu_internal_git.WorktreeInfo:
     properties:
       branch:
         type: string
@@ -838,7 +175,58 @@ definitions:
       path:
         type: string
     type: object
-  service.BranchTree:
+  github_com_niuniu-dev_niuniu_internal_intake.RuleConditions:
+    properties:
+      actors:
+        items:
+          type: string
+        type: array
+      keywords:
+        items:
+          type: string
+        type: array
+    type: object
+  github_com_niuniu-dev_niuniu_internal_integration.ExternalComment:
+    properties:
+      author:
+        type: string
+      body:
+        type: string
+      created_at:
+        description: as-provided by source (RFC3339 for GitHub, "YYYY-MM-DD HH:MM:SS"
+          for TAPD)
+        type: string
+      id:
+        type: string
+      url:
+        description: direct link to the comment in the external UI
+        type: string
+    type: object
+  github_com_niuniu-dev_niuniu_internal_service.AcceptDecisionInput:
+    properties:
+      brief:
+        $ref: '#/definitions/github_com_niuniu-dev_niuniu_internal_service.DecisionBriefDraft'
+    type: object
+  github_com_niuniu-dev_niuniu_internal_service.BatchDeleteResult:
+    properties:
+      accepted:
+        items:
+          type: integer
+        type: array
+      skipped:
+        items:
+          $ref: '#/definitions/github_com_niuniu-dev_niuniu_internal_service.BatchSkippedItem'
+        type: array
+    type: object
+  github_com_niuniu-dev_niuniu_internal_service.BatchSkippedItem:
+    properties:
+      id:
+        type: integer
+      reason:
+        description: not_found | has_changes | already_deleting | error
+        type: string
+    type: object
+  github_com_niuniu-dev_niuniu_internal_service.BranchTree:
     properties:
       current_branch:
         type: string
@@ -851,7 +239,150 @@ definitions:
           type: string
         type: array
     type: object
-  service.GitIdentity:
+  github_com_niuniu-dev_niuniu_internal_service.CommentAnchor:
+    properties:
+      context:
+        $ref: '#/definitions/github_com_niuniu-dev_niuniu_internal_service.CommentContext'
+      current:
+        allOf:
+        - $ref: '#/definitions/github_com_niuniu-dev_niuniu_internal_service.CommentContext'
+        description: |-
+          Current is what the anchored line looks like NOW, when that differs from the
+          snapshot in Context. Judging "did this actually get fixed?" needs both sides:
+          Context is what the reviewer commented on, Current is what replaced it. Nil
+          when the line is unchanged (Context already shows it) or when the anchor is
+          outdated (there is no current line to show).
+      current_blob_sha:
+        description: |-
+          CurrentBlobSha is the file's blob hash right now; "" when the file is gone
+          or unreadable. Callers re-pin a relocated comment to it.
+        type: string
+      effective_line:
+        type: integer
+      original_line:
+        type: integer
+      side:
+        type: string
+      status:
+        type: string
+    type: object
+  github_com_niuniu-dev_niuniu_internal_service.CommentContext:
+    properties:
+      after:
+        items:
+          type: string
+        type: array
+      before:
+        items:
+          type: string
+        type: array
+      line:
+        type: string
+    type: object
+  github_com_niuniu-dev_niuniu_internal_service.CompletionProfileDTO:
+    properties:
+      autohost_enabled:
+        type: boolean
+      created_at:
+        type: string
+      id:
+        type: integer
+      max_rounds:
+        type: integer
+      name:
+        type: string
+      project_id:
+        type: integer
+      require_review:
+        type: boolean
+      stop_on_decision:
+        type: boolean
+      token_budget:
+        type: integer
+      updated_at:
+        type: string
+    type: object
+  github_com_niuniu-dev_niuniu_internal_service.CompletionProfileInput:
+    properties:
+      autohost_enabled:
+        type: boolean
+      max_rounds:
+        type: integer
+      name:
+        type: string
+      require_review:
+        type: boolean
+      stop_on_decision:
+        type: boolean
+      token_budget:
+        type: integer
+    type: object
+  github_com_niuniu-dev_niuniu_internal_service.CompletionSettingsInput:
+    properties:
+      autohost_enabled:
+        type: boolean
+      max_rounds:
+        type: integer
+      require_review:
+        type: boolean
+      stop_on_decision:
+        type: boolean
+      token_budget:
+        type: integer
+    type: object
+  github_com_niuniu-dev_niuniu_internal_service.CompletionSettingsView:
+    properties:
+      autohost_enabled:
+        type: boolean
+      max_rounds:
+        type: integer
+      project_id:
+        type: integer
+      require_review:
+        type: boolean
+      stop_on_decision:
+        type: boolean
+      token_budget:
+        type: integer
+      updated_at:
+        type: string
+    type: object
+  github_com_niuniu-dev_niuniu_internal_service.CreatorBrief:
+    properties:
+      display_name:
+        type: string
+      id:
+        type: integer
+      username:
+        type: string
+    type: object
+  github_com_niuniu-dev_niuniu_internal_service.DecisionBriefDraft:
+    properties:
+      Acceptance:
+        items:
+          type: string
+        type: array
+      Goal:
+        type: string
+      ScopeIn:
+        items:
+          type: string
+        type: array
+      ScopeOut:
+        items:
+          type: string
+        type: array
+    type: object
+  github_com_niuniu-dev_niuniu_internal_service.DeliverySpec:
+    properties:
+      reply_mode:
+        type: string
+      source_kind:
+        type: string
+      thread_ext_id:
+        type: string
+    type: object
+  github_com_niuniu-dev_niuniu_internal_service.GitIdentity:
     properties:
       configured:
         type: boolean
@@ -860,7 +391,205 @@ definitions:
       name:
         type: string
     type: object
-  service.RepositoryStats:
+  github_com_niuniu-dev_niuniu_internal_service.IgnoreDecisionInput:
+    properties:
+      reason:
+        type: string
+      reason_code:
+        type: string
+      reason_text:
+        type: string
+    type: object
+  github_com_niuniu-dev_niuniu_internal_service.IntakeDecisionDTO:
+    properties:
+      actor_ext_id:
+        type: string
+      actor_name:
+        type: string
+      created_at:
+        type: string
+      decision:
+        type: string
+      event_id:
+        type: integer
+      event_kind:
+        type: string
+      executed:
+        type: boolean
+      id:
+        type: integer
+      issue_id:
+        type: integer
+      matched_rule_ids:
+        items:
+          type: integer
+        type: array
+      mode_at_decision:
+        type: string
+      payload:
+        items:
+          type: integer
+        type: array
+      policy_version:
+        type: integer
+      project_id:
+        type: integer
+      reason_code:
+        type: string
+      reason_text:
+        type: string
+      source_kind:
+        type: string
+      strength:
+        type: string
+      thread_ext_id:
+        type: string
+      workspace_id:
+        type: integer
+      would_do:
+        items:
+          type: integer
+        type: array
+    type: object
+  github_com_niuniu-dev_niuniu_internal_service.IntakePolicyVersionDTO:
+    properties:
+      created_at:
+        type: string
+      id:
+        type: integer
+      project_id:
+        type: integer
+      snapshot:
+        items:
+          type: integer
+        type: array
+      source_kind:
+        type: string
+      version:
+        type: integer
+    type: object
+  github_com_niuniu-dev_niuniu_internal_service.IntakeRuleDTO:
+    properties:
+      conditions:
+        $ref: '#/definitions/github_com_niuniu-dev_niuniu_internal_intake.RuleConditions'
+      created_at:
+        type: string
+      enabled:
+        type: boolean
+      id:
+        type: integer
+      instruction:
+        type: string
+      name:
+        type: string
+      priority:
+        type: integer
+      project_id:
+        type: integer
+      source_kind:
+        type: string
+    type: object
+  github_com_niuniu-dev_niuniu_internal_service.IntakeSettingDTO:
+    properties:
+      allow_list:
+        items:
+          type: string
+        type: array
+      bot_list:
+        items:
+          type: string
+        type: array
+      daily_cap:
+        type: integer
+      mode:
+        type: string
+      source_kind:
+        type: string
+      updated_at:
+        type: string
+    type: object
+  github_com_niuniu-dev_niuniu_internal_service.IntakeSettingInput:
+    properties:
+      allow_list:
+        items:
+          type: string
+        type: array
+      bot_list:
+        items:
+          type: string
+        type: array
+      daily_cap:
+        type: integer
+      mode:
+        type: string
+      source_kind:
+        type: string
+    type: object
+  github_com_niuniu-dev_niuniu_internal_service.IntakeSettingsView:
+    properties:
+      project_id:
+        type: integer
+      settings:
+        items:
+          $ref: '#/definitions/github_com_niuniu-dev_niuniu_internal_service.IntakeSettingDTO'
+        type: array
+    type: object
+  github_com_niuniu-dev_niuniu_internal_service.IssueBriefView:
+    properties:
+      brief:
+        $ref: '#/definitions/github_com_niuniu-dev_niuniu_internal_service.TaskBriefView'
+      goal_condition:
+        type: string
+      issue_id:
+        type: integer
+      versions:
+        items:
+          $ref: '#/definitions/github_com_niuniu-dev_niuniu_internal_service.TaskBriefView'
+        type: array
+    type: object
+  github_com_niuniu-dev_niuniu_internal_service.Provenance:
+    properties:
+      actor_ext_id:
+        type: string
+      decision_id:
+        type: integer
+      policy_version:
+        type: integer
+      rule_ids:
+        items:
+          type: integer
+        type: array
+      strength:
+        type: string
+    type: object
+  github_com_niuniu-dev_niuniu_internal_service.RepoDiff:
+    properties:
+      base_branch:
+        type: string
+      clone_url:
+        description: |-
+          CloneURL is the registered repository's git remote, or "" when the repo
+          has no remote (or is unresolved). The desktop local-runner reads it to
+          seed-clone an empty bound directory (#478); the SPA ignores it.
+        type: string
+      current_branch:
+        description: |-
+          CurrentBranch is the worktree's own checked-out branch (HEAD). Sourced
+          from the worktree row directly so it is present even for stale/orphan
+          associations (the sidebar's repo JOIN would drop those).
+        type: string
+      files:
+        items:
+          $ref: '#/definitions/github_com_niuniu-dev_niuniu_internal_git.FileDiff'
+        type: array
+      name:
+        type: string
+      repository_id:
+        type: integer
+      worktree_path:
+        type: string
+    type: object
+  github_com_niuniu-dev_niuniu_internal_service.RepositoryStats:
     properties:
       last_commit_date:
         type: string
@@ -871,8 +600,17 @@ definitions:
       total_contributors:
         type: integer
     type: object
-  service.SystemDepsInfo:
+  github_com_niuniu-dev_niuniu_internal_service.SystemDepsInfo:
     properties:
+      browser_cli_login:
+        description: |-
+          BrowserCLILogin is true when the server can host an interactive agent-CLI
+          login inside a browser terminal (GET /ws/cli-login/:tool/terminal). This is
+          how team-edition users log in: the server runs in a container where the
+          native-terminal launch used by personal mode is impossible, so the CLI runs
+          server-side in a PTY and the browser is the terminal (#677). Decorated by
+          SystemDepsHandler. Admin-only — the SPA also gates the button on role.
+        type: boolean
       can_install:
         type: boolean
       package_manager:
@@ -887,19 +625,95 @@ definitions:
         type: string
       tools:
         items:
-          $ref: '#/definitions/service.ToolStatus'
+          $ref: '#/definitions/github_com_niuniu-dev_niuniu_internal_service.ToolStatus'
         type: array
     type: object
-  service.ToolExtras:
+  github_com_niuniu-dev_niuniu_internal_service.TaskBriefInput:
+    properties:
+      acceptance:
+        items:
+          type: string
+        type: array
+      delivery:
+        $ref: '#/definitions/github_com_niuniu-dev_niuniu_internal_service.DeliverySpec'
+      goal:
+        type: string
+      provenance:
+        $ref: '#/definitions/github_com_niuniu-dev_niuniu_internal_service.Provenance'
+      scope_in:
+        items:
+          type: string
+        type: array
+      scope_out:
+        items:
+          type: string
+        type: array
+    type: object
+  github_com_niuniu-dev_niuniu_internal_service.TaskBriefView:
+    properties:
+      acceptance:
+        items:
+          type: string
+        type: array
+      created_at:
+        type: string
+      delivery:
+        $ref: '#/definitions/github_com_niuniu-dev_niuniu_internal_service.DeliverySpec'
+      goal:
+        type: string
+      id:
+        type: integer
+      intake_decision_id:
+        type: integer
+      issue_id:
+        type: integer
+      policy_version:
+        type: integer
+      provenance:
+        $ref: '#/definitions/github_com_niuniu-dev_niuniu_internal_service.Provenance'
+      scope_in:
+        items:
+          type: string
+        type: array
+      scope_out:
+        items:
+          type: string
+        type: array
+      version:
+        type: integer
+    type: object
+  github_com_niuniu-dev_niuniu_internal_service.ToolExtras:
     properties:
       git_identity:
-        $ref: '#/definitions/service.GitIdentity'
+        $ref: '#/definitions/github_com_niuniu-dev_niuniu_internal_service.GitIdentity'
     type: object
-  service.ToolStatus:
+  github_com_niuniu-dev_niuniu_internal_service.ToolStatus:
     properties:
       extras:
-        $ref: '#/definitions/service.ToolExtras'
+        $ref: '#/definitions/github_com_niuniu-dev_niuniu_internal_service.ToolExtras'
       found:
+        type: boolean
+      installable:
+        description: |-
+          Installable mirrors whether Install would actually run a package-manager
+          command for this tool right now (vs. fall back to a redirect URL). It
+          captures per-tool nuance the page-level CanInstall cannot:
+            - "claude" depends on npm (which ships with node), NOT the OS PM, so
+              claude is installable on a LTSC Windows box that has node but no
+              winget — even though CanInstall is false.
+            - "node"/"python3"/"git" need an OS PM (winget/brew/apt-get).
+            - Always false in team edition.
+          The SPA gates per-tool install buttons on this; CanInstall stays the
+          page-level "system PM available" signal used by the top-of-page message.
+        type: boolean
+      logged_in:
+        description: |-
+          LoggedIn reports whether this CLI already has credentials on the server.
+          Only meaningful for the agent CLIs that have a login flow (claude, codex);
+          nil for every other tool so the SPA can distinguish "not applicable" from
+          "applicable but not logged in". Best-effort: on macOS Claude keeps its
+          token in the Keychain, so a false here can still mean logged-in (see
+          claudehome.CredsExistInConfigDir).
         type: boolean
       name:
         type: string
@@ -908,18 +722,1254 @@ definitions:
       version:
         type: string
     type: object
-  store.Column:
+  github_com_niuniu-dev_niuniu_internal_service.UpdateIntakeSettingsRequest:
     properties:
+      settings:
+        items:
+          $ref: '#/definitions/github_com_niuniu-dev_niuniu_internal_service.IntakeSettingInput'
+        type: array
+    type: object
+  github_com_niuniu-dev_niuniu_internal_service.UpsertIntakeRuleInput:
+    properties:
+      conditions:
+        $ref: '#/definitions/github_com_niuniu-dev_niuniu_internal_intake.RuleConditions'
+      enabled:
+        type: boolean
+      instruction:
+        type: string
+      name:
+        type: string
+      priority:
+        type: integer
+      source_kind:
+        type: string
+    type: object
+  github_com_niuniu-dev_niuniu_internal_service.WorkspaceOverview:
+    properties:
+      summary:
+        $ref: '#/definitions/github_com_niuniu-dev_niuniu_internal_service.WorkspaceOverviewSummary'
+      workspaces:
+        items:
+          $ref: '#/definitions/github_com_niuniu-dev_niuniu_internal_service.WorkspaceOverviewItem'
+        type: array
+    type: object
+  github_com_niuniu-dev_niuniu_internal_service.WorkspaceOverviewItem:
+    properties:
+      ahead_count:
+        description: aggregate commits ahead of base across worktrees
+        type: integer
+      ai_message_count:
+        type: integer
+      cache_creation_tokens:
+        type: integer
+      cache_read_tokens:
+        type: integer
+      changes_count:
+        description: aggregate uncommitted changes across worktrees
+        type: integer
+      created_by:
+        description: creator user ID, nil if NULL
+        type: integer
+      input_tokens:
+        type: integer
+      is_archived:
+        type: boolean
+      is_stuck:
+        description: running but no activity for >2h
+        type: boolean
+      last_activity_at:
+        type: string
+      message_count:
+        type: integer
+      name:
+        type: string
+      output_tokens:
+        type: integer
+      owner_id:
+        type: integer
+      owner_type:
+        type: string
+      project_name:
+        type: string
+      session_status:
+        type: string
+      status:
+        type: string
+      updated_at:
+        type: string
+      user_message_count:
+        description: |-
+          Token usage by type (lifetime, from workspace_stats). Cost in $ is no
+          longer surfaced (we record tokens, not money).
+        type: integer
+      workspace_id:
+        type: integer
+    type: object
+  github_com_niuniu-dev_niuniu_internal_service.WorkspaceOverviewSummary:
+    properties:
+      active_count:
+        description: status running/needs_review/attention
+        type: integer
+      ai_message_count:
+        type: integer
+      cache_creation_tokens:
+        type: integer
+      cache_read_tokens:
+        type: integer
+      input_tokens:
+        type: integer
+      output_tokens:
+        type: integer
+      stuck_count:
+        type: integer
+      total_count:
+        type: integer
+      user_message_count:
+        description: Aggregate token usage + message counts across the (filtered)
+          set.
+        type: integer
+    type: object
+  internal_api.AddRepositoryRequest:
+    properties:
+      branch:
+        type: string
+      repository_id:
+        type: string
+    required:
+    - repository_id
+    type: object
+  internal_api.BgTaskAggregateDTO:
+    properties:
+      agent_busy:
+        type: boolean
+      bash_count:
+        type: integer
+      cron_count:
+        type: integer
+      highlight:
+        $ref: '#/definitions/internal_api.BgTaskHighlight'
+      subagent_count:
+        type: integer
+      wakeup_count:
+        type: integer
+    type: object
+  internal_api.BgTaskHighlight:
+    properties:
+      kind:
+        description: '"bash" | "subagent" | "wakeup"'
+        type: string
+      scheduled_for:
+        description: RFC3339, set for wakeup
+        type: string
+      started_at:
+        description: RFC3339, set for bash/subagent
+        type: string
+      title:
+        type: string
+    type: object
+  internal_api.BranchesResponse:
+    properties:
+      branches:
+        items:
+          type: string
+        type: array
+      current_branch:
+        type: string
+    type: object
+  internal_api.ChecklistStatsDTO:
+    properties:
+      completed:
+        type: integer
+      total:
+        type: integer
+    type: object
+  internal_api.ColumnIssueStat:
+    properties:
+      column_name:
+        type: string
+      count:
+        type: integer
+    type: object
+  internal_api.CommentResponse:
+    properties:
+      anchor:
+        allOf:
+        - $ref: '#/definitions/github_com_niuniu-dev_niuniu_internal_service.CommentAnchor'
+        description: |-
+          Anchor is the position re-derived against CURRENT content, present on the
+          list endpoint. Read anchor.status before trusting line_number: "outdated"
+          means the comment's target is gone and the line must not be rendered as if
+          it still pointed at the reviewed code.
+      blob_sha:
+        type: string
+      commit_sha:
+        description: |-
+          CommitSha/BlobSha pin the version the reviewer read; ContextLines is the
+          JSON snapshot of the surrounding source used to relocate the anchor.
+        type: string
+      content:
+        example: This is a great comment!
+        type: string
+      context_lines:
+        type: string
+      created_at:
+        example: "2026-03-17T12:00:00Z"
+        type: string
+      file_path:
+        example: /path/to/file.go
+        type: string
       id:
         type: integer
+      line_number:
+        example: 42
+        type: integer
+      repo:
+        example: niuniu
+        type: string
+      resolved:
+        description: Resolved is the REVIEW verdict, independent of SentToAgent (delivery).
+        example: false
+        type: boolean
+      resolved_at:
+        type: string
+      resolved_by:
+        type: string
+      sent_to_agent:
+        example: true
+        type: boolean
+      side:
+        description: |-
+          Side is "old" (a line the diff deletes) or "new" — old-side anchoring is
+          what makes deleted lines commentable.
+        example: new
+        type: string
+      workspace_id:
+        type: integer
+    type: object
+  internal_api.CommitRequest:
+    properties:
+      message:
+        type: string
+    required:
+    - message
+    type: object
+  internal_api.ContentSearchResponse:
+    properties:
+      engine:
+        type: string
+      files:
+        items:
+          $ref: '#/definitions/internal_api.contentFileResult'
+        type: array
+      totalMatches:
+        description: TotalMatches counts match lines actually returned (post-truncation).
+        type: integer
+      truncated:
+        description: |-
+          Truncated is true when results were cut short for ANY reason. Clients must
+          show this — a silently truncated list reads as "that's all there is".
+        type: boolean
+      truncatedReason:
+        type: string
+    type: object
+  internal_api.CreateColumnRequest:
+    properties:
       lifecycle_mapping:
         type: string
       name:
         type: string
       position:
         type: integer
+    required:
+    - name
+    type: object
+  internal_api.CreateCommentRequest:
+    properties:
+      content:
+        type: string
+      context_lines:
+        description: |-
+          ContextLines is an optional caller-supplied anchor snapshot (JSON). The old
+          side of a diff isn't in the working tree, so only the client that rendered
+          the diff can snapshot it; new-side comments omit it and the server snapshots.
+        type: string
+      file_path:
+        type: string
+      line_number:
+        type: integer
+      repo:
+        type: string
+      side:
+        description: |-
+          Side is "old" (a line the diff DELETES) or "new" (default). Old-side is how
+          a reviewer says "you shouldn't have deleted this" — impossible to express
+          while comments could only anchor to new-side line numbers.
+        type: string
+    required:
+    - content
+    - file_path
+    type: object
+  internal_api.CreateFromDirectoryRequest:
+    properties:
+      cli_type:
+        description: CliType picks the agent CLI ("claude" default / "codex").
+        type: string
+      dir:
+        description: |-
+          Dir is the local directory the user picked. Already a git repo => bound
+          in place; otherwise auto-init'd (with default .gitignore + Git LFS, #233).
+        type: string
+      name:
+        type: string
+      owner:
+        $ref: '#/definitions/internal_api.CreateWorkspaceOwnerRequest'
+      workflow_template_id:
+        description: |-
+          WorkflowTemplateID optionally pre-selects a workflow (project_templates).
+          Reserved for the create wizard (#236); not yet consumed server-side.
+        type: integer
+    required:
+    - dir
+    type: object
+  internal_api.CreateIssueRequest:
+    properties:
+      assignee_user_ids:
+        items:
+          type: integer
+        type: array
+      description:
+        type: string
+      due_date:
+        type: string
+      estimate:
+        type: number
+      estimate_type:
+        type: string
+      exec_wave:
+        type: integer
+      issue_type:
+        type: string
+      label_ids:
+        items:
+          type: integer
+        type: array
+      parent_issue_id:
+        description: |-
+          Executable Epic (optional): ParentIssueID attaches this issue as a child of
+          an Epic (nil = top-level), IssueType is 'task' (default) or 'epic', ExecWave
+          is the child execution wave.
+        type: integer
+      position:
+        type: integer
+      priority:
+        type: integer
+      start_date:
+        type: string
+      title:
+        type: string
+    required:
+    - title
+    type: object
+  internal_api.CreateProjectRequest:
+    properties:
+      description:
+        type: string
+      name:
+        type: string
+    required:
+    - name
+    type: object
+  internal_api.CreateRepositoryRequest:
+    properties:
+      auto_init:
+        description: Pointer to distinguish between unset and false
+        type: boolean
+      name:
+        type: string
+      path:
+        type: string
+      remote_url:
+        type: string
+    type: object
+  internal_api.CreateWorkspaceErrorEntry:
+    properties:
+      error:
+        type: string
+      repository_id:
+        type: string
+    type: object
+  internal_api.CreateWorkspaceOwnerRequest:
+    properties:
+      id:
+        type: integer
+      type:
+        type: string
+    type: object
+  internal_api.CreateWorkspaceRequest:
+    properties:
+      cli_type:
+        description: |-
+          CliType picks the agent CLI for the workspace. "claude" (default) or
+          "codex". Empty string normalizes to "claude" in the SQL layer.
+          Immutable after create: PATCH /api/workspaces/:id rejects this field.
+        type: string
+      issue_id:
+        description: nullable int64
+        type: integer
+      mcp_servers:
+        description: workspace-scoped MCP server names
+        items:
+          type: string
+        type: array
+      name:
+        type: string
+      no_repo:
+        description: |-
+          NoRepo creates a plain owner-isolated directory with no git worktrees
+          (office / non-code tasks). When true, Repos must be empty; when false,
+          at least one repo is required. See docs/architecture/workspace-model.md.
+        type: boolean
+      owner:
+        $ref: '#/definitions/internal_api.CreateWorkspaceOwnerRequest'
+      project_id:
+        description: |-
+          ProjectID lets the SPA create a project-scoped workspace without binding
+          it to a specific issue. When set, used to prefill any project-default
+          scenes (see WorkspaceService.Create scene-layer prefill). Ignored if
+          IssueID is also set — issue's project takes precedence.
+        type: integer
+      repos:
+        items:
+          $ref: '#/definitions/internal_api.RepoBranchRequest'
+        type: array
+    type: object
+  internal_api.CreateWorkspaceResponse:
+    properties:
+      errors:
+        items:
+          $ref: '#/definitions/internal_api.CreateWorkspaceErrorEntry'
+        type: array
+      id:
+        type: string
+      is_studio:
+        description: |-
+          IsStudio marks a studio workspace (#232) so the SPA can show the delivery
+          hint (#238). Omitted (false) for regular workspaces.
+        type: boolean
+      issue_id:
+        type: string
+      path:
+        type: string
+      repositories:
+        items:
+          $ref: '#/definitions/internal_api.CreateWorkspaceSuccessRepo'
+        type: array
+      repository_id:
+        description: |-
+          RepositoryID is set by the studio from-directory flow (#232) so the client
+          can reference the auto-created/bound repo. Omitted by other create paths.
+        type: string
+      status:
+        type: string
+      warnings:
+        items:
+          type: string
+        type: array
+    type: object
+  internal_api.CreateWorkspaceSuccessRepo:
+    properties:
+      branch:
+        type: string
+      id:
+        type: string
+      repository_id:
+        type: string
+      worktree_path:
+        type: string
+    type: object
+  internal_api.DirectoryEntry:
+    properties:
+      name:
+        type: string
+      path:
+        type: string
+    type: object
+  internal_api.DirectoryListResponse:
+    properties:
+      directories:
+        items:
+          $ref: '#/definitions/internal_api.DirectoryEntry'
+        type: array
+      parent:
+        type: string
+      path:
+        type: string
+    type: object
+  internal_api.Error:
+    properties:
+      error:
+        $ref: '#/definitions/internal_api.ErrorDetail'
+    type: object
+  internal_api.ErrorDetail:
+    properties:
+      code:
+        example: PROJECT_NOT_FOUND
+        type: string
+      details: {}
+      message:
+        example: Project not found
+        type: string
+    type: object
+  internal_api.ErrorResponse:
+    properties:
+      error:
+        $ref: '#/definitions/internal_api.ErrorDetail'
+    type: object
+  internal_api.FileContentResponse:
+    properties:
+      content:
+        type: string
+      path:
+        type: string
+      size:
+        type: integer
+    type: object
+  internal_api.GitStatusResponse:
+    properties:
+      added:
+        items:
+          type: string
+        type: array
+      deleted:
+        items:
+          type: string
+        type: array
+      modified:
+        items:
+          type: string
+        type: array
+      untracked:
+        items:
+          type: string
+        type: array
+    type: object
+  internal_api.IssueAssigneeResponse:
+    properties:
+      display_name:
+        type: string
+      id:
+        type: integer
+      username:
+        type: string
+    type: object
+  internal_api.IssueResponse:
+    properties:
+      actual_time:
+        type: number
+      assignees:
+        items:
+          $ref: '#/definitions/internal_api.IssueAssigneeResponse'
+        type: array
+      checklist_stats:
+        $ref: '#/definitions/internal_api.ChecklistStatsDTO'
+      column_id:
+        type: integer
+      completion_profile_id:
+        description: |-
+          CompletionProfileID is the issue-level completion profile override.
+          Nil means the issue inherits the project default (§6.5).
+        type: integer
+      created_at:
+        example: "2026-03-17T12:00:00Z"
+        type: string
+      description:
+        example: Add JWT-based user authentication
+        type: string
+      due_date:
+        type: string
+      estimate:
+        type: number
+      estimate_type:
+        type: string
+      exec_status:
+        type: string
+      exec_status_reason:
+        description: |-
+          ExecStatusReason is the human-readable reason behind a terminal exec_status
+          (blocked-needs-human / abandoned-with-reason, spec §19). Nil when empty.
+        type: string
+      exec_wave:
+        type: integer
+      external_comments_snapshot:
+        items:
+          $ref: '#/definitions/github_com_niuniu-dev_niuniu_internal_integration.ExternalComment'
+        type: array
+      external_comments_snapshot_at:
+        type: string
+      external_id:
+        type: string
+      external_source:
+        description: |-
+          External tracker linkage. Empty when the issue is not linked to any
+          external source. ExternalSource is the provider name (e.g. "github");
+          ExternalID is canonical ("owner/repo#123"); ExternalURL is the
+          upstream permalink.
+        type: string
+      external_url:
+        type: string
+      goal_condition:
+        description: |-
+          GoalCondition is the per-issue autohost LLM-judge stop condition.
+          Empty string means "use the workspace-level fallback (or no judge)".
+        type: string
+      has_workspace:
+        description: |-
+          HasWorkspace (spec 2026-09-28 §3 frontend flag): the issue owns a live
+          (non-archived) workspace, so its parent/child relations are frozen — the
+          UI hides the parent/child entries the server guardrail would 409 anyway.
+        type: boolean
+      id:
+        type: integer
+      issue_type:
+        type: string
+      labels:
+        items:
+          $ref: '#/definitions/internal_api.LabelResponse'
+        type: array
+      lifecycle_status:
+        example: created
+        type: string
+      parent_issue_id:
+        description: |-
+          Executable Epic: ParentIssueID is the parent Epic (nil = top-level),
+          IssueType is 'task' | 'epic', ExecWave is the child execution wave,
+          ExecStatus is the Epic execution lifecycle (idle/running/done/failed/paused).
+        type: integer
+      position:
+        example: 0
+        type: integer
+      priority:
+        example: 1
+        type: integer
       project_id:
         type: integer
+      start_date:
+        type: string
+      title:
+        example: Implement user authentication
+        type: string
+      updated_at:
+        example: "2026-03-17T12:00:00Z"
+        type: string
+    type: object
+  internal_api.LabelResponse:
+    properties:
+      color:
+        type: string
+      created_at:
+        type: string
+      created_by:
+        type: integer
+      description:
+        type: string
+      id:
+        type: integer
+      name:
+        type: string
+      project_id:
+        type: integer
+    type: object
+  internal_api.MoveIssueRequest:
+    properties:
+      column_id:
+        type: integer
+      position:
+        minimum: 0
+        type: integer
+    required:
+    - column_id
+    type: object
+  internal_api.OwnerDTO:
+    properties:
+      id:
+        type: integer
+      name:
+        type: string
+      slug:
+        type: string
+      type:
+        type: string
+    type: object
+  internal_api.ProjectRepositoryBinding:
+    properties:
+      name:
+        type: string
+      path:
+        type: string
+      project_default_branch:
+        type: string
+      repo_default_branch:
+        type: string
+      repository_id:
+        type: integer
+    type: object
+  internal_api.ProjectResponse:
+    properties:
+      color:
+        example: emerald
+        type: string
+      created_at:
+        example: "2026-03-17T12:00:00Z"
+        type: string
+      default_cli_type:
+        example: claude
+        type: string
+      description:
+        example: A sample project
+        type: string
+      env_provider_group:
+        description: EnvProviderGroup is the provider-group default binding ('' =
+          none).
+        type: string
+      env_provider_id:
+        type: integer
+      id:
+        type: integer
+      issue_stats:
+        items:
+          $ref: '#/definitions/internal_api.ColumnIssueStat'
+        type: array
+      name:
+        example: My Project
+        type: string
+      owner:
+        $ref: '#/definitions/internal_api.OwnerDTO'
+      repositories:
+        items:
+          $ref: '#/definitions/internal_api.ProjectRepositoryBinding'
+        type: array
+      status:
+        example: active
+        type: string
+      updated_at:
+        example: "2026-03-17T12:00:00Z"
+        type: string
+      ws_stats:
+        items:
+          $ref: '#/definitions/internal_api.WsStatusStat'
+        type: array
+    type: object
+  internal_api.RepoBranchRequest:
+    properties:
+      branch:
+        description: |-
+          Branch is the base branch the new worktree forks from. Required so the
+          server never silently falls back to a guessed default (e.g. "main") that
+          may not exist in the repo — that fallback used to leave the workspace
+          shell in place with no worktree on disk and the failure swallowed.
+        type: string
+      repo_id:
+        description: int64
+        type: integer
+    required:
+    - branch
+    - repo_id
+    type: object
+  internal_api.RepoSearchResponse:
+    properties:
+      content:
+        $ref: '#/definitions/internal_api.ContentSearchResponse'
+      contentError:
+        type: string
+      files:
+        items:
+          $ref: '#/definitions/internal_api.repoFileHit'
+        type: array
+      filesTruncated:
+        type: boolean
+      query:
+        type: string
+    type: object
+  internal_api.RepositoryResponse:
+    properties:
+      created_at:
+        example: "2026-03-17T12:00:00Z"
+        type: string
+      default_branch:
+        example: main
+        type: string
+      git_remote:
+        example: https://github.com/niuniu-dev/niuniu.git
+        type: string
+      id:
+        type: integer
+      name:
+        example: My Repository
+        type: string
+      owner:
+        $ref: '#/definitions/internal_api.OwnerDTO'
+      path:
+        example: /path/to/repo
+        type: string
+      total_branches:
+        example: 3
+        type: integer
+      updated_at:
+        example: "2026-03-17T12:00:00Z"
+        type: string
+      warnings:
+        description: |-
+          Warnings carries non-fatal notices from create (e.g. WARN_GIT_LFS_MISSING
+          when auto-init could not enable Git LFS). Omitted when empty.
+        items:
+          type: string
+        type: array
+    type: object
+  internal_api.ResolveCommentRequest:
+    properties:
+      by:
+        type: string
+      resolved:
+        description: |-
+          Resolved is the review verdict. Pointer so an omitted field is rejected
+          rather than silently read as false (un-resolving a comment by accident).
+        type: boolean
+    required:
+    - resolved
+    type: object
+  internal_api.SendInputRequest:
+    properties:
+      input:
+        type: string
+    required:
+    - input
+    type: object
+  internal_api.SetEnvRequest:
+    properties:
+      env:
+        additionalProperties:
+          type: string
+        type: object
+    type: object
+  internal_api.StartAgentRequest:
+    properties:
+      prompt:
+        type: string
+    type: object
+  internal_api.SuggestGoalConditionResponse:
+    properties:
+      suggestion:
+        type: string
+    type: object
+  internal_api.SystemInfoResponse:
+    properties:
+      data_dir:
+        description: |-
+          DataDir is the niuniu data dir (~/.niuniu), Unix-style. The SPA uses it to
+          disable selecting this dir or any descendant and to surface an inline
+          error before submit. The backend enforces the same rule in ValidatePath.
+        type: string
+      disk_drives:
+        description: Windows drive letters, empty on Linux
+        items:
+          type: string
+        type: array
+      home_dir:
+        description: |-
+          HomeDir is the directory picker's only default location — the picker must
+          never open in (or allow selecting) the ~/.niuniu data dir.
+        type: string
+      os:
+        description: '"windows" or "linux"'
+        type: string
+    type: object
+  internal_api.TaskStatsDTO:
+    properties:
+      completed:
+        type: integer
+      current_task:
+        type: string
+      total:
+        type: integer
+    type: object
+  internal_api.UpdateColorRequest:
+    properties:
+      color:
+        type: string
+    type: object
+  internal_api.UpdateColumnPositionRequest:
+    properties:
+      position:
+        type: integer
+    type: object
+  internal_api.UpdateColumnRequest:
+    properties:
+      name:
+        type: string
+    required:
+    - name
+    type: object
+  internal_api.UpdateDefaultCliTypeRequest:
+    properties:
+      default_cli_type:
+        type: string
+    required:
+    - default_cli_type
+    type: object
+  internal_api.UpdateIssueRequest:
+    properties:
+      actual_time:
+        type: number
+      completion_profile_id:
+        description: |-
+          CompletionProfileID distinguishes three cases: absent (unchanged), null
+          (clear the override and inherit the project default), or a profile id.
+          json.RawMessage is required because *int64 cannot tell null from absent.
+        items:
+          type: integer
+        type: array
+      description:
+        type: string
+      due_date:
+        type: string
+      estimate:
+        type: number
+      estimate_type:
+        type: string
+      goal_condition:
+        type: string
+      priority:
+        type: integer
+      start_date:
+        type: string
+      title:
+        type: string
+    required:
+    - title
+    type: object
+  internal_api.UpdateProjectRequest:
+    properties:
+      description:
+        type: string
+      name:
+        type: string
+    required:
+    - name
+    type: object
+  internal_api.UpdateRepositoryRequest:
+    properties:
+      default_branch:
+        type: string
+      git_remote:
+        type: string
+      name:
+        type: string
+      path:
+        type: string
+    required:
+    - name
+    - path
+    type: object
+  internal_api.WorkspaceGitStatusDTO:
+    properties:
+      ahead_count:
+        type: integer
+      changes_count:
+        type: integer
+      workspace_id:
+        type: string
+      worktrees:
+        items:
+          $ref: '#/definitions/internal_api.WorktreeGitStatusDTO'
+        type: array
+    type: object
+  internal_api.WorkspaceResponse:
+    properties:
+      active_env_provider_name:
+        description: |-
+          ActiveEnvProviderName is the provider NAME this workspace's agent
+          process actually spawned with ('' = none recorded yet). Read-only:
+          maintained server-side at each spawn.
+        type: string
+      agent_pid:
+        example: 12345
+        type: integer
+      agent_status:
+        example: idle
+        type: string
+      ahead_count:
+        type: integer
+      archived_at:
+        type: string
+      bg_tasks:
+        $ref: '#/definitions/internal_api.BgTaskAggregateDTO'
+      changes_count:
+        type: integer
+      cli_type:
+        example: claude
+        type: string
+      codex_approval_policy:
+        type: string
+      codex_sandbox_mode:
+        description: |-
+          Codex-only fields. Always populated for codex workspaces (defaults
+          applied if column is empty). Ignored by the SPA for claude workspaces.
+        type: string
+      created_at:
+        example: "2026-03-17T12:00:00Z"
+        type: string
+      created_by:
+        type: integer
+      creator_owner:
+        $ref: '#/definitions/internal_api.OwnerDTO'
+      env_provider_group:
+        description: |-
+          EnvProviderGroup is the provider-group binding ('' = none). Mutually
+          exclusive with EnvProviderID; the workspace resolves the group's best
+          usable member in manual order.
+        type: string
+      env_provider_id:
+        description: |-
+          EnvProviderID is the directly-bound subscription-platform provider (issue
+          #653). nil = no direct binding (env comes from scene/ explicit workspace_env).
+        type: integer
+      id:
+        type: string
+      is_archived:
+        type: integer
+      is_studio:
+        description: |-
+          IsStudio marks workspaces created via the studio "from local directory"
+          flow (#232). The SPA shows the delivery hint (#238) when true.
+        type: integer
+      issue_id:
+        type: string
+      issue_type:
+        description: |-
+          IssueType is the linked issue's type ('task'|'epic'). Omitted for regular
+          tasks and workspaces with no linked issue; the SPA renders an Epic marker
+          in the sidebar only when this is "epic".
+        type: string
+      last_message_at:
+        type: string
+      lifecycle_status:
+        type: string
+      message_count:
+        type: integer
+      name:
+        example: My Workspace
+        type: string
+      owner:
+        $ref: '#/definitions/internal_api.OwnerDTO'
+      parent_issue_id:
+        description: |-
+          ParentIssueID is the linked issue's parent (the Epic it belongs to).
+          Present only when the linked issue is a sub-issue; the SPA renders a
+          sub-issue marker in the sidebar when this is set.
+        type: integer
+      path:
+        example: /path/to/workspace
+        type: string
+      project_name:
+        type: string
+      project_owner_id:
+        type: integer
+      project_owner_name:
+        type: string
+      project_owner_type:
+        type: string
+      schedule_count:
+        type: integer
+      status:
+        example: active
+        type: string
+      task_stats:
+        $ref: '#/definitions/internal_api.TaskStatsDTO'
+      updated_at:
+        example: "2026-03-17T12:00:00Z"
+        type: string
+      worktrees:
+        items:
+          $ref: '#/definitions/internal_api.WorktreeSidebarDTO'
+        type: array
+    type: object
+  internal_api.WorktreeGitStatusDTO:
+    properties:
+      ahead_count:
+        type: integer
+      changes_count:
+        type: integer
+      name:
+        type: string
+    type: object
+  internal_api.WorktreeSidebarDTO:
+    properties:
+      ahead_count:
+        type: integer
+      base_branch:
+        type: string
+      branch:
+        type: string
+      changes_count:
+        type: integer
+      name:
+        type: string
+      repo_name:
+        type: string
+    type: object
+  internal_api.WsStatusStat:
+    properties:
+      count:
+        type: integer
+      status:
+        type: string
+    type: object
+  internal_api.batchDeleteWorkspacesRequest:
+    properties:
+      force:
+        description: |-
+          Force skips the per-workspace uncommitted/unmerged change check. When
+          false, a workspace with changes is reported in `skipped` (reason
+          "has_changes") instead of being destroyed.
+        type: boolean
+      workspace_ids:
+        items:
+          type: integer
+        type: array
+    required:
+    - workspace_ids
+    type: object
+  internal_api.contentFileResult:
+    properties:
+      matches:
+        items:
+          $ref: '#/definitions/internal_api.contentMatch'
+        type: array
+      path:
+        description: |-
+          Path is workspace-root-relative with forward slashes, e.g.
+          ".worktrees/niuniu-main/internal/api/filetree.go".
+        type: string
+      repo:
+        description: Repo is the `.worktrees/<name>` subdir, or "" for workspace-root
+          files.
+        type: string
+      truncated:
+        description: Truncated means this file hit contentMaxPerFile and has more
+          matches.
+        type: boolean
+    type: object
+  internal_api.contentMatch:
+    properties:
+      after:
+        items:
+          type: string
+        type: array
+      before:
+        description: |-
+          Before/After hold up to `context` lines around the match. The git-grep
+          fallback cannot label context lines unambiguously, so it returns none.
+        items:
+          type: string
+        type: array
+      columns:
+        description: |-
+          Columns are [start,end) BYTE offsets of each match within Text, letting
+          the client highlight the hit. Only ripgrep reports these.
+        items:
+          items:
+            type: integer
+          type: array
+        type: array
+      line:
+        type: integer
+      lineTruncated:
+        description: LineTruncated marks a line cut to contentMaxLineLen.
+        type: boolean
+      text:
+        type: string
+    type: object
+  internal_api.installReq:
+    properties:
+      name:
+        type: string
+    type: object
+  internal_api.installResp:
+    properties:
+      fallback_url:
+        type: string
+      job_id:
+        type: string
+    type: object
+  internal_api.overviewCreatorsResponse:
+    properties:
+      data:
+        items:
+          $ref: '#/definitions/github_com_niuniu-dev_niuniu_internal_service.CreatorBrief'
+        type: array
+    type: object
+  internal_api.repoFileHit:
+    properties:
+      name:
+        type: string
+      path:
+        type: string
+    type: object
+  internal_api.setGitIdentityReq:
+    properties:
+      email:
+        type: string
+      name:
+        type: string
+    type: object
+  releasecheck.Asset:
+    properties:
+      browser_download_url:
+        type: string
+      name:
+        type: string
+    type: object
+  releasecheck.Release:
+    properties:
+      assets:
+        items:
+          $ref: '#/definitions/releasecheck.Asset'
+        type: array
+      html_url:
+        type: string
+      notes:
+        type: string
+      published_at:
+        type: string
+      tag_name:
+        type: string
+    type: object
+  sql.NullString:
+    properties:
+      string:
+        type: string
+      valid:
+        description: Valid is true if String is not NULL
+        type: boolean
+    type: object
+  store.Column:
+    properties:
+      auto_advance:
+        type: integer
+      id:
+        type: integer
+      lifecycle_mapping:
+        type: string
+      name:
+        type: string
+      phase_prompt:
+        $ref: '#/definitions/sql.NullString'
+      position:
+        type: integer
+      project_id:
+        type: integer
+      reviewer_agent:
+        $ref: '#/definitions/sql.NullString'
     type: object
 host: localhost:3000
 info:
@@ -935,6 +1985,18 @@ info:
   title: Niuniu API
   version: 1.0.0
 paths:
+  /app-update/latest:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/releasecheck.Release'
+      summary: Latest desktop release (proxied from the official changelog)
+      tags:
+      - system
   /columns/{id}:
     delete:
       consumes:
@@ -954,7 +2016,7 @@ paths:
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/api.Error'
+            $ref: '#/definitions/internal_api.Error'
       summary: Delete a column
       tags:
       - Columns
@@ -973,7 +2035,7 @@ paths:
         name: request
         required: true
         schema:
-          $ref: '#/definitions/api.UpdateColumnRequest'
+          $ref: '#/definitions/internal_api.UpdateColumnRequest'
       produces:
       - application/json
       responses:
@@ -984,15 +2046,15 @@ paths:
         "400":
           description: Bad Request
           schema:
-            $ref: '#/definitions/api.Error'
+            $ref: '#/definitions/internal_api.Error'
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/api.Error'
+            $ref: '#/definitions/internal_api.Error'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/api.Error'
+            $ref: '#/definitions/internal_api.Error'
       summary: Update a column
       tags:
       - Columns
@@ -1014,12 +2076,12 @@ paths:
           description: OK
           schema:
             items:
-              $ref: '#/definitions/api.IssueResponse'
+              $ref: '#/definitions/internal_api.IssueResponse'
             type: array
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/api.Error'
+            $ref: '#/definitions/internal_api.Error'
       summary: List issues
       tags:
       - Issues
@@ -1038,22 +2100,22 @@ paths:
         name: request
         required: true
         schema:
-          $ref: '#/definitions/api.CreateIssueRequest'
+          $ref: '#/definitions/internal_api.CreateIssueRequest'
       produces:
       - application/json
       responses:
         "201":
           description: Created
           schema:
-            $ref: '#/definitions/api.IssueResponse'
+            $ref: '#/definitions/internal_api.IssueResponse'
         "400":
           description: Bad Request
           schema:
-            $ref: '#/definitions/api.Error'
+            $ref: '#/definitions/internal_api.Error'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/api.Error'
+            $ref: '#/definitions/internal_api.Error'
       summary: Create an issue
       tags:
       - Issues
@@ -1073,7 +2135,7 @@ paths:
         name: request
         required: true
         schema:
-          $ref: '#/definitions/api.UpdateColumnPositionRequest'
+          $ref: '#/definitions/internal_api.UpdateColumnPositionRequest'
       produces:
       - application/json
       responses:
@@ -1082,18 +2144,55 @@ paths:
         "400":
           description: Bad Request
           schema:
-            $ref: '#/definitions/api.Error'
+            $ref: '#/definitions/internal_api.Error'
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/api.Error'
+            $ref: '#/definitions/internal_api.Error'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/api.Error'
+            $ref: '#/definitions/internal_api.Error'
       summary: Update column position
       tags:
       - Columns
+  /comments/{id}/resolved:
+    patch:
+      consumes:
+      - application/json
+      description: Set a comment's review verdict. Independent of send-to-agent, which
+        only records delivery — an injected comment stays unresolved until a reviewer
+        judges it.
+      parameters:
+      - description: Comment ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Verdict
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/internal_api.ResolveCommentRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_api.CommentResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/internal_api.Error'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/internal_api.Error'
+      summary: Resolve or reopen a comment
+      tags:
+      - Review
   /comments/{id}/send-to-agent:
     post:
       consumes:
@@ -1113,11 +2212,11 @@ paths:
         "400":
           description: Bad Request
           schema:
-            $ref: '#/definitions/api.Error'
+            $ref: '#/definitions/internal_api.Error'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/api.Error'
+            $ref: '#/definitions/internal_api.Error'
       summary: Send comment to agent
       tags:
       - Review
@@ -1136,19 +2235,19 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/api.DirectoryListResponse'
+            $ref: '#/definitions/internal_api.DirectoryListResponse'
         "400":
           description: Bad Request
           schema:
-            $ref: '#/definitions/api.Error'
+            $ref: '#/definitions/internal_api.Error'
         "403":
           description: Forbidden
           schema:
-            $ref: '#/definitions/api.Error'
+            $ref: '#/definitions/internal_api.Error'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/api.Error'
+            $ref: '#/definitions/internal_api.Error'
       summary: List directories
       tags:
       - Directories
@@ -1171,7 +2270,7 @@ paths:
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/api.Error'
+            $ref: '#/definitions/internal_api.Error'
       summary: Delete an issue
       tags:
       - Issues
@@ -1189,19 +2288,19 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/api.IssueResponse'
+            $ref: '#/definitions/internal_api.IssueResponse'
         "400":
           description: Bad Request
           schema:
-            $ref: '#/definitions/api.Error'
+            $ref: '#/definitions/internal_api.Error'
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/api.Error'
+            $ref: '#/definitions/internal_api.Error'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/api.Error'
+            $ref: '#/definitions/internal_api.Error'
       summary: Get an issue
       tags:
       - Issues
@@ -1220,27 +2319,103 @@ paths:
         name: request
         required: true
         schema:
-          $ref: '#/definitions/api.UpdateIssueRequest'
+          $ref: '#/definitions/internal_api.UpdateIssueRequest'
       produces:
       - application/json
       responses:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/api.IssueResponse'
+            $ref: '#/definitions/internal_api.IssueResponse'
         "400":
           description: Bad Request
           schema:
-            $ref: '#/definitions/api.Error'
+            $ref: '#/definitions/internal_api.Error'
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/api.Error'
+            $ref: '#/definitions/internal_api.Error'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/api.Error'
+            $ref: '#/definitions/internal_api.Error'
       summary: Update an issue
+      tags:
+      - Issues
+  /issues/{id}/brief:
+    get:
+      description: Current brief (highest version) plus all versions, newest first.
+        brief is null for issues that did not come from Intake.
+      parameters:
+      - description: Issue ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/github_com_niuniu-dev_niuniu_internal_service.IssueBriefView'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/internal_api.Error'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/internal_api.Error'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/internal_api.Error'
+      summary: Read an issue's Task Brief
+      tags:
+      - Issues
+    put:
+      consumes:
+      - application/json
+      description: Appends a new version and returns the updated current brief plus
+        the full history. delivery/provenance are inherited from the current version
+        when omitted.
+      parameters:
+      - description: Issue ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: Brief fields
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/github_com_niuniu-dev_niuniu_internal_service.TaskBriefInput'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/github_com_niuniu-dev_niuniu_internal_service.IssueBriefView'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/internal_api.Error'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/internal_api.Error'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/internal_api.Error'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/internal_api.Error'
+      summary: Edit an issue's Task Brief
       tags:
       - Issues
   /issues/{id}/move:
@@ -1259,7 +2434,7 @@ paths:
         name: request
         required: true
         schema:
-          $ref: '#/definitions/api.MoveIssueRequest'
+          $ref: '#/definitions/internal_api.MoveIssueRequest'
       produces:
       - application/json
       responses:
@@ -1268,12 +2443,55 @@ paths:
         "400":
           description: Bad Request
           schema:
-            $ref: '#/definitions/api.Error'
+            $ref: '#/definitions/internal_api.Error'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/api.Error'
+            $ref: '#/definitions/internal_api.Error'
       summary: Move an issue
+      tags:
+      - Issues
+  /issues/{id}/suggest-goal-condition:
+    post:
+      description: Spawn `claude -p --model haiku` to propose a completion criterion
+      parameters:
+      - description: Issue ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_api.SuggestGoalConditionResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/internal_api.Error'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/internal_api.Error'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/internal_api.Error'
+        "429":
+          description: Too Many Requests
+          schema:
+            $ref: '#/definitions/internal_api.Error'
+        "502":
+          description: Bad Gateway
+          schema:
+            $ref: '#/definitions/internal_api.Error'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/internal_api.Error'
+      summary: AI-suggest a goal_condition for an issue
       tags:
       - Issues
   /issues/{id}/workspace:
@@ -1293,15 +2511,15 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/api.WorkspaceResponse'
+            $ref: '#/definitions/internal_api.WorkspaceResponse'
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/api.Error'
+            $ref: '#/definitions/internal_api.Error'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/api.Error'
+            $ref: '#/definitions/internal_api.Error'
       summary: Get workspace by issue
       tags:
       - Workspaces
@@ -1320,22 +2538,22 @@ paths:
         name: request
         required: true
         schema:
-          $ref: '#/definitions/api.CreateWorkspaceRequest'
+          $ref: '#/definitions/internal_api.CreateWorkspaceRequest'
       produces:
       - application/json
       responses:
         "201":
           description: Created
           schema:
-            $ref: '#/definitions/api.CreateWorkspaceResponse'
+            $ref: '#/definitions/internal_api.CreateWorkspaceResponse'
         "400":
           description: Bad Request
           schema:
-            $ref: '#/definitions/api.Error'
+            $ref: '#/definitions/internal_api.Error'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/api.Error'
+            $ref: '#/definitions/internal_api.Error'
       summary: Create a workspace for an issue
       tags:
       - Workspaces
@@ -1357,16 +2575,16 @@ paths:
           description: OK
           schema:
             items:
-              $ref: '#/definitions/api.ProjectResponse'
+              $ref: '#/definitions/internal_api.ProjectResponse'
             type: array
         "400":
           description: Bad Request
           schema:
-            $ref: '#/definitions/api.Error'
+            $ref: '#/definitions/internal_api.Error'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/api.Error'
+            $ref: '#/definitions/internal_api.Error'
       summary: List projects
       tags:
       - Projects
@@ -1380,22 +2598,22 @@ paths:
         name: request
         required: true
         schema:
-          $ref: '#/definitions/api.CreateProjectRequest'
+          $ref: '#/definitions/internal_api.CreateProjectRequest'
       produces:
       - application/json
       responses:
         "201":
           description: Created
           schema:
-            $ref: '#/definitions/api.ProjectResponse'
+            $ref: '#/definitions/internal_api.ProjectResponse'
         "400":
           description: Bad Request
           schema:
-            $ref: '#/definitions/api.Error'
+            $ref: '#/definitions/internal_api.Error'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/api.Error'
+            $ref: '#/definitions/internal_api.Error'
       summary: Create a project
       tags:
       - Projects
@@ -1418,7 +2636,7 @@ paths:
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/api.Error'
+            $ref: '#/definitions/internal_api.Error'
       summary: Delete a project
       tags:
       - Projects
@@ -1438,15 +2656,15 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/api.ProjectResponse'
+            $ref: '#/definitions/internal_api.ProjectResponse'
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/api.Error'
+            $ref: '#/definitions/internal_api.Error'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/api.Error'
+            $ref: '#/definitions/internal_api.Error'
       summary: Get a project
       tags:
       - Projects
@@ -1465,27 +2683,66 @@ paths:
         name: request
         required: true
         schema:
-          $ref: '#/definitions/api.UpdateProjectRequest'
+          $ref: '#/definitions/internal_api.UpdateProjectRequest'
       produces:
       - application/json
       responses:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/api.ProjectResponse'
+            $ref: '#/definitions/internal_api.ProjectResponse'
         "400":
           description: Bad Request
           schema:
-            $ref: '#/definitions/api.Error'
+            $ref: '#/definitions/internal_api.Error'
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/api.Error'
+            $ref: '#/definitions/internal_api.Error'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/api.Error'
+            $ref: '#/definitions/internal_api.Error'
       summary: Update a project
+      tags:
+      - Projects
+  /projects/{id}/color:
+    put:
+      consumes:
+      - application/json
+      description: Set or clear the project's color token (UI sidebar).
+      parameters:
+      - description: Project ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Color (null to clear)
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/internal_api.UpdateColorRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_api.ProjectResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/internal_api.Error'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/internal_api.Error'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/internal_api.Error'
+      summary: Update project color
       tags:
       - Projects
   /projects/{id}/columns:
@@ -1511,7 +2768,7 @@ paths:
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/api.Error'
+            $ref: '#/definitions/internal_api.Error'
       summary: List columns
       tags:
       - Columns
@@ -1530,7 +2787,7 @@ paths:
         name: request
         required: true
         schema:
-          $ref: '#/definitions/api.CreateColumnRequest'
+          $ref: '#/definitions/internal_api.CreateColumnRequest'
       produces:
       - application/json
       responses:
@@ -1541,19 +2798,22 @@ paths:
         "400":
           description: Bad Request
           schema:
-            $ref: '#/definitions/api.Error'
+            $ref: '#/definitions/internal_api.Error'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/api.Error'
+            $ref: '#/definitions/internal_api.Error'
       summary: Create a column
       tags:
       - Columns
-  /repositories:
+  /projects/{id}/completion/profiles:
     get:
-      consumes:
-      - application/json
-      description: Get all repositories
+      parameters:
+      - description: Project ID
+        in: path
+        name: id
+        required: true
+        type: integer
       produces:
       - application/json
       responses:
@@ -1561,15 +2821,740 @@ paths:
           description: OK
           schema:
             items:
-              $ref: '#/definitions/api.RepositoryResponse'
+              $ref: '#/definitions/github_com_niuniu-dev_niuniu_internal_service.CompletionProfileDTO'
             type: array
-        "500":
-          description: Internal Server Error
+        "401":
+          description: Unauthorized
           schema:
-            $ref: '#/definitions/api.Error'
-      summary: List repositories
+            $ref: '#/definitions/internal_api.Error'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/internal_api.Error'
+      summary: List a project's named completion profiles
       tags:
-      - Repositories
+      - Completion
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Project ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: Profile
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/github_com_niuniu-dev_niuniu_internal_service.CompletionProfileInput'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/github_com_niuniu-dev_niuniu_internal_service.CompletionProfileDTO'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/internal_api.Error'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/internal_api.Error'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/internal_api.Error'
+      summary: Create a named completion profile
+      tags:
+      - Completion
+  /projects/{id}/completion/profiles/{pid}:
+    delete:
+      description: Refused with 409 while any issue still references the profile.
+      parameters:
+      - description: Project ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: Profile ID
+        in: path
+        name: pid
+        required: true
+        type: integer
+      responses:
+        "204":
+          description: No Content
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/internal_api.Error'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/internal_api.Error'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/internal_api.Error'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/internal_api.Error'
+      summary: Delete a named completion profile
+      tags:
+      - Completion
+    patch:
+      consumes:
+      - application/json
+      description: 'Partial: omitted fields keep their current value.'
+      parameters:
+      - description: Project ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: Profile ID
+        in: path
+        name: pid
+        required: true
+        type: integer
+      - description: Fields to change
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/github_com_niuniu-dev_niuniu_internal_service.CompletionProfileInput'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/github_com_niuniu-dev_niuniu_internal_service.CompletionProfileDTO'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/internal_api.Error'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/internal_api.Error'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/internal_api.Error'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/internal_api.Error'
+      summary: Edit a named completion profile
+      tags:
+      - Completion
+  /projects/{id}/completion/settings:
+    get:
+      description: Falls back to schema defaults when no row has been stored yet.
+      parameters:
+      - description: Project ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/github_com_niuniu-dev_niuniu_internal_service.CompletionSettingsView'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/internal_api.Error'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/internal_api.Error'
+      summary: Read a project's default completion policy
+      tags:
+      - Completion
+    put:
+      consumes:
+      - application/json
+      description: 'Partial: omitted fields keep their current value.'
+      parameters:
+      - description: Project ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: Policy fields
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/github_com_niuniu-dev_niuniu_internal_service.CompletionSettingsInput'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/github_com_niuniu-dev_niuniu_internal_service.CompletionSettingsView'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/internal_api.Error'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/internal_api.Error'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/internal_api.Error'
+      summary: Update a project's default completion policy
+      tags:
+      - Completion
+  /projects/{id}/default-cli-type:
+    put:
+      consumes:
+      - application/json
+      parameters:
+      - description: Project ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Default cli_type
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/internal_api.UpdateDefaultCliTypeRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_api.ProjectResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/internal_api.Error'
+      summary: Update project default agent
+      tags:
+      - Projects
+  /projects/{id}/intake/decisions:
+    get:
+      description: 'Joins each decision with its event. Query: executed=true|false,
+        decision=accept|resume|ignore|unavailable, limit.'
+      parameters:
+      - description: Project ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: Filter by execution state
+        in: query
+        name: executed
+        type: boolean
+      - description: Filter by decision outcome
+        in: query
+        name: decision
+        type: string
+      - description: Max rows (default 100)
+        in: query
+        name: limit
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/github_com_niuniu-dev_niuniu_internal_service.IntakeDecisionDTO'
+            type: array
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/internal_api.Error'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/internal_api.Error'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/internal_api.Error'
+      summary: List intake decisions (calibration queue)
+      tags:
+      - Intake
+  /projects/{id}/intake/decisions/{did}:
+    patch:
+      consumes:
+      - application/json
+      description: Updates only the pending decision's would-do brief. No issue, workspace
+        or message is created.
+      parameters:
+      - description: Project ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: Decision ID
+        in: path
+        name: did
+        required: true
+        type: integer
+      - description: Brief draft
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/github_com_niuniu-dev_niuniu_internal_service.DecisionBriefDraft'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/github_com_niuniu-dev_niuniu_internal_service.IntakeDecisionDTO'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/internal_api.Error'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/internal_api.Error'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/internal_api.Error'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/internal_api.Error'
+      summary: Save an edited Task Brief draft
+      tags:
+      - Intake
+  /projects/{id}/intake/decisions/{did}/accept:
+    post:
+      consumes:
+      - application/json
+      description: Executes the decision through the intake pipeline, creating the
+        issue/workspace (or continuing the bound task for a resume). An optional brief
+        body replaces the proposed Task Brief.
+      parameters:
+      - description: Project ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: Decision ID
+        in: path
+        name: did
+        required: true
+        type: integer
+      - description: Edited Task Brief
+        in: body
+        name: body
+        schema:
+          $ref: '#/definitions/github_com_niuniu-dev_niuniu_internal_service.AcceptDecisionInput'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/github_com_niuniu-dev_niuniu_internal_service.IntakeDecisionDTO'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/internal_api.Error'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/internal_api.Error'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/internal_api.Error'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/internal_api.Error'
+      summary: Accept a dry-run intake decision
+      tags:
+      - Intake
+  /projects/{id}/intake/decisions/{did}/ignore:
+    post:
+      consumes:
+      - application/json
+      description: Records why the decision was rejected; a reason is mandatory.
+      parameters:
+      - description: Project ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: Decision ID
+        in: path
+        name: did
+        required: true
+        type: integer
+      - description: Reason
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/github_com_niuniu-dev_niuniu_internal_service.IgnoreDecisionInput'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/github_com_niuniu-dev_niuniu_internal_service.IntakeDecisionDTO'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/internal_api.Error'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/internal_api.Error'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/internal_api.Error'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/internal_api.Error'
+      summary: Ignore a dry-run intake decision
+      tags:
+      - Intake
+  /projects/{id}/intake/decisions/{did}/suggest-goal-condition:
+    post:
+      description: Reuses the issue goal_condition suggester against the decision's
+        proposed goal + original message. Nothing is persisted.
+      parameters:
+      - description: Project ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: Decision ID
+        in: path
+        name: did
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_api.SuggestGoalConditionResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/internal_api.Error'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/internal_api.Error'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/internal_api.Error'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/internal_api.Error'
+        "429":
+          description: Too Many Requests
+          schema:
+            $ref: '#/definitions/internal_api.Error'
+        "502":
+          description: Bad Gateway
+          schema:
+            $ref: '#/definitions/internal_api.Error'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/internal_api.Error'
+      summary: AI-suggest the brief goal for a pending decision
+      tags:
+      - Intake
+  /projects/{id}/intake/policy-versions:
+    get:
+      description: Auditable snapshots for one source, newest first.
+      parameters:
+      - description: Project ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: Source kind
+        in: query
+        name: source_kind
+        required: true
+        type: string
+      - description: Max rows (default 50)
+        in: query
+        name: limit
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/github_com_niuniu-dev_niuniu_internal_service.IntakePolicyVersionDTO'
+            type: array
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/internal_api.Error'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/internal_api.Error'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/internal_api.Error'
+      summary: List intake policy versions
+      tags:
+      - Intake
+  /projects/{id}/intake/rules:
+    get:
+      description: Rules for a project, optionally filtered by source_kind, priority
+        order.
+      parameters:
+      - description: Project ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: Filter by source kind
+        in: query
+        name: source_kind
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/github_com_niuniu-dev_niuniu_internal_service.IntakeRuleDTO'
+            type: array
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/internal_api.Error'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/internal_api.Error'
+      summary: List intake rules
+      tags:
+      - Intake
+    post:
+      consumes:
+      - application/json
+      description: Adds a rule and records a policy version for its source.
+      parameters:
+      - description: Project ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: Rule
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/github_com_niuniu-dev_niuniu_internal_service.UpsertIntakeRuleInput'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/github_com_niuniu-dev_niuniu_internal_service.IntakeRuleDTO'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/internal_api.Error'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/internal_api.Error'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/internal_api.Error'
+      summary: Create an intake rule
+      tags:
+      - Intake
+  /projects/{id}/intake/rules/{rid}:
+    delete:
+      description: Removes a rule and records a policy version for its source.
+      parameters:
+      - description: Project ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: Rule ID
+        in: path
+        name: rid
+        required: true
+        type: integer
+      responses:
+        "204":
+          description: No Content
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/internal_api.Error'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/internal_api.Error'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/internal_api.Error'
+      summary: Delete an intake rule
+      tags:
+      - Intake
+    put:
+      consumes:
+      - application/json
+      description: Edits a rule in place and records a policy version for its source.
+      parameters:
+      - description: Project ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: Rule ID
+        in: path
+        name: rid
+        required: true
+        type: integer
+      - description: Rule
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/github_com_niuniu-dev_niuniu_internal_service.UpsertIntakeRuleInput'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/github_com_niuniu-dev_niuniu_internal_service.IntakeRuleDTO'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/internal_api.Error'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/internal_api.Error'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/internal_api.Error'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/internal_api.Error'
+      summary: Update an intake rule
+      tags:
+      - Intake
+  /projects/{id}/intake/settings:
+    get:
+      description: One row per source kind (im_bot/github/ci/email/webhook); kinds
+        without a stored row are rendered with defaults.
+      parameters:
+      - description: Project ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/github_com_niuniu-dev_niuniu_internal_service.IntakeSettingsView'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/internal_api.Error'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/internal_api.Error'
+      summary: Read a project's intake settings
+      tags:
+      - Intake
+    put:
+      consumes:
+      - application/json
+      description: Upserts each supplied source row and records one policy version
+        per touched source.
+      parameters:
+      - description: Project ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: Settings to upsert
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/github_com_niuniu-dev_niuniu_internal_service.UpdateIntakeSettingsRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/github_com_niuniu-dev_niuniu_internal_service.IntakeSettingsView'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/internal_api.Error'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/internal_api.Error'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/internal_api.Error'
+      summary: Write a project's intake settings
+      tags:
+      - Intake
+  /repositories:
     post:
       consumes:
       - application/json
@@ -1585,26 +3570,26 @@ paths:
         name: request
         required: true
         schema:
-          $ref: '#/definitions/api.CreateRepositoryRequest'
+          $ref: '#/definitions/internal_api.CreateRepositoryRequest'
       produces:
       - application/json
       responses:
         "201":
           description: Created
           schema:
-            $ref: '#/definitions/api.RepositoryResponse'
+            $ref: '#/definitions/internal_api.RepositoryResponse'
         "400":
           description: Bad Request
           schema:
-            $ref: '#/definitions/api.Error'
+            $ref: '#/definitions/internal_api.Error'
         "409":
           description: Conflict
           schema:
-            $ref: '#/definitions/api.Error'
+            $ref: '#/definitions/internal_api.Error'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/api.Error'
+            $ref: '#/definitions/internal_api.Error'
       summary: Create a repository
       tags:
       - Repositories
@@ -1632,7 +3617,7 @@ paths:
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/api.Error'
+            $ref: '#/definitions/internal_api.Error'
       summary: Delete a repository
       tags:
       - Repositories
@@ -1652,15 +3637,15 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/api.RepositoryResponse'
+            $ref: '#/definitions/internal_api.RepositoryResponse'
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/api.Error'
+            $ref: '#/definitions/internal_api.Error'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/api.Error'
+            $ref: '#/definitions/internal_api.Error'
       summary: Get a repository
       tags:
       - Repositories
@@ -1679,26 +3664,26 @@ paths:
         name: request
         required: true
         schema:
-          $ref: '#/definitions/api.UpdateRepositoryRequest'
+          $ref: '#/definitions/internal_api.UpdateRepositoryRequest'
       produces:
       - application/json
       responses:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/api.RepositoryResponse'
+            $ref: '#/definitions/internal_api.RepositoryResponse'
         "400":
           description: Bad Request
           schema:
-            $ref: '#/definitions/api.Error'
+            $ref: '#/definitions/internal_api.Error'
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/api.Error'
+            $ref: '#/definitions/internal_api.Error'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/api.Error'
+            $ref: '#/definitions/internal_api.Error'
       summary: Update a repository
       tags:
       - Repositories
@@ -1715,11 +3700,11 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/service.BranchTree'
+            $ref: '#/definitions/github_com_niuniu-dev_niuniu_internal_service.BranchTree'
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/api.Error'
+            $ref: '#/definitions/internal_api.Error'
       summary: Get branch tree
       tags:
       - Repositories
@@ -1744,11 +3729,11 @@ paths:
         "400":
           description: Bad Request
           schema:
-            $ref: '#/definitions/api.Error'
+            $ref: '#/definitions/internal_api.Error'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/api.Error'
+            $ref: '#/definitions/internal_api.Error'
       summary: Delete branch
       tags:
       - Repositories
@@ -1773,11 +3758,11 @@ paths:
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/api.Error'
+            $ref: '#/definitions/internal_api.Error'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/api.Error'
+            $ref: '#/definitions/internal_api.Error'
       summary: Get repository branches
       tags:
       - Repositories
@@ -1806,15 +3791,15 @@ paths:
         "400":
           description: Bad Request
           schema:
-            $ref: '#/definitions/api.Error'
+            $ref: '#/definitions/internal_api.Error'
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/api.Error'
+            $ref: '#/definitions/internal_api.Error'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/api.Error'
+            $ref: '#/definitions/internal_api.Error'
       summary: Create branch
       tags:
       - Repositories
@@ -1839,12 +3824,42 @@ paths:
         "400":
           description: Bad Request
           schema:
-            $ref: '#/definitions/api.Error'
+            $ref: '#/definitions/internal_api.Error'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/api.Error'
+            $ref: '#/definitions/internal_api.Error'
       summary: Checkout branch
+      tags:
+      - Repositories
+  /repositories/{id}/branches/checkout-remote:
+    put:
+      description: Fetch a remote-tracking branch and make a local branch of the same
+        name current (created with tracking when absent). Branch name passed as query
+        param to support slashes.
+      parameters:
+      - description: Repository ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Remote branch name, e.g. origin/feat/x
+        in: query
+        name: name
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/internal_api.Error'
+      summary: Checkout a remote branch locally
       tags:
       - Repositories
   /repositories/{id}/commit:
@@ -1867,7 +3882,7 @@ paths:
         "400":
           description: Bad Request
           schema:
-            $ref: '#/definitions/api.Error'
+            $ref: '#/definitions/internal_api.Error'
       summary: Commit all changes
       tags:
       - Repositories
@@ -1897,16 +3912,16 @@ paths:
           description: OK
           schema:
             items:
-              $ref: '#/definitions/git.LogEntry'
+              $ref: '#/definitions/github_com_niuniu-dev_niuniu_internal_git.LogEntry'
             type: array
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/api.Error'
+            $ref: '#/definitions/internal_api.Error'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/api.Error'
+            $ref: '#/definitions/internal_api.Error'
       summary: List repository commits
       tags:
       - Repositories
@@ -1928,12 +3943,40 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/git.CommitDetail'
+            $ref: '#/definitions/github_com_niuniu-dev_niuniu_internal_git.CommitDetail'
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/api.Error'
+            $ref: '#/definitions/internal_api.Error'
       summary: Get commit detail
+      tags:
+      - Repositories
+  /repositories/{id}/commits/{hash}/diff:
+    get:
+      description: Get the structured line-level diff for a single commit
+      parameters:
+      - description: Repository ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Commit hash
+        in: path
+        name: hash
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/github_com_niuniu-dev_niuniu_internal_git.FileDiff'
+            type: array
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/internal_api.Error'
+      summary: Get commit diff
       tags:
       - Repositories
   /repositories/{id}/discard:
@@ -1950,7 +3993,7 @@ paths:
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/api.Error'
+            $ref: '#/definitions/internal_api.Error'
       summary: Discard all changes
       tags:
       - Repositories
@@ -1968,7 +4011,7 @@ paths:
         "400":
           description: Bad Request
           schema:
-            $ref: '#/definitions/api.Error'
+            $ref: '#/definitions/internal_api.Error'
       summary: Discard file changes
       tags:
       - Repositories
@@ -1994,16 +4037,16 @@ paths:
           description: OK
           schema:
             items:
-              $ref: '#/definitions/git.FileEntry'
+              $ref: '#/definitions/github_com_niuniu-dev_niuniu_internal_git.FileEntry'
             type: array
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/api.Error'
+            $ref: '#/definitions/internal_api.Error'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/api.Error'
+            $ref: '#/definitions/internal_api.Error'
       summary: List repository files
       tags:
       - Repositories
@@ -2034,12 +4077,85 @@ paths:
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/api.Error'
+            $ref: '#/definitions/internal_api.Error'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/api.Error'
+            $ref: '#/definitions/internal_api.Error'
       summary: Get file content
+      tags:
+      - Repositories
+  /repositories/{id}/files/history:
+    get:
+      parameters:
+      - description: Repository ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: File path
+        in: query
+        name: path
+        required: true
+        type: string
+      - description: Max commits (default 50, max 200)
+        in: query
+        name: limit
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/github_com_niuniu-dev_niuniu_internal_git.FileLogEntry'
+            type: array
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/internal_api.Error'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/internal_api.Error'
+      summary: Get a file's commit history
+      tags:
+      - Repositories
+  /repositories/{id}/files/history/{hash}/diff:
+    get:
+      parameters:
+      - description: Repository ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Commit hash
+        in: path
+        name: hash
+        required: true
+        type: string
+      - description: File path as of that commit
+        in: query
+        name: path
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/github_com_niuniu-dev_niuniu_internal_git.FileDiff'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/internal_api.Error'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/internal_api.Error'
+      summary: Get the diff a commit introduced to one file
       tags:
       - Repositories
   /repositories/{id}/git/status:
@@ -2064,19 +4180,19 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/api.GitStatusResponse'
+            $ref: '#/definitions/internal_api.GitStatusResponse'
         "400":
           description: Bad Request
           schema:
-            $ref: '#/definitions/api.Error'
+            $ref: '#/definitions/internal_api.Error'
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/api.Error'
+            $ref: '#/definitions/internal_api.Error'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/api.Error'
+            $ref: '#/definitions/internal_api.Error'
       summary: Get repository git status
       tags:
       - Git
@@ -2091,7 +4207,8 @@ paths:
         name: id
         required: true
         type: string
-      - description: Max commits (default 100, max 500)
+      - description: Max commits; 0 or absent means ALL commits (graph computes the
+          full DAG; the client virtualizes rendering)
         in: query
         name: limit
         type: integer
@@ -2106,13 +4223,92 @@ paths:
           description: OK
           schema:
             items:
-              $ref: '#/definitions/git.GraphCommit'
+              $ref: '#/definitions/github_com_niuniu-dev_niuniu_internal_git.GraphCommit'
             type: array
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/api.Error'
+            $ref: '#/definitions/internal_api.Error'
       summary: Get branch graph
+      tags:
+      - Repositories
+  /repositories/{id}/pull:
+    post:
+      parameters:
+      - description: Repository ID
+        in: path
+        name: id
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/internal_api.Error'
+      summary: Pull repository
+      tags:
+      - Repositories
+  /repositories/{id}/push:
+    post:
+      parameters:
+      - description: Repository ID
+        in: path
+        name: id
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/internal_api.Error'
+      summary: Push repository
+      tags:
+      - Repositories
+  /repositories/{id}/search:
+    get:
+      parameters:
+      - description: Repository ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Search query
+        in: query
+        name: q
+        required: true
+        type: string
+      - description: Case-sensitive content match
+        in: query
+        name: case
+        type: boolean
+      - description: Whole-word content match
+        in: query
+        name: word
+        type: boolean
+      - description: Treat q as a regular expression
+        in: query
+        name: regex
+        type: boolean
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_api.RepoSearchResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/internal_api.Error'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/internal_api.Error'
+      summary: Search a repository by filename and content
       tags:
       - Repositories
   /repositories/{id}/stats:
@@ -2132,15 +4328,15 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/service.RepositoryStats'
+            $ref: '#/definitions/github_com_niuniu-dev_niuniu_internal_service.RepositoryStats'
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/api.Error'
+            $ref: '#/definitions/internal_api.Error'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/api.Error'
+            $ref: '#/definitions/internal_api.Error'
       summary: Get repository stats
       tags:
       - Repositories
@@ -2162,16 +4358,16 @@ paths:
           description: OK
           schema:
             items:
-              $ref: '#/definitions/git.WorktreeInfo'
+              $ref: '#/definitions/github_com_niuniu-dev_niuniu_internal_git.WorktreeInfo'
             type: array
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/api.Error'
+            $ref: '#/definitions/internal_api.Error'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/api.Error'
+            $ref: '#/definitions/internal_api.Error'
       summary: List worktrees
       tags:
       - Repositories
@@ -2200,15 +4396,15 @@ paths:
         "400":
           description: Bad Request
           schema:
-            $ref: '#/definitions/api.Error'
+            $ref: '#/definitions/internal_api.Error'
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/api.Error'
+            $ref: '#/definitions/internal_api.Error'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/api.Error'
+            $ref: '#/definitions/internal_api.Error'
       summary: Create worktree
       tags:
       - Repositories
@@ -2236,11 +4432,11 @@ paths:
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/api.Error'
+            $ref: '#/definitions/internal_api.Error'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/api.Error'
+            $ref: '#/definitions/internal_api.Error'
       summary: Remove worktree
       tags:
       - Repositories
@@ -2253,7 +4449,7 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/service.SystemDepsInfo'
+            $ref: '#/definitions/github_com_niuniu-dev_niuniu_internal_service.SystemDepsInfo'
       summary: Probe system dependencies
       tags:
       - SystemDeps
@@ -2267,7 +4463,7 @@ paths:
         name: body
         required: true
         schema:
-          $ref: '#/definitions/api.setGitIdentityReq'
+          $ref: '#/definitions/internal_api.setGitIdentityReq'
       produces:
       - application/json
       responses:
@@ -2276,7 +4472,7 @@ paths:
         "400":
           description: Bad Request
           schema:
-            $ref: '#/definitions/api.ErrorResponse'
+            $ref: '#/definitions/internal_api.ErrorResponse'
       summary: Set git global user.name / user.email
       tags:
       - SystemDeps
@@ -2290,26 +4486,26 @@ paths:
         name: body
         required: true
         schema:
-          $ref: '#/definitions/api.installReq'
+          $ref: '#/definitions/internal_api.installReq'
       produces:
       - application/json
       responses:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/api.installResp'
+            $ref: '#/definitions/internal_api.installResp'
         "400":
           description: Bad Request
           schema:
-            $ref: '#/definitions/api.ErrorResponse'
+            $ref: '#/definitions/internal_api.ErrorResponse'
         "403":
           description: Forbidden
           schema:
-            $ref: '#/definitions/api.ErrorResponse'
+            $ref: '#/definitions/internal_api.ErrorResponse'
         "409":
           description: Conflict
           schema:
-            $ref: '#/definitions/api.ErrorResponse'
+            $ref: '#/definitions/internal_api.ErrorResponse'
       summary: Start an install job
       tags:
       - SystemDeps
@@ -2337,7 +4533,7 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/api.SystemInfoResponse'
+            $ref: '#/definitions/internal_api.SystemInfoResponse'
       summary: Get system info
       tags:
       - Directories
@@ -2353,12 +4549,12 @@ paths:
           description: OK
           schema:
             items:
-              $ref: '#/definitions/api.WorkspaceResponse'
+              $ref: '#/definitions/internal_api.WorkspaceResponse'
             type: array
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/api.Error'
+            $ref: '#/definitions/internal_api.Error'
       summary: List workspaces
       tags:
       - Workspaces
@@ -2372,22 +4568,22 @@ paths:
         name: request
         required: true
         schema:
-          $ref: '#/definitions/api.CreateWorkspaceRequest'
+          $ref: '#/definitions/internal_api.CreateWorkspaceRequest'
       produces:
       - application/json
       responses:
         "201":
           description: Created
           schema:
-            $ref: '#/definitions/api.CreateWorkspaceResponse'
+            $ref: '#/definitions/internal_api.CreateWorkspaceResponse'
         "400":
           description: Bad Request
           schema:
-            $ref: '#/definitions/api.Error'
+            $ref: '#/definitions/internal_api.Error'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/api.Error'
+            $ref: '#/definitions/internal_api.Error'
       summary: Create a workspace
       tags:
       - Workspaces
@@ -2415,15 +4611,15 @@ paths:
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/api.Error'
+            $ref: '#/definitions/internal_api.Error'
         "409":
           description: Conflict
           schema:
-            $ref: '#/definitions/api.Error'
+            $ref: '#/definitions/internal_api.Error'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/api.Error'
+            $ref: '#/definitions/internal_api.Error'
       summary: Delete a workspace
       tags:
       - Workspaces
@@ -2443,15 +4639,15 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/api.WorkspaceResponse'
+            $ref: '#/definitions/internal_api.WorkspaceResponse'
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/api.Error'
+            $ref: '#/definitions/internal_api.Error'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/api.Error'
+            $ref: '#/definitions/internal_api.Error'
       summary: Get a workspace
       tags:
       - Workspaces
@@ -2471,7 +4667,7 @@ paths:
         name: request
         required: true
         schema:
-          $ref: '#/definitions/api.SendInputRequest'
+          $ref: '#/definitions/internal_api.SendInputRequest'
       produces:
       - application/json
       responses:
@@ -2480,15 +4676,15 @@ paths:
         "400":
           description: Bad Request
           schema:
-            $ref: '#/definitions/api.Error'
+            $ref: '#/definitions/internal_api.Error'
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/api.Error'
+            $ref: '#/definitions/internal_api.Error'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/api.Error'
+            $ref: '#/definitions/internal_api.Error'
       summary: Send input to an agent
       tags:
       - Agents
@@ -2507,7 +4703,7 @@ paths:
         in: body
         name: request
         schema:
-          $ref: '#/definitions/api.StartAgentRequest'
+          $ref: '#/definitions/internal_api.StartAgentRequest'
       produces:
       - application/json
       responses:
@@ -2516,11 +4712,11 @@ paths:
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/api.Error'
+            $ref: '#/definitions/internal_api.Error'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/api.Error'
+            $ref: '#/definitions/internal_api.Error'
       summary: Start an agent
       tags:
       - Agents
@@ -2547,7 +4743,7 @@ paths:
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/api.Error'
+            $ref: '#/definitions/internal_api.Error'
       summary: Get agent status
       tags:
       - Agents
@@ -2570,11 +4766,11 @@ paths:
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/api.Error'
+            $ref: '#/definitions/internal_api.Error'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/api.Error'
+            $ref: '#/definitions/internal_api.Error'
       summary: Stop an agent
       tags:
       - Agents
@@ -2596,12 +4792,12 @@ paths:
           description: OK
           schema:
             items:
-              $ref: '#/definitions/api.CommentResponse'
+              $ref: '#/definitions/internal_api.CommentResponse'
             type: array
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/api.Error'
+            $ref: '#/definitions/internal_api.Error'
       summary: List comments
       tags:
       - Review
@@ -2620,22 +4816,22 @@ paths:
         name: request
         required: true
         schema:
-          $ref: '#/definitions/api.CreateCommentRequest'
+          $ref: '#/definitions/internal_api.CreateCommentRequest'
       produces:
       - application/json
       responses:
         "201":
           description: Created
           schema:
-            $ref: '#/definitions/api.CommentResponse'
+            $ref: '#/definitions/internal_api.CommentResponse'
         "400":
           description: Bad Request
           schema:
-            $ref: '#/definitions/api.Error'
+            $ref: '#/definitions/internal_api.Error'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/api.Error'
+            $ref: '#/definitions/internal_api.Error'
       summary: Create a comment
       tags:
       - Review
@@ -2655,11 +4851,14 @@ paths:
       responses:
         "200":
           description: OK
-          schema: {}
+          schema:
+            items:
+              $ref: '#/definitions/github_com_niuniu-dev_niuniu_internal_service.RepoDiff'
+            type: array
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/api.Error'
+            $ref: '#/definitions/internal_api.Error'
       summary: Get workspace diff
       tags:
       - Review
@@ -2686,11 +4885,11 @@ paths:
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/api.Error'
+            $ref: '#/definitions/internal_api.Error'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/api.Error'
+            $ref: '#/definitions/internal_api.Error'
       summary: Get workspace env vars
       tags:
       - Workspaces
@@ -2709,7 +4908,7 @@ paths:
         name: request
         required: true
         schema:
-          $ref: '#/definitions/api.SetEnvRequest'
+          $ref: '#/definitions/internal_api.SetEnvRequest'
       produces:
       - application/json
       responses:
@@ -2722,12 +4921,55 @@ paths:
         "400":
           description: Bad Request
           schema:
-            $ref: '#/definitions/api.Error'
+            $ref: '#/definitions/internal_api.Error'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/api.Error'
+            $ref: '#/definitions/internal_api.Error'
       summary: Set workspace env vars
+      tags:
+      - Workspaces
+  /workspaces/{id}/pin:
+    delete:
+      parameters:
+      - description: Workspace ID
+        in: path
+        name: id
+        required: true
+        type: string
+      responses:
+        "204":
+          description: No Content
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/internal_api.Error'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/internal_api.Error'
+      summary: Unpin a workspace
+      tags:
+      - Workspaces
+    put:
+      parameters:
+      - description: Workspace ID
+        in: path
+        name: id
+        required: true
+        type: string
+      responses:
+        "204":
+          description: No Content
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/internal_api.Error'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/internal_api.Error'
+      summary: Pin a workspace
       tags:
       - Workspaces
   /workspaces/{id}/repositories:
@@ -2752,11 +4994,11 @@ paths:
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/api.Error'
+            $ref: '#/definitions/internal_api.Error'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/api.Error'
+            $ref: '#/definitions/internal_api.Error'
       summary: List workspace repositories
       tags:
       - Workspaces
@@ -2775,7 +5017,7 @@ paths:
         name: request
         required: true
         schema:
-          $ref: '#/definitions/api.AddRepositoryRequest'
+          $ref: '#/definitions/internal_api.AddRepositoryRequest'
       produces:
       - application/json
       responses:
@@ -2785,11 +5027,11 @@ paths:
         "400":
           description: Bad Request
           schema:
-            $ref: '#/definitions/api.Error'
+            $ref: '#/definitions/internal_api.Error'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/api.Error'
+            $ref: '#/definitions/internal_api.Error'
       summary: Add repository to workspace
       tags:
       - Workspaces
@@ -2818,11 +5060,11 @@ paths:
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/api.Error'
+            $ref: '#/definitions/internal_api.Error'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/api.Error'
+            $ref: '#/definitions/internal_api.Error'
       summary: Get repository diff
       tags:
       - Review
@@ -2853,15 +5095,15 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/git.FileDiff'
+            $ref: '#/definitions/github_com_niuniu-dev_niuniu_internal_git.FileDiff'
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/api.Error'
+            $ref: '#/definitions/internal_api.Error'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/api.Error'
+            $ref: '#/definitions/internal_api.Error'
       summary: Get file diff
       tags:
       - Git
@@ -2892,15 +5134,15 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/api.FileContentResponse'
+            $ref: '#/definitions/internal_api.FileContentResponse'
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/api.Error'
+            $ref: '#/definitions/internal_api.Error'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/api.Error'
+            $ref: '#/definitions/internal_api.Error'
       summary: Get file content
       tags:
       - Git
@@ -2926,15 +5168,15 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/api.BranchesResponse'
+            $ref: '#/definitions/internal_api.BranchesResponse'
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/api.Error'
+            $ref: '#/definitions/internal_api.Error'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/api.Error'
+            $ref: '#/definitions/internal_api.Error'
       summary: Get branches
       tags:
       - Git
@@ -2959,7 +5201,7 @@ paths:
         name: request
         required: true
         schema:
-          $ref: '#/definitions/api.CommitRequest'
+          $ref: '#/definitions/internal_api.CommitRequest'
       produces:
       - application/json
       responses:
@@ -2968,15 +5210,15 @@ paths:
         "400":
           description: Bad Request
           schema:
-            $ref: '#/definitions/api.Error'
+            $ref: '#/definitions/internal_api.Error'
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/api.Error'
+            $ref: '#/definitions/internal_api.Error'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/api.Error'
+            $ref: '#/definitions/internal_api.Error'
       summary: Create a commit
       tags:
       - Git
@@ -3004,11 +5246,11 @@ paths:
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/api.Error'
+            $ref: '#/definitions/internal_api.Error'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/api.Error'
+            $ref: '#/definitions/internal_api.Error'
       summary: Fetch branches
       tags:
       - Git
@@ -3041,11 +5283,11 @@ paths:
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/api.Error'
+            $ref: '#/definitions/internal_api.Error'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/api.Error'
+            $ref: '#/definitions/internal_api.Error'
       summary: Get commit history
       tags:
       - Git
@@ -3073,11 +5315,11 @@ paths:
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/api.Error'
+            $ref: '#/definitions/internal_api.Error'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/api.Error'
+            $ref: '#/definitions/internal_api.Error'
       summary: Pull changes
       tags:
       - Git
@@ -3105,11 +5347,11 @@ paths:
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/api.Error'
+            $ref: '#/definitions/internal_api.Error'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/api.Error'
+            $ref: '#/definitions/internal_api.Error'
       summary: Push changes
       tags:
       - Git
@@ -3135,15 +5377,15 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/api.GitStatusResponse'
+            $ref: '#/definitions/internal_api.GitStatusResponse'
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/api.Error'
+            $ref: '#/definitions/internal_api.Error'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/api.Error'
+            $ref: '#/definitions/internal_api.Error'
       summary: Get git status
       tags:
       - Git
@@ -3167,12 +5409,197 @@ paths:
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/api.Error'
+            $ref: '#/definitions/internal_api.Error'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/api.Error'
+            $ref: '#/definitions/internal_api.Error'
       summary: Get workspace directory tree
+      tags:
+      - Workspaces
+  /workspaces/batch-delete:
+    post:
+      consumes:
+      - application/json
+      description: 'Mark workspaces ''deleting'' and clean them up in the background.
+        Idempotent: ids already deleting are skipped.'
+      parameters:
+      - description: workspace ids + force
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/internal_api.batchDeleteWorkspacesRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/github_com_niuniu-dev_niuniu_internal_service.BatchDeleteResult'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/internal_api.Error'
+      summary: Batch delete workspaces (async)
+      tags:
+      - Workspaces
+  /workspaces/from-directory:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Directory + owner
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/internal_api.CreateFromDirectoryRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/internal_api.CreateWorkspaceResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/internal_api.Error'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/internal_api.Error'
+      summary: Create a workspace from a local directory
+      tags:
+      - Workspaces
+  /workspaces/overview:
+    get:
+      description: Aggregated cost / activity / stuck-detection across workspaces
+        accessible to the caller.
+      parameters:
+      - description: owner filter (user:<id> or org:<slug>)
+        in: query
+        name: owner
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/github_com_niuniu-dev_niuniu_internal_service.WorkspaceOverview'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/internal_api.Error'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/internal_api.Error'
+      summary: Cross-workspace overview
+      tags:
+      - Workspaces
+  /workspaces/overview/creators:
+    get:
+      description: Distinct creators of workspaces inside the requested owner scope.
+      parameters:
+      - description: owner filter (user:<id> or org:<slug>)
+        in: query
+        name: owner
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_api.overviewCreatorsResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/internal_api.Error'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/internal_api.Error'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/internal_api.Error'
+      summary: Overview creator list
+      tags:
+      - Workspaces
+  /workspaces/pins:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              items:
+                format: int64
+                type: integer
+              type: array
+            type: object
+      summary: List pinned workspaces
+      tags:
+      - Workspaces
+  /workspaces/search:
+    get:
+      description: Workspace IDs whose user-sent chat messages contain the keyword.
+      parameters:
+      - description: search keyword
+        in: query
+        name: q
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              items:
+                format: int64
+                type: integer
+              type: array
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/internal_api.Error'
+      summary: Search workspaces by conversation content
+      tags:
+      - Workspaces
+  /workspaces/sidebar-git:
+    get:
+      description: |-
+        Per-workspace git change/ahead counts for the caller's accessible
+        workspaces. The sidebar list (GET /workspaces) returns instantly
+        without git; the SPA calls this afterwards and merges the badges.
+      parameters:
+      - description: me | all | <user id>
+        in: query
+        name: created_by
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/internal_api.WorkspaceGitStatusDTO'
+            type: array
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/internal_api.Error'
+      summary: Sidebar git status (lazy)
       tags:
       - Workspaces
   /ws/repositories/{id}/terminal:
@@ -3207,11 +5634,11 @@ paths:
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/api.Error'
+            $ref: '#/definitions/internal_api.Error'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/api.Error'
+            $ref: '#/definitions/internal_api.Error'
       summary: Agent terminal WebSocket
       tags:
       - Agents

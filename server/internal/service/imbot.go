@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/niuniu-dev/niuniu/internal/imbot"
+	"github.com/niuniu-dev/niuniu/internal/intake"
 	"github.com/niuniu-dev/niuniu/internal/integration/crypto"
 	"github.com/niuniu-dev/niuniu/internal/store"
 )
@@ -59,6 +60,16 @@ type IMBotService struct {
 	adapters map[imbot.ChannelType]imbot.ChannelAdapter
 
 	mgr *imbot.ConnectorManager // set post-construction to break a wiring cycle
+
+	// intake is the platform-neutral task-intake pipeline (Epic #755). Every
+	// admitted, routable inbound message runs through it; the IM collaborators
+	// live in imbot_intake.go. Always enabled: an explicit message in an
+	// approved chat must execute, which is exactly the pre-extraction behaviour.
+	intake *intake.Service
+
+	// legacyChatIntakeMode is the rollback switch for the agent_mode →
+	// intake_mode semantics migration (design §7). See SetIntakeLegacyChatMode.
+	legacyChatIntakeMode bool
 
 	// --- inbound (W2), wired via SetInbound after construction ---
 	dispatch  TaskRouter        // continue-or-create issue+workspace in the bound project
@@ -179,8 +190,26 @@ func (s *IMBotService) SetInbound(dispatch TaskRouter, deliverer MessageDelivere
 // NewIMBotService wires the dependencies. adapters is the same registry handed
 // to the ConnectorManager so test/welcome pushes reuse the exact adapters.
 func NewIMBotService(q *store.Queries, rawDB *sql.DB, kr *crypto.Keyring, authz *Authz, adapters map[imbot.ChannelType]imbot.ChannelAdapter) *IMBotService {
-	return &IMBotService{q: q, db: store.Wrap(rawDB), keyring: kr, authz: authz, adapters: adapters}
+	s := &IMBotService{q: q, db: store.Wrap(rawDB), keyring: kr, authz: authz, adapters: adapters}
+	// The pipeline's collaborators hold *IMBotService (not a snapshot of its
+	// fields) so inbound wiring done later via SetInbound is picked up.
+	s.intake = intake.NewService(intake.Deps{
+		Enabled:  true,
+		Store:    imbotIntakeStore{q: q},
+		Policies: imbotPolicy{q: q},
+		Resolver: imbotResolver{svc: s},
+		Executor: imbotExecutor{svc: s},
+	})
+	return s
 }
+
+// SetIntakeLegacyChatMode is the rollback switch for the agent_mode →
+// intake_mode semantics migration (design §7). When enabled, a chat's effective
+// intake mode is derived from its agent_mode at runtime (command → off,
+// observe → auto) instead of the migrated intake_mode column, restoring the
+// pre-migration behaviour. The stored column is left untouched, so the switch is
+// fully reversible.
+func (s *IMBotService) SetIntakeLegacyChatMode(enabled bool) { s.legacyChatIntakeMode = enabled }
 
 // SetAskUserDecider wires the ask-user answer write-back so a user can answer an
 // agent's question by tapping an option button in the chat. Optional (nil in
@@ -234,6 +263,7 @@ type IMBotChatDTO struct {
 	ChatName      string    `json:"chat_name"`
 	BindMode      string    `json:"bind_mode"`
 	AgentMode     string    `json:"agent_mode"`
+	IntakeMode    string    `json:"intake_mode"`
 	PinnedIssueID *int64    `json:"pinned_issue_id"`
 	ActiveIssueID *int64    `json:"active_issue_id"`
 	Status        string    `json:"status"`
@@ -269,6 +299,7 @@ func chatDTO(r store.ImBotChat) IMBotChatDTO {
 		ChatName:      r.ChatName,
 		BindMode:      r.BindMode,
 		AgentMode:     normalizeAgentMode(r.AgentMode),
+		IntakeMode:    normalizeIntakeMode(r.IntakeMode),
 		PinnedIssueID: nullInt64Ptr(r.PinnedIssueID),
 		ActiveIssueID: nullInt64Ptr(r.ActiveIssueID),
 		Status:        r.Status,
@@ -1001,6 +1032,9 @@ type PatchChatInput struct {
 	// AgentMode switches the Agent-employee initiative level ("command" |
 	// "observe"). Empty preserves the current value, like the other fields here.
 	AgentMode string
+	// IntakeMode switches this chat's intake mode
+	// ("inherit" | "off" | "observe" | "auto"). Empty preserves the current value.
+	IntakeMode string
 }
 
 // PatchChatByOwner is the owner-level counterpart of PatchChat: it edits a chat's
@@ -1098,6 +1132,21 @@ func (s *IMBotService) applyChatPatch(ctx context.Context, cur store.ImBotChat, 
 			// reminder about something from days ago, which reads as the bot being
 			// broken. A mode change is an explicit "start fresh from here".
 			s.retirePendingObservations(ctx, cur.ID)
+		}
+	}
+	// intake_mode is its own UPDATE for the same stale-row reason: the hot
+	// inbound path rewrites the chat through UpdateIMBotChat and would otherwise
+	// revert a mode the user just changed.
+	if want := strings.TrimSpace(in.IntakeMode); want != "" {
+		mode := normalizeIntakeMode(want)
+		if mode != normalizeIntakeMode(cur.IntakeMode) {
+			updated, merr := s.q.UpdateIMBotChatIntakeMode(ctx, store.UpdateIMBotChatIntakeModeParams{
+				IntakeMode: mode, ID: cur.ID,
+			})
+			if merr != nil {
+				return IMBotChatDTO{}, merr
+			}
+			row = updated
 		}
 	}
 	return chatDTO(row), nil

@@ -18,9 +18,19 @@ export function IssueChecklist({ checklists, onCreate, onUpdate, onDelete, readO
   const [editingId, setEditingId] = useState<number | null>(null)
   const [editTitle, setEditTitle] = useState('')
 
-  const total = checklists.length
-  const completed = checklists.filter(c => c.is_completed === 1).length
+  // Brief acceptance items are materialized as kind='acceptance' and rendered
+  // by IssueBriefCard (they are the definition of done, not manual progress).
+  // This component keeps manual kind='task' rows in their own section, so an
+  // Intake issue never shows two identical-looking lists. Issues without a
+  // Brief keep the legacy single list.
+  const acceptanceCount = checklists.filter((item) => item.kind === 'acceptance').length
+  const partitioned = acceptanceCount > 0
+  const visible = partitioned ? checklists.filter((item) => item.kind !== 'acceptance') : checklists
+
+  const total = visible.length
+  const completed = visible.filter(c => c.is_completed === 1).length
   const progress = total > 0 ? (completed / total) * 100 : 0
+  const sectionTitle = partitioned ? t('issue.checklist.executionSection') : t('issue.checklist.title')
 
   const handleAdd = () => {
     if (!newTitle.trim()) return
@@ -47,7 +57,7 @@ export function IssueChecklist({ checklists, onCreate, onUpdate, onDelete, readO
   return (
     <div className="border-b border-border px-5 py-4">
       <div className="flex justify-between items-center mb-2">
-        <span className="text-xs font-semibold text-muted-foreground">{t('issue.checklist.title')}</span>
+        <span className="text-xs font-semibold text-muted-foreground">{sectionTitle}</span>
         {total > 0 && <span className="text-xs text-muted-foreground">{completed}/{total}</span>}
       </div>
 
@@ -58,7 +68,7 @@ export function IssueChecklist({ checklists, onCreate, onUpdate, onDelete, readO
       )}
 
       <div className="flex flex-col gap-1">
-        {checklists.map(item => (
+        {visible.map(item => (
           <div key={item.id} className="flex items-center gap-2 group hover:bg-accent/30 rounded px-1 py-0.5">
             <button
               className={`w-4 h-4 rounded border flex-shrink-0 flex items-center justify-center ${

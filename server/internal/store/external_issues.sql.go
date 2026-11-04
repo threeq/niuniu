@@ -71,7 +71,7 @@ func (q *Queries) BatchFindImportedExternalIDs(ctx context.Context, arg BatchFin
 }
 
 const findIssueByExternalKey = `-- name: FindIssueByExternalKey :one
-SELECT i.id, i.column_id, i.title, i.description, i.priority, i.position, i.lifecycle_status, i.start_date, i.due_date, i.estimate_type, i.estimate, i.actual_time, i.external_source, i.external_id, i.external_url, i.external_snapshot_at, i.external_comments_snapshot, i.external_comments_snapshot_at, i.goal_condition, i.parent_issue_id, i.issue_type, i.exec_wave, i.exec_status, i.exec_status_reason, i.created_at, i.updated_at, i.created_by FROM issues i
+SELECT i.id, i.column_id, i.title, i.description, i.priority, i.position, i.lifecycle_status, i.start_date, i.due_date, i.estimate_type, i.estimate, i.actual_time, i.external_source, i.external_id, i.external_url, i.external_snapshot_at, i.external_comments_snapshot, i.external_comments_snapshot_at, i.goal_condition, i.parent_issue_id, i.issue_type, i.exec_wave, i.exec_status, i.exec_status_reason, i.completion_profile_id, i.created_at, i.updated_at, i.created_by FROM issues i
 JOIN columns c ON c.id = i.column_id
 WHERE c.project_id = ? AND i.external_source = ? AND i.external_id = ?
 `
@@ -112,6 +112,7 @@ func (q *Queries) FindIssueByExternalKey(ctx context.Context, arg FindIssueByExt
 		&i.ExecWave,
 		&i.ExecStatus,
 		&i.ExecStatusReason,
+		&i.CompletionProfileID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.CreatedBy,
@@ -124,7 +125,7 @@ INSERT OR IGNORE INTO issues (
     column_id, title, description, position,
     external_source, external_id, external_url, external_snapshot_at
 ) VALUES (?, ?, ?, 0, ?, ?, ?, CURRENT_TIMESTAMP)
-RETURNING id, column_id, title, description, priority, position, lifecycle_status, start_date, due_date, estimate_type, estimate, actual_time, external_source, external_id, external_url, external_snapshot_at, external_comments_snapshot, external_comments_snapshot_at, goal_condition, parent_issue_id, issue_type, exec_wave, exec_status, exec_status_reason, created_at, updated_at, created_by
+RETURNING id, column_id, title, description, priority, position, lifecycle_status, start_date, due_date, estimate_type, estimate, actual_time, external_source, external_id, external_url, external_snapshot_at, external_comments_snapshot, external_comments_snapshot_at, goal_condition, parent_issue_id, issue_type, exec_wave, exec_status, exec_status_reason, completion_profile_id, created_at, updated_at, created_by
 `
 
 type InsertImportedIssueParams struct {
@@ -175,6 +176,7 @@ func (q *Queries) InsertImportedIssue(ctx context.Context, arg InsertImportedIss
 		&i.ExecWave,
 		&i.ExecStatus,
 		&i.ExecStatusReason,
+		&i.CompletionProfileID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.CreatedBy,
@@ -188,7 +190,7 @@ SET title = ?, description = ?,
     external_snapshot_at = CURRENT_TIMESTAMP,
     updated_at = CURRENT_TIMESTAMP
 WHERE id = ? AND external_source != ''
-RETURNING id, column_id, title, description, priority, position, lifecycle_status, start_date, due_date, estimate_type, estimate, actual_time, external_source, external_id, external_url, external_snapshot_at, external_comments_snapshot, external_comments_snapshot_at, goal_condition, parent_issue_id, issue_type, exec_wave, exec_status, exec_status_reason, created_at, updated_at, created_by
+RETURNING id, column_id, title, description, priority, position, lifecycle_status, start_date, due_date, estimate_type, estimate, actual_time, external_source, external_id, external_url, external_snapshot_at, external_comments_snapshot, external_comments_snapshot_at, goal_condition, parent_issue_id, issue_type, exec_wave, exec_status, exec_status_reason, completion_profile_id, created_at, updated_at, created_by
 `
 
 type RefreshIssueSnapshotParams struct {
@@ -228,6 +230,7 @@ func (q *Queries) RefreshIssueSnapshot(ctx context.Context, arg RefreshIssueSnap
 		&i.ExecWave,
 		&i.ExecStatus,
 		&i.ExecStatusReason,
+		&i.CompletionProfileID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.CreatedBy,

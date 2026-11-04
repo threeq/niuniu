@@ -2,6 +2,8 @@ package api
 
 import (
 	"context"
+	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -78,6 +80,10 @@ type KanbanHandler struct {
 	WorkspaceSvc *service.WorkspaceService
 	AgentMgr     *service.AgentManager
 	Proxy        *agentproxy.AgentProxy
+	// Completion handles the completion_profile_id field on PATCH /api/issues/:id
+	// (issue-level override; null = inherit the project default). Optional: nil
+	// makes the field unavailable rather than silently ignored.
+	Completion *service.CompletionService
 }
 
 // IssueCreateOrchestrator is the create-into-column orchestration hook used by the
@@ -691,6 +697,10 @@ type UpdateIssueRequest struct {
 	Estimate      float64 `json:"estimate"`
 	ActualTime    float64 `json:"actual_time"`
 	GoalCondition *string `json:"goal_condition,omitempty"`
+	// CompletionProfileID distinguishes three cases: absent (unchanged), null
+	// (clear the override and inherit the project default), or a profile id.
+	// json.RawMessage is required because *int64 cannot tell null from absent.
+	CompletionProfileID json.RawMessage `json:"completion_profile_id,omitempty"`
 }
 
 type MoveIssueRequest struct {
@@ -1046,11 +1056,38 @@ func (h *KanbanHandler) UpdateIssue(c *gin.Context) {
 		BadRequest(c, "priority must be between 0 and 3")
 		return
 	}
+	// completion_profile_id is applied separately because it is a nullable column
+	// on issues, not part of the scalar UpdateIssue statement.
+	profileSet, profileID, perr := parseCompletionProfileField(req.CompletionProfileID)
+	if perr != nil {
+		BadRequest(c, perr.Error())
+		return
+	}
 	detail, err := h.svc.UpdateIssue(c.Request.Context(), issueID, req.Title, req.Description, req.Priority, req.StartDate, req.DueDate, req.EstimateType, req.Estimate, req.ActualTime, req.GoalCondition)
 	if err != nil {
 		slog.Warn("UpdateIssue failed", "issueID", issueID, "error", err)
 		NotFound(c, "ISSUE")
 		return
+	}
+	if profileSet {
+		if h.Completion == nil {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "completion settings are unavailable"})
+			return
+		}
+		if _, err := h.Completion.SetIssueProfile(c.Request.Context(), issueID, userID, profileID); err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				NotFound(c, "COMPLETION_PROFILE")
+				return
+			}
+			BadRequest(c, err.Error())
+			return
+		}
+		reloaded, err := h.svc.GetIssue(c.Request.Context(), issueID)
+		if err != nil {
+			InternalError(c, err)
+			return
+		}
+		detail = reloaded
 	}
 	resp := toIssueResponse(detail)
 	col, colErr := h.svc.GetColumn(c.Request.Context(), detail.ColumnID)

@@ -34,6 +34,38 @@ const (
 	AgentModeObserve = "observe"
 )
 
+// Intake modes for a single chat (design 2026-11-03 §6.9). Distinct from
+// agent_mode: agent_mode decides whether the bot analyzes chatter at all, while
+// intake_mode decides whether observed work may become a task.
+const (
+	// IntakeModeOff: only explicit requests create or continue a task.
+	IntakeModeOff = "off"
+	// IntakeModeObserve: record dry-run decisions for human calibration.
+	IntakeModeObserve = "observe"
+	// IntakeModeAuto: create tasks within the project policy and daily cap.
+	IntakeModeAuto = "auto"
+	// IntakeModeInherit: follow the project's im_bot source setting. Stored as an
+	// explicit value rather than NULL because the migration-added column is NOT
+	// NULL on existing databases and SQLite cannot drop that constraint.
+	IntakeModeInherit = "inherit"
+)
+
+// normalizeIntakeMode validates an intake_mode value from the API or the DB.
+// Unrecognized values degrade to IntakeModeObserve — the safe dry-run default
+// that never creates a task on its own (§7 decision record #1).
+func normalizeIntakeMode(mode string) string {
+	switch strings.TrimSpace(mode) {
+	case IntakeModeOff:
+		return IntakeModeOff
+	case IntakeModeAuto:
+		return IntakeModeAuto
+	case IntakeModeInherit:
+		return IntakeModeInherit
+	default:
+		return IntakeModeObserve
+	}
+}
+
 // observeTranscriptKeep bounds a chat's rolling transcript. Big enough that a
 // periodic analysis sees the real shape of a discussion, small enough that a busy
 // group cannot grow the table without bound (the log is an analysis window, not

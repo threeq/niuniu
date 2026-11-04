@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/niuniu-dev/niuniu/internal/completion"
 	"github.com/niuniu-dev/niuniu/internal/git"
 	"github.com/niuniu-dev/niuniu/internal/store"
 )
@@ -180,6 +181,43 @@ func (s *EpicExecutionService) AdvanceIssue(ctx context.Context, in AdvanceIssue
 	// workspace leaves the card exactly where it is. Only the AI advance path is
 	// gated — a human drag (RunService/kanban) is not routed through here.
 	if target.opPrimitive == "complete" {
+		// Review gate (design §6.5): when the issue's effective completion
+		// policy requires human review, a done-lane move is refused at this
+		// single AI-advance choke point so the agent routes to the review lane
+		// instead. Resolved fresh from the DB, so a profile change applies to
+		// the very next advance without an agent restart.
+		eff, perr := completion.ResolveCompletionPolicy(ctx, s.q, issue)
+		if perr != nil {
+			// Fail closed: an unresolvable policy must not be read as "no review
+			// required". Deny the done-lane move and surface the configuration
+			// error to the agent.
+			slog.Error("advance_issue: resolve completion policy failed; refusing done move",
+				"issueID", in.IssueID, "to", targetID, "error", perr)
+			if s.execEvents != nil {
+				s.execEvents.Record(ctx, ExecEvent{
+					IssueID: in.IssueID, Kind: "intervention",
+					Summary: "拒绝移动到「" + target.name + "」：无法解析自动完成策略",
+				})
+			}
+			return AdvanceIssueResult{}, fmt.Errorf(
+				"无法解析自动完成策略，已拒绝移动到完成列「%s」；请检查项目「自动完成」设置后重试: %w",
+				target.name, perr)
+		}
+		if eff.RequireReview {
+			reviewName := s.reviewColumnName(ctx, srcCol.ProjectID)
+			reason := fmt.Sprintf(
+				"该任务按自动完成策略需要人工审查，不能直接移动到完成列「%s」。请改为移动到「%s」列，由人工审查通过后再进入完成。",
+				target.name, reviewName)
+			slog.Info("advance_issue: refused move to complete column (review required)",
+				"issueID", in.IssueID, "to", targetID, "profile", eff.ProfileName)
+			if s.execEvents != nil {
+				s.execEvents.Record(ctx, ExecEvent{
+					IssueID: in.IssueID, Kind: "intervention",
+					Summary: "拒绝移动到「" + target.name + "」：自动完成策略要求人工审查",
+				})
+			}
+			return AdvanceIssueResult{}, errors.New(reason)
+		}
 		if dirty, detail := s.completionDirty(ctx, in.IssueID); dirty {
 			reason := fmt.Sprintf(
 				"工作空间存在未提交的代码改动（%s），不能移动到完成列「%s」。请先提交全部改动并按工作流合并到目标分支，再重试 advance_issue。",
@@ -630,6 +668,32 @@ func (s *EpicExecutionService) resolveColumnID(ctx context.Context, projectID in
 	default:
 		return 0, fmt.Errorf("column name %q is ambiguous (%d columns share it); use the column id", ref, n)
 	}
+}
+
+// reviewColumnName picks the lane a RequireReview completion must route to:
+// the human-review column ("人工审查") when the project has one, else the first
+// review lane. Falls back to the conventional name when no lane is configured.
+func (s *EpicExecutionService) reviewColumnName(ctx context.Context, projectID int64) string {
+	cols, err := s.q.ListColumnsByProject(ctx, projectID)
+	if err != nil {
+		return "人工审查"
+	}
+	var fallback string
+	for _, c := range cols {
+		if !isReviewColumnByFields(c.Name, c.LifecycleMapping) {
+			continue
+		}
+		if strings.Contains(c.Name, "人工") {
+			return c.Name
+		}
+		if fallback == "" {
+			fallback = c.Name
+		}
+	}
+	if fallback != "" {
+		return fallback
+	}
+	return "人工审查"
 }
 
 // SetCompletionDirtyChecker overrides the uncommitted-code probe used by the

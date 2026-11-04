@@ -53,6 +53,14 @@ func (s *Server) setupRoutes() {
 	s.engine.GET("/api/credential-onboarding/:token", s.credOnboardingHandler.GetCredentialLinkInfo)
 	s.engine.POST("/api/credential-onboarding/:token", s.credOnboardingHandler.SubmitCredentialLink)
 
+	// Team-edition inbound webhook Sources (Epic #755, design §6.10) — no auth:
+	// the per-binding signature (GitHub HMAC) or bearer secret is the sole
+	// authorization, exactly like the IM public webhook above. An unsigned or
+	// forged delivery is rejected with 401 and records nothing.
+	s.engine.POST("/api/integrations/github/webhook/:binding", s.intakeWebhookHandler.GitHub)
+	s.engine.POST("/api/integrations/webhook/:binding", s.intakeWebhookHandler.Webhook)
+	s.engine.POST("/api/integrations/email/:binding", s.intakeWebhookHandler.Email)
+
 	// Local credential proxy (issue #733): the loopback endpoint a projected
 	// MCP server is pointed at instead of carrying the secret itself. The
 	// opaque, expiring path token IS the authorization, so these sit outside
@@ -334,6 +342,20 @@ func (s *Server) setupRoutes() {
 		mcpGroup.GET("/projects/:id/imbot/pending-chats", s.imbotHandler.MCPListPendingChats)
 		mcpGroup.POST("/projects/:id/imbot/chats/:chatid/approve", s.imbotHandler.MCPApproveChat)
 		mcpGroup.GET("/projects/:id/imbot/channels/:cid/status", s.imbotHandler.MCPChannelStatus)
+
+		// Intake + Completion MCP tunnels (design §6.9). Project-scoped routes
+		// share the :id wildcard with the imbot block above; decision routes are
+		// addressed by id alone and resolve their project before authorizing.
+		mcpGroup.GET("/projects/:id/intake/settings", s.intakeHandler.MCPGetSettings)
+		mcpGroup.POST("/projects/:id/intake/mode", s.intakeHandler.MCPSetMode)
+		mcpGroup.GET("/projects/:id/intake/decisions/pending", s.intakeHandler.MCPListPending)
+		mcpGroup.POST("/decisions/:did/accept", s.intakeHandler.MCPAcceptDecision)
+		mcpGroup.POST("/decisions/:did/ignore", s.intakeHandler.MCPIgnoreDecision)
+		mcpGroup.PUT("/projects/:id/completion/settings", s.completionHandler.MCPSetPolicy)
+		mcpGroup.GET("/projects/:id/completion/profiles", s.completionHandler.MCPListProfiles)
+		mcpGroup.POST("/projects/:id/completion/profiles", s.completionHandler.MCPUpsertProfile)
+		mcpGroup.PUT("/issues/:id/completion-profile", s.completionHandler.MCPSetIssueProfile)
+		mcpGroup.GET("/issues/:id/brief", s.taskBriefHandler.GetBrief)
 
 		// External API proxy — universal MCP tool for AI-driven external
 		// API calls. Replaces all old L4 work-item MCP tools.
@@ -756,6 +778,49 @@ func (s *Server) setupRoutes() {
 		projects.GET("/:id/floor", s.projectFloorHandler.GetFloor)
 		projects.PUT("/:id/floor", s.projectFloorHandler.SetFloor)
 
+		// Intake (任务来源) — design §6.9. Settings are per (project, source);
+		// decisions are the dry-run calibration queue.
+		projects.GET("/:id/intake/settings", s.intakeHandler.GetSettings)
+		projects.PUT("/:id/intake/settings", s.intakeHandler.PutSettings)
+		projects.PUT("/:id/intake/pause", s.intakeHandler.SetPause)
+		projects.GET("/:id/intake/calibration", s.intakeHandler.GetCalibration)
+		projects.GET("/:id/intake/rules", s.intakeHandler.ListRules)
+		projects.POST("/:id/intake/rules", s.intakeHandler.CreateRule)
+		projects.PUT("/:id/intake/rules/:rid", s.intakeHandler.UpdateRule)
+		projects.DELETE("/:id/intake/rules/:rid", s.intakeHandler.DeleteRule)
+		projects.GET("/:id/intake/policy-versions", s.intakeHandler.ListPolicyVersions)
+		// GitHub Source (个人版轮询, design §6.10): bound repos + event types.
+		projects.GET("/:id/intake/github", s.intakeHandler.GetGitHubConfig)
+		projects.PUT("/:id/intake/github", s.intakeHandler.PutGitHubConfig)
+		// Team-edition email / generic webhook bindings (design §6.10). The
+		// secret is returned once at creation and never again.
+		projects.GET("/:id/intake/webhook", s.intakeHandler.ListWebhookBindings)
+		projects.POST("/:id/intake/webhook", s.intakeHandler.CreateWebhookBinding)
+		projects.DELETE("/:id/intake/webhook/:bid", s.intakeHandler.DeleteWebhookBinding)
+		projects.GET("/:id/intake/decisions", s.intakeHandler.ListDecisions)
+		projects.PATCH("/:id/intake/decisions/:did", s.intakeHandler.UpdateDecisionBrief)
+		projects.POST("/:id/intake/decisions/:did/accept", s.intakeHandler.AcceptDecision)
+		projects.POST("/:id/intake/decisions/:did/ignore", s.intakeHandler.IgnoreDecision)
+		// One CLI subprocess per call: same per-user budget as the issue route.
+		projects.POST("/:id/intake/decisions/:did/suggest-goal-condition",
+			auth.RateLimitUserMiddleware(0.1, 3),
+			s.intakeHandler.SuggestGoalCondition)
+
+		// Mission control — two independent metric panels over the same
+		// capabilities, plus the global intake pause switch (design §6.6 /
+		// §6.7.8). Cross-project, scoped to the caller's accessible projects.
+		api.GET("/mission-control", s.missionControlHandler.Get)
+		api.PUT("/mission-control/pause", s.missionControlHandler.SetPause)
+
+		// Completion (自动完成) — project default + named profiles. Independent of
+		// Intake: changing one never affects the other (§6.5).
+		projects.GET("/:id/completion/settings", s.completionHandler.GetSettings)
+		projects.PUT("/:id/completion/settings", s.completionHandler.PutSettings)
+		projects.GET("/:id/completion/profiles", s.completionHandler.ListProfiles)
+		projects.POST("/:id/completion/profiles", s.completionHandler.CreateProfile)
+		projects.PATCH("/:id/completion/profiles/:pid", s.completionHandler.UpdateProfile)
+		projects.DELETE("/:id/completion/profiles/:pid", s.completionHandler.DeleteProfile)
+
 	}
 
 	// Lifecycle groups (registered before /columns group to avoid /:id conflict)
@@ -780,6 +845,13 @@ func (s *Server) setupRoutes() {
 	{
 		issues.GET("/:id", s.kanbanHandler.GetIssue)
 		issues.PUT("/:id", s.kanbanHandler.UpdateIssue)
+		// PATCH is the documented shape for the completion_profile_id extension
+		// (design §6.9); PUT stays for existing callers.
+		issues.PATCH("/:id", s.kanbanHandler.UpdateIssue)
+		// Task Brief: current version + full history (null brief = not from Intake).
+		// PUT appends a version; acceptance rows and goal_condition refresh with it.
+		issues.GET("/:id/brief", s.taskBriefHandler.GetBrief)
+		issues.PUT("/:id/brief", s.taskBriefHandler.PutBrief)
 		issues.PUT("/:id/move", s.kanbanHandler.MoveIssue)
 		issues.PUT("/:id/lifecycle", s.kanbanHandler.UpdateIssueLifecycle)
 		// Executable Epic: set parent/issue_type/exec_wave/exec_status.

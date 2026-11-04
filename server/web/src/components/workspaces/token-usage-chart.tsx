@@ -166,7 +166,7 @@ export function OwnerTokenTrend({
   if (!singleOwner) return null;
 
   return (
-    <div className="rounded-lg border bg-card p-4">
+    <div id="owner-token-trend" className="scroll-mt-4 rounded-lg border bg-card p-4">
       <div className="text-sm font-medium mb-3">{t('overview.tokenChart.title')}</div>
       <TokenUsageChart buckets={data?.buckets ?? []} />
     </div>

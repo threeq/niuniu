@@ -1,0 +1,405 @@
+package service
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"strings"
+	"sync"
+	"sync/atomic"
+	"testing"
+	"time"
+
+	"github.com/niuniu-dev/niuniu/internal/imbot"
+	"github.com/niuniu-dev/niuniu/internal/intake"
+)
+
+// passThroughResolver resolves nothing: every trigger is a new task.
+type passThroughResolver struct{}
+
+func (passThroughResolver) Resolve(_ context.Context, t intake.Trigger) (intake.Resolution, error) {
+	return intake.Resolution{Thread: t.Thread}, nil
+}
+
+// countingExecutor counts executions without touching any workspace.
+type countingExecutor struct{ executed int64 }
+
+func (e *countingExecutor) Execute(_ context.Context, _ intake.ExecutionPlan) (intake.ExecutionResult, error) {
+	n := atomic.AddInt64(&e.executed, 1)
+	return intake.ExecutionResult{IssueID: 1000 + n, WorkspaceID: 2000 + n}, nil
+}
+
+// intakePolicyFixture reuses the IM fixture's in-memory database so the rules
+// CRUD, policy versions and the IM caller share one store.
+func intakePolicyFixture(t *testing.T) (*IntakeService, *imbotFixture) {
+	t.Helper()
+	f := newIMBotFixture(t)
+	return NewIntakeService(f.db, f.q), f
+}
+
+func TestIntakeRules_CRUDBumpsPolicyVersion(t *testing.T) {
+	svc, f := intakePolicyFixture(t)
+	ctx := context.Background()
+
+	rule, err := svc.CreateRule(ctx, f.projectID, UpsertIntakeRuleInput{
+		SourceKind:  intake.SourceKindIMBot,
+		Name:        "发布类",
+		Instruction: "只接发布相关请求",
+		Conditions:  intake.RuleConditions{Keywords: []string{"发布"}},
+	})
+	if err != nil {
+		t.Fatalf("create rule: %v", err)
+	}
+	if !rule.Enabled {
+		t.Fatalf("new rule should be enabled: %+v", rule)
+	}
+
+	versions, err := svc.ListPolicyVersions(ctx, f.projectID, intake.SourceKindIMBot, 0)
+	if err != nil {
+		t.Fatalf("list versions: %v", err)
+	}
+	if len(versions) != 1 || versions[0].Version != 1 {
+		t.Fatalf("versions after create = %+v", versions)
+	}
+	if !strings.Contains(string(versions[0].Snapshot), "发布类") {
+		t.Fatalf("version snapshot is missing the rule: %s", versions[0].Snapshot)
+	}
+
+	disabled := false
+	updated, err := svc.UpdateRule(ctx, f.projectID, rule.ID, UpsertIntakeRuleInput{
+		Name:        "发布类（停用）",
+		Instruction: "暂停",
+		Conditions:  intake.RuleConditions{Keywords: []string{"发布"}},
+		Enabled:     &disabled,
+	})
+	if err != nil {
+		t.Fatalf("update rule: %v", err)
+	}
+	if updated.Enabled {
+		t.Fatalf("rule should be disabled: %+v", updated)
+	}
+	versions, _ = svc.ListPolicyVersions(ctx, f.projectID, intake.SourceKindIMBot, 0)
+	if len(versions) != 2 || versions[0].Version != 2 {
+		t.Fatalf("versions after update = %+v", versions)
+	}
+	if !strings.Contains(string(versions[0].Snapshot), "发布类（停用）") {
+		t.Fatalf("updated snapshot is stale: %s", versions[0].Snapshot)
+	}
+
+	if err := svc.DeleteRule(ctx, f.projectID, rule.ID); err != nil {
+		t.Fatalf("delete rule: %v", err)
+	}
+	versions, _ = svc.ListPolicyVersions(ctx, f.projectID, intake.SourceKindIMBot, 0)
+	if len(versions) != 3 || versions[0].Version != 3 {
+		t.Fatalf("versions after delete = %+v", versions)
+	}
+	var snapshot struct {
+		Rules []any `json:"rules"`
+	}
+	if err := json.Unmarshal(versions[0].Snapshot, &snapshot); err != nil {
+		t.Fatalf("snapshot json: %v", err)
+	}
+	if len(snapshot.Rules) != 0 {
+		t.Fatalf("deleted rule still in snapshot: %s", versions[0].Snapshot)
+	}
+}
+
+func TestIntakeRules_ValidationRejectsEmptyConditions(t *testing.T) {
+	svc, f := intakePolicyFixture(t)
+	if _, err := svc.CreateRule(context.Background(), f.projectID, UpsertIntakeRuleInput{
+		SourceKind: intake.SourceKindIMBot,
+		Name:       "空规则",
+	}); err == nil {
+		t.Fatalf("a rule with no conditions must be rejected")
+	}
+}
+
+func TestIntakePolicy_SettingsAndRuleChangesApplyOnNextLoad(t *testing.T) {
+	svc, f := intakePolicyFixture(t)
+	ctx := context.Background()
+	policyReader := imbotPolicy{q: f.q}
+
+	_, err := svc.UpdateSettings(ctx, f.projectID, UpdateIntakeSettingsRequest{
+		Settings: []IntakeSettingInput{{
+			SourceKind: intake.SourceKindIMBot,
+			Mode:       string(intake.ModeAuto),
+			AllowList:  []string{"ou_alice"},
+		}},
+	})
+	if err != nil {
+		t.Fatalf("update settings: %v", err)
+	}
+	rule, err := svc.CreateRule(ctx, f.projectID, UpsertIntakeRuleInput{
+		SourceKind: intake.SourceKindIMBot,
+		Name:       "发布类",
+		Conditions: intake.RuleConditions{Keywords: []string{"deploy"}},
+	})
+	if err != nil {
+		t.Fatalf("create rule: %v", err)
+	}
+
+	policy, err := policyReader.LoadPolicy(ctx, f.projectID, intake.SourceKindIMBot)
+	if err != nil {
+		t.Fatalf("load policy: %v", err)
+	}
+	if policy.Mode != intake.ModeAuto || len(policy.AllowList) != 1 || len(policy.Rules) != 1 || policy.Version != 2 {
+		t.Fatalf("policy after settings+rule = %+v", policy)
+	}
+
+	disabled := false
+	if _, err := svc.UpdateRule(ctx, f.projectID, rule.ID, UpsertIntakeRuleInput{
+		Name:       "发布类",
+		Conditions: intake.RuleConditions{Keywords: []string{"deploy"}},
+		Enabled:    &disabled,
+	}); err != nil {
+		t.Fatalf("disable rule: %v", err)
+	}
+
+	// The pipeline reloads the policy for every trigger, so the very next read
+	// (the next event) sees the disabled rule and the new version.
+	policy, err = policyReader.LoadPolicy(ctx, f.projectID, intake.SourceKindIMBot)
+	if err != nil {
+		t.Fatalf("reload policy: %v", err)
+	}
+	if len(policy.Rules) != 0 {
+		t.Fatalf("disabled rule still loaded: %+v", policy.Rules)
+	}
+	if policy.Version != 3 {
+		t.Fatalf("policy version = %d, want 3", policy.Version)
+	}
+}
+
+// Twenty inferred events race for a daily cap of 3. The reservation is a single
+// atomic upsert, so exactly 3 execute — the count-then-execute version let all
+// 20 pass the check before any was marked executed.
+func TestHandleInferredDailyCapIsAtomic(t *testing.T) {
+	svc, f := intakePolicyFixture(t)
+	ctx := context.Background()
+	cap := int64(3)
+
+	if _, err := svc.UpdateSettings(ctx, f.projectID, UpdateIntakeSettingsRequest{
+		Settings: []IntakeSettingInput{{
+			SourceKind: intake.SourceKindIMBot,
+			Mode:       string(intake.ModeAuto),
+			DailyCap:   &cap,
+		}},
+	}); err != nil {
+		t.Fatalf("update settings: %v", err)
+	}
+	if _, err := svc.CreateRule(ctx, f.projectID, UpsertIntakeRuleInput{
+		SourceKind: intake.SourceKindIMBot,
+		Name:       "部署类",
+		Conditions: intake.RuleConditions{Keywords: []string{"deploy"}},
+	}); err != nil {
+		t.Fatalf("create rule: %v", err)
+	}
+
+	executor := &countingExecutor{}
+	pipeline := intake.NewService(intake.Deps{
+		Enabled:  true,
+		Store:    imbotIntakeStore{q: f.q},
+		Policies: imbotPolicy{q: f.q},
+		Resolver: passThroughResolver{},
+		Executor: executor,
+	})
+
+	const events = 20
+	var wg sync.WaitGroup
+	for i := 0; i < events; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			_, err := pipeline.Handle(ctx, intake.Trigger{
+				ProjectID:  f.projectID,
+				SourceKind: intake.SourceKindIMBot,
+				SourceRef:  "chat-1",
+				EventID:    fmt.Sprintf("evt-%d", i),
+				EventKind:  intake.EventKindMessage,
+				Actor:      intake.ActorRef{ExtID: "ou_dave"},
+				Text:       "please deploy",
+				ReceivedAt: time.Date(2026, 11, 3, 10, 0, 0, 0, time.UTC),
+			})
+			if err != nil {
+				t.Errorf("Handle %d: %v", i, err)
+			}
+		}(i)
+	}
+	wg.Wait()
+
+	if got := atomic.LoadInt64(&executor.executed); got != cap {
+		t.Fatalf("executed = %d, want exactly %d", got, cap)
+	}
+}
+
+func TestHandleInbound_BotCannotStopTask(t *testing.T) {
+	svc, f := intakePolicyFixture(t)
+	ctx := context.Background()
+	chat := f.activeChat(t, "oc_a")
+	f.svc.setActiveIssue(ctx, chat, f.issueID)
+
+	if _, err := svc.UpdateSettings(ctx, f.projectID, UpdateIntakeSettingsRequest{
+		Settings: []IntakeSettingInput{{
+			SourceKind: intake.SourceKindIMBot,
+			Mode:       string(intake.ModeOff),
+			BotList:    []string{"bot_release"},
+		}},
+	}); err != nil {
+		t.Fatalf("update settings: %v", err)
+	}
+
+	f.svc.HandleInbound(ctx, imbot.InboundEvent{
+		ChannelID: f.channelID, ChatExtID: "oc_a", ActorExtID: "bot_release",
+		Text: "/stop", Kind: "message", EventID: "e1",
+	})
+
+	if len(f.deliverer.stopped) != 0 {
+		t.Fatalf("bot stopped the task: %+v", f.deliverer.stopped)
+	}
+	if len(f.adapter.pushes) != 1 || !strings.Contains(f.adapter.pushes[0].Text, "权限") {
+		t.Fatalf("expected a permission denial, got %+v", f.adapter.pushes)
+	}
+}
+
+func TestHandleInbound_AllowListGatesStopTask(t *testing.T) {
+	svc, f := intakePolicyFixture(t)
+	ctx := context.Background()
+	chat := f.activeChat(t, "oc_a")
+	f.svc.setActiveIssue(ctx, chat, f.issueID)
+
+	if _, err := svc.UpdateSettings(ctx, f.projectID, UpdateIntakeSettingsRequest{
+		Settings: []IntakeSettingInput{{
+			SourceKind: intake.SourceKindIMBot,
+			Mode:       string(intake.ModeOff),
+			AllowList:  []string{"ou_alice"},
+		}},
+	}); err != nil {
+		t.Fatalf("update settings: %v", err)
+	}
+
+	f.svc.HandleInbound(ctx, imbot.InboundEvent{
+		ChannelID: f.channelID, ChatExtID: "oc_a", ActorExtID: "ou_bob",
+		Text: "/stop", Kind: "message", EventID: "e1",
+	})
+	if len(f.deliverer.stopped) != 0 {
+		t.Fatalf("unlisted actor stopped the task")
+	}
+
+	f.svc.HandleInbound(ctx, imbot.InboundEvent{
+		ChannelID: f.channelID, ChatExtID: "oc_a", ActorExtID: "ou_alice",
+		Text: "/stop", Kind: "message", EventID: "e2",
+	})
+	if len(f.deliverer.stopped) != 1 || f.deliverer.stopped[0] != f.wsID {
+		t.Fatalf("allow-listed actor was not permitted to stop: %+v", f.deliverer.stopped)
+	}
+}
+
+func TestHandleInbound_BotCannotApprovePermission(t *testing.T) {
+	svc, f := intakePolicyFixture(t)
+	ctx := context.Background()
+	f.activeChat(t, "oc_a")
+
+	if _, err := svc.UpdateSettings(ctx, f.projectID, UpdateIntakeSettingsRequest{
+		Settings: []IntakeSettingInput{{
+			SourceKind: intake.SourceKindIMBot,
+			Mode:       string(intake.ModeOff),
+			BotList:    []string{"bot_release"},
+		}},
+	}); err != nil {
+		t.Fatalf("update settings: %v", err)
+	}
+
+	reqID := f.seedPermissionRequest(t, f.wsID)
+	f.svc.HandleInbound(ctx, imbot.InboundEvent{
+		ChannelID: f.channelID, ChatExtID: "oc_a", ActorExtID: "bot_release", Kind: "action_callback",
+		CallbackData: "permission:approve:" + itoa(reqID), EventID: "cb1",
+	})
+
+	if len(f.perm.calls) != 0 {
+		t.Fatalf("bot approved a tool: %+v", f.perm.calls)
+	}
+	if len(f.adapter.pushes) != 1 || !strings.Contains(f.adapter.pushes[0].Text, "权限") {
+		t.Fatalf("expected a permission denial, got %+v", f.adapter.pushes)
+	}
+}
+
+func TestHandleInbound_AcceptWritesIssueProvenance(t *testing.T) {
+	f := newIMBotFixture(t)
+	ctx := context.Background()
+	f.activeChat(t, "oc_a")
+	f.router.queue = []PlanTarget{{IssueID: f.issueID, WorkspaceID: f.wsID}}
+
+	f.svc.HandleInbound(ctx, imbot.InboundEvent{
+		ChannelID: f.channelID, ChatExtID: "oc_a", Text: "帮我做张表", Kind: "message", EventID: "e1",
+	})
+
+	issue, err := f.q.GetIssue(ctx, f.issueID)
+	if err != nil {
+		t.Fatalf("get issue: %v", err)
+	}
+	if !issue.ExternalSource.Valid || issue.ExternalSource.String != intake.SourceKindIMBot {
+		t.Fatalf("external source = %+v, want im_bot", issue.ExternalSource)
+	}
+	if !issue.ExternalID.Valid || issue.ExternalID.String != "e1" {
+		t.Fatalf("external id = %+v, want e1", issue.ExternalID)
+	}
+}
+
+// Guard the fixture assumption that intake settings do not exist by default:
+// an unconfigured project still lets an admitted human stop a task.
+func TestHandleInbound_UnconfiguredChatStillAllowsStop(t *testing.T) {
+	f := newIMBotFixture(t)
+	ctx := context.Background()
+	chat := f.activeChat(t, "oc_a")
+	f.svc.setActiveIssue(ctx, chat, f.issueID)
+
+	f.svc.HandleInbound(ctx, imbot.InboundEvent{
+		ChannelID: f.channelID, ChatExtID: "oc_a", ActorExtID: "ou_human",
+		Text: "/stop", Kind: "message", EventID: "e1",
+	})
+	if len(f.deliverer.stopped) != 1 {
+		t.Fatalf("unconfigured chat denied a human: %+v", f.adapter.pushes)
+	}
+}
+
+func TestIntakePause_RoundTripsAndLoadsIntoPolicy(t *testing.T) {
+	svc, f := intakePolicyFixture(t)
+	ctx := context.Background()
+
+	paused, err := svc.GetPaused(ctx, f.projectID)
+	if err != nil {
+		t.Fatalf("get pause: %v", err)
+	}
+	if paused {
+		t.Fatalf("a fresh project must not be paused")
+	}
+
+	if _, err := svc.SetPaused(ctx, f.projectID, true); err != nil {
+		t.Fatalf("set pause: %v", err)
+	}
+	view, err := svc.GetSettings(ctx, f.projectID)
+	if err != nil {
+		t.Fatalf("get settings: %v", err)
+	}
+	if !view.Paused {
+		t.Fatalf("settings view did not report paused")
+	}
+
+	pol, err := (imbotPolicy{q: f.q}).LoadPolicy(ctx, f.projectID, intake.SourceKindIMBot)
+	if err != nil {
+		t.Fatalf("load policy: %v", err)
+	}
+	if !pol.Paused {
+		t.Fatalf("policy did not carry the project pause flag")
+	}
+
+	if _, err := svc.SetPaused(ctx, f.projectID, false); err != nil {
+		t.Fatalf("resume: %v", err)
+	}
+	pol, err = (imbotPolicy{q: f.q}).LoadPolicy(ctx, f.projectID, intake.SourceKindIMBot)
+	if err != nil {
+		t.Fatalf("load policy after resume: %v", err)
+	}
+	if pol.Paused {
+		t.Fatalf("policy still paused after resume")
+	}
+}

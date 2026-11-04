@@ -15,15 +15,22 @@ import (
 	"unicode/utf8"
 
 	"github.com/niuniu-dev/niuniu/internal/imbot"
+	"github.com/niuniu-dev/niuniu/internal/intake"
 	"github.com/niuniu-dev/niuniu/internal/store"
 )
 
 // HandleInbound is the channel-agnostic inbound entry point (W2). Both the
 // ConnectorManager's stream long connection and the optional public webhook feed
-// the same normalized imbot.InboundEvent here. It implements the design §4.3
-// pipeline: idempotent dedupe -> chat admission/pairing -> permission callback
-// or slash command -> task resolution (thread > pinned > active pointer) ->
-// RouteInProject (continue/new in the bound project) -> agentproxy.Deliver.
+// the same normalized imbot.InboundEvent here.
+//
+// It runs the IM half of the design §4.3 pipeline itself — idempotent inbox
+// admission, pairing, permission/ask-user callbacks, slash commands, `#<id>`
+// conversation control and the observation layer — then hands the source-neutral
+// half (dedupe -> authorize -> resolve -> decide -> record -> execute) to
+// intake.Service with this service as the IM Source adapter (see
+// imbot_intake.go). Task resolution inside the pipeline keeps the IM priority:
+// bound thread > pinned > active pointer, then RouteInProject (continue/new in
+// the bound project) and agentproxy.Deliver.
 //
 // It never returns an error (it is a fire-and-forget handler invoked from the
 // connector goroutine); failures are logged and, where useful, surfaced back to
@@ -144,9 +151,17 @@ func (s *IMBotService) HandleInbound(ctx context.Context, ev imbot.InboundEvent)
 		s.handleUse(ctx, channel, chat, ev, rest)
 		return
 	case "delete", "del", "rm", "删除":
+		if !s.allowsHighRiskAction(ctx, chat, ev) {
+			s.pushText(ctx, channel, ev.ChatExtID, ev.ThreadExtID, highRiskDeniedText)
+			return
+		}
 		s.handleDelete(ctx, channel, chat, ev, rest)
 		return
 	case "stop", "停止", "暂停":
+		if !s.allowsHighRiskAction(ctx, chat, ev) {
+			s.pushText(ctx, channel, ev.ChatExtID, ev.ThreadExtID, highRiskDeniedText)
+			return
+		}
 		s.handleStop(ctx, channel, chat, ev)
 		return
 	case "detail", "详情", "info":
@@ -191,63 +206,21 @@ func (s *IMBotService) HandleInbound(ctx context.Context, ev imbot.InboundEvent)
 		forceNew = true
 	}
 
-	// Resolve the target task: thread mapping > pinned > active pointer.
-	issueID, wsID := s.resolveTask(ctx, chat, ev.ThreadExtID)
-
-	if wsID == 0 || forceNew {
-		if s.dispatch == nil {
-			return
-		}
-		owner, ok := s.projectOwner(ctx, routeProjectID)
-		if !ok {
-			return
-		}
-		hint := RouteHint{ForceNew: forceNew}
-		// A no-thread chat with an active pointer continues that task unless the
-		// user forces new; resolveTask already applied that, so ActiveIssueID is
-		// only a hint for the classifier tie-break.
-		if ev.ThreadExtID == "" && chat.ActiveIssueID.Valid && !forceNew {
-			hint.ActiveIssueID = chat.ActiveIssueID.Int64
-		}
-		target, rerr := s.dispatch.RouteInProject(ctx, owner, routeProjectID, text, hint)
-		if rerr != nil {
-			slog.Warn("imbot: route failed", "channel", channel.ID, "project", routeProjectID, "error", rerr)
-			s.pushText(ctx, channel, ev.ChatExtID, ev.ThreadExtID, "牛牛暂时无法开始这个任务，请稍后再试。")
-			return
-		}
-		issueID, wsID = target.IssueID, target.WorkspaceID
-		// A router can return a zero-valued target WITHOUT an error (nothing
-		// resolved). Continuing would bind the chat to issue 0, reply with a "#0"
-		// marker the user cannot reach, and then deliver into workspace 0 — i.e.
-		// silently drop the message while claiming work started. Tell the user
-		// instead, so they can retry rather than wait on a task that never began.
-		if issueID == 0 || wsID == 0 {
-			slog.Warn("imbot: route returned an incomplete target",
-				"channel", channel.ID, "project", routeProjectID, "issue", issueID, "workspace", wsID)
-			s.pushText(ctx, channel, ev.ChatExtID, ev.ThreadExtID, "牛牛暂时无法开始这个任务，请稍后再试。")
-			return
-		}
-
-		// Bind the new task so follow-ups land in the same place.
-		if ev.ThreadExtID != "" {
-			if _, cerr := s.q.CreateIMBotThread(ctx, store.CreateIMBotThreadParams{
-				ChatID: chat.ID, ThreadExtID: ev.ThreadExtID, IssueID: issueID, WorkspaceID: wsID,
-			}); cerr != nil {
-				slog.Warn("imbot: bind thread failed", "chat", chat.ID, "thread", ev.ThreadExtID, "error", cerr)
-			}
-		} else {
-			s.setActiveIssue(ctx, chat, issueID)
-		}
-
-		// A NEW conversation was just created — reply once with its `#<id> <标题>`
-		// so the user knows the task id (and can `#<id>` back to it later). Only
-		// here, never on follow-ups, to avoid flooding the chat with replies.
-		s.replyTaskMarker(ctx, channel, ev, issueID)
+	// Everything from here on is source-neutral and runs in the shared intake
+	// pipeline: dedupe -> authorize -> resolve (thread > pinned > active) ->
+	// decide -> record -> execute (route/bind/deliver). The trigger is Explicit
+	// because this chat was admitted above (paired, active, project-bound);
+	// chat intake_mode only governs INFERRED work, so an explicit message still
+	// executes in off/observe mode exactly as it did before the extraction
+	// (design §6.3, §7.1).
+	res, err := s.intake.Handle(ctx, imbotSource{legacyChatMode: s.legacyChatIntakeMode}.Normalize(ev, channel, chat, text, forceNew))
+	if err != nil {
+		slog.Warn("imbot: intake failed", "channel", channel.ID, "chat", chat.ID, "project", routeProjectID, "error", err)
+		return
 	}
-
-	// Deliver the message into the workspace's agent session (the step the WebUI
-	// path leaves to the client; IM has no client so the server delivers).
-	s.deliverToWorkspace(ctx, channel, ev, wsID, text)
+	slog.Debug("imbot: intake decision",
+		"chat", chat.ID, "decision", res.Decision, "reason", res.ReasonCode,
+		"issue", res.IssueID, "workspace", res.WorkspaceID, "executed", res.Executed)
 }
 
 // deliverToWorkspace hands text (and any inbound attachments) to a workspace's
@@ -826,6 +799,13 @@ func (s *IMBotService) handlePermissionCallback(ctx context.Context, channel sto
 	if err != nil || pctx.ProjectID != chat.ProjectID.Int64 {
 		return // cross-project or unresolvable — ignore
 	}
+	// Approving a tool is a high-risk action: only an explicit, non-bot actor
+	// may grant it (§6.2). Denying stays open to everyone — it is the safe
+	// direction.
+	if allow && !s.allowsHighRiskAction(ctx, chat, ev) {
+		s.pushText(ctx, channel, ev.ChatExtID, ev.ThreadExtID, highRiskDeniedText)
+		return
+	}
 
 	d := Decision{Allow: allow, Always: always}
 	if !allow {
@@ -941,6 +921,32 @@ func askUserOption(questionsJSON string, optIdx int) (question, label string, ok
 		return "", "", false
 	}
 	return qs[0].Question, qs[0].Options[optIdx].Label, true
+}
+
+// highRiskDeniedText is deliberately jargon-free: the user only needs to know
+// who can grant the permission, not the policy internals.
+const highRiskDeniedText = "你没有权限执行这个操作。停止或删除任务需要项目允许名单内的成员发起。"
+
+// allowsHighRiskAction gates /stop and /delete on the intake policy. A bot can
+// never stop or delete a task, and once an allow list is configured only listed
+// actors qualify. Fail closed: a policy read error denies the action.
+func (s *IMBotService) allowsHighRiskAction(ctx context.Context, chat store.ImBotChat, ev imbot.InboundEvent) bool {
+	if !chat.ProjectID.Valid {
+		return false
+	}
+	policy, err := (imbotPolicy{q: s.q}).LoadPolicy(ctx, chat.ProjectID.Int64, intake.SourceKindIMBot)
+	if err != nil {
+		slog.Warn("imbot: load policy for high-risk action failed", "chat", chat.ID, "error", err)
+		return false
+	}
+	return policy.AllowsHighRiskAction(intake.Trigger{
+		ProjectID:  chat.ProjectID.Int64,
+		SourceKind: intake.SourceKindIMBot,
+		Actor:      intake.ActorRef{ExtID: ev.ActorExtID, Name: ev.ActorName},
+		Text:       ev.Text,
+		Explicit:   true,
+		ReceiveAll: normalizeAgentMode(chat.AgentMode) == AgentModeObserve,
+	})
 }
 
 // handleStop stops the agent currently running the chat's active task (the /stop

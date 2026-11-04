@@ -418,6 +418,10 @@ type patchChatBody struct {
 	// "command" acts only when addressed, "observe" also records chatter and
 	// periodically analyzes it. Omitted/empty preserves the current mode.
 	AgentMode string `json:"agent_mode"`
+	// IntakeMode switches this chat's intake mode (design §6.9):
+	// "inherit" | "off" | "observe" | "auto". Omitted/empty preserves the
+	// current mode.
+	IntakeMode string `json:"intake_mode"`
 }
 
 func (h *IMBotHandler) PatchChat(c *gin.Context) {
@@ -440,6 +444,7 @@ func (h *IMBotHandler) PatchChat(c *gin.Context) {
 		ActiveIssueID: b.ActiveIssueID,
 		Status:        b.Status,
 		AgentMode:     b.AgentMode,
+		IntakeMode:    b.IntakeMode,
 	})
 	if err != nil {
 		h.mapErr(c, err)
@@ -785,6 +790,7 @@ func (h *IMBotHandler) PatchChatOwner(c *gin.Context) {
 		ActiveIssueID: b.ActiveIssueID,
 		Status:        b.Status,
 		AgentMode:     b.AgentMode,
+		IntakeMode:    b.IntakeMode,
 	})
 	if err != nil {
 		h.mapErr(c, err)
