@@ -1,20 +1,28 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useNavigate } from '@tanstack/react-router'
-import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { AlertTriangle, ArrowUpRight, HelpCircle, Paperclip } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import {
   Tooltip,
   TooltipContent,
   TooltipProvider,
   TooltipTrigger,
 } from '@/components/ui/tooltip'
-import { ApiError } from '@/lib/api'
+import { ApiError, api } from '@/lib/api'
 import { intakeApi, type IntakeDecision, type IntakeRule } from '@/lib/intake-api'
 import { cn } from '@/lib/utils'
-import { SourceIcon, StrengthBadge } from './decision-list'
+import { SourceIcon, StatusBadge, StrengthBadge } from './decision-list'
 import { useRelativeTime } from './use-relative-time'
 import { briefFromDecision, briefPayload, type BriefDraftState } from './brief-draft'
 import { TaskBriefEditor } from './task-brief-editor'
@@ -36,9 +44,15 @@ export function DecisionDetail({ decision, rules, rulesFailed }: DecisionDetailP
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState<BriefDraftState>(() => briefFromDecision(decision))
   const [ignoreOpen, setIgnoreOpen] = useState(false)
+  const [targetMode, setTargetMode] = useState<'new' | 'existing'>('new')
+  const [targetIssueId, setTargetIssueId] = useState<number | null>(null)
+  const [taskSearch, setTaskSearch] = useState('')
 
   const isResume = decision.decision === 'resume'
-  const isPendingProposal = decision.decision === 'accept' || isResume
+  const status =
+    decision.status ??
+    (decision.decision === 'ignore' ? 'ignored' : decision.executed ? 'accepted' : 'pending')
+  const isPendingProposal = status === 'pending'
   const message = (decision.payload?.Text ?? '').trim()
   const attachments = decision.payload?.Attachments ?? []
   const ruleById = new Map(rules.map((rule) => [rule.id, rule]))
@@ -70,10 +84,45 @@ export function DecisionDetail({ decision, rules, rulesFailed }: DecisionDetailP
     onError: (error) => toast.error(errorMessage(error, t('review.saveFailed'))),
   })
 
+  // Task picker source: the project's tasks, including completed ones, so an
+  // accepted suggestion can be re-run on existing work.
+  const issuesQuery = useQuery({
+    queryKey: ['intake-accept-issues', decision.project_id],
+    queryFn: () => api.get<{ id: number; title: string }[]>(`/projects/${decision.project_id}/issues`),
+    enabled: isPendingProposal,
+    retry: 1,
+  })
+  const taskQuery = taskSearch.trim().toLowerCase()
+  const taskOptions = (issuesQuery.data ?? [])
+    .filter((issue) => !taskQuery || issue.title.toLowerCase().includes(taskQuery))
+    .slice(0, 50)
+
   const accept = useMutation({
-    mutationFn: () => intakeApi.accept(decision.project_id, decision.id, briefPayload(draft)),
+    mutationFn: () =>
+      intakeApi.accept(
+        decision.project_id,
+        decision.id,
+        briefPayload(draft),
+        targetMode === 'existing' ? targetIssueId : null,
+      ),
     onSuccess: (updated) => {
-      toast.success(isResume ? t('review.resumed') : t('review.accepted'))
+      if (updated.delivery_failed) {
+        // The task was created/recorded but the agent never received it. Say so
+        // instead of a plain success toast.
+        toast.warning(
+          t('review.acceptedButDeliveryFailed', {
+            message: updated.delivery_error ?? '',
+          }),
+        )
+      } else {
+        toast.success(
+          targetMode === 'existing'
+            ? t('review.acceptedIntoTask', { id: targetIssueId ?? '' })
+            : isResume
+              ? t('review.resumed')
+              : t('review.accepted'),
+        )
+      }
       refresh()
       openTask(updated.issue_id ?? decision.issue_id, updated.workspace_id ?? decision.workspace_id)
     },
@@ -106,6 +155,7 @@ export function DecisionDetail({ decision, rules, rulesFailed }: DecisionDetailP
   })
 
   const busy = accept.isPending || saveDraft.isPending || ignore.isPending
+  const targetMissing = targetMode === 'existing' && targetIssueId === null
 
   return (
     <div className="flex h-full flex-col">
@@ -122,11 +172,7 @@ export function DecisionDetail({ decision, rules, rulesFailed }: DecisionDetailP
               {decision.thread_ext_id || t('review.noThread')}
             </span>
             <StrengthBadge strength={decision.strength} />
-            {isResume && (
-              <span className="rounded bg-warm-muted px-1.5 py-0.5 text-xs font-medium">
-                {t('review.decision.resume')}
-              </span>
-            )}
+            <StatusBadge decision={decision} />
             <span className="ml-auto text-xs text-warm-text-muted tabular-nums">
               {relative(decision.created_at)}
             </span>
@@ -167,10 +213,12 @@ export function DecisionDetail({ decision, rules, rulesFailed }: DecisionDetailP
           </TooltipProvider>
         </section>
 
-        {isResume && (decision.issue_id || decision.workspace_id) && (
+        {decision.issue_id && (
           <section className="mt-4 flex flex-wrap items-center justify-between gap-2 rounded-md border border-brand/30 bg-brand-soft px-3 py-2">
             <div className="text-sm">
-              <span className="text-warm-text-muted">{t('review.resumeTarget')}</span>
+              <span className="text-warm-text-muted">
+                {isPendingProposal ? t('review.resumeTarget') : t('review.executedTask')}
+              </span>
               <span className="ml-1 font-medium tabular-nums">#{decision.issue_id}</span>
             </div>
             <Button
@@ -225,14 +273,81 @@ export function DecisionDetail({ decision, rules, rulesFailed }: DecisionDetailP
               suggestDisabled={busy}
             />
           </section>
-        ) : (
+        ) : null}
+
+        {isPendingProposal && (
+          <section className="mt-5">
+            <h3 className="mb-2 text-xs font-medium text-warm-text-muted">{t('review.target')}</h3>
+            <div className="flex flex-wrap gap-1.5" role="radiogroup" aria-label={t('review.target')}>
+              <Button
+                type="button"
+                size="sm"
+                variant={targetMode === 'new' ? 'secondary' : 'ghost'}
+                aria-pressed={targetMode === 'new'}
+                className="h-7 px-2 text-xs"
+                onClick={() => {
+                  setTargetMode('new')
+                  setTargetIssueId(null)
+                }}
+              >
+                {t('review.targetNew')}
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant={targetMode === 'existing' ? 'secondary' : 'ghost'}
+                aria-pressed={targetMode === 'existing'}
+                className="h-7 px-2 text-xs"
+                onClick={() => setTargetMode('existing')}
+              >
+                {t('review.targetExisting')}
+              </Button>
+            </div>
+            {targetMode === 'existing' && (
+              <div className="mt-2 flex flex-col gap-2">
+                <Input
+                  value={taskSearch}
+                  onChange={(event) => setTaskSearch(event.target.value)}
+                  placeholder={t('review.targetSearch')}
+                  className="h-8"
+                  aria-label={t('review.targetSearch')}
+                />
+                <Select
+                  value={targetIssueId !== null ? String(targetIssueId) : undefined}
+                  onValueChange={(value) => setTargetIssueId(Number(value))}
+                >
+                  <SelectTrigger className="h-8" aria-label={t('review.target')}>
+                    <SelectValue placeholder={t('review.targetPick')} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {taskOptions.map((issue) => (
+                      <SelectItem key={issue.id} value={String(issue.id)}>
+                        #{issue.id} {issue.title}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                {issuesQuery.isLoading && (
+                  <span className="text-xs text-warm-text-muted">{t('review.loading')}</span>
+                )}
+                {!issuesQuery.isLoading && taskOptions.length === 0 && (
+                  <span className="text-xs text-warm-text-muted">{t('review.targetEmpty')}</span>
+                )}
+              </div>
+            )}
+          </section>
+        )}
+
+        {!isPendingProposal && (
           <section className="mt-5 rounded-md border border-warm-border bg-warm-muted px-3 py-2 text-sm text-warm-text-muted">
             <AlertTriangle className="mr-1 inline h-3.5 w-3.5" aria-hidden />
             {decision.decision === 'ignore'
               ? t('review.alreadyIgnored', {
                   reason: decision.reason_text || decision.reason_code || t('review.noReason'),
                 })
-              : t('review.notAcceptable')}
+              : status === 'accepted'
+                ? t('review.alreadyAccepted')
+                : t('review.notAcceptable')}
           </section>
         )}
       </div>
@@ -242,7 +357,7 @@ export function DecisionDetail({ decision, rules, rulesFailed }: DecisionDetailP
           <Button
             type="button"
             onClick={() => accept.mutate()}
-            disabled={busy}
+            disabled={busy || targetMissing}
             className="min-w-0 flex-1 sm:flex-none"
           >
             {accept.isPending

@@ -412,7 +412,11 @@ func (h *IntakeHandler) AcceptDecision(c *gin.Context) {
 			return
 		}
 	}
-	item, err := h.svc.AcceptDecision(c.Request.Context(), did, in.Brief)
+	var targetIssueID int64
+	if in.TargetIssueID != nil {
+		targetIssueID = *in.TargetIssueID
+	}
+	item, err := h.svc.AcceptDecision(c.Request.Context(), did, in.Brief, targetIssueID)
 	if err != nil {
 		h.mapIntakeErr(c, err)
 		return
@@ -624,7 +628,7 @@ func (h *IntakeHandler) MCPAcceptDecision(c *gin.Context) {
 	if !h.mcpDecisionAccess(c, did) {
 		return
 	}
-	item, err := h.svc.AcceptDecision(c.Request.Context(), did, nil)
+	item, err := h.svc.AcceptDecision(c.Request.Context(), did, nil, 0)
 	if err != nil {
 		h.mapIntakeErr(c, err)
 		return

@@ -396,6 +396,29 @@
     "clearChatFilter": "顯示全部",
     "alreadyIgnored": "已忽略：{{reason}}",
     "notAcceptable": "該決策當前不可採納",
-    "noReason": "未填寫原因"
+    "noReason": "未填寫原因",
+    "view": {
+      "pending": "待處理",
+      "history": "歷史"
+    },
+    "status": {
+      "pending": "待處理",
+      "accepted": "已採納",
+      "ignored": "已忽略"
+    },
+    "allProjects": "全部專案",
+    "target": "執行位置",
+    "targetNew": "新建任務",
+    "targetExisting": "選擇已有任務",
+    "targetSearch": "搜尋任務",
+    "targetPick": "選擇一個任務",
+    "targetEmpty": "沒有符合的任務",
+    "loading": "載入中…",
+    "acceptedButDeliveryFailed": "任務已記錄，但訊息未投遞給它：{{message}}",
+    "acceptedIntoTask": "已傳送到任務 #{{id}}",
+    "alreadyAccepted": "該建議已被採納。",
+    "executedTask": "執行任務",
+    "emptyHistoryTitle": "尚無歷史",
+    "emptyHistoryDescription": "已採納和已忽略的建議會顯示在這裡。"
   }
 }

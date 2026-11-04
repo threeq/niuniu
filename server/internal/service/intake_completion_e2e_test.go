@@ -510,7 +510,7 @@ func TestE2E_ObserveDryRunZeroSideEffectsThenAccept(t *testing.T) {
 	}
 
 	// Accepting from the queue is the only point side effects appear (§10.2).
-	issueID, wsID, err := f.svc.AcceptDecision(ctx, d)
+	issueID, wsID, err := f.svc.AcceptDecision(ctx, d, 0)
 	if err != nil {
 		t.Fatalf("accept: %v", err)
 	}

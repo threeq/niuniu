@@ -396,6 +396,29 @@
     "clearChatFilter": "显示全部",
     "alreadyIgnored": "已忽略：{{reason}}",
     "notAcceptable": "该决策当前不可采纳",
-    "noReason": "未填写原因"
+    "noReason": "未填写原因",
+    "view": {
+      "pending": "待处理",
+      "history": "历史"
+    },
+    "status": {
+      "pending": "待处理",
+      "accepted": "已采纳",
+      "ignored": "已忽略"
+    },
+    "allProjects": "全部项目",
+    "target": "执行位置",
+    "targetNew": "新建任务",
+    "targetExisting": "选择已有任务",
+    "targetSearch": "搜索任务",
+    "targetPick": "选择一个任务",
+    "targetEmpty": "没有匹配的任务",
+    "loading": "加载中…",
+    "acceptedButDeliveryFailed": "任务已记录，但消息未投递给它：{{message}}",
+    "acceptedIntoTask": "已发送到任务 #{{id}}",
+    "alreadyAccepted": "该建议已被采纳。",
+    "executedTask": "执行任务",
+    "emptyHistoryTitle": "暂无历史",
+    "emptyHistoryDescription": "已采纳和已忽略的建议会显示在这里。"
   }
 }

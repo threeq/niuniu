@@ -396,6 +396,29 @@
     "clearChatFilter": "Show all",
     "alreadyIgnored": "Ignored: {{reason}}",
     "notAcceptable": "This decision cannot be accepted",
-    "noReason": "no reason recorded"
+    "noReason": "no reason recorded",
+    "view": {
+      "pending": "Pending",
+      "history": "History"
+    },
+    "status": {
+      "pending": "Pending",
+      "accepted": "Accepted",
+      "ignored": "Ignored"
+    },
+    "allProjects": "All projects",
+    "target": "Run on",
+    "targetNew": "New task",
+    "targetExisting": "Existing task",
+    "targetSearch": "Search tasks",
+    "targetPick": "Pick a task",
+    "targetEmpty": "No matching task",
+    "loading": "Loading…",
+    "acceptedButDeliveryFailed": "Task recorded, but the message was not delivered to its agent: {{message}}",
+    "acceptedIntoTask": "Sent to task #{{id}}",
+    "alreadyAccepted": "This suggestion was accepted.",
+    "executedTask": "Executed task",
+    "emptyHistoryTitle": "No history yet",
+    "emptyHistoryDescription": "Accepted and ignored suggestions will appear here."
   }
 }

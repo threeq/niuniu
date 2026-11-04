@@ -406,7 +406,7 @@ func (s *IMBotService) intakeChat(ctx context.Context, t intake.Trigger) (store.
 // The brief is whatever the calibration queue saved (the proposed one, or the
 // user's edited draft). For a new task the goal becomes the issue title and
 // goal_condition; the original message stays as the description.
-func (s *IMBotService) AcceptDecision(ctx context.Context, d store.IntakeDecision) (int64, int64, error) {
+func (s *IMBotService) AcceptDecision(ctx context.Context, d store.IntakeDecision, targetIssueID int64) (int64, int64, error) {
 	ev, err := s.q.GetIntakeEvent(ctx, d.EventID)
 	if err != nil {
 		return 0, 0, fmt.Errorf("intake accept: load event: %w", err)
@@ -452,7 +452,20 @@ func (s *IMBotService) AcceptDecision(ctx context.Context, d store.IntakeDecisio
 	if wd.Brief != nil {
 		plan.Brief = *wd.Brief
 	}
-	if plan.Decision == intake.DecisionResume {
+	if targetIssueID > 0 {
+		// The user picked an existing task: deliver there instead of creating a
+		// new one. A task without a workspace cannot run, so fail loudly rather
+		// than recording a success that never executes.
+		rows, werr := s.q.GetWorkspacesByIssue(ctx, sql.NullInt64{Int64: targetIssueID, Valid: true})
+		if werr != nil {
+			return 0, 0, fmt.Errorf("intake accept: load workspace for issue %d: %w", targetIssueID, werr)
+		}
+		if len(rows) == 0 {
+			return 0, 0, fmt.Errorf("intake accept: task %d has no workspace to run in", targetIssueID)
+		}
+		plan.Decision = intake.DecisionResume
+		plan.IssueID, plan.WorkspaceID = targetIssueID, rows[0].ID
+	} else if plan.Decision == intake.DecisionResume {
 		if !d.IssueID.Valid || !d.WorkspaceID.Valid || d.WorkspaceID.Int64 == 0 {
 			return 0, 0, errors.New("intake accept: resume decision has no bound workspace")
 		}
@@ -464,7 +477,10 @@ func (s *IMBotService) AcceptDecision(ctx context.Context, d store.IntakeDecisio
 	// hand it the edited brief.
 	res, err := imbotExecutor{svc: s}.Execute(ctx, plan)
 	if err != nil {
-		return 0, 0, err
+		// A delivery failure still leaves a created or selected task; return its
+		// ids so the decision records where the work went, and surface the error
+		// alongside them (the acceptance itself is not undone).
+		return res.IssueID, res.WorkspaceID, err
 	}
 	return res.IssueID, res.WorkspaceID, nil
 }
@@ -493,7 +509,9 @@ func (e imbotExecutor) Execute(ctx context.Context, plan intake.ExecutionPlan) (
 		if plan.WorkspaceID == 0 {
 			return intake.ExecutionResult{}, errors.New("imbot intake: resume without a workspace")
 		}
-		s.deliverToWorkspace(ctx, channel, ev, plan.WorkspaceID, plan.Trigger.Text)
+		if err := s.deliverToWorkspace(ctx, channel, ev, plan.WorkspaceID, plan.Trigger.Text); err != nil {
+			return intake.ExecutionResult{IssueID: plan.IssueID, WorkspaceID: plan.WorkspaceID}, err
+		}
 		return intake.ExecutionResult{IssueID: plan.IssueID, WorkspaceID: plan.WorkspaceID}, nil
 	}
 
@@ -619,7 +637,9 @@ func (s *IMBotService) startInboundTask(
 	// here, never on follow-ups, to avoid flooding the chat with replies.
 	s.replyTaskMarker(ctx, channel, ev, target.IssueID)
 
-	s.deliverToWorkspace(ctx, channel, ev, target.WorkspaceID, t.Text)
+	if err := s.deliverToWorkspace(ctx, channel, ev, target.WorkspaceID, t.Text); err != nil {
+		return intake.ExecutionResult{IssueID: target.IssueID, WorkspaceID: target.WorkspaceID}, err
+	}
 	return intake.ExecutionResult{IssueID: target.IssueID, WorkspaceID: target.WorkspaceID}, nil
 }
 
