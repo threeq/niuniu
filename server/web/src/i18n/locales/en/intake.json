@@ -150,10 +150,11 @@
       "off": "Off",
       "observe": "Observe",
       "auto": "Auto",
-      "offDescription": "Only respond when niuniu is explicitly addressed.",
-      "observeDescription": "Record work it would pick up, without acting.",
-      "autoDescription": "Accept work within rules and the daily cap.",
-      "defaultHint": "Project default for this source. A single IM chat can override it in IM settings."
+      "offDescription": "Handles only explicit @mentions or DMs. Other group messages are not recorded.",
+      "observeDescription": "Never starts work. Matching messages go to the review queue; you accept or ignore each one. Good for building a sample first.",
+      "autoDescription": "Rule-matching requests start tasks immediately (subject to the daily cap), with no confirmation. Enable after calibration.",
+      "defaultHint": "Project default for this source. A single IM chat can override it in IM settings.",
+      "chooseHint": "Not sure which? Start with Observe to build a sample; switch to Auto after about 10 decisions with 80%+ acceptance."
     },
     "calibration": {
       "summary": "Calibrated {{count}} · acceptance rate {{rate}}%",

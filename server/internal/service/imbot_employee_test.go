@@ -9,7 +9,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/niuniu-dev/niuniu/internal/event"
 	"github.com/niuniu-dev/niuniu/internal/imbot"
 	"github.com/niuniu-dev/niuniu/internal/store"
 )
@@ -298,7 +297,12 @@ func TestEmployeeSweep_NotifyPushesToChat(t *testing.T) {
 // TestEmployeeSweep_TaskStartsWorkAndAnnounces is requirement 2's stronger half:
 // the discussion described real work, so the employee starts a task through the
 // same routing core a human request uses — and tells the chat it did.
-func TestEmployeeSweep_TaskStartsWorkAndAnnounces(t *testing.T) {
+// TestEmployeeSweep_TaskVerdictNeverStartsWork: a proactive "task" verdict must
+// never create work on its own — not even in auto mode. By the time the sweep
+// fires (quiet period / message threshold) the conversation may have moved on,
+// so the proposal is recorded in the calibration queue and waits for an explicit
+// accept.
+func TestEmployeeSweep_TaskVerdictNeverStartsWork(t *testing.T) {
 	f := newIMBotFixture(t)
 	chat := f.observeChat(t, "oc_task")
 	seedChatter(t, f, chat, employeeMinMessages)
@@ -310,41 +314,27 @@ func TestEmployeeSweep_TaskStartsWorkAndAnnounces(t *testing.T) {
 	emp := NewIMBotEmployee(f.svc, f.q, an)
 	emp.sweep(context.Background())
 
-	if f.router.calls != 1 {
-		t.Fatalf("task verdict routed %d times, want 1", f.router.calls)
+	if f.router.calls != 0 {
+		t.Fatalf("proactive verdict routed %d times, want 0", f.router.calls)
 	}
-	if f.router.lastText != "整理本季度的销售数据并生成报告" {
-		t.Errorf("routed text = %q, want the verdict's task", f.router.lastText)
+	if n := len(f.deliverer.calls); n != 0 {
+		t.Fatalf("proactive verdict delivered %d messages, want 0", n)
 	}
-	// ForceNew: a proactively-found piece of work is its own task, never folded
-	// into whatever the chat happened to be pointing at.
-	if !f.router.lastHint.ForceNew {
-		t.Errorf("proactive task did not force a new task")
+	if n := len(f.adapter.pushes); n != 0 {
+		t.Fatalf("proactive verdict pushed %d messages, want 0", n)
 	}
-	calls := f.deliverer.calls
-	if len(calls) != 1 || calls[0].content != "整理本季度的销售数据并生成报告" {
-		t.Fatalf("unexpected delivery: %+v", calls)
+
+	pending, err := f.q.ListPendingIntakeDecisions(context.Background(), store.ListPendingIntakeDecisionsParams{
+		ProjectID: f.projectID, Decision: "accept",
+	})
+	if err != nil {
+		t.Fatalf("list pending decisions: %v", err)
 	}
-	pushes := f.adapter.pushes
-	if len(pushes) != 1 || !strings.Contains(pushes[0].Text, "#"+itoa(f.issueID)) {
-		t.Fatalf("task announcement missing the task ref: %+v", pushes)
+	if len(pending) != 1 {
+		t.Fatalf("pending decisions = %d, want 1", len(pending))
 	}
-	// The chat is NOT repointed at the new task: the active pointer is where a
-	// human's bare follow-up lands and belongs to whatever conversation they are
-	// having (see TestEmployeeTask_DoesNotStealActivePointer). The team reaches a
-	// proactive task through the announced `#<id>` instead, and the task stays bound
-	// to the chat for outbound replies via a synthetic thread row.
-	updated, _ := f.q.GetIMBotChat(context.Background(), chat.ID)
-	if updated.ActiveIssueID.Valid {
-		t.Errorf("proactive task moved the active pointer to %+v, want it untouched", updated.ActiveIssueID)
-	}
-	threads, terr := f.q.ListIMBotThreadsByIssue(context.Background(), f.issueID)
-	if terr != nil || len(threads) != 1 || !isProactiveThreadExtID(threads[0].ThreadExtID) {
-		t.Errorf("proactive task not bound to the chat for outbound replies: %+v (err=%v)", threads, terr)
-	}
-	// The announcement must tell the team how to continue it.
-	if !strings.Contains(pushes[0].Text, "#"+itoa(f.issueID)) {
-		t.Errorf("announcement missing the task ref: %q", pushes[0].Text)
+	if !strings.Contains(pending[0].WouldDoJson, "整理本季度的销售数据并生成报告") {
+		t.Errorf("would_do_json missing the proposed goal: %s", pending[0].WouldDoJson)
 	}
 }
 
@@ -456,8 +446,19 @@ func TestEmployeeSweep_InheritUsesProjectPolicy(t *testing.T) {
 	}})
 	emp.sweep(ctx)
 
-	if f.router.calls != 1 {
-		t.Fatalf("inherit + project auto routed %d times, want 1", f.router.calls)
+	// Inherit resolves to the project's auto mode, which means the proposal is
+	// recordable — but never auto-started.
+	if f.router.calls != 0 {
+		t.Fatalf("inherit + project auto routed %d times, want 0", f.router.calls)
+	}
+	pending, err := f.q.ListPendingIntakeDecisions(ctx, store.ListPendingIntakeDecisionsParams{
+		ProjectID: f.projectID, Decision: "accept",
+	})
+	if err != nil {
+		t.Fatalf("list pending decisions: %v", err)
+	}
+	if len(pending) != 1 {
+		t.Fatalf("pending decisions = %d, want 1", len(pending))
 	}
 }
 
@@ -1038,127 +1039,6 @@ func TestEmployeeStop_CancelsInFlightSweep(t *testing.T) {
 		}
 	case <-time.After(5 * time.Second):
 		t.Fatal("in-flight analysis never saw a cancelled context")
-	}
-}
-
-// TestEmployeeTask_DoesNotStealActivePointer is a regression guard for a real bug
-// found in review: the proactive task used to repoint the chat's active pointer at
-// itself. The pointer is where a human's bare follow-up lands, so a background
-// sweep moving it silently redirected the next thing someone typed into the
-// robot's self-started task instead of their own conversation.
-func TestEmployeeTask_DoesNotStealActivePointer(t *testing.T) {
-	f := newIMBotFixture(t)
-	chat := f.observeChat(t, "oc_pointer")
-	ctx := context.Background()
-
-	// The team is mid-conversation with the bot on the fixture issue.
-	f.router.queue = []PlanTarget{{IssueID: f.issueID, WorkspaceID: f.wsID, ProjectID: f.projectID}}
-	f.svc.HandleInbound(ctx, f.groupMsg(chat.ChatExtID, "e-live", "帮我整理季度报告", true))
-	live, _ := f.q.GetIMBotChat(ctx, chat.ID)
-	if !live.ActiveIssueID.Valid || live.ActiveIssueID.Int64 != f.issueID {
-		t.Fatalf("precondition: active pointer = %+v, want %d", live.ActiveIssueID, f.issueID)
-	}
-
-	// Meanwhile the employee finds unrelated work in the chatter.
-	otherIssue, otherWS := f.newWorkspace(t, "主动发现的任务", "/tmp/ws-proactive")
-	seedChatter(t, f, live, employeeMinMessages)
-	f.router.queue = []PlanTarget{{IssueID: otherIssue, WorkspaceID: otherWS, ProjectID: f.projectID}}
-	emp := NewIMBotEmployee(f.svc, f.q, &fakeAnalyzer{verdict: EmployeeVerdict{
-		Action: EmployeeActionTask, Task: "另一件事",
-	}})
-	emp.sweep(ctx)
-
-	after, _ := f.q.GetIMBotChat(ctx, chat.ID)
-	if !after.ActiveIssueID.Valid || after.ActiveIssueID.Int64 != f.issueID {
-		t.Fatalf("proactive task moved the active pointer to %+v, want it left on %d", after.ActiveIssueID, f.issueID)
-	}
-
-	// The human's bare follow-up must still reach THEIR conversation.
-	before := len(f.deliverer.calls)
-	f.svc.HandleInbound(ctx, f.groupMsg(chat.ChatExtID, "e-followup", "再补一段结论", true))
-	calls := f.deliverer.calls
-	if len(calls) == before {
-		t.Fatal("follow-up not delivered")
-	}
-	if got := calls[len(calls)-1].workspaceID; got != f.wsID {
-		t.Errorf("follow-up went to workspace %d (the proactive task), want %d (the human's conversation)", got, f.wsID)
-	}
-}
-
-// TestEmployeeTask_ResultStillReachesChat is the other half of the pointer fix:
-// the proactive task must stay BOUND to the chat, or the employee would start work
-// and then swallow the outcome — the dispatcher only pushes an issue's replies to
-// chats bound to it. The binding is a synthetic thread row, so it must also not be
-// handed to an adapter as a real platform thread.
-func TestEmployeeTask_ResultStillReachesChat(t *testing.T) {
-	f := newIMBotFixture(t)
-	chat := f.observeChat(t, "oc_result")
-	ctx := context.Background()
-	seedChatter(t, f, chat, employeeMinMessages)
-	f.router.queue = []PlanTarget{{IssueID: f.issueID, WorkspaceID: f.wsID, ProjectID: f.projectID}}
-
-	emp := NewIMBotEmployee(f.svc, f.q, &fakeAnalyzer{verdict: EmployeeVerdict{
-		Action: EmployeeActionTask, Task: "整理季度数据",
-	}})
-	emp.sweep(ctx)
-
-	d := NewIMBotDispatcher(event.NewBus(), f.q, f.svc,
-		map[imbot.ChannelType]imbot.ChannelAdapter{imbot.ChannelLark: f.adapter})
-	targets := d.resolveTargets(ctx, f.projectID, f.issueID)
-	if len(targets) != 1 {
-		t.Fatalf("agent result for the proactive task reaches %d chats, want 1", len(targets))
-	}
-	// The synthetic binding must not leak to the adapter as a thread id: posting
-	// into a nonexistent thread would fail or land in the wrong place.
-	if targets[0].threadExtID != "" {
-		t.Errorf("synthetic proactive binding leaked as thread id %q, want empty", targets[0].threadExtID)
-	}
-}
-
-// TestEmployeeTask_IncompleteRouteTargetStaysSilent guards the third review bug: a
-// router may return a zero-valued target with NO error. Announcing that posted a
-// bogus "#0" the user could not reach and claimed work had started when none had.
-func TestEmployeeTask_IncompleteRouteTargetStaysSilent(t *testing.T) {
-	f := newIMBotFixture(t)
-	chat := f.observeChat(t, "oc_zerotarget")
-	ctx := context.Background()
-	seedChatter(t, f, chat, employeeMinMessages)
-	f.router.queue = nil // -> PlanTarget{} with a nil error
-
-	emp := NewIMBotEmployee(f.svc, f.q, &fakeAnalyzer{verdict: EmployeeVerdict{
-		Action: EmployeeActionTask, Task: "干活",
-	}})
-	emp.sweep(ctx)
-
-	for _, p := range f.adapter.pushes {
-		if strings.Contains(p.Text, "#0") {
-			t.Errorf("announced a bogus task reference: %q", p.Text)
-		}
-	}
-	if th, err := f.q.ListIMBotThreadsByIssue(ctx, 0); err == nil && len(th) > 0 {
-		t.Errorf("wrote %d thread binding(s) for issue 0", len(th))
-	}
-	if n := len(f.deliverer.calls); n != 0 {
-		t.Errorf("delivered %d messages for an unresolved target, want 0", n)
-	}
-}
-
-// TestProactiveThreadExtID_CannotCollideWithPlatformIDs pins the sentinel's safety
-// property: it must never equal a real thread id from any supported platform, or a
-// proactive binding would capture (or be captured by) genuine thread routing.
-func TestProactiveThreadExtID_CannotCollideWithPlatformIDs(t *testing.T) {
-	key := proactiveThreadExtID(42)
-	if !isProactiveThreadExtID(key) {
-		t.Fatalf("%q not recognized as a proactive key", key)
-	}
-	// Real thread ids: Lark omt_*, Telegram decimal, others empty.
-	for _, real := range []string{"", "omt_abc123", "42", "1", "0"} {
-		if isProactiveThreadExtID(real) {
-			t.Errorf("platform thread id %q misread as a proactive key", real)
-		}
-		if real == key {
-			t.Errorf("sentinel collides with platform id %q", real)
-		}
 	}
 }
 

@@ -578,20 +578,35 @@ func TestProposeRecordsDryRunWithoutSideEffects(t *testing.T) {
 	}
 }
 
-func TestProposeSkipsOutsideObserve(t *testing.T) {
-	for _, mode := range []Mode{ModeAuto, ModeOff} {
+// A proposal is a dry-run record, never an execution, so it is recorded in both
+// observe and auto; only off mode (inferred work not evaluated) drops it.
+func TestProposeRecordsInObserveAndAutoNeverExecutes(t *testing.T) {
+	for _, mode := range []Mode{ModeObserve, ModeAuto} {
 		svc, store, _, _, executor := newHarness(Policy{Mode: mode})
 		tg := trigger("bot:employee", "整理季度数据")
 		tg.Mode = mode
 		if _, err := svc.Propose(context.Background(), Proposal{Trigger: tg, Goal: "整理季度数据"}); err != nil {
 			t.Fatalf("Propose(%s): %v", mode, err)
 		}
-		if len(store.decisions) != 0 || store.eventCalls != 0 {
-			t.Fatalf("mode %s recorded or stored something", mode)
+		if len(store.decisions) != 1 || store.eventCalls != 1 {
+			t.Fatalf("mode %s recorded %d events / %d decisions, want 1/1", mode, store.eventCalls, len(store.decisions))
 		}
 		if len(executor.plans) != 0 {
 			t.Fatalf("mode %s executed", mode)
 		}
+	}
+
+	svc, store, _, _, executor := newHarness(Policy{Mode: ModeOff})
+	tg := trigger("bot:employee", "整理季度数据")
+	tg.Mode = ModeOff
+	if _, err := svc.Propose(context.Background(), Proposal{Trigger: tg, Goal: "整理季度数据"}); err != nil {
+		t.Fatalf("Propose(off): %v", err)
+	}
+	if len(store.decisions) != 0 || store.eventCalls != 0 {
+		t.Fatalf("off mode recorded or stored something")
+	}
+	if len(executor.plans) != 0 {
+		t.Fatalf("off mode executed")
 	}
 }
 

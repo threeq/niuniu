@@ -150,10 +150,11 @@
       "off": "關閉",
       "observe": "觀察",
       "auto": "自動",
-      "offDescription": "只響應明確 @ 牛牛的訊息。",
-      "observeDescription": "記錄本來會接的任務，不自動執行。",
-      "autoDescription": "在規則和每日上限內自動接活。",
-      "defaultHint": "該來源的專案預設值；單個 IM 會話可在「IM 接入設定」中單獨覆蓋。"
+      "offDescription": "只處理明確 @ 或私聊的請求；群組其他訊息不記錄。",
+      "observeDescription": "不自動建任務。符合條件的外部訊息進入「待校準」佇列，由你逐筆採納或忽略；適合先累積樣本。",
+      "autoDescription": "命中規則的請求直接建任務（受每日上限限制），不需要你確認；建議先完成校準再開啟。",
+      "defaultHint": "該來源的專案預設值；單個 IM 會話可在「IM 接入設定」中單獨覆蓋。",
+      "chooseHint": "不確定選哪個？先用「觀察」累積樣本；校準達到 10 筆且認可率 80% 以上再開「自動」。"
     },
     "calibration": {
       "summary": "已校準 {{count}} 條 · 認可率 {{rate}}%",

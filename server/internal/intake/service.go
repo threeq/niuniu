@@ -410,7 +410,9 @@ func (s *Service) Propose(ctx context.Context, p Proposal) (Result, error) {
 	if policy.Paused {
 		policy.Mode = ModeOff
 	}
-	if policy.Mode != ModeObserve {
+	// A proposal is always a dry-run record, never an execution: even in auto it
+	// waits for an explicit accept. Off mode does not evaluate inferred work.
+	if policy.Mode == ModeOff {
 		return Result{Decision: DecisionIgnore, ReasonCode: ReasonOffInferred}, nil
 	}
 

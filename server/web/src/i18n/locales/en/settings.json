@@ -499,7 +499,7 @@
     "agentModeCommand": "On command",
     "agentModeCommandHint": "Act only when @-mentioned, messaged directly, or given a command.",
     "agentModeObserve": "Listen mode",
-    "agentModeObserveHint": "Record the discussion and review it periodically; speak up or start a task when warranted.",
+    "agentModeObserveHint": "Records the group discussion and analyzes it periodically; discovered work goes to the review queue and only starts after you accept it.",
     "agentModeOk": "Employee mode updated",
     "unbindConfirm": "Unbind \"{{name}}\"? The chat must be re-approved before it routes again.",
     "unbind": "Unbind",
