@@ -416,6 +416,10 @@ func (h *IntakeHandler) AcceptDecision(c *gin.Context) {
 	if in.TargetIssueID != nil {
 		targetIssueID = *in.TargetIssueID
 	}
+	// The service re-checks that the target issue belongs to the decision's
+	// project (assertTargetIssueInProject); this handler has already enforced
+	// write access on that project via intakeProjectAccess, so a foreign issue
+	// id cannot cross project or tenant boundaries.
 	item, err := h.svc.AcceptDecision(c.Request.Context(), did, in.Brief, targetIssueID)
 	if err != nil {
 		h.mapIntakeErr(c, err)

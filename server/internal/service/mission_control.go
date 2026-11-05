@@ -884,6 +884,16 @@ func (s *MissionControlService) SetPaused(ctx context.Context, userID int64, own
 	if err != nil {
 		return 0, err
 	}
+	// Validate write access for every project before mutating any: this
+	// endpoint is a bulk write, so a partially-authorized scope must fail
+	// closed instead of leaving half the projects paused. It mirrors the
+	// per-project gate IntakeHandler.SetPause applies on its sibling route.
+	for _, p := range projects {
+		owner := OwnerRef{Type: p.OwnerType, ID: p.OwnerID}
+		if err := s.authz.EnsureOwnerWritable(ctx, userID, owner); err != nil {
+			return 0, err
+		}
+	}
 	for _, p := range projects {
 		if _, err := s.intake.SetPaused(ctx, p.ID, paused); err != nil {
 			return 0, fmt.Errorf("set intake pause for project %d: %w", p.ID, err)
