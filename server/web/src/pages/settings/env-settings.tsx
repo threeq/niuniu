@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
-import { Plus, Trash2, Pencil, ChevronDown, ChevronRight, ChevronUp, Package, KeyRound, Server, Copy, Power } from 'lucide-react'
+import { Plus, Trash2, Pencil, ChevronDown, ChevronRight, ChevronUp, Package, KeyRound, Server, Copy, Power, User, Building2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import {
@@ -19,6 +19,23 @@ import { OwnerPicker } from '@/components/shared/owner-picker'
 import { useAuthStore } from '@/stores/auth-store'
 import type { OwnerRef } from '@/types/org'
 import type { EnvPreset, CreateEnvPresetData, EnvAccount, CreateEnvAccountData, EnvProvider, CreateEnvProviderData } from '@/types/api'
+
+// Owner identity attached to providers/accounts. Grouping by it is what makes
+// same-named rows from different owners tellable apart.
+type OwnerInfo = { type: string; id: number; name?: string; slug?: string }
+
+function OwnerGroupLabel({ label, type }: { label: string; type?: string }) {
+  return (
+    <div className="flex items-center gap-1.5 border-b border-border pb-1">
+      {type === 'org' ? (
+        <Building2 className="h-3.5 w-3.5 text-info" aria-hidden />
+      ) : (
+        <User className="h-3.5 w-3.5 text-muted-foreground" aria-hidden />
+      )}
+      <span className="text-xs font-semibold text-foreground">{label}</span>
+    </div>
+  )
+}
 
 const PROVIDER_CLI_TYPES = ['claude', 'codex', 'qwen', 'omp', 'goose'] as const
 type ProviderCliType = (typeof PROVIDER_CLI_TYPES)[number]
@@ -450,18 +467,45 @@ export function EnvSettings({ mode = 'all' }: { mode?: 'all' | 'presets' | 'prov
   // you see in the settings list is exactly the fallback priority order.
   const orderedProviders = (ps: EnvProvider[]) =>
     [...ps].sort((a, b) => a.group_position - b.group_position || a.id - b.id)
-  // Group providers by group_name; standalone (empty group) ones are shown
-  // separately after all named groups.
-  const namedGroups = [...new Set(providers.map((p) => p.group_name).filter(Boolean))].sort((a, b) =>
-    a.localeCompare(b, 'zh-Hans-CN'))
-  const groupedProviders = (group: string) =>
-    orderedProviders(providers.filter((p) => p.group_name === group))
-  const standaloneProviders = orderedProviders(providers.filter((p) => !p.group_name))
+  // Owner grouping: the page lists every owner's providers/accounts (personal +
+  // each org), so rows are grouped by owner FIRST. Without it, two providers
+  // from different owners are indistinguishable when they share a name/group.
+  // The header itself only renders when more than one owner contributes.
+  const ownerKeyOf = (item: { owner?: OwnerInfo }) =>
+    item.owner ? `${item.owner.type}:${item.owner.id}` : 'none'
+  function groupByOwner<T extends { owner?: OwnerInfo }>(items: T[]) {
+    const groups = new Map<string, { key: string; owner?: OwnerInfo; items: T[] }>()
+    for (const item of items) {
+      const key = ownerKeyOf(item)
+      if (!groups.has(key)) groups.set(key, { key, owner: item.owner, items: [] })
+      groups.get(key)!.items.push(item)
+    }
+    return [...groups.values()].sort((a, b) => {
+      const rank = (g: { owner?: OwnerInfo }) => (g.owner ? (g.owner.type === 'user' ? 0 : 1) : 2)
+      const byRank = rank(a) - rank(b)
+      if (byRank !== 0) return byRank
+      return (a.owner?.name ?? '').localeCompare(b.owner?.name ?? '')
+    })
+  }
+  const ownerLabel = (owner?: OwnerInfo) => {
+    if (!owner) return t('env.ownerGroup.none')
+    if (owner.type === 'user') {
+      return owner.id === (currentUser?.id ?? 0)
+        ? t('env.ownerGroup.personal')
+        : owner.name || t('env.ownerGroup.user', { id: owner.id })
+    }
+    return owner.name || owner.slug || t('env.ownerGroup.org', { id: owner.id })
+  }
+  const providerOwnerGroups = groupByOwner(providers)
+  const accountOwnerGroups = groupByOwner(accounts)
 
   // Move a provider one slot up/down within its group, then persist the whole
-  // group's new order.
-  const moveInGroup = (group: string, id: number, dir: -1 | 1) => {
-    const ids = groupedProviders(group).map((p) => p.id)
+  // group's new order. Scoped by owner: different owners may reuse the same
+  // group name, and their orders are independent.
+  const moveInGroup = (group: string, ownerKey: string, id: number, dir: -1 | 1) => {
+    const ids = orderedProviders(
+      providers.filter((p) => p.group_name === group && ownerKeyOf(p) === ownerKey),
+    ).map((p) => p.id)
     const idx = ids.indexOf(id)
     const j = idx + dir
     if (idx < 0 || j < 0 || j >= ids.length) return
@@ -581,60 +625,75 @@ export function EnvSettings({ mode = 'all' }: { mode?: 'all' | 'presets' | 'prov
           <p className="mt-3 text-sm text-muted-foreground">{t('env.noProviders')}</p>
         ) : (
           <div className="mt-3 space-y-5">
-            {namedGroups.map((g) => {
-              const members = groupedProviders(g)
+            {providerOwnerGroups.map((ownerGroup) => {
+              const ownerProviders = ownerGroup.items
+              const memberGroups = [...new Set(ownerProviders.map((p) => p.group_name).filter(Boolean))]
+                .sort((a, b) => a.localeCompare(b, 'zh-Hans-CN'))
+              const standalone = orderedProviders(ownerProviders.filter((p) => !p.group_name))
+              const grouped = (group: string) =>
+                orderedProviders(ownerProviders.filter((p) => p.group_name === group))
               return (
-                <div key={g} className="space-y-2">
-                  <div className="flex items-center gap-2">
-                    <Package className="h-4 w-4 text-info flex-shrink-0" />
-                    <span className="text-sm font-medium text-foreground">{t('env.providerGroup', { group: g })}</span>
-                    <span className="text-xs text-muted-foreground">{t('env.groupOrderHint')}</span>
-                  </div>
-                  <div className="space-y-3">
-                    {members.map((p, i) => (
-                      <ProviderCard
-                        key={p.id}
-                        provider={p}
-                        onEdit={openEditProviderDialog}
-                        onDuplicate={openDuplicateProviderDialog}
-                        onDelete={(id) => deleteProviderMutation.mutate(id)}
-                        onClearCooldown={(id) => clearCooldownMutation.mutate(id)}
-                        onToggleEnabled={(id, enabled) => setEnabledMutation.mutate({ id, enabled })}
-                        onMoveUp={() => moveInGroup(g, p.id, -1)}
-                        onMoveDown={() => moveInGroup(g, p.id, 1)}
-                        canMoveUp={i > 0}
-                        canMoveDown={i < members.length - 1}
-                      />
-                    ))}
-                  </div>
+                <div key={ownerGroup.key} className="space-y-4">
+                  {providerOwnerGroups.length > 1 && (
+                    <OwnerGroupLabel label={ownerLabel(ownerGroup.owner)} type={ownerGroup.owner?.type} />
+                  )}
+                  {memberGroups.map((g) => {
+                    const members = grouped(g)
+                    return (
+                      <div key={g} className="space-y-2">
+                        <div className="flex items-center gap-2">
+                          <Package className="h-4 w-4 text-info flex-shrink-0" />
+                          <span className="text-sm font-medium text-foreground">{t('env.providerGroup', { group: g })}</span>
+                          <span className="text-xs text-muted-foreground">{t('env.groupOrderHint')}</span>
+                        </div>
+                        <div className="space-y-3">
+                          {members.map((p, i) => (
+                            <ProviderCard
+                              key={p.id}
+                              provider={p}
+                              onEdit={openEditProviderDialog}
+                              onDuplicate={openDuplicateProviderDialog}
+                              onDelete={(id) => deleteProviderMutation.mutate(id)}
+                              onClearCooldown={(id) => clearCooldownMutation.mutate(id)}
+                              onToggleEnabled={(id, enabled) => setEnabledMutation.mutate({ id, enabled })}
+                              onMoveUp={() => moveInGroup(g, ownerGroup.key, p.id, -1)}
+                              onMoveDown={() => moveInGroup(g, ownerGroup.key, p.id, 1)}
+                              canMoveUp={i > 0}
+                              canMoveDown={i < members.length - 1}
+                            />
+                          ))}
+                        </div>
+                      </div>
+                    )
+                  })}
+                  {standalone.length > 0 && (
+                    <div className="space-y-2">
+                      <div className="flex items-center gap-2">
+                        <Server className="h-4 w-4 text-muted-foreground flex-shrink-0" />
+                        <span className="text-sm font-medium text-muted-foreground">{t('env.standaloneTitle')}</span>
+                      </div>
+                      <div className="space-y-3">
+                        {standalone.map((p) => (
+                          <ProviderCard
+                            key={p.id}
+                            provider={p}
+                            onEdit={openEditProviderDialog}
+                            onDuplicate={openDuplicateProviderDialog}
+                            onDelete={(id) => deleteProviderMutation.mutate(id)}
+                            onClearCooldown={(id) => clearCooldownMutation.mutate(id)}
+                            onToggleEnabled={(id, enabled) => setEnabledMutation.mutate({ id, enabled })}
+                            onMoveUp={() => {}}
+                            onMoveDown={() => {}}
+                            canMoveUp={false}
+                            canMoveDown={false}
+                          />
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
               )
             })}
-            {standaloneProviders.length > 0 && (
-              <div className="space-y-2">
-                <div className="flex items-center gap-2">
-                  <Server className="h-4 w-4 text-muted-foreground flex-shrink-0" />
-                  <span className="text-sm font-medium text-muted-foreground">{t('env.standaloneTitle')}</span>
-                </div>
-                <div className="space-y-3">
-                  {standaloneProviders.map((p) => (
-                    <ProviderCard
-                      key={p.id}
-                      provider={p}
-                      onEdit={openEditProviderDialog}
-                      onDuplicate={openDuplicateProviderDialog}
-                      onDelete={(id) => deleteProviderMutation.mutate(id)}
-                      onClearCooldown={(id) => clearCooldownMutation.mutate(id)}
-                      onToggleEnabled={(id, enabled) => setEnabledMutation.mutate({ id, enabled })}
-                      onMoveUp={() => {}}
-                      onMoveDown={() => {}}
-                      canMoveUp={false}
-                      canMoveDown={false}
-                    />
-                  ))}
-                </div>
-              </div>
-            )}
           </div>
         )}
       </div>
@@ -659,14 +718,21 @@ export function EnvSettings({ mode = 'all' }: { mode?: 'all' | 'presets' | 'prov
         ) : accounts.length === 0 ? (
           <p className="mt-3 text-sm text-muted-foreground">{t('env.noAccounts')}</p>
         ) : (
-          <div className="mt-3 space-y-3">
-            {accounts.map((account) => (
-              <AccountCard
-                key={account.id}
-                account={account}
-                onEdit={openEditAccountDialog}
-                onDelete={(id) => deleteAccountMutation.mutate(id)}
-              />
+          <div className="mt-3 space-y-4">
+            {accountOwnerGroups.map((ownerGroup) => (
+              <div key={ownerGroup.key} className="space-y-3">
+                {accountOwnerGroups.length > 1 && (
+                  <OwnerGroupLabel label={ownerLabel(ownerGroup.owner)} type={ownerGroup.owner?.type} />
+                )}
+                {ownerGroup.items.map((account) => (
+                  <AccountCard
+                    key={account.id}
+                    account={account}
+                    onEdit={openEditAccountDialog}
+                    onDelete={(id) => deleteAccountMutation.mutate(id)}
+                  />
+                ))}
+              </div>
             ))}
           </div>
         )}

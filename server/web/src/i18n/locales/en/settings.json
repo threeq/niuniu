@@ -901,6 +901,12 @@
       "apiKeyHint": "The key is stored only on this machine and never appears in a preset's plaintext environment variables."
     },
     "providersTitle": "Subscription Platform Providers",
+    "ownerGroup": {
+      "personal": "Personal",
+      "user": "User #{{id}}",
+      "org": "Organization #{{id}}",
+      "none": "No owner"
+    },
     "providersDescription": "Configure a platform's base_url / models / API key once, and the system generates the correct environment variables for the target Agent type (ANTHROPIC_* for Claude Code, OPENAI_* for Codex/Qwen and others). Import as a preset to apply to any Agent.",
     "newProvider": "New Provider",
     "noProviders": "No providers",
