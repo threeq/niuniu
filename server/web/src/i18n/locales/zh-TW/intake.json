@@ -370,7 +370,7 @@
     "saveFailed": "儲存草稿失敗",
     "accept": "採納並建立任務",
     "acceptResume": "採納後續接",
-    "acceptInto": "採納並傳送到 #{{id}}",
+    "acceptInto": "採納併傳送到 #{{id}}",
     "acceptPickFirst": "請先選擇任務",
     "accepting": "處理中…",
     "accepted": "已採納，正在開啟任務",
