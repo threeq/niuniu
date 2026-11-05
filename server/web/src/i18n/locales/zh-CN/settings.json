@@ -901,6 +901,12 @@
       "apiKeyHint": "Key 仅保存在本机，不会出现在预设的明文环境变量里。"
     },
     "providersTitle": "订阅平台 Provider",
+    "ownerGroup": {
+      "personal": "个人",
+      "user": "用户 #{{id}}",
+      "org": "组织 #{{id}}",
+      "none": "未指定所有者"
+    },
     "providersDescription": "统一配置平台的 base_url / 模型 / API Key，按目标 Agent 类型自动生成正确的环境变量（Claude Code 用 ANTHROPIC_*，Codex/Qwen 等用 OPENAI_*）。配置一次，导入为预设即可应用到任意 Agent。",
     "newProvider": "新建 Provider",
     "noProviders": "暂无 Provider",
