@@ -901,10 +901,15 @@
       "apiKeyHint": "The key is stored only on this machine and never appears in a preset's plaintext environment variables."
     },
     "providersTitle": "Subscription Platform Providers",
+    "platformTitle": "Subscription Platforms",
+    "platformDescription": "Configure each platform's Provider (base URL / model / API key) and subscription accounts in one place. Presets reference an account via ${ACCOUNT:account name}; change the key once and every agent that references it picks it up.",
+    "emptyPlatform": "No platform configuration yet. Create a provider or account to get started.",
     "ownerGroup": {
       "personal": "Personal",
       "user": "User #{{id}}",
       "org": "Organization #{{id}}",
+      "system": "System default",
+      "counts": "{{providers}} providers · {{accounts}} accounts",
       "none": "No owner"
     },
     "providersDescription": "Configure a platform's base_url / models / API key once, and the system generates the correct environment variables for the target Agent type (ANTHROPIC_* for Claude Code, OPENAI_* for Codex/Qwen and others). Import as a preset to apply to any Agent.",
