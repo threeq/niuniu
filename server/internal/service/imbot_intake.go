@@ -513,6 +513,11 @@ func (s *IMBotService) AcceptDecision(ctx context.Context, d store.IntakeDecisio
 		plan.Brief = *wd.Brief
 	}
 	if targetIssueID > 0 {
+		// Defence in depth: reject a target outside the decision's project even
+		// if a caller reached this executor directly.
+		if err := assertTargetIssueInProject(ctx, s.q, d.ProjectID, targetIssueID); err != nil {
+			return 0, 0, fmt.Errorf("intake accept: %w", err)
+		}
 		// The user picked an existing task: deliver there instead of creating a
 		// new one. A task without a workspace cannot run, so fail loudly rather
 		// than recording a success that never executes.

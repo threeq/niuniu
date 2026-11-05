@@ -41,15 +41,15 @@ var validIntakeModes = map[string]bool{"off": true, "observe": true, "auto": tru
 
 // IntakeSettingDTO is one (project, source) intake configuration.
 type IntakeSettingDTO struct {
-	SourceKind string     `json:"source_kind"`
+	SourceKind string `json:"source_kind"`
 	// Enabled is the project-wide switch for this source. IM chats still carry
 	// their own mode; a disabled source is off for every one of them.
-	Enabled    bool       `json:"enabled"`
-	Mode       string     `json:"mode"`
-	DailyCap   int64      `json:"daily_cap"`
-	AllowList  []string   `json:"allow_list"`
-	BotList    []string   `json:"bot_list"`
-	UpdatedAt  *time.Time `json:"updated_at,omitempty"`
+	Enabled   bool       `json:"enabled"`
+	Mode      string     `json:"mode"`
+	DailyCap  int64      `json:"daily_cap"`
+	AllowList []string   `json:"allow_list"`
+	BotList   []string   `json:"bot_list"`
+	UpdatedAt *time.Time `json:"updated_at,omitempty"`
 }
 
 // IntakeSettingsView is the GET /intake/settings response. Every known source
@@ -66,15 +66,15 @@ type IntakeSettingsView struct {
 
 // IntakeSettingInput is one settings row in a PUT body.
 type IntakeSettingInput struct {
-	SourceKind string   `json:"source_kind"`
+	SourceKind string `json:"source_kind"`
 	// Enabled is optional: nil preserves the stored value (default true for a
 	// source that has never been configured), so callers that only touch mode
 	// do not silently re-enable a source the user turned off.
-	Enabled    *bool    `json:"enabled"`
-	Mode       string   `json:"mode"`
-	DailyCap   *int64   `json:"daily_cap"`
-	AllowList  []string `json:"allow_list"`
-	BotList    []string `json:"bot_list"`
+	Enabled   *bool    `json:"enabled"`
+	Mode      string   `json:"mode"`
+	DailyCap  *int64   `json:"daily_cap"`
+	AllowList []string `json:"allow_list"`
+	BotList   []string `json:"bot_list"`
 }
 
 // UpdateIntakeSettingsRequest is the PUT /intake/settings body.
@@ -86,21 +86,21 @@ type UpdateIntakeSettingsRequest struct {
 // its originating event so the page can render source/actor/thread without a
 // second round trip.
 type IntakeDecisionDTO struct {
-	ID             int64           `json:"id"`
-	EventID        int64           `json:"event_id"`
-	ProjectID      int64           `json:"project_id"`
-	SourceKind     string          `json:"source_kind"`
-	EventKind      string          `json:"event_kind"`
-	ActorExtID     string          `json:"actor_ext_id"`
-	ActorName      string          `json:"actor_name"`
-	ThreadExtID    string          `json:"thread_ext_id"`
-	ModeAtDecision string          `json:"mode_at_decision"`
-	Strength       string          `json:"strength"`
-	Decision       string          `json:"decision"`
-	Executed       bool            `json:"executed"`
+	ID             int64  `json:"id"`
+	EventID        int64  `json:"event_id"`
+	ProjectID      int64  `json:"project_id"`
+	SourceKind     string `json:"source_kind"`
+	EventKind      string `json:"event_kind"`
+	ActorExtID     string `json:"actor_ext_id"`
+	ActorName      string `json:"actor_name"`
+	ThreadExtID    string `json:"thread_ext_id"`
+	ModeAtDecision string `json:"mode_at_decision"`
+	Strength       string `json:"strength"`
+	Decision       string `json:"decision"`
+	Executed       bool   `json:"executed"`
 	// Consumed marks a suggestion that a later automatic execution already
 	// absorbed; it is never processed again.
-	Consumed       bool            `json:"consumed"`
+	Consumed bool `json:"consumed"`
 	// Status is the queue-facing state derived from decision+executed:
 	// pending | accepted | ignored. Deriving it keeps the schema unchanged.
 	Status         string          `json:"status"`
@@ -959,6 +959,13 @@ func (s *IntakeService) AcceptDecision(ctx context.Context, decisionID int64, dr
 	if s.acceptor == nil {
 		return IntakeDecisionDTO{}, ErrDecisionAcceptorUnavailable
 	}
+	// "Accept into an existing task" must stay inside the decision's project:
+	// the decision's project is the only authorization scope this API
+	// establishes, so an arbitrary issue id here would let a caller deliver
+	// into another project's (or tenant's) workspace.
+	if err := assertTargetIssueInProject(ctx, s.q, d.ProjectID, targetIssueID); err != nil {
+		return IntakeDecisionDTO{}, err
+	}
 	if draft != nil {
 		merged, err := mergeBriefDraft(d.WouldDoJson, *draft)
 		if err != nil {
@@ -992,6 +999,28 @@ func (s *IntakeService) AcceptDecision(ctx context.Context, decisionID int64, dr
 		dto.DeliveryError = execErr.Error()
 	}
 	return dto, nil
+}
+
+// assertTargetIssueInProject guards the "accept into an existing task" path:
+// the target issue must belong to the SAME project as the decision. issueID 0
+// means "create a new task" and passes. Kept at the service layer so every
+// caller (HTTP handler, MCP tunnel, future acceptors) is covered.
+func assertTargetIssueInProject(ctx context.Context, q *store.Queries, projectID, issueID int64) error {
+	if issueID <= 0 {
+		return nil
+	}
+	issue, err := q.GetIssue(ctx, issueID)
+	if err != nil {
+		return fmt.Errorf("target issue %d not found", issueID)
+	}
+	col, err := q.GetColumn(ctx, issue.ColumnID)
+	if err != nil {
+		return fmt.Errorf("target issue %d has no column", issueID)
+	}
+	if col.ProjectID != projectID {
+		return fmt.Errorf("target issue %d belongs to another project", issueID)
+	}
+	return nil
 }
 
 // UpdateDecisionBrief saves the user's edited brief on a pending decision. It

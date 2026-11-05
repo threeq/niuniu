@@ -370,6 +370,8 @@
     "saveFailed": "Failed to save the draft",
     "accept": "Accept and create task",
     "acceptResume": "Accept and continue",
+    "acceptInto": "Accept and send to #{{id}}",
+    "acceptPickFirst": "Select a task first",
     "accepting": "Working…",
     "accepted": "Accepted, opening the task",
     "resumed": "Accepted, continuing the task",

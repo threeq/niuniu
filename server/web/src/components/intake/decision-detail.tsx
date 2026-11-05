@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next'
 import { useNavigate } from '@tanstack/react-router'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { AlertTriangle, ArrowUpRight, HelpCircle, Paperclip, Trash2 } from 'lucide-react'
+import { AlertTriangle, ArrowUpRight, Check, HelpCircle, Paperclip, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
   AlertDialog,
@@ -17,13 +17,6 @@ import {
   AlertDialogTrigger,
 } from '@/components/ui/alert-dialog'
 import { Input } from '@/components/ui/input'
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
 import {
   Tooltip,
   TooltipContent,
@@ -364,27 +357,49 @@ export function DecisionDetail({ decision, rules, rulesFailed }: DecisionDetailP
                   className="h-8"
                   aria-label={t('review.targetSearch')}
                 />
-                <Select
-                  value={targetIssueId !== null ? String(targetIssueId) : undefined}
-                  onValueChange={(value) => setTargetIssueId(Number(value))}
+                {/* Inline pick list: results are visible immediately and one
+                    click selects — the old open-dropdown-then-pick flow cost
+                    two interactions and hid which tasks matched the search. */}
+                <div
+                  role="radiogroup"
+                  aria-label={t('review.target')}
+                  className="max-h-44 overflow-y-auto rounded-md border border-warm-border"
                 >
-                  <SelectTrigger className="h-8" aria-label={t('review.target')}>
-                    <SelectValue placeholder={t('review.targetPick')} />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {taskOptions.map((issue) => (
-                      <SelectItem key={issue.id} value={String(issue.id)}>
-                        #{issue.id} {issue.title}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                {issuesQuery.isLoading && (
-                  <span className="text-xs text-warm-text-muted">{t('review.loading')}</span>
-                )}
-                {!issuesQuery.isLoading && taskOptions.length === 0 && (
-                  <span className="text-xs text-warm-text-muted">{t('review.targetEmpty')}</span>
-                )}
+                  {issuesQuery.isLoading ? (
+                    <div className="px-3 py-2 text-xs text-warm-text-muted">
+                      {t('review.loading')}
+                    </div>
+                  ) : taskOptions.length === 0 ? (
+                    <div className="px-3 py-2 text-xs text-warm-text-muted">
+                      {t('review.targetEmpty')}
+                    </div>
+                  ) : (
+                    taskOptions.map((issue) => {
+                      const selected = targetIssueId === issue.id
+                      return (
+                        <button
+                          key={issue.id}
+                          type="button"
+                          role="radio"
+                          aria-checked={selected}
+                          onClick={() => setTargetIssueId(issue.id)}
+                          className={cn(
+                            'flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm transition-colors',
+                            selected
+                              ? 'bg-brand-soft text-brand'
+                              : 'text-warm-text hover:bg-warm-muted',
+                          )}
+                        >
+                          <span className="shrink-0 text-xs tabular-nums text-warm-text-muted">
+                            #{issue.id}
+                          </span>
+                          <span className="min-w-0 flex-1 truncate">{issue.title}</span>
+                          {selected && <Check className="h-3.5 w-3.5 shrink-0" aria-hidden />}
+                        </button>
+                      )
+                    })
+                  )}
+                </div>
               </div>
             )}
           </section>
@@ -419,9 +434,13 @@ export function DecisionDetail({ decision, rules, rulesFailed }: DecisionDetailP
           >
             {accept.isPending
               ? t('review.accepting')
-              : isResume
-                ? t('review.acceptResume')
-                : t('review.accept')}
+              : targetMode === 'existing'
+                ? targetIssueId !== null
+                  ? t('review.acceptInto', { id: targetIssueId })
+                  : t('review.acceptPickFirst')
+                : isResume
+                  ? t('review.acceptResume')
+                  : t('review.accept')}
           </Button>
           {editing ? (
             <>
