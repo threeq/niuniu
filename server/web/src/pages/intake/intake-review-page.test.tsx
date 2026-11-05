@@ -54,6 +54,7 @@ import {
   type IntakeDecision,
   type IntakeSettings,
 } from '@/lib/intake-api'
+import { api } from '@/lib/api'
 import { IntakeReviewPage } from './intake-review-page'
 
 const decision = (over: Partial<IntakeDecision> = {}): IntakeDecision => ({
@@ -158,6 +159,37 @@ describe('IntakeReviewPage', () => {
     vi.mocked(intakeApi.getCalibration).mockResolvedValue(calibration())
     vi.mocked(intakeApi.getSettings).mockResolvedValue(settings())
     vi.mocked(intakeApi.updateSettings).mockResolvedValue(settings())
+  })
+
+  it('picks an existing task inline and labels the primary action by target mode', async () => {
+    vi.spyOn(api, 'get').mockImplementation(((path: string) => {
+      if (path === '/projects/1/issues') {
+        return Promise.resolve([{ id: 42, title: '已有任务' }])
+      }
+      return Promise.resolve([])
+    }) as never)
+    vi.mocked(intakeApi.accept).mockResolvedValue(decision({ issue_id: 42, executed: true }))
+
+    renderPage()
+    await screen.findAllByText('修复登录接口 500')
+
+    fireEvent.click(screen.getByText('review.targetExisting'))
+
+    // Nothing picked yet: the action explains what is missing instead of
+    // silently sitting disabled.
+    const blocked = await screen.findByRole('button', { name: 'review.acceptPickFirst' })
+    expect(blocked).toBeDisabled()
+
+    // One click on a visible result selects it — no open-dropdown step.
+    fireEvent.click(await screen.findByRole('radio', { name: /已有任务/ }))
+
+    const cta = screen.getByRole('button', { name: 'review.acceptInto' })
+    expect(cta).toBeEnabled()
+    fireEvent.click(cta)
+
+    await waitFor(() =>
+      expect(intakeApi.accept).toHaveBeenCalledWith(1, 1, expect.any(Object), 42),
+    )
   })
 
   it('lists the pending decision with its summary, strength and rule name', async () => {

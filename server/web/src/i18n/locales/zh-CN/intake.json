@@ -370,6 +370,8 @@
     "saveFailed": "保存草稿失败",
     "accept": "采纳并创建任务",
     "acceptResume": "采纳后续接",
+    "acceptInto": "采纳并发送到 #{{id}}",
+    "acceptPickFirst": "请先选择任务",
     "accepting": "处理中…",
     "accepted": "已采纳，正在打开任务",
     "resumed": "已采纳，正在续接任务",
