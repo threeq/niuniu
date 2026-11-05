@@ -17,23 +17,49 @@ import { confirm } from '@/lib/confirm'
 import { OwnerBadge } from '@/components/shared/owner-badge'
 import { OwnerPicker } from '@/components/shared/owner-picker'
 import { useAuthStore } from '@/stores/auth-store'
+import { useConfigStore } from '@/stores/config-store'
 import type { OwnerRef } from '@/types/org'
 import type { EnvPreset, CreateEnvPresetData, EnvAccount, CreateEnvAccountData, EnvProvider, CreateEnvProviderData } from '@/types/api'
+import {
+  combineOwnerGroups,
+  isSystemOwner,
+  ownerKeyOf,
+  type OwnerInfo,
+} from './env-owner-groups'
 
-// Owner identity attached to providers/accounts. Grouping by it is what makes
-// same-named rows from different owners tellable apart.
-type OwnerInfo = { type: string; id: number; name?: string; slug?: string }
-
-function OwnerGroupLabel({ label, type }: { label: string; type?: string }) {
+function OwnerGroupHeader({
+  label,
+  type,
+  expanded,
+  counts,
+  onToggle,
+}: {
+  label: string
+  type?: string
+  expanded: boolean
+  counts: string
+  onToggle: () => void
+}) {
   return (
-    <div className="flex items-center gap-1.5 border-b border-border pb-1">
-      {type === 'org' ? (
-        <Building2 className="h-3.5 w-3.5 text-info" aria-hidden />
+    <button
+      type="button"
+      onClick={onToggle}
+      aria-expanded={expanded}
+      className="flex w-full items-center gap-2 px-4 py-3 text-left"
+    >
+      {expanded ? (
+        <ChevronDown className="h-4 w-4 text-muted-foreground flex-shrink-0" aria-hidden />
       ) : (
-        <User className="h-3.5 w-3.5 text-muted-foreground" aria-hidden />
+        <ChevronRight className="h-4 w-4 text-muted-foreground flex-shrink-0" aria-hidden />
       )}
-      <span className="text-xs font-semibold text-foreground">{label}</span>
-    </div>
+      {type === 'org' ? (
+        <Building2 className="h-4 w-4 text-info flex-shrink-0" aria-hidden />
+      ) : (
+        <User className="h-4 w-4 text-muted-foreground flex-shrink-0" aria-hidden />
+      )}
+      <span className="text-sm font-medium text-foreground">{label}</span>
+      <span className="ml-auto text-xs text-muted-foreground tabular-nums">{counts}</span>
+    </button>
   )
 }
 
@@ -468,43 +494,45 @@ export function EnvSettings({ mode = 'all' }: { mode?: 'all' | 'presets' | 'prov
   const orderedProviders = (ps: EnvProvider[]) =>
     [...ps].sort((a, b) => a.group_position - b.group_position || a.id - b.id)
   // Owner grouping: the page lists every owner's providers/accounts (personal +
-  // each org), so rows are grouped by owner FIRST. Without it, two providers
-  // from different owners are indistinguishable when they share a name/group.
-  // The header itself only renders when more than one owner contributes.
-  const ownerKeyOf = (item: { owner?: OwnerInfo }) =>
-    item.owner ? `${item.owner.type}:${item.owner.id}` : 'none'
-  function groupByOwner<T extends { owner?: OwnerInfo }>(items: T[]) {
-    const groups = new Map<string, { key: string; owner?: OwnerInfo; items: T[] }>()
-    for (const item of items) {
-      const key = ownerKeyOf(item)
-      if (!groups.has(key)) groups.set(key, { key, owner: item.owner, items: [] })
-      groups.get(key)!.items.push(item)
-    }
-    return [...groups.values()].sort((a, b) => {
-      const rank = (g: { owner?: OwnerInfo }) => (g.owner ? (g.owner.type === 'user' ? 0 : 1) : 2)
-      const byRank = rank(a) - rank(b)
-      if (byRank !== 0) return byRank
-      return (a.owner?.name ?? '').localeCompare(b.owner?.name ?? '')
-    })
-  }
+  // each org), so rows are grouped by owner FIRST. System-seeded defaults
+  // (owner_type='user', owner_id=0) fold into the single personal user in the
+  // personal edition — that rule lives in env-owner-groups.ts.
+  const personalMode = useConfigStore((s) => s.personalMode)
+  const currentUserId = currentUser?.id ?? 0
   const ownerLabel = (owner?: OwnerInfo) => {
     if (!owner) return t('env.ownerGroup.none')
     if (owner.type === 'user') {
-      return owner.id === (currentUser?.id ?? 0)
-        ? t('env.ownerGroup.personal')
-        : owner.name || t('env.ownerGroup.user', { id: owner.id })
+      if (owner.id === currentUserId && currentUserId > 0) {
+        return t('env.ownerGroup.personal')
+      }
+      if (isSystemOwner(owner)) {
+        return personalMode
+          ? t('env.ownerGroup.personal')
+          : t('env.ownerGroup.system')
+      }
+      return owner.name || t('env.ownerGroup.user', { id: owner.id })
     }
     return owner.name || owner.slug || t('env.ownerGroup.org', { id: owner.id })
   }
-  const providerOwnerGroups = groupByOwner(providers)
-  const accountOwnerGroups = groupByOwner(accounts)
+  // One collapsible block per owner, holding both kinds of row. A provider and
+  // the account its API key references then sit together instead of in two
+  // separate owner-grouped lists.
+  const ownerGroups = combineOwnerGroups(providers, accounts, personalMode, currentUserId)
+  // Collapsing is a per-owner, in-memory convenience; all blocks start expanded.
+  const [collapsedOwners, setCollapsedOwners] = useState<Record<string, boolean>>({})
+  const toggleOwnerGroup = (key: string) =>
+    setCollapsedOwners((prev) => ({ ...prev, [key]: !prev[key] }))
 
   // Move a provider one slot up/down within its group, then persist the whole
   // group's new order. Scoped by owner: different owners may reuse the same
   // group name, and their orders are independent.
   const moveInGroup = (group: string, ownerKey: string, id: number, dir: -1 | 1) => {
     const ids = orderedProviders(
-      providers.filter((p) => p.group_name === group && ownerKeyOf(p) === ownerKey),
+      providers.filter(
+        (p) =>
+          p.group_name === group &&
+          ownerKeyOf(p, personalMode, currentUserId) === ownerKey,
+      ),
     ).map((p) => p.id)
     const idx = ids.indexOf(id)
     const j = idx + dir
@@ -604,136 +632,141 @@ export function EnvSettings({ mode = 'all' }: { mode?: 'all' | 'presets' | 'prov
 
   return (
     <div className="space-y-4">
-      {/* Subscription platform providers (unified config → per-agent env) */}
+      {/* Subscription platform: providers + platform accounts, one collapsible
+          block per owner so both kinds of row sit together. */}
       <div className={mode === 'presets' ? 'hidden' : ''}>
-        <div className="flex items-center justify-between">
+        <div className="flex flex-wrap items-start justify-between gap-2">
           <div className="min-w-0">
-            <h3 className="text-sm font-medium text-foreground">{t('env.providersTitle')}</h3>
+            <h3 className="text-sm font-medium text-foreground">{t('env.platformTitle')}</h3>
             <p className="mt-1 text-xs text-muted-foreground">
-              {t('env.providersDescription')}
+              {t('env.platformDescription')}
             </p>
           </div>
-          <Button size="sm" onClick={openCreateProviderDialog} className="flex-shrink-0">
-            <Plus className="h-3.5 w-3.5 mr-1" />
-            {t('env.newProvider')}
-          </Button>
+          <div className="flex flex-shrink-0 items-center gap-2">
+            <Button size="sm" variant="secondary" onClick={openCreateAccountDialog}>
+              <Plus className="h-3.5 w-3.5 mr-1" />
+              {t('env.newAccount')}
+            </Button>
+            <Button size="sm" onClick={openCreateProviderDialog}>
+              <Plus className="h-3.5 w-3.5 mr-1" />
+              {t('env.newProvider')}
+            </Button>
+          </div>
         </div>
 
-        {providersLoading ? (
+        {providersLoading || accountsLoading ? (
           <p className="mt-3 text-sm text-muted-foreground">{t('common:actions.loading')}</p>
-        ) : providers.length === 0 ? (
-          <p className="mt-3 text-sm text-muted-foreground">{t('env.noProviders')}</p>
+        ) : ownerGroups.length === 0 ? (
+          <p className="mt-3 text-sm text-muted-foreground">{t('env.emptyPlatform')}</p>
         ) : (
-          <div className="mt-3 space-y-5">
-            {providerOwnerGroups.map((ownerGroup) => {
-              const ownerProviders = ownerGroup.items
+          <div className="mt-3 space-y-3">
+            {ownerGroups.map((ownerGroup) => {
+              const ownerProviders = ownerGroup.providers
               const memberGroups = [...new Set(ownerProviders.map((p) => p.group_name).filter(Boolean))]
                 .sort((a, b) => a.localeCompare(b, 'zh-Hans-CN'))
               const standalone = orderedProviders(ownerProviders.filter((p) => !p.group_name))
               const grouped = (group: string) =>
                 orderedProviders(ownerProviders.filter((p) => p.group_name === group))
+              const expanded = !collapsedOwners[ownerGroup.key]
               return (
-                <div key={ownerGroup.key} className="space-y-4">
-                  {providerOwnerGroups.length > 1 && (
-                    <OwnerGroupLabel label={ownerLabel(ownerGroup.owner)} type={ownerGroup.owner?.type} />
-                  )}
-                  {memberGroups.map((g) => {
-                    const members = grouped(g)
-                    return (
-                      <div key={g} className="space-y-2">
-                        <div className="flex items-center gap-2">
-                          <Package className="h-4 w-4 text-info flex-shrink-0" />
-                          <span className="text-sm font-medium text-foreground">{t('env.providerGroup', { group: g })}</span>
-                          <span className="text-xs text-muted-foreground">{t('env.groupOrderHint')}</span>
-                        </div>
-                        <div className="space-y-3">
-                          {members.map((p, i) => (
-                            <ProviderCard
-                              key={p.id}
-                              provider={p}
-                              onEdit={openEditProviderDialog}
-                              onDuplicate={openDuplicateProviderDialog}
-                              onDelete={(id) => deleteProviderMutation.mutate(id)}
-                              onClearCooldown={(id) => clearCooldownMutation.mutate(id)}
-                              onToggleEnabled={(id, enabled) => setEnabledMutation.mutate({ id, enabled })}
-                              onMoveUp={() => moveInGroup(g, ownerGroup.key, p.id, -1)}
-                              onMoveDown={() => moveInGroup(g, ownerGroup.key, p.id, 1)}
-                              canMoveUp={i > 0}
-                              canMoveDown={i < members.length - 1}
-                            />
-                          ))}
-                        </div>
-                      </div>
-                    )
-                  })}
-                  {standalone.length > 0 && (
-                    <div className="space-y-2">
-                      <div className="flex items-center gap-2">
-                        <Server className="h-4 w-4 text-muted-foreground flex-shrink-0" />
-                        <span className="text-sm font-medium text-muted-foreground">{t('env.standaloneTitle')}</span>
-                      </div>
-                      <div className="space-y-3">
-                        {standalone.map((p) => (
-                          <ProviderCard
-                            key={p.id}
-                            provider={p}
-                            onEdit={openEditProviderDialog}
-                            onDuplicate={openDuplicateProviderDialog}
-                            onDelete={(id) => deleteProviderMutation.mutate(id)}
-                            onClearCooldown={(id) => clearCooldownMutation.mutate(id)}
-                            onToggleEnabled={(id, enabled) => setEnabledMutation.mutate({ id, enabled })}
-                            onMoveUp={() => {}}
-                            onMoveDown={() => {}}
-                            canMoveUp={false}
-                            canMoveDown={false}
-                          />
-                        ))}
-                      </div>
+                <div key={ownerGroup.key} className="overflow-hidden rounded-lg border border-border">
+                  <OwnerGroupHeader
+                    label={ownerLabel(ownerGroup.owner)}
+                    type={ownerGroup.owner?.type}
+                    expanded={expanded}
+                    counts={t('env.ownerGroup.counts', {
+                      providers: ownerProviders.length,
+                      accounts: ownerGroup.accounts.length,
+                    })}
+                    onToggle={() => toggleOwnerGroup(ownerGroup.key)}
+                  />
+                  {expanded && (
+                    <div className="space-y-5 border-t border-border px-4 py-4">
+                      {ownerProviders.length > 0 && (
+                        <section className="space-y-3">
+                          <div className="flex items-center gap-2">
+                            <Server className="h-4 w-4 text-info flex-shrink-0" aria-hidden />
+                            <span className="text-sm font-medium text-foreground">{t('env.providersTitle')}</span>
+                          </div>
+                          {memberGroups.map((g) => {
+                            const members = grouped(g)
+                            return (
+                              <div key={g} className="space-y-2">
+                                <div className="flex items-center gap-2">
+                                  <Package className="h-4 w-4 text-info flex-shrink-0" aria-hidden />
+                                  <span className="text-sm font-medium text-foreground">{t('env.providerGroup', { group: g })}</span>
+                                  <span className="text-xs text-muted-foreground">{t('env.groupOrderHint')}</span>
+                                </div>
+                                <div className="space-y-3">
+                                  {members.map((p, i) => (
+                                    <ProviderCard
+                                      key={p.id}
+                                      provider={p}
+                                      onEdit={openEditProviderDialog}
+                                      onDuplicate={openDuplicateProviderDialog}
+                                      onDelete={(id) => deleteProviderMutation.mutate(id)}
+                                      onClearCooldown={(id) => clearCooldownMutation.mutate(id)}
+                                      onToggleEnabled={(id, enabled) => setEnabledMutation.mutate({ id, enabled })}
+                                      onMoveUp={() => moveInGroup(g, ownerGroup.key, p.id, -1)}
+                                      onMoveDown={() => moveInGroup(g, ownerGroup.key, p.id, 1)}
+                                      canMoveUp={i > 0}
+                                      canMoveDown={i < members.length - 1}
+                                    />
+                                  ))}
+                                </div>
+                              </div>
+                            )
+                          })}
+                          {standalone.length > 0 && (
+                            <div className="space-y-2">
+                              <div className="flex items-center gap-2">
+                                <Server className="h-4 w-4 text-muted-foreground flex-shrink-0" aria-hidden />
+                                <span className="text-sm font-medium text-muted-foreground">{t('env.standaloneTitle')}</span>
+                              </div>
+                              <div className="space-y-3">
+                                {standalone.map((p) => (
+                                  <ProviderCard
+                                    key={p.id}
+                                    provider={p}
+                                    onEdit={openEditProviderDialog}
+                                    onDuplicate={openDuplicateProviderDialog}
+                                    onDelete={(id) => deleteProviderMutation.mutate(id)}
+                                    onClearCooldown={(id) => clearCooldownMutation.mutate(id)}
+                                    onToggleEnabled={(id, enabled) => setEnabledMutation.mutate({ id, enabled })}
+                                    onMoveUp={() => {}}
+                                    onMoveDown={() => {}}
+                                    canMoveUp={false}
+                                    canMoveDown={false}
+                                  />
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                        </section>
+                      )}
+                      {ownerGroup.accounts.length > 0 && (
+                        <section className={ownerProviders.length > 0 ? 'space-y-3 border-t border-border pt-4' : 'space-y-3'}>
+                          <div className="flex items-center gap-2">
+                            <KeyRound className="h-4 w-4 text-info flex-shrink-0" aria-hidden />
+                            <span className="text-sm font-medium text-foreground">{t('env.accountsTitle')}</span>
+                          </div>
+                          <div className="space-y-3">
+                            {ownerGroup.accounts.map((account) => (
+                              <AccountCard
+                                key={account.id}
+                                account={account}
+                                onEdit={openEditAccountDialog}
+                                onDelete={(id) => deleteAccountMutation.mutate(id)}
+                              />
+                            ))}
+                          </div>
+                        </section>
+                      )}
                     </div>
                   )}
                 </div>
               )
             })}
-          </div>
-        )}
-      </div>
-
-      {/* Subscription platform accounts */}
-      <div className={mode === 'presets' ? 'border-t border-border pt-4 hidden' : 'border-t border-border pt-4'}>
-        <div className="flex items-center justify-between">
-          <div className="min-w-0">
-            <h3 className="text-sm font-medium text-foreground">{t('env.accountsTitle')}</h3>
-            <p className="mt-1 text-xs text-muted-foreground">
-              {t('env.accountsDescription')}
-            </p>
-          </div>
-          <Button size="sm" onClick={openCreateAccountDialog} className="flex-shrink-0">
-            <Plus className="h-3.5 w-3.5 mr-1" />
-            {t('env.newAccount')}
-          </Button>
-        </div>
-
-        {accountsLoading ? (
-          <p className="mt-3 text-sm text-muted-foreground">{t('common:actions.loading')}</p>
-        ) : accounts.length === 0 ? (
-          <p className="mt-3 text-sm text-muted-foreground">{t('env.noAccounts')}</p>
-        ) : (
-          <div className="mt-3 space-y-4">
-            {accountOwnerGroups.map((ownerGroup) => (
-              <div key={ownerGroup.key} className="space-y-3">
-                {accountOwnerGroups.length > 1 && (
-                  <OwnerGroupLabel label={ownerLabel(ownerGroup.owner)} type={ownerGroup.owner?.type} />
-                )}
-                {ownerGroup.items.map((account) => (
-                  <AccountCard
-                    key={account.id}
-                    account={account}
-                    onEdit={openEditAccountDialog}
-                    onDelete={(id) => deleteAccountMutation.mutate(id)}
-                  />
-                ))}
-              </div>
-            ))}
           </div>
         )}
       </div>

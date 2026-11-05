@@ -901,10 +901,15 @@
       "apiKeyHint": "Key 仅保存在本机，不会出现在预设的明文环境变量里。"
     },
     "providersTitle": "订阅平台 Provider",
+    "platformTitle": "订阅平台",
+    "platformDescription": "统一配置各平台的 Provider（base_url / 模型 / API Key）与订阅平台账户；预设通过 ${ACCOUNT:账户名} 引用账户，修改 Key 只改一处，所有引用它的 Agent 即刻生效。",
+    "emptyPlatform": "暂无订阅平台配置，先新建 Provider 或账户。",
     "ownerGroup": {
       "personal": "个人",
       "user": "用户 #{{id}}",
       "org": "组织 #{{id}}",
+      "system": "系统内置",
+      "counts": "{{providers}} 个 Provider · {{accounts}} 个账户",
       "none": "未指定所有者"
     },
     "providersDescription": "统一配置平台的 base_url / 模型 / API Key，按目标 Agent 类型自动生成正确的环境变量（Claude Code 用 ANTHROPIC_*，Codex/Qwen 等用 OPENAI_*）。配置一次，导入为预设即可应用到任意 Agent。",
