@@ -178,7 +178,9 @@ type GetIssueDetailRow struct {
 // separate GetChecklistStats call). Two correlated subqueries hit the
 // (issue_id, position) index on issue_checklists; for a single issue
 // this is cheap and keeps SQLite/Postgres parity (no LATERAL, no
-// GROUP BY mismatch).
+// GROUP BY mismatch). Stats cover manual execution items only: Brief
+// acceptance items are definition-of-done progress, shown on the Task
+// Brief card instead of the execution checklist counter.
 func (q *Queries) GetIssueDetail(ctx context.Context, id int64) (GetIssueDetailRow, error) {
 	row := q.db.QueryRowContext(ctx, getIssueDetail, id)
 	var i GetIssueDetailRow

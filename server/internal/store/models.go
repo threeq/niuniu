@@ -308,6 +308,18 @@ type DefaultProjectBlueprint struct {
 	UpdatedAt   time.Time `json:"updated_at"`
 }
 
+type EmailSourcePollState struct {
+	ID           int64        `json:"id"`
+	ProjectID    int64        `json:"project_id"`
+	BindingID    int64        `json:"binding_id"`
+	Mailbox      string       `json:"mailbox"`
+	UidValidity  int64        `json:"uid_validity"`
+	LastUid      int64        `json:"last_uid"`
+	BackoffUntil sql.NullTime `json:"backoff_until"`
+	LastError    string       `json:"last_error"`
+	UpdatedAt    time.Time    `json:"updated_at"`
+}
+
 type EnvAccount struct {
 	ID          int64     `json:"id"`
 	Name        string    `json:"name"`

@@ -1348,6 +1348,23 @@ CREATE TABLE IF NOT EXISTS project_external_sources (
 );
 
 -- ============================================================
+-- Email source IMAP poll cursor (one row per binding + mailbox).
+-- Spec: docs/superpowers/specs/2026-11-06-intake-ci-email-webhook-design.md §9
+-- ============================================================
+CREATE TABLE IF NOT EXISTS email_source_poll_state (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    project_id    INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    binding_id    INTEGER NOT NULL REFERENCES project_external_sources(id) ON DELETE CASCADE,
+    mailbox       TEXT NOT NULL DEFAULT 'INBOX',
+    uid_validity  INTEGER NOT NULL DEFAULT 0,
+    last_uid      INTEGER NOT NULL DEFAULT 0,
+    backoff_until TIMESTAMP,
+    last_error    TEXT NOT NULL DEFAULT '',
+    updated_at    TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(binding_id, mailbox)
+);
+
+-- ============================================================
 -- External user identity mapping (cross-provider user normalization)
 -- See docs/superpowers/plans/2026-05-15-l4-mcp-intent-tools.md
 -- ============================================================

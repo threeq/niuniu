@@ -12,7 +12,9 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/niuniu-dev/niuniu/internal/integration"
 	"github.com/niuniu-dev/niuniu/internal/store"
@@ -64,6 +66,9 @@ type ExternalSourceDTO struct {
 // credential. The service cross-checks that the credential belongs to the
 // caller and its provider matches the source provider.
 func (s *ExternalSourceService) Add(ctx context.Context, projectID int64, provider integration.ProviderName, sourceKey string, credentialID int64, config map[string]any, callerUserID int64) (*ExternalSourceDTO, error) {
+	if isIntakeSourceKind(strings.ToLower(strings.TrimSpace(string(provider)))) {
+		return nil, ErrIntakeSourceReserved
+	}
 	if config == nil {
 		config = map[string]any{}
 	}
@@ -132,9 +137,14 @@ func (s *ExternalSourceService) List(ctx context.Context, projectID int64) ([]Ex
 	if err != nil {
 		return nil, err
 	}
-	out := make([]ExternalSourceDTO, len(rows))
-	for i, r := range rows {
-		out[i] = *rowToSourceDTO(r)
+	out := make([]ExternalSourceDTO, 0, len(rows))
+	for _, r := range rows {
+		// ci/email/webhook bindings belong to Intake; the external-systems panel
+		// must not show them (and its Delete would bypass secret cleanup).
+		if isIntakeSourceKind(strings.ToLower(strings.TrimSpace(r.Provider))) {
+			continue
+		}
+		out = append(out, *rowToSourceDTO(r))
 	}
 	return out, nil
 }
@@ -143,6 +153,13 @@ func (s *ExternalSourceService) List(ctx context.Context, projectID int64) ([]Ex
 // :exec that doesn't surface affected rows, matching the credential
 // service's no-op-on-missing semantic.
 func (s *ExternalSourceService) Delete(ctx context.Context, sourceID int64) error {
+	row, err := s.q.GetProjectExternalSource(ctx, sourceID)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return err
+	}
+	if err == nil && isIntakeSourceKind(strings.ToLower(strings.TrimSpace(row.Provider))) {
+		return ErrIntakeSourceReserved
+	}
 	return s.q.DeleteProjectExternalSource(ctx, sourceID)
 }
 
@@ -163,4 +180,3 @@ func rowToSourceDTO(r store.ProjectExternalSource) *ExternalSourceDTO {
 		Config:    cfg,
 	}
 }
-

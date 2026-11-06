@@ -140,6 +140,7 @@ type GetChecklistStatsRow struct {
 	Completed int64 `json:"completed"`
 }
 
+// Execution progress only. Brief acceptance rows are tracked separately.
 func (q *Queries) GetChecklistStats(ctx context.Context, issueID int64) (GetChecklistStatsRow, error) {
 	row := q.db.QueryRowContext(ctx, getChecklistStats, issueID)
 	var i GetChecklistStatsRow
