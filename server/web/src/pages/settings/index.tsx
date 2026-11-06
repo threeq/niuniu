@@ -155,6 +155,18 @@ export function SettingsPage({ children, orgsActive = false }: SettingsPageProps
     setActiveTab(tabId)
     void navigate({ to: '/settings', search: { tab: tabId } })
   }
+  // Grouped nav entries shared by the desktop sidebar and the mobile picker;
+  // groups with nothing visible to show are dropped entirely.
+  const navEntries = navGroups
+    .map((group) => ({
+      id: group.id,
+      labelKey: group.labelKey,
+      tabs: group.tabIds
+        .map((id) => visibleTabById.get(id))
+        .filter((tab): tab is (typeof visibleTabs)[number] => Boolean(tab)),
+      hasOrgEntry: group.id === 'team' && showOrgsLink,
+    }))
+    .filter((group) => group.tabs.length > 0 || group.hasOrgEntry)
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-warm-canvas">
@@ -166,65 +178,89 @@ export function SettingsPage({ children, orgsActive = false }: SettingsPageProps
       </div>
 
       <div className="flex min-h-0 flex-1 flex-col lg:flex-row">
-        <aside className="shrink-0 border-b border-warm-border bg-warm-surface px-4 py-4 lg:w-72 lg:min-h-0 lg:border-b-0 lg:border-r lg:overflow-y-auto lg:px-5 lg:py-6">
-          <nav className="flex gap-3 overflow-x-auto lg:flex-col lg:overflow-visible" aria-label={t('page.navLabel')}>
-            {navGroups.map((group) => {
-              const groupTabs = group.tabIds
-                .map((id) => visibleTabById.get(id))
-                .filter((tab): tab is (typeof visibleTabs)[number] => Boolean(tab))
-              const hasOrgEntry = group.id === 'team' && showOrgsLink
-              if (groupTabs.length === 0 && !hasOrgEntry) return null
+        {/* Mobile: the grouped sidebar would turn into a horizontally scrolling
+            strip of tall vertical lists, so collapse it into one picker. */}
+        <div className="shrink-0 border-b border-warm-border bg-warm-surface px-4 py-3 md:hidden">
+          <label htmlFor="settings-mobile-tab" className="sr-only">
+            {t('page.navLabel')}
+          </label>
+          <select
+            id="settings-mobile-tab"
+            value={orgsActive ? 'orgs' : activeTab}
+            onChange={(e) => {
+              const value = e.target.value
+              if (value === 'orgs') {
+                void navigate({ to: '/settings/orgs' })
+                return
+              }
+              handleTabClick(value as SettingsTab)
+            }}
+            className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm text-foreground"
+          >
+            {navEntries.map((group) => (
+              <optgroup key={group.id} label={t(group.labelKey)}>
+                {group.tabs.map((tab) => (
+                  <option key={tab.id} value={tab.id}>
+                    {t(tab.labelKey)}
+                  </option>
+                ))}
+                {group.hasOrgEntry && <option value="orgs">{t('page.orgsLink')}</option>}
+              </optgroup>
+            ))}
+          </select>
+        </div>
 
-              return (
-                <div key={group.id} className="min-w-48 space-y-1 lg:min-w-0">
-                  <div className="px-2 pb-1 text-[11px] font-medium uppercase tracking-normal text-warm-text-muted">
-                    {t(group.labelKey)}
-                  </div>
-                  <div className="space-y-1">
-                    {groupTabs.map((tab) => {
-                      const Icon = tab.icon ?? Settings2
-                      const selected = !children && activeTab === tab.id
-                      return (
-                        <Button
-                          key={tab.id}
-                          type="button"
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => handleTabClick(tab.id)}
-                          className={cn(
-                            'h-9 w-full justify-start gap-2 px-2 text-left text-warm-text-muted',
-                            selected && 'bg-brand-soft text-brand hover:bg-brand-soft hover:text-brand'
-                          )}
-                        >
-                          <Icon className="h-4 w-4 shrink-0" aria-hidden="true" />
-                          <span className="truncate">{t(tab.labelKey)}</span>
-                        </Button>
-                      )
-                    })}
-                    {hasOrgEntry && (
+        <aside className="hidden shrink-0 border-b border-warm-border bg-warm-surface px-4 py-4 md:block lg:min-h-0 lg:w-72 lg:border-b-0 lg:border-r lg:overflow-y-auto lg:px-5 lg:py-6">
+          <nav className="flex gap-3 overflow-x-auto lg:flex-col lg:overflow-visible" aria-label={t('page.navLabel')}>
+            {navEntries.map((group) => (
+              <div key={group.id} className="min-w-48 space-y-1 lg:min-w-0">
+                <div className="px-2 pb-1 text-xs font-medium uppercase tracking-normal text-warm-text-muted">
+                  {t(group.labelKey)}
+                </div>
+                <div className="space-y-1">
+                  {group.tabs.map((tab) => {
+                    const Icon = tab.icon ?? Settings2
+                    const selected = !children && activeTab === tab.id
+                    return (
                       <Button
-                        asChild
+                        key={tab.id}
+                        type="button"
                         variant="ghost"
                         size="sm"
+                        onClick={() => handleTabClick(tab.id)}
                         className={cn(
                           'h-9 w-full justify-start gap-2 px-2 text-left text-warm-text-muted',
-                          orgsActive && 'bg-brand-soft text-brand hover:bg-brand-soft hover:text-brand'
+                          selected && 'bg-brand-soft text-brand hover:bg-brand-soft hover:text-brand'
                         )}
                       >
-                        <Link to="/settings/orgs">
-                          <Building2 className="h-4 w-4 shrink-0" aria-hidden="true" />
-                          <span className="truncate">{t('page.orgsLink')}</span>
-                        </Link>
+                        <Icon className="h-4 w-4 shrink-0" aria-hidden="true" />
+                        <span className="truncate">{t(tab.labelKey)}</span>
                       </Button>
-                    )}
-                  </div>
+                    )
+                  })}
+                  {group.hasOrgEntry && (
+                    <Button
+                      asChild
+                      variant="ghost"
+                      size="sm"
+                      className={cn(
+                        'h-9 w-full justify-start gap-2 px-2 text-left text-warm-text-muted',
+                        orgsActive && 'bg-brand-soft text-brand hover:bg-brand-soft hover:text-brand'
+                      )}
+                    >
+                      <Link to="/settings/orgs">
+                        <Building2 className="h-4 w-4 shrink-0" aria-hidden="true" />
+                        <span className="truncate">{t('page.orgsLink')}</span>
+                      </Link>
+                    </Button>
+                  )}
                 </div>
-              )
-            })}
+              </div>
+            ))}
           </nav>
         </aside>
 
-        <div className="min-w-0 flex-1 overflow-y-auto px-5 py-5 lg:px-8 lg:py-6">
+        <div className="min-w-0 flex-1 overflow-y-auto px-4 py-4 sm:px-5 sm:py-5 lg:px-8 lg:py-6">
           <div className="max-w-5xl">
             {children ? (
               <div className="mb-5 flex items-center gap-2 text-sm text-warm-text-muted">

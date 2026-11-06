@@ -218,11 +218,13 @@ export function ProjectSettingsTab({ projectId, initialSection, onIntakeDirtyCha
   ];
 
   return (
-    <div className="p-4 space-y-6 max-w-3xl sm:p-6">
+    <div className="mx-auto w-full max-w-5xl space-y-6 p-4 sm:p-6">
       <h2 className="text-lg font-semibold">{t('tabs.settings.title')}</h2>
 
-      {/* Sub-tab nav strip */}
-      <nav className="flex flex-wrap gap-1 border-b border-warm-border">
+      {/* Sub-tab nav strip. One scrollable row instead of wrapping: on a wide
+          screen all sections fit, and on a narrow one the row scrolls rather
+          than dropping 危险操作 onto a second line. */}
+      <nav className="-mx-4 flex gap-1 overflow-x-auto border-b border-warm-border px-4 sm:-mx-6 sm:px-6">
         {sections.map(({ key, label }) => (
           <button
             key={key}
@@ -246,7 +248,7 @@ export function ProjectSettingsTab({ projectId, initialSection, onIntakeDirtyCha
               setActiveSection(key);
             }}
             className={[
-              'px-3 py-2 text-sm font-medium border-b-2 -mb-px',
+              'shrink-0 whitespace-nowrap border-b-2 -mb-px px-3 py-2 text-sm font-medium',
               activeSection === key
                 ? 'border-b-info text-info'
                 : 'border-b-transparent text-muted-foreground hover:text-warm-text',
