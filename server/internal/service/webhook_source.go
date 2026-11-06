@@ -51,6 +51,10 @@ var (
 	// ErrWebhookRateLimited is returned when a binding exceeds its delivery
 	// budget. The HTTP layer maps it to 429.
 	ErrWebhookRateLimited = errors.New("webhook source: rate limited")
+	// ErrIntakeWebhookForbidden is returned when the delivery's client address
+	// falls outside the binding's network policy. The HTTP layer maps it to 403
+	// and, like every rejection before the pipeline, nothing is recorded.
+	ErrIntakeWebhookForbidden = errors.New("webhook source: source address not allowed")
 )
 
 const (
@@ -145,6 +149,12 @@ func (s *WebhookSourceService) HandleInbound(
 	}
 	if expectedProvider != "" && binding.provider != expectedProvider {
 		return InboundOutcome{}, ErrWebhookNotFound
+	}
+
+	// Network policy is the outermost boundary: it runs before the secret is
+	// even fetched, so a disallowed peer learns nothing and no event is written.
+	if !ClientAllowed(networkConfigFromBinding(binding.config), r) {
+		return InboundOutcome{}, ErrIntakeWebhookForbidden
 	}
 
 	secret, err := s.bindingSecret(ctx, binding)

@@ -97,6 +97,8 @@ func writeWebhookError(c *gin.Context, err error) {
 	case errors.Is(err, service.ErrIntakeWebhookUnauthorized):
 		// A forged delivery is rejected outright, never acknowledged as "ignored".
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+	case errors.Is(err, service.ErrIntakeWebhookForbidden):
+		c.JSON(http.StatusForbidden, gin.H{"error": "forbidden"})
 	case errors.Is(err, service.ErrWebhookNotFound):
 		c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
 	case errors.Is(err, service.ErrWebhookBadRequest):
