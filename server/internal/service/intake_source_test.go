@@ -66,7 +66,7 @@ func TestIntakeSource_CreateListRotateDelete(t *testing.T) {
 	require.True(t, dto.HasSecret)
 	require.Equal(t, "/api/integrations/ci/"+strconv.FormatInt(dto.ID, 10), dto.InboundPath)
 
-	list, err := f.svc.List(ctx, project.ID)
+	list, err := f.svc.List(ctx, f.env.UserA, project.ID)
 	require.NoError(t, err)
 	require.Len(t, list, 1)
 	require.Equal(t, dto.ID, list[0].ID)
@@ -78,7 +78,7 @@ func TestIntakeSource_CreateListRotateDelete(t *testing.T) {
 	})
 	require.ErrorIs(t, err, service.ErrIntakeSourceExists)
 
-	rotated, err := f.svc.RotateSecret(ctx, project.ID, dto.ID)
+	rotated, err := f.svc.RotateSecret(ctx, f.env.UserA, project.ID, dto.ID)
 	require.NoError(t, err)
 	require.NotEqual(t, secret, rotated)
 
@@ -90,8 +90,8 @@ func TestIntakeSource_CreateListRotateDelete(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, rotated, cred.Config[webhookSecretKeyForTest])
 
-	require.NoError(t, f.svc.Delete(ctx, project.ID, dto.ID))
-	list, err = f.svc.List(ctx, project.ID)
+	require.NoError(t, f.svc.Delete(ctx, f.env.UserA, project.ID, dto.ID))
+	list, err = f.svc.List(ctx, f.env.UserA, project.ID)
 	require.NoError(t, err)
 	require.Empty(t, list)
 
@@ -142,7 +142,7 @@ func TestIntakeSource_IMAPLoginFailureRejectsCreate(t *testing.T) {
 	var authErr *service.ErrIMAPAuth
 	require.ErrorAs(t, err, &authErr, "missing host must fail the login probe")
 
-	list, err := f.svc.List(ctx, project.ID)
+	list, err := f.svc.List(ctx, f.env.UserA, project.ID)
 	require.NoError(t, err)
 	require.Empty(t, list)
 
@@ -181,7 +181,7 @@ func TestIntakeSource_TestDeliveryDoesNotPersist(t *testing.T) {
 	project := f.env.NewProject(t, f.env.UserA, "intake-test-delivery")
 	dto, _ := f.createCI(t, project.ID)
 
-	res, err := f.svc.TestDelivery(ctx, project.ID, dto.ID, nil)
+	res, err := f.svc.TestDelivery(ctx, f.env.UserA, project.ID, dto.ID, nil)
 	require.NoError(t, err)
 	require.Equal(t, "ci", res.SourceKind)
 	require.NotEmpty(t, res.Text)
@@ -199,7 +199,7 @@ func TestIntakeSource_PollNowRequiresImapBinding(t *testing.T) {
 	f := newIntakeSourceFixture(t)
 	project := f.env.NewProject(t, f.env.UserA, "intake-poll")
 	dto, _ := f.createCI(t, project.ID)
-	require.ErrorIs(t, f.svc.PollNow(context.Background(), project.ID, dto.ID), service.ErrIntakeSourceInvalid)
+	require.ErrorIs(t, f.svc.PollNow(context.Background(), f.env.UserA, project.ID, dto.ID), service.ErrIntakeSourceInvalid)
 }
 
 func TestIntakeSource_HealthForPushBinding(t *testing.T) {
@@ -207,7 +207,7 @@ func TestIntakeSource_HealthForPushBinding(t *testing.T) {
 	project := f.env.NewProject(t, f.env.UserA, "intake-health")
 	dto, _ := f.createCI(t, project.ID)
 
-	health, err := f.svc.Health(context.Background(), project.ID, dto.ID)
+	health, err := f.svc.Health(context.Background(), f.env.UserA, project.ID, dto.ID)
 	require.NoError(t, err)
 	require.Equal(t, service.IntakeStatusOK, health.Status)
 	require.Zero(t, health.Events24h)
@@ -229,7 +229,32 @@ func TestExternalSource_IsolatesIntakeProviders(t *testing.T) {
 	require.ErrorIs(t, f.extSvc.Delete(ctx, dto.ID), service.ErrIntakeSourceReserved)
 
 	// The binding survives the rejected delete.
-	list, err := f.svc.List(ctx, project.ID)
+	list, err := f.svc.List(ctx, f.env.UserA, project.ID)
+	require.NoError(t, err)
+	require.Len(t, list, 1)
+}
+
+func TestIntakeSource_RejectsForeignProjectAccess(t *testing.T) {
+	f := newIntakeSourceFixture(t)
+	ctx := context.Background()
+	project := f.env.NewProject(t, f.env.UserA, "intake-foreign")
+	dto, _ := f.createCI(t, project.ID)
+
+	// UserB neither owns nor belongs to UserA's project; the binding id alone
+	// must not be enough for any read or mutation.
+	_, err := f.svc.List(ctx, f.env.UserB, project.ID)
+	require.ErrorIs(t, err, service.ErrForbidden)
+	_, err = f.svc.RotateSecret(ctx, f.env.UserB, project.ID, dto.ID)
+	require.ErrorIs(t, err, service.ErrForbidden)
+	_, err = f.svc.TestDelivery(ctx, f.env.UserB, project.ID, dto.ID, nil)
+	require.ErrorIs(t, err, service.ErrForbidden)
+	require.ErrorIs(t, f.svc.PollNow(ctx, f.env.UserB, project.ID, dto.ID), service.ErrForbidden)
+	_, err = f.svc.Health(ctx, f.env.UserB, project.ID, dto.ID)
+	require.ErrorIs(t, err, service.ErrForbidden)
+	require.ErrorIs(t, f.svc.Delete(ctx, f.env.UserB, project.ID, dto.ID), service.ErrForbidden)
+
+	// The rejected delete did not remove the binding.
+	list, err := f.svc.List(ctx, f.env.UserA, project.ID)
 	require.NoError(t, err)
 	require.Len(t, list, 1)
 }
