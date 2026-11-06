@@ -5,7 +5,7 @@
 
 ## 0. 一句话
 
-在牛牛现有 Epic / Workspace / IM Bot / Intake / Integration 之上，增加一层 **Ops Bot（运营 Bot）**：运营总监 Bot 管策略与日历，每个平台账号一个账号 Bot 管生产、发布、互动建议与复盘。平台差异收敛到 **ChannelAdapter + Platform Pack**，新增 Facebook、知乎等平台以配置为主，不改核心；主 UI 是对话，像对接 IM 一样完成配置和审批。
+在牛牛现有 Epic / Workspace / IM Bot / Intake / Integration 之上，增加一层 **Ops Bot（运营 Bot）**：运营总监 Bot 管策略与日历，每个平台账号一个账号 Bot 管生产、发布、互动建议与复盘。平台差异收敛到 **ChannelAdapter + Platform Pack**，新增 Facebook、知乎等平台由 Agent 在对话中动态生成 Pack，不改核心；主 UI 是对话，像对接 IM 一样完成配置和审批。
 
 ---
 
@@ -32,7 +32,7 @@ Grok Bot 的强项是常驻 AI 同事、每 Bot 一台云端电脑、computer us
 - **G5 品牌一致性**：品牌知识库 + 历史内容/爆款库 + 实时热点作为创作依据。
 - **G6 安全默认**：发布、互动回复、视频成片三类动作默认人工确认；合规门禁先于人工确认。
 - **G7 对话式 UI**：像对接 IM 一样，通过聊天完成 Bot 创建、账号授权、策略/预算配置和审批。
-- **G8 平台可扩展**：新增渠道以 Platform Pack 配置为主，不改 Ops Bot 核心；有 OpenAPI 的平台优先走 API。
+- **G8 平台可扩展**：新增渠道由 Agent 在对话中动态生成 Platform Pack，不改 Ops Bot 核心；有 OpenAPI 的平台优先走 API。
 - **G9 多账号**：同一渠道支持任意多个账号，账号级隔离、预算、审批、指标。
 
 ### 1.4 非目标
@@ -64,9 +64,10 @@ Grok Bot 的强项是常驻 AI 同事、每 Bot 一台云端电脑、computer us
 | 11 | 审批人 | 每账号绑定运营人确认；总监可代审并记录 |
 | 12 | 预算 | 每账号月度总预算上限，超限暂停并通知 |
 | 13 | 平台接入 | 有 OpenAPI 优先走 API；没有则 MCP / 浏览器 recipe |
-| 14 | 平台扩展 | ChannelAdapter + Platform Pack；新增平台以配置为主 |
-| 15 | Pack 存储 | 数据库注册表 + 客户环境文件；对话生成，永久保存 |
+| 14 | 平台扩展 | ChannelAdapter + Platform Pack；新增平台由 Agent 对话生成 Pack，不改核心 |
+| 15 | Pack 来源与存储 | Agent 通过对话动态生成；存客户环境文件系统，永久保存 |
 | 16 | 多账号 | 一个渠道一个 Pack，一个账号一个 Ops Bot；账号级隔离 |
+| 17 | Pack 生成 | 对话驱动：检测 OpenAPI / MCP / 文档 → 自动生成 → 沙箱测试 → 用户确认发布 |
 
 > “全自动”指系统具备端到端执行能力；默认审批策略仍要求发布、回复、视频成片三类人工确认。运营人可按账号关闭某类确认开关，关闭后系统自动执行。
 
@@ -324,7 +325,9 @@ capabilities:
 
 一个平台可以混合：Facebook 发布/指标/回复全走 Graph API；知乎可能指标走 API、发布走浏览器；小红书发布/互动走浏览器。**只有能力缺失时才降级，不是整个平台降级。**
 
-### 5.4 Pack 存储与生命周期
+### 5.4 Pack 来源、存储与生命周期
+
+**Pack 的第一来源是 Agent 通过对话动态生成**，不是预置清单：用户说“接入 Facebook / 知乎 / 小红书”，Bot 检测可用能力并当场生成 Pack，用户确认后落盘。内置 Pack 只是首次使用的种子和测试样例，用户可以随时让 Agent 重新生成、派生新版本或覆盖。
 
 **不建 Pack 注册表**，客户环境文件系统就是唯一真相：
 
@@ -348,7 +351,9 @@ capabilities:
 - **可导出/导入**：整个 Pack 目录可打包，在另一个环境复用。
 - **密钥不进 Pack**：`bindings.json` 只写 `credential_ref`。
 
-### 5.5 对话式生成 Pack
+### 5.5 对话动态生成 Pack（主路径）
+
+任何渠道都走这条路径：内置 Pack 只是种子，用户接新渠道、调整能力或页面改版时，由 Agent 在对话中生成或重新生成 Pack，不需要预先登记平台。
 
 1. 用户：“接入 Facebook”。
 2. Bot 检测是否有 OpenAPI / 现成 MCP / 平台文档。
@@ -913,7 +918,7 @@ Mission control 增加「运营 Bot」面板，按渠道/账号下钻；不合�
 1. 能在 IM 对话中完成 Ops Bot 创建、账号授权、目标/节奏/预算/审批配置。
 2. 同一渠道可创建多个账号 Bot，Pack 复用，账号级隔离。
 3. 有 OpenAPI 的平台优先走 API；没有则 MCP 或浏览器 recipe。
-4. 新增渠道通过 Pack 完成，不改 Ops Bot 核心。
+4. 新增渠道由 Agent 在对话中生成 Pack 完成，不改 Ops Bot 核心。
 5. 公众号图文闭环可跑通（官方 API）。
 6. 小红书图文闭环可跑通（本地浏览器，测试账号）。
 7. 视频成片可生成并进入审批。
@@ -946,4 +951,4 @@ Mission control 增加「运营 Bot」面板，按渠道/账号下钻；不合�
 3. **预算与计价**：按 token、图片张数、视频秒数分别计价；`budget_json` 保存月度上限与币种，成本分项写 `issue_exec_events.detail_json`。
 4. **小红书数据补充**：是否接入第三方合规数据源（竞品/行业）由用户通过对话决定；默认只用创作者后台数据，接入时走 `data source` 配置与 scope 授权。
 5. **Pack DSL 边界**：recipe 固定动作集 `goto/wait/click/fill/upload/extract/screenshot/assert/loop/branch`；超出动作集或强反爬平台用平台级 browser adapter 插件，不改 Ops Bot 核心。
-6. **Pack 分发**：指 Pack 如何到达并使用——内置 Pack 随产品发布；用户对话生成的 Pack 保存在客户环境；同一 owner/org 下的账号共享同一 Pack；跨环境通过目录导出/导入迁移；不做公共 Pack 市场。
+6. **Pack 获取方式**：由 Agent 通过对话动态生成——检测 OpenAPI/MCP/文档 → 生成草稿 → 沙箱测试 → 用户确认发布；生成结果保存在客户环境并永久保留。内置 Pack 只作种子和样例，不作为唯一来源；同一 owner/org 下的账号共享同一 Pack，跨环境可用目录导出/导入迁移；不做公共 Pack 市场。

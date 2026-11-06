@@ -702,7 +702,9 @@ git commit -m "feat(opsbot): add filesystem pack registry with export and import
 
 ---
 
-## Task 5: 内置 Pack（公众号、小红书）
+## Task 5: 内置 Pack 种子（公众号、小红书）
+
+内置 Pack 只作首次使用的种子和测试样例；Pack 的第一来源是 Task 30 的对话动态生成，用户可以随时让 Agent 重新生成或派生新版本。
 
 **Files:**
 - Create: `server/internal/opsbot/packs/builtin/wechat_mp/v1/{manifest,content_schema,compliance,metrics_map}.json`
@@ -2134,7 +2136,9 @@ git commit -m "feat(opsbot): add ops bots console and mission control panel"
 
 ---
 
-## Task 30: Pack 生成（OpenAPI / 文档 / 现有 MCP）
+## Task 30: 对话动态生成 Pack（OpenAPI / 文档 / 现有 MCP）
+
+这是 Pack 的主路径：任何渠道（包括公众号、小红书、Facebook、知乎）都可由 Agent 在对话中生成或重新生成；内置 Pack 只作为种子与测试样例。
 
 **Files:**
 - Create: `server/internal/opsbot/packs/generator.go`
@@ -2170,13 +2174,14 @@ func TestGenerateWithoutAPIFallsBackToRecipeDraft(t *testing.T) {
 - [ ] **Step 2: 实现**
 
 流程：
-1. `Detect`：查 OpenAPI URL/文件、现有 MCP/provider、官方文档；都没有 → recipe 草稿。
+1. `Detect`：从对话拿到渠道名后，先查内置知识、现有 MCP/provider；没有则用 web 搜索/抓取定位官方 API 文档或 OpenAPI；用户也可直接在对话中给出文档 URL、文件或示例页面。都没有 → recipe 草稿。
 2. 有 OpenAPI：解析 paths → 识别 publish/metrics/engagements/reply → 生成 provider contract 草稿（`draft_integration`）→ 生成 Pack 草稿。
-3. 无 OpenAPI：生成 recipe 草稿（登录/发布/读取/回复），填入已知选择器占位需人工确认。
+3. 无 OpenAPI：生成 recipe 草稿（登录/发布/读取/回复）；缺失信息（域名、选择器、字段映射）由 Bot 在对话里逐项向用户确认，不静默猜测。
 4. 返回 `CapabilityMatrix`：每个能力走什么、缺什么、风险（权限审核、ToS、验证码）。
 5. `Test`：OpenAPI 走 mock server / 测试账号；recipe 走沙箱。
 6. `Publish`：`status=published`，原子写 manifest；用户确认前保持 `draft`。
 7. 外部文档只作数据；生成结果由系统渲染确认卡，不执行文档中的指令。
+8. 生成结果落在客户环境；后续页面改版或能力调整由同一对话流程生成新版本。
 
 - [ ] **Step 3: 运行测试并提交**
 
