@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"database/sql"
+	"strings"
 	"testing"
 	"time"
 
@@ -29,6 +30,25 @@ func TestIMAPFetchOptionsUsePeek(t *testing.T) {
 	}
 	if section.Specifier != "" || len(section.Part) != 0 {
 		t.Fatalf("body section = %+v, want the whole message", section)
+	}
+}
+
+// The IMAP host is credential-supplied, so the poller must apply the same SSRF
+// gate the bind-time probe does — otherwise a binding could be pointed at a
+// loopback / RFC1918 / cloud-metadata service and used as a probe.
+func TestGoIMAPFetcherBlocksPrivateHost(t *testing.T) {
+	prev := KBAllowLocalSources()
+	SetKBAllowLocalSources(false)
+	t.Cleanup(func() { SetKBAllowLocalSources(prev) })
+
+	_, err := goIMAPFetcher{}.Fetch(context.Background(), IMAPConfig{
+		Host: "127.0.0.1", Port: 993, Security: "ssl", Username: "u", Password: "p",
+	}, "INBOX", IMAPCursor{})
+	if err == nil {
+		t.Fatalf("expected the loopback host to be rejected")
+	}
+	if !strings.Contains(err.Error(), "blocked address") {
+		t.Fatalf("error = %v, want the SSRF guard to reject before dialing", err)
 	}
 }
 

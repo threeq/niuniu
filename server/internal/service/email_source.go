@@ -454,6 +454,14 @@ func (goIMAPFetcher) Fetch(ctx context.Context, cfg IMAPConfig, mailbox string, 
 	if cfg.Host == "" || cfg.Username == "" {
 		return IMAPFetch{}, errors.New("imap: missing host or username")
 	}
+	// SSRF guard, same gate as the bind-time probe (VerifyImapByID): the host
+	// comes from credential config, so a poll must not be usable to reach
+	// loopback / RFC1918 / link-local (cloud metadata) services. The personal
+	// edition explicitly opts local mail servers back in via
+	// storage.kb.allow_local_sources.
+	if err := validateRemoteHost(ctx, cfg.Host); err != nil {
+		return IMAPFetch{}, fmt.Errorf("imap: %w", err)
+	}
 	addr := net.JoinHostPort(cfg.Host, strconv.Itoa(cfg.Port))
 	opts := &imapclient.Options{
 		TLSConfig: &tls.Config{ServerName: cfg.Host},
@@ -470,6 +478,10 @@ func (goIMAPFetcher) Fetch(ctx context.Context, cfg IMAPConfig, mailbox string, 
 	case "starttls":
 		c, err = imapclient.DialStartTLS(addr, opts)
 	case "none":
+		// Explicit opt-out on the credential itself (self-hosted / legacy
+		// server). Allowed, but the password crosses the wire in cleartext, so
+		// leave a trace in the log.
+		slog.Warn("email source: polling over plaintext IMAP", "host", cfg.Host, "port", cfg.Port)
 		c, err = imapclient.DialInsecure(addr, opts)
 	default:
 		return IMAPFetch{}, fmt.Errorf("imap: unsupported security %q", cfg.Security)
