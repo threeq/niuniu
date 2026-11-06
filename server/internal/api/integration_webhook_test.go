@@ -109,6 +109,73 @@ func TestIntegrationWebhook_RateLimitResponse(t *testing.T) {
 	}
 }
 
+// The CI route uses the same public auth contract: a wrong provider credential
+// is 401 and records nothing; the correct one is acknowledged with 200.
+func TestIntegrationWebhook_CIRouteAuth(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db, q := niutest.SetupDBRaw(t)
+	ctx := context.Background()
+
+	proj, err := q.CreateProject(ctx, store.CreateProjectParams{Name: "ci-intake", OwnerType: "user", OwnerID: 1})
+	if err != nil {
+		t.Fatalf("project: %v", err)
+	}
+	kr, err := crypto.LoadOrCreate(t.TempDir() + "/integration_secret")
+	if err != nil {
+		t.Fatalf("keyring: %v", err)
+	}
+	const secret = "ci-route-secret"
+	creds := service.NewExternalCredentialService(q, db, kr, integration.NewRegistry())
+	cred, err := creds.Create(ctx, service.ExternalCredentialUpsertInput{
+		OwnerType: "user", OwnerID: 1, UserID: 1,
+		Provider:  integration.ProviderName("ci"),
+		Alias:     "intake-ci-api-test",
+		RawConfig: map[string]any{"webhook_secret": secret},
+	})
+	if err != nil {
+		t.Fatalf("credential: %v", err)
+	}
+	row, err := q.AddProjectExternalSource(ctx, store.AddProjectExternalSourceParams{
+		ProjectID:    proj.ID,
+		Provider:     "ci",
+		SourceKey:    "pipeline",
+		CredentialID: sql.NullInt64{Int64: cred.ID, Valid: true},
+		Config:       `{"provider":"gitlab"}`,
+	})
+	if err != nil {
+		t.Fatalf("binding: %v", err)
+	}
+
+	svc := service.NewWebhookSourceService(db, q, creds)
+	h := api.NewIntegrationWebhookHandler(svc)
+	r := gin.New()
+	r.POST("/api/integrations/ci/:binding", h.CI)
+
+	const body = `{"object_kind":"pipeline","object_attributes":{"id":1,"status":"failed","ref":"main","sha":"abc"},"project":{"path_with_namespace":"acme/api"},"user":{"id":7,"name":"Alice"}}`
+	post := func(token string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(http.MethodPost,
+			"/api/integrations/ci/"+strconv.FormatInt(row.ID, 10), strings.NewReader(body))
+		req.Header.Set("X-Gitlab-Token", token)
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, req)
+		return w
+	}
+
+	if w := post("wrong"); w.Code != http.StatusUnauthorized {
+		t.Fatalf("wrong CI token status = %d, want 401", w.Code)
+	}
+	var events int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM intake_events`).Scan(&events); err != nil {
+		t.Fatal(err)
+	}
+	if events != 0 {
+		t.Fatalf("rejected CI delivery recorded %d events", events)
+	}
+	if w := post(secret); w.Code != http.StatusOK {
+		t.Fatalf("valid CI token status = %d, want 200 (body %s)", w.Code, w.Body.String())
+	}
+}
+
 func TestIntegrationWebhook_StatusContract(t *testing.T) {
 	r, bindingID, secret := setupWebhookHandler(t, `{}`)
 

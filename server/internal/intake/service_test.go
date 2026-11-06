@@ -764,3 +764,47 @@ func TestHandleNonExecutionLeavesSuggestions(t *testing.T) {
 		t.Fatalf("consumed = %v, want none", store.consumed)
 	}
 }
+
+// A require-bound event (CI success/recovery/cancel) with no bound task is
+// recorded as an ignore and creates nothing.
+func TestHandleRequireBoundIgnoresUnbound(t *testing.T) {
+	svc, store, _, resolver, executor := newHarness(allowPolicy())
+	resolver.resolution = Resolution{Thread: ThreadRef{ThreadExtID: "thread-1"}}
+
+	tg := trigger("ou_alice", "ci passed")
+	tg.RequireBound = true
+	res, err := svc.Handle(context.Background(), tg)
+	if err != nil {
+		t.Fatalf("Handle: %v", err)
+	}
+	if res.Decision != DecisionIgnore || res.ReasonCode != ReasonUnbound || res.Executed {
+		t.Fatalf("result = %+v, want ignore/unbound", res)
+	}
+	if len(executor.plans) != 0 {
+		t.Fatalf("unbound require-bound event executed")
+	}
+	if len(store.decisions) != 1 || store.decisions[0].Decision != DecisionIgnore {
+		t.Fatalf("decisions = %+v", store.decisions)
+	}
+}
+
+// The same event resumes the task when the thread is bound.
+func TestHandleRequireBoundResumesBoundTask(t *testing.T) {
+	svc, _, _, resolver, executor := newHarness(allowPolicy())
+	resolver.resolution = Resolution{
+		Thread: ThreadRef{ThreadExtID: "thread-1"}, IssueID: 100, WorkspaceID: 200, Bound: true,
+	}
+
+	tg := trigger("ou_alice", "ci passed")
+	tg.RequireBound = true
+	res, err := svc.Handle(context.Background(), tg)
+	if err != nil {
+		t.Fatalf("Handle: %v", err)
+	}
+	if res.Decision != DecisionResume || !res.Executed {
+		t.Fatalf("result = %+v, want resume", res)
+	}
+	if len(executor.plans) != 1 || executor.plans[0].WorkspaceID != 200 {
+		t.Fatalf("plans = %+v", executor.plans)
+	}
+}

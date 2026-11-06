@@ -50,6 +50,10 @@ const (
 	// replay after a reconnect, or a platform redelivery). Recorded for audit,
 	// never executed.
 	ReasonStale = "stale"
+	// ReasonUnbound marks a require-bound event (CI success/recovery/cancel)
+	// whose thread is not bound to a task. There is nothing to resume, so the
+	// event is recorded and ignored instead of creating new work.
+	ReasonUnbound = "unbound"
 )
 
 // RuleConditions narrows when a rule applies. Every non-empty group must match;

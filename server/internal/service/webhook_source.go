@@ -171,6 +171,32 @@ func (s *WebhookSourceService) HandleInbound(
 		if err != nil {
 			return InboundOutcome{}, fmt.Errorf("%w: %v", ErrWebhookBadRequest, err)
 		}
+	case intake.SourceKindCI:
+		// The vendor lives in config.provider (the binding's own provider column
+		// is the source kind), so it selects both the auth preset and the parser.
+		preset, known := webhooksource.CIProviderPresetFor(ciProviderFromConfig(binding.config))
+		if !known {
+			return InboundOutcome{}, ErrWebhookNotFound
+		}
+		if !ciCredentialValid(preset, secret, r, body, time.Now()) {
+			return InboundOutcome{}, ErrIntakeWebhookUnauthorized
+		}
+		if !s.allowDelivery(binding.id) {
+			return InboundOutcome{}, ErrWebhookRateLimited
+		}
+		ref := fmt.Sprintf("%s/%d", binding.name, binding.id)
+		trig, ok, err = webhooksource.NormalizeCI(binding.projectID, ref, preset.Provider, body)
+		if err != nil {
+			return InboundOutcome{}, fmt.Errorf("%w: %v", ErrWebhookBadRequest, err)
+		}
+		if ok && !ciEventEnabled(binding.config, preset, trig.EventKind) {
+			return InboundOutcome{Ignored: true}, nil
+		}
+		// Success/recovery/cancel only signal an already-bound task; the
+		// pipeline turns them into an ignore when no task is bound.
+		if ok && ciKindRequiresBound(trig.EventKind) {
+			trig.RequireBound = true
+		}
 	case intake.SourceKindEmail, intake.SourceKindWebhook:
 		if !genericSecretValid(secret, r, body) {
 			return InboundOutcome{}, ErrIntakeWebhookUnauthorized
@@ -366,6 +392,110 @@ func (s *WebhookSourceService) allowDelivery(bindingID int64) bool {
 		v, _ = s.rateLimiters.LoadOrStore(bindingID, lim)
 	}
 	return v.(*rate.Limiter).Allow()
+}
+
+// ciProviderFromConfig resolves the CI vendor stored in config.provider. The
+// binding's provider column is the source kind ("ci"), so the vendor must come
+// from the config; an absent or malformed config falls back to the generic
+// contract (a binding that cannot name a vendor still authenticates).
+func ciProviderFromConfig(rawConfig string) string {
+	if strings.TrimSpace(rawConfig) == "" {
+		return webhooksource.CIProviderGeneric
+	}
+	var cfg struct {
+		Provider string `json:"provider"`
+	}
+	if err := json.Unmarshal([]byte(rawConfig), &cfg); err != nil {
+		return webhooksource.CIProviderGeneric
+	}
+	if v := strings.ToLower(strings.TrimSpace(cfg.Provider)); v != "" {
+		return v
+	}
+	return webhooksource.CIProviderGeneric
+}
+
+// ciCredentialValid verifies the credential carrier the provider preset
+// declares. Token and bearer values are compared in constant time; HMAC presets
+// are verified over the request body. The generic preset requires a fresh
+// timestamp alongside its signature so a captured delivery cannot be replayed.
+func ciCredentialValid(preset webhooksource.CIProviderPreset, secret string, r *http.Request, body []byte, now time.Time) bool {
+	secret = strings.TrimSpace(secret)
+	if secret == "" {
+		return false
+	}
+	mode, value, ok := preset.Credential(r.Header)
+	if !ok {
+		return false
+	}
+	switch mode {
+	case webhooksource.CIAuthToken, webhooksource.CIAuthBearer:
+		return subtle.ConstantTimeCompare([]byte(value), []byte(secret)) == 1
+	case webhooksource.CIAuthHMAC:
+		if preset.Provider == webhooksource.CIProviderCircleCI {
+			return ciBodyHMACValid(secret, body, value)
+		}
+		// Generic CI carries the signature in X-Niuniu-Signature-256; accept the
+		// legacy webhook timestamp header too, but never skip the timestamp.
+		ts := strings.TrimSpace(r.Header.Get("X-Niuniu-Timestamp"))
+		if ts == "" {
+			ts = strings.TrimSpace(r.Header.Get(webhookTimestampHeader))
+		}
+		if ts == "" || !webhookTimestampFresh(ts, now) {
+			return false
+		}
+		return webhookTimestampSignatureValid(secret, ts, body, value)
+	}
+	return false
+}
+
+// ciBodyHMACValid verifies HMAC-SHA256(secret, body) against a hex signature
+// that may carry a "sha256=" prefix.
+func ciBodyHMACValid(secret string, body []byte, header string) bool {
+	got, err := hex.DecodeString(webhooksource.CISignatureHex(header))
+	if err != nil || len(got) != sha256.Size {
+		return false
+	}
+	mac := hmac.New(sha256.New, []byte(secret))
+	_, _ = mac.Write(body)
+	return hmac.Equal(got, mac.Sum(nil))
+}
+
+// ciEventEnabled applies the binding's event subscription. When config.events is
+// absent the provider preset's default (failures only) applies, so a new CI
+// source is not flooded by successful pipelines; an explicit empty list means
+// every event.
+func ciEventEnabled(rawConfig string, preset webhooksource.CIProviderPreset, kind string) bool {
+	var cfg struct {
+		Events *[]string `json:"events"`
+	}
+	if strings.TrimSpace(rawConfig) != "" {
+		_ = json.Unmarshal([]byte(rawConfig), &cfg)
+	}
+	events := preset.DefaultEvents
+	if cfg.Events != nil {
+		events = *cfg.Events
+	}
+	if len(events) == 0 {
+		return true
+	}
+	kind = strings.TrimSpace(kind)
+	for _, e := range events {
+		if strings.TrimSpace(e) == kind {
+			return true
+		}
+	}
+	return false
+}
+
+// ciKindRequiresBound reports whether an event only makes sense as a signal to
+// an existing task. Success/recovery close the repair loop; a cancelled run is
+// likewise meaningless without a bound task.
+func ciKindRequiresBound(kind string) bool {
+	switch kind {
+	case intake.EventKindCISucceeded, intake.EventKindCIRecovered, intake.EventKindCICanceled:
+		return true
+	}
+	return false
 }
 
 func bearerToken(header string) string {
