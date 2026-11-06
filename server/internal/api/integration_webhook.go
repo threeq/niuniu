@@ -19,11 +19,6 @@ import (
 	"github.com/niuniu-dev/niuniu/internal/service"
 )
 
-// maxWebhookBody bounds an inbound delivery. GitHub caps payloads at 25 MB; the
-// same ceiling applies to email/generic so a binding cannot be used to exhaust
-// memory.
-const maxWebhookBody = 25 << 20
-
 // IntegrationWebhookHandler serves the public webhook routes.
 type IntegrationWebhookHandler struct {
 	svc *service.WebhookSourceService
@@ -59,26 +54,40 @@ func (h *IntegrationWebhookHandler) handle(c *gin.Context, expectedProvider stri
 		c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
 		return
 	}
-	body, err := io.ReadAll(io.LimitReader(c.Request.Body, maxWebhookBody+1))
+	limit, err := h.svc.BodyLimit(c.Request.Context(), bindingID, expectedProvider)
+	if err != nil {
+		writeWebhookError(c, err)
+		return
+	}
+	// Read at most one byte past the cap: enough to distinguish "exactly at the
+	// limit" from "too large" without buffering an unbounded payload.
+	body, err := io.ReadAll(io.LimitReader(c.Request.Body, limit+1))
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "read body failed"})
 		return
 	}
-	if len(body) > maxWebhookBody {
+	if int64(len(body)) > limit {
 		c.JSON(http.StatusRequestEntityTooLarge, gin.H{"error": "payload too large"})
 		return
 	}
 
 	out, err := h.svc.HandleInbound(c.Request.Context(), bindingID, expectedProvider, c.Request, body)
+	if err != nil {
+		writeWebhookError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"ok":          true,
+		"ignored":     out.Ignored,
+		"duplicate":   out.Duplicate,
+		"decision":    out.Decision,
+		"reason_code": out.ReasonCode,
+	})
+}
+
+// writeWebhookError maps a service error to the fixed inbound status contract.
+func writeWebhookError(c *gin.Context, err error) {
 	switch {
-	case err == nil:
-		c.JSON(http.StatusOK, gin.H{
-			"ok":          true,
-			"ignored":     out.Ignored,
-			"duplicate":   out.Duplicate,
-			"decision":    out.Decision,
-			"reason_code": out.ReasonCode,
-		})
 	case errors.Is(err, service.ErrIntakeWebhookUnauthorized):
 		// A forged delivery is rejected outright, never acknowledged as "ignored".
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
@@ -86,6 +95,9 @@ func (h *IntegrationWebhookHandler) handle(c *gin.Context, expectedProvider stri
 		c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
 	case errors.Is(err, service.ErrWebhookBadRequest):
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid payload"})
+	case errors.Is(err, service.ErrWebhookRateLimited):
+		c.Header("Retry-After", "1")
+		c.JSON(http.StatusTooManyRequests, gin.H{"error": "rate limit exceeded"})
 	default:
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "webhook processing failed"})
 	}

@@ -329,6 +329,14 @@ func (s *ExternalCredentialService) VerifyImapByID(ctx context.Context, id int64
 	if host == "" || user == "" || pass == "" {
 		return &ErrIMAPAuth{Detail: "credential missing host/username/password"}
 	}
+	// SSRF guard: the host comes from user-supplied credential config, so the
+	// probe must not be usable to reach loopback / RFC1918 / link-local (cloud
+	// metadata) services. The gate is edition-aware: the single-user personal
+	// edition explicitly allows local mail servers, the hosted edition blocks
+	// them (see kbAllowLocalSources).
+	if err := validateRemoteHost(ctx, host); err != nil {
+		return err
+	}
 	port := 0
 	if p, ok := cred.Config["imap_port"]; ok {
 		port = credInt(p)

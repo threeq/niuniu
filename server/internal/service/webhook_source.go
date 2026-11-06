@@ -15,22 +15,28 @@ package service
 
 import (
 	"context"
+	"crypto/hmac"
 	"crypto/rand"
+	"crypto/sha256"
 	"crypto/subtle"
 	"database/sql"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
+	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/niuniu-dev/niuniu/internal/githubsource"
 	"github.com/niuniu-dev/niuniu/internal/intake"
 	"github.com/niuniu-dev/niuniu/internal/integration"
 	"github.com/niuniu-dev/niuniu/internal/store"
 	"github.com/niuniu-dev/niuniu/internal/webhooksource"
+	"golang.org/x/time/rate"
 )
 
 var (
@@ -42,9 +48,29 @@ var (
 	ErrWebhookNotFound = errors.New("webhook source: binding not found")
 	// ErrWebhookBadRequest is a payload/normalization error.
 	ErrWebhookBadRequest = errors.New("webhook source: bad request")
+	// ErrWebhookRateLimited is returned when a binding exceeds its delivery
+	// budget. The HTTP layer maps it to 429.
+	ErrWebhookRateLimited = errors.New("webhook source: rate limited")
 )
 
-const webhookSecretKey = "webhook_secret"
+const (
+	webhookSecretKey = "webhook_secret"
+
+	webhookTimestampHeader = "X-Webhook-Timestamp"
+	webhookSignatureHeader = "X-Webhook-Signature-256"
+	webhookSignaturePrefix = "sha256="
+
+	// webhookTimestampSkew bounds replay: a delivery timestamped more than five
+	// minutes in the past or future is rejected.
+	webhookTimestampSkew = 5 * time.Minute
+
+	// webhookRatePerMinute is the per-binding delivery budget. The burst equals
+	// the per-minute allowance so a short legitimate burst is not dropped.
+	webhookRatePerMinute = 60
+
+	defaultWebhookBodyBytes int64 = 1 << 20  // 1 MB
+	maxWebhookBodyBytes     int64 = 25 << 20 // 25 MB
+)
 
 // InboundOutcome describes what a delivery did. Ignored deliveries (an event
 // type that is not enabled, a deleted comment, a non-final check run) are
@@ -69,6 +95,8 @@ type WebhookSourceService struct {
 	mu        sync.RWMutex
 	dispatch  TaskRouter
 	deliverer MessageDeliverer
+
+	rateLimiters sync.Map // binding id -> *rate.Limiter
 }
 
 // NewWebhookSourceService builds the adapters. It performs no I/O until a
@@ -131,6 +159,9 @@ func (s *WebhookSourceService) HandleInbound(
 		if !githubsource.SignatureValid(secret, body, r.Header.Get("X-Hub-Signature-256")) {
 			return InboundOutcome{}, ErrIntakeWebhookUnauthorized
 		}
+		if !s.allowDelivery(binding.id) {
+			return InboundOutcome{}, ErrWebhookRateLimited
+		}
 		eventType := strings.TrimSpace(r.Header.Get("X-GitHub-Event"))
 		kind, known := githubsource.WebhookEventKind(eventType)
 		if !known || !githubEventEnabled(binding.config, kind) {
@@ -144,6 +175,9 @@ func (s *WebhookSourceService) HandleInbound(
 		if !genericSecretValid(secret, r, body) {
 			return InboundOutcome{}, ErrIntakeWebhookUnauthorized
 		}
+		if !s.allowDelivery(binding.id) {
+			return InboundOutcome{}, ErrWebhookRateLimited
+		}
 		// intake_events is unique on (source_kind, source_ref, event_ext_id)
 		// without project_id, so the SourceRef must identify the BINDING, not just
 		// its display name — otherwise two projects naming a binding "support"
@@ -156,6 +190,11 @@ func (s *WebhookSourceService) HandleInbound(
 		}
 		if err != nil {
 			return InboundOutcome{}, fmt.Errorf("%w: %v", ErrWebhookBadRequest, err)
+		}
+		// A binding may restrict which event names it accepts. An absent/empty
+		// list means every event, matching the pre-configuration default.
+		if !webhookEventEnabled(binding.config, trig.EventKind) {
+			return InboundOutcome{Ignored: true}, nil
 		}
 		ok = true
 	default:
@@ -232,20 +271,82 @@ func (s *WebhookSourceService) bindingSecret(ctx context.Context, b webhookBindi
 	return "", ErrIntakeWebhookUnauthorized
 }
 
-// genericSecretValid accepts an HMAC signature (when present) or a bearer token
-// in Authorization / X-Webhook-Token. Comparison is constant-time.
+// genericSecretValid accepts, in order of precedence:
+//
+//  1. a timestamped signature: X-Webhook-Timestamp + X-Webhook-Signature-256 =
+//     HMAC(secret, timestamp + "." + body), valid only inside a ±300s window;
+//  2. a raw-body HMAC signature (previous behaviour, kept for compatibility);
+//  3. a bearer token in Authorization / X-Webhook-Token.
+//
+// All comparisons are constant-time. A delivery carrying a timestamp MUST carry
+// a valid timestamped signature: it never falls back to another scheme, so an
+// attacker cannot reuse a captured raw-body signature by adding a timestamp.
 func genericSecretValid(secret string, r *http.Request, body []byte) bool {
+	return genericSecretValidAt(secret, r, body, time.Now())
+}
+
+func genericSecretValidAt(secret string, r *http.Request, body []byte, now time.Time) bool {
+	secret = strings.TrimSpace(secret)
 	if secret == "" {
 		return false
 	}
-	if sig := r.Header.Get("X-Webhook-Signature-256"); strings.TrimSpace(sig) != "" {
-		return githubsource.SignatureValid(secret, body, sig)
+	timestamp := strings.TrimSpace(r.Header.Get(webhookTimestampHeader))
+	signature := strings.TrimSpace(r.Header.Get(webhookSignatureHeader))
+	if timestamp != "" {
+		if signature == "" || !webhookTimestampFresh(timestamp, now) {
+			return false
+		}
+		return webhookTimestampSignatureValid(secret, timestamp, body, signature)
+	}
+	if signature != "" {
+		return githubsource.SignatureValid(secret, body, signature)
 	}
 	token := bearerToken(r.Header.Get("Authorization"))
 	if token == "" {
 		token = strings.TrimSpace(r.Header.Get("X-Webhook-Token"))
 	}
 	return token != "" && subtle.ConstantTimeCompare([]byte(token), []byte(secret)) == 1
+}
+
+// webhookTimestampFresh reports whether a Unix-seconds timestamp is within the
+// replay window on either side of now.
+func webhookTimestampFresh(raw string, now time.Time) bool {
+	secs, err := strconv.ParseInt(strings.TrimSpace(raw), 10, 64)
+	if err != nil {
+		return false
+	}
+	delta := now.Sub(time.Unix(secs, 0))
+	return delta <= webhookTimestampSkew && delta >= -webhookTimestampSkew
+}
+
+// webhookTimestampSignatureValid verifies HMAC(secret, timestamp+"."+body). The
+// signature may carry the conventional "sha256=" prefix or be bare hex.
+func webhookTimestampSignatureValid(secret, timestamp string, body []byte, header string) bool {
+	header = strings.TrimSpace(header)
+	if len(header) >= len(webhookSignaturePrefix) &&
+		strings.EqualFold(header[:len(webhookSignaturePrefix)], webhookSignaturePrefix) {
+		header = strings.TrimSpace(header[len(webhookSignaturePrefix):])
+	}
+	got, err := hex.DecodeString(header)
+	if err != nil || len(got) != sha256.Size {
+		return false
+	}
+	mac := hmac.New(sha256.New, []byte(secret))
+	_, _ = mac.Write([]byte(timestamp))
+	_, _ = mac.Write([]byte("."))
+	_, _ = mac.Write(body)
+	return hmac.Equal(got, mac.Sum(nil))
+}
+
+// allowDelivery enforces the per-binding budget (60/min, burst 60). Each binding
+// gets an independent limiter, cached for the process lifetime.
+func (s *WebhookSourceService) allowDelivery(bindingID int64) bool {
+	v, ok := s.rateLimiters.Load(bindingID)
+	if !ok {
+		lim := rate.NewLimiter(rate.Every(time.Minute/webhookRatePerMinute), webhookRatePerMinute)
+		v, _ = s.rateLimiters.LoadOrStore(bindingID, lim)
+	}
+	return v.(*rate.Limiter).Allow()
 }
 
 func bearerToken(header string) string {
@@ -271,6 +372,83 @@ func githubEventEnabled(rawConfig, kind string) bool {
 		}
 	}
 	return false
+}
+
+// webhookEventEnabled reports whether the binding's config.events list admits
+// the event kind. Event names are caller-defined (unlike GitHub's fixed set), so
+// the raw values are compared without a known-event filter. Empty means all.
+func webhookEventEnabled(rawConfig, kind string) bool {
+	events := webhookConfigEvents(rawConfig)
+	if len(events) == 0 {
+		return true
+	}
+	kind = strings.TrimSpace(kind)
+	for _, e := range events {
+		if e == kind {
+			return true
+		}
+	}
+	return false
+}
+
+func webhookConfigEvents(raw string) []string {
+	if strings.TrimSpace(raw) == "" {
+		return nil
+	}
+	var cfg struct {
+		Events []string `json:"events"`
+	}
+	if err := json.Unmarshal([]byte(raw), &cfg); err != nil {
+		return nil
+	}
+	out := make([]string, 0, len(cfg.Events))
+	for _, e := range cfg.Events {
+		if s := strings.TrimSpace(e); s != "" {
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
+// webhookBodyLimit reads config.max_body_bytes: absent/non-positive means the
+// 1 MB default, and anything above the 25 MB ceiling is clamped to it.
+func webhookBodyLimit(raw string) int64 {
+	if strings.TrimSpace(raw) == "" {
+		return defaultWebhookBodyBytes
+	}
+	var cfg struct {
+		MaxBodyBytes int64 `json:"max_body_bytes"`
+	}
+	if err := json.Unmarshal([]byte(raw), &cfg); err != nil {
+		return defaultWebhookBodyBytes
+	}
+	n := cfg.MaxBodyBytes
+	if n <= 0 {
+		return defaultWebhookBodyBytes
+	}
+	if n > maxWebhookBodyBytes {
+		return maxWebhookBodyBytes
+	}
+	return n
+}
+
+// BodyLimit resolves the inbound body cap for a binding before the HTTP layer
+// reads the payload. GitHub's ceiling stays at 25 MB (its own delivery limit);
+// email/generic bindings use config.max_body_bytes. An unknown binding or a
+// provider/route mismatch is reported as ErrWebhookNotFound so the handler can
+// reject without consuming the body.
+func (s *WebhookSourceService) BodyLimit(ctx context.Context, bindingID int64, expectedProvider string) (int64, error) {
+	b, err := s.loadBinding(ctx, bindingID)
+	if err != nil {
+		return 0, err
+	}
+	if expectedProvider != "" && b.provider != expectedProvider {
+		return 0, ErrWebhookNotFound
+	}
+	if b.provider == intake.SourceKindGitHub {
+		return maxWebhookBodyBytes, nil
+	}
+	return webhookBodyLimit(b.config), nil
 }
 
 // --- Resolver ---------------------------------------------------------------

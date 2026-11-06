@@ -143,7 +143,10 @@ func isIntakeSourceKind(kind string) bool {
 
 // List returns the project's ci/email/webhook bindings. Status is derived from
 // the binding's IMAP backoff (email) and, for every kind, its recent events.
-func (s *IntakeSourceService) List(ctx context.Context, projectID int64) ([]IntakeSourceDTO, error) {
+func (s *IntakeSourceService) List(ctx context.Context, callerUserID, projectID int64) ([]IntakeSourceDTO, error) {
+	if err := s.authorizeProject(ctx, callerUserID, projectID); err != nil {
+		return nil, err
+	}
 	rows, err := s.q.ListProjectExternalSources(ctx, projectID)
 	if err != nil {
 		return nil, err
@@ -344,7 +347,10 @@ func (s *IntakeSourceService) createIMAPSource(ctx context.Context, in IntakeSou
 // Delete removes the binding, its poll cursor, and the credential it OWNS.
 // A referenced imap credential belongs to the user and is left untouched — only
 // generated ci/email/webhook secrets are cleaned up.
-func (s *IntakeSourceService) Delete(ctx context.Context, projectID, sourceID int64) error {
+func (s *IntakeSourceService) Delete(ctx context.Context, callerUserID, projectID, sourceID int64) error {
+	if err := s.authorizeProject(ctx, callerUserID, projectID); err != nil {
+		return err
+	}
 	row, err := s.loadBinding(ctx, projectID, sourceID)
 	if err != nil {
 		return err
@@ -376,7 +382,10 @@ func (s *IntakeSourceService) Delete(ctx context.Context, projectID, sourceID in
 // RotateSecret replaces a generated secret; the previous one stops working
 // immediately because the credential config is overwritten wholesale. IMAP
 // bindings have no service-generated secret to rotate.
-func (s *IntakeSourceService) RotateSecret(ctx context.Context, projectID, sourceID int64) (string, error) {
+func (s *IntakeSourceService) RotateSecret(ctx context.Context, callerUserID, projectID, sourceID int64) (string, error) {
+	if err := s.authorizeProject(ctx, callerUserID, projectID); err != nil {
+		return "", err
+	}
 	row, err := s.loadBinding(ctx, projectID, sourceID)
 	if err != nil {
 		return "", err
@@ -404,7 +413,10 @@ func (s *IntakeSourceService) RotateSecret(ctx context.Context, projectID, sourc
 
 // TestDelivery normalizes a synthetic event and evaluates the project policy
 // WITHOUT recording it, reserving a daily slot, or executing anything.
-func (s *IntakeSourceService) TestDelivery(ctx context.Context, projectID, sourceID int64, sample []byte) (*IntakeSourceTestResult, error) {
+func (s *IntakeSourceService) TestDelivery(ctx context.Context, callerUserID, projectID, sourceID int64, sample []byte) (*IntakeSourceTestResult, error) {
+	if err := s.authorizeProject(ctx, callerUserID, projectID); err != nil {
+		return nil, err
+	}
 	row, err := s.loadBinding(ctx, projectID, sourceID)
 	if err != nil {
 		return nil, err
@@ -461,7 +473,10 @@ func (s *IntakeSourceService) TestDelivery(ctx context.Context, projectID, sourc
 }
 
 // PollNow triggers one immediate IMAP poll. Only email/imap bindings qualify.
-func (s *IntakeSourceService) PollNow(ctx context.Context, projectID, sourceID int64) error {
+func (s *IntakeSourceService) PollNow(ctx context.Context, callerUserID, projectID, sourceID int64) error {
+	if err := s.authorizeProject(ctx, callerUserID, projectID); err != nil {
+		return err
+	}
 	row, err := s.loadBinding(ctx, projectID, sourceID)
 	if err != nil {
 		return err
@@ -478,7 +493,10 @@ func (s *IntakeSourceService) PollNow(ctx context.Context, projectID, sourceID i
 
 // Health returns the binding's delivery health (last event, 24h count) plus the
 // IMAP cursor state when present.
-func (s *IntakeSourceService) Health(ctx context.Context, projectID, sourceID int64) (IntakeSourceStatus, error) {
+func (s *IntakeSourceService) Health(ctx context.Context, callerUserID, projectID, sourceID int64) (IntakeSourceStatus, error) {
+	if err := s.authorizeProject(ctx, callerUserID, projectID); err != nil {
+		return IntakeSourceStatus{}, err
+	}
 	row, err := s.loadBinding(ctx, projectID, sourceID)
 	if err != nil {
 		return IntakeSourceStatus{}, err
@@ -513,6 +531,17 @@ func (s *IntakeSourceService) Health(ctx context.Context, projectID, sourceID in
 }
 
 // --- internals --------------------------------------------------------------
+
+// authorizeProject is the service-layer access gate shared by every read and
+// mutation: the binding id alone must never be enough to inspect, rotate, test
+// or delete another project's source.
+func (s *IntakeSourceService) authorizeProject(ctx context.Context, callerUserID, projectID int64) error {
+	if s.authz == nil {
+		return errors.New("intake source: service is not fully wired")
+	}
+	_, err := s.authz.CanAccessProject(ctx, callerUserID, projectID)
+	return err
+}
 
 type eventStat struct {
 	lastAt    *time.Time
