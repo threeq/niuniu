@@ -5,7 +5,7 @@
 
 ## 0. 一句话
 
-在牛牛现有 Epic / Workspace / IM Bot / Intake / Integration 之上，增加一层 **Ops Bot（运营 Bot）**：运营总监 Bot 管策略与日历，每个平台账号一个账号 Bot 管生产、发布、互动建议与复盘；主 UI 是对话，像对接 IM 一样完成配置和审批。
+在牛牛现有 Epic / Workspace / IM Bot / Intake / Integration 之上，增加一层 **Ops Bot（运营 Bot）**：运营总监 Bot 管策略与日历，每个平台账号一个账号 Bot 管生产、发布、互动建议与复盘。平台差异收敛到 **ChannelAdapter + Platform Pack**，新增 Facebook、知乎等平台以配置为主，不改核心；主 UI 是对话，像对接 IM 一样完成配置和审批。
 
 ---
 
@@ -13,28 +13,27 @@
 
 ### 1.1 现有底座
 
-牛牛已经具备：
-
-- **场景**：`wechat-mp`（公众号官方 API 闭环）、`social-ops`（内容日历/排期/周报/舆情）、`content-marketing`（选题/文案/审校/发布清单/复盘）。
+- **场景**：`wechat-mp`（公众号官方 API 闭环）、`social-ops`（内容日历/排期/周报/舆情）、`content-marketing`（选题/文案/审校/发布清单/复盘）、`media-studio`（图文/视频素材）。
 - **编排**：通用运营闭环（A 采集选题 / B 内容 / C 复盘回流）、Epic、`exec_wave`、autohost、agent-to-agent 消息、blackboard。
-- **交互**：IM Bot 渠道（飞书/钉钉/企微/微信/Telegram）、chat 配对、卡片回调、Intake/待校准、注意力收件箱。
+- **交互**：IM Bot 渠道（飞书/钉钉/企微/微信/Telegram）、chat 配对、卡片回调、Intake/待校准。
 - **外部能力**：integration provider / MCP / 数据源 / 凭据代理 / egress 审计。
 - **治理**：workspace/worktree 隔离、completion profile、harness 门禁、Mission control、token/成本分析。
 
 ### 1.2 参考 Grok Bot
 
-Grok Bot 的强项是：常驻 AI 同事、每 Bot 一台云端电脑、computer use、多 Bot 团队协作、跟岗学习、开箱集成。牛牛不复制其云端重资产模式，而是用现有本地优先 + 多引擎 + 工程治理底座，做**账号级 AI 运营团队**。
+Grok Bot 的强项是常驻 AI 同事、每 Bot 一台云端电脑、computer use、多 Bot 团队协作、跟岗学习、开箱集成。牛牛不复制其云端重资产模式，而是用本地优先 + 多引擎 + 工程治理底座，做**账号级 AI 运营团队**。
 
 ### 1.3 目标
 
 - **G1 双平台闭环**：微信公众号 + 小红书，选题、生产、审校、发布、互动建议、复盘全流程。
 - **G2 账号级 Bot**：每个账号一个独立 Bot，凭据、浏览器会话、人设、预算、指标互相隔离。
-- **G3 运营总监**：跨账号选题、日历、预算、复盘协调。
+- **G3 运营总监**：跨账号、跨渠道的选题、日历、预算、复盘协调。
 - **G4 内容全形态**：文案 + 封面/配图 + 短视频自动生成。
 - **G5 品牌一致性**：品牌知识库 + 历史内容/爆款库 + 实时热点作为创作依据。
 - **G6 安全默认**：发布、互动回复、视频成片三类动作默认人工确认；合规门禁先于人工确认。
 - **G7 对话式 UI**：像对接 IM 一样，通过聊天完成 Bot 创建、账号授权、策略/预算配置和审批。
-- **G8 可治理**：账号级预算、审批审计、风险暂停、跨账号隔离。
+- **G8 平台可扩展**：新增渠道以 Platform Pack 配置为主，不改 Ops Bot 核心；有 OpenAPI 的平台优先走 API。
+- **G9 多账号**：同一渠道支持任意多个账号，账号级隔离、预算、审批、指标。
 
 ### 1.4 非目标
 
@@ -42,8 +41,8 @@ Grok Bot 的强项是：常驻 AI 同事、每 Bot 一台云端电脑、computer
 - 不做新的执行引擎；复用 workspace/agentproxy/Epic。
 - 不代持平台账号密码；不把密钥放进对话或 prompt。
 - 不做批量关注/点赞/私信等高风险互动。
-- 不承诺小红书官方 API；XHS 走用户自有账号的浏览器自动化。
-- 不做自动通过审批；默认必须人工确认。
+- 不假设所有平台都有官方 API；没有 API 的平台走浏览器 recipe。
+- 不自动通过审批；默认必须人工确认。
 - 不做模型训练。
 
 ---
@@ -64,6 +63,10 @@ Grok Bot 的强项是：常驻 AI 同事、每 Bot 一台云端电脑、computer
 | 10 | 成功指标 | 按账号配置目标（涨粉/转化/品牌） |
 | 11 | 审批人 | 每账号绑定运营人确认；总监可代审并记录 |
 | 12 | 预算 | 每账号月度总预算上限，超限暂停并通知 |
+| 13 | 平台接入 | 有 OpenAPI 优先走 API；没有则 MCP / 浏览器 recipe |
+| 14 | 平台扩展 | ChannelAdapter + Platform Pack；新增平台以配置为主 |
+| 15 | Pack 存储 | 数据库注册表 + 客户环境文件；对话生成，永久保存 |
+| 16 | 多账号 | 一个渠道一个 Pack，一个账号一个 Ops Bot；账号级隔离 |
 
 > “全自动”指系统具备端到端执行能力；默认审批策略仍要求发布、回复、视频成片三类人工确认。运营人可按账号关闭某类确认开关，关闭后系统自动执行。
 
@@ -71,13 +74,14 @@ Grok Bot 的强项是：常驻 AI 同事、每 Bot 一台云端电脑、computer
 
 ## 3. 领域模型与边界
 
-### 3.1 三个概念
+### 3.1 四个概念
 
 | 概念 | 定义 | 不承担 |
 |---|---|---|
-| **Ops Bot（运营 Bot）** | 一个平台账号的运营身份：账号、平台、人设、凭据引用、目标、节奏、审批策略、预算、知识范围 | 不是聊天渠道，不是执行引擎 |
-| **IM Bot（现有）** | 消息渠道与交互面：收发、配对、卡片、回调 | 不持有平台账号，不做运营决策 |
-| **Platform Account** | 公众号 / 小红书账号本身 | 不是 Bot |
+| **Channel（渠道）** | 平台类型：公众号、小红书、Facebook、知乎 | 不持有账号 |
+| **Platform Pack** | 一个渠道的声明式蓝图：能力、内容 schema、合规、提示词、指标映射、浏览器 recipe、能力绑定 | 不持有密钥，不绑定具体账号 |
+| **Account（账号）** | 渠道上的一个具体身份：公众号 A、小红书号 1、Facebook Page 2 | 不是 Bot |
+| **Ops Bot（运营 Bot）** | 一个账号的运营实例：账号、Pack 版本、人设、凭据引用、目标、节奏、审批策略、预算、知识范围 | 不是聊天渠道，不是执行引擎 |
 
 ### 3.2 四层职责
 
@@ -92,12 +96,56 @@ Ops Bot（新）—— 负责“谁在运营”
     │
     ├── Epic / Workspace（现有）—— 负责“在哪干活”
     │
-    └── PlatformAdapter
-          ├── WeChatOfficialAdapter（integration / MCP）
-          └── XhsBrowserAdapter（本地 / 团队版云端浏览器）
+    └── ChannelAdapter
+          ├── OpenAPI / MCP / 数据源
+          └── Browser Worker + recipe
 ```
 
-### 3.3 和 imbot 的关系
+### 3.3 多账号模型
+
+```
+Platform Pack: wechat_mp
+├── Ops Bot: 公众号 A
+├── Ops Bot: 公众号 B
+└── Ops Bot: 公众号 C
+
+Platform Pack: xiaohongshu
+├── Ops Bot: 小红书号 1
+└── Ops Bot: 小红书号 2
+```
+
+**共享（Channel 级）：**
+
+- Platform Pack：内容 schema、合规规则、提示词、能力绑定、browser recipe；
+- 总监 Bot、品牌知识库、跨账号内容日历；
+- 可选的 app 级凭据（如 Facebook App、公众号 MCP 端点）。
+
+**独立（Account 级）：**
+
+- `account_ref`、凭据引用、浏览器 profile / 登录态；
+- 人设、受众、目标、节奏、预算、审批运营人；
+- 内容记忆、指标、风险状态、发布回执；
+- 可固定 Pack 版本，避免 Pack 升级影响所有账号。
+
+**唯一约束：** `(owner_type, owner_id, pack_id, account_ref)` 唯一。
+
+**凭据分两层：**
+
+| 层级 | 例子 | 归属 |
+|---|---|---|
+| App credential | Facebook App ID/Secret、公众号 MCP token | owner/org，可跨账号共享 |
+| Account credential | Page access token、公众号 AppID/Secret、小红书登录态 | 每个账号独立 |
+
+Pack 只写 `credential_ref`，不写密钥；Adapter 按账号解析对应凭据。
+
+**限流与隔离：**
+
+- 限流 key = account + app；Facebook Page 和公众号都可能同时有 app 级/账号级限制。
+- 浏览器 profile 按账号隔离，不共享 cookie。
+- 预算、审批、指标、风险状态全部按账号独立。
+- 总监跨账号聚合、分配预算、去重选题；审批默认是账号运营人，总监代审要记录。
+
+### 3.4 和 imbot 的关系
 
 - **imbot 是前门，Ops Bot 是身份。** 不新建聊天系统。
 - 一个 Ops Bot 可绑定一个或多个 IM chat/thread；一个 chat 可按 thread/topic 路由到不同 Ops Bot。
@@ -106,13 +154,13 @@ Ops Bot（新）—— 负责“谁在运营”
 - 对话式审批：发布/回复/视频成片以卡片形式推送到 IM，运营人点“通过 / 驳回 / 修改”。
 - 命名：对外叫「运营 Bot」「公众号 Bot」「小红书 Bot」；现有 imbot 叫「消息渠道 / IM 渠道」。
 
-### 3.4 和外部系统集成、数据集成的关系
+### 3.5 和外部系统集成、数据集成的关系
 
 - Ops Bot **不持有平台密钥，不直接写 HTTP**；只保存 `credential_ref` 和能力引用。
-- **外部系统集成（动作）**：公众号发布/草稿/素材/用户分析走现有 integration provider 或 `wechat-mp` MCP；外发经过 egress/授权/审计。
+- **外部系统集成（动作）**：发布/回复/素材/数据走 Pack 的能力绑定；有 OpenAPI 优先走 integration provider，没有则 MCP 或浏览器 recipe。
 - **数据集成（数据）**：热点、竞品、平台指标走现有 data source / knowledge base / `run_data_query`，复用 scope 与读写权限。
-- **小红书浏览器**：新增 `PlatformAdapter` 的浏览器实现，不是新集成框架；它是执行后端，账号级隔离 profile/cookie。
-- **统一抽象**：`PlatformAdapter` 下两个实现；后续加抖音/B站只新增 adapter。
+- **浏览器**：ChannelAdapter 的一个执行后端，不是新集成框架。
+- 所有外发经过 egress / 授权 / 审计；外部文本只作数据，不构成指令。
 
 ---
 
@@ -129,13 +177,14 @@ server/internal/opsbot/
   budget.go         # 月度预算、消耗、暂停
   calendar.go       # 固定节奏 + 热点驱动
   metrics.go        # 账号指标归一化
-  adapters/
-    adapter.go      # PlatformAdapter 接口
-    wechat.go       # 官方 API / MCP
-    xhs.go          # 浏览器 Worker
-  browser/
-    worker.go       # 本地/云端 Worker 管理
-    session.go      # 账号级 profile / 登录态
+  channel/
+    adapter.go      # ChannelAdapter 接口
+    openapi.go      # OpenAPI / provider / MCP 绑定
+    browser.go      # Browser Worker 绑定
+    recipe.go       # Browser Recipe 解释器
+  packs/
+    registry.go     # Pack 注册、版本、校验
+    generator.go    # 对话式生成 Pack 草稿
 ```
 
 ### 4.2 关键流程
@@ -149,7 +198,7 @@ IM 对话
   → 内容 issue + workspace
   → ContentPipeline（文案/图片/视频/合规）
   → ApprovalService（等待运营人）
-  → PlatformAdapter（发布/回复/取数）
+  → ChannelAdapter（发布/回复/取数）
   → OpsMetrics / blackboard / 知识库回流
 ```
 
@@ -171,9 +220,139 @@ IM 对话
 
 ---
 
-## 5. 运营总监 + 账号 Bot
+## 5. ChannelAdapter 与 Platform Pack
 
-### 5.1 总监 Bot
+### 5.1 ChannelAdapter 契约
+
+```go
+type ChannelAdapter interface {
+    Capabilities() CapabilitySet
+    EnsureSession(ctx, account) error
+    Publish(ctx, payload) (Receipt, error)
+    FetchMetrics(ctx, range) (Metrics, error)
+    ListEngagements(ctx, cursor) ([]Engagement, error)
+    Reply(ctx, engagementID, text) (Receipt, error)
+    HealthCheck(ctx) error
+}
+```
+
+Ops Bot 只依赖这个契约，不感知平台。
+
+### 5.2 Platform Pack 结构
+
+```
+packs/<pack_id>/<version>/
+  manifest.yaml        # id、版本、能力、内容类型、认证层级
+  content_schema.yaml  # 图文/笔记/视频的字段、尺寸、字数、标签规则
+  compliance.yaml      # 平台红线、广告法、版权、审核清单
+  prompts/             # 平台语气、选题、排版、视频脚本提示词
+  metrics_map.yaml     # 平台指标 → 统一指标
+  browser/recipes/     # 可选：登录、发布、读取、回复的声明式步骤
+  bindings.yaml        # 每个能力绑定到 openapi / mcp / browser / manual
+  fixtures/            # 沙箱测试样例
+```
+
+### 5.3 API 优先的能力级绑定
+
+`bindings.yaml` 按能力绑定，不是整个平台一个接入方式：
+
+```yaml
+capabilities:
+  publish:
+    preferred: openapi
+    binding: facebook-graph
+  metrics:
+    preferred: openapi
+    binding: facebook-graph
+  engagements:
+    preferred: openapi
+    binding: facebook-graph
+  reply:
+    preferred: openapi
+    binding: facebook-graph
+```
+
+解析顺序：
+
+1. **官方 OpenAPI**：有规范就优先走 integration 草稿流水线（`draft_integration` → 预检 → 用户确认 → `publish_provider`）。
+2. **现有 MCP / provider**：没有 OpenAPI 但有现成 MCP，直接绑定。
+3. **浏览器 recipe**：API 覆盖不到的能力才走 Browser Worker。
+4. **人工**：以上都不可用，生成发布包，人工执行。
+
+一个平台可以混合：Facebook 发布/指标/回复全走 Graph API；知乎可能指标走 API、发布走浏览器；小红书发布/互动走浏览器。**只有能力缺失时才降级，不是整个平台降级。**
+
+### 5.4 Pack 存储与生命周期
+
+采用**数据库注册表 + 客户环境文件系统**：
+
+```
+~/.niuniu/users/<uid>/ops/packs/<pack_id>/<version>/
+~/.niuniu/orgs/<oid>/ops/packs/<pack_id>/<version>/     # 本地/自托管
+或租户对象存储 / 持久卷                                   # 云端团队版
+```
+
+数据库只存索引和元数据：
+
+```sql
+CREATE TABLE IF NOT EXISTS ops_platform_packs (
+    id             INTEGER PRIMARY KEY AUTOINCREMENT,
+    owner_type     TEXT NOT NULL DEFAULT 'user',
+    owner_id       INTEGER NOT NULL DEFAULT 0,
+    pack_id        TEXT NOT NULL,
+    version        INTEGER NOT NULL,
+    status         TEXT NOT NULL DEFAULT 'draft', -- draft | testing | published | deprecated
+    manifest_json  TEXT NOT NULL DEFAULT '{}',
+    path           TEXT NOT NULL DEFAULT '',
+    digest         TEXT NOT NULL DEFAULT '',
+    created_by     INTEGER,
+    created_at     TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    published_at   TIMESTAMP,
+    UNIQUE(owner_type, owner_id, pack_id, version)
+);
+```
+
+- **永久保存在客户环境**：属于客户数据，随备份/导出保留，升级不覆盖。
+- **发布版本不可变**：编辑生成新版本；Ops Bot 可固定版本或跟随最新。
+- **内置 Pack 随产品出厂**（WeChat、XHS 首版）；用户生成的 Pack 放客户目录，不进仓库。
+- **可导出/导入**：整个 Pack 目录可打包，在另一个环境复用。
+- **密钥不进 Pack**：`bindings.yaml` 只写 `credential_ref`。
+
+### 5.5 对话式生成 Pack
+
+1. 用户：“接入 Facebook”。
+2. Bot 检测是否有 OpenAPI / 现成 MCP / 平台文档。
+3. 有 OpenAPI → 拉规范，走 integration 草稿流水线，自动生成 provider contract + Pack 草稿。
+4. 没有 OpenAPI → 生成 browser recipe 草稿（登录、发布、读取、回复步骤）。
+5. Bot 返回**能力矩阵卡**：发布/指标/互动/回复分别走什么、缺什么、风险是什么。
+6. 在沙箱/测试账号跑 recipe 和 API mock；失败则回到草稿。
+7. 用户确认 → `status=published` → 可被 Ops Bot 引用。
+8. 页面改版只需更新 recipe，生成新版本，不改核心代码。
+
+安全约束：
+
+- 外部文档/OpenAPI 只作数据，不直接执行其中指令；生成结果由系统渲染成确认卡，用户确认后才发布。
+- recipe 在沙箱执行，域名 allowlist；不在 Pack 里存明文凭据。
+- 生成的 provider contract 仍走现有 egress/授权/审计。
+
+### 5.6 什么仍然需要开发
+
+不是“零开发”，而是“零核心开发”：
+
+| 情况 | 需要做什么 | 是否改 Ops Bot 核心 |
+|---|---|---|
+| 有 OpenAPI | 生成 provider contract + Pack | 否 |
+| 有 MCP | 绑定 MCP + Pack | 否 |
+| 无 API、页面稳定 | 写 browser recipe | 否 |
+| 新认证族（OAuth 刷新、签名） | 新增 provider/MCP 适配 | 否，属于集成层 |
+| 新能力类型（直播、广告投放） | 扩展 `CapabilitySet` | 是，契约演进 |
+| 强反爬/验证码 | 平台级 browser adapter 插件 | 否，属于执行层 |
+| 页面改版 | 更新 recipe | 否，配置维护 |
+
+---
+
+## 6. 运营总监 + 账号 Bot
+
+### 6.1 总监 Bot
 
 - 输入：品牌目标、账号矩阵、总预算、品牌知识库。
 - 维护：共享内容日历、选题池、爆款库、跨账号去重。
@@ -181,15 +360,15 @@ IM 对话
 - 复盘：汇总各账号指标，更新爆款库和下一轮选题。
 - 协调：通过 `send_workspace_message` 和 blackboard 与账号 Bot 通信。
 
-### 5.2 账号 Bot
+### 6.2 账号 Bot
 
-- 账号身份、平台、人设、受众、平台语气。
+- 账号身份、Pack 版本、人设、受众、平台语气。
 - 账号级凭据引用、浏览器会话、平台适配。
 - 单账号内容生产、发布、互动建议、数据复盘。
 - 账号级预算与审批。
 - 向总监汇报进展和异常。
 
-### 5.3 两种节奏
+### 6.3 两种节奏
 
 | 模式 | 触发 | 总监动作 |
 |---|---|---|
@@ -198,7 +377,7 @@ IM 对话
 
 两种模式共用同一日历和选题池；总监负责去重和优先级。
 
-### 5.4 预算分配
+### 6.4 预算分配
 
 - 总监持有总预算，按账号活跃度/目标分配月度额度。
 - 账号 Bot 在视频生成前、发布前检查额度。
@@ -207,7 +386,7 @@ IM 对话
 
 ---
 
-## 6. 内容生产流水线
+## 7. 内容生产流水线
 
 每篇内容是账号 Epic 下的子 issue，走现有看板列：
 
@@ -224,23 +403,23 @@ IM 对话
 | 视频 | 脚本、分镜、TTS、画面、字幕、合成 | 现有视频流水线 / 可选 video-gen MCP |
 | 合规审校 | 事实溯源、广告法、平台红线、版权 | harness `ai_judge` 门禁 |
 | 运营人确认 | 发布/回复/视频成片卡片 | imbot `ask_user` |
-| 发布 | 公众号官方 API；小红书浏览器 Worker | `PlatformAdapter` |
+| 发布 | 按 Pack 绑定走 OpenAPI / MCP / 浏览器 | `ChannelAdapter` |
 | 互动建议 | 评论/私信分类 + 建议回复 | 浏览器 Worker / 官方 API |
 | 数据复盘 | 阅读、互动、涨粉、转化 | 官方 API / 浏览器后台 / 数据源 |
 | 回流 | 爆款拆解、选题机会、受众反馈 | blackboard / 知识库 / 记忆 |
 
-### 6.1 Task Brief
+### 7.1 Task Brief
 
 ```go
 type OpsContentBrief struct {
-    Platform   string   // wechat_mp | xiaohongshu
-    AccountID  string
+    Channel    string   // pack_id
+    AccountRef string
     Goal       string   // 涨粉 | 转化 | 品牌
     Audience   string
     Format     string   // article | note | video
     Topic      string
     Acceptance []string
-    SourceRefs []string // 知识库/热点/爆款引用
+    SourceRefs []string
 }
 ```
 
@@ -248,7 +427,7 @@ type OpsContentBrief struct {
 - Brief 落到 `task_briefs`，验收项同步到 `issue_checklists`。
 - 视频任务额外记录时长、比例、字幕、封面要求。
 
-### 6.2 质量门禁
+### 7.2 质量门禁
 
 1. **事实/合规门禁**：无来源的关键断言、广告法绝对化用语、平台红线、版权风险 → 阻断。
 2. **品牌一致性**：语气、术语、视觉规范。
@@ -257,45 +436,9 @@ type OpsContentBrief struct {
 
 ---
 
-## 7. PlatformAdapter 与浏览器 Worker
+## 8. 浏览器 Worker 与运行后端
 
-### 7.1 接口
-
-```go
-type PlatformAdapter interface {
-    Capabilities() CapabilitySet
-    EnsureSession(ctx, account) error
-    Publish(ctx, payload) (Receipt, error)
-    FetchMetrics(ctx, range) (Metrics, error)
-    ListEngagements(ctx, cursor) ([]Engagement, error)
-    Reply(ctx, engagementID, text) (Receipt, error)
-    HealthCheck(ctx) error
-}
-```
-
-### 7.2 WeChatOfficialAdapter
-
-- 走现有 integration / `wechat-mp` MCP。
-- 能力：草稿、素材、发布/定时、用户分析、图文统计。
-- 凭据：用户自有公众号的 AppID/AppSecret 或访问自有 MCP 的 token。
-- 发布前走合规门禁 + 人工确认。
-
-### 7.3 XhsBrowserAdapter
-
-- 浏览器 Worker：个人版本机；团队版云端服务器。
-- 能力：发布图文/视频笔记、读取创作者后台数据、读取评论/私信、发送经审批的建议回复。
-- 账号级隔离：
-  - 个人版：每账号独立 browser profile 目录。
-  - 团队版：每账号独立容器/VM + 租户隔离。
-- 约束：
-  - 同一账号同一时间只允许一个操作租约。
-  - 独立 cookie/localStorage/指纹；不共享登录态。
-  - 任务队列 + 频率限制 + 随机化节奏。
-  - 发布/回复后保存截图或回执证据。
-  - 登录态失效时生成“重新登录”任务，通知运营人扫码。
-  - UI 改版导致 selector 失效时，降级为发布包 + 人工发布，并告警。
-
-### 7.4 本地 / 云端对比
+### 8.1 本地 / 云端
 
 | 维度 | 个人版 | 团队版 |
 |---|---|---|
@@ -306,15 +449,24 @@ type PlatformAdapter interface {
 | 并发 | 本机资源 | 账号配额 |
 | 审计 | 本地 | 租户级 |
 
+### 8.2 Worker 约束
+
+- 一个账号同一时间只允许一个操作租约，避免并发操作同一会话。
+- 每个账号独立 cookie / localStorage / 指纹配置；不共享登录态。
+- 任务队列 + 频率限制 + 随机化节奏；不做批量刷动作。
+- 发布/回复后保存截图或回执作为证据。
+- 登录态失效时，不重试爆破，而是生成“需要重新登录”的任务，通知运营人扫码。
+- 平台 UI 改版导致 recipe/selector 失效时，降级为「生成发布包，人工发布」，并告警。
+
 ---
 
-## 8. 凭据、安全与合规
+## 9. 凭据、安全与合规
 
 - Ops Bot 只存 `credential_ref`，不存明文。
-- 公众号：一次性安全链接提交 AppID/AppSecret 或 MCP token。
+- 凭据分两层：app credential（owner/org 共享）+ account credential（每账号独立）。
+- 公众号：AppID/AppSecret 或访问自有 MCP 的 token，走 credstore / 一次性安全链接。
 - 小红书：不收集密码；运营人扫码登录，会话加密保存。
 - 对话中永不出现密钥；Bot 只说“请点链接 / 请扫码”。
-- 凭据按账号隔离，不能被其他账号 Bot 引用。
 - 所有外发动作经 egress/授权/审计；外部文本只作数据，不构成指令。
 - 小红书启用时明确提示 ToS/封号风险，默认关闭，运营人显式开启。
 - 账号级 kill switch：一键暂停该账号所有自动动作。
@@ -322,13 +474,13 @@ type PlatformAdapter interface {
 
 ---
 
-## 9. 审批模型
+## 10. 审批模型
 
 三类审批，默认全部开启：
 
 | 类型 | 卡片内容 | 操作 |
 |---|---|---|
-| 发布 | 标题、正文摘要、封面/视频预览、平台、时间、合规结论 | 通过 / 驳回 / 修改 |
+| 发布 | 标题、正文摘要、封面/视频预览、渠道、时间、合规结论 | 通过 / 驳回 / 修改 |
 | 互动回复 | 原评论/私信、分类、建议回复、风险提示 | 通过 / 修改后发送 / 驳回 |
 | 视频成片 | 成片预览、时长、字幕、封面、平台尺寸 | 通过 / 驳回 / 重新生成 |
 
@@ -339,39 +491,76 @@ type PlatformAdapter interface {
 
 ---
 
-## 10. 数据模型
+## 11. 数据模型
 
-新增表（SQLite/PostgreSQL 双写；既有表迁移列用 `addColumnIfNotExists`，不加 CHECK）：
+### 11.1 最终表集
+
+只保留 10 张表；每张表都有独立生命周期，不做重复建模。
+
+| # | 表 | 作用 | 为什么不能复用现有表 |
+|---|---|---|---|
+| 1 | `ops_platform_packs` | 渠道 Pack 注册表：版本、状态、路径、摘要 | Pack 是客户环境资源，需要版本化与持久化 |
+| 2 | `ops_bots` | 总监/账号 Bot 实例：Pack、账号、策略、预算、控制 Epic/Workspace | 现有 issue/workspace 不承载账号运营策略 |
+| 3 | `ops_bot_chats` | Bot 与 IM chat/thread 的绑定 | 一个 Bot 可绑定多个聊天；imbot chat 表不应加运营语义 |
+| 4 | `ops_browser_workers` | 浏览器 Worker 健康、会话、风险状态 | 心跳/风险状态高频变化，与 Bot 配置分离 |
+| 5 | `ops_calendar_items` | 内容日历与选题池 | 日历项可在 issue 创建前存在 |
+| 6 | `ops_publish_records` | 发布回执、幂等、截图证据 | 发布审计需要回执/URL/截图，issue 事件不够 |
+| 7 | `ops_approvals` | 发布/回复/视频审批状态机 | 通用 ask_user 不承载内容版本与审计 |
+| 8 | `ops_engagement_items` | 评论/私信与建议回复 | 互动分类、建议回复、审批状态是运营域数据 |
+| 9 | `ops_metrics_daily` | 平台每日指标 | 外部平台指标不在现有 workspace 成本表里 |
+| 10 | `ops_budget_usage` | 账号月度预算消耗 | 需要按文本/图片/视频分项与月度历史 |
+
+### 11.2 DDL
 
 ```sql
+CREATE TABLE IF NOT EXISTS ops_platform_packs (
+    id             INTEGER PRIMARY KEY AUTOINCREMENT,
+    owner_type     TEXT NOT NULL DEFAULT 'user',
+    owner_id       INTEGER NOT NULL DEFAULT 0,
+    pack_id        TEXT NOT NULL,
+    version        INTEGER NOT NULL,
+    status         TEXT NOT NULL DEFAULT 'draft', -- draft | testing | published | deprecated
+    manifest_json  TEXT NOT NULL DEFAULT '{}',
+    path           TEXT NOT NULL DEFAULT '',
+    digest         TEXT NOT NULL DEFAULT '',
+    created_by     INTEGER,
+    created_at     TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    published_at   TIMESTAMP,
+    UNIQUE(owner_type, owner_id, pack_id, version)
+);
+
 CREATE TABLE IF NOT EXISTS ops_bots (
     id                   INTEGER PRIMARY KEY AUTOINCREMENT,
     owner_type           TEXT NOT NULL DEFAULT 'user',
     owner_id             INTEGER NOT NULL DEFAULT 0,
     role                 TEXT NOT NULL DEFAULT 'account', -- director | account
-    platform             TEXT NOT NULL DEFAULT '',        -- wechat_mp | xiaohongshu
+    pack_id              TEXT NOT NULL DEFAULT '',
+    pack_version         INTEGER NOT NULL DEFAULT 0,       -- 0 = follow latest
     account_ref          TEXT NOT NULL DEFAULT '',
     display_name         TEXT NOT NULL DEFAULT '',
     persona_json         TEXT NOT NULL DEFAULT '{}',
-    credential_ref       TEXT NOT NULL DEFAULT '',
+    credential_refs_json TEXT NOT NULL DEFAULT '{}',       -- {app, account}
     knowledge_scope_json TEXT NOT NULL DEFAULT '{}',
     goals_json           TEXT NOT NULL DEFAULT '{}',
     cadence_json         TEXT NOT NULL DEFAULT '{}',
     approval_policy_json TEXT NOT NULL DEFAULT '{}',
     budget_json          TEXT NOT NULL DEFAULT '{}',
-    status               TEXT NOT NULL DEFAULT 'active',  -- active | paused | disabled
+    epic_issue_id        INTEGER,
+    control_workspace_id INTEGER,
+    status               TEXT NOT NULL DEFAULT 'active',   -- active | paused | disabled
     director_bot_id      INTEGER,
     created_at           TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at           TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+    updated_at           TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(owner_type, owner_id, pack_id, account_ref)
 );
 
-CREATE TABLE IF NOT EXISTS ops_bot_links (
-    id             INTEGER PRIMARY KEY AUTOINCREMENT,
-    bot_id         INTEGER NOT NULL REFERENCES ops_bots(id) ON DELETE CASCADE,
-    im_chat_id     INTEGER,
-    epic_issue_id  INTEGER,
-    workspace_id   INTEGER,
-    created_at     TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+CREATE TABLE IF NOT EXISTS ops_bot_chats (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    bot_id        INTEGER NOT NULL REFERENCES ops_bots(id) ON DELETE CASCADE,
+    im_chat_id    INTEGER NOT NULL,
+    thread_ext_id TEXT NOT NULL DEFAULT '',
+    created_at    TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(bot_id, im_chat_id, thread_ext_id)
 );
 
 CREATE TABLE IF NOT EXISTS ops_browser_workers (
@@ -384,7 +573,8 @@ CREATE TABLE IF NOT EXISTS ops_browser_workers (
     status          TEXT NOT NULL DEFAULT 'offline',
     last_heartbeat  TIMESTAMP,
     risk_state      TEXT NOT NULL DEFAULT 'normal',
-    created_at      TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+    created_at      TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(bot_id, backend)
 );
 
 CREATE TABLE IF NOT EXISTS ops_calendar_items (
@@ -403,7 +593,8 @@ CREATE TABLE IF NOT EXISTS ops_publish_records (
     id               INTEGER PRIMARY KEY AUTOINCREMENT,
     issue_id         INTEGER NOT NULL,
     bot_id           INTEGER NOT NULL REFERENCES ops_bots(id) ON DELETE CASCADE,
-    platform         TEXT NOT NULL,
+    pack_id          TEXT NOT NULL DEFAULT '',
+    account_ref      TEXT NOT NULL DEFAULT '',
     content_version  INTEGER NOT NULL DEFAULT 1,
     idempotency_key  TEXT NOT NULL,
     status           TEXT NOT NULL DEFAULT 'pending',
@@ -432,7 +623,6 @@ CREATE TABLE IF NOT EXISTS ops_approvals (
 CREATE TABLE IF NOT EXISTS ops_engagement_items (
     id               INTEGER PRIMARY KEY AUTOINCREMENT,
     bot_id           INTEGER NOT NULL REFERENCES ops_bots(id) ON DELETE CASCADE,
-    platform         TEXT NOT NULL,
     type             TEXT NOT NULL, -- comment | dm
     ext_id           TEXT NOT NULL,
     author           TEXT NOT NULL DEFAULT '',
@@ -447,12 +637,11 @@ CREATE TABLE IF NOT EXISTS ops_engagement_items (
 CREATE TABLE IF NOT EXISTS ops_metrics_daily (
     id            INTEGER PRIMARY KEY AUTOINCREMENT,
     bot_id        INTEGER NOT NULL REFERENCES ops_bots(id) ON DELETE CASCADE,
-    platform      TEXT NOT NULL,
     date          TEXT NOT NULL,
     metrics_json  TEXT NOT NULL DEFAULT '{}',
     source        TEXT NOT NULL DEFAULT '',
     created_at    TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE(bot_id, platform, date)
+    UNIQUE(bot_id, date)
 );
 
 CREATE TABLE IF NOT EXISTS ops_budget_usage (
@@ -469,7 +658,15 @@ CREATE TABLE IF NOT EXISTS ops_budget_usage (
 );
 ```
 
-复用：
+### 11.3 已清理的设计
+
+- **删除 `ops_bot_links`**：由 `ops_bots.epic_issue_id / control_workspace_id` + `ops_bot_chats` 替代，避免一个表承担三种关系。
+- **删除 `ops_bots.platform`**：渠道由 `pack_id` 表达，避免“平台”和“Pack”两份真相。
+- **删除 `ops_metrics_daily.platform` / `ops_engagement_items.platform`**：由 `bot_id → pack_id` 推导，避免冗余。
+- **删除平台专用 adapter 文件**（`wechat.go` / `xhs.go`）：统一到 `ChannelAdapter` + Pack，不再为每个平台写核心适配器。
+- **保留 `ops_browser_workers` / `ops_budget_usage` / `ops_approvals`**：它们分别承担高频运行时状态、月度历史、审计，生命周期与 Bot 配置不同，合并会互相污染。
+
+复用现有表：
 
 - 内容任务：`issues`、`task_briefs`、`issue_checklists`
 - 执行：`workspaces`、`agentproxy`
@@ -479,18 +676,29 @@ CREATE TABLE IF NOT EXISTS ops_budget_usage (
 - 调度：scheduler
 - 指标：Mission control
 
-迁移注意：新表走 `CREATE TABLE IF NOT EXISTS`；如需给现有表加列（如 `imbot_chats.ops_bot_id`），用 `addColumnIfNotExists`，不在迁移列上加 CHECK；SQLite/PostgreSQL 双写并跑 `make schema-diff`。
+迁移注意：新表走 `CREATE TABLE IF NOT EXISTS`；如给现有表加列（如 `imbot_chats.ops_bot_id`），用 `addColumnIfNotExists`，不在迁移列上加 CHECK；SQLite/PostgreSQL 双写并跑 `make schema-diff`。
 
 ---
 
-## 11. API 与 MCP
+## 12. API 与 MCP
 
 对话优先，MCP 工具是主入口：
+
+**Ops Bot / 账号：**
 
 - `opsbot_create` / `opsbot_list` / `opsbot_update` / `opsbot_pause`
 - `opsbot_bind_account` / `opsbot_bind_chat`
 - `opsbot_request_credential_link` / `opsbot_browser_login`
 - `opsbot_set_goals` / `opsbot_set_cadence` / `opsbot_set_budget` / `opsbot_set_approval`
+
+**Pack：**
+
+- `ops_pack_list` / `ops_pack_generate` / `ops_pack_validate`
+- `ops_pack_test` / `ops_pack_publish`
+- `ops_pack_export` / `ops_pack_import`
+
+**审批 / 执行 / 指标：**
+
 - `ops_approval_list` / `ops_approval_approve` / `ops_approval_reject`
 - `ops_publish` / `ops_engagement_reply` / `ops_metrics`
 
@@ -498,7 +706,8 @@ HTTP 仅保留极简控制台：
 
 - `GET /api/ops/bots`
 - `GET /api/ops/bots/:id`
-- `PATCH /api/ops/bots/:id`（pause/resume/config）
+- `PATCH /api/ops/bots/:id`
+- `GET /api/ops/packs`
 - `GET /api/ops/approvals?status=pending`
 - `POST /api/ops/approvals/:id/approve|reject`
 - `GET /api/ops/bots/:id/metrics`
@@ -506,9 +715,9 @@ HTTP 仅保留极简控制台：
 
 ---
 
-## 12. 对话式 UI
+## 13. 对话式 UI
 
-### 12.1 接入流程
+### 13.1 接入已有 Pack 的账号
 
 ```
 用户：接入公众号
@@ -527,55 +736,79 @@ Bot：已创建「品牌 A 公众号 Bot」，预算默认每月 ¥X，可随时
 
 - 每步只问一个问题，支持自然语言和快捷选项。
 - 凭据走一次性安全链接 / 扫码，不在对话里传密钥。
-- 创建完成返回配置摘要卡：账号、目标、节奏、审批、预算。
-- 后续配置全部在对话完成：
-  - “把预算调到每月 ¥3000”
-  - “这周三加一篇热点”
-  - “以后视频成片不用我确认”
-  - “暂停这个账号”
-- 审批在对话完成：卡片预览 + 通过/驳回/修改。
+- 创建完成返回配置摘要卡：账号、Pack、目标、节奏、审批、预算。
 
-### 12.2 极简控制台
+### 13.2 接入新渠道
 
-只做列表和状态，不做复杂表单：
+```
+用户：接入 Facebook
+Bot：检测到 Facebook Graph API。我会先生成一个 Facebook Pack 草稿，
+     包括发布、指标、评论、回复四个能力，全部走官方 API。
+     是否继续？
+用户：继续
+Bot：[能力矩阵卡] 发布 API / 指标 API / 互动 API / 回复 API
+     风险：需要 Page 权限与 App 审核。
+     是否在测试账号上跑一遍？
+用户：跑
+Bot：测试通过。发布 Pack v1？
+用户：发布
+Bot：已发布。现在要绑定哪个 Page？
+```
 
-- 账号 Bot、平台、运营人、预算余量、待审批数、风险状态。
-- 点击进入对话；高级配置通过对话或可选 Dialog。
+- 有 OpenAPI：自动生成 provider contract + Pack 草稿。
+- 无 OpenAPI：生成 browser recipe 草稿，测试账号跑通后发布。
+- Pack 发布后，同渠道多账号只需重复“绑定账号”。
+
+### 13.3 多账号
+
+```
+用户：再接入一个公众号
+Bot：使用现有 wechat_mp Pack v3。账号名称是？
+用户：品牌 B 公众号
+Bot：请完成授权。
+用户：[完成]
+Bot：已创建「品牌 B 公众号 Bot」，独立预算与审批人。
+```
+
+- 同渠道复用 Pack；每个账号独立 Ops Bot。
+- 可分别设置目标、节奏、预算、审批人、Pack 版本。
+
+### 13.4 审批与控制
+
+- 审批卡片：发布 / 回复 / 视频成片；通过/驳回/修改。
+- 对话命令：`/bots`、`/bot <name>`、`/approvals`、`/pause`、`/resume`、`/budget`、`/calendar`。
+- 极简控制台只做列表和状态：账号、Pack、运营人、预算余量、待审批数、风险状态。
 - 遵循 `docs/design-system.md`：warm token、shadcn、lucide、`t()`、Dark mode、4px 网格。
-
-### 12.3 命令
-
-`/bots`、`/bot <name>`、`/approvals`、`/pause`、`/resume`、`/budget`、`/calendar`。
 
 ---
 
-## 13. 指标
+## 14. 指标
 
-### 13.1 账号级
+### 14.1 账号级
 
 - 内容产出量、发布成功率、审批通过率、平均审批时长
 - 阅读/曝光、互动率、涨粉、转化
 - 单篇成本、月度预算消耗
 - 登录失效率、限流次数、风险事件
 
-### 13.2 总监级
+### 14.2 总监级
 
 - 账号矩阵总产出、总预算、跨账号爆款率
 - 选题复用率、同质内容比例
 - 各账号目标达成度
 
-### 13.3 呈现
+### 14.3 呈现
 
-Mission control 增加「运营 Bot」面板，按账号下钻；不合并成单一分数。
+Mission control 增加「运营 Bot」面板，按渠道/账号下钻；不合并成单一分数。
 
 ---
 
-## 14. 错误处理与风险
+## 15. 错误处理与风险
 
 | 场景 | 处理 |
 |---|---|
 | 登录态失效 | 生成“重新登录”任务，通知运营人扫码；不重试爆破 |
-| 平台 UI 改版 | selector 失效 → 降级发布包 + 人工发布，告警 |
+| 平台 UI 改版 | recipe/selector 失效 → 降级发布包 + 人工发布，告警 |
 | 发布失败 | 退避重试；仍失败则保留上下文，生成具体问题 |
 | 重复发布 | `idempotency_key` 去重；发布前检查回执 |
 | 预算超限 | 暂停该账号自动生成/发布，通知运营人 |
@@ -583,86 +816,94 @@ Mission control 增加「运营 Bot」面板，按账号下钻；不合并成单
 | 浏览器崩溃 | Worker 重启，保留任务队列；账号租约释放 |
 | 风控/限流 | 降低频率、暂停账号、通知运营人 |
 | 凭据泄露风险 | 凭据只存 credstore；日志/对话/卡片不出现明文 |
+| Pack 升级 | 发布新版本；账号可固定旧版本或显式升级 |
 
 ---
 
-## 15. 分阶段落地
+## 16. 分阶段落地
 
 | 阶段 | 内容 | 验收 |
 |---|---|---|
-| Phase 0 | schema、Ops Bot CRUD、对话式接入、账号绑定、预算/审批配置 | 能在 IM 里完整创建一个公众号 Bot，不执行内容 |
+| Phase 0 | ChannelAdapter 契约、Platform Pack 规范、内置 WeChat/XHS Pack、Ops Bot CRUD、对话式接入、多账号绑定、预算/审批配置 | 能在 IM 里创建公众号/小红书 Bot；同渠道多账号；不执行内容 |
 | Phase 1 | 公众号官方 API 流水线：选题→文案→图片→审校→审批→发布→指标 | 一个公众号账号跑通图文闭环 |
 | Phase 2 | 小红书本地浏览器 Worker：发布、数据、互动建议、图片笔记 | 一个小红书账号跑通图文闭环 |
 | Phase 3 | 视频流水线、团队版云端浏览器、多账号总监协调 | 双平台 + 视频 + 多账号 |
-| Phase 4 | 热点驱动、爆款回流、第三方数据、进阶指标 | 两种节奏并存，反馈闭环生效 |
+| Phase 4 | Pack 生成/测试/发布流程；Facebook、知乎 Pack；热点驱动；爆款回流 | 新增渠道以 Pack 为主，不改核心 |
 
 实现计划按阶段拆分，先完成 Phase 0 并验收，再进入 Phase 1；每个阶段独立可上线。
 
 ---
 
-## 16. 测试与验收
+## 17. 测试与验收
 
-### 16.1 测试
+### 17.1 测试
 
 **单元：**
 
+- ChannelAdapter 契约、能力级 binding 解析、OpenAPI/MCP/browser 选择。
+- Platform Pack 校验：manifest、content schema、bindings、recipe。
 - Ops Bot 配置、预算计算、审批状态机。
-- 账号级隔离：凭据/profile/预算不串号。
-- PlatformAdapter 归一化：公众号/小红书发布结果、指标、互动。
-- 浏览器 Worker 租约、登录态失效、降级路径。
-- 预算超限暂停。
+- 多账号唯一约束与账号级隔离（凭据/profile/预算不串号）。
+- Pack 版本固定/跟随最新。
 
 **集成：**
 
 - IM 对话 → Ops Bot 创建 → 账号 Epic/workspace 创建。
+- 同渠道第二个账号复用 Pack，独立创建 Ops Bot。
 - 内容 issue → Brief → 合规门禁 → 审批 → mock 发布 → 回执。
 - 审批驳回/修改 → 重新生成 → 再次审批。
 - 总监生成日历 → 账号 Bot 接单 → 内容任务。
-- 多账号隔离与总监协调。
+- Pack 生成 → 沙箱测试 → 发布 → 账号绑定。
 
 **端到端：**
 
 1. 对话创建公众号 Bot → 授权 → 发布一篇图文（测试账号/mock）。
-2. 对话创建小红书 Bot → 扫码登录 → 发布一篇图文笔记（测试账号）。
-3. 视频任务 → 成片 → 审批 → 发布。
-4. 互动建议 → 审批 → 发送。
-5. 预算超限 → 暂停 → 通知 → 调整预算恢复。
-6. 登录失效/UI 改版 → 降级 → 告警。
+2. 同渠道创建第二个公众号 Bot，复用 Pack，独立预算/审批。
+3. 对话创建小红书 Bot → 扫码登录 → 发布一篇图文笔记（测试账号）。
+4. 视频任务 → 成片 → 审批 → 发布。
+5. 互动建议 → 审批 → 发送。
+6. 预算超限 → 暂停 → 通知 → 调整预算恢复。
+7. 登录失效/UI 改版 → 降级 → 告警。
+8. 新渠道 Pack 生成 → 测试 → 发布 → 绑定账号。
 
-### 16.2 验收
+### 17.2 验收
 
 1. 能在 IM 对话中完成 Ops Bot 创建、账号授权、目标/节奏/预算/审批配置。
-2. 公众号图文闭环可跑通（官方 API）。
-3. 小红书图文闭环可跑通（本地浏览器，测试账号）。
-4. 视频成片可生成并进入审批。
-5. 发布、回复、视频成片默认都需人工确认；开关可按账号调整。
-6. 互动只生成建议，不自动发送。
-7. 每账号预算独立，超限暂停并通知。
-8. 总监可跨账号排期、去重、分配预算。
-9. 账号凭据、浏览器会话、指标严格隔离。
-10. 所有外发有审批与审计记录。
+2. 同一渠道可创建多个账号 Bot，Pack 复用，账号级隔离。
+3. 有 OpenAPI 的平台优先走 API；没有则 MCP 或浏览器 recipe。
+4. 新增渠道通过 Pack 完成，不改 Ops Bot 核心。
+5. 公众号图文闭环可跑通（官方 API）。
+6. 小红书图文闭环可跑通（本地浏览器，测试账号）。
+7. 视频成片可生成并进入审批。
+8. 发布、回复、视频成片默认都需人工确认；开关可按账号调整。
+9. 互动只生成建议，不自动发送。
+10. 每账号预算独立，超限暂停并通知。
+11. 总监可跨渠道/跨账号排期、去重、分配预算。
+12. 所有外发有审批与审计记录；凭据不出现在对话/日志。
 
 ---
 
-## 17. 明确不做
+## 18. 明确不做
 
 - 不新建聊天系统；复用 imbot。
 - 不新建执行引擎；复用 workspace/agentproxy/Epic。
-- 不代持账号密码；不把密钥放进对话或 prompt。
+- 不代持账号密码；不把密钥放进对话、Pack 或 prompt。
 - 不做批量关注/点赞/私信等高风险互动。
-- 不假设小红书有官方开放 API。
+- 不假设所有平台都有官方 API。
 - 不自动通过审批；不绕过平台频次/人工复核。
+- 不为每个平台写核心适配器；平台差异收敛到 Pack。
 - 不默认接入第三方 SaaS 代发。
 - 不做模型训练。
 
 ---
 
-## 18. 待实现前确认
+## 19. 待实现前确认
 
 以下不影响本设计成立，进入实现计划前需要定：
 
 1. **视频生成工具链**：优先复用现有 video-gen MCP，还是引入新的 TTS/视频模型；按成本与质量决定。
-2. **团队版云端浏览器的部署形态**：独立容器 vs 共享池 + 账号级隔离；取决于企业版基础设施。
+2. **团队版云端浏览器部署**：独立容器 vs 共享池 + 账号级隔离；取决于企业版基础设施。
 3. **预算币种与计价**：人民币/美元；按 token、图片张数、视频秒数分别计价。
 4. **小红书数据补充**：是否接入第三方合规数据源（竞品/行业），还是只用创作者后台数据。
-5. **账号接入方式**：公众号 AppID/AppSecret 与 MCP token 两种方式的首选；小红书扫码登录的会话保活策略。
+5. **Pack DSL 边界**：browser recipe 支持哪些动作；哪些复杂平台需要 adapter 插件。
+6. **Pack 分发**：是否提供 Pack 市场/共享；首版只支持导出/导入。
