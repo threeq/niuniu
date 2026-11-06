@@ -248,7 +248,7 @@ export function ProjectSettingsTab({ projectId, initialSection, onIntakeDirtyCha
               setActiveSection(key);
             }}
             className={[
-              'shrink-0 whitespace-nowrap border-b-2 -mb-px px-3 py-2 text-sm font-medium',
+              'shrink-0 whitespace-nowrap border-b-2 px-3 py-2 text-sm font-medium',
               activeSection === key
                 ? 'border-b-info text-info'
                 : 'border-b-transparent text-muted-foreground hover:text-warm-text',
