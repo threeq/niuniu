@@ -423,6 +423,25 @@
     "loadError": "加载指标失败",
     "retry": "重试",
     "noData": "—",
+    "deliveryHealth": "投递健康",
+    "deliveryHealthEmpty": "还没有入站绑定",
+    "sourceNeverDelivered": "尚未投递",
+    "sourceLastSuccess": "最近成功 {{time}}",
+    "sourceLastFailure": "最近失败 {{time}}",
+    "sourceBackoffUntil": "{{time}} 后恢复轮询",
+    "sourceCounts": "{{success}} 成功 · {{duplicate}} 去重 · {{rejected}} 拒绝（24h）",
+    "sourceAlertToast": "{{name}}：{{reason}}",
+    "sourceStatus": {
+      "ok": "正常",
+      "degraded": "退避中",
+      "error": "失败",
+      "never": "尚未投递"
+    },
+    "sourceAlert": {
+      "secret_misconfigured": "连续 3 次 401 —— 密钥可能配置错误。",
+      "payload_mismatch": "连续 3 次 400 —— 载荷格式不符。",
+      "imap_auth_failed": "邮箱登录被拒绝 —— 请检查 IMAP 凭据。"
+    },
     "metrics": {
       "today_accepted": "今日自动接单",
       "pending": "待校准",

@@ -336,6 +336,25 @@
     "loadError": "載入指標失敗",
     "retry": "重試",
     "noData": "—",
+    "deliveryHealth": "投遞健康",
+    "deliveryHealthEmpty": "還沒有入站綁定",
+    "sourceNeverDelivered": "尚未投遞",
+    "sourceLastSuccess": "最近成功 {{time}}",
+    "sourceLastFailure": "最近失敗 {{time}}",
+    "sourceBackoffUntil": "{{time}} 後恢復輪詢",
+    "sourceCounts": "{{success}} 成功 · {{duplicate}} 去重 · {{rejected}} 拒絕（24h）",
+    "sourceAlertToast": "{{name}}：{{reason}}",
+    "sourceStatus": {
+      "ok": "正常",
+      "degraded": "退避中",
+      "error": "失敗",
+      "never": "尚未投遞"
+    },
+    "sourceAlert": {
+      "secret_misconfigured": "連續 3 次 401 —— 密鑰可能配置錯誤。",
+      "payload_mismatch": "連續 3 次 400 —— 載荷格式不符。",
+      "imap_auth_failed": "郵箱登入被拒絕 —— 請檢查 IMAP 憑證。"
+    },
     "metrics": {
       "today_accepted": "今日自動接單",
       "pending": "待校準",

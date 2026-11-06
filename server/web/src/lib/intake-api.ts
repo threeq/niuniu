@@ -211,10 +211,20 @@ export interface IntakeSource {
   provider: string
   inbound_path: string
   has_secret: boolean
-  /** ok | backoff | error — derived from the IMAP cursor / recent deliveries. */
+  /** never | ok | degraded | error — derived from deliveries + the IMAP cursor. */
   status: string
   last_event_at?: string
   events_24h: number
+  /** Delivery health (design §12). Duplicate counts are in-memory and reset on
+   *  restart; success/rejected are durable aggregates of intake_decisions. */
+  last_success_at?: string
+  last_failure_at?: string
+  success_24h?: number
+  duplicate_24h?: number
+  rejected_24h?: number
+  consecutive_failures?: number
+  alert?: string
+  alert_reason?: string
   /** IMAP cursor failure reason; empty for push bindings. */
   last_error?: string
   /** When polling resumes after a failure (IMAP only). */

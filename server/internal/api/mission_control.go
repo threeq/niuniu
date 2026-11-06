@@ -25,7 +25,7 @@ type MissionControlHandler struct {
 // Get serves GET /api/mission-control.
 //
 // @Summary      Mission control metrics
-// @Description  Two independent panels: Intake (today accepted / pending / approval / misfire / duplicate / event-to-start, per source+chat daily counts) and Completion (in progress / stuck / first pass / avg rounds / fake completion / interventions / today tokens+cost). Scoped to the caller's accessible projects; ?owner=user:<id>|org:<slug> narrows further.
+// @Description  Two independent panels: Intake (today accepted / pending / approval / misfire / duplicate / event-to-start, per source+chat daily counts, and per-binding delivery health with recent success/failure and 24h counters) and Completion (in progress / stuck / first pass / avg rounds / fake completion / interventions / today tokens+cost). Scoped to the caller's accessible projects; ?owner=user:<id>|org:<slug> narrows further.
 // @Tags         MissionControl
 // @Produce      json
 // @Param        owner  query     string  false  "owner filter"

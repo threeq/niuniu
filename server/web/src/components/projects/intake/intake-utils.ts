@@ -55,13 +55,14 @@ export function latestEventAt(bindings: IntakeSource[] | undefined): string | nu
   return latest
 }
 
-/** UI status: the server's ok|backoff|error plus a client-side `never` for a
- *  binding that has not received a single delivery yet. */
+/** UI status: the server's never|ok|degraded|error (design §12). `backoff` is
+ *  accepted for a response cached from before the status rename. */
 export type BindingStatus = 'ok' | 'degraded' | 'error' | 'never'
 
 export function bindingStatus(source: IntakeSource): BindingStatus {
   if (source.status === 'error') return 'error'
-  if (source.status === 'backoff') return 'degraded'
+  if (source.status === 'degraded' || source.status === 'backoff') return 'degraded'
+  if (source.status === 'never') return 'never'
   if (!source.last_event_at && source.events_24h === 0) return 'never'
   return 'ok'
 }

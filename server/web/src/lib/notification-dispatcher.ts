@@ -67,6 +67,9 @@ const INVALIDATION_MAP: Record<string, QueryKeyMapper> = {
   // Integration-source health (#744): refresh both source lists so the health
   // light reflects the auto-disable / drift / recovery.
   integration_health: () => [['external-providers'], ['data-sources']],
+  // Intake binding delivery health (design §12): refresh the binding list and
+  // the mission-control panel so a new failure streak is visible immediately.
+  intake_health: () => [['mission-control'], ['intake-sources']],
   // Egress data-governance alert (#747): refresh the activity feed so the
   // flagged row (and its oversize marker) appears.
   egress_alert: () => [['integration-activity']],
@@ -228,6 +231,24 @@ function handleToast(n: Notification) {
     } else {
       toast.error(i18n.t('settings:integrations.health.toastAutoDisabled', { name }));
     }
+    return;
+  }
+
+  // Intake delivery health (design §12): three consecutive 401/400 or an IMAP
+  // login rejection. The reason is localized from the alert's reason_code, so
+  // the toast never carries server prose (and never any secret/body).
+  if (n.topic === 'intake_health') {
+    const extra = (n.extra as Record<string, unknown>) ?? {};
+    const name = typeof extra.name === 'string' ? extra.name : '';
+    const reasonCode = typeof extra.reason_code === 'string' ? extra.reason_code : '';
+    toast.warning(
+      i18n.t('intake:missionControl.sourceAlertToast', {
+        name,
+        reason: i18n.t(`intake:missionControl.sourceAlert.${reasonCode}`, {
+          defaultValue: reasonCode,
+        }),
+      }),
+    );
     return;
   }
 

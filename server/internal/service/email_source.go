@@ -106,6 +106,8 @@ type EmailSourceService struct {
 	mu      sync.Mutex
 	running map[int64]bool
 
+	delivery *DeliveryHealthTracker
+
 	dispatchMu sync.RWMutex
 	dispatch   TaskRouter
 	deliverer  MessageDeliverer
@@ -134,6 +136,16 @@ func NewEmailSourceService(rawDB *sql.DB, q *store.Queries, creds *ExternalCrede
 
 // SetFetcher replaces the transport (tests).
 func (s *EmailSourceService) SetFetcher(f IMAPFetcher) { s.fetcher = f }
+
+// SetDeliveryHealth wires the shared delivery tracker (server DI), so an IMAP
+// login rejection raises an immediate alert instead of a silent backoff.
+func (s *EmailSourceService) SetDeliveryHealth(t *DeliveryHealthTracker) { s.delivery = t }
+
+func (s *EmailSourceService) recordDelivery(binding store.ProjectExternalSource, outcome DeliveryOutcome) {
+	if s.delivery != nil {
+		s.delivery.Record(binding.ID, binding.ProjectID, emailProviderName, outcome)
+	}
+}
 
 // SetInbound wires the task router and agent deliverer, mirroring the other
 // Source services so an accepted email creates a real issue + workspace.
@@ -237,6 +249,7 @@ func (s *EmailSourceService) PollBinding(ctx context.Context, bindingID int64) e
 	cfg, err := s.imapConfig(ctx, binding)
 	if err != nil {
 		s.recordFailure(ctx, binding, mailbox, state, now, err)
+		s.recordDelivery(binding, DeliveryTransportFailed)
 		return err
 	}
 
@@ -247,6 +260,7 @@ func (s *EmailSourceService) PollBinding(ctx context.Context, bindingID int64) e
 	})
 	if err != nil {
 		s.recordFailure(ctx, binding, mailbox, state, now, err)
+		s.recordDelivery(binding, imapFailureOutcome(err))
 		return fmt.Errorf("email source: fetch %s: %w", binding.SourceKey, err)
 	}
 	if fetch.Reset {
@@ -286,11 +300,21 @@ func (s *EmailSourceService) PollBinding(ctx context.Context, bindingID int64) e
 			continue
 		}
 		trig := parsed.trigger(binding.ProjectID, srcRef, fetch.UIDValidity, msg.UID, parsed.Date)
-		if _, err := s.intake.Handle(ctx, trig); err != nil {
+		res, err := s.intake.Handle(ctx, trig)
+		if err != nil {
 			// Persist progress up to the last good message, then back off.
 			_ = s.saveCursor(ctx, binding, mailbox, fetch.UIDValidity, cursor)
 			s.recordFailure(ctx, binding, mailbox, state, now, err)
+			s.recordDelivery(binding, DeliveryTransportFailed)
 			return fmt.Errorf("email source: intake: %w", err)
+		}
+		switch {
+		case res.Duplicate:
+			s.recordDelivery(binding, DeliveryDuplicate)
+		case res.Decision == intake.DecisionIgnore:
+			s.recordDelivery(binding, DeliveryRejected)
+		default:
+			s.recordDelivery(binding, DeliverySuccess)
 		}
 		cursor = uid
 	}
@@ -298,7 +322,32 @@ func (s *EmailSourceService) PollBinding(ctx context.Context, bindingID int64) e
 	if err := s.saveCursor(ctx, binding, mailbox, fetch.UIDValidity, cursor); err != nil {
 		return err
 	}
+	// A completed poll proves the channel recovered: clear the persisted cursor
+	// error so the binding does not stay "error" after a transient failure.
+	s.clearFailure(ctx, binding, mailbox)
+	s.recordDelivery(binding, DeliveryPollOK)
 	return nil
+}
+
+// imapFailureOutcome distinguishes a login rejection (which marks the binding
+// error immediately) from a transient transport failure.
+func imapFailureOutcome(err error) DeliveryOutcome {
+	var authErr *ErrIMAPAuth
+	if errors.As(err, &authErr) {
+		return DeliveryIMAPAuthFailed
+	}
+	return DeliveryTransportFailed
+}
+
+func (s *EmailSourceService) clearFailure(ctx context.Context, binding store.ProjectExternalSource, mailbox string) {
+	if _, err := s.q.SetEmailPollBackoff(ctx, store.SetEmailPollBackoffParams{
+		BackoffUntil: sql.NullTime{},
+		LastError:    "",
+		BindingID:    binding.ID,
+		Mailbox:      mailbox,
+	}); err != nil {
+		slog.Warn("email source: clear backoff failed", "binding", binding.ID)
+	}
 }
 
 func (s *EmailSourceService) acquire(bindingID int64) bool {
@@ -493,7 +542,10 @@ func (goIMAPFetcher) Fetch(ctx context.Context, cfg IMAPConfig, mailbox string, 
 	defer c.Close()
 
 	if err := c.Login(cfg.Username, cfg.Password).Wait(); err != nil {
-		return IMAPFetch{}, err
+		// A rejected LOGIN is a credential problem the user can fix; surface it
+		// as *ErrIMAPAuth so the binding goes to `error` and an alert fires. The
+		// server's reply never contains the password.
+		return IMAPFetch{}, &ErrIMAPAuth{Detail: webhooksource.TruncateUTF8(err.Error(), 200)}
 	}
 	defer func() { _ = c.Logout().Wait() }()
 

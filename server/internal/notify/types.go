@@ -59,4 +59,11 @@ const (
 	// request changing state (raised / decided / escalated / invalidated).
 	// Delivered per eligible approver via OwnerType="user".
 	TopicIntegrationApproval = "integration_approval"
+	// TopicIntakeHealth signals an intake binding's delivery health crossing an
+	// alert threshold (design §12): three consecutive 401s point at a
+	// misconfigured secret, three consecutive 400s at a payload mismatch, and an
+	// IMAP login rejection at an invalid mailbox credential. Action is "alert";
+	// ID is the binding id and Extra carries {source_id, project_id, source_kind,
+	// provider, reason_code, message} so the SPA can toast and refresh.
+	TopicIntakeHealth = "intake_health"
 )

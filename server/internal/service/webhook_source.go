@@ -100,6 +100,8 @@ type WebhookSourceService struct {
 	dispatch  TaskRouter
 	deliverer MessageDeliverer
 
+	delivery *DeliveryHealthTracker
+
 	rateLimiters sync.Map // binding id -> *rate.Limiter
 }
 
@@ -115,6 +117,16 @@ func NewWebhookSourceService(rawDB *sql.DB, q *store.Queries, creds *ExternalCre
 		Executor: webhookExecutor{svc: s},
 	})
 	return s
+}
+
+// SetDeliveryHealth wires the shared delivery tracker (server DI). Recorded
+// outcomes explain 401/400/duplicate deliveries that leave no intake_events row.
+func (s *WebhookSourceService) SetDeliveryHealth(t *DeliveryHealthTracker) { s.delivery = t }
+
+func (s *WebhookSourceService) recordDelivery(b webhookBinding, outcome DeliveryOutcome) {
+	if s.delivery != nil {
+		s.delivery.Record(b.id, b.projectID, b.provider, outcome)
+	}
 }
 
 // SetInbound wires the shared task router and agent deliverer (server DI).
@@ -154,11 +166,13 @@ func (s *WebhookSourceService) HandleInbound(
 	// Network policy is the outermost boundary: it runs before the secret is
 	// even fetched, so a disallowed peer learns nothing and no event is written.
 	if !ClientAllowed(networkConfigFromBinding(binding.config), r) {
+		s.recordDelivery(binding, DeliveryForbidden)
 		return InboundOutcome{}, ErrIntakeWebhookForbidden
 	}
 
 	secret, err := s.bindingSecret(ctx, binding)
 	if err != nil {
+		s.recordDelivery(binding, DeliveryTransportFailed)
 		return InboundOutcome{}, err
 	}
 
@@ -167,18 +181,22 @@ func (s *WebhookSourceService) HandleInbound(
 	switch binding.provider {
 	case intake.SourceKindGitHub:
 		if !githubsource.SignatureValid(secret, body, r.Header.Get("X-Hub-Signature-256")) {
+			s.recordDelivery(binding, DeliveryAuthFailed)
 			return InboundOutcome{}, ErrIntakeWebhookUnauthorized
 		}
 		if !s.allowDelivery(binding.id) {
+			s.recordDelivery(binding, DeliveryRateLimited)
 			return InboundOutcome{}, ErrWebhookRateLimited
 		}
 		eventType := strings.TrimSpace(r.Header.Get("X-GitHub-Event"))
 		kind, known := githubsource.WebhookEventKind(eventType)
 		if !known || !githubEventEnabled(binding.config, kind) {
+			s.recordDelivery(binding, DeliveryIgnored)
 			return InboundOutcome{Ignored: true}, nil
 		}
 		trig, ok, err = githubsource.NormalizeWebhook(binding.projectID, binding.name, eventType, body)
 		if err != nil {
+			s.recordDelivery(binding, DeliveryBadRequest)
 			return InboundOutcome{}, fmt.Errorf("%w: %v", ErrWebhookBadRequest, err)
 		}
 	case intake.SourceKindCI:
@@ -189,17 +207,21 @@ func (s *WebhookSourceService) HandleInbound(
 			return InboundOutcome{}, ErrWebhookNotFound
 		}
 		if !ciCredentialValid(preset, secret, r, body, time.Now()) {
+			s.recordDelivery(binding, DeliveryAuthFailed)
 			return InboundOutcome{}, ErrIntakeWebhookUnauthorized
 		}
 		if !s.allowDelivery(binding.id) {
+			s.recordDelivery(binding, DeliveryRateLimited)
 			return InboundOutcome{}, ErrWebhookRateLimited
 		}
 		ref := fmt.Sprintf("%s/%d", binding.name, binding.id)
 		trig, ok, err = webhooksource.NormalizeCI(binding.projectID, ref, preset.Provider, body)
 		if err != nil {
+			s.recordDelivery(binding, DeliveryBadRequest)
 			return InboundOutcome{}, fmt.Errorf("%w: %v", ErrWebhookBadRequest, err)
 		}
 		if ok && !ciEventEnabled(binding.config, preset, trig.EventKind) {
+			s.recordDelivery(binding, DeliveryIgnored)
 			return InboundOutcome{Ignored: true}, nil
 		}
 		// Success/recovery/cancel only signal an already-bound task; the
@@ -209,9 +231,11 @@ func (s *WebhookSourceService) HandleInbound(
 		}
 	case intake.SourceKindEmail, intake.SourceKindWebhook:
 		if !genericSecretValid(secret, r, body) {
+			s.recordDelivery(binding, DeliveryAuthFailed)
 			return InboundOutcome{}, ErrIntakeWebhookUnauthorized
 		}
 		if !s.allowDelivery(binding.id) {
+			s.recordDelivery(binding, DeliveryRateLimited)
 			return InboundOutcome{}, ErrWebhookRateLimited
 		}
 		// intake_events is unique on (source_kind, source_ref, event_ext_id)
@@ -234,21 +258,25 @@ func (s *WebhookSourceService) HandleInbound(
 					DisableIgnore: !configBool(binding.config, "ignore_auto", true),
 				})
 			if nerr != nil {
+				s.recordDelivery(binding, DeliveryBadRequest)
 				return InboundOutcome{}, fmt.Errorf("%w: %v", ErrWebhookBadRequest, nerr)
 			}
 			if res.Ignored {
+				s.recordDelivery(binding, DeliveryIgnored)
 				return InboundOutcome{Ignored: true}, nil
 			}
 			trig = res.Trigger
 		} else {
 			trig, err = webhooksource.NormalizeGeneric(binding.projectID, ref, body)
 			if err != nil {
+				s.recordDelivery(binding, DeliveryBadRequest)
 				return InboundOutcome{}, fmt.Errorf("%w: %v", ErrWebhookBadRequest, err)
 			}
 		}
 		// A binding may restrict which event names it accepts. An absent/empty
 		// list means every event, matching the pre-configuration default.
 		if !webhookEventEnabled(binding.config, trig.EventKind) {
+			s.recordDelivery(binding, DeliveryIgnored)
 			return InboundOutcome{Ignored: true}, nil
 		}
 		ok = true
@@ -256,12 +284,22 @@ func (s *WebhookSourceService) HandleInbound(
 		return InboundOutcome{}, ErrWebhookNotFound
 	}
 	if !ok {
+		s.recordDelivery(binding, DeliveryIgnored)
 		return InboundOutcome{Ignored: true}, nil
 	}
 
 	res, err := s.intake.Handle(ctx, trig)
 	if err != nil {
+		s.recordDelivery(binding, DeliveryTransportFailed)
 		return InboundOutcome{}, err
+	}
+	switch {
+	case res.Duplicate:
+		s.recordDelivery(binding, DeliveryDuplicate)
+	case res.Decision == intake.DecisionIgnore:
+		s.recordDelivery(binding, DeliveryRejected)
+	default:
+		s.recordDelivery(binding, DeliverySuccess)
 	}
 	return InboundOutcome{
 		Duplicate:  res.Duplicate,

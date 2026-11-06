@@ -39,11 +39,14 @@ var (
 	ErrIntakeSourceReserved       = errors.New("intake source: provider is managed by intake sources")
 )
 
-// Status values exposed to the UI (design §11.3): normal / backing off / error.
+// Status values exposed to the UI (design §11.3, §12). Delivery health is
+// derived from intake_events/intake_decisions plus the in-memory tracker; no
+// new table is involved.
 const (
-	IntakeStatusOK      = "ok"
-	IntakeStatusBackoff = "backoff"
-	IntakeStatusError   = "error"
+	IntakeStatusNever    = "never"    // not one delivery attempt yet
+	IntakeStatusOK       = "ok"       // deliveries work, no failure streak
+	IntakeStatusDegraded = "degraded" // backing off, or 1-2 consecutive failures
+	IntakeStatusError    = "error"    // 3+ consecutive failures, or IMAP auth failed
 )
 
 // IntakeSourceInput is the create payload. SourceKind is ci | email | webhook;
@@ -73,7 +76,18 @@ type IntakeSourceDTO struct {
 	HasSecret   bool       `json:"has_secret"`
 	Status      string     `json:"status"`
 	LastEventAt *time.Time `json:"last_event_at,omitempty"`
-	Events24h   int64      `json:"events_24h"`
+
+	// Delivery health (design §12), derived from intake_events/decisions plus
+	// the in-memory tracker.
+	LastSuccessAt       *time.Time `json:"last_success_at,omitempty"`
+	LastFailureAt       *time.Time `json:"last_failure_at,omitempty"`
+	Events24h           int64      `json:"events_24h"`
+	Success24h          int64      `json:"success_24h"`
+	Duplicate24h        int64      `json:"duplicate_24h"`
+	Rejected24h         int64      `json:"rejected_24h"`
+	ConsecutiveFailures int        `json:"consecutive_failures"`
+	Alert               string     `json:"alert,omitempty"`
+	AlertReason         string     `json:"alert_reason,omitempty"`
 	// LastError/BackoffUntil expose the IMAP cursor's failure state so the
 	// settings dialog can explain a degraded or errored binding (design §11.3).
 	LastError    string         `json:"last_error,omitempty"`
@@ -81,13 +95,47 @@ type IntakeSourceDTO struct {
 	Config       map[string]any `json:"config"`
 }
 
-// IntakeSourceStatus is the per-binding health view.
+// IntakeSourceStatus is the per-binding health view (design §12): recent
+// success/failure, 24h success/dedup/rejected, and the current backoff.
 type IntakeSourceStatus struct {
-	Status       string     `json:"status"`
-	LastEventAt  *time.Time `json:"last_event_at,omitempty"`
-	Events24h    int64      `json:"events_24h"`
-	LastError    string     `json:"last_error,omitempty"`
-	BackoffUntil *time.Time `json:"backoff_until,omitempty"`
+	Status              string     `json:"status"`
+	LastEventAt         *time.Time `json:"last_event_at,omitempty"`
+	LastSuccessAt       *time.Time `json:"last_success_at,omitempty"`
+	LastFailureAt       *time.Time `json:"last_failure_at,omitempty"`
+	Events24h           int64      `json:"events_24h"`
+	Success24h          int64      `json:"success_24h"`
+	Duplicate24h        int64      `json:"duplicate_24h"`
+	Rejected24h         int64      `json:"rejected_24h"`
+	LastError           string     `json:"last_error,omitempty"`
+	BackoffUntil        *time.Time `json:"backoff_until,omitempty"`
+	ConsecutiveFailures int        `json:"consecutive_failures"`
+	// Alert is the active alert reason code, e.g. secret_misconfigured.
+	Alert       string `json:"alert,omitempty"`
+	AlertReason string `json:"alert_reason,omitempty"`
+}
+
+// IntakeSourceHealth is one binding's delivery health in the mission control
+// panel. Every field is aggregated from intake_events/intake_decisions (durable)
+// or the delivery tracker (volatile 401/400/duplicate signals); there is no
+// health table.
+type IntakeSourceHealth struct {
+	SourceID            int64      `json:"source_id"`
+	ProjectID           int64      `json:"project_id"`
+	Name                string     `json:"name"`
+	SourceKind          string     `json:"source_kind"`
+	Provider            string     `json:"provider"`
+	Mode                string     `json:"mode"`
+	Status              string     `json:"status"`
+	LastSuccessAt       *time.Time `json:"last_success_at,omitempty"`
+	LastFailureAt       *time.Time `json:"last_failure_at,omitempty"`
+	LastError           string     `json:"last_error,omitempty"`
+	BackoffUntil        *time.Time `json:"backoff_until,omitempty"`
+	Success24h          int64      `json:"success_24h"`
+	Duplicate24h        int64      `json:"duplicate_24h"`
+	Rejected24h         int64      `json:"rejected_24h"`
+	ConsecutiveFailures int        `json:"consecutive_failures"`
+	Alert               string     `json:"alert,omitempty"`
+	AlertReason         string     `json:"alert_reason,omitempty"`
 }
 
 // IntakeSourceTestResult is the dry-run outcome of a synthetic event: the
@@ -121,7 +169,8 @@ type IntakeSourceService struct {
 	authz  *Authz
 	policy *CredentialUsagePolicyService
 
-	poller EmailSourcePoller
+	poller   EmailSourcePoller
+	delivery *DeliveryHealthTracker
 }
 
 func NewIntakeSourceService(rawDB *sql.DB, q *store.Queries, creds *ExternalCredentialService, authz *Authz, policy *CredentialUsagePolicyService) *IntakeSourceService {
@@ -136,6 +185,10 @@ func NewIntakeSourceService(rawDB *sql.DB, q *store.Queries, creds *ExternalCred
 
 // SetEmailPoller wires the IMAP poller used by PollNow.
 func (s *IntakeSourceService) SetEmailPoller(p EmailSourcePoller) { s.poller = p }
+
+// SetDeliveryHealth wires the shared in-memory delivery tracker used to explain
+// 401/400/duplicate outcomes that leave no intake_events row.
+func (s *IntakeSourceService) SetDeliveryHealth(t *DeliveryHealthTracker) { s.delivery = t }
 
 func isIntakeSourceKind(kind string) bool {
 	switch kind {
@@ -168,6 +221,7 @@ func (s *IntakeSourceService) List(ctx context.Context, callerUserID, projectID 
 		pollByBinding[p.BindingID] = p
 	}
 
+	now := time.Now()
 	out := make([]IntakeSourceDTO, 0, len(rows))
 	for _, r := range rows {
 		kind := strings.ToLower(strings.TrimSpace(r.Provider))
@@ -175,19 +229,35 @@ func (s *IntakeSourceService) List(ctx context.Context, callerUserID, projectID 
 			continue
 		}
 		dto := s.dto(r)
-		if st, ok := stats[kind+"|"+eventRef(r.SourceKey, r.ID)]; ok {
-			dto.LastEventAt = st.lastAt
-			dto.Events24h = st.events24h
+		stat, hasStat := stats[kind+"|"+eventRef(r.SourceKey, r.ID)]
+		if hasStat {
+			dto.LastEventAt = stat.lastAt
+			dto.LastSuccessAt = stat.lastSuccessAt
+			dto.Events24h = stat.events24h
+			dto.Success24h = stat.success24h
+			dto.Rejected24h = stat.rejected24h
 		}
-		dto.Status = IntakeStatusOK
-		if ps, ok := pollByBinding[r.ID]; ok {
-			dto.Status = pollStateStatus(ps, time.Now())
-			dto.LastError = ps.LastError
-			if ps.BackoffUntil.Valid {
-				t := ps.BackoffUntil.Time
+		var snap DeliveryHealthSnapshot
+		if s.delivery != nil {
+			snap = s.delivery.Snapshot(r.ID)
+			dto.Duplicate24h = snap.Duplicate24h
+			dto.ConsecutiveFailures = snap.ConsecutiveFailures
+			dto.Alert = snap.Alert
+			dto.AlertReason = snap.AlertReason
+			if dto.LastFailureAt == nil {
+				dto.LastFailureAt = snap.LastFailureAt
+			}
+		}
+		var ps *store.EmailSourcePollState
+		if v, ok := pollByBinding[r.ID]; ok {
+			ps = &v
+			dto.LastError = v.LastError
+			if v.BackoffUntil.Valid {
+				t := v.BackoffUntil.Time
 				dto.BackoffUntil = &t
 			}
 		}
+		dto.Status = resolveIntakeStatus(hasStat || snap.Recorded, snap, ps, now)
 		out = append(out, dto)
 	}
 	return out, nil
@@ -488,6 +558,9 @@ func (s *IntakeSourceService) Delete(ctx context.Context, callerUserID, projectI
 	if err := tx.Commit(); err != nil {
 		return err
 	}
+	if s.delivery != nil {
+		s.delivery.Purge(sourceID)
+	}
 	if s.creds != nil && row.CredentialID.Valid && row.CredentialID.Int64 > 0 {
 		if meta, err := s.creds.GetMetaByID(ctx, row.CredentialID.Int64); err == nil {
 			if meta.Provider != integration.ProviderName(imapProviderName) {
@@ -610,8 +683,7 @@ func (s *IntakeSourceService) PollNow(ctx context.Context, callerUserID, project
 	return s.poller.PollBinding(ctx, sourceID)
 }
 
-// Health returns the binding's delivery health (last event, 24h count) plus the
-// IMAP cursor state when present.
+// Health returns one binding's delivery health (design §12).
 func (s *IntakeSourceService) Health(ctx context.Context, callerUserID, projectID, sourceID int64) (IntakeSourceStatus, error) {
 	if err := s.authorizeProject(ctx, callerUserID, projectID); err != nil {
 		return IntakeSourceStatus{}, err
@@ -620,33 +692,185 @@ func (s *IntakeSourceService) Health(ctx context.Context, callerUserID, projectI
 	if err != nil {
 		return IntakeSourceStatus{}, err
 	}
-	kind := strings.ToLower(strings.TrimSpace(row.Provider))
-	st := IntakeSourceStatus{Status: IntakeStatusOK}
 	stats, err := s.eventStats(ctx, projectID)
 	if err != nil {
 		return IntakeSourceStatus{}, err
 	}
-	if e, ok := stats[kind+"|"+eventRef(row.SourceKey, row.ID)]; ok {
-		st.LastEventAt = e.lastAt
-		st.Events24h = e.events24h
+	ps, err := s.pollStateFor(ctx, row)
+	if err != nil {
+		return IntakeSourceStatus{}, err
 	}
-	if kind == intake.SourceKindEmail {
-		ps, err := s.q.GetEmailPollState(ctx, store.GetEmailPollStateParams{
-			BindingID: row.ID,
-			Mailbox:   configString(row.Config, "mailbox"),
-		})
-		if err == nil {
-			st.Status = pollStateStatus(ps, time.Now())
-			st.LastError = ps.LastError
-			if ps.BackoffUntil.Valid {
-				t := ps.BackoffUntil.Time
-				st.BackoffUntil = &t
-			}
-		} else if !errors.Is(err, sql.ErrNoRows) {
-			return IntakeSourceStatus{}, err
+	stat, hasStat := stats[strings.ToLower(strings.TrimSpace(row.Provider))+"|"+eventRef(row.SourceKey, row.ID)]
+	snap := withPersistedIMAPAlert(s.snapshot(row.ID), ps)
+	now := time.Now()
+	st := IntakeSourceStatus{
+		Status:              resolveIntakeStatus(hasStat || snap.Recorded, snap, ps, now),
+		LastEventAt:         stat.lastAt,
+		LastSuccessAt:       stat.lastSuccessAt,
+		Events24h:           stat.events24h,
+		Success24h:          stat.success24h,
+		Rejected24h:         stat.rejected24h,
+		Duplicate24h:        snap.Duplicate24h,
+		ConsecutiveFailures: snap.ConsecutiveFailures,
+		Alert:               snap.Alert,
+		AlertReason:         snap.AlertReason,
+	}
+	st.LastFailureAt = laterTime(snap.LastFailureAt, pollFailureAt(ps))
+	if ps != nil {
+		st.LastError = ps.LastError
+		if ps.BackoffUntil.Valid {
+			t := ps.BackoffUntil.Time
+			st.BackoffUntil = &t
 		}
 	}
 	return st, nil
+}
+
+// HealthByProject returns delivery health for every intake binding in a
+// project. It does not re-check caller access: mission control has already
+// scoped the project to the caller's accessible set.
+func (s *IntakeSourceService) HealthByProject(ctx context.Context, projectID int64) ([]IntakeSourceHealth, error) {
+	rows, err := s.q.ListProjectExternalSources(ctx, projectID)
+	if err != nil {
+		return nil, err
+	}
+	stats, err := s.eventStats(ctx, projectID)
+	if err != nil {
+		return nil, err
+	}
+	pollStates, err := s.q.ListEmailPollStatesByProject(ctx, projectID)
+	if err != nil {
+		return nil, err
+	}
+	pollByBinding := make(map[int64]store.EmailSourcePollState, len(pollStates))
+	for _, p := range pollStates {
+		pollByBinding[p.BindingID] = p
+	}
+
+	now := time.Now()
+	out := make([]IntakeSourceHealth, 0, len(rows))
+	for _, r := range rows {
+		kind := strings.ToLower(strings.TrimSpace(r.Provider))
+		if !isIntakeSourceKind(kind) {
+			continue
+		}
+		stat, hasStat := stats[kind+"|"+eventRef(r.SourceKey, r.ID)]
+		var ps *store.EmailSourcePollState
+		if v, ok := pollByBinding[r.ID]; ok {
+			ps = &v
+		}
+		snap := withPersistedIMAPAlert(s.snapshot(r.ID), ps)
+		h := IntakeSourceHealth{
+			SourceID:            r.ID,
+			ProjectID:           r.ProjectID,
+			Name:                r.SourceKey,
+			SourceKind:          kind,
+			Provider:            configString(r.Config, "provider"),
+			Mode:                configString(r.Config, "mode"),
+			Status:              resolveIntakeStatus(hasStat || snap.Recorded, snap, ps, now),
+			LastSuccessAt:       stat.lastSuccessAt,
+			LastFailureAt:       laterTime(snap.LastFailureAt, pollFailureAt(ps)),
+			Success24h:          stat.success24h,
+			Duplicate24h:        snap.Duplicate24h,
+			Rejected24h:         stat.rejected24h,
+			ConsecutiveFailures: snap.ConsecutiveFailures,
+			Alert:               snap.Alert,
+			AlertReason:         snap.AlertReason,
+		}
+		if ps != nil {
+			h.LastError = ps.LastError
+			if ps.BackoffUntil.Valid {
+				t := ps.BackoffUntil.Time
+				h.BackoffUntil = &t
+			}
+		}
+		out = append(out, h)
+	}
+	return out, nil
+}
+
+func (s *IntakeSourceService) snapshot(bindingID int64) DeliveryHealthSnapshot {
+	if s.delivery == nil {
+		return DeliveryHealthSnapshot{}
+	}
+	return s.delivery.Snapshot(bindingID)
+}
+
+func (s *IntakeSourceService) pollStateFor(ctx context.Context, row store.ProjectExternalSource) (*store.EmailSourcePollState, error) {
+	if strings.ToLower(strings.TrimSpace(row.Provider)) != intake.SourceKindEmail {
+		return nil, nil
+	}
+	ps, err := s.q.GetEmailPollState(ctx, store.GetEmailPollStateParams{
+		BindingID: row.ID,
+		Mailbox:   configString(row.Config, "mailbox"),
+	})
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &ps, nil
+}
+
+// withPersistedIMAPAlert re-derives an IMAP auth alert from the persisted
+// cursor error when the in-memory tracker no longer has it (e.g. after a
+// restart). The error string is produced by ErrIMAPAuth and contains no secret.
+func withPersistedIMAPAlert(snap DeliveryHealthSnapshot, ps *store.EmailSourcePollState) DeliveryHealthSnapshot {
+	if snap.Alert == "" && ps != nil && strings.Contains(ps.LastError, "imap login rejected") {
+		snap.Alert = DeliveryAlertIMAPAuth
+		snap.AlertReason = string(DeliveryIMAPAuthFailed)
+	}
+	return snap
+}
+
+// pollFailureAt is the persisted cursor's last update; it is only a failure
+// time when the cursor actually holds an error.
+func pollFailureAt(ps *store.EmailSourcePollState) *time.Time {
+	if ps == nil || strings.TrimSpace(ps.LastError) == "" || ps.UpdatedAt.IsZero() {
+		return nil
+	}
+	t := ps.UpdatedAt
+	return &t
+}
+
+func laterTime(a, b *time.Time) *time.Time {
+	switch {
+	case a == nil:
+		return b
+	case b == nil:
+		return a
+	case b.After(*a):
+		return b
+	}
+	return a
+}
+
+// resolveIntakeStatus applies the design §12 status rules. hasActivity is true
+// when the binding has ever recorded an event or a tracker outcome; a binding
+// that has seen neither is `never` rather than a healthy-looking `ok`.
+func resolveIntakeStatus(hasActivity bool, snap DeliveryHealthSnapshot, ps *store.EmailSourcePollState, now time.Time) string {
+	if snap.Alert == DeliveryAlertIMAPAuth {
+		return IntakeStatusError
+	}
+	if ps != nil {
+		if ps.BackoffUntil.Valid && ps.BackoffUntil.Time.After(now) {
+			return IntakeStatusDegraded
+		}
+		if strings.TrimSpace(ps.LastError) != "" {
+			return IntakeStatusError
+		}
+	}
+	if snap.ConsecutiveFailures >= deliveryAlertStreak {
+		return IntakeStatusError
+	}
+	if snap.ConsecutiveFailures > 0 {
+		return IntakeStatusDegraded
+	}
+	if hasActivity {
+		return IntakeStatusOK
+	}
+	return IntakeStatusNever
 }
 
 // --- internals --------------------------------------------------------------
@@ -663,21 +887,33 @@ func (s *IntakeSourceService) authorizeProject(ctx context.Context, callerUserID
 }
 
 type eventStat struct {
-	lastAt    *time.Time
-	events24h int64
+	lastAt        *time.Time
+	lastSuccessAt *time.Time
+	events24h     int64
+	success24h    int64
+	rejected24h   int64
 }
 
 // eventStats aggregates the project's intake events per (source_kind,
-// source_ref). source_ref is "<name>/<binding id>" for every intake binding, so
+// source_ref), joined to their decision so success and rejection can be
+// separated. source_ref is "<name>/<binding id>" for every intake binding, so
 // two projects can reuse a binding name without mixing their counters.
+//
+// A success is a decision that accepted or resumed an event; a rejection is a
+// policy ignore. Duplicates never reach this table, so they are counted by the
+// in-memory tracker instead.
 func (s *IntakeSourceService) eventStats(ctx context.Context, projectID int64) (map[string]eventStat, error) {
 	cutoff := time.Now().UTC().Add(-24 * time.Hour).Format("2006-01-02 15:04:05")
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT source_kind, source_ref, MAX(received_at),
-		       SUM(CASE WHEN received_at >= ? THEN 1 ELSE 0 END)
-		FROM intake_events
-		WHERE project_id = ?
-		GROUP BY source_kind, source_ref`, cutoff, projectID)
+		SELECT e.source_kind, e.source_ref, MAX(e.received_at),
+		       SUM(CASE WHEN e.received_at >= ? THEN 1 ELSE 0 END),
+		       MAX(CASE WHEN d.decision IN ('accept','resume') THEN e.received_at END),
+		       COUNT(DISTINCT CASE WHEN e.received_at >= ? AND d.decision IN ('accept','resume') THEN e.id END),
+		       COUNT(DISTINCT CASE WHEN e.received_at >= ? AND d.decision = 'ignore' THEN e.id END)
+		FROM intake_events e
+		LEFT JOIN intake_decisions d ON d.event_id = e.id
+		WHERE e.project_id = ?
+		GROUP BY e.source_kind, e.source_ref`, cutoff, cutoff, cutoff, projectID)
 	if err != nil {
 		return nil, err
 	}
@@ -685,12 +921,18 @@ func (s *IntakeSourceService) eventStats(ctx context.Context, projectID int64) (
 	out := make(map[string]eventStat)
 	for rows.Next() {
 		var kind, ref string
-		var last any
-		var n24 sql.NullInt64
-		if err := rows.Scan(&kind, &ref, &last, &n24); err != nil {
+		var last, lastSuccess any
+		var n24, ok24, rejected24 sql.NullInt64
+		if err := rows.Scan(&kind, &ref, &last, &n24, &lastSuccess, &ok24, &rejected24); err != nil {
 			return nil, err
 		}
-		out[kind+"|"+ref] = eventStat{lastAt: asTimePtr(last), events24h: n24.Int64}
+		out[kind+"|"+ref] = eventStat{
+			lastAt:        asTimePtr(last),
+			lastSuccessAt: asTimePtr(lastSuccess),
+			events24h:     n24.Int64,
+			success24h:    ok24.Int64,
+			rejected24h:   rejected24.Int64,
+		}
 	}
 	return out, rows.Err()
 }
@@ -727,16 +969,6 @@ func (s *IntakeSourceService) dto(r store.ProjectExternalSource) IntakeSourceDTO
 		Status:      IntakeStatusOK,
 		Config:      cfg,
 	}
-}
-
-func pollStateStatus(ps store.EmailSourcePollState, now time.Time) string {
-	if ps.BackoffUntil.Valid && ps.BackoffUntil.Time.After(now) {
-		return IntakeStatusBackoff
-	}
-	if strings.TrimSpace(ps.LastError) != "" {
-		return IntakeStatusError
-	}
-	return IntakeStatusOK
 }
 
 func intakeInboundPath(kind string, bindingID int64) string {

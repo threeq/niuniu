@@ -211,7 +211,9 @@ func TestIntakeSource_HealthForPushBinding(t *testing.T) {
 
 	health, err := f.svc.Health(context.Background(), f.env.UserA, project.ID, dto.ID)
 	require.NoError(t, err)
-	require.Equal(t, service.IntakeStatusOK, health.Status)
+	// No delivery attempt has been observed yet, so the binding is `never`, not a
+	// healthy-looking `ok` (design §12).
+	require.Equal(t, service.IntakeStatusNever, health.Status)
 	require.Zero(t, health.Events24h)
 }
 

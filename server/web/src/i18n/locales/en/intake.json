@@ -423,6 +423,25 @@
     "loadError": "Failed to load metrics",
     "retry": "Retry",
     "noData": "—",
+    "deliveryHealth": "Delivery health",
+    "deliveryHealthEmpty": "No inbound bindings yet",
+    "sourceNeverDelivered": "Never delivered",
+    "sourceLastSuccess": "Last success {{time}}",
+    "sourceLastFailure": "Last failure {{time}}",
+    "sourceBackoffUntil": "Resumes after {{time}}",
+    "sourceCounts": "{{success}} ok · {{duplicate}} deduped · {{rejected}} rejected (24h)",
+    "sourceAlertToast": "{{name}}: {{reason}}",
+    "sourceStatus": {
+      "ok": "Healthy",
+      "degraded": "Backing off",
+      "error": "Failing",
+      "never": "No delivery yet"
+    },
+    "sourceAlert": {
+      "secret_misconfigured": "Three consecutive 401s — the secret may be misconfigured.",
+      "payload_mismatch": "Three consecutive 400s — the payload format does not match.",
+      "imap_auth_failed": "The mailbox rejected the login — check the IMAP credential."
+    },
     "metrics": {
       "today_accepted": "Accepted today",
       "pending": "Needs calibration",
