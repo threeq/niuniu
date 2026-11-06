@@ -4,6 +4,7 @@ import type {
   IntakeSetting,
   IntakeSettingInput,
   IntakeSettings,
+  IntakeSource,
   IntakeSourceKind,
 } from '@/lib/intake-api'
 
@@ -19,11 +20,39 @@ export const KNOWN_SOURCE_KINDS: IntakeSourceKind[] = [
   'webhook',
 ]
 
-/** Sources that have a connection path in the UI today. The rest render as
- *  "not connected / coming soon" instead of pretending to be ready. */
-export const CONNECTABLE_SOURCES: Partial<Record<IntakeSourceKind, 'imbot' | 'externalSources'>> = {
+/** Where a source's connection is set up: `inline` means the panel's own
+ *  dialog, the other two are sections of the settings page. */
+export type ConnectTarget = 'imbot' | 'externalSources' | 'inline'
+
+/** Sources that have a connection path in the UI. ci/email/webhook bindings are
+ *  created inside the panel; im_bot and github still live in their own sections. */
+export const CONNECTABLE_SOURCES: Partial<Record<IntakeSourceKind, ConnectTarget>> = {
   im_bot: 'imbot',
   github: 'externalSources',
+  ci: 'inline',
+  email: 'inline',
+  webhook: 'inline',
+}
+
+/** Bindings grouped by source kind, preserving the server's order. */
+export function bindingsByKind(
+  sources: IntakeSource[] | undefined,
+): Record<string, IntakeSource[]> {
+  const out: Record<string, IntakeSource[]> = {}
+  for (const s of sources ?? []) {
+    ;(out[s.source_kind] ??= []).push(s)
+  }
+  return out
+}
+
+/** The most recent delivery across a set of bindings, if any ever arrived. */
+export function latestEventAt(bindings: IntakeSource[] | undefined): string | null {
+  let latest: string | null = null
+  for (const b of bindings ?? []) {
+    if (!b.last_event_at) continue
+    if (latest === null || b.last_event_at > latest) latest = b.last_event_at
+  }
+  return latest
 }
 
 export interface DraftSetting {
