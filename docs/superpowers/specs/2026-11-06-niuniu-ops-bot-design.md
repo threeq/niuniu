@@ -170,21 +170,43 @@ Pack 只写 `credential_ref`，不写密钥；Adapter 按账号解析对应凭�
 
 ```
 server/internal/opsbot/
-  service.go        # OpsBot CRUD、绑定、暂停/恢复
-  director.go       # 总监：日历、选题池、跨账号协调、预算分配
-  account.go        # 账号 Bot：单账号流水线
-  approval.go       # 审批状态机、卡片、超时
-  budget.go         # 月度预算、消耗、暂停
-  calendar.go       # 固定节奏 + 热点驱动
+  service.go        # OpsBot CRUD、配置、暂停/恢复/Kill switch
+  provision.go      # 账号/总监 Epic + 控制工作空间
+  onboarding.go     # 对话式接入与配置
+  approval.go       # 审批状态机、卡片、超时、代审
+  budget.go         # 月度预算、分项成本、暂停与调额
+  calendar.go       # 日历 + 固定节奏
+  trend.go          # 热点驱动
+  director.go       # 跨账号选题池、去重、预算、代审、复盘
+  publish.go        # 发布编排：幂等、回执、重试、降级
+  engagement.go     # 评论/私信状态机
   metrics.go        # 账号指标归一化
+  feedback.go       # 周报与爆款回流
+  risk.go           # 风控、登录失效、限流、降级
+  content/
+    brief.go        # Task Brief
+    pipeline.go     # 图文流水线
+    media.go        # 封面/配图/排版
+    video.go        # 视频流水线
+    review.go       # 合规与质量门禁
   channel/
     adapter.go      # ChannelAdapter 接口
-    openapi.go      # OpenAPI / provider / MCP 绑定
-    browser.go      # Browser Worker 绑定
-    recipe.go       # Browser Recipe 解释器
+    manual.go       # 人工发布包
+    wechat.go       # 公众号官方 API/MCP
+    xhs.go          # 小红书浏览器
+    facebook.go     # Graph API
+  browser/
+    worker.go       # 任务执行、队列、限速、证据
+    session.go      # profile、登录态、租约
+    recipe.go       # Recipe DSL 解释器
+    sandbox.go      # 沙箱测试
+    backend.go      # 本地/云端后端契约
   packs/
-    registry.go     # Pack 注册、版本、校验
-    generator.go    # 对话式生成 Pack 草稿
+    types.go        # Manifest / Binding / schema
+    validate.go     # 校验
+    registry.go     # 文件系统版本、发布、导入导出
+    generator.go    # OpenAPI/文档生成 Pack 草稿
+    builtin/        # 内置 Pack
 ```
 
 ### 4.2 关键流程
@@ -242,14 +264,35 @@ Ops Bot 只依赖这个契约，不感知平台。
 
 ```
 packs/<pack_id>/<version>/
-  manifest.yaml        # id、版本、能力、内容类型、认证层级
-  content_schema.yaml  # 图文/笔记/视频的字段、尺寸、字数、标签规则
-  compliance.yaml      # 平台红线、广告法、版权、审核清单
+  manifest.json        # id、版本、状态、能力列表、能力绑定、认证层级
+  content_schema.json  # 图文/笔记/视频的字段、尺寸、字数、标签规则
+  compliance.json      # 平台红线、广告法、版权、审核清单
+  metrics_map.json     # 平台指标 → 统一指标
   prompts/             # 平台语气、选题、排版、视频脚本提示词
-  metrics_map.yaml     # 平台指标 → 统一指标
-  browser/recipes/     # 可选：登录、发布、读取、回复的声明式步骤
-  bindings.yaml        # 每个能力绑定到 openapi / mcp / browser / manual
+  browser/recipes/     # 登录、发布、读取、回复的声明式步骤
   fixtures/            # 沙箱测试样例
+```
+
+`manifest.json` 示例：
+
+```json
+{
+  "id": "facebook",
+  "version": 1,
+  "status": "published",
+  "display_name": "Facebook Page",
+  "capabilities": ["publish", "metrics", "engagements", "reply"],
+  "bindings": {
+    "publish":     { "transport": "openapi", "provider": "facebook-graph" },
+    "metrics":     { "transport": "openapi", "provider": "facebook-graph" },
+    "engagements": { "transport": "openapi", "provider": "facebook-graph" },
+    "reply":       { "transport": "openapi", "provider": "facebook-graph" }
+  },
+  "credential_slots": {
+    "app":     { "required": true, "scope": "owner" },
+    "account": { "required": true, "scope": "account" }
+  }
+}
 ```
 
 ### 5.3 API 优先的能力级绑定
@@ -422,6 +465,29 @@ type OpsContentBrief struct {
 3. **平台适配**：尺寸、时长、标题长度、标签数量。
 4. **人工确认**：三类动作默认停下等人。
 
+### 7.3 互动处理（评论 / 私信）
+
+```
+拉取互动 → 去重入库 → 分类 → 生成建议回复 → 审批卡片
+   → 通过后发送 → 记录回执 → 失败/高风险升级
+```
+
+| 状态 | 含义 | 后续 |
+|---|---|---|
+| `new` | 刚拉取，未处理 | 进入分类 |
+| `classified` | 已分类（咨询/好评/投诉/负面/垃圾/商机） | 生成建议回复 |
+| `suggested` | 有建议回复，等待审批 | 推送审批卡片 |
+| `approved` | 运营人通过 | 调用 Adapter 发送 |
+| `sent` | 发送成功 | 记录回执，关闭 |
+| `rejected` | 运营人驳回 | 关闭，不发送 |
+| `escalated` | 高风险/敏感，升级总监 | 总监或运营人处理 |
+| `failed` | 发送失败 | 退避重试，超限告警 |
+
+- 去重键：`(bot_id, platform_engagement_id)`。
+- 默认只生成建议、不自动发送；账号可关闭 `reply` 审批开关。
+- 频率限制：单账号每小时发送上限，超限排队。
+- 高风险（投诉、负面、法律、退款）一律升级，不自动发送。
+
 ---
 
 ## 8. 浏览器 Worker 与运行后端
@@ -482,15 +548,17 @@ type OpsContentBrief struct {
 
 ## 11. 数据模型
 
-### 11.1 最终模型
+### 11.1 完整模型
 
-只新增 **3 张表 + 3 个列**；其余全部复用现有表。
+新增 **5 张表 + 3 个列**；其余全部复用现有表。
 
 | 类型 | 名称 | 作用 |
 |---|---|---|
-| 新表 | `ops_bots` | 总监/账号 Bot 配置：Pack、账号、策略、预算、控制 Epic/Workspace、运行时状态 |
-| 新表 | `ops_publish_records` | 发布幂等、回执、截图证据 |
+| 新表 | `ops_bots` | 总监/账号 Bot 配置：Pack、账号、策略、预算、控制 Epic/Workspace、健康摘要 |
+| 新表 | `ops_publish_records` | 发布幂等、回执、URL、截图证据、内容版本 |
 | 新表 | `ops_metrics_daily` | 账号每日指标历史 |
+| 新表 | `ops_engagements` | 评论/私信：去重、分类、建议回复、审批、发送状态、回执 |
+| 新表 | `ops_browser_sessions` | 每账号浏览器 profile、登录态、操作租约、健康与风险状态 |
 | 新列 | `im_bot_chats.ops_bot_id` | chat → Ops Bot 路由 |
 | 新列 | `agent_ask_user_requests.kind` | 区分普通提问与 `ops_approval` |
 | 新列 | `agent_ask_user_requests.metadata_json` | 审批的 bot/issue/type/content_version/preview |
@@ -499,12 +567,11 @@ type OpsContentBrief struct {
 
 | 需求 | 现有表 |
 |---|---|
-| 内容任务 / 日历 | `issues`（计划日期 + 看板列） |
-| 发布/成本事件 | `issue_exec_events`（`cost` / `terminal`，detail_json 存回执） |
+| 内容任务 / 日历 | `issues`（`start_date`/`due_date` + 看板列） |
+| 内容 Brief / 验收 | `task_briefs` + `issue_checklists` |
+| 发布/成本事件 | `issue_exec_events`（`cost` / `terminal`，detail_json 存回执摘要） |
 | 审批 | `agent_ask_user_requests`（`kind='ops_approval'`） |
 | 预算 | `workspace_costs` + `issue_exec_events.cost_usd` 聚合 |
-| 浏览器 Worker 状态 | `ops_bots.runtime_json` |
-| 评论/私信 | Phase 2 评估 `intake_events`/`intake_decisions`；语义不合再加表 |
 | Platform Pack | 客户环境 `manifest.json`，不建表 |
 
 ### 11.2 DDL
@@ -526,7 +593,7 @@ CREATE TABLE IF NOT EXISTS ops_bots (
     cadence_json         TEXT NOT NULL DEFAULT '{}',
     approval_policy_json TEXT NOT NULL DEFAULT '{}',
     budget_json          TEXT NOT NULL DEFAULT '{}',
-    runtime_json         TEXT NOT NULL DEFAULT '{}',       -- browser worker/health/risk
+    runtime_json         TEXT NOT NULL DEFAULT '{}',       -- health/risk summary; sessions in ops_browser_sessions
     epic_issue_id        INTEGER,
     control_workspace_id INTEGER,
     status               TEXT NOT NULL DEFAULT 'active',   -- active | paused | disabled
@@ -562,6 +629,47 @@ CREATE TABLE IF NOT EXISTS ops_metrics_daily (
     created_at    TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     UNIQUE(bot_id, date)
 );
+
+CREATE TABLE IF NOT EXISTS ops_engagements (
+    id                     INTEGER PRIMARY KEY AUTOINCREMENT,
+    bot_id                 INTEGER NOT NULL REFERENCES ops_bots(id) ON DELETE CASCADE,
+    issue_id               INTEGER,                          -- 关联内容 issue，可空
+    platform_engagement_id TEXT NOT NULL,                    -- 平台评论/私信 ID
+    kind                   TEXT NOT NULL DEFAULT 'comment',  -- comment | dm
+    author                 TEXT NOT NULL DEFAULT '',
+    text                   TEXT NOT NULL DEFAULT '',
+    category               TEXT NOT NULL DEFAULT '',         -- inquiry|praise|complaint|negative|spam|lead
+    risk_level             TEXT NOT NULL DEFAULT 'low',      -- low | medium | high
+    suggested_reply        TEXT NOT NULL DEFAULT '',
+    status                 TEXT NOT NULL DEFAULT 'new',
+        -- new|classified|suggested|approved|sent|rejected|escalated|failed
+    approval_request_id    INTEGER,                          -- agent_ask_user_requests.id
+    reply_text             TEXT NOT NULL DEFAULT '',
+    receipt                TEXT NOT NULL DEFAULT '',
+    decided_by             INTEGER,
+    decided_at             TIMESTAMP,
+    created_at             TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at             TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(bot_id, platform_engagement_id)
+);
+CREATE INDEX IF NOT EXISTS idx_ops_engagements_bot_status ON ops_engagements(bot_id, status);
+
+CREATE TABLE IF NOT EXISTS ops_browser_sessions (
+    id               INTEGER PRIMARY KEY AUTOINCREMENT,
+    bot_id           INTEGER NOT NULL REFERENCES ops_bots(id) ON DELETE CASCADE,
+    backend          TEXT NOT NULL DEFAULT 'local',  -- local | cloud
+    profile_dir      TEXT NOT NULL DEFAULT '',
+    login_status     TEXT NOT NULL DEFAULT 'unknown',-- unknown | valid | expired
+    last_login_at    TIMESTAMP,
+    lease_owner      TEXT NOT NULL DEFAULT '',       -- 持有操作租约的 worker
+    lease_expires_at TIMESTAMP,
+    health           TEXT NOT NULL DEFAULT 'unknown',-- unknown | healthy | degraded | down
+    risk_state       TEXT NOT NULL DEFAULT 'normal', -- normal | throttled | blocked
+    last_error       TEXT NOT NULL DEFAULT '',
+    created_at       TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at       TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(bot_id, backend)
+);
 ```
 
 既有表新增列（fresh DB 写进 `schema.sql` / `schema_postgres.sql`，存量 DB 用 `addColumnIfNotExists`）：
@@ -572,30 +680,33 @@ ALTER TABLE agent_ask_user_requests ADD COLUMN kind TEXT NOT NULL DEFAULT 'agent
 ALTER TABLE agent_ask_user_requests ADD COLUMN metadata_json TEXT NOT NULL DEFAULT '{}';
 ```
 
-### 11.3 为什么去掉 7 张表
+### 11.3 复用与取舍
 
-| 原表 | 替代方案 |
-|---|---|
-| `ops_platform_packs` | Pack 目录 + `manifest.json`；列表靠目录扫描 |
-| `ops_bot_chats` | `im_bot_chats.ops_bot_id` 列 |
-| `ops_browser_workers` | `ops_bots.runtime_json` + 运行时 Worker 管理 |
-| `ops_calendar_items` | `issues` 的计划日期 + 看板列 |
-| `ops_approvals` | `agent_ask_user_requests` + `kind='ops_approval'` + `metadata_json` |
-| `ops_engagement_items` | Phase 2 评估 `intake_events`/`intake_decisions`；不够再加表 |
-| `ops_budget_usage` | `workspace_costs` + `issue_exec_events.cost_usd` 聚合 |
+**不新建表的部分：**
 
-保留 3 张新表的理由：
+| 需求 | 复用方式 | 理由 |
+|---|---|---|
+| Platform Pack | 客户环境目录 + `manifest.json` | 用户要求“对话生成、客户环境永久保存”；文件即真相，版本=目录，避免 Pack 内容与 DB 双写 |
+| chat → Bot | `im_bot_chats.ops_bot_id` 列 | 一对一绑定，不需要独立映射表 |
+| 日历 | `issues.start_date` / `due_date` + 看板列 | 内容任务本身就是 issue，日历是视图不是新实体 |
+| 审批 | `agent_ask_user_requests` + `kind` + `metadata_json` | 已有状态机、决定人、超时、审计 |
+| 预算 | `workspace_costs` + `issue_exec_events.cost_usd` 聚合 | 成本已经按 workspace/issue 记账，额度在 `ops_bots.budget_json` |
 
-- `ops_bots`：账号/总监配置与运行时状态，没有现成表承载。
-- `ops_publish_records`：发布幂等与审计需要唯一键、回执、截图，`issue_exec_events` 缺唯一键。
-- `ops_metrics_daily`：按账号按天的平台指标历史，现有表没有对应结构。
+**保留 5 张新表的理由：**
+
+- `ops_bots`：账号/总监配置与账号级隔离的唯一载体，没有现成表。
+- `ops_publish_records`：发布需要幂等唯一键、回执、URL、截图和内容版本；`issue_exec_events` 无唯一键，不能防重复发布。
+- `ops_metrics_daily`：按账号按天的指标历史，现有表无对应结构。
+- `ops_engagements`：每条评论/私信有独立状态机（分类→建议→审批→发送→回执）、去重键和审批关联；借 `intake_events` 会混淆“外部任务信号”与“互动回复状态”。
+- `ops_browser_sessions`：登录态、profile 目录和操作租约需要在多实例/云端之间用行级条件更新协调；塞进 `runtime_json` 无法做事务性租约，也无法按账号查询健康状态。
 
 ### 11.4 迁移注意
 
-- 新表走 `CREATE TABLE IF NOT EXISTS`；新列用 `addColumnIfNotExists`，不在迁移列上加 CHECK。
+- 新表走 `CREATE TABLE IF NOT EXISTS`，索引与建表同批；新列用 `addColumnIfNotExists`，不在迁移列上加 CHECK。
 - `agent_ask_user_requests.kind` 存量行默认为 `agent_question`；`metadata_json` 默认 `{}`。
 - SQLite/PostgreSQL 双写并跑 `make schema-diff`；sqlc 重新生成。
 - Pack 目录不参与 DB 迁移；内置 Pack 首次使用时复制到 owner 目录。
+- `ops_browser_sessions` 的租约用条件更新：`UPDATE ... SET lease_owner=?, lease_expires_at=? WHERE bot_id=? AND (lease_owner='' OR lease_expires_at < CURRENT_TIMESTAMP)`，影响 0 行即租约被占用。
 
 ---
 
@@ -605,8 +716,9 @@ ALTER TABLE agent_ask_user_requests ADD COLUMN metadata_json TEXT NOT NULL DEFAU
 
 **Ops Bot / 账号：**
 
-- `opsbot_create` / `opsbot_list` / `opsbot_update` / `opsbot_pause`
-- `opsbot_bind_account` / `opsbot_bind_chat`
+- `opsbot_create` / `opsbot_list` / `opsbot_get` / `opsbot_update`
+- `opsbot_pause` / `opsbot_resume` / `opsbot_kill`
+- `opsbot_bind_chat`
 - `opsbot_request_credential_link` / `opsbot_browser_login`
 - `opsbot_set_goals` / `opsbot_set_cadence` / `opsbot_set_budget` / `opsbot_set_approval`
 
@@ -619,17 +731,19 @@ ALTER TABLE agent_ask_user_requests ADD COLUMN metadata_json TEXT NOT NULL DEFAU
 **审批 / 执行 / 指标：**
 
 - `ops_approval_list` / `ops_approval_approve` / `ops_approval_reject`
-- `ops_publish` / `ops_engagement_reply` / `ops_metrics`
+- `ops_publish` / `ops_engagement_reply` / `ops_metrics` / `ops_calendar`
 
 HTTP 仅保留极简控制台：
 
-- `GET /api/ops/bots`
-- `GET /api/ops/bots/:id`
-- `PATCH /api/ops/bots/:id`
-- `GET /api/ops/packs`
+- `GET/POST /api/ops/bots`
+- `GET/PATCH /api/ops/bots/:id`
+- `POST /api/ops/bots/:id/pause|resume|disable`
+- `GET /api/ops/packs`、`POST /api/ops/packs/import`、`GET /api/ops/packs/:id/:version/export`
 - `GET /api/ops/approvals?status=pending`
-- `POST /api/ops/approvals/:id/approve|reject`
+- `POST /api/ops/approvals/:id/approve|reject|modify`
 - `GET /api/ops/bots/:id/metrics`
+- `GET /api/ops/bots/:id/engagements`
+- `GET /api/ops/bots/:id/budget`
 - `PATCH /api/imbot/chats/:id` 增加 `ops_bot_id`
 
 ---
@@ -739,17 +853,26 @@ Mission control 增加「运营 Bot」面板，按渠道/账号下钻；不合�
 
 ---
 
-## 16. 分阶段落地
+## 16. 完整能力清单
 
-| 阶段 | 内容 | 验收 |
-|---|---|---|
-| Phase 0 | ChannelAdapter 契约、Platform Pack 规范、内置 WeChat/XHS Pack、Ops Bot CRUD、对话式接入、多账号绑定、预算/审批配置 | 能在 IM 里创建公众号/小红书 Bot；同渠道多账号；不执行内容 |
-| Phase 1 | 公众号官方 API 流水线：选题→文案→图片→审校→审批→发布→指标 | 一个公众号账号跑通图文闭环 |
-| Phase 2 | 小红书本地浏览器 Worker：发布、数据、互动建议、图片笔记 | 一个小红书账号跑通图文闭环 |
-| Phase 3 | 视频流水线、团队版云端浏览器、多账号总监协调 | 双平台 + 视频 + 多账号 |
-| Phase 4 | Pack 生成/测试/发布流程；Facebook、知乎 Pack；热点驱动；爆款回流 | 新增渠道以 Pack 为主，不改核心 |
+本期一次交付以下全部能力，不设“先骨架、后补能力”的分期。
 
-实现计划按阶段拆分，先完成 Phase 0 并验收，再进入 Phase 1；每个阶段独立可上线。
+| # | 能力 | 完整交付内容 | 验收 |
+|---|---|---|---|
+| C1 | Bot 与账号管理 | 总监 Bot + 账号 Bot；同渠道任意多账号；账号级目标/节奏/预算/审批人；暂停/恢复/Kill switch | 可创建多个账号 Bot，配置互不串号 |
+| C2 | 对话式接入 | IM 内完成选渠道、建账号、授权、设目标/节奏/预算/审批；改配置；处理审批 | 全流程不离开对话即可完成 |
+| C3 | Platform Pack | `manifest/content_schema/compliance/metrics_map/prompts/recipes/fixtures`；版本=目录；内置 `wechat_mp`、`xiaohongshu`；导入/导出 | 新渠道可复用同一 Pack 绑定多账号 |
+| C4 | Pack 生成 | 检测 OpenAPI/MCP/文档 → 生成 provider contract + Pack 草稿 → 能力矩阵卡 → 沙箱测试 → 发布 | Facebook 由生成流程产出，不改核心 |
+| C5 | 图文生产 | Brief（品牌 KB + 爆款库 + 热点）→ 公众号长文/小红书笔记 → 封面/配图 → 排版草稿 | 两个平台各产出可发布图文 |
+| C6 | 视频生产 | 脚本 → 分镜 → TTS → 画面 → 字幕 → 合成 → 平台尺寸/时长适配 | 产出成片并进入审批 |
+| C7 | 合规与质量门禁 | 事实溯源、广告法、平台红线、版权、品牌一致性、平台适配 | 不合规内容在审批前被阻断 |
+| C8 | 发布 | 幂等键、回执、URL、截图证据、退避重试、人工发布包降级 | 不重复发布；失败可追溯 |
+| C9 | 指标 | 平台指标归一化 → `ops_metrics_daily`；账号目标达成度 | 每账号每日指标可查询、可下钻 |
+| C10 | 互动 | 评论/私信拉取、去重、分类、建议回复、审批、发送、限速、高风险升级 | 只发人工确认后的回复 |
+| C11 | 浏览器运行时 | 本地/云端后端；每账号 profile/登录态/租约；队列/限速/风控；UI 改版降级 | 同账号不并发；失效可恢复 |
+| C12 | 总监协调 | 固定节奏 + 热点驱动；跨账号选题池、去重、预算分配、代审 | 多账号日历不冲突、内容不重复 |
+| C13 | 复盘回流 | 周报、爆款拆解、知识库/记忆更新、下一轮选题引用 | 复盘结论进入下一轮 Brief |
+| C14 | 可观测与治理 | Mission control 运营面板；审批/发布/成本/风险审计；e2e 验收 | 全链路可审计、可暂停 |
 
 ---
 
@@ -816,13 +939,11 @@ Mission control 增加「运营 Bot」面板，按渠道/账号下钻；不合�
 
 ---
 
-## 19. 待实现前确认
+## 19. 已确定的技术选型
 
-以下不影响本设计成立，进入实现计划前需要定：
-
-1. **视频生成工具链**：优先复用现有 video-gen MCP，还是引入新的 TTS/视频模型；按成本与质量决定。
-2. **团队版云端浏览器部署**：独立容器 vs 共享池 + 账号级隔离；取决于企业版基础设施。
-3. **预算币种与计价**：人民币/美元；按 token、图片张数、视频秒数分别计价。
-4. **小红书数据补充**：是否接入第三方合规数据源（竞品/行业），还是只用创作者后台数据。
-5. **Pack DSL 边界**：browser recipe 支持哪些动作；哪些复杂平台需要 adapter 插件。
-6. **Pack 分发**：是否提供 Pack 市场/共享；首版只支持导出/导入。
+1. **视频生成工具链**：优先复用现有 video-gen MCP；没有对应能力时用 `media-studio` 素材 + TTS + 合成流水线补齐，不引入新供应商作为前置依赖。
+2. **团队版云端浏览器**：每账号独立容器（隔离优先），共享池只作为资源紧张时的后续优化，不进入本期设计。
+3. **预算币种与计价**：默认人民币展示；底层成本仍按实际记录币种汇总，`budget_json` 保存币种与月度上限，图片按张、视频按秒、文本按 token 分项记录。
+4. **小红书数据补充**：以创作者后台数据为准；第三方合规数据源作为可选 `data source` 接入，不作为核心依赖。
+5. **Pack DSL 边界**：recipe 固定动作集 `goto/wait/click/fill/upload/extract/screenshot/assert/loop/branch`；超出动作集或强反爬平台用平台级 browser adapter 插件，不改 Ops Bot 核心。
+6. **Pack 分发**：本期做内置 Pack + 目录导入/导出，不做 Pack 市场。
