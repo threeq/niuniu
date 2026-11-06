@@ -281,6 +281,12 @@ func (s *Service) Handle(ctx context.Context, t Trigger) (Result, error) {
 	res.WorkspaceID = resolution.WorkspaceID
 
 	decision, reason := decide(policy.Mode, authz, resolution.Bound, t.ForceNew)
+	// A require-bound event only signals an existing task (CI success says "the
+	// pipeline you were fixing passes"). With no bound task there is nothing to
+	// resume, so it is recorded as ignored and never creates work.
+	if t.RequireBound && !resolution.Bound {
+		decision, reason = DecisionIgnore, ReasonUnbound
+	}
 	// A closed/merged upstream thread has ended its subscription: later events
 	// are still recorded for audit, but never create or resume work.
 	if resolution.Ended {

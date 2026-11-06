@@ -60,6 +60,7 @@ func (s *Server) setupRoutes() {
 	s.engine.POST("/api/integrations/github/webhook/:binding", s.intakeWebhookHandler.GitHub)
 	s.engine.POST("/api/integrations/webhook/:binding", s.intakeWebhookHandler.Webhook)
 	s.engine.POST("/api/integrations/email/:binding", s.intakeWebhookHandler.Email)
+	s.engine.POST("/api/integrations/ci/:binding", s.intakeWebhookHandler.CI)
 
 	// Local credential proxy (issue #733): the loopback endpoint a projected
 	// MCP server is pointed at instead of carrying the secret itself. The

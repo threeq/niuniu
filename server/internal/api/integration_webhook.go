@@ -44,6 +44,12 @@ func (h *IntegrationWebhookHandler) Webhook(c *gin.Context) {
 	h.handle(c, intake.SourceKindWebhook)
 }
 
+// CI handles POST /api/integrations/ci/:binding. The CI vendor and the
+// credential scheme it uses are resolved from the binding's config.
+func (h *IntegrationWebhookHandler) CI(c *gin.Context) {
+	h.handle(c, intake.SourceKindCI)
+}
+
 func (h *IntegrationWebhookHandler) handle(c *gin.Context, expectedProvider string) {
 	if h.svc == nil {
 		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "webhook source is not wired"})
