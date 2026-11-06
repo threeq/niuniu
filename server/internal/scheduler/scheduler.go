@@ -45,6 +45,7 @@ type Scheduler struct {
 	timers          map[int64]*time.Timer  // scheduleID → one-shot timer
 	healthEntry     cron.EntryID           // integration-source health sweep (#744); 0 = unregistered
 	githubPollEntry cron.EntryID           // GitHub Source polling (#773); 0 = unregistered
+	emailPollEntry  cron.EntryID           // Email IMAP Source polling; 0 = unregistered
 	mu              sync.Mutex
 }
 
@@ -116,6 +117,32 @@ func (s *Scheduler) RegisterGitHubPoll(expr string, run func(context.Context)) {
 	}
 	s.githubPollEntry = entryID
 	slog.Info("scheduler: registered github source poll", "expr", expr)
+}
+
+// RegisterEmailPoll schedules IMAP email polling on the shared cron engine
+// (design §6.2). The poller keeps a per-binding UIDVALIDITY/UID cursor and its
+// own backoff, so the expression only controls how often a due-check runs. An
+// empty expr or nil run disables polling. Register before Start; re-calling
+// replaces the previous entry.
+func (s *Scheduler) RegisterEmailPoll(expr string, run func(context.Context)) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.emailPollEntry != 0 {
+		s.cron.Remove(s.emailPollEntry)
+		s.emailPollEntry = 0
+	}
+	if expr == "" || run == nil {
+		return
+	}
+	entryID, err := s.cron.AddFunc(expr, func() {
+		run(context.Background())
+	})
+	if err != nil {
+		slog.Error("scheduler: register email poll failed", "expr", expr, "err", err)
+		return
+	}
+	s.emailPollEntry = entryID
+	slog.Info("scheduler: registered email source poll", "expr", expr)
 }
 
 // Start begins the cron scheduler.

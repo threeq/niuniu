@@ -117,6 +117,7 @@ type Server struct {
 	intakeHandler        *api.IntakeHandler
 	githubSourceSvc      *service.GithubSourceService
 	githubReplySvc       *service.GithubReplyDispatcher
+	emailSourceSvc       *service.EmailSourceService
 	webhookSourceSvc     *service.WebhookSourceService
 	intakeWebhookHandler *api.IntegrationWebhookHandler
 	completionSvc        *service.CompletionService
@@ -1748,6 +1749,14 @@ func New(cfg *config.Config, db *sql.DB, frontendFS fs.FS) *Server {
 	s.githubReplySvc.Start()
 	if cfg.Intake.GitHubPollCron != "" {
 		s.scheduler.RegisterGitHubPoll(cfg.Intake.GitHubPollCron, s.githubSourceSvc.RunOnce)
+	}
+	// Email Source, IMAP transport (design §6.2): the personal edition polls a
+	// bound mailbox read-only (BODY.PEEK[], never \Seen, never delete). Its
+	// cursor is UIDVALIDITY + UID, so the poller resumes where it stopped.
+	s.emailSourceSvc = service.NewEmailSourceService(db, s.queries, s.extCredSvc)
+	s.emailSourceSvc.SetInbound(imbotDispatch, s.agentProxy)
+	if cfg.Intake.EmailPollCron != "" {
+		s.scheduler.RegisterEmailPoll(cfg.Intake.EmailPollCron, s.emailSourceSvc.RunOnce)
 	}
 	// Team-edition inbound Sources (design §6.10): GitHub webhook plus the
 	// email/generic webhook adapters. They normalize to the same Trigger shape

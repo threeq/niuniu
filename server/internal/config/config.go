@@ -149,6 +149,13 @@ type IntakeConfig struct {
 	//
 	// Env override: NIUNIU_INTAKE_GITHUB_POLL_CRON.
 	GitHubPollCron string `mapstructure:"github_poll_cron"`
+	// EmailPollCron drives IMAP mailbox polling (design §6.2). Each imap
+	// binding is checked every tick against its own UIDVALIDITY/UID cursor and
+	// backoff; an empty expression disables scheduling (manual PollNow still
+	// works).
+	//
+	// Env override: NIUNIU_INTAKE_EMAIL_POLL_CRON.
+	EmailPollCron string `mapstructure:"email_poll_cron"`
 }
 
 type EditorConfig struct {
@@ -499,6 +506,9 @@ func Load() (*Config, error) {
 	// GitHub Source polling (Epic #755 / design §6.10): personal edition polls
 	// outbound, so no public webhook is needed.
 	viper.SetDefault("intake.github_poll_cron", "*/1 * * * *")
+	// IMAP email polling (design §6.2): once a minute, per-binding backoff is
+	// handled by the poller so the expression only controls check frequency.
+	viper.SetDefault("intake.email_poll_cron", "*/1 * * * *")
 	viper.SetDefault("editor.vscode_mode", "local")
 	viper.SetDefault("editor.vscode_remote_url", "")
 	viper.SetDefault("image_optimization.enabled", true)
