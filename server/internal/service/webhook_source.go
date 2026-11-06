@@ -184,12 +184,31 @@ func (s *WebhookSourceService) HandleInbound(
 		// would cross-dedupe each other's events.
 		ref := fmt.Sprintf("%s/%d", binding.name, binding.id)
 		if binding.provider == intake.SourceKindEmail {
-			trig, err = webhooksource.NormalizeEmail(binding.projectID, ref, body)
+			// Apply the same ignore rules as the IMAP poller: auto-replies, bulk
+			// mail, bounces and self-sent messages are acknowledged but never
+			// become tasks.
+			selfAddress := firstNonEmpty(
+				configString(binding.config, "self_address"),
+				configString(binding.config, "address"),
+			)
+			res, nerr := webhooksource.NormalizeEmailMessage(binding.projectID, ref, body,
+				webhooksource.EmailNormalizeOptions{
+					Provider:      configString(binding.config, "provider"),
+					SelfAddress:   selfAddress,
+					DisableIgnore: !configBool(binding.config, "ignore_auto", true),
+				})
+			if nerr != nil {
+				return InboundOutcome{}, fmt.Errorf("%w: %v", ErrWebhookBadRequest, nerr)
+			}
+			if res.Ignored {
+				return InboundOutcome{Ignored: true}, nil
+			}
+			trig = res.Trigger
 		} else {
 			trig, err = webhooksource.NormalizeGeneric(binding.projectID, ref, body)
-		}
-		if err != nil {
-			return InboundOutcome{}, fmt.Errorf("%w: %v", ErrWebhookBadRequest, err)
+			if err != nil {
+				return InboundOutcome{}, fmt.Errorf("%w: %v", ErrWebhookBadRequest, err)
+			}
 		}
 		// A binding may restrict which event names it accepts. An absent/empty
 		// list means every event, matching the pre-configuration default.

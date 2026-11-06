@@ -19,7 +19,6 @@ import (
 	"strconv"
 	"strings"
 	"time"
-	"unicode/utf8"
 
 	"github.com/niuniu-dev/niuniu/internal/intake"
 )
@@ -217,7 +216,7 @@ func NormalizeCI(projectID int64, bindingName, provider string, raw []byte) (int
 		return intake.Trigger{}, false, nil
 	}
 
-	ev.LogExcerpt = truncateUTF8(strings.TrimSpace(ev.LogExcerpt), CIMaxLogExcerpt)
+	ev.LogExcerpt = TruncateUTF8(strings.TrimSpace(ev.LogExcerpt), CIMaxLogExcerpt)
 	return intake.Trigger{
 		ProjectID:  projectID,
 		SourceKind: intake.SourceKindCI,
@@ -685,16 +684,4 @@ func buildkiteNumber(n int64) string {
 		return ""
 	}
 	return strconv.FormatInt(n, 10)
-}
-
-// truncateUTF8 cuts s to at most max bytes without splitting a rune.
-func truncateUTF8(s string, max int) string {
-	if max <= 0 || len(s) <= max {
-		return s
-	}
-	cut := s[:max]
-	for len(cut) > 0 && !utf8.ValidString(cut) {
-		cut = cut[:len(cut)-1]
-	}
-	return cut
 }

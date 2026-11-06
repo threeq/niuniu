@@ -252,6 +252,26 @@ func (s *IntakeSourceService) Create(ctx context.Context, in IntakeSourceInput) 
 		}
 	}
 
+	if kind == intake.SourceKindEmail && mode == "inbound" {
+		// The vendor preset only chooses the preferred body field, but binding it
+		// at create time keeps a binding from naming a provider the inbound path
+		// does not recognize.
+		providerName := strings.TrimSpace(in.Provider)
+		if providerName == "" {
+			if v, ok := cfg["provider"].(string); ok {
+				providerName = v
+			}
+		}
+		preset, ok := webhooksource.EmailProviderPresetFor(providerName)
+		if !ok {
+			return nil, "", fmt.Errorf("%w: unknown email provider %q", ErrIntakeSourceInvalid, providerName)
+		}
+		cfg["provider"] = preset.Provider
+		if _, exists := cfg["events"]; !exists {
+			cfg["events"] = []string{intake.EventKindMessage}
+		}
+	}
+
 	if kind == intake.SourceKindEmail && mode == "imap" {
 		return s.createIMAPSource(ctx, in, projOwner, cfg)
 	}
@@ -791,7 +811,10 @@ func normalizeTestTrigger(kind, provider string, projectID int64, ref string, ra
 	)
 	switch kind {
 	case intake.SourceKindEmail:
-		trig, err = webhooksource.NormalizeEmail(projectID, ref, raw)
+		var res webhooksource.EmailNormalizeResult
+		res, err = webhooksource.NormalizeEmailMessage(projectID, ref, raw,
+			webhooksource.EmailNormalizeOptions{Provider: provider})
+		trig = res.Trigger
 	case intake.SourceKindWebhook:
 		trig, err = webhooksource.NormalizeGeneric(projectID, ref, raw)
 	case intake.SourceKindCI:

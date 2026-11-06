@@ -18,22 +18,20 @@ import (
 	"mime/quotedprintable"
 	"net/mail"
 	"net/textproto"
-	"regexp"
 	"strings"
 	"time"
-	"unicode/utf8"
 
-	"golang.org/x/net/html"
 	"golang.org/x/text/encoding/htmlindex"
 	"golang.org/x/text/encoding/unicode"
 	"golang.org/x/text/transform"
 
 	"github.com/niuniu-dev/niuniu/internal/intake"
+	"github.com/niuniu-dev/niuniu/internal/webhooksource"
 )
 
-// emailBodyLimit caps the stored body (design §6.2: 64KB). A longer body is
-// truncated on a rune boundary so the result is still valid UTF-8.
-const emailBodyLimit = 64 << 10
+// emailBodyLimit is the shared cap (design §6.2: 64KB); the inbound adapter
+// applies the same limit.
+const emailBodyLimit = webhooksource.EmailBodyLimit
 
 // emailMIMEDepth bounds nested multipart recursion on hostile input.
 const emailMIMEDepth = 16
@@ -59,13 +57,6 @@ type parsedEmail struct {
 	IgnoreReason string
 }
 
-// emailEnvelope holds the headers the ignore rules and threading need.
-type emailEnvelope struct {
-	AutoSubmitted string
-	Precedence    string
-	ReturnPath    string
-}
-
 // parseEmailMessage decodes raw RFC 5322 bytes. selfAddress is the binding's
 // own mailbox (used for the loop guard); ignoreAuto turns the design's default
 // ignore rules off when the binding sets ignore_auto=false.
@@ -78,11 +69,11 @@ func parseEmailMessage(raw []byte, selfAddress string, ignoreAuto bool) (parsedE
 	hdr := msg.Header
 
 	p := parsedEmail{
-		MessageID: trimMessageID(hdr.Get("Message-Id")),
-		InReplyTo: trimMessageID(hdr.Get("In-Reply-To")),
+		MessageID: webhooksource.TrimMessageID(hdr.Get("Message-Id")),
+		InReplyTo: webhooksource.FirstMessageID(hdr.Get("In-Reply-To")),
 		Subject:   decodeEmailHeader(dec, hdr.Get("Subject")),
 	}
-	p.References = messageIDList(hdr.Get("References"))
+	p.References = webhooksource.MessageIDList(hdr.Get("References"))
 	if t, err := hdr.Date(); err == nil {
 		p.Date = t
 	}
@@ -95,10 +86,10 @@ func parseEmailMessage(raw []byte, selfAddress string, ignoreAuto bool) (parsedE
 
 	body := strings.TrimSpace(plain)
 	if body == "" {
-		body = htmlToText(htmlBody)
+		body = webhooksource.HTMLToText(htmlBody)
 	}
-	body = stripQuotedReply(body)
-	body = truncateUTF8(body, emailBodyLimit)
+	body = webhooksource.StripQuotedReply(body)
+	body = webhooksource.TruncateUTF8(body, emailBodyLimit)
 
 	text := p.Subject
 	if body != "" {
@@ -109,44 +100,16 @@ func parseEmailMessage(raw []byte, selfAddress string, ignoreAuto bool) (parsedE
 	}
 	p.Text = strings.TrimSpace(text)
 
-	p.ThreadRoot = firstNonEmpty(p.firstReference(), p.InReplyTo, p.MessageID)
+	p.ThreadRoot = webhooksource.EmailThreadRoot(p.References, p.InReplyTo, p.MessageID)
 
 	if ignoreAuto {
-		env := emailEnvelope{
-			AutoSubmitted: strings.TrimSpace(hdr.Get("Auto-Submitted")),
-			Precedence:    strings.ToLower(strings.TrimSpace(hdr.Get("Precedence"))),
-			ReturnPath:    strings.TrimSpace(hdr.Get("Return-Path")),
-		}
-		p.IgnoreReason = emailIgnoreReason(env, p.FromAddress, selfAddress)
+		p.IgnoreReason = webhooksource.EmailIgnoreReason(webhooksource.EmailHeaders{
+			AutoSubmitted: hdr.Get("Auto-Submitted"),
+			Precedence:    hdr.Get("Precedence"),
+			ReturnPath:    hdr.Get("Return-Path"),
+		}, p.FromAddress, selfAddress)
 	}
 	return p, nil
-}
-
-func (p parsedEmail) firstReference() string {
-	if len(p.References) == 0 {
-		return ""
-	}
-	return p.References[0]
-}
-
-// emailIgnoreReason applies the design's default ignore rules: system
-// auto-replies, bulk/list mail, bounces, and the binding's own address (a
-// message we sent would otherwise create work for ourselves on every poll).
-func emailIgnoreReason(env emailEnvelope, fromAddress, selfAddress string) string {
-	if env.AutoSubmitted != "" && !strings.EqualFold(env.AutoSubmitted, "no") {
-		return "auto-submitted"
-	}
-	switch env.Precedence {
-	case "bulk", "junk", "list":
-		return "precedence"
-	}
-	if env.ReturnPath == "<>" {
-		return "bounce"
-	}
-	if selfAddress != "" && strings.EqualFold(strings.TrimSpace(fromAddress), strings.TrimSpace(selfAddress)) {
-		return "self"
-	}
-	return ""
 }
 
 // --- conversion to the intake pipeline --------------------------------------
@@ -419,105 +382,4 @@ func parseFromHeader(v string) (address, name string) {
 	}
 	// Unparseable From: still keep the raw value so the actor is not empty.
 	return strings.ToLower(v), ""
-}
-
-// htmlToText renders an HTML part as plain text. It is intentionally crude:
-// block elements become line breaks, script/style/title are dropped, and blank
-// runs collapse. Anything fancier would only add noise to a task prompt.
-func htmlToText(s string) string {
-	if strings.TrimSpace(s) == "" {
-		return ""
-	}
-	doc, err := html.Parse(strings.NewReader(s))
-	if err != nil {
-		return strings.TrimSpace(s)
-	}
-	var b strings.Builder
-	var walk func(*html.Node)
-	walk = func(n *html.Node) {
-		if n.Type == html.ElementNode {
-			switch n.Data {
-			case "script", "style", "head", "title", "noscript":
-				return
-			case "br", "p", "div", "tr", "li", "ul", "ol", "table", "blockquote",
-				"h1", "h2", "h3", "h4", "h5", "h6", "section", "article":
-				b.WriteString("\n")
-			}
-		}
-		if n.Type == html.TextNode {
-			b.WriteString(n.Data)
-		}
-		for c := n.FirstChild; c != nil; c = c.NextSibling {
-			walk(c)
-		}
-	}
-	walk(doc)
-	return normalizeBlankLines(b.String())
-}
-
-var emailQuoteMarkers = []*regexp.Regexp{
-	regexp.MustCompile(`(?i)^on\b.{0,300}\bwrote:\s*$`),
-	regexp.MustCompile(`^在.{0,200}写道[:：]\s*$`),
-	regexp.MustCompile(`(?i)^-{2,}\s*original message\s*-{2,}$`),
-	regexp.MustCompile(`^-{2,}\s*原始邮件\s*-{2,}$`),
-}
-
-// stripQuotedReply removes the quoted history a mail client appends: the
-// `> …` lines and everything from an "On … wrote:" / "在 … 写道:" marker down.
-// A reply becomes just what the person actually wrote, which is what the agent
-// needs to act on.
-func stripQuotedReply(body string) string {
-	lines := strings.Split(body, "\n")
-	kept := make([]string, 0, len(lines))
-	for _, line := range lines {
-		trimmed := strings.TrimSpace(line)
-		if isQuoteMarker(trimmed) {
-			break
-		}
-		if strings.HasPrefix(trimmed, ">") {
-			continue
-		}
-		kept = append(kept, line)
-	}
-	return normalizeBlankLines(strings.Join(kept, "\n"))
-}
-
-func isQuoteMarker(line string) bool {
-	for _, re := range emailQuoteMarkers {
-		if re.MatchString(line) {
-			return true
-		}
-	}
-	return false
-}
-
-func normalizeBlankLines(s string) string {
-	lines := strings.Split(strings.ReplaceAll(s, "\r\n", "\n"), "\n")
-	out := make([]string, 0, len(lines))
-	blank := 0
-	for _, line := range lines {
-		line = strings.TrimRight(line, " \t\r")
-		if strings.TrimSpace(line) == "" {
-			blank++
-			if blank > 1 {
-				continue
-			}
-		} else {
-			blank = 0
-		}
-		out = append(out, line)
-	}
-	return strings.TrimSpace(strings.Join(out, "\n"))
-}
-
-// truncateUTF8 cuts s to at most limit bytes without splitting a rune.
-func truncateUTF8(s string, limit int) string {
-	if len(s) <= limit {
-		return s
-	}
-	cut := limit
-	for cut > 0 && !utf8.RuneStart(s[cut]) {
-		cut--
-	}
-	return s[:cut]
 }

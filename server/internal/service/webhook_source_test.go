@@ -301,3 +301,34 @@ func TestWebhookSource_ConfigCRUD(t *testing.T) {
 		t.Fatal("a name with a slash must be rejected")
 	}
 }
+
+func TestWebhookSource_EmailIgnoresAutoMail(t *testing.T) {
+	f := newIMBotFixture(t)
+	ctx := context.Background()
+	svc, creds := newWebhookTestService(t, f)
+
+	const secret = "email-secret"
+	bindingID := bindWebhookSource(t, f, creds, f.projectID, intake.SourceKindEmail, "support", secret)
+
+	// An auto-reply must be acknowledged and dropped, exactly as the IMAP poller
+	// drops it, without recording an event.
+	body := []byte(`{"from":"auto@example.test","to":"support@example.test","subject":"Out of office","text":"away","auto_submitted":"auto-replied"}`)
+	out, err := svc.HandleInbound(ctx, bindingID, "", webhookRequest(t, map[string]string{
+		"Authorization": "Bearer " + secret,
+	}, body), body)
+	if err != nil {
+		t.Fatalf("handle inbound: %v", err)
+	}
+	if !out.Ignored || out.EventID != 0 {
+		t.Fatalf("outcome = %+v, want ignored with no event", out)
+	}
+	events, err := f.q.ListIntakeEventsByProject(ctx, store.ListIntakeEventsByProjectParams{
+		ProjectID: f.projectID, Limit: 10,
+	})
+	if err != nil {
+		t.Fatalf("list events: %v", err)
+	}
+	if len(events) != 0 {
+		t.Fatalf("ignored mail recorded events: %+v", events)
+	}
+}

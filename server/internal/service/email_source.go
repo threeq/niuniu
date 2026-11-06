@@ -35,6 +35,7 @@ import (
 
 	"github.com/niuniu-dev/niuniu/internal/intake"
 	"github.com/niuniu-dev/niuniu/internal/store"
+	"github.com/niuniu-dev/niuniu/internal/webhooksource"
 )
 
 const (
@@ -369,7 +370,7 @@ func (s *EmailSourceService) recordFailure(ctx context.Context, binding store.Pr
 	until := now.Add(emailNextBackoff(state, now))
 	if _, err := s.q.SetEmailPollBackoff(ctx, store.SetEmailPollBackoffParams{
 		BackoffUntil: sql.NullTime{Time: until.UTC(), Valid: true},
-		LastError:    truncateUTF8(cause.Error(), 500),
+		LastError:    webhooksource.TruncateUTF8(cause.Error(), 500),
 		BindingID:    binding.ID,
 		Mailbox:      mailbox,
 	}); err != nil {
