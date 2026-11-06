@@ -176,6 +176,22 @@ func TestIntegrationWebhook_CIRouteAuth(t *testing.T) {
 	}
 }
 
+// A local_only binding rejects a public peer with 403, even when the peer
+// forges X-Forwarded-For: 127.0.0.1. The rejection happens before the pipeline,
+// so no event is recorded.
+func TestIntegrationWebhook_LocalOnlyForbidden(t *testing.T) {
+	r, bindingID, secret := setupWebhookHandler(t, `{"local_only":true}`)
+
+	// httptest.NewRequest defaults to 192.0.2.1, a public TEST-NET address.
+	w := postWebhook(t, r, bindingID, `{"id":"evt-1","text":"hello"}`, map[string]string{
+		"Authorization":   "Bearer " + secret,
+		"X-Forwarded-For": "127.0.0.1",
+	})
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("public delivery status = %d, want 403 (body %s)", w.Code, w.Body.String())
+	}
+}
+
 func TestIntegrationWebhook_StatusContract(t *testing.T) {
 	r, bindingID, secret := setupWebhookHandler(t, `{}`)
 

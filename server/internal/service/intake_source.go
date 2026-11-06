@@ -232,6 +232,9 @@ func (s *IntakeSourceService) Create(ctx context.Context, in IntakeSourceInput) 
 	if in.Provider != "" {
 		cfg["provider"] = strings.TrimSpace(in.Provider)
 	}
+	if err := validateNetworkConfig(cfg); err != nil {
+		return nil, "", err
+	}
 	if kind == intake.SourceKindCI {
 		// The provider chooses the auth preset and the default subscription.
 		// Binding it at create time keeps credentials from pointing at a vendor
