@@ -440,6 +440,18 @@
     "batchDelete": "刪除所選",
     "deleteSelectedTitle": "刪除所選的 {{count}} 條記錄？",
     "staleReason": "訊息到達過晚（超出時效視窗），已記錄但未執行。",
-    "alreadyConsumed": "該建議已被後續的自動執行一併處理。"
+    "alreadyConsumed": "該建議已被後續的自動執行一併處理。",
+    "secretPage": {
+      "title": "一次性密鑰",
+      "description": "建立或輪換來源密鑰後，明文只在此頁面展示一次。",
+      "loading": "正在安全讀取密鑰…",
+      "expired": "該連結已失效：密鑰只展示一次，且連結 15 分鐘後過期。請在「任務來源」設定中重新產生。",
+      "loadError": "讀取密鑰失敗，請返回設定頁重試。",
+      "secretLabel": "密鑰",
+      "copySecret": "複製密鑰",
+      "inboundUrlLabel": "入站位址",
+      "copyUrl": "複製入站位址",
+      "hint": "來源「{{name}}」的密鑰只顯示這一次，關閉頁面後無法再次查看。請立即儲存到上游系統。"
+    }
   }
 }

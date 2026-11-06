@@ -119,6 +119,7 @@ type Server struct {
 	githubReplySvc       *service.GithubReplyDispatcher
 	emailSourceSvc       *service.EmailSourceService
 	webhookSourceSvc     *service.WebhookSourceService
+	intakeSourceSvc      *service.IntakeSourceService
 	intakeWebhookHandler *api.IntegrationWebhookHandler
 	completionSvc        *service.CompletionService
 	completionHandler    *api.CompletionHandler
@@ -1764,8 +1765,13 @@ func New(cfg *config.Config, db *sql.DB, frontendFS fs.FS) *Server {
 	// scope, the daily cap and audit are identical.
 	s.webhookSourceSvc = service.NewWebhookSourceService(db, s.queries, s.extCredSvc)
 	s.webhookSourceSvc.SetInbound(imbotDispatch, s.agentProxy)
-	s.intakeHandler.Webhook = s.webhookSourceSvc
 	s.intakeWebhookHandler = api.NewIntegrationWebhookHandler(s.webhookSourceSvc)
+	// Binding management (design §10.1): ci/email/webhook share one service.
+	// PollNow reuses the IMAP poller wired just above; without it the poll
+	// endpoint reports "poller not wired" instead of pretending to poll.
+	s.intakeSourceSvc = service.NewIntakeSourceService(db, s.queries, s.extCredSvc, authz, s.credUsagePolicySvc)
+	s.intakeSourceSvc.SetEmailPoller(s.emailSourceSvc)
+	s.intakeHandler.Sources = s.intakeSourceSvc
 	// Let a user answer an agent's ask_user question by tapping an option button in
 	// the chat (the outbound question card carries option buttons).
 	s.imbotSvc.SetAskUserDecider(s.askUserService)

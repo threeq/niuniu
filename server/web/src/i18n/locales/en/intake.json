@@ -440,6 +440,18 @@
     "batchDelete": "Delete selected",
     "deleteSelectedTitle": "Delete the {{count}} selected entries?",
     "staleReason": "Message arrived too late (older than the staleness window); recorded but not executed.",
-    "alreadyConsumed": "This suggestion was already absorbed by a later automatic execution."
+    "alreadyConsumed": "This suggestion was already absorbed by a later automatic execution.",
+    "secretPage": {
+      "title": "One-time secret",
+      "description": "After a source secret is created or rotated, the plaintext is shown here exactly once.",
+      "loading": "Reading the secret securely…",
+      "expired": "This link is no longer valid: the secret is shown only once and the link expires after 15 minutes. Generate a new one in Intake settings.",
+      "loadError": "Failed to read the secret. Go back to settings and try again.",
+      "secretLabel": "Secret",
+      "copySecret": "Copy secret",
+      "inboundUrlLabel": "Inbound URL",
+      "copyUrl": "Copy inbound URL",
+      "hint": "The secret for \"{{name}}\" is shown only once and cannot be viewed again after you close this page. Save it in the upstream system now."
+    }
   }
 }
