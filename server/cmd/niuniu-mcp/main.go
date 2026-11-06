@@ -192,6 +192,10 @@ func main() {
 		// tools split across the two capabilities, all registered together since
 		// each capability is independently configurable.
 		registerIntakeTools(s, api, pid)
+		// Intake binding management (design §10.3): configure the ci/email/
+		// webhook sources from the conversation. Secrets stay out of the
+		// conversation — create/rotate return a one-time link instead.
+		registerIntakeSourceTools(s, api, pid)
 		registerCompletionTools(s, api, pid)
 		// Generic credential-link tools (issue #727): mint a one-time secure
 		// link for a provider credential or data source, and query whether a
@@ -309,6 +313,24 @@ func (c *apiClient) post(path string, payload any) ([]byte, error) {
 		return nil, err
 	}
 	req.Header.Set("Content-Type", "application/json")
+	c.addAuth(req)
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode >= 400 {
+		return nil, fmt.Errorf("API %s returned %d: %s", path, resp.StatusCode, string(body))
+	}
+	return body, nil
+}
+
+func (c *apiClient) delete(path string) ([]byte, error) {
+	req, err := http.NewRequest("DELETE", c.base+path, nil)
+	if err != nil {
+		return nil, err
+	}
 	c.addAuth(req)
 	resp, err := c.client.Do(req)
 	if err != nil {

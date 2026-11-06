@@ -358,6 +358,15 @@ func (s *Server) setupRoutes() {
 		mcpGroup.GET("/projects/:id/intake/decisions/pending", s.intakeHandler.MCPListPending)
 		mcpGroup.POST("/decisions/:did/accept", s.intakeHandler.MCPAcceptDecision)
 		mcpGroup.POST("/decisions/:did/ignore", s.intakeHandler.MCPIgnoreDecision)
+		// Intake binding management (design §10.3). Same handlers as the
+		// authenticated project API, so status codes and error bodies are
+		// identical for the UI and the agent.
+		mcpGroup.GET("/projects/:id/intake/sources", s.intakeHandler.ListSources)
+		mcpGroup.POST("/projects/:id/intake/sources", s.intakeHandler.CreateSource)
+		mcpGroup.POST("/projects/:id/intake/sources/:sid/test", s.intakeHandler.TestSource)
+		mcpGroup.POST("/projects/:id/intake/sources/:sid/rotate", s.intakeHandler.RotateSource)
+		mcpGroup.POST("/projects/:id/intake/sources/:sid/poll", s.intakeHandler.PollSource)
+		mcpGroup.DELETE("/projects/:id/intake/sources/:sid", s.intakeHandler.DeleteSource)
 		mcpGroup.PUT("/projects/:id/completion/settings", s.completionHandler.MCPSetPolicy)
 		mcpGroup.GET("/projects/:id/completion/profiles", s.completionHandler.MCPListProfiles)
 		mcpGroup.POST("/projects/:id/completion/profiles", s.completionHandler.MCPUpsertProfile)
