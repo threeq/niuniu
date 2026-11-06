@@ -283,39 +283,27 @@ capabilities:
 
 ### 5.4 Pack 存储与生命周期
 
-采用**数据库注册表 + 客户环境文件系统**：
+**不建 Pack 注册表**，客户环境文件系统就是唯一真相：
 
 ```
 ~/.niuniu/users/<uid>/ops/packs/<pack_id>/<version>/
+  manifest.json          # id/version/status/capabilities/bindings
+  content_schema.json
+  compliance.json
+  metrics_map.json
+  prompts/
+  browser/recipes/
 ~/.niuniu/orgs/<oid>/ops/packs/<pack_id>/<version>/     # 本地/自托管
 或租户对象存储 / 持久卷                                   # 云端团队版
 ```
 
-数据库只存索引和元数据：
-
-```sql
-CREATE TABLE IF NOT EXISTS ops_platform_packs (
-    id             INTEGER PRIMARY KEY AUTOINCREMENT,
-    owner_type     TEXT NOT NULL DEFAULT 'user',
-    owner_id       INTEGER NOT NULL DEFAULT 0,
-    pack_id        TEXT NOT NULL,
-    version        INTEGER NOT NULL,
-    status         TEXT NOT NULL DEFAULT 'draft', -- draft | testing | published | deprecated
-    manifest_json  TEXT NOT NULL DEFAULT '{}',
-    path           TEXT NOT NULL DEFAULT '',
-    digest         TEXT NOT NULL DEFAULT '',
-    created_by     INTEGER,
-    created_at     TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    published_at   TIMESTAMP,
-    UNIQUE(owner_type, owner_id, pack_id, version)
-);
-```
-
+- **版本 = 目录**：`<pack_id>/<version>/`，发布版本不可变；编辑生成新目录。
+- **状态 = manifest 字段**：`draft | testing | published | deprecated`；发布是原子写 `manifest.json`（临时文件 + rename）。
+- **列表 = 目录扫描**：`GET /api/ops/packs` 扫描 owner 目录；内置 Pack 从产品内置目录合并，同名同版本以 owner 目录为准。
+- **校验 = 读取时执行**：加载 manifest 后跑 `Validate`；不引入 DB 索引。
 - **永久保存在客户环境**：属于客户数据，随备份/导出保留，升级不覆盖。
-- **发布版本不可变**：编辑生成新版本；Ops Bot 可固定版本或跟随最新。
-- **内置 Pack 随产品出厂**（WeChat、XHS 首版）；用户生成的 Pack 放客户目录，不进仓库。
 - **可导出/导入**：整个 Pack 目录可打包，在另一个环境复用。
-- **密钥不进 Pack**：`bindings.yaml` 只写 `credential_ref`。
+- **密钥不进 Pack**：`bindings.json` 只写 `credential_ref`。
 
 ### 5.5 对话式生成 Pack
 
@@ -485,6 +473,7 @@ type OpsContentBrief struct {
 | 视频成片 | 成片预览、时长、字幕、封面、平台尺寸 | 通过 / 驳回 / 重新生成 |
 
 - 审批人 = 账号绑定的运营人；总监可代审，记录代审人。
+- 存储：复用 `agent_ask_user_requests`，`kind='ops_approval'`，`metadata_json` 存 bot/issue/type/content_version/preview；不新建审批表。
 - 超时提醒；不自动通过。
 - 审批记录进入审计：内容版本、审批人、时间、操作、理由。
 - 审批点与合规门禁独立：合规先过，人才确认。
@@ -493,42 +482,34 @@ type OpsContentBrief struct {
 
 ## 11. 数据模型
 
-### 11.1 最终表集
+### 11.1 最终模型
 
-只保留 10 张表；每张表都有独立生命周期，不做重复建模。
+只新增 **3 张表 + 3 个列**；其余全部复用现有表。
 
-| # | 表 | 作用 | 为什么不能复用现有表 |
-|---|---|---|---|
-| 1 | `ops_platform_packs` | 渠道 Pack 注册表：版本、状态、路径、摘要 | Pack 是客户环境资源，需要版本化与持久化 |
-| 2 | `ops_bots` | 总监/账号 Bot 实例：Pack、账号、策略、预算、控制 Epic/Workspace | 现有 issue/workspace 不承载账号运营策略 |
-| 3 | `ops_bot_chats` | Bot 与 IM chat/thread 的绑定 | 一个 Bot 可绑定多个聊天；imbot chat 表不应加运营语义 |
-| 4 | `ops_browser_workers` | 浏览器 Worker 健康、会话、风险状态 | 心跳/风险状态高频变化，与 Bot 配置分离 |
-| 5 | `ops_calendar_items` | 内容日历与选题池 | 日历项可在 issue 创建前存在 |
-| 6 | `ops_publish_records` | 发布回执、幂等、截图证据 | 发布审计需要回执/URL/截图，issue 事件不够 |
-| 7 | `ops_approvals` | 发布/回复/视频审批状态机 | 通用 ask_user 不承载内容版本与审计 |
-| 8 | `ops_engagement_items` | 评论/私信与建议回复 | 互动分类、建议回复、审批状态是运营域数据 |
-| 9 | `ops_metrics_daily` | 平台每日指标 | 外部平台指标不在现有 workspace 成本表里 |
-| 10 | `ops_budget_usage` | 账号月度预算消耗 | 需要按文本/图片/视频分项与月度历史 |
+| 类型 | 名称 | 作用 |
+|---|---|---|
+| 新表 | `ops_bots` | 总监/账号 Bot 配置：Pack、账号、策略、预算、控制 Epic/Workspace、运行时状态 |
+| 新表 | `ops_publish_records` | 发布幂等、回执、截图证据 |
+| 新表 | `ops_metrics_daily` | 账号每日指标历史 |
+| 新列 | `im_bot_chats.ops_bot_id` | chat → Ops Bot 路由 |
+| 新列 | `agent_ask_user_requests.kind` | 区分普通提问与 `ops_approval` |
+| 新列 | `agent_ask_user_requests.metadata_json` | 审批的 bot/issue/type/content_version/preview |
+
+**复用现有表：**
+
+| 需求 | 现有表 |
+|---|---|
+| 内容任务 / 日历 | `issues`（计划日期 + 看板列） |
+| 发布/成本事件 | `issue_exec_events`（`cost` / `terminal`，detail_json 存回执） |
+| 审批 | `agent_ask_user_requests`（`kind='ops_approval'`） |
+| 预算 | `workspace_costs` + `issue_exec_events.cost_usd` 聚合 |
+| 浏览器 Worker 状态 | `ops_bots.runtime_json` |
+| 评论/私信 | Phase 2 评估 `intake_events`/`intake_decisions`；语义不合再加表 |
+| Platform Pack | 客户环境 `manifest.json`，不建表 |
 
 ### 11.2 DDL
 
 ```sql
-CREATE TABLE IF NOT EXISTS ops_platform_packs (
-    id             INTEGER PRIMARY KEY AUTOINCREMENT,
-    owner_type     TEXT NOT NULL DEFAULT 'user',
-    owner_id       INTEGER NOT NULL DEFAULT 0,
-    pack_id        TEXT NOT NULL,
-    version        INTEGER NOT NULL,
-    status         TEXT NOT NULL DEFAULT 'draft', -- draft | testing | published | deprecated
-    manifest_json  TEXT NOT NULL DEFAULT '{}',
-    path           TEXT NOT NULL DEFAULT '',
-    digest         TEXT NOT NULL DEFAULT '',
-    created_by     INTEGER,
-    created_at     TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    published_at   TIMESTAMP,
-    UNIQUE(owner_type, owner_id, pack_id, version)
-);
-
 CREATE TABLE IF NOT EXISTS ops_bots (
     id                   INTEGER PRIMARY KEY AUTOINCREMENT,
     owner_type           TEXT NOT NULL DEFAULT 'user',
@@ -545,6 +526,7 @@ CREATE TABLE IF NOT EXISTS ops_bots (
     cadence_json         TEXT NOT NULL DEFAULT '{}',
     approval_policy_json TEXT NOT NULL DEFAULT '{}',
     budget_json          TEXT NOT NULL DEFAULT '{}',
+    runtime_json         TEXT NOT NULL DEFAULT '{}',       -- browser worker/health/risk
     epic_issue_id        INTEGER,
     control_workspace_id INTEGER,
     status               TEXT NOT NULL DEFAULT 'active',   -- active | paused | disabled
@@ -552,41 +534,6 @@ CREATE TABLE IF NOT EXISTS ops_bots (
     created_at           TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at           TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     UNIQUE(owner_type, owner_id, pack_id, account_ref)
-);
-
-CREATE TABLE IF NOT EXISTS ops_bot_chats (
-    id            INTEGER PRIMARY KEY AUTOINCREMENT,
-    bot_id        INTEGER NOT NULL REFERENCES ops_bots(id) ON DELETE CASCADE,
-    im_chat_id    INTEGER NOT NULL,
-    thread_ext_id TEXT NOT NULL DEFAULT '',
-    created_at    TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE(bot_id, im_chat_id, thread_ext_id)
-);
-
-CREATE TABLE IF NOT EXISTS ops_browser_workers (
-    id              INTEGER PRIMARY KEY AUTOINCREMENT,
-    bot_id          INTEGER NOT NULL REFERENCES ops_bots(id) ON DELETE CASCADE,
-    backend         TEXT NOT NULL DEFAULT 'local', -- local | cloud
-    endpoint        TEXT NOT NULL DEFAULT '',
-    container_ref   TEXT NOT NULL DEFAULT '',
-    profile_ref     TEXT NOT NULL DEFAULT '',
-    status          TEXT NOT NULL DEFAULT 'offline',
-    last_heartbeat  TIMESTAMP,
-    risk_state      TEXT NOT NULL DEFAULT 'normal',
-    created_at      TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE(bot_id, backend)
-);
-
-CREATE TABLE IF NOT EXISTS ops_calendar_items (
-    id          INTEGER PRIMARY KEY AUTOINCREMENT,
-    bot_id      INTEGER NOT NULL REFERENCES ops_bots(id) ON DELETE CASCADE,
-    planned_at  TIMESTAMP NOT NULL,
-    topic       TEXT NOT NULL DEFAULT '',
-    format      TEXT NOT NULL DEFAULT 'note',
-    source      TEXT NOT NULL DEFAULT 'fixed', -- fixed | trend
-    status      TEXT NOT NULL DEFAULT 'planned',
-    issue_id    INTEGER,
-    created_at  TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE TABLE IF NOT EXISTS ops_publish_records (
@@ -606,34 +553,6 @@ CREATE TABLE IF NOT EXISTS ops_publish_records (
     UNIQUE(bot_id, idempotency_key)
 );
 
-CREATE TABLE IF NOT EXISTS ops_approvals (
-    id              INTEGER PRIMARY KEY AUTOINCREMENT,
-    bot_id          INTEGER NOT NULL REFERENCES ops_bots(id) ON DELETE CASCADE,
-    issue_id        INTEGER,
-    type            TEXT NOT NULL, -- publish | reply | video
-    payload_json    TEXT NOT NULL DEFAULT '{}',
-    preview_json    TEXT NOT NULL DEFAULT '{}',
-    status          TEXT NOT NULL DEFAULT 'pending', -- pending | approved | rejected | expired
-    operator_id     INTEGER,
-    decided_at      TIMESTAMP,
-    reason          TEXT NOT NULL DEFAULT '',
-    created_at      TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
-);
-
-CREATE TABLE IF NOT EXISTS ops_engagement_items (
-    id               INTEGER PRIMARY KEY AUTOINCREMENT,
-    bot_id           INTEGER NOT NULL REFERENCES ops_bots(id) ON DELETE CASCADE,
-    type             TEXT NOT NULL, -- comment | dm
-    ext_id           TEXT NOT NULL,
-    author           TEXT NOT NULL DEFAULT '',
-    content          TEXT NOT NULL DEFAULT '',
-    classification   TEXT NOT NULL DEFAULT '',
-    suggested_reply  TEXT NOT NULL DEFAULT '',
-    status           TEXT NOT NULL DEFAULT 'new',
-    approval_id      INTEGER,
-    created_at       TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
-);
-
 CREATE TABLE IF NOT EXISTS ops_metrics_daily (
     id            INTEGER PRIMARY KEY AUTOINCREMENT,
     bot_id        INTEGER NOT NULL REFERENCES ops_bots(id) ON DELETE CASCADE,
@@ -643,40 +562,40 @@ CREATE TABLE IF NOT EXISTS ops_metrics_daily (
     created_at    TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     UNIQUE(bot_id, date)
 );
-
-CREATE TABLE IF NOT EXISTS ops_budget_usage (
-    id          INTEGER PRIMARY KEY AUTOINCREMENT,
-    bot_id      INTEGER NOT NULL REFERENCES ops_bots(id) ON DELETE CASCADE,
-    period      TEXT NOT NULL,
-    text_cost   REAL NOT NULL DEFAULT 0,
-    image_cost  REAL NOT NULL DEFAULT 0,
-    video_cost  REAL NOT NULL DEFAULT 0,
-    total_cost  REAL NOT NULL DEFAULT 0,
-    limit_cost  REAL NOT NULL DEFAULT 0,
-    updated_at  TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE(bot_id, period)
-);
 ```
 
-### 11.3 已清理的设计
+既有表新增列（fresh DB 写进 `schema.sql` / `schema_postgres.sql`，存量 DB 用 `addColumnIfNotExists`）：
 
-- **删除 `ops_bot_links`**：由 `ops_bots.epic_issue_id / control_workspace_id` + `ops_bot_chats` 替代，避免一个表承担三种关系。
-- **删除 `ops_bots.platform`**：渠道由 `pack_id` 表达，避免“平台”和“Pack”两份真相。
-- **删除 `ops_metrics_daily.platform` / `ops_engagement_items.platform`**：由 `bot_id → pack_id` 推导，避免冗余。
-- **删除平台专用 adapter 文件**（`wechat.go` / `xhs.go`）：统一到 `ChannelAdapter` + Pack，不再为每个平台写核心适配器。
-- **保留 `ops_browser_workers` / `ops_budget_usage` / `ops_approvals`**：它们分别承担高频运行时状态、月度历史、审计，生命周期与 Bot 配置不同，合并会互相污染。
+```sql
+ALTER TABLE im_bot_chats ADD COLUMN ops_bot_id INTEGER;
+ALTER TABLE agent_ask_user_requests ADD COLUMN kind TEXT NOT NULL DEFAULT 'agent_question';
+ALTER TABLE agent_ask_user_requests ADD COLUMN metadata_json TEXT NOT NULL DEFAULT '{}';
+```
 
-复用现有表：
+### 11.3 为什么去掉 7 张表
 
-- 内容任务：`issues`、`task_briefs`、`issue_checklists`
-- 执行：`workspaces`、`agentproxy`
-- 完成策略：completion profiles
-- 知识/爆款库：knowledge base + memory + artifacts
-- 审批卡片：imbot `ask_user` / permission
-- 调度：scheduler
-- 指标：Mission control
+| 原表 | 替代方案 |
+|---|---|
+| `ops_platform_packs` | Pack 目录 + `manifest.json`；列表靠目录扫描 |
+| `ops_bot_chats` | `im_bot_chats.ops_bot_id` 列 |
+| `ops_browser_workers` | `ops_bots.runtime_json` + 运行时 Worker 管理 |
+| `ops_calendar_items` | `issues` 的计划日期 + 看板列 |
+| `ops_approvals` | `agent_ask_user_requests` + `kind='ops_approval'` + `metadata_json` |
+| `ops_engagement_items` | Phase 2 评估 `intake_events`/`intake_decisions`；不够再加表 |
+| `ops_budget_usage` | `workspace_costs` + `issue_exec_events.cost_usd` 聚合 |
 
-迁移注意：新表走 `CREATE TABLE IF NOT EXISTS`；如给现有表加列（如 `imbot_chats.ops_bot_id`），用 `addColumnIfNotExists`，不在迁移列上加 CHECK；SQLite/PostgreSQL 双写并跑 `make schema-diff`。
+保留 3 张新表的理由：
+
+- `ops_bots`：账号/总监配置与运行时状态，没有现成表承载。
+- `ops_publish_records`：发布幂等与审计需要唯一键、回执、截图，`issue_exec_events` 缺唯一键。
+- `ops_metrics_daily`：按账号按天的平台指标历史，现有表没有对应结构。
+
+### 11.4 迁移注意
+
+- 新表走 `CREATE TABLE IF NOT EXISTS`；新列用 `addColumnIfNotExists`，不在迁移列上加 CHECK。
+- `agent_ask_user_requests.kind` 存量行默认为 `agent_question`；`metadata_json` 默认 `{}`。
+- SQLite/PostgreSQL 双写并跑 `make schema-diff`；sqlc 重新生成。
+- Pack 目录不参与 DB 迁移；内置 Pack 首次使用时复制到 owner 目录。
 
 ---
 
