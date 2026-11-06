@@ -699,6 +699,13 @@ func (s *IntakeService) ListPolicyVersions(ctx context.Context, projectID int64,
 // transaction as the settings/rule write so a version never describes a change
 // that did not land.
 func (s *IntakeService) writePolicyVersion(ctx context.Context, qtx *store.Queries, projectID int64, sourceKind string) error {
+	return writeIntakePolicyVersion(ctx, qtx, projectID, sourceKind)
+}
+
+// writeIntakePolicyVersion is the package-level form so binding creation
+// (IntakeSourceService) can snapshot the policy it just seeded inside the same
+// transaction.
+func writeIntakePolicyVersion(ctx context.Context, qtx *store.Queries, projectID int64, sourceKind string) error {
 	sourceKind = strings.TrimSpace(sourceKind)
 	snapshot := map[string]any{
 		"source_kind": sourceKind,
@@ -804,10 +811,11 @@ func normalizeIntakeRule(in UpsertIntakeRuleInput, defaultEnabled bool) (UpsertI
 	if in.Name == "" {
 		return in, "", 0, fmt.Errorf("name is required")
 	}
+	in.Conditions.EventKind = strings.TrimSpace(in.Conditions.EventKind)
 	in.Conditions.Actors = trimNonEmpty(in.Conditions.Actors)
 	in.Conditions.Keywords = trimNonEmpty(in.Conditions.Keywords)
-	if len(in.Conditions.Actors) == 0 && len(in.Conditions.Keywords) == 0 {
-		return in, "", 0, fmt.Errorf("a rule needs at least one condition (actors or keywords)")
+	if in.Conditions.EventKind == "" && len(in.Conditions.Actors) == 0 && len(in.Conditions.Keywords) == 0 {
+		return in, "", 0, fmt.Errorf("a rule needs at least one condition (event_kind, actors or keywords)")
 	}
 	encoded, err := json.Marshal(in.Conditions)
 	if err != nil {

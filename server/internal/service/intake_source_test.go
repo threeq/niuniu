@@ -5,11 +5,13 @@ package service_test
 
 import (
 	"context"
+	"encoding/json"
 	"strconv"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/niuniu-dev/niuniu/internal/intake"
 	"github.com/niuniu-dev/niuniu/internal/integration"
 	"github.com/niuniu-dev/niuniu/internal/integration/crypto"
 	"github.com/niuniu-dev/niuniu/internal/service"
@@ -257,6 +259,61 @@ func TestIntakeSource_RejectsForeignProjectAccess(t *testing.T) {
 	list, err := f.svc.List(ctx, f.env.UserA, project.ID)
 	require.NoError(t, err)
 	require.Len(t, list, 1)
+}
+
+func TestIntakeSource_CICreateSeedsFailureRule(t *testing.T) {
+	f := newIntakeSourceFixture(t)
+	ctx := context.Background()
+	project := f.env.NewProject(t, f.env.UserA, "intake-ci-rule")
+
+	dto, _ := f.createCI(t, project.ID)
+	require.Equal(t, "gitlab", dto.Provider)
+	require.Equal(t, []any{"ci_failed"}, dto.Config["events"], "a CI binding subscribes to failures only by default")
+
+	rules, err := f.env.Queries().ListIntakeRulesByProject(ctx, project.ID)
+	require.NoError(t, err)
+	require.Len(t, rules, 1)
+	rule := rules[0]
+	require.Equal(t, intake.SourceKindCI, rule.SourceKind)
+	require.Equal(t, "CI 失败自动修复", rule.Name)
+	require.Equal(t, int64(100), rule.Priority)
+	require.Equal(t, int64(1), rule.Enabled)
+	var cond intake.RuleConditions
+	require.NoError(t, json.Unmarshal([]byte(rule.ConditionsJson), &cond))
+	require.Equal(t, intake.EventKindCIFailed, cond.EventKind)
+
+	versions, err := f.env.Queries().ListIntakePolicyVersions(ctx, store.ListIntakePolicyVersionsParams{
+		ProjectID: project.ID, SourceKind: intake.SourceKindCI,
+	})
+	require.NoError(t, err)
+	require.NotEmpty(t, versions, "seeding a rule records a policy version")
+
+	// A non-CI binding seeds nothing.
+	_, _, err = f.svc.Create(ctx, service.IntakeSourceInput{
+		ProjectID: project.ID, SourceKind: "webhook", Name: "plain-hooks", CallerUserID: f.env.UserA,
+	})
+	require.NoError(t, err)
+	rules, err = f.env.Queries().ListIntakeRulesByProject(ctx, project.ID)
+	require.NoError(t, err)
+	require.Len(t, rules, 1)
+
+	// Recreating the binding does not duplicate the rule.
+	require.NoError(t, f.svc.Delete(ctx, project.ID, dto.ID))
+	_, _ = f.createCI(t, project.ID)
+	rules, err = f.env.Queries().ListIntakeRulesByProject(ctx, project.ID)
+	require.NoError(t, err)
+	require.Len(t, rules, 1)
+}
+
+func TestIntakeSource_CreateRejectsUnknownCIProvider(t *testing.T) {
+	f := newIntakeSourceFixture(t)
+	project := f.env.NewProject(t, f.env.UserA, "intake-ci-provider")
+
+	_, _, err := f.svc.Create(context.Background(), service.IntakeSourceInput{
+		ProjectID: project.ID, SourceKind: "ci", Name: "travis", Mode: "push",
+		Provider: "travis", CallerUserID: f.env.UserA,
+	})
+	require.ErrorIs(t, err, service.ErrIntakeSourceInvalid)
 }
 
 const webhookSecretKeyForTest = "webhook_secret"
