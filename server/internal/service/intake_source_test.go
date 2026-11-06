@@ -298,7 +298,7 @@ func TestIntakeSource_CICreateSeedsFailureRule(t *testing.T) {
 	require.Len(t, rules, 1)
 
 	// Recreating the binding does not duplicate the rule.
-	require.NoError(t, f.svc.Delete(ctx, project.ID, dto.ID))
+	require.NoError(t, f.svc.Delete(ctx, f.env.UserA, project.ID, dto.ID))
 	_, _ = f.createCI(t, project.ID)
 	rules, err = f.env.Queries().ListIntakeRulesByProject(ctx, project.ID)
 	require.NoError(t, err)
