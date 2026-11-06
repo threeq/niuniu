@@ -68,6 +68,24 @@ func TestPortRewrite(t *testing.T) {
 			"  -- name: Foo :exec\n  -- another\nINSERT OR IGNORE INTO x (a) VALUES (?)",
 			"  -- name: Foo :exec\n  -- another\nINSERT INTO x (a) VALUES ($1) ON CONFLICT DO NOTHING",
 		},
+		{
+			// ON CONFLICT must land BEFORE RETURNING, not after it. Regression
+			// test for the PG-only breakage where CreateIntakeEvent reached
+			// PostgreSQL as "... RETURNING id ON CONFLICT DO NOTHING" and every
+			// IM-bot message failed with SQLSTATE 42601.
+			"-- name: CreateIntakeEvent :one\nINSERT OR IGNORE INTO intake_events (project_id) VALUES (?)\nRETURNING id\n",
+			"-- name: CreateIntakeEvent :one\nINSERT INTO intake_events (project_id) VALUES ($1)\nON CONFLICT DO NOTHING RETURNING id\n",
+		},
+		{
+			// Same shape with a column list after RETURNING (InsertImportedIssue).
+			`INSERT OR IGNORE INTO issues (title) VALUES (?) RETURNING id, title`,
+			`INSERT INTO issues (title) VALUES ($1) ON CONFLICT DO NOTHING RETURNING id, title`,
+		},
+		{
+			// Keyword matching is case-insensitive.
+			`INSERT OR IGNORE INTO x (a) VALUES (?) returning id`,
+			`INSERT INTO x (a) VALUES ($1) ON CONFLICT DO NOTHING returning id`,
+		},
 	} {
 		if got := port(c.in); got != c.want {
 			t.Errorf("port(postgres, %q) = %q; want %q", c.in, got, c.want)

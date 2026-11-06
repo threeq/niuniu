@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"database/sql"
+	"regexp"
 	"strings"
 )
 
@@ -140,7 +141,17 @@ func port(query string) string {
 		return query
 	}
 	if hasInsertOrIgnorePrefix(query) {
-		query = strings.Replace(query, "INSERT OR IGNORE", "INSERT", 1) + " ON CONFLICT DO NOTHING"
+		query = strings.Replace(query, "INSERT OR IGNORE", "INSERT", 1)
+		// ON CONFLICT must precede a RETURNING clause. Appending it to the end
+		// produces "RETURNING ... ON CONFLICT DO NOTHING", which PostgreSQL
+		// rejects with SQLSTATE 42601 ("syntax error at or near ON"). That
+		// broke CreateIntakeEvent (every IM-bot message failed to record) and
+		// InsertImportedIssue on PG.
+		if idx := lastReturningIndex(query); idx >= 0 {
+			query = query[:idx] + "ON CONFLICT DO NOTHING " + query[idx:]
+		} else {
+			query += " ON CONFLICT DO NOTHING"
+		}
 	}
 	return ConvertPlaceholders(query)
 }
@@ -166,4 +177,19 @@ func hasInsertOrIgnorePrefix(query string) bool {
 		s = s[nl+1:]
 	}
 	return strings.HasPrefix(s, "INSERT OR IGNORE")
+}
+
+// returningKeyword matches the RETURNING clause keyword case-insensitively.
+// regexp keeps byte offsets stable (unlike a strings.ToUpper copy, which could
+// shift them for non-ASCII query text).
+var returningKeyword = regexp.MustCompile(`(?i)\bRETURNING\b`)
+
+// lastReturningIndex returns the byte offset of the last RETURNING keyword in
+// query, or -1 when the statement has none.
+func lastReturningIndex(query string) int {
+	matches := returningKeyword.FindAllStringIndex(query, -1)
+	if len(matches) == 0 {
+		return -1
+	}
+	return matches[len(matches)-1][0]
 }
