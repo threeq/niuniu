@@ -55,6 +55,63 @@ export function latestEventAt(bindings: IntakeSource[] | undefined): string | nu
   return latest
 }
 
+/** UI status: the server's ok|backoff|error plus a client-side `never` for a
+ *  binding that has not received a single delivery yet. */
+export type BindingStatus = 'ok' | 'degraded' | 'error' | 'never'
+
+export function bindingStatus(source: IntakeSource): BindingStatus {
+  if (source.status === 'error') return 'error'
+  if (source.status === 'backoff') return 'degraded'
+  if (!source.last_event_at && source.events_24h === 0) return 'never'
+  return 'ok'
+}
+
+/** Whether a binding's inbound address must be reachable from outside. */
+export function isPushBinding(source: IntakeSource): boolean {
+  return source.mode === 'push' || source.mode === 'inbound'
+}
+
+/** How far the inbound address can be reached from, inferred from the origin
+ *  the user is browsing the app on. `public` is not proof of a reverse proxy —
+ *  the UI only reminds the user to make sure one forwards to this server. */
+export type InboundReachability = 'loopback' | 'private' | 'public'
+
+function isPrivateIPv4(host: string): boolean {
+  const parts = host.split('.').map(Number)
+  if (parts.length !== 4 || parts.some((n) => !Number.isInteger(n) || n < 0 || n > 255)) {
+    return false
+  }
+  const [a, b] = parts
+  return (
+    a === 10 ||
+    (a === 172 && b >= 16 && b <= 31) ||
+    (a === 192 && b === 168) ||
+    (a === 169 && b === 254) ||
+    a === 127
+  )
+}
+
+/** Classify a browser origin (window.location.origin) by reachability. */
+export function classifyInboundOrigin(origin: string): InboundReachability {
+  let host: string
+  try {
+    host = new URL(origin).hostname.toLowerCase().replace(/^\[|\]$/g, '')
+  } catch {
+    return 'loopback'
+  }
+  if (!host) return 'loopback'
+  if (host === 'localhost' || host.endsWith('.localhost')) return 'loopback'
+  if (host === '::1' || host === '0.0.0.0') return 'loopback'
+  if (host.endsWith('.local')) return 'private'
+  if (host.includes(':')) {
+    // IPv6: fc00::/7 (unique local) and fe80::/10 (link local) are private.
+    if (/^f[cd][0-9a-f]{2}:/.test(host) || /^fe[89ab][0-9a-f]:/.test(host)) return 'private'
+    return 'public'
+  }
+  if (isPrivateIPv4(host)) return 'private'
+  return 'public'
+}
+
 export interface DraftSetting {
   // daily cap is kept as a string so a cleared input stays cleared while editing.
   daily_cap: string

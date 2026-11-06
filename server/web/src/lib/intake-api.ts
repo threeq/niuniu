@@ -215,6 +215,10 @@ export interface IntakeSource {
   status: string
   last_event_at?: string
   events_24h: number
+  /** IMAP cursor failure reason; empty for push bindings. */
+  last_error?: string
+  /** When polling resumes after a failure (IMAP only). */
+  backoff_until?: string
   config: Record<string, unknown>
 }
 
@@ -351,10 +355,11 @@ export const intakeApi = {
     }),
 
   // Rotate replaces the secret; the old one stops working immediately.
+  // suppressError: the binding row reports the failure next to the action.
   rotateSource: (projectId: number, sourceId: number) =>
-    api.post<IntakeSourceWriteResult>(
+    apiFetch<IntakeSourceWriteResult>(
       `/projects/${projectId}/intake/sources/${sourceId}/rotate`,
-      {},
+      { method: 'POST', body: JSON.stringify({}), suppressError: true },
     ),
 
   // A synthetic delivery: normalized and evaluated but never recorded.
@@ -365,14 +370,18 @@ export const intakeApi = {
       suppressError: true,
     }),
 
+  // suppressError: the binding row reports the failure next to the action.
   deleteSource: (projectId: number, sourceId: number) =>
-    api.delete<{ ok: boolean }>(`/projects/${projectId}/intake/sources/${sourceId}`),
+    apiFetch<{ ok: boolean }>(`/projects/${projectId}/intake/sources/${sourceId}`, {
+      method: 'DELETE',
+      suppressError: true,
+    }),
 
   // Only email/imap bindings qualify.
   pollSource: (projectId: number, sourceId: number) =>
-    api.post<{ ok: boolean; polled: boolean }>(
+    apiFetch<{ ok: boolean; polled: boolean }>(
       `/projects/${projectId}/intake/sources/${sourceId}/poll`,
-      {},
+      { method: 'POST', body: JSON.stringify({}), suppressError: true },
     ),
 
   listPolicyVersions: (projectId: number, sourceKind: IntakeSourceKind, limit = 50) =>

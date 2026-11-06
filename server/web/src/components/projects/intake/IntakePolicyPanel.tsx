@@ -414,6 +414,8 @@ export function IntakePolicyPanel({ projectId, onDirtyChange, onNavigateSection 
         }}
         rules={configRules}
         rulesLoading={rulesQuery.isLoading}
+        bindings={configKind ? sourcesByKind[configKind] ?? [] : []}
+        bindingsLoading={sourcesQuery.isLoading}
         knownActors={actors}
         paused={paused}
         pausePending={pauseMutation.isPending}

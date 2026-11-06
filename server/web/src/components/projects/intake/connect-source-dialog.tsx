@@ -32,6 +32,7 @@ import {
 } from '@/lib/intake-api'
 import { cn } from '@/lib/utils'
 import { ChipsEditor } from './chips-editor'
+import { ReachabilityHint } from './source-bindings'
 
 // Bind-time choices the backend pins at create time (design §11.2): the provider
 // decides the CI auth preset, the email transport decides whether the binding is
@@ -464,6 +465,10 @@ export function ConnectSourceDialog({ projectId, sourceKind, open, onOpenChange,
                 </Button>
               </div>
             </div>
+
+            {created && (created.mode === 'push' || created.mode === 'inbound') ? (
+              <ReachabilityHint />
+            ) : null}
 
             {secretLink ? (
               <div className="space-y-2 rounded-md border border-warm-border p-3">

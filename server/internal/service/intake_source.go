@@ -63,18 +63,22 @@ type IntakeSourceInput struct {
 // IntakeSourceDTO is one binding as returned to the settings UI. The secret is
 // never included; HasSecret only says one is configured.
 type IntakeSourceDTO struct {
-	ID          int64          `json:"id"`
-	ProjectID   int64          `json:"project_id"`
-	SourceKind  string         `json:"source_kind"`
-	Name        string         `json:"name"`
-	Mode        string         `json:"mode"`
-	Provider    string         `json:"provider"`
-	InboundPath string         `json:"inbound_path"`
-	HasSecret   bool           `json:"has_secret"`
-	Status      string         `json:"status"`
-	LastEventAt *time.Time     `json:"last_event_at,omitempty"`
-	Events24h   int64          `json:"events_24h"`
-	Config      map[string]any `json:"config"`
+	ID          int64      `json:"id"`
+	ProjectID   int64      `json:"project_id"`
+	SourceKind  string     `json:"source_kind"`
+	Name        string     `json:"name"`
+	Mode        string     `json:"mode"`
+	Provider    string     `json:"provider"`
+	InboundPath string     `json:"inbound_path"`
+	HasSecret   bool       `json:"has_secret"`
+	Status      string     `json:"status"`
+	LastEventAt *time.Time `json:"last_event_at,omitempty"`
+	Events24h   int64      `json:"events_24h"`
+	// LastError/BackoffUntil expose the IMAP cursor's failure state so the
+	// settings dialog can explain a degraded or errored binding (design §11.3).
+	LastError    string         `json:"last_error,omitempty"`
+	BackoffUntil *time.Time     `json:"backoff_until,omitempty"`
+	Config       map[string]any `json:"config"`
 }
 
 // IntakeSourceStatus is the per-binding health view.
@@ -178,6 +182,11 @@ func (s *IntakeSourceService) List(ctx context.Context, callerUserID, projectID 
 		dto.Status = IntakeStatusOK
 		if ps, ok := pollByBinding[r.ID]; ok {
 			dto.Status = pollStateStatus(ps, time.Now())
+			dto.LastError = ps.LastError
+			if ps.BackoffUntil.Valid {
+				t := ps.BackoffUntil.Time
+				dto.BackoffUntil = &t
+			}
 		}
 		out = append(out, dto)
 	}

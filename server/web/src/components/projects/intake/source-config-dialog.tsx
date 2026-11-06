@@ -21,11 +21,13 @@ import {
   type GithubRepoConfig,
   type IntakeRule,
   type IntakeSetting,
+  type IntakeSource,
   type IntakeSourceKind,
 } from '@/lib/intake-api'
 import { cn } from '@/lib/utils'
 import { ChipsEditor } from './chips-editor'
 import { dailyCapValue, type DraftSetting, type KnownActor } from './intake-utils'
+import { SourceBindings } from './source-bindings'
 
 interface Props {
   projectId: number
@@ -36,6 +38,9 @@ interface Props {
   onDraftChange: (patch: Partial<DraftSetting>) => void
   rules: IntakeRule[]
   rulesLoading: boolean
+  /** ci/email/webhook bindings behind this source card. */
+  bindings: IntakeSource[]
+  bindingsLoading?: boolean
   knownActors: KnownActor[]
   paused: boolean
   pausePending: boolean
@@ -64,6 +69,8 @@ export function SourceConfigDialog({
   onDraftChange,
   rules,
   rulesLoading,
+  bindings,
+  bindingsLoading = false,
   knownActors,
   paused,
   pausePending,
@@ -162,6 +169,24 @@ export function SourceConfigDialog({
         </DialogHeader>
 
         <div className={cn('space-y-6', isMobile ? '' : 'min-w-0')}>
+          {source.source_kind === 'ci' ||
+          source.source_kind === 'email' ||
+          source.source_kind === 'webhook' ? (
+            <div className="space-y-3">
+              <div>
+                <h4 className="text-sm font-medium">{t('intake.config.bindingsTitle')}</h4>
+                <p className="text-xs text-muted-foreground">
+                  {t('intake.config.bindingsDescription')}
+                </p>
+              </div>
+              <SourceBindings
+                projectId={projectId}
+                bindings={bindings}
+                loading={bindingsLoading}
+              />
+            </div>
+          ) : null}
+
           {source.source_kind === 'github' && (
             <div className="space-y-3">
               <div>
