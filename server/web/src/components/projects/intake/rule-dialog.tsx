@@ -34,6 +34,9 @@ interface FormState {
   instruction: string
   priority: string
   enabled: boolean
+  // Preserved verbatim: the CI default rule is scoped by event_kind, and
+  // editing its text must not silently drop that condition.
+  eventKind: string
   actors: string[]
   keywords: string[]
 }
@@ -44,6 +47,7 @@ function initialForm(rule: IntakeRule | null): FormState {
     instruction: rule?.instruction ?? '',
     priority: String(rule?.priority ?? 0),
     enabled: rule?.enabled ?? true,
+    eventKind: rule?.conditions?.event_kind ?? '',
     actors: [...(rule?.conditions?.actors ?? [])],
     keywords: [...(rule?.conditions?.keywords ?? [])],
   }
@@ -75,7 +79,7 @@ export function RuleDialog({ projectId, sourceKind, rule, open, onOpenChange, ac
 
   const nameError = submitted && !form.name.trim()
   const conditionError =
-    submitted && form.actors.length === 0 && form.keywords.length === 0
+    submitted && !form.eventKind && form.actors.length === 0 && form.keywords.length === 0
   const priorityValue = form.priority.trim()
   const priorityError =
     submitted && (!/^-?\d+$/.test(priorityValue) || !Number.isSafeInteger(Number(priorityValue)))
@@ -90,6 +94,7 @@ export function RuleDialog({ projectId, sourceKind, rule, open, onOpenChange, ac
       priority: Number(priorityValue),
       enabled: form.enabled,
       conditions: {
+        ...(form.eventKind ? { event_kind: form.eventKind } : {}),
         actors: form.actors,
         keywords: form.keywords,
       },

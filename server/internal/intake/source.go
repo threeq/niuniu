@@ -42,6 +42,14 @@ const (
 	// EventKindProposal is work a source derived from observation rather than a
 	// message addressed to it (the IM employee's proactive task verdict).
 	EventKindProposal = "proposal"
+
+	// CI event kinds (design §5.1). A CI adapter maps provider statuses onto
+	// these four values and drops everything else, so the pipeline never sees a
+	// provider-specific state such as "running" or "on_hold".
+	EventKindCIFailed    = "ci_failed"
+	EventKindCISucceeded = "ci_succeeded"
+	EventKindCIRecovered = "ci_recovered"
+	EventKindCICanceled  = "ci_canceled"
 )
 
 // Attachment is an external resource referenced by an inbound event. Bytes are

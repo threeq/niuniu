@@ -232,6 +232,25 @@ func (s *IntakeSourceService) Create(ctx context.Context, in IntakeSourceInput) 
 	if in.Provider != "" {
 		cfg["provider"] = strings.TrimSpace(in.Provider)
 	}
+	if kind == intake.SourceKindCI {
+		// The provider chooses the auth preset and the default subscription.
+		// Binding it at create time keeps credentials from pointing at a vendor
+		// the inbound path cannot normalize.
+		providerName := strings.TrimSpace(in.Provider)
+		if providerName == "" {
+			if v, ok := cfg["provider"].(string); ok {
+				providerName = v
+			}
+		}
+		preset, ok := webhooksource.CIProviderPresetFor(providerName)
+		if !ok {
+			return nil, "", fmt.Errorf("%w: unknown ci provider %q", ErrIntakeSourceInvalid, providerName)
+		}
+		cfg["provider"] = preset.Provider
+		if _, exists := cfg["events"]; !exists {
+			cfg["events"] = preset.DefaultEvents
+		}
+	}
 
 	if kind == intake.SourceKindEmail && mode == "imap" {
 		return s.createIMAPSource(ctx, in, projOwner, cfg)
@@ -264,7 +283,26 @@ func (s *IntakeSourceService) createPushSource(ctx context.Context, in IntakeSou
 		_ = s.creds.DeleteByID(ctx, cred.ID, "user", in.CallerUserID, in.CallerUserID)
 		return nil, "", fmt.Errorf("marshal config: %w", err)
 	}
-	row, err := s.q.AddProjectExternalSource(ctx, store.AddProjectExternalSourceParams{
+
+	// The binding and, for CI, its seeded rule + policy version land together so
+	// a half-created binding never evaluates against an empty policy.
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		_ = s.creds.DeleteByID(ctx, cred.ID, "user", in.CallerUserID, in.CallerUserID)
+		return nil, "", err
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	// Roll back before cleaning up the credential: SQLite holds the write lock
+	// until the transaction ends, so a delete on another connection would fail.
+	fail := func(cause error) (*IntakeSourceDTO, string, error) {
+		_ = tx.Rollback()
+		_ = s.creds.DeleteByID(ctx, cred.ID, "user", in.CallerUserID, in.CallerUserID)
+		return nil, "", cause
+	}
+
+	qtx := tx.Queries()
+	row, err := qtx.AddProjectExternalSource(ctx, store.AddProjectExternalSourceParams{
 		ProjectID:    in.ProjectID,
 		Provider:     kind,
 		SourceKey:    strings.TrimSpace(in.Name),
@@ -272,11 +310,60 @@ func (s *IntakeSourceService) createPushSource(ctx context.Context, in IntakeSou
 		Config:       string(cfgJSON),
 	})
 	if err != nil {
-		_ = s.creds.DeleteByID(ctx, cred.ID, "user", in.CallerUserID, in.CallerUserID)
-		return nil, "", err
+		return fail(err)
+	}
+	if kind == intake.SourceKindCI {
+		seeded, err := seedCIFailureRule(ctx, qtx, in.ProjectID)
+		if err != nil {
+			return fail(err)
+		}
+		if seeded {
+			if err := writeIntakePolicyVersion(ctx, qtx, in.ProjectID, intake.SourceKindCI); err != nil {
+				return fail(err)
+			}
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return fail(err)
 	}
 	dto := s.dto(row)
 	return &dto, secret, nil
+}
+
+const (
+	ciDefaultRuleName        = "CI 失败自动修复"
+	ciDefaultRuleInstruction = "定位 CI 失败原因，提交修复，确认同一流水线通过"
+)
+
+// seedCIFailureRule adds the out-of-the-box repair rule once per project, so a
+// new CI binding is not born with an empty rule set. Seeding does not enable
+// execution: the source mode stays observe until the user switches it.
+func seedCIFailureRule(ctx context.Context, qtx *store.Queries, projectID int64) (bool, error) {
+	rules, err := qtx.ListIntakeRulesByProject(ctx, projectID)
+	if err != nil {
+		return false, err
+	}
+	for _, r := range rules {
+		if r.SourceKind == intake.SourceKindCI && r.Name == ciDefaultRuleName {
+			return false, nil
+		}
+	}
+	conditions, err := json.Marshal(intake.RuleConditions{EventKind: intake.EventKindCIFailed})
+	if err != nil {
+		return false, err
+	}
+	if _, err := qtx.CreateIntakeRule(ctx, store.CreateIntakeRuleParams{
+		ProjectID:      projectID,
+		SourceKind:     intake.SourceKindCI,
+		Name:           ciDefaultRuleName,
+		Instruction:    ciDefaultRuleInstruction,
+		ConditionsJson: string(conditions),
+		Priority:       100,
+		Enabled:        1,
+	}); err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 func (s *IntakeSourceService) createIMAPSource(ctx context.Context, in IntakeSourceInput, projOwner OwnerRef, cfg map[string]any) (*IntakeSourceDTO, string, error) {
@@ -432,7 +519,7 @@ func (s *IntakeSourceService) TestDelivery(ctx context.Context, callerUserID, pr
 	}
 
 	var warnings []string
-	trig, err := normalizeTestTrigger(kind, projectID, ref, sample)
+	trig, err := normalizeTestTrigger(kind, configString(row.Config, "provider"), projectID, ref, sample)
 	if err != nil {
 		// A non-JSON sample is treated as raw text so the policy can still be
 		// exercised from the UI's free-text field.
@@ -694,10 +781,10 @@ func credentialBindableBy(ctx context.Context, meta *CredentialMeta, projOwner O
 	return nil
 }
 
-// normalizeTestTrigger runs the same adapter the real inbound path uses. CI
-// shares the generic shape until the provider presets land (Task 2); its
-// normalized trigger still carries source_kind=ci.
-func normalizeTestTrigger(kind string, projectID int64, ref string, raw []byte) (intake.Trigger, error) {
+// normalizeTestTrigger runs the same adapter the real inbound path uses. A CI
+// sample that normalizes to none of the CI kinds falls back to the generic shape
+// so the UI's free-text test field still exercises the policy.
+func normalizeTestTrigger(kind, provider string, projectID int64, ref string, raw []byte) (intake.Trigger, error) {
 	var (
 		trig intake.Trigger
 		err  error
@@ -708,8 +795,12 @@ func normalizeTestTrigger(kind string, projectID int64, ref string, raw []byte) 
 	case intake.SourceKindWebhook:
 		trig, err = webhooksource.NormalizeGeneric(projectID, ref, raw)
 	case intake.SourceKindCI:
-		trig, err = webhooksource.NormalizeGeneric(projectID, ref, raw)
-		trig.SourceKind = intake.SourceKindCI
+		var ok bool
+		trig, ok, err = webhooksource.NormalizeCI(projectID, ref, provider, raw)
+		if err == nil && !ok {
+			trig, err = webhooksource.NormalizeGeneric(projectID, ref, raw)
+			trig.SourceKind = intake.SourceKindCI
+		}
 	default:
 		return intake.Trigger{}, fmt.Errorf("%w: unknown source kind %q", ErrIntakeSourceInvalid, kind)
 	}
