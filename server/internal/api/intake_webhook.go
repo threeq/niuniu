@@ -1,8 +1,13 @@
 package api
 
-// Project-level configuration for the team-edition email / generic webhook
-// Sources (Epic #755 / design §6.10). The secret is shown exactly once, at
-// creation; list responses report only whether a secret is configured.
+// Legacy project-level configuration for the email / generic webhook bindings
+// (Epic #755 / design §6.10). These routes are kept as thin aliases of the
+// IntakeSourceService management API (design §10.1) so older clients keep a
+// working URL; new clients use /intake/sources.
+//
+// The one delivery-contract change is deliberate: like the new API, the secret
+// is returned as a one-time link (`secret_link`), never as plaintext, so an
+// alias caller cannot pull a secret into a conversation or client history.
 
 import (
 	"net/http"
@@ -10,6 +15,7 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
+	"github.com/niuniu-dev/niuniu/internal/service"
 )
 
 // ListWebhookBindings serves GET /api/projects/:id/intake/webhook.
@@ -18,16 +24,21 @@ func (h *IntakeHandler) ListWebhookBindings(c *gin.Context) {
 	if !ok {
 		return
 	}
-	if h.Webhook == nil {
-		c.JSON(http.StatusNotImplemented, gin.H{"error": "webhook source is not wired"})
+	if !h.intakeSourcesWired(c) {
 		return
 	}
-	bindings, err := h.Webhook.ListWebhookBindings(c.Request.Context(), pid)
+	list, err := h.Sources.List(c.Request.Context(), c.GetInt64("auth_user_id"), pid)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		h.mapSourceErr(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"bindings": bindings})
+	bindings := make([]service.IntakeSourceDTO, 0, len(list))
+	for _, s := range list {
+		if isLegacyWebhookKind(s.SourceKind) {
+			bindings = append(bindings, s)
+		}
+	}
+	c.JSON(http.StatusOK, gin.H{"bindings": bindings, "sources": bindings})
 }
 
 type createWebhookBindingBody struct {
@@ -36,14 +47,14 @@ type createWebhookBindingBody struct {
 }
 
 // CreateWebhookBinding serves POST /api/projects/:id/intake/webhook. The
-// response carries the generated secret ONCE; it is never readable again.
+// generated secret is delivered through the one-time link, exactly like the new
+// API; the legacy surface never returns it inline.
 func (h *IntakeHandler) CreateWebhookBinding(c *gin.Context) {
 	pid, ok := h.intakeProjectAccess(c, true)
 	if !ok {
 		return
 	}
-	if h.Webhook == nil {
-		c.JSON(http.StatusNotImplemented, gin.H{"error": "webhook source is not wired"})
+	if !h.intakeSourcesWired(c) {
 		return
 	}
 	var body createWebhookBindingBody
@@ -51,18 +62,37 @@ func (h *IntakeHandler) CreateWebhookBinding(c *gin.Context) {
 		BadRequest(c, "source_kind and name are required")
 		return
 	}
-	uid := c.GetInt64("auth_user_id")
-	binding, secret, err := h.Webhook.CreateWebhookBinding(
-		c.Request.Context(), pid, uid, strings.TrimSpace(body.SourceKind), body.Name)
-	if err != nil {
-		BadRequest(c, err.Error())
+	kind := strings.ToLower(strings.TrimSpace(body.SourceKind))
+	if !isLegacyWebhookKind(kind) {
+		BadRequest(c, "source_kind must be email or webhook")
 		return
 	}
-	c.JSON(http.StatusCreated, gin.H{
-		"binding":      binding,
-		"secret":       secret,
-		"secret_shown": true,
+	// The legacy route has no mode field; email was always the inbound parser.
+	mode := "push"
+	if kind == "email" {
+		mode = "inbound"
+	}
+	dto, secret, err := h.Sources.Create(c.Request.Context(), service.IntakeSourceInput{
+		ProjectID:    pid,
+		SourceKind:   kind,
+		Name:         body.Name,
+		Mode:         mode,
+		CallerUserID: c.GetInt64("auth_user_id"),
 	})
+	if err != nil {
+		h.mapSourceErr(c, err)
+		return
+	}
+	resp := gin.H{"binding": dto, "source": dto, "secret_shown": false}
+	if secret != "" {
+		link, err := h.issueSecretLink(*dto, secret)
+		if err != nil {
+			h.mapSourceErr(c, err)
+			return
+		}
+		resp["secret_link"] = link
+	}
+	c.JSON(http.StatusCreated, resp)
 }
 
 // DeleteWebhookBinding serves DELETE /api/projects/:id/intake/webhook/:bid.
@@ -71,8 +101,7 @@ func (h *IntakeHandler) DeleteWebhookBinding(c *gin.Context) {
 	if !ok {
 		return
 	}
-	if h.Webhook == nil {
-		c.JSON(http.StatusNotImplemented, gin.H{"error": "webhook source is not wired"})
+	if !h.intakeSourcesWired(c) {
 		return
 	}
 	bid, err := strconv.ParseInt(strings.TrimSpace(c.Param("bid")), 10, 64)
@@ -80,8 +109,8 @@ func (h *IntakeHandler) DeleteWebhookBinding(c *gin.Context) {
 		BadRequest(c, "invalid binding ID")
 		return
 	}
-	if err := h.Webhook.DeleteWebhookBinding(c.Request.Context(), pid, bid); err != nil {
-		h.mapIntakeErr(c, err)
+	if err := h.Sources.Delete(c.Request.Context(), c.GetInt64("auth_user_id"), pid, bid); err != nil {
+		h.mapSourceErr(c, err)
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"ok": true})

@@ -440,6 +440,18 @@
     "batchDelete": "删除所选",
     "deleteSelectedTitle": "删除所选的 {{count}} 条记录？",
     "staleReason": "消息到达过晚（超出时效窗口），已记录但未执行。",
-    "alreadyConsumed": "该建议已被后续的自动执行一并处理。"
+    "alreadyConsumed": "该建议已被后续的自动执行一并处理。",
+    "secretPage": {
+      "title": "一次性密钥",
+      "description": "创建或轮换来源密钥后，明文只在此页面展示一次。",
+      "loading": "正在安全读取密钥…",
+      "expired": "该链接已失效：密钥只展示一次，且链接 15 分钟后过期。请在「任务来源」设置中重新生成。",
+      "loadError": "读取密钥失败，请返回设置页重试。",
+      "secretLabel": "密钥",
+      "copySecret": "复制密钥",
+      "inboundUrlLabel": "入站地址",
+      "copyUrl": "复制入站地址",
+      "hint": "来源「{{name}}」的密钥只显示这一次，关闭页面后无法再次查看。请立即保存到上游系统。"
+    }
   }
 }
