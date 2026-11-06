@@ -67,6 +67,35 @@ func TestPolicyEvaluate(t *testing.T) {
 	}
 }
 
+func TestPolicyEvaluateEventKindRule(t *testing.T) {
+	policy := Policy{
+		ProjectID:  1,
+		SourceKind: SourceKindCI,
+		Mode:       ModeAuto,
+		Rules: []Rule{
+			{ID: 31, Enabled: true, Conditions: RuleConditions{EventKind: EventKindCIFailed}},
+		},
+	}
+	human := Trigger{SourceKind: SourceKindCI, EventKind: EventKindCIFailed, Actor: ActorRef{ExtID: "u1"}, ReceiveAll: true}
+	got := policy.Evaluate(human)
+	if got.Strength != StrengthInferred || !slices.Equal(got.MatchedRuleIDs, []int64{31}) {
+		t.Fatalf("failed event = %+v", got)
+	}
+
+	human.EventKind = EventKindCISucceeded
+	got = policy.Evaluate(human)
+	if got.ReasonCode == ReasonRule {
+		t.Fatalf("succeeded event matched a ci_failed rule: %+v", got)
+	}
+
+	// The event-kind rule does not turn a bot into an allowed actor: botness is
+	// decided before rules are evaluated.
+	bot := Trigger{SourceKind: SourceKindCI, EventKind: EventKindCIFailed, Actor: ActorRef{ExtID: "ci:gitlab", IsBot: true}, ReceiveAll: true}
+	if got := policy.Evaluate(bot); got.Strength != StrengthDenied {
+		t.Fatalf("bot evaluation = %+v", got)
+	}
+}
+
 func TestPolicyEvaluateDirectRequestBeatsEverything(t *testing.T) {
 	policy := Policy{
 		Mode: ModeOff,

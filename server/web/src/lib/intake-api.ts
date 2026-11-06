@@ -153,6 +153,7 @@ export interface IntakeCalibration {
 }
 
 export interface IntakeRuleConditions {
+  event_kind?: string
   actors?: string[]
   keywords?: string[]
 }
