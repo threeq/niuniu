@@ -1104,7 +1104,7 @@ var ErrBudgetExceeded = errors.New("opsbot: budget exceeded")
 
 行为：
 - `Check(botID, epicIssueID, cost)`：按自然月读取额度；`limit<=0` 视为不限；`spent+cost > limit` → `Pause` + `Notify` + 返回 `ErrBudgetExceeded`。
-- 预算分项：`issue_exec_events(kind='cost')` 的 `detail_json` 写 `{"category":"text|image|video|api"}`。
+- 预算分项：`issue_exec_events(kind='cost')` 的 `detail_json` 写 `{"category":"text|image|video|api","unit":"token|image|second","quantity":N}`。
 - `Usage` 返回：月度上限、已用、剩余、分项汇总、币种。
 - `SetLimit` 由总监或运营人调用，写 `budget_json` 并恢复 `paused`（若因预算暂停）。
 - 检查点：生成前、视频合成前、发布前、互动发送前。
@@ -1173,7 +1173,9 @@ func TestOnboardingSecondAccountReusesPack(t *testing.T) {
 
 行为：
 - 识别：`接入公众号`、`接入小红书`、`接入新渠道 <name>`、`再接入一个 <渠道>`、`/bots`、`/bot <name>`、`/approvals`、`/pause`、`/resume`、`/budget`、`/calendar`、`/cancel`。
-- 每步只问一个问题；自然语言解析目标（涨粉/转化/品牌）、节奏（每周 N 篇 + 是否热点加更）、预算（`每月 N` 或 `不限`）、审批（需要/不需要，可分别指定 publish/reply/video）。
+- 每步只问一个问题；自然语言解析目标（涨粉/转化/品牌）、节奏（每周 N 篇 + 是否热点加更）、预算（`每月 N` 或 `不限`，分 token/图片张数/视频秒数）、审批（需要/不需要，可分别指定 publish/reply/video）。
+- 接入小红书时额外询问是否接入第三方合规数据源（竞品/行业）；用户选择接入则走 `data source` 配置与 scope 授权，默认不接入。
+- 接入视频能力时询问使用默认 video-gen MCP 还是指定新的 TTS/视频模型 provider；选择后者走 integration/MCP 配置。
 - 凭据步骤只返回一次性安全链接或扫码任务，不接收密钥。
 - 完成时：`CreateAccountBot` → `ProvisionAccount` → 返回配置摘要卡（账号、Pack、目标、节奏、预算、审批、待授权项）。
 - 新渠道：调用 `PackGenerator.Draft`，返回能力矩阵卡，用户确认后 `Publish`，再回到账号步骤。
@@ -1434,7 +1436,7 @@ func TestVideoPipelineProducesFinalCut(t *testing.T) {
 - [ ] **Step 2: 实现**
 
 阶段：`script → storyboard → tts → frames → subtitles → compose → adapt`。
-- 工具优先级：现有 video-gen MCP → `media-studio` 素材 + TTS + 合成。
+- 工具优先级：现有 video-gen MCP → `media-studio` 素材 + TTS + 合成；用户可在对话中指定新的 TTS/视频模型 provider（走 integration/MCP 配置），不固定供应商。
 - 平台适配：小红书 3:4、≤15 分钟；公众号视频 ≤30 分钟；封面单独生成。
 - 质量门禁：字幕完整、封面存在、时长/比例符合 Pack、无黑帧。
 - 产物写入同一 `artifacts.json`，`video` 类型带 `duration_sec`、`ratio`、`subtitle_path`、`cover_path`。
@@ -2296,7 +2298,7 @@ type SessionSpec struct {
 
 - [ ] **Step 3: 团队版接入点**
 
-- `CloudBackend` 契约：每账号独立容器/VM、租户标签、固定出口、对象存储回执；实现位于 enterprise 仓库，通过同一 `BrowserBackend` 注入。
+- `CloudBackend` 契约：每账号独立容器、租户标签、固定出口、对象存储回执；实现位于 enterprise 仓库，通过同一 `BrowserBackend` 注入。
 - 本仓库提供 `NewBackend(cfg)` 工厂：`local` 返回 `LocalBackend`；`cloud` 返回 `UnsupportedBackend` 并给出明确配置错误（不静默降级）。
 - 文档写明企业版实现需满足的隔离与审计要求。
 
