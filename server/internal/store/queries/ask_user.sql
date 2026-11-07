@@ -1,12 +1,22 @@
 -- name: InsertAskUserRequest :one
 INSERT INTO agent_ask_user_requests
-    (workspace_id, owner_type, owner_id, session_id, questions_json, status, requested_at, expires_at)
+    (workspace_id, owner_type, owner_id, session_id, questions_json,
+     kind, metadata_json, status, requested_at, expires_at)
 VALUES
-    (?, ?, ?, ?, ?, 'pending', CURRENT_TIMESTAMP, ?)
+    (?, ?, ?, ?, ?, ?, ?, 'pending', CURRENT_TIMESTAMP, ?)
 RETURNING id;
 
 -- name: GetAskUserRequest :one
 SELECT * FROM agent_ask_user_requests WHERE id = ?;
+
+-- name: ListPendingOpsApprovalsByOwner :many
+SELECT * FROM agent_ask_user_requests
+WHERE owner_type = ? AND owner_id = ? AND kind = 'ops_approval' AND status = 'pending'
+ORDER BY requested_at ASC;
+
+-- name: GetOpsApproval :one
+SELECT * FROM agent_ask_user_requests
+WHERE id = ? AND kind = 'ops_approval';
 
 -- name: ListPendingAskUserRequestsByWorkspace :many
 SELECT * FROM agent_ask_user_requests

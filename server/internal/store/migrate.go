@@ -885,6 +885,35 @@ func Migrate(db *sql.DB) {
 	if _, err := db.Exec(`CREATE INDEX IF NOT EXISTS idx_email_poll_project ON email_source_poll_state(project_id)`); err != nil {
 		slog.Warn("email poll state index creation failed", "error", err)
 	}
+
+	// 2026-11-07 Ops Bot (Epic #788): retrofit chat routing and approval kind
+	// columns. The five ops_* tables are created by schema.sql on every startup.
+	if err := migrateOpsBot(db); err != nil {
+		slog.Warn("ops bot migration failed", "error", err)
+	}
+}
+
+// migrateOpsBot retrofits the Ops Bot columns onto existing databases (design
+// 2026-11-06 §11.4). The five new tables are created by schema.sql /
+// schema_postgres.sql on every startup (CREATE TABLE IF NOT EXISTS), so only
+// the columns added to pre-existing tables need handling here.
+//
+// Defaults preserve current behavior: legacy ask-user rows read back as
+// kind='agent_question' with an empty metadata object. No CHECK is added to
+// these migration columns (SQLite cannot add one via ALTER TABLE), and fresh
+// DBs get none either, so both paths stay equivalent.
+func migrateOpsBot(db *sql.DB) error {
+	addColumnIfNotExists(db, "im_bot_chats", "ops_bot_id", fkType())
+	addColumnIfNotExists(db, "agent_ask_user_requests", "kind", "TEXT NOT NULL DEFAULT 'agent_question'")
+	addColumnIfNotExists(db, "agent_ask_user_requests", "metadata_json", "TEXT NOT NULL DEFAULT '{}'")
+
+	// The index is created here, not in the schema files: it sits on a
+	// migration-added column, and schema.sql runs before Migrate on existing
+	// DBs, where the column does not exist yet.
+	if _, err := db.Exec(`CREATE INDEX IF NOT EXISTS idx_aaur_kind_status ON agent_ask_user_requests(kind, status)`); err != nil {
+		return err
+	}
+	return nil
 }
 
 // migrateIntakeCompletion retrofits the intake/completion columns onto existing

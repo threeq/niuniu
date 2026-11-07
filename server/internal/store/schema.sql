@@ -1230,6 +1230,10 @@ CREATE TABLE IF NOT EXISTS agent_ask_user_requests (
     owner_id        INTEGER NOT NULL DEFAULT 0,
     session_id      TEXT NOT NULL,
     questions_json  TEXT NOT NULL,
+    -- kind separates ordinary agent questions from ops_approval cards.
+    -- Retrofitted onto existing DBs by migrateOpsBot.
+    kind            TEXT NOT NULL DEFAULT 'agent_question',
+    metadata_json   TEXT NOT NULL DEFAULT '{}',
     status          TEXT NOT NULL CHECK (status IN ('pending','answered','timeout','cancelled')),
     decision_source TEXT,
     decided_by      INTEGER REFERENCES users(id) ON DELETE SET NULL,
@@ -2001,6 +2005,9 @@ CREATE TABLE IF NOT EXISTS im_bot_chats (
     intake_mode     TEXT NOT NULL DEFAULT 'respond',
     pinned_issue_id INTEGER,
     active_issue_id INTEGER,
+    -- ops_bot_id: routes an inbound chat to its Ops Bot (NULL = no binding).
+    -- Retrofitted onto existing DBs by migrateOpsBot (no CHECK, same reason).
+    ops_bot_id      INTEGER,
     status          TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','active','disabled')),
     paired_by       INTEGER,
     created_at      TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -2496,4 +2503,108 @@ CREATE TABLE IF NOT EXISTS completion_profiles (
     created_at       TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at       TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     UNIQUE(project_id, name)
+);
+
+-- ============================================================
+-- Ops Bot (design 2026-11-06 §11) -- added 2026-11-07
+-- Five new tables; the rest of the Ops Bot model reuses existing tables.
+-- ============================================================
+
+-- ops_bots: director/account bot configuration, per-account isolation.
+CREATE TABLE IF NOT EXISTS ops_bots (
+    id                   INTEGER PRIMARY KEY AUTOINCREMENT,
+    owner_type           TEXT NOT NULL DEFAULT 'user',
+    owner_id             INTEGER NOT NULL DEFAULT 0,
+    role                 TEXT NOT NULL DEFAULT 'account', -- director | account
+    pack_id              TEXT NOT NULL DEFAULT '',
+    pack_version         INTEGER NOT NULL DEFAULT 0,      -- 0 = follow latest
+    account_ref          TEXT NOT NULL DEFAULT '',
+    display_name         TEXT NOT NULL DEFAULT '',
+    persona_json         TEXT NOT NULL DEFAULT '{}',
+    credential_refs_json TEXT NOT NULL DEFAULT '{}',      -- {app, account}
+    knowledge_scope_json TEXT NOT NULL DEFAULT '{}',
+    goals_json           TEXT NOT NULL DEFAULT '{}',
+    cadence_json         TEXT NOT NULL DEFAULT '{}',
+    approval_policy_json TEXT NOT NULL DEFAULT '{}',
+    budget_json          TEXT NOT NULL DEFAULT '{}',
+    runtime_json         TEXT NOT NULL DEFAULT '{}',
+    epic_issue_id        INTEGER,
+    control_workspace_id INTEGER,
+    status               TEXT NOT NULL DEFAULT 'active',  -- active | paused | disabled
+    director_bot_id      INTEGER,
+    created_at           TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at           TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(owner_type, owner_id, pack_id, account_ref)
+);
+
+-- ops_publish_records: publish idempotency, receipt, URL, screenshot, version.
+CREATE TABLE IF NOT EXISTS ops_publish_records (
+    id               INTEGER PRIMARY KEY AUTOINCREMENT,
+    issue_id         INTEGER NOT NULL,
+    bot_id           INTEGER NOT NULL REFERENCES ops_bots(id) ON DELETE CASCADE,
+    pack_id          TEXT NOT NULL DEFAULT '',
+    account_ref      TEXT NOT NULL DEFAULT '',
+    content_version  INTEGER NOT NULL DEFAULT 1,
+    idempotency_key  TEXT NOT NULL,
+    status           TEXT NOT NULL DEFAULT 'pending',
+    receipt          TEXT NOT NULL DEFAULT '',
+    url              TEXT NOT NULL DEFAULT '',
+    screenshot_path  TEXT NOT NULL DEFAULT '',
+    published_at     TIMESTAMP,
+    created_at       TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(bot_id, idempotency_key)
+);
+
+-- ops_metrics_daily: per-account daily metric history.
+CREATE TABLE IF NOT EXISTS ops_metrics_daily (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    bot_id       INTEGER NOT NULL REFERENCES ops_bots(id) ON DELETE CASCADE,
+    date         TEXT NOT NULL,
+    metrics_json TEXT NOT NULL DEFAULT '{}',
+    source       TEXT NOT NULL DEFAULT '',
+    created_at   TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(bot_id, date)
+);
+
+-- ops_engagements: comments/DMs with dedupe, classification, approval, receipt.
+CREATE TABLE IF NOT EXISTS ops_engagements (
+    id                     INTEGER PRIMARY KEY AUTOINCREMENT,
+    bot_id                 INTEGER NOT NULL REFERENCES ops_bots(id) ON DELETE CASCADE,
+    issue_id               INTEGER,
+    platform_engagement_id TEXT NOT NULL,
+    kind                   TEXT NOT NULL DEFAULT 'comment', -- comment | dm
+    author                 TEXT NOT NULL DEFAULT '',
+    text                   TEXT NOT NULL DEFAULT '',
+    category               TEXT NOT NULL DEFAULT '',
+    risk_level             TEXT NOT NULL DEFAULT 'low',    -- low | medium | high
+    suggested_reply        TEXT NOT NULL DEFAULT '',
+    status                 TEXT NOT NULL DEFAULT 'new',
+        -- new|classified|suggested|approved|sent|rejected|escalated|failed
+    approval_request_id    INTEGER,
+    reply_text             TEXT NOT NULL DEFAULT '',
+    receipt                TEXT NOT NULL DEFAULT '',
+    decided_by             INTEGER,
+    decided_at             TIMESTAMP,
+    created_at             TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at             TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(bot_id, platform_engagement_id)
+);
+CREATE INDEX IF NOT EXISTS idx_ops_engagements_bot_status ON ops_engagements(bot_id, status);
+
+-- ops_browser_sessions: browser profile, login state, operation lease, health.
+CREATE TABLE IF NOT EXISTS ops_browser_sessions (
+    id               INTEGER PRIMARY KEY AUTOINCREMENT,
+    bot_id           INTEGER NOT NULL REFERENCES ops_bots(id) ON DELETE CASCADE,
+    backend          TEXT NOT NULL DEFAULT 'local',   -- local | cloud
+    profile_dir      TEXT NOT NULL DEFAULT '',
+    login_status     TEXT NOT NULL DEFAULT 'unknown', -- unknown | valid | expired
+    last_login_at    TIMESTAMP,
+    lease_owner      TEXT NOT NULL DEFAULT '',
+    lease_expires_at TIMESTAMP,
+    health           TEXT NOT NULL DEFAULT 'unknown', -- unknown | healthy | degraded | down
+    risk_state       TEXT NOT NULL DEFAULT 'normal',  -- normal | throttled | blocked
+    last_error       TEXT NOT NULL DEFAULT '',
+    created_at       TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at       TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(bot_id, backend)
 );
