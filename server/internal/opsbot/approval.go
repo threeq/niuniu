@@ -447,21 +447,15 @@ func (a *Approval) resolveOwner(ctx context.Context, workspaceID int64) (string,
 }
 
 // actionAllowedForCard checks an action against the card's own option list.
-// Malformed metadata or an unknown type falls back to the full known set so
-// externally inserted rows stay decidable.
+// It is deny-by-default: malformed metadata or an unknown card type grants no
+// action at all, so corrupted rows can only expire, never be approved.
 func actionAllowedForCard(metadataJSON, action string) bool {
 	var meta approvalMetadata
-	if err := json.Unmarshal([]byte(metadataJSON), &meta); err == nil {
-		if opts, ok := approvalOptions[meta.Type]; ok {
-			return slices.Contains(opts, action)
-		}
+	if err := json.Unmarshal([]byte(metadataJSON), &meta); err != nil {
+		return false
 	}
-	for _, opts := range approvalOptions {
-		if slices.Contains(opts, action) {
-			return true
-		}
-	}
-	return false
+	opts, ok := approvalOptions[meta.Type]
+	return ok && slices.Contains(opts, action)
 }
 
 // mergeDecisionMetadata preserves every existing key (preview included) and

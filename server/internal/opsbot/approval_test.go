@@ -15,6 +15,12 @@ import (
 
 func newTestApproval(t *testing.T) *Approval {
 	t.Helper()
+	a, _ := newTestApprovalWithDB(t)
+	return a
+}
+
+func newTestApprovalWithDB(t *testing.T) (*Approval, *sql.DB) {
+	t.Helper()
 	store.Driver = "sqlite"
 
 	raw, err := sql.Open("sqlite", ":memory:?_foreign_keys=ON")
@@ -32,7 +38,7 @@ func newTestApproval(t *testing.T) *Approval {
 		_, err := raw.Exec(stmt)
 		require.NoError(t, err)
 	}
-	return NewApproval(store.Wrap(raw), ApprovalPolicy{})
+	return NewApproval(store.Wrap(raw), ApprovalPolicy{}), raw
 }
 
 func TestApprovalLifecycle(t *testing.T) {
@@ -168,6 +174,25 @@ func TestApprovalReviewHardening(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, a.SweepExpired(ctx))
 	got, err = a.Get(ctx, fresh.ID)
+	require.NoError(t, err)
+	require.Equal(t, ApprovalStatusPending, got.Status)
+}
+
+func TestApprovalCorruptMetadataIsDenied(t *testing.T) {
+	a, raw := newTestApprovalWithDB(t)
+	ctx := context.Background()
+	req, err := a.Create(ctx, ApprovalInput{
+		BotID: 1, WorkspaceID: 10, Type: ApprovalPublish, PreviewJSON: `{}`,
+	})
+	require.NoError(t, err)
+
+	_, err = raw.Exec(`UPDATE agent_ask_user_requests SET metadata_json = 'not-json' WHERE id = ?`, req.ID)
+	require.NoError(t, err)
+
+	// Deny-by-default: an unparseable card must never grant an action.
+	_, err = a.Decide(ctx, req.ID, Decision{OperatorID: 7, Action: ActionApproved})
+	require.ErrorIs(t, err, ErrInvalidDecision)
+	got, err := a.Get(ctx, req.ID)
 	require.NoError(t, err)
 	require.Equal(t, ApprovalStatusPending, got.Status)
 }
