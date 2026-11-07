@@ -139,6 +139,9 @@ func (s *Service) CreateAccountBot(ctx context.Context, in CreateAccountInput) (
 	if in.PackVersion < 0 {
 		return store.OpsBot{}, fmt.Errorf("%w: pack_version must be >= 0", ErrInvalidInput)
 	}
+	if err := s.validateDirector(ctx, owner, in.DirectorBotID); err != nil {
+		return store.OpsBot{}, err
+	}
 
 	version, err := s.resolvePack(ctx, owner, packID, in.PackVersion)
 	if err != nil {
@@ -356,6 +359,26 @@ func (s *Service) KillSwitch(ctx context.Context, botID int64) (store.OpsBot, er
 		}
 	}
 	return bot, nil
+}
+
+// validateDirector ensures an account bot may only point at a director owned by
+// the same owner. Director ids are global row ids, so accepting an unchecked
+// value would let one owner attach an account to another owner's director.
+func (s *Service) validateDirector(ctx context.Context, owner OwnerRef, directorBotID int64) error {
+	if directorBotID <= 0 {
+		return nil
+	}
+	director, err := s.Q.GetOpsBot(ctx, directorBotID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return fmt.Errorf("%w: director_bot_id is invalid for this owner", ErrInvalidInput)
+	}
+	if err != nil {
+		return err
+	}
+	if director.Role != RoleDirector || director.OwnerType != owner.Type || director.OwnerID != owner.ID {
+		return fmt.Errorf("%w: director_bot_id is invalid for this owner", ErrInvalidInput)
+	}
+	return nil
 }
 
 // resolvePack returns the concrete pack version to pin. version 0 follows the

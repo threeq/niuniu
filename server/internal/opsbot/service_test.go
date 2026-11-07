@@ -205,6 +205,39 @@ func TestCreateDirector(t *testing.T) {
 	require.ErrorIs(t, err, ErrAccountExists)
 }
 
+func TestCreateAccountValidatesDirectorOwnership(t *testing.T) {
+	svc := newTestService(t)
+	ctx := context.Background()
+	owner := OwnerRef{Type: "user", ID: 1}
+	director, err := svc.CreateDirector(ctx, CreateDirectorInput{Owner: owner, DisplayName: "总监"})
+	require.NoError(t, err)
+
+	account, err := svc.CreateAccountBot(ctx, CreateAccountInput{
+		Owner: owner, PackID: "wechat_mp", AccountRef: "acc-a", DirectorBotID: director.ID,
+	})
+	require.NoError(t, err)
+	require.True(t, account.DirectorBotID.Valid)
+	require.Equal(t, director.ID, account.DirectorBotID.Int64)
+
+	// Another owner's director is not attachable.
+	_, err = svc.CreateAccountBot(ctx, CreateAccountInput{
+		Owner: OwnerRef{Type: "user", ID: 2}, PackID: "wechat_mp", AccountRef: "acc-a",
+		DirectorBotID: director.ID,
+	})
+	require.ErrorIs(t, err, ErrInvalidInput)
+
+	// An account bot is not a director.
+	_, err = svc.CreateAccountBot(ctx, CreateAccountInput{
+		Owner: owner, PackID: "wechat_mp", AccountRef: "acc-b", DirectorBotID: account.ID,
+	})
+	require.ErrorIs(t, err, ErrInvalidInput)
+
+	_, err = svc.CreateAccountBot(ctx, CreateAccountInput{
+		Owner: owner, PackID: "wechat_mp", AccountRef: "acc-c", DirectorBotID: 9999,
+	})
+	require.ErrorIs(t, err, ErrInvalidInput)
+}
+
 func TestSetStatusAndKillSwitch(t *testing.T) {
 	svc := newTestService(t)
 	ctx := context.Background()
