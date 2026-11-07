@@ -37,17 +37,17 @@ const (
 	rubricRuleMarker       = "### RULE:"
 )
 
-// BotRef is the minimal bot identity the review needs: the pack decides which
+// ReviewBotRef is the minimal bot identity the review needs: the pack decides which
 // compliance rules and platform limits apply.
-type BotRef struct {
+type ReviewBotRef struct {
 	ID          int64
 	PackID      string
 	PackVersion int
 }
 
-// Artifact is one produced content version. Review is pure over it: a
-// regenerated version is a new Artifact and is reviewed from scratch.
-type Artifact struct {
+// ReviewArtifact is one produced content version. Review is pure over it: a
+// regenerated version is a new ReviewArtifact and is reviewed from scratch.
+type ReviewArtifact struct {
 	IssueID      int64
 	WorkspaceID  int64
 	Version      int64
@@ -159,7 +159,7 @@ type Review struct {
 // error only when the review itself cannot run (pack load failure or judge
 // failure); that is fail-closed because an unverified artifact must not reach
 // approval.
-func (r *Review) Run(ctx context.Context, bot BotRef, a Artifact, brief OpsContentBrief) (ReviewResult, error) {
+func (r *Review) Run(ctx context.Context, bot ReviewBotRef, a ReviewArtifact, brief OpsContentBrief) (ReviewResult, error) {
 	now := time.Now
 	if r != nil && r.Now != nil {
 		now = r.Now
@@ -200,7 +200,7 @@ func (r *Review) Run(ctx context.Context, bot BotRef, a Artifact, brief OpsConte
 
 // Gate runs the review and only creates the approval when nothing blocks. A
 // blocking result returns with createApproval never invoked.
-func (r *Review) Gate(ctx context.Context, bot BotRef, a Artifact, brief OpsContentBrief, createApproval func(ReviewPreview) error) (ReviewResult, error) {
+func (r *Review) Gate(ctx context.Context, bot ReviewBotRef, a ReviewArtifact, brief OpsContentBrief, createApproval func(ReviewPreview) error) (ReviewResult, error) {
 	res, err := r.Run(ctx, bot, a, brief)
 	if err != nil {
 		return res, err
@@ -216,7 +216,7 @@ func (r *Review) Gate(ctx context.Context, bot BotRef, a Artifact, brief OpsCont
 	return res, nil
 }
 
-func (r *Review) manifest(ctx context.Context, bot BotRef) (packs.Manifest, error) {
+func (r *Review) manifest(ctx context.Context, bot ReviewBotRef) (packs.Manifest, error) {
 	if r == nil || r.Pack == nil || bot.PackID == "" {
 		return packs.Manifest{}, nil
 	}
@@ -261,7 +261,7 @@ type reviewEventDetail struct {
 	Findings        []Finding `json:"findings"`
 }
 
-func artifactFormat(a Artifact, brief OpsContentBrief) string {
+func artifactFormat(a ReviewArtifact, brief OpsContentBrief) string {
 	if a.Format != "" {
 		return a.Format
 	}
@@ -295,7 +295,7 @@ func hasBlocking(findings []Finding) bool {
 
 // checkForbiddenTerms enforces the pack's absolute-language / red-line list.
 // These are legal and platform violations, so they block.
-func checkForbiddenTerms(a Artifact, c packs.Compliance) []Finding {
+func checkForbiddenTerms(a ReviewArtifact, c packs.Compliance) []Finding {
 	if len(c.ForbiddenTerms) == 0 {
 		return nil
 	}
@@ -334,7 +334,7 @@ func checkForbiddenTerms(a Artifact, c packs.Compliance) []Finding {
 }
 
 // checkStructure blocks content that is missing required publishable parts.
-func checkStructure(a Artifact, format string) []Finding {
+func checkStructure(a ReviewArtifact, format string) []Finding {
 	if format == "" {
 		return nil
 	}
@@ -374,7 +374,7 @@ func checkStructure(a Artifact, format string) []Finding {
 
 // checkPlatform reports platform adaptation mismatches as warnings so the
 // operator can adjust or approve on the card.
-func checkPlatform(a Artifact, format string, schema packs.ContentSchema) []Finding {
+func checkPlatform(a ReviewArtifact, format string, schema packs.ContentSchema) []Finding {
 	if format == "" {
 		return nil
 	}
@@ -502,7 +502,7 @@ var delimiterEscaper = strings.NewReplacer(
 // sees there is data and must never be followed as an instruction.
 func untrusted(s string) string { return delimiterEscaper.Replace(s) }
 
-func reviewContent(a Artifact, brief OpsContentBrief) string {
+func reviewContent(a ReviewArtifact, brief OpsContentBrief) string {
 	var b strings.Builder
 	b.WriteString("<brief>\n## 任务\n")
 	fmt.Fprintf(&b, "渠道：%s\n账号：%s\n目标：%s\n受众：%s\n格式：%s\n选题：%s\n",
