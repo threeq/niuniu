@@ -42,11 +42,13 @@ type Topic struct {
 	Replacement string  `json:"replacement,omitempty"`
 }
 
-// DirectorAccounts lists the account bots a director coordinates. The
-// directory is responsible for excluding the director itself and other owners'
-// bots; *SQLDirectorAccounts is the production implementation.
+// DirectorAccounts lists the account bots a director coordinates. owner is the
+// authenticated owner scope and directorBotID must belong to it; the
+// implementation returns ErrNotFound when it does not, so a caller cannot
+// reach another owner's bots. *SQLDirectorAccounts is the production
+// implementation.
 type DirectorAccounts interface {
-	Accounts(ctx context.Context, directorBotID int64) ([]store.OpsBot, error)
+	Accounts(ctx context.Context, owner OwnerRef, directorBotID int64) ([]store.OpsBot, error)
 }
 
 // DirectorPlanner plans one account's fixed cadence for an ISO week.
@@ -62,9 +64,11 @@ type DirectorCalendar interface {
 	Reschedule(ctx context.Context, owner OwnerRef, issueID int64, startDate, dueDate string) error
 }
 
-// ProxyApprover decides an approval on another operator's behalf.
-// *Approval satisfies it.
+// ProxyApprover reads and decides an approval on another operator's behalf.
+// *Approval satisfies it; Get lets the director verify the card belongs to an
+// account inside its owner scope before deciding.
 type ProxyApprover interface {
+	Get(ctx context.Context, approvalID int64) (ApprovalRequest, error)
 	Decide(ctx context.Context, approvalID int64, d Decision) (ApprovalRequest, error)
 }
 
@@ -89,6 +93,11 @@ type DirectorBoard interface {
 // It never edits an account's content. It only creates/reschedules tasks and
 // dispatches tasks and budgets through the messenger and blackboard.
 type Director struct {
+	// Owner and BotID are the authenticated director identity. They are set by
+	// the entry layer from the principal, never from a request body, and every
+	// operation validates accounts and approvals against them.
+	Owner OwnerRef
+	BotID int64
 	// OperatorID is the user id recorded as the proxy approver. ProxyApprove
 	// refuses to run without it, so no proxy decision can be unattributed.
 	OperatorID int64
@@ -102,9 +111,10 @@ type Director struct {
 	Feedback  *Feedback
 	Messenger DirectorMessenger
 	Board     DirectorBoard
-	// SaveBudget persists an allocated monthly limit (budget_json in
-	// production). Optional: without it allocations stay in memory.
-	SaveBudget func(ctx context.Context, botID int64, limit float64) error
+	// Budget applies allocation changes through Budget.SetLimit, which writes
+	// budget_json and clears a budget-triggered pause. Required by
+	// AllocateBudget so no allocation is silently memory-only.
+	Budget *Budget
 
 	// Replace fills Topic.Replacement for a dropped duplicate. Optional; with
 	// no hook the caller re-briefs the dropped topic itself.
@@ -113,6 +123,7 @@ type Director struct {
 	Now func() time.Time
 
 	budget    budgetLedger
+	budgetLog budgetJournal
 	approvals approvalJournal
 }
 
@@ -166,6 +177,15 @@ type ProxyApprovalRecord struct {
 	ProxyFor   int64     `json:"proxy_for"`
 	OperatorID int64     `json:"operator_id"`
 	Reason     string    `json:"reason"`
+	At         time.Time `json:"at"`
+}
+
+// BudgetAllocation is the audit line for one account budget change.
+type BudgetAllocation struct {
+	BotID      int64     `json:"bot_id"`
+	Limit      float64   `json:"limit"`
+	Currency   string    `json:"currency"`
+	OperatorID int64     `json:"operator_id"`
 	At         time.Time `json:"at"`
 }
 
@@ -227,13 +247,24 @@ func (d *Director) DedupeTopics(topics []Topic, threshold float64) (kept, droppe
 	return kept, dropped
 }
 
-// AllocateBudget sets the monthly limit for the given accounts and writes each
-// limit through SaveBudget (budget_json in production). A limit of zero means
-// unlimited, matching Budget.SetLimit. Limits are recorded only after the save
-// succeeds.
+// AllocateBudget sets the monthly limit for accounts inside the director's
+// authenticated owner scope. Each change goes through Budget.SetLimit (which
+// writes budget_json) and is journaled with the operator id. A limit of zero
+// means unlimited, matching Budget.SetLimit.
 func (d *Director) AllocateBudget(ctx context.Context, limits map[int64]float64) error {
 	if len(limits) == 0 {
 		return fmt.Errorf("%w: at least one account limit is required", ErrInvalidInput)
+	}
+	if d.Budget == nil {
+		return ErrBudgetNotConfigured
+	}
+	accounts, err := d.accountBots(ctx)
+	if err != nil {
+		return err
+	}
+	allowed := make(map[int64]bool, len(accounts))
+	for _, bot := range accounts {
+		allowed[bot.ID] = true
 	}
 
 	ids := make([]int64, 0, len(limits))
@@ -243,17 +274,23 @@ func (d *Director) AllocateBudget(ctx context.Context, limits map[int64]float64)
 			errs = append(errs, fmt.Errorf("%w: bot id %d", ErrInvalidInput, botID))
 			continue
 		}
+		if !allowed[botID] {
+			errs = append(errs, fmt.Errorf("%w: bot %d is not an account of this director", ErrNotFound, botID))
+			continue
+		}
 		if math.IsNaN(limit) || math.IsInf(limit, 0) || limit < 0 {
 			errs = append(errs, fmt.Errorf("%w: %v", ErrInvalidBudgetLimit, limit))
 			continue
 		}
-		if d.SaveBudget != nil {
-			if err := d.SaveBudget(ctx, botID, limit); err != nil {
-				errs = append(errs, fmt.Errorf("opsbot: save budget for bot %d: %w", botID, err))
-				continue
-			}
+		if err := d.Budget.SetLimit(ctx, botID, limit, d.currency()); err != nil {
+			errs = append(errs, fmt.Errorf("opsbot: set budget for bot %d: %w", botID, err))
+			continue
 		}
 		d.budget.set(botID, limit)
+		d.budgetLog.record(BudgetAllocation{
+			BotID: botID, Limit: limit, Currency: d.currency(),
+			OperatorID: d.OperatorID, At: d.now(),
+		})
 		ids = append(ids, botID)
 	}
 	if len(errs) > 0 {
@@ -289,19 +326,13 @@ func (d *Director) AllocateBudget(ctx context.Context, limits map[int64]float64)
 
 // AllocateByWeight splits total across the director's accounts by
 // AllocationWeight (goal weight × activity) and allocates the result.
-func (d *Director) AllocateByWeight(ctx context.Context, directorBotID int64, total float64) (map[int64]float64, error) {
-	if directorBotID <= 0 {
-		return nil, fmt.Errorf("%w: director bot id is required", ErrInvalidInput)
-	}
+func (d *Director) AllocateByWeight(ctx context.Context, total float64) (map[int64]float64, error) {
 	if total <= 0 || math.IsNaN(total) || math.IsInf(total, 0) {
 		return nil, fmt.Errorf("%w: total %v must be > 0", ErrInvalidBudgetLimit, total)
 	}
-	if d.Bots == nil {
-		return nil, ErrDirectorNotConfigured
-	}
-	accounts, err := d.Bots.Accounts(ctx, directorBotID)
+	accounts, err := d.accountBots(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("opsbot: list director accounts: %w", err)
+		return nil, err
 	}
 
 	type weightedAccount struct {
@@ -371,7 +402,30 @@ func (d *Director) ProxyApprove(ctx context.Context, proxyFor, approvalID int64,
 		return ErrDirectorNotConfigured
 	}
 
-	_, err := d.Approvals.Decide(ctx, approvalID, Decision{
+	request, err := d.Approvals.Get(ctx, approvalID)
+	if err != nil {
+		return fmt.Errorf("opsbot: load approval %d: %w", approvalID, err)
+	}
+	botID, err := approvalBotID(request.MetadataJSON)
+	if err != nil {
+		return err
+	}
+	accounts, err := d.accountBots(ctx)
+	if err != nil {
+		return err
+	}
+	owned := false
+	for _, bot := range accounts {
+		if bot.ID == botID {
+			owned = true
+			break
+		}
+	}
+	if !owned {
+		return fmt.Errorf("%w: approval %d belongs to bot %d outside this director's accounts", ErrNotFound, approvalID, botID)
+	}
+
+	_, err = d.Approvals.Decide(ctx, approvalID, Decision{
 		OperatorID: d.OperatorID,
 		Action:     ActionApproved,
 		Reason:     reason,
@@ -395,35 +449,66 @@ func (d *Director) ProxyApprovals() []ProxyApprovalRecord {
 	return d.approvals.snapshot()
 }
 
-// PlanAll plans every account's ISO week, aggregates the calendar and moves
-// same-account, same-day collisions inside the week. A failed account does not
-// block the others; its error is recorded on its AccountPlan and joined into
-// the returned error.
-func (d *Director) PlanAll(ctx context.Context, directorBotID int64, week string) (PlanResult, error) {
-	if directorBotID <= 0 {
-		return PlanResult{}, fmt.Errorf("%w: director bot id is required", ErrInvalidInput)
+// BudgetAllocations returns the director's local budget audit trail, oldest
+// first.
+func (d *Director) BudgetAllocations() []BudgetAllocation {
+	return d.budgetLog.snapshot()
+}
+
+// accountBots lists the account bots under the authenticated director scope.
+func (d *Director) accountBots(ctx context.Context) ([]store.OpsBot, error) {
+	if d.Bots == nil {
+		return nil, ErrDirectorNotConfigured
 	}
+	if d.BotID <= 0 {
+		return nil, fmt.Errorf("%w: director bot id is required", ErrInvalidInput)
+	}
+	owner := d.Owner.normalized()
+	if err := owner.validate(); err != nil {
+		return nil, err
+	}
+	accounts, err := d.Bots.Accounts(ctx, owner, d.BotID)
+	if err != nil {
+		return nil, fmt.Errorf("opsbot: list director accounts: %w", err)
+	}
+	for _, bot := range accounts {
+		if bot.OwnerType != owner.Type || bot.OwnerID != owner.ID {
+			return nil, fmt.Errorf("%w: bot %d is outside the authenticated owner scope", ErrNotFound, bot.ID)
+		}
+	}
+	return accounts, nil
+}
+
+func approvalBotID(metadataJSON string) (int64, error) {
+	var meta struct {
+		BotID int64 `json:"bot_id"`
+	}
+	if err := json.Unmarshal([]byte(metadataJSON), &meta); err != nil || meta.BotID <= 0 {
+		return 0, fmt.Errorf("%w: approval metadata has no account bot", ErrInvalidInput)
+	}
+	return meta.BotID, nil
+}
+
+// PlanAll plans every account's ISO week inside the authenticated director
+// scope, aggregates the calendar and moves same-account, same-day collisions
+// inside the week. A failed account does not block the others; its error is
+// recorded on its AccountPlan and joined into the returned error.
+func (d *Director) PlanAll(ctx context.Context, week string) (PlanResult, error) {
 	monday, sunday, ok := weekBounds(week)
 	if !ok {
 		return PlanResult{}, fmt.Errorf("%w: %q must be YYYY-Www", ErrInvalidWeek, week)
 	}
-	if d.Bots == nil || d.Planner == nil || d.Calendar == nil {
+	if d.Planner == nil || d.Calendar == nil {
 		return PlanResult{}, ErrDirectorNotConfigured
 	}
 
-	accounts, err := d.Bots.Accounts(ctx, directorBotID)
+	accounts, err := d.accountBots(ctx)
 	if err != nil {
-		return PlanResult{}, fmt.Errorf("opsbot: list director accounts: %w", err)
+		return PlanResult{}, err
 	}
 
 	result := PlanResult{Week: week, Accounts: make([]AccountPlan, 0, len(accounts))}
-	owner := OwnerRef{Type: defaultOwnerType}
-	if len(accounts) > 0 {
-		owner = OwnerRef{Type: accounts[0].OwnerType, ID: accounts[0].OwnerID}
-		if owner.Type == "" {
-			owner.Type = defaultOwnerType
-		}
-	}
+	owner := d.Owner.normalized()
 
 	ids := make([]int64, 0, len(accounts))
 	var errs []error
@@ -495,18 +580,18 @@ func (d *Director) PlanAll(ctx context.Context, directorBotID int64, week string
 
 // Report rolls the director bot up across its accounts. It reuses Feedback's
 // director report and adds the director's current budget allocations.
-func (d *Director) Report(ctx context.Context, directorBotID int64, from, to string) (DirectorReport, error) {
-	if directorBotID <= 0 {
-		return DirectorReport{}, fmt.Errorf("%w: director bot id is required", ErrInvalidInput)
-	}
+func (d *Director) Report(ctx context.Context, from, to string) (DirectorReport, error) {
 	if d.Feedback == nil {
 		return DirectorReport{}, ErrDirectorNotConfigured
 	}
+	if _, err := d.accountBots(ctx); err != nil {
+		return DirectorReport{}, err
+	}
 
 	feedback := *d.Feedback
-	if feedback.Accounts == nil && d.Bots != nil {
-		feedback.Accounts = func(ctx context.Context, id int64) ([]int64, error) {
-			bots, err := d.Bots.Accounts(ctx, id)
+	if feedback.Accounts == nil {
+		feedback.Accounts = func(ctx context.Context, _ int64) ([]int64, error) {
+			bots, err := d.accountBots(ctx)
 			if err != nil {
 				return nil, err
 			}
@@ -518,13 +603,13 @@ func (d *Director) Report(ctx context.Context, directorBotID int64, from, to str
 		}
 	}
 
-	weekly, err := feedback.WeeklyReport(ctx, BotRef{ID: directorBotID, Role: RoleDirector}, from, to)
+	weekly, err := feedback.WeeklyReport(ctx, BotRef{ID: d.BotID, Role: RoleDirector}, from, to)
 	if err != nil {
 		return DirectorReport{}, err
 	}
 
 	report := DirectorReport{
-		BotID:              directorBotID,
+		BotID:              d.BotID,
 		From:               weekly.From,
 		To:                 weekly.To,
 		Accounts:           1,
@@ -762,6 +847,23 @@ func (l *budgetLedger) snapshot() map[int64]float64 {
 	return out
 }
 
+type budgetJournal struct {
+	mu      sync.Mutex
+	records []BudgetAllocation
+}
+
+func (j *budgetJournal) record(record BudgetAllocation) {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	j.records = append(j.records, record)
+}
+
+func (j *budgetJournal) snapshot() []BudgetAllocation {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	return append([]BudgetAllocation(nil), j.records...)
+}
+
 type approvalJournal struct {
 	mu           sync.Mutex
 	lastProxyFor int64
@@ -781,60 +883,24 @@ func (j *approvalJournal) snapshot() []ProxyApprovalRecord {
 	return append([]ProxyApprovalRecord(nil), j.records...)
 }
 
-// BudgetSaver persists a director allocation into a bot's budget_json while
-// preserving every other key. Wire Director.SaveBudget to Save.
-type BudgetSaver struct {
-	Service  *Service
-	Currency string
-}
-
-// Save writes monthly_limit and currency into the bot's budget_json.
-func (s *BudgetSaver) Save(ctx context.Context, botID int64, limit float64) error {
-	if s == nil || s.Service == nil {
-		return ErrBudgetNotConfigured
-	}
-	bot, err := s.Service.Get(ctx, botID)
-	if err != nil {
-		return err
-	}
-	cfg := map[string]any{}
-	if raw := strings.TrimSpace(bot.BudgetJson); raw != "" {
-		if err := json.Unmarshal([]byte(raw), &cfg); err != nil {
-			return fmt.Errorf("%w: budget_json must be a JSON object: %v", ErrInvalidConfig, err)
-		}
-	}
-	if cfg == nil {
-		cfg = map[string]any{}
-	}
-	cfg["monthly_limit"] = limit
-	currency := strings.TrimSpace(s.Currency)
-	if currency == "" {
-		currency = defaultDirectorCurrency
-	}
-	cfg["currency"] = currency
-
-	body, err := json.Marshal(cfg)
-	if err != nil {
-		return fmt.Errorf("opsbot: encode budget_json: %w", err)
-	}
-	raw := string(body)
-	_, err = s.Service.UpdateConfig(ctx, botID, ConfigPatch{BudgetJSON: &raw})
-	return err
-}
-
 // SQLDirectorAccounts is the production DirectorAccounts: it lists the account
-// bots under the director's owner. Accounts explicitly linked to the director
-// win; when nobody is linked (single-director deployments) every account of the
-// owner is coordinated.
+// bots under the director's owner. owner is the authenticated scope; a director
+// bot outside it is reported as not found (no cross-owner existence leak).
+// Accounts explicitly linked to the director win; when nobody is linked
+// (single-director deployments) every account of the owner is coordinated.
 type SQLDirectorAccounts struct {
 	Q *store.Queries
 }
 
 var _ DirectorAccounts = (*SQLDirectorAccounts)(nil)
 
-func (s *SQLDirectorAccounts) Accounts(ctx context.Context, directorBotID int64) ([]store.OpsBot, error) {
+func (s *SQLDirectorAccounts) Accounts(ctx context.Context, owner OwnerRef, directorBotID int64) ([]store.OpsBot, error) {
 	if s == nil || s.Q == nil {
 		return nil, ErrDirectorNotConfigured
+	}
+	owner = owner.normalized()
+	if err := owner.validate(); err != nil {
+		return nil, err
 	}
 	director, err := s.Q.GetOpsBot(ctx, directorBotID)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -846,30 +912,38 @@ func (s *SQLDirectorAccounts) Accounts(ctx context.Context, directorBotID int64)
 	if director.Role != RoleDirector {
 		return nil, fmt.Errorf("%w: bot %d is not a director", ErrInvalidInput, directorBotID)
 	}
-
-	ownerType := strings.TrimSpace(director.OwnerType)
-	if ownerType == "" {
-		ownerType = defaultOwnerType
+	directorOwner := OwnerRef{Type: director.OwnerType, ID: director.OwnerID}.normalized()
+	if directorOwner != owner {
+		return nil, fmt.Errorf("%w: %d", ErrNotFound, directorBotID)
 	}
+
 	bots, err := s.Q.ListOpsBotsByOwner(ctx, store.ListOpsBotsByOwnerParams{
-		OwnerType: ownerType,
-		OwnerID:   director.OwnerID,
+		OwnerType: owner.Type,
+		OwnerID:   owner.ID,
 	})
 	if err != nil {
 		return nil, err
 	}
 
 	var assigned, all []store.OpsBot
+	anyLinked := false
 	for _, bot := range bots {
 		if bot.Role != RoleAccount {
 			continue
 		}
 		all = append(all, bot)
-		if bot.DirectorBotID.Valid && bot.DirectorBotID.Int64 == directorBotID {
+		if !bot.DirectorBotID.Valid {
+			continue
+		}
+		anyLinked = true
+		if bot.DirectorBotID.Int64 == directorBotID {
 			assigned = append(assigned, bot)
 		}
 	}
-	if len(assigned) > 0 {
+	// Fall back to the whole owner only in a true single-director deployment
+	// (nobody has a link). If any account is assigned to another director, this
+	// director gets exactly its own accounts -- never another director's.
+	if anyLinked {
 		return assigned, nil
 	}
 	return all, nil
