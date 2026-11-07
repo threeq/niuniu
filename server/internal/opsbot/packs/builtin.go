@@ -65,6 +65,86 @@ func parseVersionDir(name string) (int, error) {
 	return strconv.Atoi(strings.TrimPrefix(name, "v"))
 }
 
+// BuiltinPack returns the highest-versioned embedded seed pack for packID,
+// together with a read-only filesystem rooted at that version directory so
+// callers can read prompts and sidecar files without installing the pack.
+func BuiltinPack(packID string) (Manifest, fs.FS, error) {
+	base := path.Join("builtin", packID)
+	entries, err := fs.ReadDir(builtinFS, base)
+	if errors.Is(err, fs.ErrNotExist) {
+		return Manifest{}, nil, fmt.Errorf("%w: builtin %s", ErrPackNotFound, packID)
+	}
+	if err != nil {
+		return Manifest{}, nil, err
+	}
+
+	best, bestDir := 0, ""
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		version, err := parseVersionDir(entry.Name())
+		if err != nil || version <= 0 {
+			continue
+		}
+		if version > best {
+			best, bestDir = version, entry.Name()
+		}
+	}
+	if best == 0 {
+		return Manifest{}, nil, fmt.Errorf("%w: builtin %s", ErrPackNotFound, packID)
+	}
+
+	dir := path.Join(base, bestDir)
+	data, err := fs.ReadFile(builtinFS, path.Join(dir, manifestFile))
+	if err != nil {
+		return Manifest{}, nil, fmt.Errorf("builtin pack %s v%d: %w", packID, best, err)
+	}
+	var m Manifest
+	if err := json.Unmarshal(data, &m); err != nil {
+		return Manifest{}, nil, fmt.Errorf("builtin pack %s v%d manifest: %w", packID, best, err)
+	}
+	if m.ID != packID || m.Version != best {
+		return Manifest{}, nil, fmt.Errorf("%w: builtin %s declares %s v%d", ErrPackNotFound, dir, m.ID, m.Version)
+	}
+
+	if len(m.ContentSchema.Formats) == 0 {
+		if err := readSidecarFS(builtinFS, path.Join(dir, contentSchemaFile), &m.ContentSchema); err != nil {
+			return Manifest{}, nil, err
+		}
+	}
+	if len(m.Compliance.ForbiddenTerms) == 0 && len(m.Compliance.RequiredChecks) == 0 {
+		if err := readSidecarFS(builtinFS, path.Join(dir, complianceFile), &m.Compliance); err != nil {
+			return Manifest{}, nil, err
+		}
+	}
+	if len(m.MetricsMap.Fields) == 0 {
+		if err := readSidecarFS(builtinFS, path.Join(dir, metricsMapFile), &m.MetricsMap); err != nil {
+			return Manifest{}, nil, err
+		}
+	}
+
+	sub, err := fs.Sub(builtinFS, dir)
+	if err != nil {
+		return Manifest{}, nil, fmt.Errorf("builtin pack %s v%d: %w", packID, best, err)
+	}
+	return m, sub, nil
+}
+
+func readSidecarFS(fsys fs.FS, name string, target any) error {
+	data, err := fs.ReadFile(fsys, name)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if err := json.Unmarshal(data, target); err != nil {
+		return fmt.Errorf("pack sidecar %s: %w", name, err)
+	}
+	return nil
+}
+
 func installBuiltinPack(fsys fs.FS, r *Registry, ownerType string, ownerID int64, packID, versionDir string, version int) error {
 	root, err := r.Root(ownerType, ownerID, packID, version)
 	if err != nil {
