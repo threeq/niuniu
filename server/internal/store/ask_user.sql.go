@@ -92,7 +92,7 @@ func (q *Queries) CancelPendingAskUserRequestsByWorkspace(ctx context.Context, a
 }
 
 const getAskUserRequest = `-- name: GetAskUserRequest :one
-SELECT id, workspace_id, owner_type, owner_id, session_id, questions_json, status, decision_source, decided_by, answers_json, requested_at, decided_at, expires_at FROM agent_ask_user_requests WHERE id = ?
+SELECT id, workspace_id, owner_type, owner_id, session_id, questions_json, kind, metadata_json, status, decision_source, decided_by, answers_json, requested_at, decided_at, expires_at FROM agent_ask_user_requests WHERE id = ?
 `
 
 func (q *Queries) GetAskUserRequest(ctx context.Context, id int64) (AgentAskUserRequest, error) {
@@ -105,6 +105,36 @@ func (q *Queries) GetAskUserRequest(ctx context.Context, id int64) (AgentAskUser
 		&i.OwnerID,
 		&i.SessionID,
 		&i.QuestionsJson,
+		&i.Kind,
+		&i.MetadataJson,
+		&i.Status,
+		&i.DecisionSource,
+		&i.DecidedBy,
+		&i.AnswersJson,
+		&i.RequestedAt,
+		&i.DecidedAt,
+		&i.ExpiresAt,
+	)
+	return i, err
+}
+
+const getOpsApproval = `-- name: GetOpsApproval :one
+SELECT id, workspace_id, owner_type, owner_id, session_id, questions_json, kind, metadata_json, status, decision_source, decided_by, answers_json, requested_at, decided_at, expires_at FROM agent_ask_user_requests
+WHERE id = ? AND kind = 'ops_approval'
+`
+
+func (q *Queries) GetOpsApproval(ctx context.Context, id int64) (AgentAskUserRequest, error) {
+	row := q.db.QueryRowContext(ctx, getOpsApproval, id)
+	var i AgentAskUserRequest
+	err := row.Scan(
+		&i.ID,
+		&i.WorkspaceID,
+		&i.OwnerType,
+		&i.OwnerID,
+		&i.SessionID,
+		&i.QuestionsJson,
+		&i.Kind,
+		&i.MetadataJson,
 		&i.Status,
 		&i.DecisionSource,
 		&i.DecidedBy,
@@ -118,9 +148,10 @@ func (q *Queries) GetAskUserRequest(ctx context.Context, id int64) (AgentAskUser
 
 const insertAskUserRequest = `-- name: InsertAskUserRequest :one
 INSERT INTO agent_ask_user_requests
-    (workspace_id, owner_type, owner_id, session_id, questions_json, status, requested_at, expires_at)
+    (workspace_id, owner_type, owner_id, session_id, questions_json,
+     kind, metadata_json, status, requested_at, expires_at)
 VALUES
-    (?, ?, ?, ?, ?, 'pending', CURRENT_TIMESTAMP, ?)
+    (?, ?, ?, ?, ?, ?, ?, 'pending', CURRENT_TIMESTAMP, ?)
 RETURNING id
 `
 
@@ -130,6 +161,8 @@ type InsertAskUserRequestParams struct {
 	OwnerID       int64     `json:"owner_id"`
 	SessionID     string    `json:"session_id"`
 	QuestionsJson string    `json:"questions_json"`
+	Kind          string    `json:"kind"`
+	MetadataJson  string    `json:"metadata_json"`
 	ExpiresAt     time.Time `json:"expires_at"`
 }
 
@@ -140,6 +173,8 @@ func (q *Queries) InsertAskUserRequest(ctx context.Context, arg InsertAskUserReq
 		arg.OwnerID,
 		arg.SessionID,
 		arg.QuestionsJson,
+		arg.Kind,
+		arg.MetadataJson,
 		arg.ExpiresAt,
 	)
 	var id int64
@@ -148,7 +183,7 @@ func (q *Queries) InsertAskUserRequest(ctx context.Context, arg InsertAskUserReq
 }
 
 const listPendingAskUserRequestsByWorkspace = `-- name: ListPendingAskUserRequestsByWorkspace :many
-SELECT id, workspace_id, owner_type, owner_id, session_id, questions_json, status, decision_source, decided_by, answers_json, requested_at, decided_at, expires_at FROM agent_ask_user_requests
+SELECT id, workspace_id, owner_type, owner_id, session_id, questions_json, kind, metadata_json, status, decision_source, decided_by, answers_json, requested_at, decided_at, expires_at FROM agent_ask_user_requests
  WHERE workspace_id = ? AND status = 'pending'
  ORDER BY requested_at ASC
 `
@@ -169,6 +204,58 @@ func (q *Queries) ListPendingAskUserRequestsByWorkspace(ctx context.Context, wor
 			&i.OwnerID,
 			&i.SessionID,
 			&i.QuestionsJson,
+			&i.Kind,
+			&i.MetadataJson,
+			&i.Status,
+			&i.DecisionSource,
+			&i.DecidedBy,
+			&i.AnswersJson,
+			&i.RequestedAt,
+			&i.DecidedAt,
+			&i.ExpiresAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listPendingOpsApprovalsByOwner = `-- name: ListPendingOpsApprovalsByOwner :many
+SELECT id, workspace_id, owner_type, owner_id, session_id, questions_json, kind, metadata_json, status, decision_source, decided_by, answers_json, requested_at, decided_at, expires_at FROM agent_ask_user_requests
+WHERE owner_type = ? AND owner_id = ? AND kind = 'ops_approval' AND status = 'pending'
+ORDER BY requested_at ASC
+`
+
+type ListPendingOpsApprovalsByOwnerParams struct {
+	OwnerType string `json:"owner_type"`
+	OwnerID   int64  `json:"owner_id"`
+}
+
+func (q *Queries) ListPendingOpsApprovalsByOwner(ctx context.Context, arg ListPendingOpsApprovalsByOwnerParams) ([]AgentAskUserRequest, error) {
+	rows, err := q.db.QueryContext(ctx, listPendingOpsApprovalsByOwner, arg.OwnerType, arg.OwnerID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []AgentAskUserRequest{}
+	for rows.Next() {
+		var i AgentAskUserRequest
+		if err := rows.Scan(
+			&i.ID,
+			&i.WorkspaceID,
+			&i.OwnerType,
+			&i.OwnerID,
+			&i.SessionID,
+			&i.QuestionsJson,
+			&i.Kind,
+			&i.MetadataJson,
 			&i.Status,
 			&i.DecisionSource,
 			&i.DecidedBy,

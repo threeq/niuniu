@@ -31,6 +31,8 @@ type AgentAskUserRequest struct {
 	OwnerID        int64          `json:"owner_id"`
 	SessionID      string         `json:"session_id"`
 	QuestionsJson  string         `json:"questions_json"`
+	Kind           string         `json:"kind"`
+	MetadataJson   string         `json:"metadata_json"`
 	Status         string         `json:"status"`
 	DecisionSource sql.NullString `json:"decision_source"`
 	DecidedBy      sql.NullInt64  `json:"decided_by"`
@@ -613,6 +615,7 @@ type ImBotChat struct {
 	IntakeMode    string        `json:"intake_mode"`
 	PinnedIssueID sql.NullInt64 `json:"pinned_issue_id"`
 	ActiveIssueID sql.NullInt64 `json:"active_issue_id"`
+	OpsBotID      sql.NullInt64 `json:"ops_bot_id"`
 	Status        string        `json:"status"`
 	PairedBy      sql.NullInt64 `json:"paired_by"`
 	CreatedAt     time.Time     `json:"created_at"`
@@ -1093,6 +1096,93 @@ type MfaTrustedDevice struct {
 	LastSeenAt time.Time `json:"last_seen_at"`
 	ExpiresAt  time.Time `json:"expires_at"`
 	CreatedAt  time.Time `json:"created_at"`
+}
+
+type OpsBot struct {
+	ID                 int64         `json:"id"`
+	OwnerType          string        `json:"owner_type"`
+	OwnerID            int64         `json:"owner_id"`
+	Role               string        `json:"role"`
+	PackID             string        `json:"pack_id"`
+	PackVersion        int64         `json:"pack_version"`
+	AccountRef         string        `json:"account_ref"`
+	DisplayName        string        `json:"display_name"`
+	PersonaJson        string        `json:"persona_json"`
+	CredentialRefsJson string        `json:"credential_refs_json"`
+	KnowledgeScopeJson string        `json:"knowledge_scope_json"`
+	GoalsJson          string        `json:"goals_json"`
+	CadenceJson        string        `json:"cadence_json"`
+	ApprovalPolicyJson string        `json:"approval_policy_json"`
+	BudgetJson         string        `json:"budget_json"`
+	RuntimeJson        string        `json:"runtime_json"`
+	EpicIssueID        sql.NullInt64 `json:"epic_issue_id"`
+	ControlWorkspaceID sql.NullInt64 `json:"control_workspace_id"`
+	Status             string        `json:"status"`
+	DirectorBotID      sql.NullInt64 `json:"director_bot_id"`
+	CreatedAt          time.Time     `json:"created_at"`
+	UpdatedAt          time.Time     `json:"updated_at"`
+}
+
+type OpsBrowserSession struct {
+	ID             int64        `json:"id"`
+	BotID          int64        `json:"bot_id"`
+	Backend        string       `json:"backend"`
+	ProfileDir     string       `json:"profile_dir"`
+	LoginStatus    string       `json:"login_status"`
+	LastLoginAt    sql.NullTime `json:"last_login_at"`
+	LeaseOwner     string       `json:"lease_owner"`
+	LeaseExpiresAt sql.NullTime `json:"lease_expires_at"`
+	Health         string       `json:"health"`
+	RiskState      string       `json:"risk_state"`
+	LastError      string       `json:"last_error"`
+	CreatedAt      time.Time    `json:"created_at"`
+	UpdatedAt      time.Time    `json:"updated_at"`
+}
+
+type OpsEngagement struct {
+	ID                   int64         `json:"id"`
+	BotID                int64         `json:"bot_id"`
+	IssueID              sql.NullInt64 `json:"issue_id"`
+	PlatformEngagementID string        `json:"platform_engagement_id"`
+	Kind                 string        `json:"kind"`
+	Author               string        `json:"author"`
+	Text                 string        `json:"text"`
+	Category             string        `json:"category"`
+	RiskLevel            string        `json:"risk_level"`
+	SuggestedReply       string        `json:"suggested_reply"`
+	Status               string        `json:"status"`
+	ApprovalRequestID    sql.NullInt64 `json:"approval_request_id"`
+	ReplyText            string        `json:"reply_text"`
+	Receipt              string        `json:"receipt"`
+	DecidedBy            sql.NullInt64 `json:"decided_by"`
+	DecidedAt            sql.NullTime  `json:"decided_at"`
+	CreatedAt            time.Time     `json:"created_at"`
+	UpdatedAt            time.Time     `json:"updated_at"`
+}
+
+type OpsMetricsDaily struct {
+	ID          int64     `json:"id"`
+	BotID       int64     `json:"bot_id"`
+	Date        string    `json:"date"`
+	MetricsJson string    `json:"metrics_json"`
+	Source      string    `json:"source"`
+	CreatedAt   time.Time `json:"created_at"`
+}
+
+type OpsPublishRecord struct {
+	ID             int64        `json:"id"`
+	IssueID        int64        `json:"issue_id"`
+	BotID          int64        `json:"bot_id"`
+	PackID         string       `json:"pack_id"`
+	AccountRef     string       `json:"account_ref"`
+	ContentVersion int64        `json:"content_version"`
+	IdempotencyKey string       `json:"idempotency_key"`
+	Status         string       `json:"status"`
+	Receipt        string       `json:"receipt"`
+	Url            string       `json:"url"`
+	ScreenshotPath string       `json:"screenshot_path"`
+	PublishedAt    sql.NullTime `json:"published_at"`
+	CreatedAt      time.Time    `json:"created_at"`
 }
 
 type OrgAuditLog struct {
