@@ -349,14 +349,13 @@ func TestBackendLocalRejectsUnknownActionsAndBadRecipes(t *testing.T) {
 	_, err = b.Exec(context.Background(), h, packs.Recipe{Name: "eval", Steps: []packs.RecipeStep{
 		{Action: "eval", Value: "alert(1)"},
 	}}, ExecInput{})
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "unknown action")
+	require.ErrorIs(t, err, ErrUnknownAction)
 
 	_, err = b.Exec(context.Background(), h, packs.Recipe{Name: "tmpl", Steps: []packs.RecipeStep{
 		{Action: "fill", Selector: "#title", Value: "{{missing}}"},
 	}}, ExecInput{})
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "unknown template key")
+	require.ErrorIs(t, err, ErrMissingInput)
+	require.Contains(t, err.Error(), "template key")
 }
 
 func TestBackendLocalClassifiesLoginAndRisk(t *testing.T) {
