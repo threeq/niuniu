@@ -18,7 +18,12 @@ import (
 // manifestFile is the one file that defines a pack version. A version directory
 // is otherwise opaque: whatever the generator wrote (schemas, prompts, recipes,
 // fixtures) is copied verbatim.
-const manifestFile = "manifest.json"
+const (
+	manifestFile      = "manifest.json"
+	contentSchemaFile = "content_schema.json"
+	complianceFile    = "compliance.json"
+	metricsMapFile    = "metrics_map.json"
+)
 
 // Registry stores packs on the filesystem. The filesystem is the only source of
 // truth: there is no database index, and a version is immutable once written.
@@ -108,7 +113,13 @@ func (r *Registry) Save(ownerType string, ownerID int64, m Manifest, files map[s
 	if err := writePackDir(tmp, m, files); err != nil {
 		return "", err
 	}
-	if err := Validate(tmp, m); err != nil {
+	// Validate what actually landed on disk: sidecar files supplied in files
+	// (content_schema.json, ...) participate in validation.
+	staged, err := loadManifest(tmp)
+	if err != nil {
+		return "", err
+	}
+	if err := Validate(tmp, staged); err != nil {
 		return "", err
 	}
 	if err := os.Rename(tmp, root); err != nil {
@@ -143,11 +154,38 @@ func writePackDir(dir string, m Manifest, files map[string][]byte) error {
 		}
 	}
 
-	data, err := json.MarshalIndent(m, "", "  ")
+	data, err := marshalManifest(m)
 	if err != nil {
 		return err
 	}
 	return os.WriteFile(filepath.Join(dir, manifestFile), data, 0o644)
+}
+
+// marshalManifest writes only the sections the pack actually declares, so a
+// pack that keeps content_schema/compliance/metrics_map in sidecar files does
+// not also carry empty copies in manifest.json.
+func marshalManifest(m Manifest) ([]byte, error) {
+	raw, err := json.Marshal(m)
+	if err != nil {
+		return nil, err
+	}
+	var doc map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		return nil, err
+	}
+	if len(m.ContentSchema.Formats) == 0 {
+		delete(doc, "content_schema")
+	}
+	if len(m.Compliance.ForbiddenTerms) == 0 && len(m.Compliance.RequiredChecks) == 0 {
+		delete(doc, "compliance")
+	}
+	if len(m.MetricsMap.Fields) == 0 {
+		delete(doc, "metrics_map")
+	}
+	if len(m.CredentialSlots) == 0 {
+		delete(doc, "credential_slots")
+	}
+	return json.MarshalIndent(doc, "", "  ")
 }
 
 // Load reads and validates one pack version.
@@ -181,7 +219,41 @@ func loadManifest(root string) (Manifest, error) {
 	if err := json.Unmarshal(data, &m); err != nil {
 		return m, fmt.Errorf("pack manifest %s: %w", root, err)
 	}
+
+	// The design keeps the three big sections in their own files; a manifest
+	// that already carries them inline wins over the sidecars.
+	if len(m.ContentSchema.Formats) == 0 {
+		if err := readSidecar(root, contentSchemaFile, &m.ContentSchema); err != nil {
+			return m, err
+		}
+	}
+	if len(m.Compliance.ForbiddenTerms) == 0 && len(m.Compliance.RequiredChecks) == 0 {
+		if err := readSidecar(root, complianceFile, &m.Compliance); err != nil {
+			return m, err
+		}
+	}
+	if len(m.MetricsMap.Fields) == 0 {
+		if err := readSidecar(root, metricsMapFile, &m.MetricsMap); err != nil {
+			return m, err
+		}
+	}
 	return m, nil
+}
+
+// readSidecar decodes an optional sibling file; a missing file is not an error.
+func readSidecar(root, name string, target any) error {
+	fullPath := filepath.Join(root, name)
+	data, err := os.ReadFile(fullPath)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if err := json.Unmarshal(data, target); err != nil {
+		return fmt.Errorf("pack sidecar %s: %w", fullPath, err)
+	}
+	return nil
 }
 
 // List returns every usable version under the owner, sorted by id then version.
@@ -286,16 +358,35 @@ func (r *Registry) Publish(ownerType string, ownerID int64, packID string, versi
 		return fmt.Errorf("pack %s v%d is deprecated and cannot be published", packID, version)
 	}
 
-	m.Status = "published"
 	root, err := r.Root(ownerType, ownerID, packID, version)
 	if err != nil {
 		return err
 	}
-	data, err := json.MarshalIndent(m, "", "  ")
+	name := filepath.Join(root, manifestFile)
+	raw, err := os.ReadFile(name)
 	if err != nil {
 		return err
 	}
-	return atomicWriteFile(filepath.Join(root, manifestFile), data)
+	// Patch only the status field so publishing never inlines sidecar sections
+	// or drops fields the generator added.
+	data, err := withStatus(raw, "published")
+	if err != nil {
+		return err
+	}
+	return atomicWriteFile(name, data)
+}
+
+func withStatus(data []byte, status string) ([]byte, error) {
+	var doc map[string]json.RawMessage
+	if err := json.Unmarshal(data, &doc); err != nil {
+		return nil, fmt.Errorf("pack manifest: %w", err)
+	}
+	encoded, err := json.Marshal(status)
+	if err != nil {
+		return nil, err
+	}
+	doc["status"] = encoded
+	return json.MarshalIndent(doc, "", "  ")
 }
 
 func atomicWriteFile(name string, data []byte) error {
