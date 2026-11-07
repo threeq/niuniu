@@ -255,6 +255,25 @@ func TestOnboardingCancelAndSessionExpiry(t *testing.T) {
 	require.Contains(t, reply, "账号名称")
 }
 
+func TestOnboardingMatchesOnlyClaimsItsOwnInput(t *testing.T) {
+	o := newTestOnboarding(t)
+	owner := OwnerRef{"user", 1}
+
+	require.True(t, o.Matches(70, "接入公众号"))
+	require.True(t, o.Matches(70, "再接入一个小红书"))
+	require.True(t, o.Matches(70, "/bots"))
+	require.True(t, o.Matches(70, "/budget #1"))
+	require.True(t, o.Matches(70, "/cancel"))
+	require.False(t, o.Matches(70, "帮我写一篇推文"))
+	require.False(t, o.Matches(70, "/new 任务"))
+	require.False(t, o.Matches(70, "/stop"))
+
+	// Once a flow is active, follow-up answers belong to it.
+	step(t, o, 70, owner, 42, "接入公众号", "账号名称")
+	require.True(t, o.Matches(70, "随便一句话"))
+	require.False(t, o.Matches(71, "随便一句话"), "sessions are per-chat")
+}
+
 func TestOnboardingConfigCommands(t *testing.T) {
 	o := newTestOnboarding(t)
 	owner := OwnerRef{"user", 1}

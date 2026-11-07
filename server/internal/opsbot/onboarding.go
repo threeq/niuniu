@@ -187,6 +187,36 @@ func (o *Onboarding) Handle(ctx context.Context, chatID int64, owner OwnerRef, p
 	return o.advanceLocked(ctx, s, text)
 }
 
+// Matches reports whether Handle would claim this text: an onboarding command,
+// an entry-point intent, or a reply inside an active session. Callers use it to
+// deny an unauthorized operator without starting or advancing a flow.
+func (o *Onboarding) Matches(chatID int64, text string) bool {
+	if o == nil || o.Service == nil {
+		return false
+	}
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return false
+	}
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	if isCancel(text) {
+		return true
+	}
+	if o.liveSessionLocked(chatID) != nil {
+		return true
+	}
+	if strings.HasPrefix(text, "/") {
+		switch cmd, _ := splitSlash(text); cmd {
+		case "bots", "bot", "approvals", "pause", "resume", "budget", "calendar", "cancel":
+			return true
+		}
+		return false
+	}
+	_, ok := matchOnboardingIntent(text)
+	return ok
+}
+
 func (o *Onboarding) advanceLocked(ctx context.Context, s *Session, text string) (string, bool, error) {
 	switch s.Stage {
 	case stageChannel:
