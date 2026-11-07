@@ -115,6 +115,20 @@ type IMBotService struct {
 	// leaves the chat on the plain intake path.
 	opsOnboarding *opsbot.Onboarding
 
+	// opsApproval backs approval-card button callbacks (design §10). Wired via
+	// SetOpsApproval; nil leaves the callbacks ignored.
+	opsApproval *opsbot.Approval
+
+	// opsNotify renders and sends the ops-bot notification templates. Wired via
+	// SetOpsNotifier; nil makes every ops notification a no-op.
+	opsNotify *opsbot.Notifier
+
+	// opsPendingMu guards opsPendingModify: approvals whose operator tapped
+	// "修改" and is expected to reply with the revision. Keyed by chat id;
+	// in-memory only (a restart just makes the user re-tap the card).
+	opsPendingMu     sync.Mutex
+	opsPendingModify map[int64]int64
+
 	// wechatSessions holds in-flight WeChat QR-login handshakes keyed by the
 	// sha256 of the onboarding token. Ephemeral and process-local (the zero-value
 	// sync.Map is ready to use); a lost session just makes the user restart the
@@ -202,6 +216,22 @@ func (s *IMBotService) SetInbound(dispatch TaskRouter, deliverer MessageDelivere
 // non-empty reply means onboarding claimed the turn and intake is skipped.
 func (s *IMBotService) SetOpsOnboarding(o *opsbot.Onboarding) {
 	s.opsOnboarding = o
+}
+
+// SetOpsApproval wires the approval state machine so card buttons (approve /
+// reject / modify) drive Approval.Decide. Optional; nil ignores the callbacks.
+func (s *IMBotService) SetOpsApproval(a *opsbot.Approval) {
+	s.opsApproval = a
+}
+
+// SetOpsNotifier wires the ops-bot notification templates. When the notifier
+// has no Send wired, this service supplies one that pushes over the chat's IM
+// channel adapter, so callers only hand over a typed target/payload.
+func (s *IMBotService) SetOpsNotifier(n *opsbot.Notifier) {
+	if n != nil && n.Send == nil {
+		n.Send = s.pushOpsNotify
+	}
+	s.opsNotify = n
 }
 
 // NewIMBotService wires the dependencies. adapters is the same registry handed

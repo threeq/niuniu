@@ -123,6 +123,11 @@ type Approval struct {
 	db     *store.DB
 	policy ApprovalPolicy
 
+	// OnCreated runs after a pending approval commits. It is the notification
+	// hook: the row already exists, so a delivery failure must be logged by the
+	// callback and must never fail the creation.
+	OnCreated func(ctx context.Context, req ApprovalRequest) error
+
 	// OnDecided runs after any decision (approved/rejected/modified/regenerate)
 	// commits; callers must branch on Decision.Action. It is never invoked for
 	// timeout or cancellation rows.
@@ -217,13 +222,20 @@ func (a *Approval) Create(ctx context.Context, in ApprovalInput) (ApprovalReques
 		return ApprovalRequest{}, fmt.Errorf("insert ops approval: %w", err)
 	}
 
-	return ApprovalRequest{
+	req := ApprovalRequest{
 		ID:           id,
 		WorkspaceID:  in.WorkspaceID,
 		Status:       ApprovalStatusPending,
 		MetadataJSON: string(metadataJSON),
 		ExpiresAt:    expiresAt,
-	}, nil
+	}
+
+	// Notification is best-effort: the approval row is already committed, so a
+	// send failure must not surface as a creation failure. The hook logs it.
+	if a.OnCreated != nil {
+		_ = a.OnCreated(ctx, req)
+	}
+	return req, nil
 }
 
 // Decide transitions pending -> answered exactly once. A lost CAS (timeout,
