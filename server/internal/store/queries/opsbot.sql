@@ -78,6 +78,10 @@ SELECT * FROM ops_engagements WHERE id = ?;
 SELECT * FROM ops_engagements
 WHERE bot_id = ? AND status = ? ORDER BY created_at ASC LIMIT ?;
 
+-- name: ListOpsEngagementsByStatusGlobal :many
+SELECT * FROM ops_engagements
+WHERE status = ? ORDER BY updated_at ASC LIMIT ?;
+
 -- name: UpdateOpsEngagementStatus :one
 UPDATE ops_engagements SET
     status = ?, category = ?, risk_level = ?, suggested_reply = ?,

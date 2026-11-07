@@ -99,6 +99,10 @@ type Worker struct {
 	// evidence is not persisted.
 	EvidenceDir string
 	Notifier    ReloginNotifier
+	// OnRisk is notified when a task failure implies account-level risk
+	// (login_expired / rate_limited / banned / recipe_broken). The values match
+	// the opsbot risk signals; wire it to Risk.Evaluate / Risk.HandleAdapterError.
+	OnRisk func(ctx context.Context, botID int64, signal string)
 
 	// MaxConcurrent caps in-flight tasks across all accounts.
 	MaxConcurrent int
@@ -306,24 +310,44 @@ func (w *Worker) recordFailure(ctx context.Context, task Task, execErr error) er
 	blocked := RiskBlocked
 	msg := execErr.Error()
 
-	var patch StatePatch
+	var (
+		patch      StatePatch
+		riskSignal string
+	)
 	switch {
 	case errors.Is(execErr, ErrLoginExpired):
 		patch = StatePatch{LoginStatus: &expired, Health: &degraded, LastError: &msg}
+		riskSignal = "login_expired"
 		w.notifyRelogin(ctx, task, msg)
 	case errors.Is(execErr, ErrRecipeBroken):
 		patch = StatePatch{Health: &degraded, LastError: &msg}
+		riskSignal = "recipe_broken"
 	case errors.Is(execErr, ErrRateLimited):
 		patch = StatePatch{RiskState: &throttled, LastError: &msg}
+		riskSignal = "rate_limited"
 	case errors.Is(execErr, ErrBlocked):
 		patch = StatePatch{RiskState: &blocked, Health: &down, LastError: &msg}
+		riskSignal = "banned"
 	case errors.Is(execErr, context.Canceled), errors.Is(execErr, context.DeadlineExceeded):
 		// Cancellation is not a session fault; leave state untouched.
 		return nil
 	default:
 		patch = StatePatch{LastError: &msg}
 	}
-	return w.applyState(ctx, task, patch)
+	if err := w.applyState(ctx, task, patch); err != nil {
+		return err
+	}
+	w.notifyRisk(ctx, task, riskSignal)
+	return nil
+}
+
+func (w *Worker) notifyRisk(ctx context.Context, task Task, signal string) {
+	if w.OnRisk == nil || signal == "" {
+		return
+	}
+	riskCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), evidenceTimeout)
+	defer cancel()
+	w.OnRisk(riskCtx, task.BotID, signal)
 }
 
 func (w *Worker) applyState(ctx context.Context, task Task, patch StatePatch) error {

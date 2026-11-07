@@ -503,3 +503,56 @@ func TestPublishRejectsInvalidInput(t *testing.T) {
 	_, err = p.Publish(context.Background(), PublishInput{BotID: 1})
 	require.ErrorIs(t, err, ErrInvalidPublishInput)
 }
+
+func TestPublishBlockedWhenBotNotActive(t *testing.T) {
+	env := newPublishEnv(t)
+	adapter := &testAdapter{}
+	p := env.publisher(adapter)
+	p.BotStatus = func(context.Context, int64) (string, error) { return StatusPaused, nil }
+
+	res, err := p.Publish(context.Background(), basePublishInput())
+	require.ErrorIs(t, err, ErrBotNotActive)
+	require.Zero(t, adapter.calls, "a paused account is never published to")
+	require.Equal(t, PublishStatusPending, res.Status)
+
+	rec := env.record(t, testPublishBotID, PublishIdempotencyKey(basePublishInput()))
+	require.Equal(t, PublishStatusPending, rec.Status)
+}
+
+func TestPublishLoginExpiredDegradesToManual(t *testing.T) {
+	env := newPublishEnv(t)
+	adapter := &testAdapter{always: &channel.AdapterError{
+		Capability: channel.CapPublish,
+		Code:       channel.CodeLoginExpired,
+		Err:        errors.New("qr code expired"),
+	}}
+	p := env.publisher(adapter)
+
+	res, err := p.Publish(context.Background(), basePublishInput())
+	require.NoError(t, err)
+	require.Equal(t, PublishModeManualPackage, res.Mode)
+	require.NotEmpty(t, res.PackageDir)
+	require.Contains(t, env.notify.events, "publish_manual_pending")
+}
+
+func TestPublishReportsAdapterFailure(t *testing.T) {
+	env := newPublishEnv(t)
+	adapter := &testAdapter{always: &channel.AdapterError{
+		Capability: channel.CapPublish,
+		Code:       channel.CodeRateLimited,
+		Retryable:  true,
+	}}
+	p := env.publisher(adapter)
+	var observed string
+	p.OnAdapterFailure = func(_ context.Context, botID int64, err error) {
+		require.Equal(t, int64(testPublishBotID), botID)
+		var adapterErr *channel.AdapterError
+		require.ErrorAs(t, err, &adapterErr)
+		observed = adapterErr.Code
+	}
+
+	_, err := p.Publish(context.Background(), basePublishInput())
+	require.Error(t, err)
+	require.Equal(t, channel.CodeRateLimited, observed,
+		"the risk controller sees the account-level failure code")
+}

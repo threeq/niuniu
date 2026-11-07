@@ -263,7 +263,7 @@ func (r *Risk) HandleAdapterError(ctx context.Context, botID int64, err error) (
 		return verdict, nil
 	}
 
-	if signal, ok := signalForAdapterCode(code); ok {
+	if signal, ok := RiskSignalForCode(code); ok {
 		ev, evalErr := r.Evaluate(ctx, botID, signal)
 		verdict.Action = RiskActionPause
 		verdict.Signal = signal
@@ -593,9 +593,10 @@ func killReason(reason string) string {
 
 func riskMarker(signal string) string { return riskMarkerPrefix + signal }
 
-// signalForAdapterCode maps a platform error code to the risk signal it
-// implies. Codes absent here are not account-level risk.
-func signalForAdapterCode(code string) (string, bool) {
+// RiskSignalForCode maps a platform error code to the risk signal it implies.
+// Codes absent here are not account-level risk, so callers can route only
+// genuine account-risk failures to Evaluate.
+func RiskSignalForCode(code string) (string, bool) {
 	switch code {
 	case channel.CodeLoginExpired, channel.CodeCredentialInvalid:
 		return RiskSignalLoginExpired, true
