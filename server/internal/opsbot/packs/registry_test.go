@@ -2,6 +2,7 @@ package packs
 
 import (
 	"archive/zip"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
@@ -155,6 +156,66 @@ func TestRegistrySaveWritesFilesAndRejectsTraversal(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(r.DataDir, "users", "escape.json")); !os.IsNotExist(err) {
 		t.Fatalf("file escaped pack root: %v", err)
+	}
+}
+
+func TestRegistryLoadMergesSidecarFiles(t *testing.T) {
+	r := &Registry{DataDir: t.TempDir()}
+	m := Manifest{
+		ID:          "sidecar",
+		Version:     1,
+		Status:      "draft",
+		DisplayName: "Sidecar",
+		Capabilities: []string{
+			"publish",
+			"metrics",
+		},
+		Bindings: map[string]Binding{
+			"publish": {Transport: "manual"},
+			"metrics": {Transport: "manual"},
+		},
+	}
+	files := map[string][]byte{
+		"content_schema.json": []byte(`{"formats":{"article":{"fields":["title"],"max_chars":64}}}`),
+		"compliance.json":     []byte(`{"forbidden_terms":["最好"],"required_checks":["标注来源"]}`),
+		"metrics_map.json":    []byte(`{"fields":{"read_count":"views"}}`),
+	}
+	root, err := r.Save("user", 1, m, files)
+	if err != nil {
+		t.Fatalf("save with sidecars: %v", err)
+	}
+
+	got, err := r.Load("user", 1, "sidecar", 1)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if len(got.ContentSchema.Formats["article"].Fields) != 1 {
+		t.Fatalf("content_schema sidecar not merged: %+v", got.ContentSchema)
+	}
+	if len(got.Compliance.ForbiddenTerms) != 1 || len(got.MetricsMap.Fields) != 1 {
+		t.Fatalf("sidecars not merged: %+v %+v", got.Compliance, got.MetricsMap)
+	}
+
+	if err := r.Publish("user", 1, "sidecar", 1); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := os.ReadFile(filepath.Join(root, manifestFile))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var doc map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		t.Fatal(err)
+	}
+	if _, inlined := doc["content_schema"]; inlined {
+		t.Fatalf("publish inlined the sidecar section: %s", raw)
+	}
+	if string(doc["status"]) != `"published"` {
+		t.Fatalf("status not patched: %s", raw)
+	}
+	republished, err := r.Load("user", 1, "sidecar", 1)
+	if err != nil || republished.ContentSchema.Formats["article"].MaxChars != 64 {
+		t.Fatalf("sidecar lost after publish: %v %+v", err, republished)
 	}
 }
 
