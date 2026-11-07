@@ -3,6 +3,7 @@ package packs
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -110,14 +111,9 @@ func validateBinding(root, packID, capability string, b Binding) error {
 }
 
 func validateRecipe(root, packID, capability, recipePath string) error {
-	fullPath, err := resolveInside(root, recipePath)
+	data, err := readInsideRoot(root, recipePath)
 	if err != nil {
 		return fmt.Errorf("pack %s capability %q recipe %q: %w", packID, capability, recipePath, err)
-	}
-
-	data, err := os.ReadFile(fullPath)
-	if err != nil {
-		return fmt.Errorf("pack %s capability %q recipe %q cannot be read: %w", packID, capability, recipePath, err)
 	}
 
 	var recipe Recipe
@@ -140,19 +136,24 @@ func validateRecipe(root, packID, capability, recipePath string) error {
 	return nil
 }
 
-// resolveInside joins recipePath onto root and rejects absolute paths or paths
-// that escape root, so an agent-generated manifest cannot read arbitrary files.
-func resolveInside(root, recipePath string) (string, error) {
-	if filepath.IsAbs(recipePath) || strings.HasPrefix(recipePath, "/") || strings.HasPrefix(recipePath, `\`) {
-		return "", fmt.Errorf("recipe path must be relative")
+// readInsideRoot reads a pack-relative file through os.Root, which rejects
+// absolute paths, "..", and symlinks that resolve outside root. This keeps an
+// agent-generated manifest from reading arbitrary host files.
+func readInsideRoot(root, name string) ([]byte, error) {
+	if !filepath.IsLocal(name) {
+		return nil, fmt.Errorf("recipe path must stay inside the pack root")
 	}
-	fullPath := filepath.Join(root, recipePath)
-	rel, err := filepath.Rel(root, fullPath)
+	r, err := os.OpenRoot(root)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
-	if rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
-		return "", fmt.Errorf("recipe path escapes pack root")
+	defer r.Close()
+
+	f, err := r.Open(name)
+	if err != nil {
+		return nil, err
 	}
-	return fullPath, nil
+	defer f.Close()
+
+	return io.ReadAll(f)
 }
