@@ -1,0 +1,78 @@
+{
+  "name": "metrics",
+  "steps": [
+    {
+      "action": "goto",
+      "value": "https://creator.xiaohongshu.com/creator/data/notes",
+      "timeout_ms": 30000
+    },
+    {
+      "action": "wait",
+      "selector": ".data-dashboard",
+      "fallback": [".data-overview", ".note-data"],
+      "timeout_ms": 20000
+    },
+    {
+      "action": "click",
+      "selector": ".date-range-picker",
+      "fallback": [".date-filter", ".range-picker"]
+    },
+    {
+      "action": "click",
+      "selector": ".range-preset[data-range='{{range}}']",
+      "fallback": [".range-{{range}}", ".preset-{{range}}"]
+    },
+    {
+      "action": "click",
+      "selector": ".range-confirm",
+      "fallback": [".date-confirm"]
+    },
+    {
+      "action": "wait",
+      "selector": ".metrics-table",
+      "fallback": [".data-table", ".note-metrics"],
+      "timeout_ms": 20000
+    },
+    {
+      "action": "extract",
+      "selector": ".metric-view",
+      "fallback": [".metric-views"],
+      "value": "view_num"
+    },
+    {
+      "action": "extract",
+      "selector": ".metric-like",
+      "fallback": [".metric-likes"],
+      "value": "like_num"
+    },
+    {
+      "action": "extract",
+      "selector": ".metric-collect",
+      "fallback": [".metric-collects"],
+      "value": "collect_num"
+    },
+    {
+      "action": "extract",
+      "selector": ".metric-comment",
+      "fallback": [".metric-comments"],
+      "value": "comment_num"
+    },
+    {
+      "action": "extract",
+      "selector": ".metric-share",
+      "fallback": [".metric-shares"],
+      "value": "share_num"
+    },
+    {
+      "action": "extract",
+      "selector": ".metric-fans-add",
+      "fallback": [".metric-fans"],
+      "value": "fans_add"
+    },
+    {
+      "action": "screenshot",
+      "value": "metrics_snapshot"
+    }
+  ],
+  "fixtures": ["fixtures/metrics.html"]
+}

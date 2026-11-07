@@ -1,0 +1,94 @@
+{
+  "name": "publish",
+  "steps": [
+    {
+      "action": "goto",
+      "value": "https://creator.xiaohongshu.com/publish/publish?target=image",
+      "timeout_ms": 30000
+    },
+    {
+      "action": "wait",
+      "selector": ".publish-tab-image",
+      "fallback": [".tab-image", ".publish-type-image"],
+      "timeout_ms": 15000
+    },
+    {
+      "action": "click",
+      "selector": ".publish-tab-image",
+      "fallback": [".tab-image"]
+    },
+    {
+      "action": "upload",
+      "selector": "input[type=file].upload-input",
+      "fallback": [".upload-input", "input[type=file]"],
+      "value": "{{images}}",
+      "timeout_ms": 60000
+    },
+    {
+      "action": "wait",
+      "selector": ".img-preview",
+      "fallback": [".image-preview-item"],
+      "timeout_ms": 60000
+    },
+    {
+      "action": "fill",
+      "selector": "input[placeholder*='标题']",
+      "fallback": [".title-input input", "input.title"],
+      "value": "{{title}}"
+    },
+    {
+      "action": "fill",
+      "selector": "div[contenteditable='true'].ql-editor",
+      "fallback": [".note-editor", "div[contenteditable='true']"],
+      "value": "{{body}}"
+    },
+    {
+      "action": "click",
+      "selector": ".tag-input",
+      "fallback": [".topic-input", ".tag-entry"]
+    },
+    {
+      "action": "fill",
+      "selector": ".tag-input input",
+      "fallback": [".topic-input input"],
+      "value": "{{tags}}"
+    },
+    {
+      "action": "click",
+      "selector": ".cover-select",
+      "fallback": [".cover-entry", ".set-cover"]
+    },
+    {
+      "action": "wait",
+      "selector": ".cover-panel",
+      "timeout_ms": 15000
+    },
+    {
+      "action": "click",
+      "selector": ".cover-confirm",
+      "fallback": [".cover-panel .confirm"]
+    },
+    {
+      "action": "click",
+      "selector": "button.submit",
+      "fallback": [".publish-btn", ".submit-btn"]
+    },
+    {
+      "action": "wait",
+      "selector": ".publish-success",
+      "fallback": [".toast-success", ".success-toast"],
+      "timeout_ms": 60000
+    },
+    {
+      "action": "extract",
+      "selector": ".publish-success a",
+      "fallback": [".note-link", ".toast-success a"],
+      "value": "note_url"
+    },
+    {
+      "action": "screenshot",
+      "value": "publish_result"
+    }
+  ],
+  "fixtures": ["fixtures/publish.html"]
+}
