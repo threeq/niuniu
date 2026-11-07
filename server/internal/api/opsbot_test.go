@@ -90,7 +90,10 @@ func registerOpsTestRoutes(g *gin.RouterGroup, h *api.OpsBotHandler) {
 	g.GET("/bots/:id/calendar", h.GetCalendar)
 	g.POST("/bots/:id/publish", h.Publish)
 	g.GET("/packs", h.ListPacks)
+	g.POST("/packs/import", h.ImportPack)
 	g.POST("/packs/validate", h.ValidatePack)
+	g.GET("/packs/:packID/:version/export", h.ExportPack)
+	g.POST("/bots/:id/browser-login", h.BrowserLogin)
 	g.GET("/approvals", h.ListApprovals)
 	g.POST("/approvals/:id/approve", h.ApproveApproval)
 	g.POST("/approvals/:id/reject", h.RejectApproval)
@@ -197,7 +200,7 @@ func TestOpsBot_CreateListAndDuplicateAccount(t *testing.T) {
 }
 
 func TestOpsBot_CrossOwnerForbidden(t *testing.T) {
-	r, _ := setupOpsBot(t)
+	r, db := setupOpsBot(t)
 	botID := createTestBot(t, r, "1", "acct-1")
 	path := "/api/ops/bots/" + strconv.FormatInt(botID, 10)
 
@@ -223,8 +226,18 @@ func TestOpsBot_CrossOwnerForbidden(t *testing.T) {
 		assert.Equal(t, http.StatusForbidden, w.Code, "%s %s: %s", tc.method, tc.path, w.Body.String())
 	}
 
+	// The owner gate is identity-based, not writability-based: even a global
+	// admin does not operate on another user's personal bot (design §12 / Task 6
+	// security review).
+	mustExec(t, db, `UPDATE users SET role = 'admin' WHERE id = 2`)
+	w := doJSON(t, r, http.MethodGet, path, "2", "")
+	assert.Equal(t, http.StatusForbidden, w.Code, w.Body.String())
+	assert.Contains(t, w.Body.String(), "OPS_FORBIDDEN")
+	w = doJSON(t, r, http.MethodPost, path+"/pause", "2", "")
+	assert.Equal(t, http.StatusForbidden, w.Code, w.Body.String())
+
 	// Unauthenticated is 401, never an unrestricted default.
-	w := doJSON(t, r, http.MethodGet, path, "", "")
+	w = doJSON(t, r, http.MethodGet, path, "", "")
 	assert.Equal(t, http.StatusUnauthorized, w.Code)
 
 	// The owner can read and mutate it.
@@ -431,10 +444,48 @@ func TestOpsPacks_ListValidateExport(t *testing.T) {
 	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
 	assert.Contains(t, w.Body.String(), `"valid":true`)
 
+	// Export streams a real zip for a valid single-segment pack id.
+	w = doJSON(t, r, http.MethodGet, "/api/ops/packs/wechat_mp/1/export", "1", "")
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+	assert.Contains(t, w.Header().Get("Content-Disposition"), "wechat_mp-v1.zip")
+	require.Greater(t, w.Body.Len(), 1)
+	assert.Equal(t, "PK", string(w.Body.Bytes()[:2]), "export body must be a zip archive")
+
 	// Another owner has no packs and cannot see the first owner's.
 	w = doJSON(t, r, http.MethodPost, "/api/ops/packs/validate", "2",
 		`{"pack_id":"wechat_mp","version":1}`)
 	assert.Equal(t, http.StatusNotFound, w.Code, w.Body.String())
+}
+
+// TestOpsPackPathAndBackendGuards pins the path-segment hardening: a pack id
+// never becomes an unchecked filename, an import only accepts a regular file,
+// and a browser backend is a closed enum rather than a path segment.
+func TestOpsPackPathAndBackendGuards(t *testing.T) {
+	r, _ := setupOpsBot(t)
+	botID := createTestBot(t, r, "1", "acct-1")
+
+	// Export rejects a traversal-shaped pack id before touching the filesystem.
+	w := doJSON(t, r, http.MethodGet, "/api/ops/packs/../1/export", "1", "")
+	assert.Equal(t, http.StatusBadRequest, w.Code, w.Body.String())
+
+	// Import only accepts a regular file, not a directory.
+	dir := t.TempDir()
+	body, err := json.Marshal(map[string]string{"path": dir})
+	require.NoError(t, err)
+	w = doJSON(t, r, http.MethodPost, "/api/ops/packs/import", "1", string(body))
+	assert.Equal(t, http.StatusBadRequest, w.Code, w.Body.String())
+
+	// The browser backend is validated instead of being joined into a path.
+	w = doJSON(t, r, http.MethodPost,
+		"/api/ops/bots/"+strconv.FormatInt(botID, 10)+"/browser-login", "1",
+		`{"backend":"../../etc"}`)
+	assert.Equal(t, http.StatusBadRequest, w.Code, w.Body.String())
+
+	w = doJSON(t, r, http.MethodPost,
+		"/api/ops/bots/"+strconv.FormatInt(botID, 10)+"/browser-login", "1",
+		`{"backend":"local"}`)
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+	assert.Contains(t, w.Body.String(), `"backend":"local"`)
 }
 
 // TestOpsHTTPAndMCPParity pins the "MCP and HTTP behave identically" contract:
