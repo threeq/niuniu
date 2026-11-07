@@ -1,0 +1,78 @@
+{
+  "name": "metrics",
+  "steps": [
+    {
+      "action": "goto",
+      "value": "https://www.zhihu.com/creator/manage/creation/all",
+      "timeout_ms": 30000
+    },
+    {
+      "action": "wait",
+      "selector": ".CreatorDashboard",
+      "fallback": [".ContentManage", ".creator-home"],
+      "timeout_ms": 20000
+    },
+    {
+      "action": "click",
+      "selector": ".DateRangePicker",
+      "fallback": [".date-range", ".DateRange"]
+    },
+    {
+      "action": "click",
+      "selector": ".range-preset[data-range='{{range}}']",
+      "fallback": [".range-{{range}}", ".preset-{{range}}"]
+    },
+    {
+      "action": "click",
+      "selector": ".range-confirm",
+      "fallback": [".DateRange-confirm"]
+    },
+    {
+      "action": "wait",
+      "selector": ".MetricsOverview",
+      "fallback": [".metrics-panel", ".DataOverview"],
+      "timeout_ms": 20000
+    },
+    {
+      "action": "extract",
+      "selector": ".metric-read",
+      "fallback": [".metric-reads"],
+      "value": "read_num"
+    },
+    {
+      "action": "extract",
+      "selector": ".metric-upvote",
+      "fallback": [".metric-upvotes", ".metric-like"],
+      "value": "upvote_num"
+    },
+    {
+      "action": "extract",
+      "selector": ".metric-comment",
+      "fallback": [".metric-comments"],
+      "value": "comment_num"
+    },
+    {
+      "action": "extract",
+      "selector": ".metric-collect",
+      "fallback": [".metric-collects"],
+      "value": "collect_num"
+    },
+    {
+      "action": "extract",
+      "selector": ".metric-share",
+      "fallback": [".metric-shares"],
+      "value": "share_num"
+    },
+    {
+      "action": "extract",
+      "selector": ".metric-fans",
+      "fallback": [".metric-fans-add"],
+      "value": "fans_add"
+    },
+    {
+      "action": "screenshot",
+      "value": "metrics_snapshot"
+    }
+  ],
+  "fixtures": ["fixtures/metrics.html"]
+}
