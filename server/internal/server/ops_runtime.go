@@ -103,6 +103,13 @@ func (s *Server) initOpsRuntime(svc *opsbot.Service, approval *opsbot.Approval, 
 			}
 			if signal, ok := opsRiskSignal(err); ok {
 				_, _ = s.opsRisk.Evaluate(ctx, botID, signal)
+				return
+			}
+			var adapterErr *channel.AdapterError
+			if errors.As(err, &adapterErr) && adapterErr.Code == channel.CodeRecipeBroken {
+				// A broken recipe cannot be driven automatically: alert the
+				// operator with the concrete degradation reason.
+				_, _ = s.opsRisk.HandleAdapterError(ctx, botID, err)
 			}
 		},
 		Schedule: scheduler.Register,
@@ -465,7 +472,8 @@ func (n opsReloginNotifier) RequestRelogin(ctx context.Context, req browser.Relo
 // opsDirectorBoard posts director state to the director bot's control
 // workspace blackboard. The Director carries its identity per call (Owner/BotID
 // are set by the entry layer), so the adapter resolves the workspace at write
-// time from that same instance.
+// time from that same instance — callers must set identity on this instance,
+// not on a copy, or the board write cannot resolve its workspace.
 type opsDirectorBoard struct {
 	q        *store.Queries
 	bus      *event.Bus

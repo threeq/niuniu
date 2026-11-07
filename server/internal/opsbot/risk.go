@@ -276,7 +276,7 @@ func (r *Risk) HandleAdapterError(ctx context.Context, botID int64, err error) (
 	if isDegradablePublishError(err) {
 		verdict.Action = RiskActionDegrade
 		verdict.Reason = fmt.Sprintf(
-			"平台自动化不可用（%s），已降级为人工发布包；请运营人按包手工发布", code)
+			"平台自动化不可用（%s）：发布将降级为人工发布包，请运营人处理后人工发布", code)
 		if notifyErr := r.notify(ctx, botID, verdict.Reason); notifyErr != nil {
 			return verdict, fmt.Errorf("opsbot: degrade alert: %w", notifyErr)
 		}
@@ -451,7 +451,7 @@ func (r *Risk) signalSeen(ctx context.Context, botID int64, signal, status strin
 	if err != nil {
 		return false
 	}
-	return sess.LastError == riskMarker(signal)
+	return riskMarkerMatches(sess.LastError, signal)
 }
 
 func (r *Risk) markSignal(ctx context.Context, botID int64, signal string) {
@@ -465,7 +465,17 @@ func (r *Risk) markSignal(ctx context.Context, botID int64, signal string) {
 	if r.Sessions == nil {
 		return
 	}
+	// Keep the underlying failure text: the session's last_error is diagnostic
+	// for the operator, and dropping it would hide what the platform said.
 	marker := riskMarker(signal)
+	if sess, err := r.Sessions.State(ctx, botID, r.backend()); err == nil {
+		if detail := strings.TrimSpace(sess.LastError); detail != "" && !strings.HasPrefix(detail, riskMarkerPrefix) {
+			if len(detail) > 512 {
+				detail = detail[:512]
+			}
+			marker += " | " + detail
+		}
+	}
 	_, _ = r.Sessions.Update(ctx, botID, r.backend(), browser.StatePatch{LastError: &marker})
 }
 
@@ -592,6 +602,14 @@ func killReason(reason string) string {
 }
 
 func riskMarker(signal string) string { return riskMarkerPrefix + signal }
+
+// riskMarkerMatches accepts the bare marker and the marker-with-detail form, so
+// a restarted process still recognizes an incident whose diagnostic text was
+// preserved.
+func riskMarkerMatches(raw, signal string) bool {
+	marker := riskMarker(signal)
+	return raw == marker || strings.HasPrefix(raw, marker+" | ")
+}
 
 // RiskSignalForCode maps a platform error code to the risk signal it implies.
 // Codes absent here are not account-level risk, so callers can route only

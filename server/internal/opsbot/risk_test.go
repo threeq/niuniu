@@ -417,3 +417,35 @@ func TestRiskResumeFallsBackToSessionLoginState(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, StatusActive, bot.Status)
 }
+
+func TestRiskSignalPreservesSessionErrorDetail(t *testing.T) {
+	f := newTestRisk(t)
+	ctx := context.Background()
+	detail := "429 from platform: request throttled"
+	_, err := f.sessions.Update(ctx, 1, browser.BackendLocal, browser.StatePatch{LastError: &detail})
+	require.NoError(t, err)
+
+	_, err = f.risk.Evaluate(ctx, 1, RiskSignalRateLimited)
+	require.NoError(t, err)
+
+	sess := f.session(t)
+	require.Contains(t, sess.LastError, "risk:rate_limited")
+	require.Contains(t, sess.LastError, detail, "the diagnostic text survives the marker")
+
+	// A restarted controller must still recognize the incident from the
+	// marker-with-detail form.
+	restarted := &Risk{
+		Bots:        f.risk.Bots,
+		Approvals:   f.approval,
+		Engagements: f.db.Queries(),
+		Sessions:    f.sessions,
+		Backend:     browser.BackendLocal,
+		Notify: func(context.Context, int64, string) error {
+			t.Fatal("a repeated incident must not notify")
+			return nil
+		},
+	}
+	ev, err := restarted.Evaluate(ctx, 1, RiskSignalRateLimited)
+	require.NoError(t, err)
+	require.False(t, ev.Notified)
+}

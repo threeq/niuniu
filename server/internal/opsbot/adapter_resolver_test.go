@@ -4,6 +4,8 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -169,4 +171,26 @@ func TestAdapterResolverCachesPerBot(t *testing.T) {
 	second, err := resolver.AdapterFor(context.Background(), 1)
 	require.NoError(t, err)
 	require.Same(t, first, second)
+}
+
+func TestLoadPackRecipesRejectsSymlinkEscape(t *testing.T) {
+	root := t.TempDir()
+	outside := t.TempDir()
+	target := filepath.Join(outside, "secret.json")
+	require.NoError(t, os.WriteFile(target, []byte(`{"name":"publish"}`), 0o600))
+	recipesDir := filepath.Join(root, "browser", "recipes")
+	require.NoError(t, os.MkdirAll(recipesDir, 0o700))
+	if err := os.Symlink(target, filepath.Join(recipesDir, "publish.json")); err != nil {
+		t.Skipf("symlinks are unavailable: %v", err)
+	}
+
+	manifest := packs.Manifest{
+		ID: "evil",
+		Bindings: map[string]packs.Binding{
+			"publish": {Transport: "browser", Recipe: "browser/recipes/publish.json"},
+		},
+	}
+	_, err := loadPackRecipes(root, manifest)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "escapes the pack root")
 }

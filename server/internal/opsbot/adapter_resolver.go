@@ -273,6 +273,15 @@ func packBinding(m packs.Manifest) (packs.Binding, bool) {
 // publish time for a video payload.
 var optionalRecipeNames = []string{"login", "health", "publish_video"}
 
+func optionalRecipe(name string) bool {
+	for _, candidate := range optionalRecipeNames {
+		if name == candidate {
+			return true
+		}
+	}
+	return false
+}
+
 func loadPackRecipes(root string, m packs.Manifest) (channel.RecipeSet, error) {
 	recipes := channel.RecipeSet{}
 	load := func(name, rel string) error {
@@ -281,12 +290,15 @@ func loadPackRecipes(root string, m packs.Manifest) (channel.RecipeSet, error) {
 			return nil
 		}
 		full, err := insidePack(root, rel)
+		if errors.Is(err, os.ErrNotExist) && optionalRecipe(name) {
+			return nil
+		}
 		if err != nil {
 			return err
 		}
 		data, err := os.ReadFile(full)
 		if errors.Is(err, os.ErrNotExist) {
-			if name == "login" || name == "health" || name == "publish_video" {
+			if optionalRecipe(name) {
 				return nil
 			}
 			return fmt.Errorf("pack %s: recipe %s is missing", m.ID, rel)
@@ -324,13 +336,23 @@ func loadPackRecipes(root string, m packs.Manifest) (channel.RecipeSet, error) {
 }
 
 func insidePack(root, rel string) (string, error) {
-	root = filepath.Clean(root)
-	full := filepath.Clean(filepath.Join(root, filepath.FromSlash(rel)))
-	inside, err := filepath.Rel(root, full)
+	// Resolve symlinks BEFORE the containment check: a pack file imported from
+	// an archive could be a link to /etc/passwd, and a lexical Rel would accept
+	// it. Both sides are resolved so a symlinked pack root still works.
+	realRoot, err := filepath.EvalSymlinks(filepath.Clean(root))
+	if err != nil {
+		return "", fmt.Errorf("pack root %s: %w", filepath.Base(root), err)
+	}
+	real, err := filepath.EvalSymlinks(filepath.Join(realRoot, filepath.FromSlash(rel)))
+	if err != nil {
+		// Callers treat os.ErrNotExist as "optional recipe absent".
+		return "", err
+	}
+	inside, err := filepath.Rel(realRoot, real)
 	if err != nil || inside == ".." || strings.HasPrefix(inside, ".."+string(filepath.Separator)) {
 		return "", fmt.Errorf("pack %s: recipe path %q escapes the pack root", filepath.Base(root), rel)
 	}
-	return full, nil
+	return real, nil
 }
 
 func packLimits(m packs.Manifest) (channel.BrowserLimits, map[string]string) {
