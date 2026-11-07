@@ -25,7 +25,12 @@ type BrowserBackend interface {
 - `Health{State, LoginStatus, URL, Detail, CheckedAt}`：`healthy | degraded | down`。
 
 recipe 使用 `packs.Recipe`（`server/internal/opsbot/packs/types.go`），即 Pack 目录里的
-声明式 JSON。后端只解释固定动作集，不执行任意代码。
+声明式 JSON；`recipe.go` 里的 `Recipe`/`RecipeStep` 就是这两个类型的别名。后端只解释
+固定动作集，不执行任意代码。
+
+recipe 级失败 sentinel（`ErrHostNotAllowed`、`ErrSelectorNotFound`、`ErrInvalidRecipe`、
+`ErrAssertFailed`、`ErrUnknownAction`、`ErrMissingInput`）定义在 `recipe.go`，
+`LocalBackend` 与 `RecipeRunner` 共用同一套，调用方只按 sentinel 分类，不用区分是谁执行。
 
 ## 2. LocalBackend（个人版）
 

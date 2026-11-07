@@ -121,16 +121,13 @@ var (
 	ErrBackendUnsupported   = errors.New("opsbot/browser: browser backend is not available in this edition")
 	ErrUnknownHandle        = errors.New("opsbot/browser: unknown session handle")
 	ErrSessionClosed        = errors.New("opsbot/browser: session is closed")
-	ErrHostNotAllowed       = errors.New("opsbot/browser: navigation host is not in the allowlist")
 	ErrProfileShared        = errors.New("opsbot/browser: profile directory is shared by multiple bots")
-	ErrSelectorNotFound     = errors.New("opsbot/browser: selector not found")
 	ErrFileNotAllowed       = errors.New("opsbot/browser: upload file is not allowed")
 )
 
-var (
-	errInvalidRecipe = errors.New("opsbot/browser: invalid recipe")
-	errAssertFailed  = errors.New("opsbot/browser: recipe assertion failed")
-)
+// Recipe-level sentinels (ErrHostNotAllowed, ErrSelectorNotFound,
+// ErrInvalidRecipe, ErrAssertFailed, ErrUnknownAction, ErrMissingInput) come
+// from recipe.go so backends and RecipeRunner classify failures identically.
 
 // ConfigError explains why a backend could not be built. It deliberately
 // carries a hint so an operator can fix the configuration instead of guessing.
@@ -364,16 +361,16 @@ func normalizeHost(host string) string {
 func checkNavigation(raw string, allowed []string) (*url.URL, error) {
 	u, err := url.Parse(strings.TrimSpace(raw))
 	if err != nil {
-		return nil, fmt.Errorf("%w: %v", errInvalidRecipe, err)
+		return nil, fmt.Errorf("%w: %v", ErrInvalidRecipe, err)
 	}
 	if u.Scheme != "http" && u.Scheme != "https" {
-		return nil, fmt.Errorf("%w: scheme %q is not allowed", errInvalidRecipe, u.Scheme)
+		return nil, fmt.Errorf("%w: scheme %q is not allowed", ErrInvalidRecipe, u.Scheme)
 	}
 	if u.User != nil {
-		return nil, fmt.Errorf("%w: URLs with credentials are not allowed", errInvalidRecipe)
+		return nil, fmt.Errorf("%w: URLs with credentials are not allowed", ErrInvalidRecipe)
 	}
 	if u.Hostname() == "" {
-		return nil, fmt.Errorf("%w: URL has no host", errInvalidRecipe)
+		return nil, fmt.Errorf("%w: URL has no host", ErrInvalidRecipe)
 	}
 	if !HostAllowed(u.Hostname(), allowed) {
 		return nil, fmt.Errorf("%w: %s", ErrHostNotAllowed, u.Hostname())

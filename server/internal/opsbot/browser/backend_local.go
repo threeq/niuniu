@@ -361,7 +361,9 @@ func (b *LocalBackend) classify(ctx context.Context, driver Driver, err error) e
 	if err == nil {
 		return nil
 	}
-	if errors.Is(err, ErrHostNotAllowed) || errors.Is(err, errInvalidRecipe) || errors.Is(err, ErrFileNotAllowed) {
+	if errors.Is(err, ErrHostNotAllowed) || errors.Is(err, ErrInvalidRecipe) ||
+		errors.Is(err, ErrMissingInput) || errors.Is(err, ErrUnknownAction) ||
+		errors.Is(err, ErrFileNotAllowed) {
 		return err
 	}
 	if errors.Is(err, context.DeadlineExceeded) {
@@ -385,7 +387,7 @@ func (b *LocalBackend) classify(ctx context.Context, driver Driver, err error) e
 	if errors.As(err, &netErr) {
 		return errors.Join(ErrTransient, err)
 	}
-	if errors.Is(err, ErrSelectorNotFound) || errors.Is(err, errAssertFailed) {
+	if errors.Is(err, ErrSelectorNotFound) || errors.Is(err, ErrAssertFailed) {
 		return errors.Join(ErrRecipeBroken, err)
 	}
 	return errors.Join(ErrTransient, err)
@@ -507,7 +509,7 @@ func (b *LocalBackend) runRecipe(ctx context.Context, s *localSession, recipe pa
 		out.Values[k] = v
 	}
 	if len(recipe.Steps) == 0 {
-		return out, fmt.Errorf("%w: recipe %q has no steps", errInvalidRecipe, recipe.Name)
+		return out, fmt.Errorf("%w: recipe %q has no steps", ErrInvalidRecipe, recipe.Name)
 	}
 
 	ex := &recipeExec{
@@ -526,21 +528,21 @@ func (b *LocalBackend) runRecipe(ctx context.Context, s *localSession, recipe pa
 
 func (e *recipeExec) run(ctx context.Context, steps []packs.RecipeStep, st *runState, defaultTarget Target, depth int) error {
 	if depth > maxExecDepth {
-		return fmt.Errorf("%w: recipe nesting is too deep", errInvalidRecipe)
+		return fmt.Errorf("%w: recipe nesting is too deep", ErrInvalidRecipe)
 	}
 	for i := 0; i < len(steps); i++ {
 		step := steps[i]
 		switch strings.ToLower(strings.TrimSpace(step.Action)) {
 		case "loop":
 			if i+1 >= len(steps) {
-				return fmt.Errorf("%w: loop has no following step", errInvalidRecipe)
+				return fmt.Errorf("%w: loop has no following step", ErrInvalidRecipe)
 			}
 			selector, err := e.expand(firstNonEmpty(step.Args["selector"], step.Selector), st)
 			if err != nil {
 				return err
 			}
 			if selector == "" {
-				return fmt.Errorf("%w: loop has no selector", errInvalidRecipe)
+				return fmt.Errorf("%w: loop has no selector", ErrInvalidRecipe)
 			}
 			limit := intArg(step.Args, "max", 10)
 			if limit > maxLoopIterations {
@@ -573,7 +575,7 @@ func (e *recipeExec) run(ctx context.Context, steps []packs.RecipeStep, st *runS
 				return err
 			}
 			if selector == "" {
-				return fmt.Errorf("%w: branch has no condition selector", errInvalidRecipe)
+				return fmt.Errorf("%w: branch has no condition selector", ErrInvalidRecipe)
 			}
 			count, err := e.driver.Count(ctx, selector)
 			if err != nil {
@@ -668,7 +670,7 @@ func (e *recipeExec) runOne(ctx context.Context, step packs.RecipeStep, st *runS
 	case "assert":
 		return e.assertStep(ctx, step, st, defaultTarget)
 	default:
-		return fmt.Errorf("%w: unknown action %q", errInvalidRecipe, step.Action)
+		return fmt.Errorf("%w: %q", ErrUnknownAction, step.Action)
 	}
 }
 
@@ -703,7 +705,7 @@ func (e *recipeExec) gotoStep(ctx context.Context, step packs.RecipeStep, st *ru
 		return nil
 	}
 	if lastErr == nil {
-		return fmt.Errorf("%w: goto has no URL", errInvalidRecipe)
+		return fmt.Errorf("%w: goto has no URL", ErrInvalidRecipe)
 	}
 	return lastErr
 }
@@ -716,7 +718,7 @@ func (e *recipeExec) targetStep(ctx context.Context, step packs.RecipeStep, st *
 		return err
 	}
 	if len(candidates) == 0 {
-		return fmt.Errorf("%w: selector is empty", errInvalidRecipe)
+		return fmt.Errorf("%w: selector is empty", ErrInvalidRecipe)
 	}
 	var lastErr error = ErrSelectorNotFound
 	for _, target := range candidates {
@@ -746,13 +748,13 @@ func (e *recipeExec) assertStep(ctx context.Context, step packs.RecipeStep, st *
 		return err
 	}
 	if len(candidates) == 0 {
-		return fmt.Errorf("%w: assert has no selector", errInvalidRecipe)
+		return fmt.Errorf("%w: assert has no selector", ErrInvalidRecipe)
 	}
 	when := strings.ToLower(firstNonEmpty(step.Args["when"], "present"))
 	equals, hasEquals := literalOrTemplate(step.Args["equals"], st)
 	contains, hasContains := literalOrTemplate(step.Args["contains"], st)
 
-	var lastErr error = errAssertFailed
+	var lastErr error = ErrAssertFailed
 	for _, target := range candidates {
 		count, err := e.driver.Count(ctx, target.Selector)
 		if err != nil {
@@ -762,7 +764,7 @@ func (e *recipeExec) assertStep(ctx context.Context, step packs.RecipeStep, st *
 			if count == 0 {
 				return nil
 			}
-			lastErr = fmt.Errorf("%w: %s is present", errAssertFailed, target.Selector)
+			lastErr = fmt.Errorf("%w: %s is present", ErrAssertFailed, target.Selector)
 			continue
 		}
 		if count <= target.Index {
@@ -777,11 +779,11 @@ func (e *recipeExec) assertStep(ctx context.Context, step packs.RecipeStep, st *
 			return err
 		}
 		if hasEquals && text != equals {
-			lastErr = fmt.Errorf("%w: %q != %q", errAssertFailed, text, equals)
+			lastErr = fmt.Errorf("%w: %q != %q", ErrAssertFailed, text, equals)
 			continue
 		}
 		if hasContains && !strings.Contains(text, contains) {
-			lastErr = fmt.Errorf("%w: %q does not contain %q", errAssertFailed, text, contains)
+			lastErr = fmt.Errorf("%w: %q does not contain %q", ErrAssertFailed, text, contains)
 			continue
 		}
 		return nil
@@ -843,7 +845,7 @@ func (e *recipeExec) uploadFiles(ctx context.Context, step packs.RecipeStep, st 
 		files = append(files, clean)
 	}
 	if len(files) == 0 {
-		return nil, fmt.Errorf("%w: upload step has no files", errInvalidRecipe)
+		return nil, fmt.Errorf("%w: upload step has no files", ErrInvalidRecipe)
 	}
 	return files, nil
 }
@@ -908,7 +910,7 @@ func (e *recipeExec) expand(s string, st *runState) (string, error) {
 		return m
 	})
 	if missing != "" {
-		return "", fmt.Errorf("%w: unknown template key %q", errInvalidRecipe, missing)
+		return "", fmt.Errorf("%w: template key %q", ErrMissingInput, missing)
 	}
 	return out, nil
 }
