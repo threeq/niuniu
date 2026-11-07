@@ -70,6 +70,9 @@ type MissionControlIntake struct {
 	Metrics      []MissionControlMetric `json:"metrics"`
 	PerSource    []IntakeDailyCount     `json:"per_source"`
 	PerChat      []IntakeDailyCount     `json:"per_chat"`
+	// Sources is the delivery-health group (design §12): one row per ci/email/
+	// webhook binding, with its recent success/failure and 24h counters.
+	Sources []IntakeSourceHealth `json:"sources"`
 }
 
 // MissionControlCompletion is the 完成 panel.
@@ -90,9 +93,19 @@ type MissionControlService struct {
 	authz  *Authz
 	intake *IntakeService
 
+	// intakeSources supplies the per-binding delivery-health group. It is wired
+	// with a setter because the source service is constructed later in DI.
+	intakeSources *IntakeSourceService
+
 	// now is the clock used for every time-bounded metric. nil means time.Now;
 	// tests inject a fixed instant to pin day boundaries.
 	now func() time.Time
+}
+
+// SetIntakeSources wires the binding service used for the delivery-health
+// group (design §12).
+func (s *MissionControlService) SetIntakeSources(svc *IntakeSourceService) {
+	s.intakeSources = svc
 }
 
 func (s *MissionControlService) clock() time.Time {
@@ -251,6 +264,7 @@ func (s *MissionControlService) View(ctx context.Context, userID int64, ownerFil
 				Metrics:   emptyIntakeMetrics(),
 				PerSource: []IntakeDailyCount{},
 				PerChat:   []IntakeDailyCount{},
+				Sources:   []IntakeSourceHealth{},
 			},
 			Completion: MissionControlCompletion{Metrics: emptyCompletionMetrics()},
 		}, nil
@@ -273,6 +287,7 @@ func (s *MissionControlService) intakeView(ctx context.Context, userID int64, pr
 		ProjectCount: len(projectIDs),
 		PerSource:    []IntakeDailyCount{},
 		PerChat:      []IntakeDailyCount{},
+		Sources:      []IntakeSourceHealth{},
 	}
 
 	// Paused means EVERY project in scope is paused: the panel switch turns the
@@ -373,6 +388,16 @@ func (s *MissionControlService) intakeView(ctx context.Context, userID int64, pr
 	}
 	view.PerSource = perSource
 	view.PerChat = perChat
+
+	if s.intakeSources != nil {
+		for _, pid := range projectIDs {
+			health, err := s.intakeSources.HealthByProject(ctx, pid)
+			if err != nil {
+				return MissionControlIntake{}, err
+			}
+			view.Sources = append(view.Sources, health...)
+		}
+	}
 
 	view.Metrics = []MissionControlMetric{
 		countMetric("today_accepted", "intake", todayAccepted, available),

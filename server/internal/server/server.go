@@ -117,7 +117,9 @@ type Server struct {
 	intakeHandler        *api.IntakeHandler
 	githubSourceSvc      *service.GithubSourceService
 	githubReplySvc       *service.GithubReplyDispatcher
+	emailSourceSvc       *service.EmailSourceService
 	webhookSourceSvc     *service.WebhookSourceService
+	intakeSourceSvc      *service.IntakeSourceService
 	intakeWebhookHandler *api.IntegrationWebhookHandler
 	completionSvc        *service.CompletionService
 	completionHandler    *api.CompletionHandler
@@ -960,6 +962,38 @@ func New(cfg *config.Config, db *sql.DB, frontendFS fs.FS) *Server {
 	// after intakeSvc (it reuses its pause get/set) and owns no writes of its own.
 	s.missionControlSvc = service.NewMissionControlService(store.Wrap(db), s.queries, authz, s.intakeSvc)
 	s.missionControlHandler = &api.MissionControlHandler{Svc: s.missionControlSvc, DB: db}
+	// Delivery health (design §12): intake events/decisions are the durable half;
+	// this in-memory tracker carries the 401/400/duplicate signals that are
+	// deliberately not recorded as events. One instance is shared by the inbound
+	// adapters, the poller and the read paths.
+	deliveryHealth := service.NewDeliveryHealthTracker()
+	deliveryHealth.SetAlertHandler(func(a service.DeliveryAlert) {
+		var ownerType string
+		var ownerID int64
+		if p, err := s.queries.GetProject(context.Background(), a.ProjectID); err == nil {
+			ownerType, ownerID = p.OwnerType, p.OwnerID
+		}
+		name := ""
+		if row, err := s.queries.GetProjectExternalSource(context.Background(), a.BindingID); err == nil {
+			name = row.SourceKey
+		}
+		s.notifyHub.Broadcast(notify.Notification{
+			Topic:  notify.TopicIntakeHealth,
+			Action: "alert",
+			ID:     a.BindingID,
+			Extra: map[string]any{
+				"source_id":   a.BindingID,
+				"project_id":  a.ProjectID,
+				"name":        name,
+				"source_kind": a.Provider,
+				"provider":    a.Provider,
+				"reason_code": a.ReasonCode,
+				"message":     a.Message,
+			},
+			OwnerType: ownerType,
+			OwnerID:   ownerID,
+		})
+	})
 	// PATCH /api/issues/:id carries completion_profile_id; the kanban handler owns
 	// that route, so give it the completion service.
 	s.kanbanHandler.Completion = s.completionSvc
@@ -1749,14 +1783,32 @@ func New(cfg *config.Config, db *sql.DB, frontendFS fs.FS) *Server {
 	if cfg.Intake.GitHubPollCron != "" {
 		s.scheduler.RegisterGitHubPoll(cfg.Intake.GitHubPollCron, s.githubSourceSvc.RunOnce)
 	}
+	// Email Source, IMAP transport (design §6.2): the personal edition polls a
+	// bound mailbox read-only (BODY.PEEK[], never \Seen, never delete). Its
+	// cursor is UIDVALIDITY + UID, so the poller resumes where it stopped.
+	s.emailSourceSvc = service.NewEmailSourceService(db, s.queries, s.extCredSvc)
+	s.emailSourceSvc.SetInbound(imbotDispatch, s.agentProxy)
+	s.emailSourceSvc.SetDeliveryHealth(deliveryHealth)
+	if cfg.Intake.EmailPollCron != "" {
+		s.scheduler.RegisterEmailPoll(cfg.Intake.EmailPollCron, s.emailSourceSvc.RunOnce)
+	}
 	// Team-edition inbound Sources (design §6.10): GitHub webhook plus the
 	// email/generic webhook adapters. They normalize to the same Trigger shape
 	// and run through the same Intake pipeline as polling, so dedupe, actor
 	// scope, the daily cap and audit are identical.
 	s.webhookSourceSvc = service.NewWebhookSourceService(db, s.queries, s.extCredSvc)
 	s.webhookSourceSvc.SetInbound(imbotDispatch, s.agentProxy)
-	s.intakeHandler.Webhook = s.webhookSourceSvc
+	s.webhookSourceSvc.SetDeliveryHealth(deliveryHealth)
 	s.intakeWebhookHandler = api.NewIntegrationWebhookHandler(s.webhookSourceSvc)
+	// Binding management (design §10.1): ci/email/webhook share one service.
+	// PollNow reuses the IMAP poller wired just above; without it the poll
+	// endpoint reports "poller not wired" instead of pretending to poll.
+	s.intakeSourceSvc = service.NewIntakeSourceService(db, s.queries, s.extCredSvc, authz, s.credUsagePolicySvc)
+	s.intakeSourceSvc.SetEmailPoller(s.emailSourceSvc)
+	s.intakeSourceSvc.SetDeliveryHealth(deliveryHealth)
+	s.intakeHandler.Sources = s.intakeSourceSvc
+	// Mission control renders the per-binding delivery health group.
+	s.missionControlSvc.SetIntakeSources(s.intakeSourceSvc)
 	// Let a user answer an agent's ask_user question by tapping an option button in
 	// the chat (the outbound question card carries option buttons).
 	s.imbotSvc.SetAskUserDecider(s.askUserService)

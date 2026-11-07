@@ -15,22 +15,28 @@ package service
 
 import (
 	"context"
+	"crypto/hmac"
 	"crypto/rand"
+	"crypto/sha256"
 	"crypto/subtle"
 	"database/sql"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
+	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/niuniu-dev/niuniu/internal/githubsource"
 	"github.com/niuniu-dev/niuniu/internal/intake"
 	"github.com/niuniu-dev/niuniu/internal/integration"
 	"github.com/niuniu-dev/niuniu/internal/store"
 	"github.com/niuniu-dev/niuniu/internal/webhooksource"
+	"golang.org/x/time/rate"
 )
 
 var (
@@ -42,9 +48,33 @@ var (
 	ErrWebhookNotFound = errors.New("webhook source: binding not found")
 	// ErrWebhookBadRequest is a payload/normalization error.
 	ErrWebhookBadRequest = errors.New("webhook source: bad request")
+	// ErrWebhookRateLimited is returned when a binding exceeds its delivery
+	// budget. The HTTP layer maps it to 429.
+	ErrWebhookRateLimited = errors.New("webhook source: rate limited")
+	// ErrIntakeWebhookForbidden is returned when the delivery's client address
+	// falls outside the binding's network policy. The HTTP layer maps it to 403
+	// and, like every rejection before the pipeline, nothing is recorded.
+	ErrIntakeWebhookForbidden = errors.New("webhook source: source address not allowed")
 )
 
-const webhookSecretKey = "webhook_secret"
+const (
+	webhookSecretKey = "webhook_secret"
+
+	webhookTimestampHeader = "X-Webhook-Timestamp"
+	webhookSignatureHeader = "X-Webhook-Signature-256"
+	webhookSignaturePrefix = "sha256="
+
+	// webhookTimestampSkew bounds replay: a delivery timestamped more than five
+	// minutes in the past or future is rejected.
+	webhookTimestampSkew = 5 * time.Minute
+
+	// webhookRatePerMinute is the per-binding delivery budget. The burst equals
+	// the per-minute allowance so a short legitimate burst is not dropped.
+	webhookRatePerMinute = 60
+
+	defaultWebhookBodyBytes int64 = 1 << 20  // 1 MB
+	maxWebhookBodyBytes     int64 = 25 << 20 // 25 MB
+)
 
 // InboundOutcome describes what a delivery did. Ignored deliveries (an event
 // type that is not enabled, a deleted comment, a non-final check run) are
@@ -69,6 +99,10 @@ type WebhookSourceService struct {
 	mu        sync.RWMutex
 	dispatch  TaskRouter
 	deliverer MessageDeliverer
+
+	delivery *DeliveryHealthTracker
+
+	rateLimiters sync.Map // binding id -> *rate.Limiter
 }
 
 // NewWebhookSourceService builds the adapters. It performs no I/O until a
@@ -83,6 +117,16 @@ func NewWebhookSourceService(rawDB *sql.DB, q *store.Queries, creds *ExternalCre
 		Executor: webhookExecutor{svc: s},
 	})
 	return s
+}
+
+// SetDeliveryHealth wires the shared delivery tracker (server DI). Recorded
+// outcomes explain 401/400/duplicate deliveries that leave no intake_events row.
+func (s *WebhookSourceService) SetDeliveryHealth(t *DeliveryHealthTracker) { s.delivery = t }
+
+func (s *WebhookSourceService) recordDelivery(b webhookBinding, outcome DeliveryOutcome) {
+	if s.delivery != nil {
+		s.delivery.Record(b.id, b.projectID, b.provider, outcome)
+	}
 }
 
 // SetInbound wires the shared task router and agent deliverer (server DI).
@@ -119,8 +163,16 @@ func (s *WebhookSourceService) HandleInbound(
 		return InboundOutcome{}, ErrWebhookNotFound
 	}
 
+	// Network policy is the outermost boundary: it runs before the secret is
+	// even fetched, so a disallowed peer learns nothing and no event is written.
+	if !ClientAllowed(networkConfigFromBinding(binding.config), r) {
+		s.recordDelivery(binding, DeliveryForbidden)
+		return InboundOutcome{}, ErrIntakeWebhookForbidden
+	}
+
 	secret, err := s.bindingSecret(ctx, binding)
 	if err != nil {
+		s.recordDelivery(binding, DeliveryTransportFailed)
 		return InboundOutcome{}, err
 	}
 
@@ -129,20 +181,62 @@ func (s *WebhookSourceService) HandleInbound(
 	switch binding.provider {
 	case intake.SourceKindGitHub:
 		if !githubsource.SignatureValid(secret, body, r.Header.Get("X-Hub-Signature-256")) {
+			s.recordDelivery(binding, DeliveryAuthFailed)
 			return InboundOutcome{}, ErrIntakeWebhookUnauthorized
+		}
+		if !s.allowDelivery(binding.id) {
+			s.recordDelivery(binding, DeliveryRateLimited)
+			return InboundOutcome{}, ErrWebhookRateLimited
 		}
 		eventType := strings.TrimSpace(r.Header.Get("X-GitHub-Event"))
 		kind, known := githubsource.WebhookEventKind(eventType)
 		if !known || !githubEventEnabled(binding.config, kind) {
+			s.recordDelivery(binding, DeliveryIgnored)
 			return InboundOutcome{Ignored: true}, nil
 		}
 		trig, ok, err = githubsource.NormalizeWebhook(binding.projectID, binding.name, eventType, body)
 		if err != nil {
+			s.recordDelivery(binding, DeliveryBadRequest)
 			return InboundOutcome{}, fmt.Errorf("%w: %v", ErrWebhookBadRequest, err)
+		}
+	case intake.SourceKindCI:
+		// The vendor lives in config.provider (the binding's own provider column
+		// is the source kind), so it selects both the auth preset and the parser.
+		preset, known := webhooksource.CIProviderPresetFor(ciProviderFromConfig(binding.config))
+		if !known {
+			return InboundOutcome{}, ErrWebhookNotFound
+		}
+		if !ciCredentialValid(preset, secret, r, body, time.Now()) {
+			s.recordDelivery(binding, DeliveryAuthFailed)
+			return InboundOutcome{}, ErrIntakeWebhookUnauthorized
+		}
+		if !s.allowDelivery(binding.id) {
+			s.recordDelivery(binding, DeliveryRateLimited)
+			return InboundOutcome{}, ErrWebhookRateLimited
+		}
+		ref := fmt.Sprintf("%s/%d", binding.name, binding.id)
+		trig, ok, err = webhooksource.NormalizeCI(binding.projectID, ref, preset.Provider, body)
+		if err != nil {
+			s.recordDelivery(binding, DeliveryBadRequest)
+			return InboundOutcome{}, fmt.Errorf("%w: %v", ErrWebhookBadRequest, err)
+		}
+		if ok && !ciEventEnabled(binding.config, preset, trig.EventKind) {
+			s.recordDelivery(binding, DeliveryIgnored)
+			return InboundOutcome{Ignored: true}, nil
+		}
+		// Success/recovery/cancel only signal an already-bound task; the
+		// pipeline turns them into an ignore when no task is bound.
+		if ok && ciKindRequiresBound(trig.EventKind) {
+			trig.RequireBound = true
 		}
 	case intake.SourceKindEmail, intake.SourceKindWebhook:
 		if !genericSecretValid(secret, r, body) {
+			s.recordDelivery(binding, DeliveryAuthFailed)
 			return InboundOutcome{}, ErrIntakeWebhookUnauthorized
+		}
+		if !s.allowDelivery(binding.id) {
+			s.recordDelivery(binding, DeliveryRateLimited)
+			return InboundOutcome{}, ErrWebhookRateLimited
 		}
 		// intake_events is unique on (source_kind, source_ref, event_ext_id)
 		// without project_id, so the SourceRef must identify the BINDING, not just
@@ -150,24 +244,62 @@ func (s *WebhookSourceService) HandleInbound(
 		// would cross-dedupe each other's events.
 		ref := fmt.Sprintf("%s/%d", binding.name, binding.id)
 		if binding.provider == intake.SourceKindEmail {
-			trig, err = webhooksource.NormalizeEmail(binding.projectID, ref, body)
+			// Apply the same ignore rules as the IMAP poller: auto-replies, bulk
+			// mail, bounces and self-sent messages are acknowledged but never
+			// become tasks.
+			selfAddress := firstNonEmpty(
+				configString(binding.config, "self_address"),
+				configString(binding.config, "address"),
+			)
+			res, nerr := webhooksource.NormalizeEmailMessage(binding.projectID, ref, body,
+				webhooksource.EmailNormalizeOptions{
+					Provider:      configString(binding.config, "provider"),
+					SelfAddress:   selfAddress,
+					DisableIgnore: !configBool(binding.config, "ignore_auto", true),
+				})
+			if nerr != nil {
+				s.recordDelivery(binding, DeliveryBadRequest)
+				return InboundOutcome{}, fmt.Errorf("%w: %v", ErrWebhookBadRequest, nerr)
+			}
+			if res.Ignored {
+				s.recordDelivery(binding, DeliveryIgnored)
+				return InboundOutcome{Ignored: true}, nil
+			}
+			trig = res.Trigger
 		} else {
 			trig, err = webhooksource.NormalizeGeneric(binding.projectID, ref, body)
+			if err != nil {
+				s.recordDelivery(binding, DeliveryBadRequest)
+				return InboundOutcome{}, fmt.Errorf("%w: %v", ErrWebhookBadRequest, err)
+			}
 		}
-		if err != nil {
-			return InboundOutcome{}, fmt.Errorf("%w: %v", ErrWebhookBadRequest, err)
+		// A binding may restrict which event names it accepts. An absent/empty
+		// list means every event, matching the pre-configuration default.
+		if !webhookEventEnabled(binding.config, trig.EventKind) {
+			s.recordDelivery(binding, DeliveryIgnored)
+			return InboundOutcome{Ignored: true}, nil
 		}
 		ok = true
 	default:
 		return InboundOutcome{}, ErrWebhookNotFound
 	}
 	if !ok {
+		s.recordDelivery(binding, DeliveryIgnored)
 		return InboundOutcome{Ignored: true}, nil
 	}
 
 	res, err := s.intake.Handle(ctx, trig)
 	if err != nil {
+		s.recordDelivery(binding, DeliveryTransportFailed)
 		return InboundOutcome{}, err
+	}
+	switch {
+	case res.Duplicate:
+		s.recordDelivery(binding, DeliveryDuplicate)
+	case res.Decision == intake.DecisionIgnore:
+		s.recordDelivery(binding, DeliveryRejected)
+	default:
+		s.recordDelivery(binding, DeliverySuccess)
 	}
 	return InboundOutcome{
 		Duplicate:  res.Duplicate,
@@ -232,20 +364,186 @@ func (s *WebhookSourceService) bindingSecret(ctx context.Context, b webhookBindi
 	return "", ErrIntakeWebhookUnauthorized
 }
 
-// genericSecretValid accepts an HMAC signature (when present) or a bearer token
-// in Authorization / X-Webhook-Token. Comparison is constant-time.
+// genericSecretValid accepts, in order of precedence:
+//
+//  1. a timestamped signature: X-Webhook-Timestamp + X-Webhook-Signature-256 =
+//     HMAC(secret, timestamp + "." + body), valid only inside a ±300s window;
+//  2. a raw-body HMAC signature (previous behaviour, kept for compatibility);
+//  3. a bearer token in Authorization / X-Webhook-Token.
+//
+// All comparisons are constant-time. A delivery carrying a timestamp MUST carry
+// a valid timestamped signature: it never falls back to another scheme, so an
+// attacker cannot reuse a captured raw-body signature by adding a timestamp.
 func genericSecretValid(secret string, r *http.Request, body []byte) bool {
+	return genericSecretValidAt(secret, r, body, time.Now())
+}
+
+func genericSecretValidAt(secret string, r *http.Request, body []byte, now time.Time) bool {
+	secret = strings.TrimSpace(secret)
 	if secret == "" {
 		return false
 	}
-	if sig := r.Header.Get("X-Webhook-Signature-256"); strings.TrimSpace(sig) != "" {
-		return githubsource.SignatureValid(secret, body, sig)
+	timestamp := strings.TrimSpace(r.Header.Get(webhookTimestampHeader))
+	signature := strings.TrimSpace(r.Header.Get(webhookSignatureHeader))
+	if timestamp != "" {
+		if signature == "" || !webhookTimestampFresh(timestamp, now) {
+			return false
+		}
+		return webhookTimestampSignatureValid(secret, timestamp, body, signature)
+	}
+	if signature != "" {
+		return githubsource.SignatureValid(secret, body, signature)
 	}
 	token := bearerToken(r.Header.Get("Authorization"))
 	if token == "" {
 		token = strings.TrimSpace(r.Header.Get("X-Webhook-Token"))
 	}
 	return token != "" && subtle.ConstantTimeCompare([]byte(token), []byte(secret)) == 1
+}
+
+// webhookTimestampFresh reports whether a Unix-seconds timestamp is within the
+// replay window on either side of now.
+func webhookTimestampFresh(raw string, now time.Time) bool {
+	secs, err := strconv.ParseInt(strings.TrimSpace(raw), 10, 64)
+	if err != nil {
+		return false
+	}
+	delta := now.Sub(time.Unix(secs, 0))
+	return delta <= webhookTimestampSkew && delta >= -webhookTimestampSkew
+}
+
+// webhookTimestampSignatureValid verifies HMAC(secret, timestamp+"."+body). The
+// signature may carry the conventional "sha256=" prefix or be bare hex.
+func webhookTimestampSignatureValid(secret, timestamp string, body []byte, header string) bool {
+	header = strings.TrimSpace(header)
+	if len(header) >= len(webhookSignaturePrefix) &&
+		strings.EqualFold(header[:len(webhookSignaturePrefix)], webhookSignaturePrefix) {
+		header = strings.TrimSpace(header[len(webhookSignaturePrefix):])
+	}
+	got, err := hex.DecodeString(header)
+	if err != nil || len(got) != sha256.Size {
+		return false
+	}
+	mac := hmac.New(sha256.New, []byte(secret))
+	_, _ = mac.Write([]byte(timestamp))
+	_, _ = mac.Write([]byte("."))
+	_, _ = mac.Write(body)
+	return hmac.Equal(got, mac.Sum(nil))
+}
+
+// allowDelivery enforces the per-binding budget (60/min, burst 60). Each binding
+// gets an independent limiter, cached for the process lifetime.
+func (s *WebhookSourceService) allowDelivery(bindingID int64) bool {
+	v, ok := s.rateLimiters.Load(bindingID)
+	if !ok {
+		lim := rate.NewLimiter(rate.Every(time.Minute/webhookRatePerMinute), webhookRatePerMinute)
+		v, _ = s.rateLimiters.LoadOrStore(bindingID, lim)
+	}
+	return v.(*rate.Limiter).Allow()
+}
+
+// ciProviderFromConfig resolves the CI vendor stored in config.provider. The
+// binding's provider column is the source kind ("ci"), so the vendor must come
+// from the config; an absent or malformed config falls back to the generic
+// contract (a binding that cannot name a vendor still authenticates).
+func ciProviderFromConfig(rawConfig string) string {
+	if strings.TrimSpace(rawConfig) == "" {
+		return webhooksource.CIProviderGeneric
+	}
+	var cfg struct {
+		Provider string `json:"provider"`
+	}
+	if err := json.Unmarshal([]byte(rawConfig), &cfg); err != nil {
+		return webhooksource.CIProviderGeneric
+	}
+	if v := strings.ToLower(strings.TrimSpace(cfg.Provider)); v != "" {
+		return v
+	}
+	return webhooksource.CIProviderGeneric
+}
+
+// ciCredentialValid verifies the credential carrier the provider preset
+// declares. Token and bearer values are compared in constant time; HMAC presets
+// are verified over the request body. The generic preset requires a fresh
+// timestamp alongside its signature so a captured delivery cannot be replayed.
+func ciCredentialValid(preset webhooksource.CIProviderPreset, secret string, r *http.Request, body []byte, now time.Time) bool {
+	secret = strings.TrimSpace(secret)
+	if secret == "" {
+		return false
+	}
+	mode, value, ok := preset.Credential(r.Header)
+	if !ok {
+		return false
+	}
+	switch mode {
+	case webhooksource.CIAuthToken, webhooksource.CIAuthBearer:
+		return subtle.ConstantTimeCompare([]byte(value), []byte(secret)) == 1
+	case webhooksource.CIAuthHMAC:
+		if preset.Provider == webhooksource.CIProviderCircleCI {
+			return ciBodyHMACValid(secret, body, value)
+		}
+		// Generic CI carries the signature in X-Niuniu-Signature-256; accept the
+		// legacy webhook timestamp header too, but never skip the timestamp.
+		ts := strings.TrimSpace(r.Header.Get("X-Niuniu-Timestamp"))
+		if ts == "" {
+			ts = strings.TrimSpace(r.Header.Get(webhookTimestampHeader))
+		}
+		if ts == "" || !webhookTimestampFresh(ts, now) {
+			return false
+		}
+		return webhookTimestampSignatureValid(secret, ts, body, value)
+	}
+	return false
+}
+
+// ciBodyHMACValid verifies HMAC-SHA256(secret, body) against a hex signature
+// that may carry a "sha256=" prefix.
+func ciBodyHMACValid(secret string, body []byte, header string) bool {
+	got, err := hex.DecodeString(webhooksource.CISignatureHex(header))
+	if err != nil || len(got) != sha256.Size {
+		return false
+	}
+	mac := hmac.New(sha256.New, []byte(secret))
+	_, _ = mac.Write(body)
+	return hmac.Equal(got, mac.Sum(nil))
+}
+
+// ciEventEnabled applies the binding's event subscription. When config.events is
+// absent the provider preset's default (failures only) applies, so a new CI
+// source is not flooded by successful pipelines; an explicit empty list means
+// every event.
+func ciEventEnabled(rawConfig string, preset webhooksource.CIProviderPreset, kind string) bool {
+	var cfg struct {
+		Events *[]string `json:"events"`
+	}
+	if strings.TrimSpace(rawConfig) != "" {
+		_ = json.Unmarshal([]byte(rawConfig), &cfg)
+	}
+	events := preset.DefaultEvents
+	if cfg.Events != nil {
+		events = *cfg.Events
+	}
+	if len(events) == 0 {
+		return true
+	}
+	kind = strings.TrimSpace(kind)
+	for _, e := range events {
+		if strings.TrimSpace(e) == kind {
+			return true
+		}
+	}
+	return false
+}
+
+// ciKindRequiresBound reports whether an event only makes sense as a signal to
+// an existing task. Success/recovery close the repair loop; a cancelled run is
+// likewise meaningless without a bound task.
+func ciKindRequiresBound(kind string) bool {
+	switch kind {
+	case intake.EventKindCISucceeded, intake.EventKindCIRecovered, intake.EventKindCICanceled:
+		return true
+	}
+	return false
 }
 
 func bearerToken(header string) string {
@@ -271,6 +569,83 @@ func githubEventEnabled(rawConfig, kind string) bool {
 		}
 	}
 	return false
+}
+
+// webhookEventEnabled reports whether the binding's config.events list admits
+// the event kind. Event names are caller-defined (unlike GitHub's fixed set), so
+// the raw values are compared without a known-event filter. Empty means all.
+func webhookEventEnabled(rawConfig, kind string) bool {
+	events := webhookConfigEvents(rawConfig)
+	if len(events) == 0 {
+		return true
+	}
+	kind = strings.TrimSpace(kind)
+	for _, e := range events {
+		if e == kind {
+			return true
+		}
+	}
+	return false
+}
+
+func webhookConfigEvents(raw string) []string {
+	if strings.TrimSpace(raw) == "" {
+		return nil
+	}
+	var cfg struct {
+		Events []string `json:"events"`
+	}
+	if err := json.Unmarshal([]byte(raw), &cfg); err != nil {
+		return nil
+	}
+	out := make([]string, 0, len(cfg.Events))
+	for _, e := range cfg.Events {
+		if s := strings.TrimSpace(e); s != "" {
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
+// webhookBodyLimit reads config.max_body_bytes: absent/non-positive means the
+// 1 MB default, and anything above the 25 MB ceiling is clamped to it.
+func webhookBodyLimit(raw string) int64 {
+	if strings.TrimSpace(raw) == "" {
+		return defaultWebhookBodyBytes
+	}
+	var cfg struct {
+		MaxBodyBytes int64 `json:"max_body_bytes"`
+	}
+	if err := json.Unmarshal([]byte(raw), &cfg); err != nil {
+		return defaultWebhookBodyBytes
+	}
+	n := cfg.MaxBodyBytes
+	if n <= 0 {
+		return defaultWebhookBodyBytes
+	}
+	if n > maxWebhookBodyBytes {
+		return maxWebhookBodyBytes
+	}
+	return n
+}
+
+// BodyLimit resolves the inbound body cap for a binding before the HTTP layer
+// reads the payload. GitHub's ceiling stays at 25 MB (its own delivery limit);
+// email/generic bindings use config.max_body_bytes. An unknown binding or a
+// provider/route mismatch is reported as ErrWebhookNotFound so the handler can
+// reject without consuming the body.
+func (s *WebhookSourceService) BodyLimit(ctx context.Context, bindingID int64, expectedProvider string) (int64, error) {
+	b, err := s.loadBinding(ctx, bindingID)
+	if err != nil {
+		return 0, err
+	}
+	if expectedProvider != "" && b.provider != expectedProvider {
+		return 0, ErrWebhookNotFound
+	}
+	if b.provider == intake.SourceKindGitHub {
+		return maxWebhookBodyBytes, nil
+	}
+	return webhookBodyLimit(b.config), nil
 }
 
 // --- Resolver ---------------------------------------------------------------

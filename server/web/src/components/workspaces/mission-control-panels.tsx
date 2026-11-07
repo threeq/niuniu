@@ -5,11 +5,14 @@ import { Link } from '@tanstack/react-router'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 import { Inbox, Zap, AlertTriangle } from 'lucide-react'
+import { Badge } from '@/components/ui/badge'
 import { Switch } from '@/components/ui/switch'
 import { Button } from '@/components/ui/button'
 import {
   missionControlApi,
   type IntakeDailyCount,
+  type IntakeSourceHealth,
+  type IntakeSourceHealthStatus,
   type MissionControlMetric,
   type MissionControlView,
 } from '@/lib/mission-control-api'
@@ -173,6 +176,91 @@ function DailyList({
   )
 }
 
+const SOURCE_STATUS_CLASS: Record<IntakeSourceHealthStatus, string> = {
+  ok: 'border-success/30 bg-success/15 text-success',
+  degraded: 'border-warning/40 bg-warning/15 text-warning',
+  error: 'border-destructive/30 bg-destructive/10 text-destructive-text',
+  never: 'border-warm-border bg-warm-muted text-warm-text-muted',
+}
+
+/** Delivery health of every ci/email/webhook binding (design §12). A failed
+ *  binding drills into the calibration queue filtered to its project+source. */
+function SourceHealthGroup({ rows }: { rows: IntakeSourceHealth[] | null | undefined }) {
+  const { t } = useTranslation('intake')
+  return (
+    <div className="space-y-1">
+      <div className="text-xs font-medium text-muted-foreground">
+        {t('missionControl.deliveryHealth')}
+      </div>
+      {!rows || rows.length === 0 ? (
+        <p className="text-xs text-muted-foreground">{t('missionControl.deliveryHealthEmpty')}</p>
+      ) : (
+        <ul className="divide-y divide-border rounded-md border">
+          {rows.map((row) => {
+            const status: IntakeSourceHealthStatus = row.status ?? 'never'
+            const alertLabel = row.alert
+              ? t(`missionControl.sourceAlert.${row.alert}`, { defaultValue: '' })
+              : ''
+            return (
+              <li key={row.source_id}>
+                <Link
+                  to="/intake"
+                  search={{ project: row.project_id, source: row.source_kind }}
+                  className="flex flex-wrap items-center gap-x-3 gap-y-1 px-2 py-1.5 text-xs hover:bg-accent"
+                >
+                  <span className="truncate font-medium">{row.name}</span>
+                  <Badge
+                    variant="outline"
+                    className={cn('rounded px-1.5 py-0.5 text-xs', SOURCE_STATUS_CLASS[status])}
+                  >
+                    {t(`missionControl.sourceStatus.${status}`)}
+                  </Badge>
+                  <span className="truncate text-muted-foreground">
+                    {row.source_kind}
+                    {row.provider ? ` · ${row.provider}` : ''}
+                  </span>
+                  <span className="tabular-nums text-muted-foreground">
+                    {t('missionControl.sourceCounts', {
+                      success: row.success_24h,
+                      duplicate: row.duplicate_24h,
+                      rejected: row.rejected_24h,
+                    })}
+                  </span>
+                  <span className="ml-auto tabular-nums text-muted-foreground">
+                    {row.last_success_at
+                      ? t('missionControl.sourceLastSuccess', {
+                          time: new Date(row.last_success_at).toLocaleString(),
+                        })
+                      : t('missionControl.sourceNeverDelivered')}
+                  </span>
+                  {row.last_failure_at ? (
+                    <span className="w-full tabular-nums text-muted-foreground">
+                      {t('missionControl.sourceLastFailure', {
+                        time: new Date(row.last_failure_at).toLocaleString(),
+                      })}
+                      {row.backoff_until
+                        ? ` · ${t('missionControl.sourceBackoffUntil', {
+                            time: new Date(row.backoff_until).toLocaleString(),
+                          })}`
+                        : ''}
+                    </span>
+                  ) : null}
+                  {alertLabel ? (
+                    <span className="flex w-full items-center gap-1 text-warning">
+                      <AlertTriangle className="h-3 w-3" aria-hidden="true" />
+                      {alertLabel}
+                    </span>
+                  ) : null}
+                </Link>
+              </li>
+            )
+          })}
+        </ul>
+      )}
+    </div>
+  )
+}
+
 export function MissionControlPanels({ ownerParam }: { ownerParam?: string | null }) {
   const { t } = useTranslation('intake')
   const queryClient = useQueryClient()
@@ -257,6 +345,7 @@ export function MissionControlPanels({ ownerParam }: { ownerParam?: string | nul
           rows={view.intake.per_chat}
           renderKey={(row) => row.thread_ext_id || row.source_kind}
         />
+        <SourceHealthGroup rows={view.intake.sources} />
       </Panel>
 
       <Panel

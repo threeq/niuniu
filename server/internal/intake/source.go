@@ -42,6 +42,14 @@ const (
 	// EventKindProposal is work a source derived from observation rather than a
 	// message addressed to it (the IM employee's proactive task verdict).
 	EventKindProposal = "proposal"
+
+	// CI event kinds (design §5.1). A CI adapter maps provider statuses onto
+	// these four values and drops everything else, so the pipeline never sees a
+	// provider-specific state such as "running" or "on_hold".
+	EventKindCIFailed    = "ci_failed"
+	EventKindCISucceeded = "ci_succeeded"
+	EventKindCIRecovered = "ci_recovered"
+	EventKindCICanceled  = "ci_canceled"
 )
 
 // Attachment is an external resource referenced by an inbound event. Bytes are
@@ -123,6 +131,13 @@ type Trigger struct {
 	// with a finer-grained mode (an IM chat's own intake_mode) sets it; empty
 	// means "use the policy's mode as stored".
 	Mode Mode
+
+	// RequireBound marks an event that is only meaningful as a signal to an
+	// existing task — CI success/recovery/cancel events say "the pipeline the
+	// task was fixing now passes". When the thread is not bound to a task the
+	// pipeline records an ignore decision and creates nothing: a success event
+	// must never spawn work of its own.
+	RequireBound bool
 }
 
 // Source is one inbound adapter. Normalize must be pure: it maps a platform

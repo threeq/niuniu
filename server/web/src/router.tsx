@@ -37,6 +37,8 @@ const CredentialOnboardingPage = lazyNamed(
   'CredentialOnboardingPage',
 );
 
+const IntakeSecretPage = lazyNamed(() => import('./pages/intake-secret'), 'IntakeSecretPage');
+
 const WorkspacePage = lazyNamed(() => import('./pages/workspaces/workspace-page'), 'WorkspacePage');
 const WorkspacesOverview = lazyNamed(() => import('./pages/workspaces/workspaces-overview'), 'WorkspacesOverview');
 const WorkspaceSidebar = lazyNamed(() => import('./pages/workspaces/workspace-sidebar'), 'WorkspaceSidebar');
@@ -97,6 +99,17 @@ const credentialOnboardingRoute = createRoute({
   component: () => {
     const { token } = credentialOnboardingRoute.useParams();
     return <CredentialOnboardingPage token={token} />;
+  },
+});
+
+// 一次性任务来源密钥页（design §10.1）——同样公开：URL 里的令牌即授权，
+// 首次读取即被消费，刷新或转发链接都会显示已过期。
+const intakeSecretRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/intake/sources/secret/$token',
+  component: () => {
+    const { token } = intakeSecretRoute.useParams();
+    return <IntakeSecretPage token={token} />;
   },
 });
 
@@ -415,6 +428,7 @@ const routeTree = rootRoute.addChildren([
   loginRoute,
   imbotOnboardingRoute,
   credentialOnboardingRoute,
+  intakeSecretRoute,
   workspaceShareRoute,
   layoutRoute.addChildren([
     indexRoute,

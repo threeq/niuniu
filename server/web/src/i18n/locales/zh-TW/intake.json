@@ -83,9 +83,65 @@
         "description": "規則決定哪些推斷工作可以按來源模式被接。"
       }
     },
+    "bindings": {
+      "emptyTitle": "還沒有綁定",
+      "empty": "在來源卡上點「接入」建立第一條綁定。",
+      "meta": "{{mode}} · {{provider}}",
+      "genericProvider": "通用",
+      "lastDelivery": "最近投遞",
+      "events24h": "24h 事件",
+      "never": "從未投遞",
+      "inboundUrl": "入站地址",
+      "mode": {
+        "push": "推送",
+        "imap": "IMAP 輪詢",
+        "inbound": "入站解析"
+      },
+      "status": {
+        "ok": "正常",
+        "degraded": "退避中",
+        "error": "錯誤",
+        "never": "從未投遞"
+      },
+      "showError": "展開最近錯誤",
+      "hideError": "收起錯誤",
+      "backoffUntil": "將於 {{time}} 恢復輪詢",
+      "test": "測試投遞",
+      "testing": "測試中…",
+      "testFailed": "測試投遞失敗：{{message}}",
+      "testAllowed": "會進入接活流程",
+      "testDenied": "會被忽略",
+      "testSummary": "事件 {{event}} · 判定 {{reason}}",
+      "rotate": "輪換密鑰",
+      "rotateConfirm": "輪換「{{name}}」的密鑰？舊密鑰會立即失效，上游需要改成新密鑰。",
+      "rotateFailed": "輪換密鑰失敗：{{message}}",
+      "rotateSecretTitle": "新密鑰只展示一次",
+      "rotateSecretHint": "打開一次性頁面後立即複製並更新到上游系統。",
+      "rotateOpenSecret": "打開一次性密鑰頁",
+      "rotateNoSecret": "該綁定使用已有 IMAP 憑據，沒有需要輪換的密鑰。",
+      "poll": "立即輪詢",
+      "polling": "輪詢中…",
+      "pollStarted": "已觸發一次輪詢。",
+      "pollFailed": "立即輪詢失敗：{{message}}",
+      "delete": "刪除",
+      "deleteNamed": "刪除綁定 {{name}}",
+      "deleteConfirm": "刪除綁定「{{name}}」？刪除後上游再投遞會被拒絕。",
+      "deleted": "綁定已刪除。",
+      "deleteFailed": "刪除綁定失敗：{{message}}",
+      "pushHowTo": "把入站地址和密鑰配置到上游；測試投遞不會建任務。",
+      "reachability": {
+        "title": "可達性提示",
+        "loopback": "入站地址 {{origin}} 只有本機能訪問。該地址需要 CI 能訪問到本機。",
+        "private": "入站地址 {{origin}} 僅同一區域網內可達，公網 CI 無法訪問。",
+        "public": "入站地址 {{origin}} 看起來是公網地址。請確認反向代理已把請求轉發到本服務；測試投遞會給出實際失敗原因。",
+        "options": "可選：本機/區域網地址、自備隧道，或改用郵件 IMAP。"
+      }
+    },
     "config": {
       "title": "配置 {{source}}",
       "description": "調整允許名單、規則、每日上限與策略歷史。改動在面板點「儲存」後生效。",
+      "bindingsTitle": "接入綁定",
+      "bindingsDescription": "查看密鑰狀態、最近投遞與健康情況，並可測試、輪換、輪詢或刪除。",
       "allowList": "允許成員",
       "allowListHint": "只有名單內的人可以顯式發起工作；留空表示沿用來源自身的准入。",
       "allowListPlaceholder": "輸入成員外部賬號 ID",
@@ -280,6 +336,25 @@
     "loadError": "載入指標失敗",
     "retry": "重試",
     "noData": "—",
+    "deliveryHealth": "投遞健康",
+    "deliveryHealthEmpty": "還沒有入站綁定",
+    "sourceNeverDelivered": "尚未投遞",
+    "sourceLastSuccess": "最近成功 {{time}}",
+    "sourceLastFailure": "最近失敗 {{time}}",
+    "sourceBackoffUntil": "{{time}} 後恢復輪詢",
+    "sourceCounts": "{{success}} 成功 · {{duplicate}} 去重 · {{rejected}} 拒絕（24h）",
+    "sourceAlertToast": "{{name}}：{{reason}}",
+    "sourceStatus": {
+      "ok": "正常",
+      "degraded": "退避中",
+      "error": "失敗",
+      "never": "尚未投遞"
+    },
+    "sourceAlert": {
+      "secret_misconfigured": "連續 3 次 401 —— 密鑰可能配置錯誤。",
+      "payload_mismatch": "連續 3 次 400 —— 載荷格式不符。",
+      "imap_auth_failed": "郵箱登入被拒絕 —— 請檢查 IMAP 憑證。"
+    },
     "metrics": {
       "today_accepted": "今日自動接單",
       "pending": "待校準",
@@ -440,6 +515,18 @@
     "batchDelete": "刪除所選",
     "deleteSelectedTitle": "刪除所選的 {{count}} 條記錄？",
     "staleReason": "訊息到達過晚（超出時效視窗），已記錄但未執行。",
-    "alreadyConsumed": "該建議已被後續的自動執行一併處理。"
+    "alreadyConsumed": "該建議已被後續的自動執行一併處理。",
+    "secretPage": {
+      "title": "一次性密鑰",
+      "description": "建立或輪換來源密鑰後，明文只在此頁面展示一次。",
+      "loading": "正在安全讀取密鑰…",
+      "expired": "該連結已失效：密鑰只展示一次，且連結 15 分鐘後過期。請在「任務來源」設定中重新產生。",
+      "loadError": "讀取密鑰失敗，請返回設定頁重試。",
+      "secretLabel": "密鑰",
+      "copySecret": "複製密鑰",
+      "inboundUrlLabel": "入站位址",
+      "copyUrl": "複製入站位址",
+      "hint": "來源「{{name}}」的密鑰只顯示這一次，關閉頁面後無法再次查看。請立即儲存到上游系統。"
+    }
   }
 }

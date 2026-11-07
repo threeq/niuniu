@@ -60,6 +60,13 @@ func (s *Server) setupRoutes() {
 	s.engine.POST("/api/integrations/github/webhook/:binding", s.intakeWebhookHandler.GitHub)
 	s.engine.POST("/api/integrations/webhook/:binding", s.intakeWebhookHandler.Webhook)
 	s.engine.POST("/api/integrations/email/:binding", s.intakeWebhookHandler.Email)
+	s.engine.POST("/api/integrations/ci/:binding", s.intakeWebhookHandler.CI)
+
+	// One-time intake secret link (design §10.1) — no auth: the unguessable,
+	// 15-minute, single-use token IS the authorization. It is consumed on the
+	// first read, so a refresh or a shared link fails; the response carries
+	// no-store / no-referrer headers.
+	s.engine.GET("/api/intake/sources/secret/:token", s.intakeHandler.ResolveIntakeSecret)
 
 	// Local credential proxy (issue #733): the loopback endpoint a projected
 	// MCP server is pointed at instead of carrying the secret itself. The
@@ -351,6 +358,15 @@ func (s *Server) setupRoutes() {
 		mcpGroup.GET("/projects/:id/intake/decisions/pending", s.intakeHandler.MCPListPending)
 		mcpGroup.POST("/decisions/:did/accept", s.intakeHandler.MCPAcceptDecision)
 		mcpGroup.POST("/decisions/:did/ignore", s.intakeHandler.MCPIgnoreDecision)
+		// Intake binding management (design §10.3). Same handlers as the
+		// authenticated project API, so status codes and error bodies are
+		// identical for the UI and the agent.
+		mcpGroup.GET("/projects/:id/intake/sources", s.intakeHandler.ListSources)
+		mcpGroup.POST("/projects/:id/intake/sources", s.intakeHandler.CreateSource)
+		mcpGroup.POST("/projects/:id/intake/sources/:sid/test", s.intakeHandler.TestSource)
+		mcpGroup.POST("/projects/:id/intake/sources/:sid/rotate", s.intakeHandler.RotateSource)
+		mcpGroup.POST("/projects/:id/intake/sources/:sid/poll", s.intakeHandler.PollSource)
+		mcpGroup.DELETE("/projects/:id/intake/sources/:sid", s.intakeHandler.DeleteSource)
 		mcpGroup.PUT("/projects/:id/completion/settings", s.completionHandler.MCPSetPolicy)
 		mcpGroup.GET("/projects/:id/completion/profiles", s.completionHandler.MCPListProfiles)
 		mcpGroup.POST("/projects/:id/completion/profiles", s.completionHandler.MCPUpsertProfile)
@@ -792,8 +808,16 @@ func (s *Server) setupRoutes() {
 		// GitHub Source (个人版轮询, design §6.10): bound repos + event types.
 		projects.GET("/:id/intake/github", s.intakeHandler.GetGitHubConfig)
 		projects.PUT("/:id/intake/github", s.intakeHandler.PutGitHubConfig)
-		// Team-edition email / generic webhook bindings (design §6.10). The
-		// secret is returned once at creation and never again.
+		// Intake binding management (design §10.1): list/create/rotate/test/poll/
+		// delete for the ci/email/webhook kinds. The plaintext secret is only ever
+		// delivered through a one-time link, never in these responses.
+		projects.GET("/:id/intake/sources", s.intakeHandler.ListSources)
+		projects.POST("/:id/intake/sources", s.intakeHandler.CreateSource)
+		projects.POST("/:id/intake/sources/:sid/rotate", s.intakeHandler.RotateSource)
+		projects.POST("/:id/intake/sources/:sid/test", s.intakeHandler.TestSource)
+		projects.POST("/:id/intake/sources/:sid/poll", s.intakeHandler.PollSource)
+		projects.DELETE("/:id/intake/sources/:sid", s.intakeHandler.DeleteSource)
+		// Legacy alias kept for older clients; delegates to the same service.
 		projects.GET("/:id/intake/webhook", s.intakeHandler.ListWebhookBindings)
 		projects.POST("/:id/intake/webhook", s.intakeHandler.CreateWebhookBinding)
 		projects.DELETE("/:id/intake/webhook/:bid", s.intakeHandler.DeleteWebhookBinding)

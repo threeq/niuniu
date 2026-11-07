@@ -4,9 +4,9 @@ import { useTranslation } from 'react-i18next'
 import { Bot, Github, Mail, Settings2, Workflow, Webhook } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import type { IntakeSetting, IntakeSourceKind } from '@/lib/intake-api'
+import type { IntakeSetting, IntakeSource, IntakeSourceKind } from '@/lib/intake-api'
 import { cn } from '@/lib/utils'
-import { dailyCapValue, type DraftSetting } from './intake-utils'
+import { dailyCapValue, latestEventAt, type DraftSetting } from './intake-utils'
 
 const SOURCE_ICONS: Record<IntakeSourceKind, ComponentType<{ className?: string }>> = {
   im_bot: Bot,
@@ -22,6 +22,8 @@ interface Props {
   draft: DraftSetting
   connected: boolean
   canConnect: boolean
+  /** ci/email/webhook bindings behind this card; empty for im_bot / github. */
+  bindings?: IntakeSource[]
   pending: number
   ruleCount: number
   onEnabledChange: (enabled: boolean) => void
@@ -35,6 +37,7 @@ export function SourceCard({
   draft,
   connected,
   canConnect,
+  bindings,
   pending,
   ruleCount,
   onEnabledChange,
@@ -45,6 +48,7 @@ export function SourceCard({
   const Icon = SOURCE_ICONS[source.source_kind] ?? Webhook
   const cap = dailyCapValue(draft.daily_cap) ?? source.daily_cap
   const enabled = draft.enabled
+  const latest = latestEventAt(bindings)
 
   return (
     <div className="space-y-3 rounded-lg border bg-card p-4">
@@ -101,6 +105,17 @@ export function SourceCard({
           <p className="text-xs text-muted-foreground tabular-nums">
             {t('intake.summary', { cap, rules: ruleCount, members: draft.allow_list.length })}
           </p>
+
+          {bindings && bindings.length > 0 ? (
+            <p className="text-xs text-muted-foreground tabular-nums">
+              {latest
+                ? t('intake.bindingsSummary', {
+                    count: bindings.length,
+                    time: new Date(latest).toLocaleString(),
+                  })
+                : t('intake.bindingsSummaryNoDelivery', { count: bindings.length })}
+            </p>
+          ) : null}
 
           <div className="flex flex-wrap items-center gap-2">
             <Button type="button" variant="outline" size="sm" onClick={onOpenConfig}>

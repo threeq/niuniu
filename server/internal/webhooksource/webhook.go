@@ -12,6 +12,9 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"net/mail"
+	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -42,24 +45,70 @@ type attachment struct {
 	SizeBytes int64  `json:"size_bytes"`
 }
 
-// Email payload. It accepts either a flat string or an object for the
-// address-bearing fields, matching the common inbound-parse providers
-// (Mailgun / SendGrid / Postmark all expose these under slightly different
-// names).
-type emailPayload struct {
-	MessageID  string          `json:"message_id"`
-	ThreadID   string          `json:"thread_id"`
-	InReplyTo  string          `json:"in_reply_to"`
-	References string          `json:"references"`
-	From       json.RawMessage `json:"from"`
-	To         json.RawMessage `json:"to"`
-	Subject    string          `json:"subject"`
-	Text       string          `json:"text"`
-	BodyPlain  string          `json:"body-plain"`
-	Body       string          `json:"body"`
-	HTML       string          `json:"html"`
-	SourceURL  string          `json:"url"`
-	Date       string          `json:"date"`
+// Supported inbound-parse providers (design §6.3). Vendor payloads differ only
+// in field names; NormalizeEmailMessage normalizes every alias to one contract,
+// so the provider preset is an identity/validation aid, not a parsing branch.
+const (
+	EmailProviderGeneric  = "generic"
+	EmailProviderMailgun  = "mailgun"
+	EmailProviderSendGrid = "sendgrid"
+	EmailProviderPostmark = "postmark"
+)
+
+// EmailProviderPreset identifies a supported inbound-parse vendor.
+type EmailProviderPreset struct {
+	Provider    string
+	DisplayName string
+}
+
+var emailProviderPresets = []EmailProviderPreset{
+	{Provider: EmailProviderGeneric, DisplayName: "Generic inbound parse"},
+	{Provider: EmailProviderMailgun, DisplayName: "Mailgun"},
+	{Provider: EmailProviderSendGrid, DisplayName: "SendGrid"},
+	{Provider: EmailProviderPostmark, DisplayName: "Postmark"},
+}
+
+// EmailProviderPresets returns every supported preset (a copy).
+func EmailProviderPresets() []EmailProviderPreset {
+	return append([]EmailProviderPreset(nil), emailProviderPresets...)
+}
+
+// EmailProviderPresetFor resolves a provider name. Case and surrounding space
+// are ignored; an empty name means the generic contract.
+func EmailProviderPresetFor(provider string) (EmailProviderPreset, bool) {
+	name := strings.ToLower(strings.TrimSpace(provider))
+	if name == "" {
+		name = EmailProviderGeneric
+	}
+	for _, p := range emailProviderPresets {
+		if p.Provider == name {
+			return p, true
+		}
+	}
+	return EmailProviderPreset{}, false
+}
+
+// EmailNormalizeOptions tunes the inbound adapter.
+type EmailNormalizeOptions struct {
+	// Provider is the configured vendor (mailgun|sendgrid|postmark|generic). It
+	// only decides which body field is preferred; headers and reply fields are
+	// alias-normalized for every vendor.
+	Provider string
+	// SelfAddress is the binding's own mailbox, used for the loop guard. When
+	// empty the message's recipient is used, so mail the mailbox sends to itself
+	// is still ignored.
+	SelfAddress string
+	// DisableIgnore turns the default ignore rules off (config.ignore_auto=false).
+	DisableIgnore bool
+}
+
+// EmailNormalizeResult is the normalized trigger plus the ignore verdict. An
+// ignored message produces no event; the caller acknowledges it without
+// recording anything.
+type EmailNormalizeResult struct {
+	Trigger      intake.Trigger
+	Ignored      bool
+	IgnoreReason string
 }
 
 type address struct {
@@ -109,17 +158,69 @@ func NormalizeGeneric(projectID int64, bindingName string, raw []byte) (intake.T
 	}, nil
 }
 
-// NormalizeEmail maps an inbound-parse email body to a Trigger.
+// NormalizeEmail maps an inbound-parse email body to a Trigger without the
+// ignore verdict. Use NormalizeEmailMessage on the inbound path so auto-mail,
+// bulk mail, bounces and self-sent messages are dropped.
 func NormalizeEmail(projectID int64, bindingName string, raw []byte) (intake.Trigger, error) {
-	var p emailPayload
-	if err := json.Unmarshal(raw, &p); err != nil {
-		return intake.Trigger{}, fmt.Errorf("webhooksource: decode email: %w", err)
+	res, err := NormalizeEmailMessage(projectID, bindingName, raw, EmailNormalizeOptions{DisableIgnore: true})
+	return res.Trigger, err
+}
+
+// NormalizeEmailMessage maps an inbound-parse email body to a Trigger, applying
+// the same ignore rules and thread/event-id rules as the IMAP poller.
+func NormalizeEmailMessage(projectID int64, bindingName string, raw []byte, opts EmailNormalizeOptions) (EmailNormalizeResult, error) {
+	fields, err := decodeEmailFields(raw)
+	if err != nil {
+		return EmailNormalizeResult{}, fmt.Errorf("webhooksource: decode email: %w", err)
 	}
-	body := firstNonEmpty(p.Text, p.BodyPlain, p.Body, p.HTML)
-	subject := strings.TrimSpace(p.Subject)
-	if strings.TrimSpace(body) == "" && subject == "" {
-		return intake.Trigger{}, fmt.Errorf("webhooksource: email body required")
+	headers := decodeEmailHeaders(fields)
+
+	plain, htmlBody := emailBodies(opts.Provider, fields)
+	body := strings.TrimSpace(plain)
+	if body == "" && strings.TrimSpace(htmlBody) != "" {
+		body = HTMLToText(htmlBody)
 	}
+	body = StripQuotedReply(body)
+	body = TruncateUTF8(body, EmailBodyLimit)
+	subject := fields.str("subject")
+	if body == "" && subject == "" {
+		return EmailNormalizeResult{}, fmt.Errorf("webhooksource: email body required")
+	}
+
+	messageID := TrimMessageID(firstNonEmpty(fields.str("message_id"), headers.get("message-id")))
+	inReplyTo := FirstMessageID(firstNonEmpty(fields.str("in_reply_to"), headers.get("in-reply-to")))
+	references := MessageIDList(firstNonEmpty(fields.str("references"), headers.get("references")))
+	if len(references) == 0 {
+		references = MessageIDList(strings.Join(fields.strList("references"), " "))
+	}
+	// Explicit thread_id is a caller override; otherwise follow the same rule as
+	// IMAP: first References id → In-Reply-To → own Message-ID.
+	thread := EmailThreadRoot(references, inReplyTo, messageID)
+	if explicit := fields.str("thread_id"); explicit != "" {
+		thread = explicit
+	}
+
+	actorID, actorName := parseAddress(fields.raw("from", "from_full", "sender"))
+	if actorName == "" {
+		actorName = actorID
+	}
+
+	selfAddress := strings.TrimSpace(opts.SelfAddress)
+	if selfAddress == "" {
+		if to := fields.recipients(); len(to) > 0 {
+			selfAddress = to[0]
+		}
+	}
+
+	ignoreReason := ""
+	if !opts.DisableIgnore {
+		ignoreReason = EmailIgnoreReason(EmailHeaders{
+			AutoSubmitted: headers.get("auto-submitted"),
+			Precedence:    headers.get("precedence"),
+			ReturnPath:    headers.get("return-path"),
+		}, actorID, selfAddress)
+	}
+
 	text := subject
 	if b := strings.TrimSpace(body); b != "" {
 		if text != "" {
@@ -127,32 +228,29 @@ func NormalizeEmail(projectID int64, bindingName string, raw []byte) (intake.Tri
 		}
 		text += b
 	}
-	actorID, actorName := parseAddress(p.From)
-	if actorID == "" {
-		actorID = actorName
-	}
-	messageID := strings.TrimSpace(p.MessageID)
+
 	eventID := messageID
 	if eventID == "" {
 		eventID = "body:" + bodyHash(raw)
 	}
-	// Prefer an explicit thread id, then the standard reply headers. A standalone
-	// message without either becomes its own thread instead of resuming an
-	// unrelated task.
-	thread := firstNonEmpty(p.ThreadID, p.InReplyTo, p.References, messageID)
-	return intake.Trigger{
-		ProjectID:  projectID,
-		SourceKind: intake.SourceKindEmail,
-		SourceRef:  bindingName,
-		EventID:    eventID,
-		EventKind:  intake.EventKindMessage,
-		Thread:     intake.ThreadRef{ThreadExtID: thread},
-		Actor:      intake.ActorRef{ExtID: actorID, Name: actorName},
-		Text:       text,
-		Raw:        append(json.RawMessage(nil), raw...),
-		ReceivedAt: parseTime(p.Date),
-		SourceURL:  strings.TrimSpace(p.SourceURL),
-		ReceiveAll: true,
+
+	return EmailNormalizeResult{
+		Trigger: intake.Trigger{
+			ProjectID:  projectID,
+			SourceKind: intake.SourceKindEmail,
+			SourceRef:  bindingName,
+			EventID:    eventID,
+			EventKind:  intake.EventKindMessage,
+			Thread:     intake.ThreadRef{ThreadExtID: thread},
+			Actor:      intake.ActorRef{ExtID: actorID, Name: actorName},
+			Text:       text,
+			Raw:        append(json.RawMessage(nil), raw...),
+			ReceivedAt: emailReceivedAt(fields),
+			SourceURL:  fields.str("url"),
+			ReceiveAll: true,
+		},
+		Ignored:      ignoreReason != "",
+		IgnoreReason: ignoreReason,
 	}, nil
 }
 
@@ -180,7 +278,9 @@ func parseActor(raw json.RawMessage) (id, name string, isBot bool) {
 	return id, name, a.IsBot
 }
 
-// parseAddress accepts "a@b" or {"email","name"}.
+// parseAddress accepts "a@b", "Name <a@b>" or {"email","name"}. Providers send
+// the address in either shape; the mailbox comparison for the loop guard needs
+// the bare address, so a display-name string is parsed rather than kept verbatim.
 func parseAddress(raw json.RawMessage) (email, name string) {
 	if len(raw) == 0 {
 		return "", ""
@@ -188,18 +288,306 @@ func parseAddress(raw json.RawMessage) (email, name string) {
 	var asString string
 	if err := json.Unmarshal(raw, &asString); err == nil {
 		s := strings.TrimSpace(asString)
-		return s, s
+		if s == "" {
+			return "", ""
+		}
+		if a, err := mail.ParseAddress(s); err == nil {
+			return strings.ToLower(strings.TrimSpace(a.Address)), strings.TrimSpace(a.Name)
+		}
+		return strings.ToLower(s), s
 	}
 	var a address
 	if err := json.Unmarshal(raw, &a); err != nil {
 		return "", ""
 	}
-	email = strings.TrimSpace(a.Email)
+	email = strings.ToLower(strings.TrimSpace(a.Email))
 	name = strings.TrimSpace(a.Name)
 	if name == "" {
 		name = email
 	}
 	return email, name
+}
+
+// --- provider payload field mapping -----------------------------------------
+
+// emailFields indexes a payload by a normalized key: case, '-', '_', '.' and
+// spaces are dropped, so message_id / Message-Id / MessageID are one field.
+// Keys are inserted in sorted order so a payload carrying two spellings of the
+// same field resolves deterministically.
+type emailFields map[string]json.RawMessage
+
+func decodeEmailFields(raw []byte) (emailFields, error) {
+	var payload map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &payload); err != nil {
+		return nil, err
+	}
+	fields := make(emailFields, len(payload))
+	keys := make([]string, 0, len(payload))
+	for k := range payload {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	for _, k := range keys {
+		nk := normalizeFieldName(k)
+		if _, exists := fields[nk]; !exists {
+			fields[nk] = payload[k]
+		}
+	}
+	return fields, nil
+}
+
+func normalizeFieldName(s string) string {
+	var b strings.Builder
+	for _, r := range strings.ToLower(s) {
+		switch r {
+		case '-', '_', ' ', '.':
+			continue
+		}
+		b.WriteRune(r)
+	}
+	return b.String()
+}
+
+func (f emailFields) raw(names ...string) json.RawMessage {
+	for _, name := range names {
+		if v, ok := f[normalizeFieldName(name)]; ok && len(v) > 0 && string(v) != "null" {
+			return v
+		}
+	}
+	return nil
+}
+
+// str returns a scalar field (string or number). Arrays/objects yield "".
+func (f emailFields) str(names ...string) string {
+	return scalarString(f.raw(names...))
+}
+
+func scalarString(raw json.RawMessage) string {
+	if len(raw) == 0 {
+		return ""
+	}
+	var s string
+	if err := json.Unmarshal(raw, &s); err == nil {
+		return strings.TrimSpace(s)
+	}
+	var n json.Number
+	if err := json.Unmarshal(raw, &n); err == nil {
+		return strings.TrimSpace(n.String())
+	}
+	return ""
+}
+
+func (f emailFields) strList(names ...string) []string {
+	raw := f.raw(names...)
+	if len(raw) == 0 {
+		return nil
+	}
+	var one string
+	if err := json.Unmarshal(raw, &one); err == nil {
+		return []string{strings.TrimSpace(one)}
+	}
+	var many []string
+	if err := json.Unmarshal(raw, &many); err == nil {
+		out := make([]string, 0, len(many))
+		for _, v := range many {
+			if t := strings.TrimSpace(v); t != "" {
+				out = append(out, t)
+			}
+		}
+		return out
+	}
+	return nil
+}
+
+// emailBodies picks the plain/HTML parts. Every alias is considered; the
+// provider only sets the preference order when a payload carries more than one.
+func emailBodies(provider string, f emailFields) (plain, htmlBody string) {
+	switch strings.ToLower(strings.TrimSpace(provider)) {
+	case EmailProviderMailgun:
+		return f.str("body-plain", "stripped-text", "text", "body"),
+			f.str("body-html", "stripped-html", "html")
+	case EmailProviderSendGrid:
+		return f.str("text", "body", "body-plain"),
+			f.str("html", "body-html")
+	case EmailProviderPostmark:
+		return f.str("TextBody", "text", "body-plain", "body"),
+			f.str("HtmlBody", "html", "body-html")
+	default:
+		return f.str("text", "body-plain", "body", "stripped-text", "TextBody"),
+			f.str("html", "body-html", "HtmlBody")
+	}
+}
+
+// emailHeaderSet is a case-insensitive header map. The first occurrence wins so
+// a provider that repeats a header cannot flip the ignore verdict.
+type emailHeaderSet map[string]string
+
+func (s emailHeaderSet) set(name, value string) {
+	k := strings.ToLower(strings.TrimSpace(name))
+	v := strings.TrimSpace(value)
+	if k == "" || v == "" {
+		return
+	}
+	if _, exists := s[k]; !exists {
+		s[k] = v
+	}
+}
+
+func (s emailHeaderSet) get(name string) string {
+	return s[strings.ToLower(name)]
+}
+
+// decodeEmailHeaders collects the headers the ignore rules need. Vendors expose
+// them differently: Mailgun `message-headers` is an array of [name,value] pairs,
+// Postmark `Headers` is an array of {Name,Value}, SendGrid `headers` is the raw
+// header block. All three are parsed here, plus flat generic fields.
+func decodeEmailHeaders(f emailFields) emailHeaderSet {
+	set := emailHeaderSet{}
+	for _, key := range []string{"messageheaders", "headers"} {
+		if raw, ok := f[key]; ok {
+			set.addRaw(raw)
+		}
+	}
+	for _, name := range []string{"auto-submitted", "precedence", "return-path"} {
+		if v := f.str(name); v != "" {
+			set.set(name, v)
+		}
+	}
+	return set
+}
+
+func (s emailHeaderSet) addRaw(raw json.RawMessage) {
+	var block string
+	if err := json.Unmarshal(raw, &block); err == nil {
+		// Mailgun's message-headers is a JSON-encoded array; some senders post it
+		// as a JSON string, so unwrap before falling back to a raw header block.
+		if trimmed := strings.TrimSpace(block); strings.HasPrefix(trimmed, "[") || strings.HasPrefix(trimmed, "{") {
+			s.addRaw(json.RawMessage(trimmed))
+			return
+		}
+		for _, pair := range parseHeaderBlock(block) {
+			s.set(pair[0], pair[1])
+		}
+		return
+	}
+	var list []json.RawMessage
+	if err := json.Unmarshal(raw, &list); err != nil {
+		return
+	}
+	for _, item := range list {
+		var pair []string
+		if err := json.Unmarshal(item, &pair); err == nil && len(pair) >= 2 {
+			s.set(pair[0], pair[1])
+			continue
+		}
+		var obj struct {
+			Name  string `json:"Name"`
+			Value string `json:"Value"`
+		}
+		if err := json.Unmarshal(item, &obj); err == nil && obj.Name != "" {
+			s.set(obj.Name, obj.Value)
+		}
+	}
+}
+
+func parseHeaderBlock(block string) [][2]string {
+	var out [][2]string
+	var current *[2]string
+	for _, line := range strings.Split(strings.ReplaceAll(block, "\r\n", "\n"), "\n") {
+		if line == "" {
+			continue
+		}
+		if line[0] == ' ' || line[0] == '\t' {
+			if current != nil {
+				current[1] += " " + strings.TrimSpace(line)
+			}
+			continue
+		}
+		i := strings.Index(line, ":")
+		if i <= 0 {
+			current = nil
+			continue
+		}
+		out = append(out, [2]string{strings.TrimSpace(line[:i]), strings.TrimSpace(line[i+1:])})
+		current = &out[len(out)-1]
+	}
+	return out
+}
+
+// recipients extracts the destination addresses. The first one is the binding's
+// own mailbox for inbound mail and therefore the loop-guard comparison value.
+func (f emailFields) recipients() []string {
+	for _, name := range []string{"to", "recipient", "original_recipient", "delivered_to", "envelope"} {
+		if raw := f.raw(name); len(raw) > 0 {
+			if out := parseRecipients(raw); len(out) > 0 {
+				return out
+			}
+		}
+	}
+	return nil
+}
+
+func parseRecipients(raw json.RawMessage) []string {
+	var s string
+	if err := json.Unmarshal(raw, &s); err == nil {
+		s = strings.TrimSpace(s)
+		// SendGrid's `envelope` is a JSON object encoded as a string.
+		if strings.HasPrefix(s, "{") {
+			var env struct {
+				To []string `json:"to"`
+			}
+			if err := json.Unmarshal([]byte(s), &env); err == nil && len(env.To) > 0 {
+				return normalizeAddresses(env.To)
+			}
+		}
+		return normalizeAddresses(strings.Split(s, ","))
+	}
+	var list []json.RawMessage
+	if err := json.Unmarshal(raw, &list); err == nil {
+		var out []string
+		for _, item := range list {
+			out = append(out, parseRecipients(item)...)
+		}
+		return out
+	}
+	var obj struct {
+		Email string `json:"email"`
+	}
+	if err := json.Unmarshal(raw, &obj); err == nil {
+		return normalizeAddresses([]string{obj.Email})
+	}
+	return nil
+}
+
+func normalizeAddresses(in []string) []string {
+	out := make([]string, 0, len(in))
+	for _, v := range in {
+		v = strings.TrimSpace(v)
+		if v == "" {
+			continue
+		}
+		if a, err := mail.ParseAddress(v); err == nil {
+			v = a.Address
+		}
+		if v = strings.ToLower(strings.TrimSpace(v)); v != "" {
+			out = append(out, v)
+		}
+	}
+	return out
+}
+
+// emailReceivedAt prefers the message Date header; Mailgun's `timestamp` is the
+// delivery time in Unix seconds and is only a fallback.
+func emailReceivedAt(f emailFields) time.Time {
+	if t := parseTime(f.str("date", "sent_at")); !t.IsZero() {
+		return t
+	}
+	if ts := f.str("timestamp"); ts != "" {
+		if sec, err := strconv.ParseInt(ts, 10, 64); err == nil && sec > 0 {
+			return time.Unix(sec, 0).UTC()
+		}
+	}
+	return time.Time{}
 }
 
 func convertAttachments(in []attachment) []intake.Attachment {

@@ -25,9 +25,12 @@ type IntakeHandler struct {
 	// Github exposes the bound-repo event configuration + poll health (design
 	// §6.10). Nil until server wiring; the endpoints then answer 501.
 	Github *service.GithubSourceService
-	// Webhook exposes the team-edition email/generic webhook bindings. Nil until
-	// server wiring; the endpoints then answer 501.
-	Webhook *service.WebhookSourceService
+	// Sources exposes the ci/email/webhook binding management API (design
+	// §10.1). Nil until server wiring; the endpoints then answer 501.
+	Sources *service.IntakeSourceService
+	// secrets holds the plaintext of a freshly created/rotated secret until its
+	// single-use link is opened (15 min TTL).
+	secrets *intakeSecretStore
 	// ProviderEnv lets the brief suggestion reuse the issue endpoint's provider
 	// default, so it works even when the host's native CLI login has expired.
 	ProviderEnv interface {
@@ -36,7 +39,7 @@ type IntakeHandler struct {
 }
 
 func NewIntakeHandler(svc *service.IntakeService, authz *service.Authz) *IntakeHandler {
-	return &IntakeHandler{svc: svc, authz: authz}
+	return &IntakeHandler{svc: svc, authz: authz, secrets: newIntakeSecretStore()}
 }
 
 // intakeProjectAccess parses :id and enforces read (write=false) or write access.

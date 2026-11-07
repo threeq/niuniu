@@ -26,12 +26,39 @@ export interface IntakeDailyCount {
   count: number
 }
 
+/** Delivery health of one ci/email/webhook binding (design §12). Durable
+ *  fields come from intake_events/decisions; the 401/400/duplicate signals are
+ *  kept in memory, so a duplicate_24h of 0 after a restart is expected. */
+export type IntakeSourceHealthStatus = 'never' | 'ok' | 'degraded' | 'error'
+
+export interface IntakeSourceHealth {
+  source_id: number
+  project_id: number
+  name: string
+  source_kind: string
+  provider: string
+  mode: string
+  status: IntakeSourceHealthStatus
+  last_success_at?: string
+  last_failure_at?: string
+  last_error?: string
+  backoff_until?: string
+  success_24h: number
+  duplicate_24h: number
+  rejected_24h: number
+  consecutive_failures: number
+  /** secret_misconfigured | payload_mismatch | imap_auth_failed */
+  alert?: string
+  alert_reason?: string
+}
+
 export interface MissionControlIntake {
   paused: boolean
   project_count: number
   metrics: MissionControlMetric[]
   per_source: IntakeDailyCount[]
   per_chat: IntakeDailyCount[]
+  sources: IntakeSourceHealth[]
 }
 
 export interface MissionControlCompletion {

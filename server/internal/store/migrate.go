@@ -877,6 +877,14 @@ func Migrate(db *sql.DB) {
 	// 2026-11-03 intake events map onto the existing Execution Timeline, so the
 	// issue_exec_events.kind CHECK must admit 'intake' (design §6.7.6).
 	migrateIntakeExecEventKind(db)
+
+	// 2026-11-06 Intake CI/email/webhook: the IMAP poll cursor table is created
+	// by schema.sql / schema_postgres.sql on every startup; its index lives here
+	// per the rule that indexes for tables added to existing DBs are created
+	// during migration, not in the schema files.
+	if _, err := db.Exec(`CREATE INDEX IF NOT EXISTS idx_email_poll_project ON email_source_poll_state(project_id)`); err != nil {
+		slog.Warn("email poll state index creation failed", "error", err)
+	}
 }
 
 // migrateIntakeCompletion retrofits the intake/completion columns onto existing

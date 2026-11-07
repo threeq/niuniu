@@ -67,6 +67,7 @@ function view(over: Partial<MissionControlView> = {}): MissionControlView {
       ],
       per_source: [{ source_kind: 'im_bot', day: '2026-11-03', count: 2 }],
       per_chat: [{ source_kind: 'im_bot', thread_ext_id: 'thread-1', day: '2026-11-03', count: 1 }],
+      sources: [],
     },
     completion: {
       metrics: [
@@ -156,6 +157,42 @@ describe('MissionControlPanels', () => {
     await waitFor(() =>
       expect(missionControlApi.setPaused).toHaveBeenCalledWith(true, null),
     )
+  })
+
+  it('renders per-binding delivery health and drills to the calibration queue', async () => {
+    vi.mocked(missionControlApi.get).mockResolvedValue(
+      view({
+        intake: {
+          ...view().intake,
+          sources: [
+            {
+              source_id: 7,
+              project_id: 11,
+              name: 'pipeline',
+              source_kind: 'ci',
+              provider: 'gitlab',
+              mode: 'push',
+              status: 'error',
+              last_success_at: '2026-11-03T10:00:00Z',
+              last_failure_at: '2026-11-04T10:00:00Z',
+              success_24h: 2,
+              duplicate_24h: 1,
+              rejected_24h: 3,
+              consecutive_failures: 3,
+              alert: 'secret_misconfigured',
+            },
+          ],
+        },
+      }),
+    )
+    renderPanels()
+
+    await waitFor(() => screen.getByText('missionControl.deliveryHealth'))
+    const row = screen.getByText('pipeline').closest('a') as HTMLElement
+    expect(row.getAttribute('data-search')).toContain('"project":11')
+    expect(row.getAttribute('data-search')).toContain('"source":"ci"')
+    expect(row.textContent).toContain('missionControl.sourceStatus.error')
+    expect(row.textContent).toContain('missionControl.sourceAlert.secret_misconfigured')
   })
 
   it('renders the error state with a retry action', async () => {

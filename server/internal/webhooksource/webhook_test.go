@@ -95,11 +95,11 @@ func TestNormalizeEmail(t *testing.T) {
 	if trig.SourceKind != intake.SourceKindEmail || trig.SourceRef != "support" {
 		t.Fatalf("source = %s/%s", trig.SourceKind, trig.SourceRef)
 	}
-	if trig.EventID != "<m1@example.test>" {
+	if trig.EventID != "m1@example.test" {
 		t.Fatalf("event id = %q", trig.EventID)
 	}
 	// Reply headers thread the message back to its conversation.
-	if trig.Thread.ThreadExtID != "<m0@example.test>" {
+	if trig.Thread.ThreadExtID != "m0@example.test" {
 		t.Fatalf("thread = %q", trig.Thread.ThreadExtID)
 	}
 	if trig.Actor.ExtID != "alice@example.test" || trig.Actor.Name != "Alice" {

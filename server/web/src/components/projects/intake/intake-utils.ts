@@ -4,6 +4,7 @@ import type {
   IntakeSetting,
   IntakeSettingInput,
   IntakeSettings,
+  IntakeSource,
   IntakeSourceKind,
 } from '@/lib/intake-api'
 
@@ -19,11 +20,97 @@ export const KNOWN_SOURCE_KINDS: IntakeSourceKind[] = [
   'webhook',
 ]
 
-/** Sources that have a connection path in the UI today. The rest render as
- *  "not connected / coming soon" instead of pretending to be ready. */
-export const CONNECTABLE_SOURCES: Partial<Record<IntakeSourceKind, 'imbot' | 'externalSources'>> = {
+/** Where a source's connection is set up: `inline` means the panel's own
+ *  dialog, the other two are sections of the settings page. */
+export type ConnectTarget = 'imbot' | 'externalSources' | 'inline'
+
+/** Sources that have a connection path in the UI. ci/email/webhook bindings are
+ *  created inside the panel; im_bot and github still live in their own sections. */
+export const CONNECTABLE_SOURCES: Partial<Record<IntakeSourceKind, ConnectTarget>> = {
   im_bot: 'imbot',
   github: 'externalSources',
+  ci: 'inline',
+  email: 'inline',
+  webhook: 'inline',
+}
+
+/** Bindings grouped by source kind, preserving the server's order. */
+export function bindingsByKind(
+  sources: IntakeSource[] | undefined,
+): Record<string, IntakeSource[]> {
+  const out: Record<string, IntakeSource[]> = {}
+  for (const s of sources ?? []) {
+    ;(out[s.source_kind] ??= []).push(s)
+  }
+  return out
+}
+
+/** The most recent delivery across a set of bindings, if any ever arrived. */
+export function latestEventAt(bindings: IntakeSource[] | undefined): string | null {
+  let latest: string | null = null
+  for (const b of bindings ?? []) {
+    if (!b.last_event_at) continue
+    if (latest === null || b.last_event_at > latest) latest = b.last_event_at
+  }
+  return latest
+}
+
+/** UI status: the server's never|ok|degraded|error (design §12). `backoff` is
+ *  accepted for a response cached from before the status rename. */
+export type BindingStatus = 'ok' | 'degraded' | 'error' | 'never'
+
+export function bindingStatus(source: IntakeSource): BindingStatus {
+  if (source.status === 'error') return 'error'
+  if (source.status === 'degraded' || source.status === 'backoff') return 'degraded'
+  if (source.status === 'never') return 'never'
+  if (!source.last_event_at && source.events_24h === 0) return 'never'
+  return 'ok'
+}
+
+/** Whether a binding's inbound address must be reachable from outside. */
+export function isPushBinding(source: IntakeSource): boolean {
+  return source.mode === 'push' || source.mode === 'inbound'
+}
+
+/** How far the inbound address can be reached from, inferred from the origin
+ *  the user is browsing the app on. `public` is not proof of a reverse proxy —
+ *  the UI only reminds the user to make sure one forwards to this server. */
+export type InboundReachability = 'loopback' | 'private' | 'public'
+
+function isPrivateIPv4(host: string): boolean {
+  const parts = host.split('.').map(Number)
+  if (parts.length !== 4 || parts.some((n) => !Number.isInteger(n) || n < 0 || n > 255)) {
+    return false
+  }
+  const [a, b] = parts
+  return (
+    a === 10 ||
+    (a === 172 && b >= 16 && b <= 31) ||
+    (a === 192 && b === 168) ||
+    (a === 169 && b === 254) ||
+    a === 127
+  )
+}
+
+/** Classify a browser origin (window.location.origin) by reachability. */
+export function classifyInboundOrigin(origin: string): InboundReachability {
+  let host: string
+  try {
+    host = new URL(origin).hostname.toLowerCase().replace(/^\[|\]$/g, '')
+  } catch {
+    return 'loopback'
+  }
+  if (!host) return 'loopback'
+  if (host === 'localhost' || host.endsWith('.localhost')) return 'loopback'
+  if (host === '::1' || host === '0.0.0.0') return 'loopback'
+  if (host.endsWith('.local')) return 'private'
+  if (host.includes(':')) {
+    // IPv6: fc00::/7 (unique local) and fe80::/10 (link local) are private.
+    if (/^f[cd][0-9a-f]{2}:/.test(host) || /^fe[89ab][0-9a-f]:/.test(host)) return 'private'
+    return 'public'
+  }
+  if (isPrivateIPv4(host)) return 'private'
+  return 'public'
 }
 
 export interface DraftSetting {

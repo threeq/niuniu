@@ -50,14 +50,23 @@ const (
 	// replay after a reconnect, or a platform redelivery). Recorded for audit,
 	// never executed.
 	ReasonStale = "stale"
+	// ReasonUnbound marks a require-bound event (CI success/recovery/cancel)
+	// whose thread is not bound to a task. There is nothing to resume, so the
+	// event is recorded and ignored instead of creating new work.
+	ReasonUnbound = "unbound"
 )
 
 // RuleConditions narrows when a rule applies. Every non-empty group must match;
 // keywords match when ANY keyword is contained in the trigger text. A rule with
 // no conditions never matches — an empty rule is not a catch-all.
+//
+// EventKind selects machine events by their normalized kind (for CI:
+// ci_failed / ci_succeeded / ci_recovered / ci_canceled), so a rule can target a
+// whole class of events instead of guessing at their text.
 type RuleConditions struct {
-	Actors   []string `json:"actors,omitempty"`
-	Keywords []string `json:"keywords,omitempty"`
+	EventKind string   `json:"event_kind,omitempty"`
+	Actors    []string `json:"actors,omitempty"`
+	Keywords  []string `json:"keywords,omitempty"`
 }
 
 // Rule is one human-authored intake rule.
@@ -220,7 +229,11 @@ func (r Rule) matches(p Policy, t Trigger) bool {
 	if !r.Enabled {
 		return false
 	}
-	if len(r.Conditions.Actors) == 0 && len(r.Conditions.Keywords) == 0 {
+	if r.Conditions.EventKind == "" && len(r.Conditions.Actors) == 0 && len(r.Conditions.Keywords) == 0 {
+		return false
+	}
+	if r.Conditions.EventKind != "" &&
+		!strings.EqualFold(strings.TrimSpace(r.Conditions.EventKind), strings.TrimSpace(t.EventKind)) {
 		return false
 	}
 	if len(r.Conditions.Actors) > 0 && !p.actorIn(r.Conditions.Actors, t.Actor.ExtID) {

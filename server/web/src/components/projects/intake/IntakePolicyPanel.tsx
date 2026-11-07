@@ -15,18 +15,21 @@ import { useIsMobile } from '@/hooks/use-media-query'
 import { confirm } from '@/lib/confirm'
 import {
   intakeApi,
+  type IntakeBindingKind,
   type IntakeRule,
   type IntakeSettingInput,
   type IntakeSettings,
   type IntakeSourceKind,
 } from '@/lib/intake-api'
 import { imbotApi } from '@/lib/imbot-api'
+import { ConnectSourceDialog } from './connect-source-dialog'
 import { PolicyHistoryDialog } from './policy-history-dialog'
 import { RuleDialog } from './rule-dialog'
 import { SourceCard } from './source-card'
 import { SourceConfigDialog } from './source-config-dialog'
 import {
   CONNECTABLE_SOURCES,
+  bindingsByKind,
   changedInputs,
   draftFromSettings,
   hasChanges,
@@ -57,6 +60,7 @@ export function IntakePolicyPanel({ projectId, onDirtyChange, onNavigateSection 
 
   const [draft, setDraft] = useState<DraftMap | null>(null)
   const [configKind, setConfigKind] = useState<IntakeSourceKind | null>(null)
+  const [connectKind, setConnectKind] = useState<IntakeBindingKind | null>(null)
   const [ruleTarget, setRuleTarget] = useState<RuleTarget | null>(null)
   const [historyKind, setHistoryKind] = useState<IntakeSourceKind | null>(null)
 
@@ -86,6 +90,13 @@ export function IntakePolicyPanel({ projectId, onDirtyChange, onNavigateSection 
     retry: false,
   })
   const externalSourcesQuery = useExternalSources(projectId)
+  // ci/email/webhook bindings own their own connection state: a card is
+  // connected exactly when at least one binding of that kind exists.
+  const sourcesQuery = useQuery({
+    queryKey: ['intake-sources', projectId],
+    queryFn: () => intakeApi.listSources(projectId),
+    retry: false,
+  })
 
   const settings = settingsQuery.data
   const rules = useMemo(() => rulesQuery.data ?? [], [rulesQuery.data])
@@ -189,14 +200,19 @@ export function IntakePolicyPanel({ projectId, onDirtyChange, onNavigateSection 
     [],
   )
 
+  const sourcesByKind = useMemo(() => bindingsByKind(sourcesQuery.data), [sourcesQuery.data])
+
   const connected = useMemo(() => {
     const out: Record<string, boolean> = {}
     const chats = chatsQuery.data ?? []
     out.im_bot = chats.some((c) => c.status !== 'pending')
     const sources = externalSourcesQuery.data ?? []
     out.github = sources.some((s) => s.provider.toLowerCase().includes('github'))
+    for (const kind of ['ci', 'email', 'webhook'] as const) {
+      out[kind] = (sourcesByKind[kind] ?? []).length > 0
+    }
     return out
-  }, [chatsQuery.data, externalSourcesQuery.data])
+  }, [chatsQuery.data, externalSourcesQuery.data, sourcesByKind])
 
   const pending = useMemo(() => pendingCounts(decisionsQuery.data), [decisionsQuery.data])
   const actors = useMemo(() => collectKnownActors(decisionsQuery.data), [decisionsQuery.data])
@@ -243,7 +259,12 @@ export function IntakePolicyPanel({ projectId, onDirtyChange, onNavigateSection 
 
   const connectSource = (kind: IntakeSourceKind) => {
     const target = CONNECTABLE_SOURCES[kind]
-    if (target) onNavigateSection?.(target)
+    if (!target) return
+    if (target === 'inline') {
+      setConnectKind(kind as IntakeBindingKind)
+      return
+    }
+    onNavigateSection?.(target)
   }
 
   const configSource = configKind ? settings?.settings.find((s) => s.source_kind === configKind) ?? null : null
@@ -317,6 +338,7 @@ export function IntakePolicyPanel({ projectId, onDirtyChange, onNavigateSection 
                   draft={row}
                   connected={connected[source.source_kind] ?? false}
                   canConnect={Boolean(CONNECTABLE_SOURCES[source.source_kind])}
+                  bindings={sourcesByKind[source.source_kind] ?? []}
                   pending={pending[source.source_kind] ?? 0}
                   ruleCount={(rulesByKind[source.source_kind] ?? []).length}
                   onEnabledChange={(enabled) => changeEnabled(source.source_kind, enabled)}
@@ -367,6 +389,18 @@ export function IntakePolicyPanel({ projectId, onDirtyChange, onNavigateSection 
         </>
       )}
 
+      <ConnectSourceDialog
+        projectId={projectId}
+        sourceKind={connectKind}
+        open={connectKind !== null}
+        onOpenChange={(open) => {
+          if (!open) setConnectKind(null)
+        }}
+        onConnected={() => {
+          void qc.invalidateQueries({ queryKey: ['intake-sources', projectId] })
+        }}
+      />
+
       <SourceConfigDialog
         projectId={projectId}
         source={configSource}
@@ -380,6 +414,8 @@ export function IntakePolicyPanel({ projectId, onDirtyChange, onNavigateSection 
         }}
         rules={configRules}
         rulesLoading={rulesQuery.isLoading}
+        bindings={configKind ? sourcesByKind[configKind] ?? [] : []}
+        bindingsLoading={sourcesQuery.isLoading}
         knownActors={actors}
         paused={paused}
         pausePending={pauseMutation.isPending}
