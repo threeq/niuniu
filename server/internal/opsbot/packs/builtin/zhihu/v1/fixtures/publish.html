@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <title>写文章 - 知乎</title>
+</head>
+<body>
+  <main class="WriteIndex PostEditor">
+    <div class="WriteIndex-titleInput">
+      <textarea placeholder="请输入标题（最多 100 个字）" maxlength="100"></textarea>
+    </div>
+
+    <div class="DraftEditor-editorContainer">
+      <div contenteditable="true" class="public-DraftEditor-content" data-placeholder="开始写文章"></div>
+    </div>
+
+    <button class="WriteIndex-coverButton UploadPicture" type="button">添加封面</button>
+    <div class="UploadPicture-panel cover-panel">
+      <input type="file" class="upload-cover-input" accept="image/*">
+      <div class="UploadPicture-preview cover-preview" data-state="uploaded"></div>
+    </div>
+
+    <div class="TopicSelector topic-entry">
+      <input placeholder="搜索话题" maxlength="50">
+      <div class="TopicSelector-suggestion topic-suggestion" data-topic="职场">职场</div>
+    </div>
+
+    <button class="PublishPanel-submitButton WriteIndex-publishButton" type="button">发布</button>
+  </main>
+
+  <div class="PublishSuccess" data-state="published">
+    <p>发布成功</p>
+    <a class="article-link" href="https://zhuanlan.zhihu.com/p/680000000000000000">查看文章</a>
+  </div>
+</body>
+</html>

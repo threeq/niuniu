@@ -1,0 +1,43 @@
+{
+  "name": "engagements",
+  "steps": [
+    {
+      "action": "goto",
+      "value": "https://www.zhihu.com/creator/manage/interaction?tab=comments",
+      "timeout_ms": 30000
+    },
+    {
+      "action": "wait",
+      "selector": ".InteractionList",
+      "fallback": [".comment-list", ".message-list"],
+      "timeout_ms": 20000
+    },
+    {
+      "action": "loop",
+      "selector": ".InteractionList",
+      "value": "scroll",
+      "args": {
+        "max_iterations": "20",
+        "until": "no_new_items",
+        "scroll_step": "800"
+      }
+    },
+    {
+      "action": "wait",
+      "selector": ".InteractionItem",
+      "fallback": [".comment-item", ".message-item"],
+      "timeout_ms": 15000
+    },
+    {
+      "action": "extract",
+      "selector": ".InteractionItem",
+      "fallback": [".comment-item"],
+      "value": "engagements"
+    },
+    {
+      "action": "screenshot",
+      "value": "engagements_snapshot"
+    }
+  ],
+  "fixtures": ["fixtures/engagements.html"]
+}

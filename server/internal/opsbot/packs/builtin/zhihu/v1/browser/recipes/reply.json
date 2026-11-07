@@ -1,0 +1,68 @@
+{
+  "name": "reply",
+  "steps": [
+    {
+      "action": "goto",
+      "value": "https://www.zhihu.com/creator/manage/interaction?tab=comments",
+      "timeout_ms": 30000
+    },
+    {
+      "action": "wait",
+      "selector": ".InteractionList",
+      "fallback": [".comment-list", ".message-list"],
+      "timeout_ms": 20000
+    },
+    {
+      "action": "fill",
+      "selector": ".InteractionSearch input",
+      "fallback": [".interaction-search input"],
+      "value": "{{engagement_id}}"
+    },
+    {
+      "action": "click",
+      "selector": ".InteractionItem[data-id='{{engagement_id}}']",
+      "fallback": [".comment-item[data-id='{{engagement_id}}']"],
+      "timeout_ms": 15000
+    },
+    {
+      "action": "wait",
+      "selector": ".ReplyEditor",
+      "fallback": [".reply-input", ".comment-reply"],
+      "timeout_ms": 15000
+    },
+    {
+      "action": "fill",
+      "selector": ".ReplyEditor div[contenteditable='true']",
+      "fallback": [".CommentEditor", "div[contenteditable='true']"],
+      "value": "{{reply_text}}"
+    },
+    {
+      "action": "click",
+      "selector": ".ReplyEditor-send",
+      "fallback": [".send-btn", ".reply-submit"]
+    },
+    {
+      "action": "wait",
+      "selector": ".ReplySent",
+      "fallback": [".toast-success", ".reply-success"],
+      "timeout_ms": 15000
+    },
+    {
+      "action": "assert",
+      "selector": ".ReplySent",
+      "fallback": [".toast-success"],
+      "value": "reply_sent"
+    },
+    {
+      "action": "extract",
+      "selector": ".ReplySent",
+      "fallback": [".toast-success"],
+      "value": "receipt"
+    },
+    {
+      "action": "screenshot",
+      "value": "reply_result"
+    }
+  ],
+  "fixtures": ["fixtures/reply.html"]
+}
