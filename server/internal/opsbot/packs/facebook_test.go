@@ -39,6 +39,79 @@ func TestFacebookBuiltinManifest(t *testing.T) {
 	if !ok || !account.Required || account.Scope != "account" {
 		t.Errorf("facebook account credential slot = %+v, want required account", account)
 	}
+
+	if !containsString(m.AllowedHosts, "graph.facebook.com") {
+		t.Errorf("facebook allowed_hosts = %v, want graph.facebook.com", m.AllowedHosts)
+	}
+}
+
+func TestFacebookRejectsInvalidManifest(t *testing.T) {
+	p := findBuiltin(t, "facebook")
+	base := loadBuiltinManifest(t, p.root)
+
+	cases := []struct {
+		name   string
+		mutate func(*Manifest)
+	}{
+		{"openapi without provider", func(m *Manifest) {
+			m.Bindings["publish"] = Binding{Transport: "openapi"}
+		}},
+		{"unknown transport", func(m *Manifest) {
+			m.Bindings["publish"] = Binding{Transport: "api", Provider: "facebook-graph"}
+		}},
+		{"publish without content format", func(m *Manifest) {
+			m.ContentSchema = ContentSchema{}
+		}},
+		{"metrics without map", func(m *Manifest) {
+			m.MetricsMap = MetricsMap{}
+		}},
+		{"duplicate capability", func(m *Manifest) {
+			m.Capabilities = append(m.Capabilities, "publish")
+		}},
+		{"invalid credential scope", func(m *Manifest) {
+			m.CredentialSlots["account"] = CredentialSlot{Required: true, Scope: "team"}
+		}},
+		{"capability without binding", func(m *Manifest) {
+			delete(m.Bindings, "reply")
+		}},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			m := cloneFacebookManifest(base)
+			tc.mutate(&m)
+			if err := Validate(p.root, m); err == nil {
+				t.Fatalf("manifest mutation %q must be rejected", tc.name)
+			}
+		})
+	}
+}
+
+func cloneFacebookManifest(m Manifest) Manifest {
+	clone := m
+	clone.Capabilities = append([]string(nil), m.Capabilities...)
+	clone.AllowedHosts = append([]string(nil), m.AllowedHosts...)
+
+	clone.Bindings = make(map[string]Binding, len(m.Bindings))
+	for name, binding := range m.Bindings {
+		clone.Bindings[name] = binding
+	}
+
+	clone.CredentialSlots = make(map[string]CredentialSlot, len(m.CredentialSlots))
+	for name, slot := range m.CredentialSlots {
+		clone.CredentialSlots[name] = slot
+	}
+
+	clone.ContentSchema.Formats = make(map[string]ContentFormat, len(m.ContentSchema.Formats))
+	for name, format := range m.ContentSchema.Formats {
+		clone.ContentSchema.Formats[name] = format
+	}
+
+	clone.MetricsMap.Fields = make(map[string]string, len(m.MetricsMap.Fields))
+	for key, value := range m.MetricsMap.Fields {
+		clone.MetricsMap.Fields[key] = value
+	}
+	return clone
 }
 
 func TestFacebookContentSchema(t *testing.T) {

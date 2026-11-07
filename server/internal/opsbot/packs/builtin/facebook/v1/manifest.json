@@ -13,5 +13,6 @@
   "credential_slots": {
     "app": { "required": true, "scope": "owner" },
     "account": { "required": true, "scope": "account" }
-  }
+  },
+  "allowed_hosts": ["graph.facebook.com"]
 }
