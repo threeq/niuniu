@@ -130,6 +130,27 @@ func TestValidateRejectsRecipeEscapingRoot(t *testing.T) {
 	}
 }
 
+func TestValidateRejectsRecipeSymlinkEscape(t *testing.T) {
+	root := t.TempDir()
+	outsideDir := t.TempDir()
+	outside := filepath.Join(outsideDir, "recipe.json")
+	body := `{"name":"publish","steps":[{"action":"open"}]}`
+	if err := os.WriteFile(outside, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, filepath.Join(root, "publish.json")); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+
+	m := validManifest()
+	m.Capabilities = []string{"publish"}
+	m.Bindings = map[string]Binding{"publish": {Transport: "browser", Recipe: "publish.json"}}
+	m.MetricsMap = MetricsMap{}
+	if err := Validate(root, m); err == nil {
+		t.Fatal("recipe symlink escaping pack root must fail")
+	}
+}
+
 func TestValidateRejectsOpenAPIWithoutProvider(t *testing.T) {
 	m := Manifest{
 		ID: "facebook", Version: 1, Status: "published",
