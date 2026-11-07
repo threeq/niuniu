@@ -401,6 +401,7 @@ type mockGraphRequest struct {
 	Path   string
 	Query  url.Values
 	Form   url.Values
+	Auth   string
 }
 
 type mockGraphError struct {
@@ -424,6 +425,7 @@ func (m *mockGraphAPI) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		Path:   r.URL.Path,
 		Query:  r.URL.Query(),
 		Form:   r.PostForm,
+		Auth:   r.Header.Get("Authorization"),
 	})
 	m.mu.Unlock()
 
@@ -580,13 +582,26 @@ func TestFacebookE2EMockGraphAPI(t *testing.T) {
 		t.Fatalf("dm receipt = %+v", dm)
 	}
 
-	// Auth is injected on every call; the app secret proof is present.
+	// Auth never rides in a URL: GET carries the token in the Authorization
+	// header, POST carries it in the form body. appsecret_proof accompanies it.
 	for _, request := range mock.snapshot() {
-		if request.Query.Get("access_token") != "page-token" {
-			t.Errorf("%s %s has access_token %q", request.Method, request.Path, request.Query.Get("access_token"))
+		if request.Query.Get("access_token") != "" {
+			t.Errorf("%s %s leaked access_token into the query string", request.Method, request.Path)
 		}
-		if request.Query.Get("appsecret_proof") == "" {
-			t.Errorf("%s %s has no appsecret_proof", request.Method, request.Path)
+		if request.Method == http.MethodGet {
+			if request.Auth != "Bearer page-token" {
+				t.Errorf("%s %s has Authorization %q", request.Method, request.Path, request.Auth)
+			}
+			if request.Query.Get("appsecret_proof") == "" {
+				t.Errorf("%s %s has no appsecret_proof", request.Method, request.Path)
+			}
+			continue
+		}
+		if request.Form.Get("access_token") != "page-token" {
+			t.Errorf("%s %s has form access_token %q", request.Method, request.Path, request.Form.Get("access_token"))
+		}
+		if request.Form.Get("appsecret_proof") == "" {
+			t.Errorf("%s %s has no form appsecret_proof", request.Method, request.Path)
 		}
 	}
 

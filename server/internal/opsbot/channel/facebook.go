@@ -847,26 +847,47 @@ func (c *GraphHTTPClient) httpClient() *http.Client {
 	return http.DefaultClient
 }
 
-// do issues one Graph request. Access credentials ride in the query string;
-// write parameters ride in the form body. Tokens are never placed in the body
-// so they do not end up in form logs.
+// do issues one Graph request. GET parameters ride in the query string and the
+// access token travels in the Authorization header; write parameters (including
+// the token) ride in the form body. A token is never placed in a URL, so it
+// cannot leak through proxies or request logs.
 func (c *GraphHTTPClient) do(ctx context.Context, method, path string, form url.Values, out any) ([]byte, error) {
 	endpoint := c.baseURL() + "/" + strings.TrimLeft(path, "/")
 
-	auth := url.Values{}
-	if token := strings.TrimSpace(c.PageToken); token != "" {
-		auth.Set("access_token", token)
+	token := strings.TrimSpace(c.PageToken)
+	proof := ""
+	if token != "" {
 		if secret := strings.TrimSpace(c.AppSecret); secret != "" {
-			auth.Set("appsecret_proof", graphAppSecretProof(token, secret))
+			proof = graphAppSecretProof(token, secret)
 		}
-	}
-	if len(auth) > 0 {
-		endpoint += "?" + auth.Encode()
 	}
 
 	var body io.Reader
-	if method != http.MethodGet && form != nil {
-		body = strings.NewReader(form.Encode())
+	if method == http.MethodGet {
+		query := url.Values{}
+		for k, vs := range form {
+			query[k] = append([]string(nil), vs...)
+		}
+		if proof != "" {
+			query.Set("appsecret_proof", proof)
+		}
+		if len(query) > 0 {
+			endpoint += "?" + query.Encode()
+		}
+	} else {
+		bodyForm := url.Values{}
+		for k, vs := range form {
+			bodyForm[k] = append([]string(nil), vs...)
+		}
+		if token != "" {
+			bodyForm.Set("access_token", token)
+			if proof != "" {
+				bodyForm.Set("appsecret_proof", proof)
+			}
+		}
+		if len(bodyForm) > 0 {
+			body = strings.NewReader(bodyForm.Encode())
+		}
 	}
 	req, err := http.NewRequestWithContext(ctx, method, endpoint, body)
 	if err != nil {
@@ -874,6 +895,9 @@ func (c *GraphHTTPClient) do(ctx context.Context, method, path string, form url.
 	}
 	if body != nil {
 		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	}
+	if method == http.MethodGet && token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
 	}
 
 	resp, err := c.httpClient().Do(req)
