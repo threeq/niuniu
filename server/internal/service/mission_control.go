@@ -1076,6 +1076,11 @@ func (s *MissionControlService) OpsView(ctx context.Context, userID int64, owner
 		return MissionControlOpsView{}, err
 	}
 
+	// Scope is owner-level, exactly matching OpsBotHandler.ListBots: a bot
+	// belongs to an owner, not to a project, so there is no project-level
+	// filter to apply here. A personal owner can only ever see their own row;
+	// org owners require membership (authz.Accessible). The explicit
+	// ownerFilter below is validated against this same set, never trusted.
 	scope := []OwnerRef{{Type: "user", ID: userID}}
 	for _, orgID := range owners.OrgIDs {
 		scope = append(scope, OwnerRef{Type: "org", ID: orgID})
