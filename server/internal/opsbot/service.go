@@ -54,14 +54,14 @@ type OwnerRef struct {
 // PackRegistry resolves Platform Pack manifests for an owner. *packs.Registry
 // (filesystem-backed) satisfies it.
 type PackRegistry interface {
-	Load(ownerType string, ownerID int64, packID string, version int64) (packs.Manifest, error)
+	Load(ownerType string, ownerID int64, packID string, version int) (packs.Manifest, error)
 	LatestPublished(ownerType string, ownerID int64, packID string) (packs.Manifest, error)
 }
 
 // ApprovalCanceller cancels outstanding approvals for a bot; KillSwitch uses it
 // so a disabled bot cannot be resumed through a stale approval card.
 type ApprovalCanceller interface {
-	CancelByBot(ctx context.Context, botID int64) error
+	CancelByBot(ctx context.Context, botID int64) (int, error)
 }
 
 // Service is the ops bot configuration and lifecycle service.
@@ -354,7 +354,7 @@ func (s *Service) KillSwitch(ctx context.Context, botID int64) (store.OpsBot, er
 		return store.OpsBot{}, err
 	}
 	if s.Approve != nil {
-		if err := s.Approve.CancelByBot(ctx, botID); err != nil {
+		if _, err := s.Approve.CancelByBot(ctx, botID); err != nil {
 			return bot, fmt.Errorf("opsbot: kill switch cancel approvals: %w", err)
 		}
 	}
@@ -392,7 +392,7 @@ func (s *Service) resolvePack(ctx context.Context, owner OwnerRef, packID string
 		err error
 	)
 	if version > 0 {
-		m, err = s.Packs.Load(owner.Type, owner.ID, packID, version)
+		m, err = s.Packs.Load(owner.Type, owner.ID, packID, int(version))
 	} else {
 		m, err = s.Packs.LatestPublished(owner.Type, owner.ID, packID)
 	}

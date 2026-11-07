@@ -112,7 +112,7 @@ func (h *IMBotHandler) mapErr(c *gin.Context, err error) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
 		return
 	}
-	if errors.Is(err, service.ErrInvalidChannelConfig) {
+	if errors.Is(err, service.ErrInvalidChannelConfig) || errors.Is(err, service.ErrInvalidOpsBotBinding) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
@@ -422,6 +422,9 @@ type patchChatBody struct {
 	// "inherit" | "off" | "observe" | "auto". Omitted/empty preserves the
 	// current mode.
 	IntakeMode string `json:"intake_mode"`
+	// OpsBotID binds the chat to an Ops Bot (design §12). Omitted preserves the
+	// binding, 0 clears it, and a positive id must name a same-owner bot.
+	OpsBotID *int64 `json:"ops_bot_id"`
 }
 
 func (h *IMBotHandler) PatchChat(c *gin.Context) {
@@ -445,6 +448,7 @@ func (h *IMBotHandler) PatchChat(c *gin.Context) {
 		Status:        b.Status,
 		AgentMode:     b.AgentMode,
 		IntakeMode:    b.IntakeMode,
+		OpsBotID:      b.OpsBotID,
 	})
 	if err != nil {
 		h.mapErr(c, err)
@@ -791,6 +795,7 @@ func (h *IMBotHandler) PatchChatOwner(c *gin.Context) {
 		Status:        b.Status,
 		AgentMode:     b.AgentMode,
 		IntakeMode:    b.IntakeMode,
+		OpsBotID:      b.OpsBotID,
 	})
 	if err != nil {
 		h.mapErr(c, err)
