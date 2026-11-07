@@ -37,15 +37,16 @@ const (
 	XHSKindVideo = "video"
 )
 
-// Recipe names used by the xiaohongshu pack bindings.
+// Recipe keys callers use to build a RecipeSet. Publish uses
+// XHSRecipePublishVideo for video notes when the pack provides it.
 const (
-	xhsRecipeLogin        = "login"
-	xhsRecipePublish      = "publish"
-	xhsRecipePublishVideo = "publish_video"
-	xhsRecipeMetrics      = "metrics"
-	xhsRecipeEngagements  = "engagements"
-	xhsRecipeReply        = "reply"
-	xhsRecipeHealth       = "health"
+	XHSRecipeLogin        = "login"
+	XHSRecipePublish      = "publish"
+	XHSRecipePublishVideo = "publish_video"
+	XHSRecipeMetrics      = "metrics"
+	XHSRecipeEngagements  = "engagements"
+	XHSRecipeReply        = "reply"
+	XHSRecipeHealth       = "health"
 )
 
 // Unified metric keys not covered by the WeChat adapter.
@@ -136,10 +137,10 @@ func (a *XHSAdapter) EnsureSession(ctx context.Context, accountRef string) error
 	a.botID = botID
 	a.mu.Unlock()
 
-	if _, ok := a.recipes[xhsRecipeLogin]; !ok {
+	if _, ok := a.recipes[XHSRecipeLogin]; !ok {
 		return nil
 	}
-	_, err = a.execute(ctx, CapPublish, xhsRecipeLogin, nil)
+	_, err = a.execute(ctx, CapPublish, XHSRecipeLogin, nil)
 	return err
 }
 
@@ -147,9 +148,9 @@ func (a *XHSAdapter) EnsureSession(ctx context.Context, accountRef string) error
 // has no health recipe it falls back to the login recipe, and with neither it
 // reports healthy rather than failing every caller.
 func (a *XHSAdapter) HealthCheck(ctx context.Context) error {
-	name := xhsRecipeHealth
+	name := XHSRecipeHealth
 	if _, ok := a.recipes[name]; !ok {
-		name = xhsRecipeLogin
+		name = XHSRecipeLogin
 		if _, ok := a.recipes[name]; !ok {
 			return nil
 		}
@@ -170,10 +171,10 @@ func (a *XHSAdapter) Publish(ctx context.Context, payload any) (Receipt, error) 
 		return Receipt{}, err
 	}
 
-	recipe := xhsRecipePublish
+	recipe := XHSRecipePublish
 	if kind == XHSKindVideo {
-		if _, ok := a.recipes[xhsRecipePublishVideo]; ok {
-			recipe = xhsRecipePublishVideo
+		if _, ok := a.recipes[XHSRecipePublishVideo]; ok {
+			recipe = XHSRecipePublishVideo
 		}
 	}
 
@@ -286,7 +287,7 @@ func (a *XHSAdapter) FetchMetrics(ctx context.Context, from, to string) (map[str
 	if err != nil {
 		return nil, err
 	}
-	res, err := a.execute(ctx, CapMetrics, xhsRecipeMetrics, map[string]string{"range": rng})
+	res, err := a.execute(ctx, CapMetrics, XHSRecipeMetrics, map[string]string{"range": rng})
 	if err != nil {
 		return nil, err
 	}
@@ -339,7 +340,7 @@ func xhsDateRange(from, to string) (string, error) {
 // ListEngagements pulls comments and direct messages through the engagements
 // recipe. cursor is forwarded to the recipe verbatim.
 func (a *XHSAdapter) ListEngagements(ctx context.Context, cursor string) ([]Engagement, error) {
-	res, err := a.execute(ctx, CapEngagements, xhsRecipeEngagements, map[string]string{"cursor": strings.TrimSpace(cursor)})
+	res, err := a.execute(ctx, CapEngagements, XHSRecipeEngagements, map[string]string{"cursor": strings.TrimSpace(cursor)})
 	if err != nil {
 		return nil, err
 	}
@@ -357,7 +358,7 @@ func (a *XHSAdapter) Reply(ctx context.Context, engagementID, text string) (Rece
 		return Receipt{}, invalidPayload(CapReply, "xiaohongshu: reply text is required")
 	}
 
-	res, err := a.execute(ctx, CapReply, xhsRecipeReply, map[string]string{
+	res, err := a.execute(ctx, CapReply, XHSRecipeReply, map[string]string{
 		"engagement_id": id,
 		"reply_text":    body,
 	})
