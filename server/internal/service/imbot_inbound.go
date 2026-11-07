@@ -112,23 +112,6 @@ func (s *IMBotService) HandleInbound(ctx context.Context, ev imbot.InboundEvent)
 		text = attachmentPlaceholder(ev.Attachments)
 	}
 
-	// Conversational ops-bot onboarding gets first refusal: it claims the turn
-	// (non-empty reply) for its own commands/intents and leaves everything else
-	// to the intake pipeline below.
-	if s.opsOnboarding != nil {
-		reply, _, oerr := s.opsOnboarding.Handle(ctx, chat.ID,
-			opsbot.OwnerRef{Type: channel.OwnerType, ID: channel.OwnerID}, routeProjectID, text)
-		if oerr != nil {
-			slog.Warn("imbot: ops onboarding failed", "channel", channel.ID, "chat", chat.ID, "error", oerr)
-			s.pushText(ctx, channel, ev.ChatExtID, ev.ThreadExtID, "处理运营 Bot 接入流程时出错，请稍后重试或回复 /cancel。")
-			return
-		}
-		if reply != "" {
-			s.pushText(ctx, channel, ev.ChatExtID, ev.ThreadExtID, reply)
-			return
-		}
-	}
-
 	// Auto chats are read in full: ambient messages feed the suggestion analysis
 	// and may match a rule. Respond chats only act on messages aimed at the bot,
 	// so unaddressed chatter is dropped before it reaches the pipeline.
@@ -143,6 +126,32 @@ func (s *IMBotService) HandleInbound(ctx context.Context, ev imbot.InboundEvent)
 	} else if !addressed {
 		slog.Debug("imbot: ignored (respond mode, not addressed)", "chat", chat.ID, "actor", ev.ActorExtID)
 		return
+	}
+
+	// Conversational ops-bot onboarding claims the turn (non-empty reply) for its
+	// own commands/intents and leaves everything else to the intake pipeline.
+	// It creates and reconfigures publishing bots, so it is gated like the other
+	// high-risk actions: only an addressed message from an authorized (non-bot,
+	// allow-listed when a list exists) operator reaches it.
+	if s.opsOnboarding != nil && addressed {
+		if !s.allowsHighRiskAction(ctx, chat, ev) {
+			if s.opsOnboarding.Matches(chat.ID, text) {
+				s.pushText(ctx, channel, ev.ChatExtID, ev.ThreadExtID, opsOnboardingDeniedText)
+				return
+			}
+		} else {
+			reply, _, oerr := s.opsOnboarding.Handle(ctx, chat.ID,
+				opsbot.OwnerRef{Type: channel.OwnerType, ID: channel.OwnerID}, routeProjectID, text)
+			if oerr != nil {
+				slog.Warn("imbot: ops onboarding failed", "channel", channel.ID, "chat", chat.ID, "error", oerr)
+				s.pushText(ctx, channel, ev.ChatExtID, ev.ThreadExtID, "处理运营 Bot 接入流程时出错，请稍后重试或回复 /cancel。")
+				return
+			}
+			if reply != "" {
+				s.pushText(ctx, channel, ev.ChatExtID, ev.ThreadExtID, reply)
+				return
+			}
+		}
 	}
 
 	// Slash commands (optional; the channel already binds a single project).
@@ -946,6 +955,8 @@ func askUserOption(questionsJSON string, optIdx int) (question, label string, ok
 // highRiskDeniedText is deliberately jargon-free: the user only needs to know
 // who can grant the permission, not the policy internals.
 const highRiskDeniedText = "你没有权限执行这个操作。停止或删除任务需要项目允许名单内的成员发起。"
+
+const opsOnboardingDeniedText = "你没有权限执行运营 Bot 的接入或配置操作。需要由项目允许名单内的成员发起。"
 
 // allowsHighRiskAction gates /stop and /delete on the intake policy. A bot can
 // never stop or delete a task, and once an allow list is configured only listed
