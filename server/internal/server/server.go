@@ -62,58 +62,58 @@ type Server struct {
 	telemetryReporter *telemetry.Reporter
 
 	// Services
-	projectSvc           *service.ProjectService
-	projectBlueprintSvc  *service.ProjectBlueprintService
-	repositorySvc        *service.RepositoryService
-	issueActivitySvc     *service.IssueActivityService
-	issueChecklistSvc    *service.IssueChecklistService
-	issueCommentSvc      *service.IssueCommentService
-	kanbanSvc            *service.KanbanService
-	memoryMaintBoard     service.MaintBoard
-	epicExecSvc          *service.EpicExecutionService
-	checkpointSvc        *service.CheckpointService
-	workspaceSvc         *service.WorkspaceService
-	localRunnerSvc       *service.LocalRunnerService
-	worktreeSvc          *service.WorktreeService
-	agentMgr             *service.AgentManager
-	reviewSvc            *service.ReviewService
-	gitOpsSvc            *service.GitOpsService
-	directorySvc         *service.DirectoryService
-	systemDepsSvc        *service.SystemDepsService
-	agentProxy           *agentproxy.AgentProxy
-	agentFileSvc         *service.AgentService
-	quickActionSvc       *service.QuickActionService
-	envPresetSvc         *service.EnvPresetService
-	envAccountSvc        *service.EnvAccountService
-	envProviderSvc       *service.EnvProviderService
-	capabilityBackendSvc *service.CapabilityBackendService
-	sceneSvc             *service.SceneService
-	sceneSeeder          *service.SceneSeeder
-	sceneLayerSvc        *service.SceneLayerService
-	sceneProjector       *service.SceneProjector
-	sceneMatcher         *service.SceneMatcher
-	pluginInstaller      *service.PluginInstaller
-	marketplaceManager   *service.MarketplaceManager
-	skillManager         *service.SkillManager
-	agentRegistry        *registry.AgentRegistry
-	agentRegistryHandler *api.AgentRegistryHandler
-	scheduler            *scheduler.Scheduler
-	notifyHub            *notify.NotificationHub
-	notifyHandler        *api.NotifyHandler
-	harnessSvc           *service.HarnessService
-	harnessHandler       *api.HarnessHandler
-	mcpGenerator         *service.MCPConfigGenerator
-	mcpRegistry          *service.ClaudeMCPRegistry
-	mcpDetector          *service.WorkspaceMCPDetector
-	teamHandler          *api.TeamHandler
+	projectSvc              *service.ProjectService
+	projectBlueprintSvc     *service.ProjectBlueprintService
+	repositorySvc           *service.RepositoryService
+	issueActivitySvc        *service.IssueActivityService
+	issueChecklistSvc       *service.IssueChecklistService
+	issueCommentSvc         *service.IssueCommentService
+	kanbanSvc               *service.KanbanService
+	memoryMaintBoard        service.MaintBoard
+	epicExecSvc             *service.EpicExecutionService
+	checkpointSvc           *service.CheckpointService
+	workspaceSvc            *service.WorkspaceService
+	localRunnerSvc          *service.LocalRunnerService
+	worktreeSvc             *service.WorktreeService
+	agentMgr                *service.AgentManager
+	reviewSvc               *service.ReviewService
+	gitOpsSvc               *service.GitOpsService
+	directorySvc            *service.DirectoryService
+	systemDepsSvc           *service.SystemDepsService
+	agentProxy              *agentproxy.AgentProxy
+	agentFileSvc            *service.AgentService
+	quickActionSvc          *service.QuickActionService
+	envPresetSvc            *service.EnvPresetService
+	envAccountSvc           *service.EnvAccountService
+	envProviderSvc          *service.EnvProviderService
+	capabilityBackendSvc    *service.CapabilityBackendService
+	sceneSvc                *service.SceneService
+	sceneSeeder             *service.SceneSeeder
+	sceneLayerSvc           *service.SceneLayerService
+	sceneProjector          *service.SceneProjector
+	sceneMatcher            *service.SceneMatcher
+	pluginInstaller         *service.PluginInstaller
+	marketplaceManager      *service.MarketplaceManager
+	skillManager            *service.SkillManager
+	agentRegistry           *registry.AgentRegistry
+	agentRegistryHandler    *api.AgentRegistryHandler
+	scheduler               *scheduler.Scheduler
+	notifyHub               *notify.NotificationHub
+	notifyHandler           *api.NotifyHandler
+	harnessSvc              *service.HarnessService
+	harnessHandler          *api.HarnessHandler
+	mcpGenerator            *service.MCPConfigGenerator
+	mcpRegistry             *service.ClaudeMCPRegistry
+	mcpDetector             *service.WorkspaceMCPDetector
+	teamHandler             *api.TeamHandler
 	workspaceMessageSvc     *service.WorkspaceMessageService
 	workspaceMessageHandler *api.WorkspaceMessageHandler
-	memorySvc            *service.MemoryService
-	memoryHandler        *api.MemoryHandler
-	cleanupSvc           *service.WorkspaceCleanupService
-	cleanupHandler       *api.WorkspaceCleanupHandler
-	projectFloorSvc      *service.ProjectFloorService
-	projectFloorHandler  *api.ProjectFloorHandler
+	memorySvc               *service.MemoryService
+	memoryHandler           *api.MemoryHandler
+	cleanupSvc              *service.WorkspaceCleanupService
+	cleanupHandler          *api.WorkspaceCleanupHandler
+	projectFloorSvc         *service.ProjectFloorService
+	projectFloorHandler     *api.ProjectFloorHandler
 
 	// Intake (任务来源) + Completion (自动完成) contract surface (design §6.9).
 	intakeSvc            *service.IntakeService
@@ -196,7 +196,6 @@ type Server struct {
 	// a ConnectorManager of per-channel outbound long connections, and an
 	// event-bus dispatcher pushing outbound notifications.
 	imbotSvc             *service.IMBotService
-	opsBotSvc            *opsbot.Service
 	opsOnboarding        *opsbot.Onboarding
 	integrationHealthSvc *service.IntegrationHealthService
 	// integrationDraftSvc is the shared draft -> lint -> confirm -> publish ->
@@ -205,81 +204,81 @@ type Server struct {
 	// functionSvc is the sandbox operation-function runtime (Epic #726 / #739):
 	// AI-authored functions that run in a throwaway OS-fenced process and reach
 	// the outside world only through the proxy egress.
-	functionSvc *service.OperationFunctionService
+	functionSvc     *service.OperationFunctionService
 	imbotHandler    *api.IMBotHandler
 	imbotConnMgr    *imbot.ConnectorManager
 	imbotDispatcher *service.IMBotDispatcher
 	imbotEmployee   *service.IMBotEmployee
 
 	// Handlers
-	projectHandler          *api.ProjectHandler
-	repositoryHandler       *api.RepositoryHandler
-	issueChecklistHandler   *api.IssueChecklistHandler
-	issueCommentHandler     *api.IssueCommentHandler
-	issueTimelineHandler    *api.IssueTimelineHandler
-	kanbanHandler           *api.KanbanHandler
-	managedTaskHandler      *api.ManagedTaskHandler
-	epicExecHandler         *api.EpicExecutionHandler
-	workspaceHandler        *api.WorkspaceHandler
-	tokenUsageHandler       *api.TokenUsageHandler
-	providerUsageHandler    *api.ProviderUsageHandler
-	workspaceMCPHandler     *api.WorkspaceMCPHandler
-	localRunnerHandler      *api.LocalRunnerHandler
-	worktreeHandler         *api.WorktreeHandler
-	agentHandler            *api.AgentHandler
-	reviewHandler           *api.ReviewHandler
-	gitOpsHandler           *api.GitOpsHandler
-	directoryHandler        *api.DirectoryHandler
-	systemDepsHandler       *api.SystemDepsHandler
-	fsHandler               *api.FSHandler
-	agentProxyHandler       *api.AgentProxyHandler
-	slashCommandHandler     *api.SlashCommandHandler
-	workspaceOpsHandler     *api.WorkspaceOpsHandler
-	checkpointHandler       *api.CheckpointHandler
-	videoProjectHandler     *api.VideoProjectHandler
-	agentFileHandler        *api.AgentFileHandler
-	promptGenHandler        *api.PromptGenHandler
-	workspaceTaskHandler    *api.WorkspaceTaskHandler
-	pinnedMessageHandler    *api.PinnedMessageHandler
-	quickActionHandler      *api.QuickActionHandler
-	queueHandler            *api.QueueHandler
-	scheduleHandler         *api.ScheduleHandler
-	healthHandler           *api.HealthHandler
-	appUpdateHandler        *api.AppUpdateHandler
-	configHandler           *api.ConfigHandler
-	eventsHandler           *api.EventsHandler
-	envPresetHandler        *api.EnvPresetHandler
-	envAccountHandler       *api.EnvAccountHandler
-	envProviderHandler      *api.EnvProviderHandler
+	projectHandler           *api.ProjectHandler
+	repositoryHandler        *api.RepositoryHandler
+	issueChecklistHandler    *api.IssueChecklistHandler
+	issueCommentHandler      *api.IssueCommentHandler
+	issueTimelineHandler     *api.IssueTimelineHandler
+	kanbanHandler            *api.KanbanHandler
+	managedTaskHandler       *api.ManagedTaskHandler
+	epicExecHandler          *api.EpicExecutionHandler
+	workspaceHandler         *api.WorkspaceHandler
+	tokenUsageHandler        *api.TokenUsageHandler
+	providerUsageHandler     *api.ProviderUsageHandler
+	workspaceMCPHandler      *api.WorkspaceMCPHandler
+	localRunnerHandler       *api.LocalRunnerHandler
+	worktreeHandler          *api.WorktreeHandler
+	agentHandler             *api.AgentHandler
+	reviewHandler            *api.ReviewHandler
+	gitOpsHandler            *api.GitOpsHandler
+	directoryHandler         *api.DirectoryHandler
+	systemDepsHandler        *api.SystemDepsHandler
+	fsHandler                *api.FSHandler
+	agentProxyHandler        *api.AgentProxyHandler
+	slashCommandHandler      *api.SlashCommandHandler
+	workspaceOpsHandler      *api.WorkspaceOpsHandler
+	checkpointHandler        *api.CheckpointHandler
+	videoProjectHandler      *api.VideoProjectHandler
+	agentFileHandler         *api.AgentFileHandler
+	promptGenHandler         *api.PromptGenHandler
+	workspaceTaskHandler     *api.WorkspaceTaskHandler
+	pinnedMessageHandler     *api.PinnedMessageHandler
+	quickActionHandler       *api.QuickActionHandler
+	queueHandler             *api.QueueHandler
+	scheduleHandler          *api.ScheduleHandler
+	healthHandler            *api.HealthHandler
+	appUpdateHandler         *api.AppUpdateHandler
+	configHandler            *api.ConfigHandler
+	eventsHandler            *api.EventsHandler
+	envPresetHandler         *api.EnvPresetHandler
+	envAccountHandler        *api.EnvAccountHandler
+	envProviderHandler       *api.EnvProviderHandler
 	capabilityBackendHandler *api.CapabilityBackendHandler
-	sceneHandler            *api.SceneHandler
-	workspaceSceneHandler   *api.WorkspaceSceneHandler
-	pluginInstallHandler    *api.PluginInstallHandler
-	skillsHandler           *api.SkillsHandler
-	projectSceneHandler     *api.ProjectSceneHandler
-	projectBlueprintHandler *api.ProjectBlueprintHandler
-	authHandler             *api.AuthHandler
-	mfaHandler              *api.MFAHandler
-	attachmentHandler       *api.AttachmentHandler
-	fileTreeHandler         *api.FileTreeHandler
-	relayHandler            *api.RelayHandler
-	shellHandler            *api.ShellHandler
-	cliLoginHandler         *api.CLILoginHandler
-	autostartHandler        *api.AutostartHandler
-	gitIdentitySvc          *service.GitIdentityService
-	gitIdentityHandler      *api.GitIdentityHandler
-	serverSettingsSvc       *service.ServerSettingsService
-	adminSettingsHandler    *api.AdminSettingsHandler
-	workspaceShareSvc       *service.WorkspaceShareService
-	workspaceShareHandler   *api.WorkspaceShareHandler
-	sharePublicHandler      *api.SharePublicHandler
-	licenseSvc              license.Gate
-	licenseHandler          *api.LicenseHandler
-	consentSvc              *consent.Service
-	consentHandler          *api.ConsentHandler
-	mfaPolicySvc            *mfapolicy.Service
-	authzSvc                *service.Authz
-	eventBus                *event.Bus
+	sceneHandler             *api.SceneHandler
+	workspaceSceneHandler    *api.WorkspaceSceneHandler
+	pluginInstallHandler     *api.PluginInstallHandler
+	skillsHandler            *api.SkillsHandler
+	projectSceneHandler      *api.ProjectSceneHandler
+	projectBlueprintHandler  *api.ProjectBlueprintHandler
+	authHandler              *api.AuthHandler
+	mfaHandler               *api.MFAHandler
+	attachmentHandler        *api.AttachmentHandler
+	fileTreeHandler          *api.FileTreeHandler
+	relayHandler             *api.RelayHandler
+	shellHandler             *api.ShellHandler
+	cliLoginHandler          *api.CLILoginHandler
+	autostartHandler         *api.AutostartHandler
+	gitIdentitySvc           *service.GitIdentityService
+	gitIdentityHandler       *api.GitIdentityHandler
+	serverSettingsSvc        *service.ServerSettingsService
+	adminSettingsHandler     *api.AdminSettingsHandler
+	workspaceShareSvc        *service.WorkspaceShareService
+	workspaceShareHandler    *api.WorkspaceShareHandler
+	sharePublicHandler       *api.SharePublicHandler
+	licenseSvc               license.Gate
+	licenseHandler           *api.LicenseHandler
+	consentSvc               *consent.Service
+	consentHandler           *api.ConsentHandler
+	mfaPolicySvc             *mfapolicy.Service
+	authzSvc                 *service.Authz
+	eventBus                 *event.Bus
 
 	relaySvc *service.RelayService
 
@@ -290,7 +289,7 @@ type Server struct {
 	integrationApprovalSvc *service.IntegrationApprovalService
 	projectMemberSvc       *service.ProjectMemberService
 	approvalHandler        *api.IntegrationApprovalHandler
-	meHandler  *api.MeHandler
+	meHandler              *api.MeHandler
 
 	adminUserSvc     *service.AdminUserService
 	adminUserHandler *api.AdminUserHandler
