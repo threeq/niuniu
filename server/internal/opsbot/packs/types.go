@@ -17,11 +17,12 @@ type CredentialSlot struct {
 
 // ContentFormat constrains one kind of content the platform accepts.
 type ContentFormat struct {
-	Fields     []string `json:"fields"`
-	MaxChars   int      `json:"max_chars"`
-	ImageRatio string   `json:"image_ratio"`
-	MaxImages  int      `json:"max_images"`
-	VideoSec   int      `json:"video_sec"`
+	Fields        []string `json:"fields"`
+	MaxChars      int      `json:"max_chars"`
+	MaxTitleChars int      `json:"max_title_chars"`
+	ImageRatio    string   `json:"image_ratio"`
+	MaxImages     int      `json:"max_images"`
+	VideoSec      int      `json:"video_sec"`
 }
 
 // ContentSchema maps a named content format (article, note, video, post) to its
@@ -70,4 +71,7 @@ type Manifest struct {
 	ContentSchema   ContentSchema             `json:"content_schema"`
 	Compliance      Compliance                `json:"compliance"`
 	MetricsMap      MetricsMap                `json:"metrics_map"`
+	// AllowedHosts is the browser-recipe egress allowlist. Browser recipes may
+	// only navigate to these hosts; an empty list denies every navigation.
+	AllowedHosts []string `json:"allowed_hosts,omitempty"`
 }

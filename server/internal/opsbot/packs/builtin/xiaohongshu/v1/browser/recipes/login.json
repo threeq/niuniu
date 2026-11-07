@@ -1,0 +1,39 @@
+{
+  "name": "login",
+  "steps": [
+    {
+      "action": "goto",
+      "value": "https://creator.xiaohongshu.com/login",
+      "timeout_ms": 30000
+    },
+    {
+      "action": "wait",
+      "selector": ".login-container",
+      "fallback": [".creator-login", ".login-qrcode"],
+      "timeout_ms": 15000,
+      "args": { "poll_interval_ms": "500" }
+    },
+    {
+      "action": "assert",
+      "selector": ".login-qrcode",
+      "value": "qrcode_visible"
+    },
+    {
+      "action": "wait",
+      "selector": ".user-avatar",
+      "fallback": [".side-nav .avatar"],
+      "timeout_ms": 180000,
+      "args": { "poll_interval_ms": "2000" }
+    },
+    {
+      "action": "assert",
+      "selector": ".user-avatar",
+      "value": "logged_in"
+    },
+    {
+      "action": "screenshot",
+      "value": "login_state"
+    }
+  ],
+  "fixtures": ["fixtures/login.html"]
+}

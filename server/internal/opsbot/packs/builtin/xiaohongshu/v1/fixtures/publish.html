@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <title>发布笔记 - 小红书创作服务平台</title>
+</head>
+<body>
+  <nav class="publish-tabs">
+    <button class="publish-tab-image" type="button">上传图文</button>
+    <button class="publish-tab-video" type="button">上传视频</button>
+  </nav>
+
+  <form class="publish-form">
+    <input type="file" class="upload-input" accept="image/*" multiple>
+    <div class="image-preview-item img-preview" data-count="3"></div>
+
+    <label>标题
+      <input class="title-input" placeholder="填写标题会有更多赞哦" maxlength="20">
+    </label>
+
+    <div contenteditable="true" class="ql-editor note-editor" placeholder="填写正文"></div>
+
+    <div class="tag-input">
+      <input placeholder="添加话题" maxlength="50">
+    </div>
+
+    <button class="cover-entry cover-select" type="button">设置封面</button>
+    <div class="cover-panel" hidden>
+      <div class="cover-option selected" data-index="0"></div>
+      <button class="cover-confirm" type="button">确定</button>
+    </div>
+
+    <button class="publish-btn submit" type="button">发布</button>
+  </form>
+
+  <div class="publish-success" hidden>
+    <p>发布成功</p>
+    <a class="note-link" href="https://www.xiaohongshu.com/explore/65f0c0ffee000000">查看笔记</a>
+  </div>
+</body>
+</html>

@@ -1,0 +1,12 @@
+{
+  "formats": {
+    "article": {
+      "fields": ["title", "author", "digest", "cover", "images", "body", "source_url"],
+      "max_chars": 0,
+      "max_title_chars": 64,
+      "image_ratio": "900x383",
+      "max_images": 20,
+      "video_sec": 0
+    }
+  }
+}
