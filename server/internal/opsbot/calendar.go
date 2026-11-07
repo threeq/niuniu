@@ -55,8 +55,10 @@ type CalendarStore interface {
 	// ListCalendarEntries returns every dated content issue belonging to the
 	// owner's account bots, across all channels. Filtering happens in Calendar.
 	ListCalendarEntries(ctx context.Context, ownerType string, ownerID int64) ([]CalendarEntry, error)
-	// ScheduleIssue sets an issue's start/due dates without recreating it.
-	ScheduleIssue(ctx context.Context, issueID int64, startDate, dueDate string) error
+	// ScheduleIssue sets an issue's start/due dates without recreating it. It
+	// must reject issues that are not content tasks under one of that owner's
+	// account bot Epics, so a caller cannot rewrite an arbitrary issue by id.
+	ScheduleIssue(ctx context.Context, ownerType string, ownerID, issueID int64, startDate, dueDate string) error
 }
 
 // CalendarEntry is one scheduled content task on the calendar view.
@@ -86,6 +88,13 @@ type CalendarFilter struct {
 // Calendar turns the fixed cadence into content tasks and reads the resulting
 // content calendar back. The calendar is a view over issues (start_date /
 // due_date under the account Epic), not a table of its own.
+//
+// Trust boundary: like the rest of the opsbot service layer, Calendar does not
+// authenticate callers. List/Reschedule take an owner scope and the store
+// enforces it, but the entry layer (HTTP handler or director orchestrator) must
+// derive that scope from the authenticated principal and resolve BotRef.ID from
+// a bot the principal owns before calling PlanWeek. Never pass a client-supplied
+// bot id or owner id straight through.
 type Calendar struct {
 	Bots    CalendarBotStore
 	Planner WeeklyPlanner
@@ -102,6 +111,9 @@ var _ CalendarStore = (*SQLCalendarStore)(nil)
 // its cadence_json.weekly (or posts_per_week, the onboarding key). Slots that
 // already exist for the same account and week are skipped, so repeated calls
 // are idempotent; only newly created issue ids are returned.
+//
+// ref.ID must already belong to the authenticated owner; see the Calendar trust
+// boundary note.
 func (c *Calendar) PlanWeek(ctx context.Context, ref BotRef, week string) ([]int64, error) {
 	if c.Bots == nil || c.Planner == nil || c.Store == nil {
 		return nil, errors.New("opsbot: calendar needs bots, planner and store")
@@ -154,6 +166,10 @@ func (c *Calendar) PlanWeek(ctx context.Context, ref BotRef, week string) ([]int
 	if audience == "" {
 		audience = fallbackText(bot.DisplayName, bot.AccountRef, "账号受众")
 	}
+	ownerType := bot.OwnerType
+	if ownerType == "" {
+		ownerType = defaultOwnerType
+	}
 
 	// Serialise the plan so two concurrent scheduler ticks cannot both observe
 	// a slot as missing and create it twice.
@@ -181,7 +197,7 @@ func (c *Calendar) PlanWeek(ctx context.Context, ref BotRef, week string) ([]int
 		if brief.Existing {
 			continue
 		}
-		if err := c.Store.ScheduleIssue(ctx, brief.IssueID, startDate, dueDate); err != nil {
+		if err := c.Store.ScheduleIssue(ctx, ownerType, bot.OwnerID, brief.IssueID, startDate, dueDate); err != nil {
 			return created, fmt.Errorf("opsbot: schedule issue %d for bot %d: %w", brief.IssueID, ref.ID, err)
 		}
 		created = append(created, brief.IssueID)
@@ -237,9 +253,16 @@ func (c *Calendar) List(ctx context.Context, filter CalendarFilter) ([]CalendarE
 
 // Reschedule moves a content task to new dates without recreating it. Empty
 // arguments clear that bound; at least one bound is required.
-func (c *Calendar) Reschedule(ctx context.Context, issueID int64, startDate, dueDate string) error {
+//
+// owner must come from the authenticated principal. The store rejects any issue
+// that is not a content task under one of that owner's account bot Epics, so an
+// arbitrary issue id cannot be rewritten.
+func (c *Calendar) Reschedule(ctx context.Context, owner OwnerRef, issueID int64, startDate, dueDate string) error {
 	if c.Store == nil {
 		return errors.New("opsbot: calendar has no store")
+	}
+	if strings.TrimSpace(owner.Type) == "" {
+		return fmt.Errorf("%w: owner is required", ErrInvalidInput)
 	}
 	if issueID <= 0 {
 		return fmt.Errorf("%w: issue id is required", ErrInvalidInput)
@@ -251,7 +274,7 @@ func (c *Calendar) Reschedule(ctx context.Context, issueID int64, startDate, due
 	if err := validateRange(startDate, dueDate); err != nil {
 		return err
 	}
-	if err := c.Store.ScheduleIssue(ctx, issueID, startDate, dueDate); err != nil {
+	if err := c.Store.ScheduleIssue(ctx, owner.Type, owner.ID, issueID, startDate, dueDate); err != nil {
 		return fmt.Errorf("opsbot: reschedule issue %d: %w", issueID, err)
 	}
 	return nil
@@ -304,14 +327,29 @@ func (s *SQLCalendarStore) ListCalendarEntries(ctx context.Context, ownerType st
 	return out, nil
 }
 
-// ScheduleIssue rewrites an issue's dates, preserving every other field.
-func (s *SQLCalendarStore) ScheduleIssue(ctx context.Context, issueID int64, startDate, dueDate string) error {
+// ScheduleIssue rewrites an issue's dates, preserving every other field. It
+// only accepts a content task (a child of the Epic) whose Epic belongs to one of
+// the owner's account bots, so the owner scope is enforced before the write.
+func (s *SQLCalendarStore) ScheduleIssue(ctx context.Context, ownerType string, ownerID, issueID int64, startDate, dueDate string) error {
 	if s == nil || s.Q == nil {
 		return errors.New("opsbot: calendar store has no queries")
 	}
 	issue, err := s.Q.GetIssue(ctx, issueID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return fmt.Errorf("%w: issue %d not found", ErrNotFound, issueID)
+	}
 	if err != nil {
 		return err
+	}
+	if !issue.ParentIssueID.Valid {
+		return fmt.Errorf("%w: issue %d is not a content task", ErrNotFound, issueID)
+	}
+	owns, err := s.ownsContentIssue(ctx, ownerType, ownerID, issue.ParentIssueID.Int64)
+	if err != nil {
+		return err
+	}
+	if !owns {
+		return fmt.Errorf("%w: issue %d is not on this owner's calendar", ErrNotFound, issueID)
 	}
 	_, err = s.Q.UpdateIssue(ctx, store.UpdateIssueParams{
 		Title:        issue.Title,
@@ -325,6 +363,32 @@ func (s *SQLCalendarStore) ScheduleIssue(ctx context.Context, issueID int64, sta
 		ID:           issueID,
 	})
 	return err
+}
+
+// ownsContentIssue reports whether epicID is the control Epic of an account bot
+// belonging to the given owner.
+func (s *SQLCalendarStore) ownsContentIssue(ctx context.Context, ownerType string, ownerID, epicID int64) (bool, error) {
+	bots, err := s.Q.ListOpsBotsByOwner(ctx, store.ListOpsBotsByOwnerParams{
+		OwnerType: ownerType,
+		OwnerID:   ownerID,
+	})
+	if err != nil {
+		return false, err
+	}
+	return ownsContentEpic(bots, epicID), nil
+}
+
+// ownsContentEpic is the pure ownership rule behind ownsContentIssue.
+func ownsContentEpic(bots []store.OpsBot, epicID int64) bool {
+	for _, bot := range bots {
+		if bot.Role == RoleDirector || !bot.EpicIssueID.Valid {
+			continue
+		}
+		if bot.EpicIssueID.Int64 == epicID {
+			return true
+		}
+	}
+	return false
 }
 
 type cadenceSpec struct {

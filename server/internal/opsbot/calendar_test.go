@@ -2,6 +2,7 @@ package opsbot
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"testing"
 	"time"
@@ -48,6 +49,8 @@ func (f *fakePlanner) Build(_ context.Context, in content.BriefInput) (content.O
 }
 
 type scheduledIssue struct {
+	ownerType string
+	ownerID   int64
 	issueID   int64
 	startDate string
 	dueDate   string
@@ -66,8 +69,11 @@ func (f *fakeCalendarStore) ListCalendarEntries(_ context.Context, _ string, _ i
 	return f.entries, nil
 }
 
-func (f *fakeCalendarStore) ScheduleIssue(_ context.Context, issueID int64, startDate, dueDate string) error {
-	f.scheduled = append(f.scheduled, scheduledIssue{issueID: issueID, startDate: startDate, dueDate: dueDate})
+func (f *fakeCalendarStore) ScheduleIssue(_ context.Context, ownerType string, ownerID, issueID int64, startDate, dueDate string) error {
+	f.scheduled = append(f.scheduled, scheduledIssue{
+		ownerType: ownerType, ownerID: ownerID, issueID: issueID,
+		startDate: startDate, dueDate: dueDate,
+	})
 	return nil
 }
 
@@ -83,6 +89,8 @@ func newCalendarFixture(t *testing.T) *calendarFixture {
 	bots := &fakeCalendarBots{bots: map[int64]store.OpsBot{
 		1: {
 			ID:          1,
+			OwnerType:   defaultOwnerType,
+			OwnerID:     7,
 			Role:        RoleAccount,
 			PackID:      "xiaohongshu",
 			AccountRef:  "brand_xhs",
@@ -93,6 +101,8 @@ func newCalendarFixture(t *testing.T) *calendarFixture {
 		},
 		2: {
 			ID:          2,
+			OwnerType:   defaultOwnerType,
+			OwnerID:     7,
 			Role:        RoleDirector,
 			DisplayName: "运营总监",
 			CadenceJson: `{"weekly":1}`,
@@ -136,6 +146,8 @@ func TestWeeklyPlanReadsPersistedCadenceAndSpreadsDates(t *testing.T) {
 	// ISO week 2026-W45 is Mon 2026-11-02 .. Sun 2026-11-08.
 	require.Len(t, fixture.store.scheduled, 2)
 	first, second := fixture.store.scheduled[0], fixture.store.scheduled[1]
+	require.Equal(t, defaultOwnerType, first.ownerType, "scheduling is owner-scoped")
+	require.Equal(t, int64(7), first.ownerID)
 	require.Equal(t, "2026-11-02", first.startDate)
 	require.Equal(t, "2026-11-04", first.dueDate)
 	require.Equal(t, "2026-11-05", second.startDate)
@@ -242,13 +254,37 @@ func TestCalendarListRejectsBadRange(t *testing.T) {
 func TestCalendarRescheduleUpdatesDates(t *testing.T) {
 	fixture := newCalendarFixture(t)
 	ctx := context.Background()
+	owner := OwnerRef{Type: defaultOwnerType, ID: 7}
 
-	require.NoError(t, fixture.calendar.Reschedule(ctx, 42, "2026-12-01", "2026-12-03"))
-	require.Equal(t, []scheduledIssue{{issueID: 42, startDate: "2026-12-01", dueDate: "2026-12-03"}}, fixture.store.scheduled)
+	require.NoError(t, fixture.calendar.Reschedule(ctx, owner, 42, "2026-12-01", "2026-12-03"))
+	require.Equal(t, []scheduledIssue{{
+		ownerType: defaultOwnerType, ownerID: 7, issueID: 42,
+		startDate: "2026-12-01", dueDate: "2026-12-03",
+	}}, fixture.store.scheduled)
 
-	require.ErrorIs(t, fixture.calendar.Reschedule(ctx, 42, "", ""), ErrInvalidDateRange)
-	require.ErrorIs(t, fixture.calendar.Reschedule(ctx, 42, "2026-12-05", "2026-12-01"), ErrInvalidDateRange)
-	require.ErrorIs(t, fixture.calendar.Reschedule(ctx, 0, "2026-12-01", ""), ErrInvalidInput)
+	require.ErrorIs(t, fixture.calendar.Reschedule(ctx, owner, 42, "", ""), ErrInvalidDateRange)
+	require.ErrorIs(t, fixture.calendar.Reschedule(ctx, owner, 42, "2026-12-05", "2026-12-01"), ErrInvalidDateRange)
+	require.ErrorIs(t, fixture.calendar.Reschedule(ctx, owner, 0, "2026-12-01", ""), ErrInvalidInput)
+	require.ErrorIs(t, fixture.calendar.Reschedule(ctx, OwnerRef{}, 42, "2026-12-01", ""), ErrInvalidInput,
+		"owner scope is mandatory")
+	require.Len(t, fixture.store.scheduled, 1, "rejected calls must not reach the store")
+}
+
+func TestOwnsContentEpicScopesToOwnerAccountBots(t *testing.T) {
+	bots := []store.OpsBot{
+		{ID: 1, Role: RoleAccount, EpicIssueID: sqlNullInt64(100)},
+		{ID: 2, Role: RoleDirector, EpicIssueID: sqlNullInt64(200)},
+		{ID: 3, Role: RoleAccount}, // never provisioned
+	}
+	require.True(t, ownsContentEpic(bots, 100))
+	require.False(t, ownsContentEpic(bots, 200), "a director epic is not a content calendar")
+	require.False(t, ownsContentEpic(bots, 0))
+	require.False(t, ownsContentEpic(bots, 999), "another owner's epic is rejected")
+	require.False(t, ownsContentEpic(nil, 100))
+}
+
+func sqlNullInt64(v int64) sql.NullInt64 {
+	return sql.NullInt64{Int64: v, Valid: v > 0}
 }
 
 func TestWeekBounds(t *testing.T) {
