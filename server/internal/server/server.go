@@ -1762,15 +1762,35 @@ func New(cfg *config.Config, db *sql.DB, frontendFS fs.FS) *Server {
 	s.imbotSvc = service.NewIMBotService(s.queries, db, keyring, s.authzSvc, imbotAdapters)
 	// Ops Bot conversational setup (Epic #788, design §13): the IM bot gets first
 	// refusal on inbound text for "接入 <渠道>", /bots, /budget and friends.
-	// Provisioning, Pack generation and credential links are wired by their own
-	// services when available; onboarding degrades cleanly until then.
-	opsPackRegistry := &packs.Registry{DataDir: s.cfg.DataDir}
-	s.opsBotSvc = opsbot.NewService(s.queries, opsbot.FilePacks{Registry: opsPackRegistry})
+	// The domain services come from initOpsBot; onboarding shares that instance
+	// so /approvals and the kill switch see the same state machine.
 	s.opsOnboarding = opsbot.NewOnboarding(s.opsBotSvc)
+	s.opsOnboarding.Approvals = s.opsApproval
+	s.opsOnboarding.Provisioner = s.opsProvisioner
 	s.opsOnboarding.InstallPacks = func(ctx context.Context, ownerType string, ownerID int64) error {
-		return packs.InstallBuiltins(opsPackRegistry, ownerType, ownerID)
+		return packs.InstallBuiltins(s.opsPackRegistry, ownerType, ownerID)
 	}
 	s.imbotSvc.SetOpsOnboarding(s.opsOnboarding)
+
+	// Chat → Ops Bot routing and approval cards (design §10, §13.4): the IM
+	// service already owns the channel adapters, so it renders/sends the
+	// notification templates and drives the approval state machine on a tap.
+	// Notification is best-effort by contract: NotifyOpsApproval logs failures.
+	s.imbotSvc.SetOpsApproval(s.opsApproval)
+	s.imbotSvc.SetOpsNotifier(&opsbot.Notifier{})
+	s.opsApproval.OnCreated = func(ctx context.Context, req opsbot.ApprovalRequest) error {
+		s.imbotSvc.NotifyOpsApproval(ctx, req)
+		return nil
+	}
+	// The budget pause already broadcasts to the station-in hub; mirror it to the
+	// bot's bound chats as a risk alert (best-effort, never changes the verdict).
+	if prevNotify := s.opsBudget.Notify; prevNotify != nil {
+		s.opsBudget.Notify = func(ctx context.Context, botID int64, reason string) error {
+			err := prevNotify(ctx, botID, reason)
+			s.imbotSvc.NotifyOpsRisk(ctx, botID, reason)
+			return err
+		}
+	}
 	// Rollback switch for the per-chat agent_mode → intake_mode migration (§7.1).
 	s.imbotSvc.SetIntakeLegacyChatMode(s.cfg.Intake.LegacyChatMode)
 	// Health alerts now reach both channels: station-in hub + IM Bot (#744).

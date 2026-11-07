@@ -167,7 +167,7 @@ func (o *Onboarding) Handle(ctx context.Context, chatID int64, owner OwnerRef, p
 	}
 
 	if s == nil {
-		if handled, reply, err := o.handleCommandLocked(ctx, owner, text); handled {
+		if handled, reply, err := o.handleCommandLocked(ctx, chatID, owner, text); handled {
 			return reply, false, err
 		}
 		channel, ok := matchOnboardingIntent(text)
@@ -500,7 +500,7 @@ func (s *Session) knowledgeScopeJSON() string {
 
 // --- configuration commands ---------------------------------------------
 
-func (o *Onboarding) handleCommandLocked(ctx context.Context, owner OwnerRef, text string) (bool, string, error) {
+func (o *Onboarding) handleCommandLocked(ctx context.Context, chatID int64, owner OwnerRef, text string) (bool, string, error) {
 	if !strings.HasPrefix(text, "/") {
 		return false, "", nil
 	}
@@ -510,16 +510,16 @@ func (o *Onboarding) handleCommandLocked(ctx context.Context, owner OwnerRef, te
 		reply, err := o.listBotsReply(ctx, owner)
 		return true, reply, err
 	case "bot":
-		reply, err := o.botReply(ctx, owner, rest)
+		reply, err := o.botReply(ctx, chatID, owner, rest)
 		return true, reply, err
 	case "approvals":
 		reply, err := o.approvalsReply(ctx, owner)
 		return true, reply, err
 	case "pause", "resume":
-		reply, err := o.statusReply(ctx, owner, rest, cmd == "pause")
+		reply, err := o.statusReply(ctx, chatID, owner, rest, cmd == "pause")
 		return true, reply, err
 	case "budget":
-		reply, err := o.budgetReply(ctx, owner, rest)
+		reply, err := o.budgetReply(ctx, chatID, owner, rest)
 		return true, reply, err
 	case "calendar":
 		return true, "内容日历将在首篇内容生成后可用；当前可用 /bots 查看各账号节奏。", nil
@@ -547,8 +547,8 @@ func (o *Onboarding) listBotsReply(ctx context.Context, owner OwnerRef) (string,
 	return strings.TrimRight(b.String(), "\n"), nil
 }
 
-func (o *Onboarding) botReply(ctx context.Context, owner OwnerRef, arg string) (string, error) {
-	bot, err := o.resolveBot(ctx, owner, arg)
+func (o *Onboarding) botReply(ctx context.Context, chatID int64, owner OwnerRef, arg string) (string, error) {
+	bot, err := o.resolveBot(ctx, chatID, owner, arg)
 	if err != nil {
 		return err.Error(), nil
 	}
@@ -583,8 +583,8 @@ func (o *Onboarding) approvalsReply(ctx context.Context, owner OwnerRef) (string
 	return strings.TrimRight(b.String(), "\n"), nil
 }
 
-func (o *Onboarding) statusReply(ctx context.Context, owner OwnerRef, arg string, pause bool) (string, error) {
-	bot, err := o.resolveBot(ctx, owner, arg)
+func (o *Onboarding) statusReply(ctx context.Context, chatID int64, owner OwnerRef, arg string, pause bool) (string, error) {
+	bot, err := o.resolveBot(ctx, chatID, owner, arg)
 	if err != nil {
 		return err.Error(), nil
 	}
@@ -600,15 +600,25 @@ func (o *Onboarding) statusReply(ctx context.Context, owner OwnerRef, arg string
 	return fmt.Sprintf("%s「%s」。", label, bot.DisplayName), nil
 }
 
-func (o *Onboarding) budgetReply(ctx context.Context, owner OwnerRef, arg string) (string, error) {
-	bot, err := o.resolveBot(ctx, owner, arg)
+func (o *Onboarding) budgetReply(ctx context.Context, chatID int64, owner OwnerRef, arg string) (string, error) {
+	bot, err := o.resolveBot(ctx, chatID, owner, arg)
 	if err != nil {
 		return err.Error(), nil
 	}
 	return fmt.Sprintf("「%s」预算：%s（状态 %s）。", bot.DisplayName, budgetLabel(bot.BudgetJson), bot.Status), nil
 }
 
-func (o *Onboarding) resolveBot(ctx context.Context, owner OwnerRef, arg string) (store.OpsBot, error) {
+func (o *Onboarding) resolveBot(ctx context.Context, chatID int64, owner OwnerRef, arg string) (store.OpsBot, error) {
+	// A chat bound to an Ops Bot addresses that bot by default, so /bot, /pause,
+	// /budget and friends need no name argument there.
+	if strings.TrimSpace(arg) == "" && o.Service != nil && o.Service.Q != nil {
+		if chat, err := o.Service.Q.GetIMBotChat(ctx, chatID); err == nil && chat.OpsBotID.Valid {
+			if bot, err := o.Service.Get(ctx, chat.OpsBotID.Int64); err == nil &&
+				bot.OwnerType == owner.Type && bot.OwnerID == owner.ID {
+				return bot, nil
+			}
+		}
+	}
 	bots, err := o.Service.ListByOwner(ctx, owner)
 	if err != nil {
 		return store.OpsBot{}, err
