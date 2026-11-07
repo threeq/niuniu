@@ -97,9 +97,10 @@ var _ EngagementApprovals = (*Approval)(nil)
 // approve, send, receipt, escalate.
 //
 // Trust boundary: like the rest of the opsbot service layer, Engagement does
-// not authenticate callers. The entry layer must resolve BotRef.ID from a bot
-// the authenticated principal owns; every bot-scoped method re-checks that the
-// engagement belongs to that bot.
+// not authenticate callers. Bot-scoped methods re-check that the engagement
+// belongs to ref.ID, but the entry layer must first resolve ref.ID from a bot
+// the authenticated principal owns (see OpsBotHandler.botForID). Send takes no
+// BotRef, so its caller must authorize the engagement id before calling.
 type Engagement struct {
 	Q  EngagementStore
 	DB *store.DB
