@@ -233,8 +233,51 @@ func (h *OpsBotHandler) requireReady(c *gin.Context) bool {
 	return true
 }
 
+// opsAuthorizeOwner is the explicit owner gate for every owner-scoped Ops Bot
+// operation. The service layer (opsbot.Service.Get/UpdateConfig/SetStatus/
+// KillSwitch) receives only a bot id and performs no ownership check, so the
+// handler must prove the target's owner matches the authenticated identity
+// here — a writability check alone is not authoritative.
+//
+//   - personal: owner.ID must BE the caller. This is checked directly, so even
+//     a global admin cannot operate on another user's bot through this surface.
+//   - org: the caller must be a member (reads) / writable member (writes).
+//   - unknown owner type: denied.
+//
+// A mismatch is 403 and never falls through to the operation.
+func (h *OpsBotHandler) opsAuthorizeOwner(c *gin.Context, ownerType string, ownerID int64, write bool) (int64, bool) {
+	uid, ok := h.callerUserID(c)
+	if !ok {
+		return 0, false
+	}
+	switch ownerType {
+	case "user":
+		if ownerID != uid {
+			RespondError(c, http.StatusForbidden, "OPS_FORBIDDEN", "resource belongs to another owner")
+			return 0, false
+		}
+		return uid, true
+	case "org":
+		owner := service.OwnerRef{Type: "org", ID: ownerID}
+		var err error
+		if write {
+			err = h.Authz.EnsureOwnerWritable(c.Request.Context(), uid, owner)
+		} else {
+			err = h.Authz.CanAccessOwner(c.Request.Context(), uid, owner)
+		}
+		if err != nil {
+			writeAuthzError(c, err)
+			return 0, false
+		}
+		return uid, true
+	default:
+		RespondError(c, http.StatusForbidden, "OPS_FORBIDDEN", "resource has an invalid owner type")
+		return 0, false
+	}
+}
+
 // ownerFromQuery resolves the owner (?owner=user:<id>|org:<slug|id>, absent =
-// personal) and enforces read access.
+// personal) and enforces the explicit owner gate.
 func (h *OpsBotHandler) ownerFromQuery(c *gin.Context) (service.OwnerRef, int64, bool) {
 	uid, ok := h.callerUserID(c)
 	if !ok {
@@ -249,8 +292,7 @@ func (h *OpsBotHandler) ownerFromQuery(c *gin.Context) (service.OwnerRef, int64,
 	if f.Type != "" {
 		owner = service.OwnerRef{Type: f.Type, ID: f.ID}
 	}
-	if err := h.Authz.CanAccessOwner(c.Request.Context(), uid, owner); err != nil {
-		writeAuthzError(c, err)
+	if _, ok := h.opsAuthorizeOwner(c, owner.Type, owner.ID, false); !ok {
 		return service.OwnerRef{}, 0, false
 	}
 	return owner, uid, true
@@ -268,11 +310,10 @@ func (h *OpsBotHandler) ownerWritable(c *gin.Context) (service.OwnerRef, int64, 
 	return owner, uid, true
 }
 
-// botForAccess loads the bot named by :id and authorizes the caller against the
-// bot's OWN owner. write=true additionally requires write access.
+// botForAccess loads the bot named by :id and applies the explicit owner gate
+// against the bot's OWN owner (never a query parameter).
 func (h *OpsBotHandler) botForAccess(c *gin.Context, write bool) (store.OpsBot, int64, bool) {
-	uid, ok := h.callerUserID(c)
-	if !ok {
+	if _, ok := h.callerUserID(c); !ok {
 		return store.OpsBot{}, 0, false
 	}
 	botID, err := parseIDParamNamed(c, "id")
@@ -285,22 +326,15 @@ func (h *OpsBotHandler) botForAccess(c *gin.Context, write bool) (store.OpsBot, 
 		h.respondOpsError(c, err)
 		return store.OpsBot{}, 0, false
 	}
-	owner := service.OwnerRef{Type: bot.OwnerType, ID: bot.OwnerID}
-	if write {
-		err = h.Authz.EnsureOwnerWritable(c.Request.Context(), uid, owner)
-	} else {
-		err = h.Authz.CanAccessOwner(c.Request.Context(), uid, owner)
-	}
-	if err != nil {
-		writeAuthzError(c, err)
+	uid, ok := h.opsAuthorizeOwner(c, bot.OwnerType, bot.OwnerID, write)
+	if !ok {
 		return store.OpsBot{}, 0, false
 	}
 	return bot, uid, true
 }
 
 func (h *OpsBotHandler) botForID(c *gin.Context, botID int64, write bool) (store.OpsBot, int64, bool) {
-	uid, ok := h.callerUserID(c)
-	if !ok {
+	if _, ok := h.callerUserID(c); !ok {
 		return store.OpsBot{}, 0, false
 	}
 	bot, err := h.Svc.Get(c.Request.Context(), botID)
@@ -308,14 +342,8 @@ func (h *OpsBotHandler) botForID(c *gin.Context, botID int64, write bool) (store
 		h.respondOpsError(c, err)
 		return store.OpsBot{}, 0, false
 	}
-	owner := service.OwnerRef{Type: bot.OwnerType, ID: bot.OwnerID}
-	if write {
-		err = h.Authz.EnsureOwnerWritable(c.Request.Context(), uid, owner)
-	} else {
-		err = h.Authz.CanAccessOwner(c.Request.Context(), uid, owner)
-	}
-	if err != nil {
-		writeAuthzError(c, err)
+	uid, ok := h.opsAuthorizeOwner(c, bot.OwnerType, bot.OwnerID, write)
+	if !ok {
 		return store.OpsBot{}, 0, false
 	}
 	return bot, uid, true
@@ -329,6 +357,22 @@ func parseIDParamNamed(c *gin.Context, name string) (int64, error) {
 		return 0, fmt.Errorf("invalid %s", name)
 	}
 	return id, nil
+}
+
+// safeFileSegment reports whether s may be used as one path segment: no
+// separators, no traversal, and only the characters a pack id uses.
+func safeFileSegment(s string) bool {
+	if s == "" || s == "." || s == ".." || len(s) > 128 {
+		return false
+	}
+	for _, r := range s {
+		switch {
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9', r == '-', r == '_', r == '.':
+		default:
+			return false
+		}
+	}
+	return true
 }
 
 func (h *OpsBotHandler) respondOpsError(c *gin.Context, err error) {
@@ -678,11 +722,23 @@ func (h *OpsBotHandler) ImportPack(c *gin.Context) {
 		BadRequest(c, err.Error())
 		return
 	}
-	if strings.TrimSpace(body.Path) == "" {
+	path := strings.TrimSpace(body.Path)
+	if path == "" {
 		BadRequest(c, "path is required")
 		return
 	}
-	if err := h.Packs.Import(owner.Type, owner.ID, body.Path); err != nil {
+	// The caller names a local archive; only a regular file is a legitimate
+	// input, and the size cap keeps a hostile archive from exhausting memory.
+	info, err := os.Stat(path)
+	if err != nil || !info.Mode().IsRegular() {
+		BadRequest(c, "path must name a readable regular file")
+		return
+	}
+	if info.Size() > 64<<20 {
+		BadRequest(c, "pack archive is too large (limit 64 MiB)")
+		return
+	}
+	if err := h.Packs.Import(owner.Type, owner.ID, path); err != nil {
 		h.respondOpsError(c, err)
 		return
 	}
@@ -698,6 +754,13 @@ func (h *OpsBotHandler) ExportPack(c *gin.Context) {
 		return
 	}
 	packID := c.Param("packID")
+	// packID becomes a filename below; require a single safe path segment before
+	// it reaches filepath.Join (the registry validates it too, but never rely on
+	// a downstream check for path construction).
+	if !safeFileSegment(packID) {
+		BadRequest(c, "bad pack id")
+		return
+	}
 	version, err := strconv.Atoi(c.Param("version"))
 	if err != nil || version <= 0 {
 		BadRequest(c, "bad version")
@@ -877,8 +940,7 @@ func (h *OpsBotHandler) approvalForWrite(c *gin.Context) (int64, int64, bool) {
 		RespondError(c, http.StatusServiceUnavailable, "OPS_APPROVALS_UNAVAILABLE", "approval service is not configured")
 		return 0, 0, false
 	}
-	uid, ok := h.callerUserID(c)
-	if !ok {
+	if _, ok := h.callerUserID(c); !ok {
 		return 0, 0, false
 	}
 	approvalID, err := parseIDParamNamed(c, "id")
@@ -896,12 +958,13 @@ func (h *OpsBotHandler) approvalForWrite(c *gin.Context) (int64, int64, bool) {
 		h.respondOpsError(c, err)
 		return 0, 0, false
 	}
-	owner := service.OwnerRef{Type: ws.OwnerType, ID: ws.OwnerID}
-	if err := h.Authz.EnsureOwnerWritable(c.Request.Context(), uid, owner); err != nil {
-		writeAuthzError(c, err)
+	// Decide() takes only the approval id and does no owner check, so the
+	// explicit gate runs here before the state machine is touched.
+	ownerUID, ok := h.opsAuthorizeOwner(c, ws.OwnerType, ws.OwnerID, true)
+	if !ok {
 		return 0, 0, false
 	}
-	return approvalID, uid, true
+	return approvalID, ownerUID, true
 }
 
 type decideApprovalBody struct {
@@ -1304,6 +1367,12 @@ func (h *OpsBotHandler) BrowserLogin(c *gin.Context) {
 	backend := strings.TrimSpace(body.Backend)
 	if backend == "" {
 		backend = "local"
+	}
+	// backend becomes a path segment below; a free-form value would let a caller
+	// escape the profile root via ../ traversal.
+	if backend != "local" && backend != "cloud" {
+		BadRequest(c, "backend must be local or cloud")
+		return
 	}
 	profileDir := filepath.Join(h.DataDir, "ops", "browser", strconv.FormatInt(bot.ID, 10), backend)
 	session, err := h.Queries.UpsertOpsBrowserSession(c.Request.Context(), store.UpsertOpsBrowserSessionParams{

@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"net/url"
 	"os"
+	"path/filepath"
 	"strconv"
 
 	"github.com/mark3labs/mcp-go/mcp"
@@ -383,6 +384,16 @@ func registerOpsPackTools(api *apiClient, s *server.MCPServer) {
 			dest, errRes := requireString(req.GetArguments(), "dest_path")
 			if errRes != nil {
 				return errRes, nil
+			}
+			// The agent chooses the path; require it to be explicit and to name
+			// a file (not a directory) so a typo can never truncate something
+			// unexpected. The local agent already has file-write capability, so
+			// this is a guardrail, not a sandbox.
+			if !filepath.IsAbs(dest) {
+				return mcp.NewToolResultError("dest_path must be an absolute path"), nil
+			}
+			if info, statErr := os.Stat(dest); statErr == nil && info.IsDir() {
+				return mcp.NewToolResultError("dest_path must be a file, not a directory"), nil
 			}
 			data, err := api.get(fmt.Sprintf("/mcp/ops/packs/%s/%d/export", url.PathEscape(packID), int64(version)))
 			if err != nil {
