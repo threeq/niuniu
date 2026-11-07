@@ -126,6 +126,7 @@ func TestOpsBrowserLeaseCAS(t *testing.T) {
 	n, err := q.AcquireOpsBrowserLease(ctx, AcquireOpsBrowserLeaseParams{
 		BotID: bot.ID, Backend: "local", LeaseOwner: "w1",
 		LeaseExpiresAt: sql.NullTime{Time: time.Now().Add(time.Minute), Valid: true},
+		Now:            sql.NullTime{Time: time.Now(), Valid: true},
 	})
 	require.NoError(t, err)
 	require.EqualValues(t, 1, n)
@@ -133,6 +134,7 @@ func TestOpsBrowserLeaseCAS(t *testing.T) {
 	n, err = q.AcquireOpsBrowserLease(ctx, AcquireOpsBrowserLeaseParams{
 		BotID: bot.ID, Backend: "local", LeaseOwner: "w2",
 		LeaseExpiresAt: sql.NullTime{Time: time.Now().Add(time.Minute), Valid: true},
+		Now:            sql.NullTime{Time: time.Now(), Valid: true},
 	})
 	require.NoError(t, err)
 	require.EqualValues(t, 0, n, "second lease must be rejected")
@@ -146,7 +148,29 @@ func TestOpsBrowserLeaseCAS(t *testing.T) {
 	n, err = q.AcquireOpsBrowserLease(ctx, AcquireOpsBrowserLeaseParams{
 		BotID: bot.ID, Backend: "local", LeaseOwner: "w2",
 		LeaseExpiresAt: sql.NullTime{Time: time.Now().Add(time.Minute), Valid: true},
+		Now:            sql.NullTime{Time: time.Now(), Valid: true},
 	})
 	require.NoError(t, err)
 	require.EqualValues(t, 1, n, "released lease must be acquirable")
+
+	// An expired lease is reclaimable by another owner.
+	_, err = q.ReleaseOpsBrowserLease(ctx, ReleaseOpsBrowserLeaseParams{
+		BotID: bot.ID, Backend: "local", LeaseOwner: "w2",
+	})
+	require.NoError(t, err)
+	n, err = q.AcquireOpsBrowserLease(ctx, AcquireOpsBrowserLeaseParams{
+		BotID: bot.ID, Backend: "local", LeaseOwner: "w1",
+		LeaseExpiresAt: sql.NullTime{Time: time.Now().Add(-2 * time.Minute), Valid: true},
+		Now:            sql.NullTime{Time: time.Now(), Valid: true},
+	})
+	require.NoError(t, err)
+	require.EqualValues(t, 1, n)
+
+	n, err = q.AcquireOpsBrowserLease(ctx, AcquireOpsBrowserLeaseParams{
+		BotID: bot.ID, Backend: "local", LeaseOwner: "w3",
+		LeaseExpiresAt: sql.NullTime{Time: time.Now().Add(time.Minute), Valid: true},
+		Now:            sql.NullTime{Time: time.Now(), Valid: true},
+	})
+	require.NoError(t, err)
+	require.EqualValues(t, 1, n, "expired lease must be reclaimable")
 }
