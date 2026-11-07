@@ -40,6 +40,7 @@ import (
 	"github.com/niuniu-dev/niuniu/internal/mfapolicy"
 	"github.com/niuniu-dev/niuniu/internal/notify"
 	"github.com/niuniu-dev/niuniu/internal/opsbot"
+	"github.com/niuniu-dev/niuniu/internal/opsbot/browser"
 	"github.com/niuniu-dev/niuniu/internal/opsbot/packs"
 	"github.com/niuniu-dev/niuniu/internal/registry"
 	"github.com/niuniu-dev/niuniu/internal/scheduler"
@@ -134,12 +135,13 @@ type Server struct {
 
 	// Ops Bot (design 2026-11-06 §12): account/director configuration,
 	// approvals, budget and the pack registry.
-	opsPackRegistry *packs.Registry
-	opsBotSvc       *opsbot.Service
-	opsApproval     *opsbot.Approval
-	opsBudget       *opsbot.Budget
-	opsProvisioner  *opsbot.Provisioner
-	opsBotHandler   *api.OpsBotHandler
+	opsPackRegistry  *packs.Registry
+	opsPackGenerator *packs.Generator
+	opsBotSvc        *opsbot.Service
+	opsApproval      *opsbot.Approval
+	opsBudget        *opsbot.Budget
+	opsProvisioner   *opsbot.Provisioner
+	opsBotHandler    *api.OpsBotHandler
 
 	// External credential management (encrypted token storage).
 	intgKeyring          *crypto.Keyring
@@ -1767,6 +1769,7 @@ func New(cfg *config.Config, db *sql.DB, frontendFS fs.FS) *Server {
 	s.opsOnboarding = opsbot.NewOnboarding(s.opsBotSvc)
 	s.opsOnboarding.Approvals = s.opsApproval
 	s.opsOnboarding.Provisioner = s.opsProvisioner
+	s.opsOnboarding.Generator = &opsbot.PackDraftGenerator{Generator: s.opsPackGenerator}
 	s.opsOnboarding.InstallPacks = func(ctx context.Context, ownerType string, ownerID int64) error {
 		return packs.InstallBuiltins(s.opsPackRegistry, ownerType, ownerID)
 	}
@@ -2029,6 +2032,17 @@ func (g goalConditionSuggester) Classify(ctx context.Context, userID int64, titl
 // adapters. Called once from New, after the kanban/workspace services exist.
 func (s *Server) initOpsBot(authz *service.Authz) {
 	registry := &packs.Registry{DataDir: s.cfg.DataDir}
+	// Conversational Pack generation (design §5.5): OpenAPI documents go
+	// through the SSRF-guarded fetcher, and generated browser recipes are
+	// sandbox-tested against local fixtures before they can be published.
+	packGenerator := &packs.Generator{
+		Registry:      registry,
+		Fetch:         service.FetchOpenAPIDocument,
+		DraftContract: s.draftOpsPackProviderContract,
+		RecipeTester: func(ctx context.Context, root string, recipe packs.Recipe, values map[string]string) error {
+			return (&browser.Sandbox{Root: root, Values: values}).Run(ctx, recipe, nil)
+		},
+	}
 	svc := opsbot.NewService(s.queries, registry)
 	approval := opsbot.NewApproval(store.Wrap(s.db), opsbot.ApprovalPolicy{})
 	svc.Approve = approval
@@ -2116,6 +2130,7 @@ func (s *Server) initOpsBot(authz *service.Authz) {
 	}
 
 	s.opsPackRegistry = registry
+	s.opsPackGenerator = packGenerator
 	s.opsBotSvc = svc
 	s.opsApproval = approval
 	s.opsBudget = budget
@@ -2131,6 +2146,65 @@ func (s *Server) initOpsBot(authz *service.Authz) {
 		DB:        s.db,
 		DataDir:   s.cfg.DataDir,
 	}
+}
+
+// draftOpsPackProviderContract feeds a Pack generator's OpenAPI contract into
+// the existing integration draft pipeline. It never publishes: the user still
+// confirms the provider draft in the integration card. A nil pipeline (early
+// boot, tests without integrations) simply skips the draft.
+func (s *Server) draftOpsPackProviderContract(ctx context.Context, owner packs.Owner, draft packs.ProviderContractDraft, sourceName, sourceURL string) (int64, error) {
+	if s.integrationDraftSvc == nil {
+		return 0, nil
+	}
+	raw, err := json.Marshal(draft)
+	if err != nil {
+		return 0, err
+	}
+	var contract service.ProviderContract
+	if err := json.Unmarshal(raw, &contract); err != nil {
+		return 0, err
+	}
+
+	ref := strings.TrimSpace(sourceURL)
+	if ref == "" {
+		ref = strings.TrimSpace(sourceName)
+	}
+	host := ""
+	if u, err := url.Parse(contract.BaseURL); err == nil {
+		host = u.Hostname()
+	}
+	docOps := make([]service.OperationKey, 0, len(contract.Operations))
+	for _, op := range contract.Operations {
+		docOps = append(docOps, service.OperationKey{Method: op.Method, Path: op.Path})
+	}
+	createdBy := int64(0)
+	if owner.Type == "user" {
+		createdBy = owner.ID
+	}
+
+	view, err := s.integrationDraftSvc.CreateDraft(ctx, service.CreateDraftInput{
+		OwnerType:     owner.Type,
+		OwnerID:       owner.ID,
+		CreatedBy:     createdBy,
+		Kind:          service.DraftKindProvider,
+		TargetName:    draft.Provider,
+		AgentAuthored: true,
+		Provider: &service.ProviderDraftPayload{
+			Label:      draft.Provider,
+			BaseURL:    contract.BaseURL,
+			Contract:   &contract,
+			OpenAPIURL: sourceURL,
+			// Reads only; enabling writes stays the user's explicit act.
+			WriteEnabled: false,
+		},
+		Origin:  service.NewUntrustedOrigin(service.UntrustedKindOpenAPI, ref),
+		DocOps:  docOps,
+		DocHost: host,
+	})
+	if err != nil {
+		return 0, err
+	}
+	return view.ID, nil
 }
 
 // opsBudgetConfig decodes a bot's budget_json, preserving unknown keys.

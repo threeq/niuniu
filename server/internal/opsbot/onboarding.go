@@ -21,20 +21,28 @@ import (
 // draft/test/publish branch, and 小红书 additionally asks about a third-party
 // data source and the video model.
 const (
-	stageChannel     = "channel"
-	stageAccountName = "account_name"
-	stageDataSource  = "data_source"
-	stageVideoModel  = "video_model"
-	stageGoal        = "goal"
-	stageCadence     = "cadence"
-	stageBudget      = "budget"
-	stageApproval    = "approval"
-	stageCredential  = "credential"
-	stagePackDraft   = "pack_draft"
-	stagePackTest    = "pack_test"
+	stageChannel       = "channel"
+	stageAccountName   = "account_name"
+	stageDataSource    = "data_source"
+	stageVideoModel    = "video_model"
+	stageGoal          = "goal"
+	stageCadence       = "cadence"
+	stageBudget        = "budget"
+	stageApproval      = "approval"
+	stageCredential    = "credential"
+	stagePackDraft     = "pack_draft"
+	stagePackQuestions = "pack_questions"
+	stagePackTest      = "pack_test"
 )
 
 const defaultSessionTTL = 30 * time.Minute
+
+// PackQuestion is one missing fact a generated draft still needs. The
+// conversation asks them one at a time and never fills them in by guessing.
+type PackQuestion struct {
+	Key    string
+	Prompt string
+}
 
 // PackDraft is a generated Pack draft for a channel that has no installed Pack.
 type PackDraft struct {
@@ -44,6 +52,8 @@ type PackDraft struct {
 	Capabilities []string
 	Risks        []string
 	HasVideo     bool
+	// Questions is non-empty while the draft still lacks confirmed facts.
+	Questions []PackQuestion
 }
 
 // PackGenerator drafts, sandbox-tests and publishes a Platform Pack for a new
@@ -53,6 +63,14 @@ type PackGenerator interface {
 	Draft(ctx context.Context, owner OwnerRef, channel string) (PackDraft, error)
 	Test(ctx context.Context, owner OwnerRef, packID string, version int64) error
 	Publish(ctx context.Context, owner OwnerRef, packID string, version int64) error
+}
+
+// AnswerablePackGenerator can re-draft with answers collected in conversation.
+// Onboarding uses it to ask each PackQuestion in turn; a generator that does
+// not implement it simply drafts from the channel name alone.
+type AnswerablePackGenerator interface {
+	PackGenerator
+	DraftWithAnswers(ctx context.Context, owner OwnerRef, channel string, answers map[string]string) (PackDraft, error)
 }
 
 // CredentialLinker mints a one-time authorization link (or QR task) for an
@@ -108,6 +126,12 @@ type Session struct {
 	EpicIssueID  int64
 	WorkspaceID  int64
 	DraftVersion int64
+
+	// Pack generation Q&A for a channel with no installed Pack.
+	ChannelInput      string
+	PackQuestions     []PackQuestion
+	PackQuestionTotal int
+	PackAnswers       map[string]string
 }
 
 // Onboarding is the conversational setup/configuration surface used by the IM
@@ -261,30 +285,35 @@ func (o *Onboarding) advanceLocked(ctx context.Context, s *Session, text string)
 	case stageCredential:
 		return o.confirmCredentialLocked(ctx, s)
 
+	case stagePackQuestions:
+		return o.answerPackQuestionLocked(ctx, s, text)
+
 	case stagePackDraft:
 		if isCancel(text) || containsAny(text, "取消", "不继续", "放弃", "no", "nope") {
 			delete(o.sessions, s.ChatID)
 			return "已取消。", false, nil
 		}
 		s.Stage = stagePackTest
-		return "是否在测试账号上跑一遍？回复「跑」或「跳过」。", false, nil
+		return "是否在测试账号上跑一遍？未通过沙箱测试不能发布。回复「跑」开始测试，或「/cancel」放弃。", false, nil
 
 	case stagePackTest:
-		prefix := ""
-		if isAffirmative(text) && !strings.Contains(text, "跳过") {
-			if o.Generator == nil {
-				return "没有配置 Pack 生成器，无法执行测试。", false, nil
-			}
-			version := s.DraftVersion
-			if version <= 0 {
-				version = 1
-			}
-			if err := o.Generator.Test(ctx, s.Owner, s.PackID, version); err != nil {
-				return fmt.Sprintf("沙箱测试未通过：%v。可以回复「跳过」直接发布，或「/cancel」放弃。", err), false, nil
-			}
-			prefix = "测试通过。"
+		// A Pack that was never sandbox-tested is not publishable. The
+		// generator enforces this too; the conversation must not offer a
+		// shortcut around it.
+		if !isAffirmative(text) || strings.Contains(text, "跳过") {
+			return "未通过沙箱测试的 Pack 不能发布。回复「跑」重新测试，或「/cancel」放弃。", false, nil
 		}
-		return o.publishDraftLocked(ctx, s, prefix)
+		if o.Generator == nil {
+			return "没有配置 Pack 生成器，无法执行测试。", false, nil
+		}
+		version := s.DraftVersion
+		if version <= 0 {
+			version = 1
+		}
+		if err := o.Generator.Test(ctx, s.Owner, s.PackID, version); err != nil {
+			return fmt.Sprintf("沙箱测试未通过：%v。修复草案后回复「跑」重试，或「/cancel」放弃。", err), false, nil
+		}
+		return o.publishDraftLocked(ctx, s, "测试通过。")
 	}
 	return "", false, nil
 }
@@ -344,6 +373,69 @@ func (o *Onboarding) startDraftLocked(ctx context.Context, s *Session, channelNa
 		delete(o.sessions, s.ChatID)
 		return "", false, err
 	}
+
+	// A generator may need facts the channel name alone cannot supply. Ask them
+	// one at a time; nothing is filled in silently.
+	if len(draft.Questions) > 0 {
+		if _, ok := o.Generator.(AnswerablePackGenerator); ok {
+			s.ChannelInput = channelName
+			s.PackQuestions = draft.Questions
+			s.PackQuestionTotal = len(draft.Questions)
+			s.PackAnswers = map[string]string{}
+			s.Stage = stagePackQuestions
+			return o.askPackQuestionLocked(s), false, nil
+		}
+	}
+
+	return o.applyPackDraftLocked(ctx, s, draft, packID, display)
+}
+
+func (o *Onboarding) askPackQuestionLocked(s *Session) string {
+	if len(s.PackQuestions) == 0 {
+		return "没有待确认的信息。"
+	}
+	done := s.PackQuestionTotal - len(s.PackQuestions)
+	return fmt.Sprintf("生成 Pack 前还需要确认（%d/%d）：%s\n（回复「/cancel」放弃）",
+		done+1, s.PackQuestionTotal, s.PackQuestions[0].Prompt)
+}
+
+func (o *Onboarding) answerPackQuestionLocked(ctx context.Context, s *Session, text string) (string, bool, error) {
+	if len(s.PackQuestions) == 0 {
+		s.Stage = stagePackDraft
+		return "已收集完信息，继续生成 Pack。", false, nil
+	}
+	question := s.PackQuestions[0]
+	s.PackQuestions = s.PackQuestions[1:]
+	if s.PackAnswers == nil {
+		s.PackAnswers = map[string]string{}
+	}
+	s.PackAnswers[question.Key] = strings.TrimSpace(text)
+	if len(s.PackQuestions) > 0 {
+		return o.askPackQuestionLocked(s), false, nil
+	}
+
+	answerable, ok := o.Generator.(AnswerablePackGenerator)
+	if !ok {
+		delete(o.sessions, s.ChatID)
+		return "当前生成器不支持补充信息，无法继续。", false, nil
+	}
+	draft, err := answerable.DraftWithAnswers(ctx, s.Owner, s.ChannelInput, s.PackAnswers)
+	if err != nil {
+		delete(o.sessions, s.ChatID)
+		return "生成 Pack 失败：" + err.Error(), false, nil
+	}
+	if len(draft.Questions) > 0 {
+		s.PackQuestions = draft.Questions
+		s.PackQuestionTotal = len(draft.Questions)
+		return o.askPackQuestionLocked(s), false, nil
+	}
+	packID, display, _ := normalizeChannel(s.ChannelInput)
+	s.PackAnswers = nil
+	s.PackQuestions = nil
+	return o.applyPackDraftLocked(ctx, s, draft, packID, display)
+}
+
+func (o *Onboarding) applyPackDraftLocked(ctx context.Context, s *Session, draft PackDraft, packID, display string) (string, bool, error) {
 	if draft.PackID != "" {
 		s.PackID = draft.PackID
 	} else {
@@ -381,7 +473,7 @@ func (o *Onboarding) publishDraftLocked(ctx context.Context, s *Session, prefix 
 		return "没有配置 Pack 生成器，无法发布。", false, nil
 	}
 	if err := o.Generator.Publish(ctx, s.Owner, s.PackID, version); err != nil {
-		return fmt.Sprintf("Pack 发布失败：%v。可以回复「跳过」重试或「/cancel」放弃。", err), false, nil
+		return fmt.Sprintf("Pack 发布失败：%v。修复后回复「跑」重试，或「/cancel」放弃。", err), false, nil
 	}
 	s.PackVersion = version
 	s.Stage = stageAccountName
