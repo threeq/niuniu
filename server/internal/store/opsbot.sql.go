@@ -15,7 +15,7 @@ const acquireOpsBrowserLease = `-- name: AcquireOpsBrowserLease :execrows
 UPDATE ops_browser_sessions SET
     lease_owner = ?, lease_expires_at = ?, updated_at = CURRENT_TIMESTAMP
 WHERE bot_id = ? AND backend = ?
-  AND (lease_owner = '' OR lease_expires_at IS NULL OR lease_expires_at < CURRENT_TIMESTAMP)
+  AND (lease_owner = '' OR lease_expires_at IS NULL OR lease_expires_at < ?5)
 `
 
 type AcquireOpsBrowserLeaseParams struct {
@@ -23,14 +23,19 @@ type AcquireOpsBrowserLeaseParams struct {
 	LeaseExpiresAt sql.NullTime `json:"lease_expires_at"`
 	BotID          int64        `json:"bot_id"`
 	Backend        string       `json:"backend"`
+	Now            sql.NullTime `json:"now"`
 }
 
+// Cutoff is a caller-supplied Go time, not CURRENT_TIMESTAMP: the SQLite
+// driver writes time.Time in local formatting, so a UTC server comparison
+// would never reclaim leases outside UTC.
 func (q *Queries) AcquireOpsBrowserLease(ctx context.Context, arg AcquireOpsBrowserLeaseParams) (int64, error) {
 	result, err := q.db.ExecContext(ctx, acquireOpsBrowserLease,
 		arg.LeaseOwner,
 		arg.LeaseExpiresAt,
 		arg.BotID,
 		arg.Backend,
+		arg.Now,
 	)
 	if err != nil {
 		return 0, err

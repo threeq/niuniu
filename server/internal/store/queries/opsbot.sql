@@ -100,10 +100,13 @@ RETURNING *;
 SELECT * FROM ops_browser_sessions WHERE bot_id = ? AND backend = ?;
 
 -- name: AcquireOpsBrowserLease :execrows
+-- Cutoff is a caller-supplied Go time, not CURRENT_TIMESTAMP: the SQLite
+-- driver writes time.Time in local formatting, so a UTC server comparison
+-- would never reclaim leases outside UTC.
 UPDATE ops_browser_sessions SET
     lease_owner = ?, lease_expires_at = ?, updated_at = CURRENT_TIMESTAMP
 WHERE bot_id = ? AND backend = ?
-  AND (lease_owner = '' OR lease_expires_at IS NULL OR lease_expires_at < CURRENT_TIMESTAMP);
+  AND (lease_owner = '' OR lease_expires_at IS NULL OR lease_expires_at < sqlc.arg(now));
 
 -- name: ReleaseOpsBrowserLease :execrows
 UPDATE ops_browser_sessions SET
