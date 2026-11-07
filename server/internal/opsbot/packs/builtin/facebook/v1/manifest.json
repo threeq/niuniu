@@ -1,0 +1,17 @@
+{
+  "id": "facebook",
+  "version": 1,
+  "status": "published",
+  "display_name": "Facebook",
+  "capabilities": ["publish", "metrics", "engagements", "reply"],
+  "bindings": {
+    "publish": { "transport": "openapi", "provider": "facebook-graph" },
+    "metrics": { "transport": "openapi", "provider": "facebook-graph" },
+    "engagements": { "transport": "openapi", "provider": "facebook-graph" },
+    "reply": { "transport": "openapi", "provider": "facebook-graph" }
+  },
+  "credential_slots": {
+    "app": { "required": true, "scope": "owner" },
+    "account": { "required": true, "scope": "account" }
+  }
+}

@@ -1,0 +1,20 @@
+{
+  "formats": {
+    "post": {
+      "fields": ["message", "link", "image"],
+      "max_chars": 63206,
+      "max_title_chars": 0,
+      "image_ratio": "",
+      "max_images": 1,
+      "video_sec": 0
+    },
+    "reel": {
+      "fields": ["description", "video"],
+      "max_chars": 2200,
+      "max_title_chars": 0,
+      "image_ratio": "9:16",
+      "max_images": 0,
+      "video_sec": 90
+    }
+  }
+}

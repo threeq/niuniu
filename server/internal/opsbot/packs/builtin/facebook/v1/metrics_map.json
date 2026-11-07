@@ -1,0 +1,9 @@
+{
+  "fields": {
+    "post_impressions": "views",
+    "post_reactions_by_type_total": "likes",
+    "post_comments": "comments",
+    "post_shares": "shares",
+    "page_fans": "followers"
+  }
+}
