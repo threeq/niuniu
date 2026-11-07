@@ -16,9 +16,9 @@ type fakePacks struct {
 	manifests map[string][]packs.Manifest
 }
 
-func (f *fakePacks) Load(_ string, _ int64, packID string, version int64) (packs.Manifest, error) {
+func (f *fakePacks) Load(_ string, _ int64, packID string, version int) (packs.Manifest, error) {
 	for _, m := range f.manifests[packID] {
-		if int64(m.Version) == version {
+		if m.Version == version {
 			return m, nil
 		}
 	}
@@ -56,12 +56,12 @@ type fakeCanceller struct {
 	err       error
 }
 
-func (f *fakeCanceller) CancelByBot(_ context.Context, botID int64) error {
+func (f *fakeCanceller) CancelByBot(_ context.Context, botID int64) (int, error) {
 	if f.err != nil {
-		return f.err
+		return 0, f.err
 	}
 	f.cancelled = append(f.cancelled, botID)
-	return nil
+	return 1, nil
 }
 
 func newTestService(t *testing.T) *Service {

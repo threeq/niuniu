@@ -1593,3 +1593,41 @@ func (q *Queries) UpdateIMBotChatIntakeMode(ctx context.Context, arg UpdateIMBot
 	)
 	return i, err
 }
+
+const updateIMBotChatOpsBot = `-- name: UpdateIMBotChatOpsBot :one
+UPDATE im_bot_chats
+SET ops_bot_id = ?, updated_at = CURRENT_TIMESTAMP
+WHERE id = ?
+RETURNING id, channel_id, project_id, chat_ext_id, chat_name, bind_mode, agent_mode, intake_mode, pinned_issue_id, active_issue_id, ops_bot_id, status, paired_by, created_at, updated_at
+`
+
+type UpdateIMBotChatOpsBotParams struct {
+	OpsBotID sql.NullInt64 `json:"ops_bot_id"`
+	ID       int64         `json:"id"`
+}
+
+// Ops Bot binding (design 2026-11-06 section 12): route this chat to a bot.
+// Separate UPDATE for the same stale-row reason as the modes above. Passing
+// NULL clears the binding.
+func (q *Queries) UpdateIMBotChatOpsBot(ctx context.Context, arg UpdateIMBotChatOpsBotParams) (ImBotChat, error) {
+	row := q.db.QueryRowContext(ctx, updateIMBotChatOpsBot, arg.OpsBotID, arg.ID)
+	var i ImBotChat
+	err := row.Scan(
+		&i.ID,
+		&i.ChannelID,
+		&i.ProjectID,
+		&i.ChatExtID,
+		&i.ChatName,
+		&i.BindMode,
+		&i.AgentMode,
+		&i.IntakeMode,
+		&i.PinnedIssueID,
+		&i.ActiveIssueID,
+		&i.OpsBotID,
+		&i.Status,
+		&i.PairedBy,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}

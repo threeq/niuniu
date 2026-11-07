@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"io/fs"
 	"log/slog"
@@ -130,6 +131,15 @@ type Server struct {
 	// Mission control: the two independent metric panels + global intake pause.
 	missionControlSvc     *service.MissionControlService
 	missionControlHandler *api.MissionControlHandler
+
+	// Ops Bot (design 2026-11-06 §12): account/director configuration,
+	// approvals, budget and the pack registry.
+	opsPackRegistry *packs.Registry
+	opsBotSvc       *opsbot.Service
+	opsApproval     *opsbot.Approval
+	opsBudget       *opsbot.Budget
+	opsProvisioner  *opsbot.Provisioner
+	opsBotHandler   *api.OpsBotHandler
 
 	// External credential management (encrypted token storage).
 	intgKeyring          *crypto.Keyring
@@ -966,6 +976,9 @@ func New(cfg *config.Config, db *sql.DB, frontendFS fs.FS) *Server {
 	// after intakeSvc (it reuses its pause get/set) and owns no writes of its own.
 	s.missionControlSvc = service.NewMissionControlService(store.Wrap(db), s.queries, authz, s.intakeSvc)
 	s.missionControlHandler = &api.MissionControlHandler{Svc: s.missionControlSvc, DB: db}
+	// Ops Bot (design 2026-11-06 §12). The credential-link service is wired
+	// after it is constructed further below.
+	s.initOpsBot(authz)
 	// Delivery health (design §12): intake events/decisions are the durable half;
 	// this in-memory tracker carries the 401/400/duplicate signals that are
 	// deliberately not recorded as events. One instance is shared by the inbound
@@ -1686,6 +1699,9 @@ func New(cfg *config.Config, db *sql.DB, frontendFS fs.FS) *Server {
 	// Generic one-time credential links (issue #727). Depends on both encrypted
 	// stores, so it is constructed after them.
 	s.credOnboardingSvc = service.NewCredentialOnboardingService(s.queries, s.extCredSvc, s.dataSourceSvc)
+	if s.opsBotHandler != nil {
+		s.opsBotHandler.CredLinks = s.credOnboardingSvc
+	}
 	s.credOnboardingHandler = api.NewCredentialOnboardingHandler(s.credOnboardingSvc, s.authzSvc)
 
 	// Data proxy: the three-layer gate (read/write separation, data-scope
@@ -1986,4 +2002,197 @@ func (g goalConditionSuggester) Classify(ctx context.Context, userID int64, titl
 		return nil, err
 	}
 	return &service.GoalAssessment{Actionable: a.Actionable, Reason: a.Reason, GoalCondition: a.GoalCondition}, nil
+}
+
+// --- Ops Bot wiring (design 2026-11-06 §12) ---
+
+// initOpsBot builds the Ops Bot domain services and their provisioning
+// adapters. Called once from New, after the kanban/workspace services exist.
+func (s *Server) initOpsBot(authz *service.Authz) {
+	registry := &packs.Registry{DataDir: s.cfg.DataDir}
+	svc := opsbot.NewService(s.queries, registry)
+	approval := opsbot.NewApproval(store.Wrap(s.db), opsbot.ApprovalPolicy{})
+	svc.Approve = approval
+
+	budget := &opsbot.Budget{}
+	budget.Sum = func(ctx context.Context, epicIssueID int64, from, to time.Time) (float64, error) {
+		return s.queries.SumOpsAccountCost(ctx, store.SumOpsAccountCostParams{
+			ParentIssueID: sql.NullInt64{Int64: epicIssueID, Valid: epicIssueID > 0},
+			CreatedAt:     from,
+			CreatedAt_2:   to,
+		})
+	}
+	budget.Limit = func(ctx context.Context, botID int64) (float64, string, error) {
+		bot, err := svc.Get(ctx, botID)
+		if err != nil {
+			return 0, "", err
+		}
+		cfg := opsBudgetConfig(bot.BudgetJson)
+		limit, _ := cfg["monthly_limit"].(float64)
+		currency, _ := cfg["currency"].(string)
+		return limit, currency, nil
+	}
+	budget.SaveLimit = func(ctx context.Context, botID int64, limit float64, currency string) error {
+		return s.updateOpsBudget(ctx, svc, botID, func(cfg map[string]any) {
+			cfg["monthly_limit"] = limit
+			cfg["currency"] = currency
+		})
+	}
+	budget.Pause = func(ctx context.Context, botID int64) error {
+		if err := s.updateOpsBudget(ctx, svc, botID, func(cfg map[string]any) {
+			cfg["paused_reason"] = "budget"
+		}); err != nil {
+			return err
+		}
+		_, err := svc.SetStatus(ctx, botID, opsbot.StatusPaused)
+		return err
+	}
+	// Resume only clears a pause this service caused. A manual pause has no
+	// paused_reason marker and is left untouched.
+	budget.Resume = func(ctx context.Context, botID int64) error {
+		bot, err := svc.Get(ctx, botID)
+		if err != nil {
+			return err
+		}
+		cfg := opsBudgetConfig(bot.BudgetJson)
+		if cfg["paused_reason"] != "budget" {
+			return nil
+		}
+		if err := s.updateOpsBudget(ctx, svc, botID, func(cfg map[string]any) {
+			delete(cfg, "paused_reason")
+		}); err != nil {
+			return err
+		}
+		if bot.Status == opsbot.StatusPaused {
+			_, err = svc.SetStatus(ctx, botID, opsbot.StatusActive)
+		}
+		return err
+	}
+	budget.Notify = func(ctx context.Context, botID int64, reason string) error {
+		bot, err := svc.Get(ctx, botID)
+		if err != nil {
+			return err
+		}
+		s.notifyHub.Broadcast(notify.Notification{
+			Topic:     "opsbot",
+			Action:    "budget_exceeded",
+			ID:        botID,
+			OwnerType: bot.OwnerType,
+			OwnerID:   bot.OwnerID,
+			Extra: map[string]any{
+				"bot_id": botID,
+				"reason": reason,
+			},
+		})
+		return nil
+	}
+
+	provisioner := &opsbot.Provisioner{
+		Issues:           opsIssueCreator{kanban: s.kanbanSvc},
+		Workspaces:       opsWorkspaceCreator{workspaces: s.workspaceSvc},
+		Columns:          opsColumnResolver{q: s.queries},
+		Bots:             s.queries,
+		DeleteIssues:     opsIssueDeleter{kanban: s.kanbanSvc},
+		DeleteWorkspaces: opsWorkspaceDeleter{workspaces: s.workspaceSvc},
+	}
+
+	s.opsPackRegistry = registry
+	s.opsBotSvc = svc
+	s.opsApproval = approval
+	s.opsBudget = budget
+	s.opsProvisioner = provisioner
+	s.opsBotHandler = &api.OpsBotHandler{
+		Svc:       svc,
+		Provision: provisioner,
+		Approval:  approval,
+		Budget:    budget,
+		Packs:     registry,
+		Authz:     authz,
+		Queries:   s.queries,
+		DB:        s.db,
+		DataDir:   s.cfg.DataDir,
+	}
+}
+
+// opsBudgetConfig decodes a bot's budget_json, preserving unknown keys.
+func opsBudgetConfig(raw string) map[string]any {
+	cfg := map[string]any{}
+	if strings.TrimSpace(raw) != "" {
+		_ = json.Unmarshal([]byte(raw), &cfg)
+	}
+	if cfg == nil {
+		cfg = map[string]any{}
+	}
+	return cfg
+}
+
+func (s *Server) updateOpsBudget(ctx context.Context, svc *opsbot.Service, botID int64, mutate func(map[string]any)) error {
+	bot, err := svc.Get(ctx, botID)
+	if err != nil {
+		return err
+	}
+	cfg := opsBudgetConfig(bot.BudgetJson)
+	mutate(cfg)
+	raw, err := json.Marshal(cfg)
+	if err != nil {
+		return err
+	}
+	body := string(raw)
+	_, err = svc.UpdateConfig(ctx, botID, opsbot.ConfigPatch{BudgetJSON: &body})
+	return err
+}
+
+// opsIssueCreator adapts *service.KanbanService to opsbot.IssueCreator.
+type opsIssueCreator struct{ kanban *service.KanbanService }
+
+func (a opsIssueCreator) CreateEpic(ctx context.Context, columnID int64, title, description string, byUserID int64) (int64, error) {
+	issue, err := a.kanban.CreateIssue(ctx, columnID, title, description, 1, 0,
+		"", "", "", 0, nil, "epic", 0, nil, nil, byUserID)
+	if err != nil {
+		return 0, err
+	}
+	return issue.ID, nil
+}
+
+type opsIssueDeleter struct{ kanban *service.KanbanService }
+
+func (d opsIssueDeleter) DeleteIssue(ctx context.Context, issueID int64) error {
+	return d.kanban.DeleteIssue(ctx, issueID)
+}
+
+type opsColumnResolver struct{ q *store.Queries }
+
+func (r opsColumnResolver) FirstColumn(ctx context.Context, projectID int64) (int64, error) {
+	columns, err := r.q.ListColumnsByProject(ctx, projectID)
+	if err != nil {
+		return 0, err
+	}
+	if len(columns) == 0 {
+		return 0, fmt.Errorf("project %d has no columns", projectID)
+	}
+	return columns[0].ID, nil
+}
+
+type opsWorkspaceCreator struct{ workspaces *service.WorkspaceService }
+
+func (w opsWorkspaceCreator) CreateControl(ctx context.Context, issueID int64, ownerType string, ownerID, createdBy int64) (int64, error) {
+	created := createdBy
+	result, err := w.workspaces.Create(ctx, service.CreateWorkspaceInput{
+		IssueID:   &issueID,
+		Name:      fmt.Sprintf("Ops Bot %d", issueID),
+		OwnerType: ownerType,
+		OwnerID:   ownerID,
+		CreatedBy: &created,
+		NoRepo:    true,
+	})
+	if err != nil {
+		return 0, err
+	}
+	return result.Workspace.ID, nil
+}
+
+type opsWorkspaceDeleter struct{ workspaces *service.WorkspaceService }
+
+func (d opsWorkspaceDeleter) DeleteWorkspace(ctx context.Context, workspaceID int64) error {
+	return d.workspaces.Delete(ctx, workspaceID)
 }
