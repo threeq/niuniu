@@ -56,7 +56,7 @@ const (
 // mean the platform UI changed and should degrade to a manual package.
 var (
 	ErrUnknownAction    = errors.New("opsbot/browser: unknown recipe action")
-	ErrHostNotAllowed   = errors.New("opsbot/browser: navigation host not allowed")
+	ErrHostNotAllowed   = errors.New("opsbot/browser: navigation host is not in the allowlist")
 	ErrSelectorNotFound = errors.New("opsbot/browser: selector not found")
 	ErrAssertFailed     = errors.New("opsbot/browser: assert failed")
 	ErrLoopLimit        = errors.New("opsbot/browser: loop iteration limit reached")
