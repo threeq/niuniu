@@ -29,8 +29,8 @@ func (f *fakeRecorder) Record(_ context.Context, ev ExecEvent) error {
 	return nil
 }
 
-func cleanArticle() Artifact {
-	return Artifact{
+func cleanArticle() ReviewArtifact {
+	return ReviewArtifact{
 		IssueID:     42,
 		WorkspaceID: 7,
 		Version:     3,
@@ -48,7 +48,7 @@ func TestReviewBlocksBeforeApproval(t *testing.T) {
 			return []Finding{{Rule: "ad_law", Severity: "blocking", Message: "绝对化用语"}}, nil
 		},
 	}
-	res, err := r.Gate(context.Background(), BotRef{ID: 1}, Artifact{}, OpsContentBrief{}, func(ReviewPreview) error {
+	res, err := r.Gate(context.Background(), ReviewBotRef{ID: 1}, ReviewArtifact{}, OpsContentBrief{}, func(ReviewPreview) error {
 		approvals++
 		return nil
 	})
@@ -60,7 +60,7 @@ func TestReviewBlocksBeforeApproval(t *testing.T) {
 
 func TestReviewPassesCleanContent(t *testing.T) {
 	r := &Review{Judge: func(context.Context, string, string) ([]Finding, error) { return nil, nil }}
-	res, err := r.Run(context.Background(), BotRef{ID: 1}, Artifact{}, OpsContentBrief{})
+	res, err := r.Run(context.Background(), ReviewBotRef{ID: 1}, ReviewArtifact{}, OpsContentBrief{})
 	require.NoError(t, err)
 	require.False(t, res.Blocking)
 }
@@ -77,7 +77,7 @@ func TestReviewWarningsReachApprovalPreview(t *testing.T) {
 		},
 	}
 	var preview ReviewPreview
-	res, err := r.Gate(context.Background(), BotRef{ID: 1}, Artifact{}, OpsContentBrief{}, func(p ReviewPreview) error {
+	res, err := r.Gate(context.Background(), ReviewBotRef{ID: 1}, ReviewArtifact{}, OpsContentBrief{}, func(p ReviewPreview) error {
 		preview = p
 		return nil
 	})
@@ -92,7 +92,7 @@ func TestReviewWarningsReachApprovalPreview(t *testing.T) {
 func TestReviewRecordsGateEvent(t *testing.T) {
 	rec := &fakeRecorder{}
 	r := &Review{Recorder: rec.Record, Now: fixedNow}
-	res, err := r.Run(context.Background(), BotRef{ID: 1}, cleanArticle(), OpsContentBrief{Format: FormatArticle})
+	res, err := r.Run(context.Background(), ReviewBotRef{ID: 1}, cleanArticle(), OpsContentBrief{Format: FormatArticle})
 	require.NoError(t, err)
 	require.False(t, res.Blocking)
 	require.Len(t, rec.events, 1)
@@ -123,7 +123,7 @@ func TestReviewRerunsAfterRegeneration(t *testing.T) {
 		},
 		Recorder: rec.Record,
 	}
-	bot := BotRef{ID: 1}
+	bot := ReviewBotRef{ID: 1}
 
 	blocked := cleanArticle()
 	blocked.Version = 1
@@ -157,7 +157,7 @@ func TestReviewBlocksForbiddenTerms(t *testing.T) {
 	a := cleanArticle()
 	a.Title = "最佳通勤指南"
 
-	res, err := r.Run(context.Background(), BotRef{ID: 1, PackID: "wechat_mp"}, a, OpsContentBrief{Format: FormatArticle})
+	res, err := r.Run(context.Background(), ReviewBotRef{ID: 1, PackID: "wechat_mp"}, a, OpsContentBrief{Format: FormatArticle})
 	require.NoError(t, err)
 	require.True(t, res.Blocking)
 	require.Len(t, res.Findings, 1)
@@ -176,7 +176,7 @@ func TestReviewWarnsOnPlatformLimits(t *testing.T) {
 	r := &Review{
 		Pack: func(context.Context, string, int) (packs.Manifest, error) { return manifest, nil },
 	}
-	a := Artifact{
+	a := ReviewArtifact{
 		Format: FormatNote,
 		Title:  strings.Repeat("长", 25),
 		Body:   "正文",
@@ -186,7 +186,7 @@ func TestReviewWarnsOnPlatformLimits(t *testing.T) {
 		CTA:    "关注我，获取更多穿搭灵感",
 	}
 
-	res, err := r.Run(context.Background(), BotRef{ID: 1, PackID: "xiaohongshu"}, a, OpsContentBrief{Format: FormatNote})
+	res, err := r.Run(context.Background(), ReviewBotRef{ID: 1, PackID: "xiaohongshu"}, a, OpsContentBrief{Format: FormatNote})
 	require.NoError(t, err)
 	require.False(t, res.Blocking, "platform adaptation is a warning, not a block")
 	require.NotEmpty(t, res.Findings)
@@ -199,8 +199,8 @@ func TestReviewWarnsOnPlatformLimits(t *testing.T) {
 
 func TestReviewBlocksIncompleteStructure(t *testing.T) {
 	r := &Review{}
-	a := Artifact{Format: FormatVideo, Title: "通勤穿搭视频", Body: "脚本内容"}
-	res, err := r.Run(context.Background(), BotRef{ID: 1}, a, OpsContentBrief{Format: FormatVideo})
+	a := ReviewArtifact{Format: FormatVideo, Title: "通勤穿搭视频", Body: "脚本内容"}
+	res, err := r.Run(context.Background(), ReviewBotRef{ID: 1}, a, OpsContentBrief{Format: FormatVideo})
 	require.NoError(t, err)
 	require.True(t, res.Blocking)
 	msg := findingsText(res.Findings)
@@ -215,7 +215,7 @@ func TestReviewJudgeErrorFailsClosed(t *testing.T) {
 			return nil, errors.New("judge unavailable")
 		},
 	}
-	_, err := r.Gate(context.Background(), BotRef{ID: 1}, Artifact{}, OpsContentBrief{}, func(ReviewPreview) error {
+	_, err := r.Gate(context.Background(), ReviewBotRef{ID: 1}, ReviewArtifact{}, OpsContentBrief{}, func(ReviewPreview) error {
 		approvals++
 		return nil
 	})
@@ -254,7 +254,7 @@ func TestReviewEventLandsInIssueExecEvents(t *testing.T) {
 	}
 
 	r := &Review{Recorder: NewSQLReviewRecorder(store.Wrap(raw).Queries())}
-	_, err = r.Run(context.Background(), BotRef{ID: 1}, cleanArticle(), OpsContentBrief{Format: FormatArticle})
+	_, err = r.Run(context.Background(), ReviewBotRef{ID: 1}, cleanArticle(), OpsContentBrief{Format: FormatArticle})
 	require.NoError(t, err)
 
 	var kind, summary, detail string
@@ -298,7 +298,7 @@ func TestJudgeWithHarnessMapsCategorySeverity(t *testing.T) {
 	judge := checkers.NewAIJudge().WithEndpoint(srv.URL).WithAPIKey("test-key")
 	r := &Review{Judge: JudgeWithHarness(judge, "", 30)}
 
-	res, err := r.Run(context.Background(), BotRef{ID: 1}, cleanArticle(), OpsContentBrief{Format: FormatArticle})
+	res, err := r.Run(context.Background(), ReviewBotRef{ID: 1}, cleanArticle(), OpsContentBrief{Format: FormatArticle})
 	require.NoError(t, err)
 	require.Equal(t, 4, calls, "all four categories are judged")
 	require.True(t, res.Blocking)
