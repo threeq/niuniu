@@ -102,6 +102,15 @@ import type {
 // git.FileDiff shape for the checkpoint diff response.
 import type { GitFileDiff } from './hooks/use-file-diff'
 import type { CliType } from './cli-types'
+import type {
+  MissionControlOpsView,
+  OpsApproval,
+  OpsBot,
+  OpsBudgetUsage,
+  OpsCalendar,
+  OpsEngagement,
+  OpsMetricsItem,
+} from '../types/ops'
 
 const API_BASE = '/api'
 
@@ -1346,3 +1355,59 @@ export const skillApi = {
   /** Remove globally: store + all enabled copies / plugin uninstall. */
   uninstall: (name: string) => api.post<{ ok: boolean }>('/skills/uninstall', { name }),
 };
+
+// ---------------------------------------------------------------------------
+// Ops Bot console (design 2026-11-06 §14.3). The list reads the mission-control
+// ops aggregate; the drilldown uses the per-bot /api/ops routes. Approvals are
+// owner-scoped, so every call accepts the same ?owner= the list was opened with.
+// ---------------------------------------------------------------------------
+export const opsApi = {
+  list: (owner?: string | null) =>
+    api.get<MissionControlOpsView>('/mission-control/ops', {
+      params: { owner: owner ?? undefined },
+      suppressError: true,
+    }),
+
+  getBot: (botId: number) =>
+    api.get<OpsBot>(`/ops/bots/${botId}`, { suppressError: true }),
+
+  pause: (botId: number) => api.post<OpsBot>(`/ops/bots/${botId}/pause`),
+  resume: (botId: number) => api.post<OpsBot>(`/ops/bots/${botId}/resume`),
+  disable: (botId: number) => api.post<OpsBot>(`/ops/bots/${botId}/disable`),
+
+  budget: (botId: number) =>
+    api.get<OpsBudgetUsage>(`/ops/bots/${botId}/budget`, { suppressError: true }),
+
+  setBudget: (botId: number, monthlyLimit: number, currency = 'USD') =>
+    api.post<OpsBudgetUsage>(`/ops/bots/${botId}/budget`, {
+      monthly_limit: monthlyLimit,
+      currency,
+    }),
+
+  metrics: (botId: number, from?: string, to?: string) =>
+    api.get<{ bot_id: number; from: string; to: string; items: OpsMetricsItem[] }>(
+      `/ops/bots/${botId}/metrics`,
+      { params: { from, to }, suppressError: true },
+    ),
+
+  calendar: (botId: number) =>
+    api.get<OpsCalendar>(`/ops/bots/${botId}/calendar`, { suppressError: true }),
+
+  engagements: (botId: number, status = 'new') =>
+    api.get<{ items: OpsEngagement[]; count: number }>(
+      `/ops/bots/${botId}/engagements`,
+      { params: { status }, suppressError: true },
+    ),
+
+  listApprovals: (owner?: string | null) =>
+    api.get<{ items: OpsApproval[]; count: number }>('/ops/approvals', {
+      params: { owner: owner ?? undefined, status: 'pending' },
+      suppressError: true,
+    }),
+
+  approve: (approvalId: number, reason?: string) =>
+    api.post<OpsApproval>(`/ops/approvals/${approvalId}/approve`, { reason }),
+
+  reject: (approvalId: number, reason?: string) =>
+    api.post<OpsApproval>(`/ops/approvals/${approvalId}/reject`, { reason }),
+}

@@ -18,6 +18,7 @@ import { ThemeToggle } from './theme-toggle';
 const navLinks = [
   { to: '/projects', labelKey: 'menu.projects' },
   { to: '/workspaces', labelKey: 'menu.workspaces' },
+  { to: '/ops', labelKey: 'menu.ops' },
   { to: '/intake', labelKey: 'menu.intake' },
   { to: '/repositories', labelKey: 'menu.repositories' },
   { to: '/knowledge-bases', labelKey: 'menu.knowledgeBases' },

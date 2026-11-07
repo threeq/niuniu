@@ -1,0 +1,12 @@
+{
+  "formats": {
+    "article": {
+      "fields": ["title", "body", "cover", "topics"],
+      "max_chars": 100000,
+      "max_title_chars": 100,
+      "image_ratio": "16:9",
+      "max_images": 50,
+      "video_sec": 0
+    }
+  }
+}

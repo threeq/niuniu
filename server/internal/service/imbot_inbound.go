@@ -17,6 +17,7 @@ import (
 
 	"github.com/niuniu-dev/niuniu/internal/imbot"
 	"github.com/niuniu-dev/niuniu/internal/intake"
+	"github.com/niuniu-dev/niuniu/internal/opsbot"
 	"github.com/niuniu-dev/niuniu/internal/store"
 )
 
@@ -80,10 +81,12 @@ func (s *IMBotService) HandleInbound(ctx context.Context, ev imbot.InboundEvent)
 	}
 	routeProjectID := chat.ProjectID.Int64
 
-	// Interaction-button callback (permission approve/deny/always, ask-user option)
-	// — dispatched by payload prefix, no text routing.
+	// Interaction-button callback (permission approve/deny/always, ask-user
+	// option, ops approval) — dispatched by payload prefix, no text routing.
 	if ev.Kind == "action_callback" {
 		switch {
+		case strings.HasPrefix(ev.CallbackData, "opsapproval:"):
+			s.handleOpsApprovalCallback(ctx, channel, chat, ev)
 		case strings.HasPrefix(ev.CallbackData, "askuser:"):
 			s.handleAskUserCallback(ctx, channel, chat, ev)
 		default:
@@ -111,11 +114,38 @@ func (s *IMBotService) HandleInbound(ctx context.Context, ev imbot.InboundEvent)
 		text = attachmentPlaceholder(ev.Attachments)
 	}
 
+	// A chat bound to an Ops Bot is that bot's control surface: text and
+	// commands are handled in the bot's context (see routeToOpsBot below) and
+	// never reach the bound project's intake pipeline.
+	boundBotID := int64(0)
+	if chat.OpsBotID.Valid {
+		boundBotID = chat.OpsBotID.Int64
+	}
+
+	// A "修改" card tap parks the approval until the operator's next message,
+	// which becomes the revision reason. Slash commands cancel the pending edit
+	// and continue normally.
+	if id := s.takePendingModify(chat.ID); id != 0 {
+		if !strings.HasPrefix(text, "/") {
+			s.decideOpsApproval(ctx, channel, chat, ev, id, opsbot.ActionModified, text)
+			return
+		}
+		s.pushText(ctx, channel, ev.ChatExtID, ev.ThreadExtID, "已取消修改，审批保持不变。")
+	}
+
 	// Auto chats are read in full: ambient messages feed the suggestion analysis
 	// and may match a rule. Respond chats only act on messages aimed at the bot,
 	// so unaddressed chatter is dropped before it reaches the pipeline.
 	addressed := addressedToBot(ev, text) || s.conversationallyAddressed(ctx, chat, ev.ThreadExtID)
-	if s.effectiveChatIntakeMode(ctx, chat) == intake.ModeAuto {
+	mode := s.effectiveChatIntakeMode(ctx, chat)
+	if boundBotID != 0 {
+		// A bound chat's speech is a bot instruction, not project chatter, so it
+		// is never recorded as an intake observation.
+		if mode != intake.ModeAuto && !addressed {
+			slog.Debug("imbot: ignored (respond mode, not addressed)", "chat", chat.ID, "actor", ev.ActorExtID)
+			return
+		}
+	} else if mode == intake.ModeAuto {
 		s.recordObservation(ctx, chat, ev, observedText, addressed)
 		// Analysis is message-driven: tell the employee this chat has new material.
 		// Non-blocking, so the connector goroutine never waits on a model call.
@@ -125,6 +155,32 @@ func (s *IMBotService) HandleInbound(ctx context.Context, ev imbot.InboundEvent)
 	} else if !addressed {
 		slog.Debug("imbot: ignored (respond mode, not addressed)", "chat", chat.ID, "actor", ev.ActorExtID)
 		return
+	}
+
+	// Conversational ops-bot onboarding claims the turn (non-empty reply) for its
+	// own commands/intents and leaves everything else to the intake pipeline.
+	// It creates and reconfigures publishing bots, so it is gated like the other
+	// high-risk actions: only an addressed message from an authorized (non-bot,
+	// allow-listed when a list exists) operator reaches it.
+	if s.opsOnboarding != nil && addressed {
+		if !s.allowsHighRiskAction(ctx, chat, ev) {
+			if s.opsOnboarding.Matches(chat.ID, text) {
+				s.pushText(ctx, channel, ev.ChatExtID, ev.ThreadExtID, opsOnboardingDeniedText)
+				return
+			}
+		} else {
+			reply, _, oerr := s.opsOnboarding.Handle(ctx, chat.ID,
+				opsbot.OwnerRef{Type: channel.OwnerType, ID: channel.OwnerID}, routeProjectID, text)
+			if oerr != nil {
+				slog.Warn("imbot: ops onboarding failed", "channel", channel.ID, "chat", chat.ID, "error", oerr)
+				s.pushText(ctx, channel, ev.ChatExtID, ev.ThreadExtID, "处理运营 Bot 接入流程时出错，请稍后重试或回复 /cancel。")
+				return
+			}
+			if reply != "" {
+				s.pushText(ctx, channel, ev.ChatExtID, ev.ThreadExtID, reply)
+				return
+			}
+		}
 	}
 
 	// Slash commands (optional; the channel already binds a single project).
@@ -172,30 +228,41 @@ func (s *IMBotService) HandleInbound(ctx context.Context, ev imbot.InboundEvent)
 	// is the issue id shown in an outbound title (`#<id> 名字`). A valid id that
 	// resolves to a workspace-backed task in this project switches to it (and
 	// delivers any trailing text there); a missing/unknown id falls through to a
-	// NEW conversation with the trailing text as its prompt.
-	if idTok, body, isHash := parseHashSwitch(text); isHash {
-		if idTok != "" {
-			if id, perr := strconv.ParseInt(idTok, 10, 64); perr == nil {
-				if t, ok := s.findChatTask(ctx, routeProjectID, id); ok {
-					s.switchToConversation(ctx, channel, chat, ev, t, body)
-					return
-				}
-				// The id names an existing project issue that has no workspace yet
-				// (created on the kanban / by another chat) -> start one and begin
-				// work on the issue's own content.
-				if s.startIssueWorkspace(ctx, channel, chat, ev, routeProjectID, id, body) {
-					return
+	// NEW conversation with the trailing text as its prompt. A chat bound to an
+	// Ops Bot has no project conversation to switch, so the token is left as
+	// ordinary bot input.
+	if boundBotID == 0 {
+		if idTok, body, isHash := parseHashSwitch(text); isHash {
+			if idTok != "" {
+				if id, perr := strconv.ParseInt(idTok, 10, 64); perr == nil {
+					if t, ok := s.findChatTask(ctx, routeProjectID, id); ok {
+						s.switchToConversation(ctx, channel, chat, ev, t, body)
+						return
+					}
+					// The id names an existing project issue that has no workspace yet
+					// (created on the kanban / by another chat) -> start one and begin
+					// work on the issue's own content.
+					if s.startIssueWorkspace(ctx, channel, chat, ev, routeProjectID, id, body) {
+						return
+					}
 				}
 			}
+			// No id, or the id is not a known issue in this project -> start new.
+			if body == "" {
+				s.pushText(ctx, channel, ev.ChatExtID, ev.ThreadExtID,
+					"没有找到该会话。请在 # 后面描述要新建的任务，或用 /issues 查看所有任务及编号。")
+				return
+			}
+			text = body
+			forceNew = true
 		}
-		// No id, or the id is not a known issue in this project -> start new.
-		if body == "" {
-			s.pushText(ctx, channel, ev.ChatExtID, ev.ThreadExtID,
-				"没有找到该会话。请在 # 后面描述要新建的任务，或用 /issues 查看所有任务及编号。")
-			return
-		}
-		text = body
-		forceNew = true
+	}
+
+	// A bound chat routes the remaining text into its Ops Bot's control
+	// workspace — the bot's own agent context — instead of project intake.
+	if boundBotID != 0 {
+		s.routeToOpsBot(ctx, channel, chat, ev, text, boundBotID)
+		return
 	}
 
 	// Everything from here on is source-neutral and runs in the shared intake
@@ -925,9 +992,292 @@ func askUserOption(questionsJSON string, optIdx int) (question, label string, ok
 	return qs[0].Question, qs[0].Options[optIdx].Label, true
 }
 
+// --- Ops Bot routing, approval cards and notifications (Epic #788) ---------
+
+const opsApprovalDeniedText = "你没有权限处理这个审批。审批人应为账号绑定的运营人，或该账号的总监。"
+
+// routeToOpsBot delivers a bound chat's message to its Ops Bot's control
+// workspace — the bot's own agent context — rather than the project intake
+// pipeline. A bot that is paused/disabled or not yet provisioned gets a clear
+// reply instead of silently swallowing the operator's instruction.
+func (s *IMBotService) routeToOpsBot(ctx context.Context, channel store.ImBotChannel, chat store.ImBotChat, ev imbot.InboundEvent, text string, botID int64) {
+	bot, err := s.q.GetOpsBot(ctx, botID)
+	if err != nil {
+		slog.Warn("imbot: bound ops bot missing", "chat", chat.ID, "bot", botID, "error", err)
+		s.pushText(ctx, channel, ev.ChatExtID, ev.ThreadExtID, "绑定的运营 Bot 已不存在，请让管理员重新绑定。")
+		return
+	}
+	if bot.Status != opsbot.StatusActive {
+		hint := ""
+		if bot.Status == opsbot.StatusPaused {
+			hint = "，回复 /resume 恢复"
+		}
+		s.pushText(ctx, channel, ev.ChatExtID, ev.ThreadExtID,
+			"「"+bot.DisplayName+"」当前不可用（"+bot.Status+"）"+hint+"。")
+		return
+	}
+	if !bot.ControlWorkspaceID.Valid {
+		s.pushText(ctx, channel, ev.ChatExtID, ev.ThreadExtID, "「"+bot.DisplayName+"」尚未完成初始化，请稍后重试。")
+		return
+	}
+	if derr := s.deliverToWorkspace(ctx, channel, ev, bot.ControlWorkspaceID.Int64, text); derr != nil {
+		slog.Warn("imbot: ops bot delivery failed", "chat", chat.ID, "bot", botID, "workspace", bot.ControlWorkspaceID.Int64, "error", derr)
+		s.pushText(ctx, channel, ev.ChatExtID, ev.ThreadExtID, "把消息转给运营 Bot 时失败了，请稍后重试。")
+	}
+}
+
+// handleOpsApprovalCallback handles one approval-card button. A "修改" tap
+// parks the card (the operator's next message is the revision); the other
+// actions decide immediately.
+func (s *IMBotService) handleOpsApprovalCallback(ctx context.Context, channel store.ImBotChannel, chat store.ImBotChat, ev imbot.InboundEvent) {
+	action, id, ok := opsbot.ParseApprovalCallback(ev.CallbackData)
+	if !ok || s.opsApproval == nil {
+		return
+	}
+	if action == opsbot.ActionModified {
+		s.setPendingModify(chat.ID, id)
+		s.pushText(ctx, channel, ev.ChatExtID, ev.ThreadExtID, "请直接回复修改意见，我会记录后继续流转这个审批。")
+		return
+	}
+	s.decideOpsApproval(ctx, channel, chat, ev, id, action, "")
+}
+
+// decideOpsApproval applies one decision after authorizing it: the approval's
+// bot must belong to this chat's channel owner, and a chat bound to a different
+// bot may only decide when that bound bot is the account's director.
+func (s *IMBotService) decideOpsApproval(ctx context.Context, channel store.ImBotChannel, chat store.ImBotChat, ev imbot.InboundEvent, id int64, action, reason string) {
+	if s.opsApproval == nil {
+		return
+	}
+	req, err := s.opsApproval.Get(ctx, id)
+	if err != nil {
+		if errors.Is(err, opsbot.ErrApprovalNotFound) {
+			s.pushText(ctx, channel, ev.ChatExtID, ev.ThreadExtID, "找不到这个审批，可能已被撤销。")
+		} else {
+			slog.Warn("imbot: load ops approval failed", "approval", id, "error", err)
+		}
+		return
+	}
+	meta, err := opsbot.ParseApprovalMeta(req)
+	if err != nil || meta.BotID == 0 {
+		slog.Warn("imbot: ops approval metadata invalid", "approval", id, "error", err)
+		return
+	}
+	bot, err := s.q.GetOpsBot(ctx, meta.BotID)
+	if err != nil {
+		slog.Warn("imbot: ops approval bot missing", "approval", id, "bot", meta.BotID, "error", err)
+		return
+	}
+	if bot.OwnerType != channel.OwnerType || bot.OwnerID != channel.OwnerID {
+		s.pushText(ctx, channel, ev.ChatExtID, ev.ThreadExtID, opsApprovalDeniedText)
+		return
+	}
+
+	d := opsbot.Decision{
+		Action:     action,
+		Reason:     reason,
+		OperatorID: opsbot.ApproverFor(bot, channel.OwnerID),
+	}
+	// A chat bound to a director bot may decide for an account bot that names
+	// that director; the decision records both the director and the operator it
+	// stood in for (design §10: 总监可代审，记录代审人).
+	if chat.OpsBotID.Valid && chat.OpsBotID.Int64 != bot.ID {
+		bound, berr := s.q.GetOpsBot(ctx, chat.OpsBotID.Int64)
+		if berr != nil || bound.OwnerType != channel.OwnerType || bound.OwnerID != channel.OwnerID ||
+			bound.Role != opsbot.RoleDirector || !bot.DirectorBotID.Valid || bot.DirectorBotID.Int64 != bound.ID {
+			s.pushText(ctx, channel, ev.ChatExtID, ev.ThreadExtID, opsApprovalDeniedText)
+			return
+		}
+		d.OperatorID = opsbot.ApproverFor(bound, channel.OwnerID)
+		d.ProxyFor = opsbot.ApproverFor(bot, channel.OwnerID)
+	}
+
+	if _, derr := s.opsApproval.Decide(ctx, id, d); derr != nil {
+		switch {
+		case errors.Is(derr, opsbot.ErrAlreadyDecided):
+			s.pushText(ctx, channel, ev.ChatExtID, ev.ThreadExtID, "这个审批刚刚已经处理过了。")
+		case errors.Is(derr, opsbot.ErrInvalidDecision):
+			s.pushText(ctx, channel, ev.ChatExtID, ev.ThreadExtID, "这个审批不支持该操作。")
+		default:
+			slog.Warn("imbot: ops approval decide failed", "approval", id, "error", derr)
+			s.pushText(ctx, channel, ev.ChatExtID, ev.ThreadExtID, "处理审批时出错了，请稍后重试。")
+		}
+		return
+	}
+	s.pushText(ctx, channel, ev.ChatExtID, ev.ThreadExtID, opsDecisionText(action))
+}
+
+func opsDecisionText(action string) string {
+	switch action {
+	case opsbot.ActionApproved:
+		return "✅ 已通过该审批。"
+	case opsbot.ActionRejected:
+		return "已驳回该审批。"
+	case opsbot.ActionModified:
+		return "已记录修改意见，审批已转入修改态。"
+	case opsbot.ActionRegenerate:
+		return "已要求重新生成。"
+	default:
+		return "已处理。"
+	}
+}
+
+func (s *IMBotService) setPendingModify(chatID, approvalID int64) {
+	s.opsPendingMu.Lock()
+	defer s.opsPendingMu.Unlock()
+	if s.opsPendingModify == nil {
+		s.opsPendingModify = map[int64]int64{}
+	}
+	s.opsPendingModify[chatID] = approvalID
+}
+
+func (s *IMBotService) takePendingModify(chatID int64) int64 {
+	s.opsPendingMu.Lock()
+	defer s.opsPendingMu.Unlock()
+	id := s.opsPendingModify[chatID]
+	delete(s.opsPendingModify, chatID)
+	return id
+}
+
+// NotifyOpsApproval pushes a just-created approval card to every active chat
+// bound to its bot. It is best-effort: the approval already exists, so failures
+// are logged and never returned to the creator.
+func (s *IMBotService) NotifyOpsApproval(ctx context.Context, req opsbot.ApprovalRequest) {
+	if s.opsNotify == nil {
+		return
+	}
+	meta, err := opsbot.ParseApprovalMeta(req)
+	if err != nil || meta.BotID == 0 {
+		slog.Warn("imbot: ops approval notification: bad metadata", "approval", req.ID, "error", err)
+		return
+	}
+	card, err := opsbot.CardFromApproval(req)
+	if err != nil {
+		slog.Warn("imbot: ops approval notification: render failed", "approval", req.ID, "error", err)
+		return
+	}
+	chats, err := s.opsBotChats(ctx, meta.BotID)
+	if err != nil {
+		slog.Warn("imbot: ops approval notification: list chats failed", "approval", req.ID, "bot", meta.BotID, "error", err)
+		return
+	}
+	for _, chat := range chats {
+		target, ok := s.opsNotifyTarget(ctx, chat, meta.BotID)
+		if !ok {
+			continue
+		}
+		if perr := s.opsNotify.PushApproval(ctx, target, card); perr != nil {
+			slog.Warn("imbot: ops approval push failed", "approval", req.ID, "chat", chat.ID, "error", perr)
+		}
+	}
+}
+
+// NotifyOpsRisk pushes the risk-warning template (account/reason/paused) to
+// every active chat bound to the bot. Like NotifyOpsApproval it is best-effort:
+// failures are logged, never returned.
+func (s *IMBotService) NotifyOpsRisk(ctx context.Context, botID int64, reason string) {
+	if s.opsNotify == nil {
+		return
+	}
+	bot, err := s.q.GetOpsBot(ctx, botID)
+	if err != nil {
+		slog.Warn("imbot: ops risk notification: bot missing", "bot", botID, "error", err)
+		return
+	}
+	alert := opsbot.RiskAlert{
+		Account: bot.DisplayName,
+		Reason:  reason,
+		Paused:  bot.Status != opsbot.StatusActive,
+	}
+	chats, err := s.opsBotChats(ctx, botID)
+	if err != nil {
+		slog.Warn("imbot: ops risk notification: list chats failed", "bot", botID, "error", err)
+		return
+	}
+	for _, chat := range chats {
+		target, ok := s.opsNotifyTarget(ctx, chat, botID)
+		if !ok {
+			continue
+		}
+		if perr := s.opsNotify.PushRisk(ctx, target, alert); perr != nil {
+			slog.Warn("imbot: ops risk push failed", "bot", botID, "chat", chat.ID, "error", perr)
+		}
+	}
+}
+
+func (s *IMBotService) opsNotifyTarget(ctx context.Context, chat store.ImBotChat, botID int64) (opsbot.NotifyTarget, bool) {
+	ch, err := s.q.GetIMBotChannel(ctx, chat.ChannelID)
+	if err != nil {
+		return opsbot.NotifyTarget{}, false
+	}
+	return opsbot.NotifyTarget{
+		ChannelID:   ch.ID,
+		ChannelType: ch.ChannelType,
+		ChatID:      chat.ID,
+		ChatExtID:   chat.ChatExtID,
+		BotID:       botID,
+	}, true
+}
+
+// opsBotChats returns the active chats bound to a bot. Raw SQL because the
+// binding is a retrofit column and has no dedicated sqlc query.
+func (s *IMBotService) opsBotChats(ctx context.Context, botID int64) ([]store.ImBotChat, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT id, channel_id, project_id, chat_ext_id, chat_name, bind_mode, agent_mode,
+		        intake_mode, pinned_issue_id, active_issue_id, ops_bot_id, status,
+		        paired_by, created_at, updated_at
+		   FROM im_bot_chats
+		  WHERE ops_bot_id = ? AND status = 'active'
+		  ORDER BY id`, botID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []store.ImBotChat
+	for rows.Next() {
+		var c store.ImBotChat
+		if err := rows.Scan(&c.ID, &c.ChannelID, &c.ProjectID, &c.ChatExtID, &c.ChatName,
+			&c.BindMode, &c.AgentMode, &c.IntakeMode, &c.PinnedIssueID, &c.ActiveIssueID,
+			&c.OpsBotID, &c.Status, &c.PairedBy, &c.CreatedAt, &c.UpdatedAt); err != nil {
+			return nil, err
+		}
+		out = append(out, c)
+	}
+	return out, rows.Err()
+}
+
+// pushOpsNotify is the Notifier.Send implementation: it decrypts the channel
+// credential and pushes the rendered card over the platform adapter.
+func (s *IMBotService) pushOpsNotify(ctx context.Context, target opsbot.NotifyTarget, payload opsbot.NotifyPayload) error {
+	channel, err := s.q.GetIMBotChannel(ctx, target.ChannelID)
+	if err != nil {
+		return err
+	}
+	adapter, ok := s.adapters[imbot.ChannelType(channel.ChannelType)]
+	if !ok {
+		return fmt.Errorf("imbot: no adapter for channel type %q", channel.ChannelType)
+	}
+	cred, err := s.decryptCred(channel.ChannelType, channel.CredentialEnc)
+	if err != nil {
+		return err
+	}
+	buttons := make([]imbot.Button, 0, len(payload.Buttons))
+	for _, b := range payload.Buttons {
+		buttons = append(buttons, imbot.Button{Label: b.Label, Value: b.Value})
+	}
+	return adapter.Push(ctx, cred, imbot.OutboundMessage{
+		ChatExtID:   target.ChatExtID,
+		ThreadExtID: target.ThreadExtID,
+		Text:        payload.Text,
+		Buttons:     buttons,
+	})
+}
+
 // highRiskDeniedText is deliberately jargon-free: the user only needs to know
 // who can grant the permission, not the policy internals.
 const highRiskDeniedText = "你没有权限执行这个操作。停止或删除任务需要项目允许名单内的成员发起。"
+
+const opsOnboardingDeniedText = "你没有权限执行运营 Bot 的接入或配置操作。需要由项目允许名单内的成员发起。"
 
 // allowsHighRiskAction gates /stop and /delete on the intake policy. A bot can
 // never stop or delete a task, and once an allow list is configured only listed

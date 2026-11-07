@@ -1,0 +1,68 @@
+{
+  "name": "reply",
+  "steps": [
+    {
+      "action": "goto",
+      "value": "https://creator.xiaohongshu.com/creator/messages?tab=comments",
+      "timeout_ms": 30000
+    },
+    {
+      "action": "wait",
+      "selector": ".conversation-list",
+      "fallback": [".message-list", ".comment-list"],
+      "timeout_ms": 20000
+    },
+    {
+      "action": "fill",
+      "selector": ".conversation-search input",
+      "fallback": [".message-search input"],
+      "value": "{{engagement_id}}"
+    },
+    {
+      "action": "click",
+      "selector": ".conversation-item[data-id='{{engagement_id}}']",
+      "fallback": [".conversation-item", ".comment-item"],
+      "timeout_ms": 15000
+    },
+    {
+      "action": "wait",
+      "selector": ".reply-input",
+      "fallback": [".chat-input textarea", ".comment-reply-input"],
+      "timeout_ms": 15000
+    },
+    {
+      "action": "fill",
+      "selector": ".reply-input",
+      "fallback": [".chat-input textarea", ".comment-reply-input"],
+      "value": "{{reply_text}}"
+    },
+    {
+      "action": "click",
+      "selector": ".send-btn",
+      "fallback": [".reply-submit", ".send-button"]
+    },
+    {
+      "action": "wait",
+      "selector": ".message.sent",
+      "fallback": [".toast-success", ".reply-success"],
+      "timeout_ms": 15000
+    },
+    {
+      "action": "assert",
+      "selector": ".message.sent",
+      "fallback": [".toast-success"],
+      "value": "reply_sent"
+    },
+    {
+      "action": "extract",
+      "selector": ".message.sent",
+      "fallback": [".toast-success"],
+      "value": "receipt"
+    },
+    {
+      "action": "screenshot",
+      "value": "reply_result"
+    }
+  ],
+  "fixtures": ["fixtures/reply.html"]
+}

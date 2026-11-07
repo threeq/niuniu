@@ -15,6 +15,9 @@ package service
 
 import (
 	"context"
+	"database/sql"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -959,4 +962,481 @@ func emptyCompletionMetrics() []MissionControlMetric {
 		out = append(out, MissionControlMetric{Key: k.key, Unit: k.unit, Status: "no_data", Drill: k.drill})
 	}
 	return out
+}
+
+// --- Ops Bot console aggregation (design §14.3) -----------------------------
+//
+// The ops panel is grouped owner → channel (Platform Pack) → account, never
+// folded into one score. Each account carries the four things an operator
+// checks before leaving it alone: status, output, budget headroom, and risk.
+//
+// A single account is enriched in isolation: any failure while reading its
+// metrics/budget/approvals fills Account.Error and the rest of the panel still
+// renders. The frontend shows that row with an explicit error state instead of
+// letting one broken account blank the console.
+
+// MissionControlOpsOutput is today's and this week's published output.
+type MissionControlOpsOutput struct {
+	Today int64 `json:"today"`
+	Week  int64 `json:"week"`
+}
+
+// MissionControlOpsMetrics is the most recent normalized daily metric row.
+type MissionControlOpsMetrics struct {
+	Date   string          `json:"date"`
+	Values json.RawMessage `json:"values"`
+	Source string          `json:"source"`
+}
+
+// MissionControlOpsBudget is the account's current-month budget position.
+// Configured is false when budget_json carries no monthly_limit, in which case
+// the other numbers are not meaningful and the UI renders "not set".
+type MissionControlOpsBudget struct {
+	Limit      float64   `json:"limit"`
+	Currency   string    `json:"currency"`
+	Spent      float64   `json:"spent"`
+	Remaining  float64   `json:"remaining"`
+	Unlimited  bool      `json:"unlimited"`
+	Configured bool      `json:"configured"`
+	PeriodFrom time.Time `json:"period_from"`
+	PeriodTo   time.Time `json:"period_to"`
+}
+
+// MissionControlOpsBrowser is the account's most recently updated browser
+// session state (the row a worker leases).
+type MissionControlOpsBrowser struct {
+	Backend     string `json:"backend"`
+	LoginStatus string `json:"login_status"`
+	Health      string `json:"health"`
+	RiskState   string `json:"risk_state"`
+	LastError   string `json:"last_error,omitempty"`
+}
+
+// Risk levels. A risk flag never hides the account; it only marks the row.
+const (
+	OpsRiskNormal   = "normal"
+	OpsRiskWarning  = "warning"
+	OpsRiskCritical = "critical"
+)
+
+// MissionControlOpsAccount is one account row (and the drilldown source).
+type MissionControlOpsAccount struct {
+	BotID               int64                     `json:"bot_id"`
+	Role                string                    `json:"role"`
+	PackID              string                    `json:"pack_id"`
+	PackVersion         int64                     `json:"pack_version"`
+	AccountRef          string                    `json:"account_ref"`
+	DisplayName         string                    `json:"display_name"`
+	Status              string                    `json:"status"`
+	Operator            string                    `json:"operator"`
+	DirectorBotID       *int64                    `json:"director_bot_id,omitempty"`
+	EpicIssueID         *int64                    `json:"epic_issue_id,omitempty"`
+	Output              MissionControlOpsOutput   `json:"output"`
+	Metrics             *MissionControlOpsMetrics `json:"metrics,omitempty"`
+	Budget              MissionControlOpsBudget   `json:"budget"`
+	PendingApprovals    int64                     `json:"pending_approvals"`
+	HighRiskEngagements int64                     `json:"high_risk_engagements"`
+	Risk                string                    `json:"risk"`
+	RiskReasons         []string                  `json:"risk_reasons"`
+	Browser             *MissionControlOpsBrowser `json:"browser,omitempty"`
+	Error               string                    `json:"error,omitempty"`
+	UpdatedAt           time.Time                 `json:"updated_at"`
+}
+
+// MissionControlOpsChannel groups accounts that publish to the same platform
+// pack ("channel"). A channel is a pack id, not a bot: one pack can drive many
+// accounts.
+type MissionControlOpsChannel struct {
+	PackID      string                     `json:"pack_id"`
+	PackVersion int64                      `json:"pack_version"`
+	Accounts    []MissionControlOpsAccount `json:"accounts"`
+}
+
+// MissionControlOpsOwner is one owner's slice of the console.
+type MissionControlOpsOwner struct {
+	OwnerType  string                     `json:"owner_type"`
+	OwnerID    int64                      `json:"owner_id"`
+	OwnerLabel string                     `json:"owner_label"`
+	Channels   []MissionControlOpsChannel `json:"channels"`
+	Error      string                     `json:"error,omitempty"`
+}
+
+// MissionControlOpsView is the GET /api/mission-control/ops payload.
+type MissionControlOpsView struct {
+	Owners       []MissionControlOpsOwner `json:"owners"`
+	AccountCount int                      `json:"account_count"`
+}
+
+// OpsView aggregates the ops console. ownerFilter, when set, narrows the scope
+// to that owner after the accessibility check, mirroring View.
+func (s *MissionControlService) OpsView(ctx context.Context, userID int64, ownerFilter *OwnerRef) (MissionControlOpsView, error) {
+	now := s.clock()
+	owners, err := s.authz.Accessible(ctx, userID)
+	if err != nil {
+		return MissionControlOpsView{}, err
+	}
+
+	// Scope is owner-level, exactly matching OpsBotHandler.ListBots: a bot
+	// belongs to an owner, not to a project, so there is no project-level
+	// filter to apply here. A personal owner can only ever see their own row;
+	// org owners require membership (authz.Accessible). The explicit
+	// ownerFilter below is validated against this same set, never trusted.
+	scope := []OwnerRef{{Type: "user", ID: userID}}
+	for _, orgID := range owners.OrgIDs {
+		scope = append(scope, OwnerRef{Type: "org", ID: orgID})
+	}
+	if ownerFilter != nil {
+		scope = scope[:0]
+		if ownerFilter.Type == "user" && ownerFilter.ID == userID {
+			scope = append(scope, *ownerFilter)
+		} else {
+			for _, orgID := range owners.OrgIDs {
+				if ownerFilter.Type == "org" && ownerFilter.ID == orgID {
+					scope = append(scope, *ownerFilter)
+					break
+				}
+			}
+		}
+	}
+
+	view := MissionControlOpsView{Owners: []MissionControlOpsOwner{}}
+	for _, owner := range scope {
+		group := s.opsOwner(ctx, owner, now)
+		view.AccountCount += countOpsAccounts(group)
+		view.Owners = append(view.Owners, group)
+	}
+	return view, nil
+}
+
+func countOpsAccounts(group MissionControlOpsOwner) int {
+	n := 0
+	for _, ch := range group.Channels {
+		n += len(ch.Accounts)
+	}
+	return n
+}
+
+func (s *MissionControlService) opsOwner(ctx context.Context, owner OwnerRef, now time.Time) MissionControlOpsOwner {
+	group := MissionControlOpsOwner{
+		OwnerType:  owner.Type,
+		OwnerID:    owner.ID,
+		OwnerLabel: s.ownerLabel(ctx, owner),
+		Channels:   []MissionControlOpsChannel{},
+	}
+	bots, err := s.q.ListOpsBotsByOwner(ctx, store.ListOpsBotsByOwnerParams{
+		OwnerType: owner.Type,
+		OwnerID:   owner.ID,
+	})
+	if err != nil {
+		group.Error = err.Error()
+		return group
+	}
+	pending, pendingErr := s.opsPendingApprovals(ctx, owner.Type, owner.ID)
+
+	byPack := map[string]*MissionControlOpsChannel{}
+	order := []string{}
+	for _, bot := range bots {
+		if bot.Role != "account" {
+			continue
+		}
+		ch, ok := byPack[bot.PackID]
+		if !ok {
+			ch = &MissionControlOpsChannel{PackID: bot.PackID, Accounts: []MissionControlOpsAccount{}}
+			byPack[bot.PackID] = ch
+			order = append(order, bot.PackID)
+		}
+		if bot.PackVersion > ch.PackVersion {
+			ch.PackVersion = bot.PackVersion
+		}
+		account := s.opsAccount(ctx, bot, group.OwnerLabel, now, pending)
+		if pendingErr != nil {
+			// A failed approval lookup must not lose the rest of the row.
+			account.Error = joinNonEmpty(account.Error, pendingErr.Error())
+		}
+		ch.Accounts = append(ch.Accounts, account)
+	}
+	sort.Strings(order)
+	for _, packID := range order {
+		ch := byPack[packID]
+		sort.Slice(ch.Accounts, func(i, j int) bool { return ch.Accounts[i].BotID < ch.Accounts[j].BotID })
+		group.Channels = append(group.Channels, *ch)
+	}
+	return group
+}
+
+func joinNonEmpty(a, b string) string {
+	if a == "" {
+		return b
+	}
+	if b == "" {
+		return a
+	}
+	return a + "; " + b
+}
+
+// ownerLabel resolves a human label for the owner without widening scope: a
+// personal owner renders the user's display name, an org renders its name.
+func (s *MissionControlService) ownerLabel(ctx context.Context, owner OwnerRef) string {
+	if owner.Type == "user" {
+		var label string
+		if err := s.db.QueryRowContext(ctx, `SELECT COALESCE(NULLIF(display_name,''), username) FROM users WHERE id = ?`, owner.ID).Scan(&label); err == nil && label != "" {
+			return label
+		}
+		return fmt.Sprintf("user:%d", owner.ID)
+	}
+	var label string
+	if err := s.db.QueryRowContext(ctx, `SELECT name FROM organizations WHERE id = ?`, owner.ID).Scan(&label); err == nil && label != "" {
+		return label
+	}
+	return fmt.Sprintf("org:%d", owner.ID)
+}
+
+// opsAccount enriches one bot. Every sub-read is best-effort and records its
+// error instead of aborting the panel, so one broken account is a broken row.
+func (s *MissionControlService) opsAccount(ctx context.Context, bot store.OpsBot, ownerLabel string, now time.Time, pending map[int64]int64) MissionControlOpsAccount {
+	acc := MissionControlOpsAccount{
+		BotID:       bot.ID,
+		Role:        bot.Role,
+		PackID:      bot.PackID,
+		PackVersion: bot.PackVersion,
+		AccountRef:  bot.AccountRef,
+		DisplayName: bot.DisplayName,
+		Status:      bot.Status,
+		Operator:    ownerLabel,
+		Risk:        OpsRiskNormal,
+		RiskReasons: []string{},
+		UpdatedAt:   bot.UpdatedAt,
+	}
+	if bot.DirectorBotID.Valid {
+		id := bot.DirectorBotID.Int64
+		acc.DirectorBotID = &id
+	}
+	if bot.EpicIssueID.Valid {
+		id := bot.EpicIssueID.Int64
+		acc.EpicIssueID = &id
+	}
+	if pending != nil {
+		acc.PendingApprovals = pending[bot.ID]
+	}
+
+	todayStart, weekStart, monthStart, monthEnd := s.opsWindows(now)
+
+	if out, err := s.opsOutput(ctx, bot.ID, todayStart, weekStart); err != nil {
+		acc.Error = joinNonEmpty(acc.Error, err.Error())
+	} else {
+		acc.Output = out
+	}
+
+	if m, err := s.opsLatestMetrics(ctx, bot.ID); err != nil {
+		acc.Error = joinNonEmpty(acc.Error, err.Error())
+	} else {
+		acc.Metrics = m
+	}
+
+	budget, err := s.opsBudget(ctx, bot, monthStart, monthEnd)
+	if err != nil {
+		acc.Error = joinNonEmpty(acc.Error, err.Error())
+	}
+	acc.Budget = budget
+
+	if n, err := s.opsHighRiskEngagements(ctx, bot.ID); err != nil {
+		acc.Error = joinNonEmpty(acc.Error, err.Error())
+	} else {
+		acc.HighRiskEngagements = n
+	}
+
+	browser, err := s.opsBrowser(ctx, bot.ID)
+	if err != nil {
+		acc.Error = joinNonEmpty(acc.Error, err.Error())
+	} else {
+		acc.Browser = browser
+	}
+
+	acc.Risk, acc.RiskReasons = opsRisk(bot, acc.Budget, acc.Browser, acc.HighRiskEngagements)
+	return acc
+}
+
+// opsWindows returns the local-day/week/month boundaries converted to UTC, the
+// same normalization the rest of this file uses for stored timestamps.
+func (s *MissionControlService) opsWindows(now time.Time) (todayStart, weekStart, monthStart, monthEnd time.Time) {
+	midnight := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
+	todayStart = midnight.UTC()
+	weekStart = midnight.AddDate(0, 0, -6).UTC()
+	monthStart = time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, now.Location()).UTC()
+	monthEnd = time.Date(now.Year(), now.Month()+1, 1, 0, 0, 0, 0, now.Location()).UTC()
+	return
+}
+
+func (s *MissionControlService) opsOutput(ctx context.Context, botID int64, todayStart, weekStart time.Time) (MissionControlOpsOutput, error) {
+	var out MissionControlOpsOutput
+	err := s.db.QueryRowContext(ctx,
+		`SELECT CAST(COALESCE(SUM(CASE WHEN created_at >= ? THEN 1 ELSE 0 END),0) AS BIGINT), `+
+			`CAST(COUNT(*) AS BIGINT) FROM ops_publish_records `+
+			`WHERE bot_id = ? AND status = 'published' AND created_at >= ?`,
+		todayStart, botID, weekStart).Scan(&out.Today, &out.Week)
+	return out, err
+}
+
+func (s *MissionControlService) opsLatestMetrics(ctx context.Context, botID int64) (*MissionControlOpsMetrics, error) {
+	var (
+		date   string
+		raw    string
+		source string
+	)
+	err := s.db.QueryRowContext(ctx,
+		`SELECT date, metrics_json, source FROM ops_metrics_daily WHERE bot_id = ? ORDER BY date DESC LIMIT 1`,
+		botID).Scan(&date, &raw, &source)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &MissionControlOpsMetrics{Date: date, Values: opsJSONObject(raw), Source: source}, nil
+}
+
+// opsJSONObject normalizes a stored JSON column to a JSON object so the client
+// never receives an empty/invalid blob.
+func opsJSONObject(raw string) json.RawMessage {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" || !json.Valid([]byte(trimmed)) {
+		return json.RawMessage("{}")
+	}
+	return json.RawMessage(trimmed)
+}
+
+// opsBudget reads monthly_limit/currency from budget_json and sums the account
+// Epic subtree's spend in the current local month.
+func (s *MissionControlService) opsBudget(ctx context.Context, bot store.OpsBot, from, to time.Time) (MissionControlOpsBudget, error) {
+	cfg := map[string]any{}
+	if strings.TrimSpace(bot.BudgetJson) != "" {
+		_ = json.Unmarshal([]byte(bot.BudgetJson), &cfg)
+	}
+	limit, _ := cfg["monthly_limit"].(float64)
+	currency, _ := cfg["currency"].(string)
+	if currency == "" {
+		currency = "USD"
+	}
+	out := MissionControlOpsBudget{
+		Limit:      limit,
+		Currency:   currency,
+		Unlimited:  limit <= 0,
+		Configured: limit > 0,
+		PeriodFrom: from,
+		PeriodTo:   to,
+	}
+	if !bot.EpicIssueID.Valid {
+		return out, nil
+	}
+	spent, err := s.q.SumOpsAccountCost(ctx, store.SumOpsAccountCostParams{
+		ParentIssueID: sql.NullInt64{Int64: bot.EpicIssueID.Int64, Valid: true},
+		CreatedAt:     from,
+		CreatedAt_2:   to,
+	})
+	if err != nil {
+		return out, err
+	}
+	out.Spent = spent
+	if out.Configured {
+		out.Remaining = limit - spent
+	}
+	return out, nil
+}
+
+func (s *MissionControlService) opsPendingApprovals(ctx context.Context, ownerType string, ownerID int64) (map[int64]int64, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT metadata_json FROM agent_ask_user_requests `+
+			`WHERE owner_type = ? AND owner_id = ? AND kind = 'ops_approval' AND status = 'pending'`,
+		ownerType, ownerID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[int64]int64{}
+	for rows.Next() {
+		var raw string
+		if err := rows.Scan(&raw); err != nil {
+			return nil, err
+		}
+		var meta struct {
+			BotID int64 `json:"bot_id"`
+		}
+		if err := json.Unmarshal([]byte(raw), &meta); err != nil || meta.BotID <= 0 {
+			continue
+		}
+		out[meta.BotID]++
+	}
+	return out, rows.Err()
+}
+
+func (s *MissionControlService) opsHighRiskEngagements(ctx context.Context, botID int64) (int64, error) {
+	var n int64
+	err := s.db.QueryRowContext(ctx,
+		`SELECT CAST(COUNT(*) AS BIGINT) FROM ops_engagements `+
+			`WHERE bot_id = ? AND risk_level = 'high' AND status IN ('new','classified','suggested','escalated')`,
+		botID).Scan(&n)
+	return n, err
+}
+
+func (s *MissionControlService) opsBrowser(ctx context.Context, botID int64) (*MissionControlOpsBrowser, error) {
+	var b MissionControlOpsBrowser
+	err := s.db.QueryRowContext(ctx,
+		`SELECT backend, login_status, health, risk_state, last_error FROM ops_browser_sessions `+
+			`WHERE bot_id = ? ORDER BY updated_at DESC LIMIT 1`,
+		botID).Scan(&b.Backend, &b.LoginStatus, &b.Health, &b.RiskState, &b.LastError)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &b, nil
+}
+
+// opsRisk derives a discrete risk level plus machine-readable reasons. Status
+// and budget are always considered; browser and engagement signals add to them.
+func opsRisk(bot store.OpsBot, budget MissionControlOpsBudget, browser *MissionControlOpsBrowser, highRisk int64) (string, []string) {
+	reasons := []string{}
+	level := OpsRiskNormal
+	raise := func(l, reason string) {
+		reasons = append(reasons, reason)
+		if l == OpsRiskCritical || (l == OpsRiskWarning && level == OpsRiskNormal) {
+			level = l
+		}
+	}
+	switch bot.Status {
+	case "paused":
+		raise(OpsRiskWarning, "paused")
+	case "disabled":
+		raise(OpsRiskWarning, "disabled")
+	}
+	if budget.Configured {
+		switch {
+		case budget.Spent > budget.Limit:
+			raise(OpsRiskCritical, "budget_exceeded")
+		case budget.Remaining <= budget.Limit*0.1:
+			raise(OpsRiskWarning, "budget_low")
+		}
+	}
+	if browser != nil {
+		switch browser.RiskState {
+		case "blocked":
+			raise(OpsRiskCritical, "browser_blocked")
+		case "throttled":
+			raise(OpsRiskWarning, "browser_throttled")
+		}
+		switch browser.Health {
+		case "down":
+			raise(OpsRiskCritical, "browser_down")
+		case "degraded":
+			raise(OpsRiskWarning, "browser_degraded")
+		}
+		if browser.LoginStatus == "expired" {
+			raise(OpsRiskWarning, "browser_login_expired")
+		}
+	}
+	if highRisk > 0 {
+		raise(OpsRiskWarning, "high_risk_engagement")
+	}
+	return level, reasons
 }

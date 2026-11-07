@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"database/sql"
+	"strconv"
 	"testing"
 	"time"
 
@@ -329,4 +330,129 @@ func TestMissionControl_OwnerFilterAndCrossOwnerIsolation(t *testing.T) {
 	assert.Equal(t, "no_data", metricByKey(t, view.Intake.Metrics, "today_accepted").Status)
 
 	_ = projectID
+}
+
+// TestMissionControlOps covers the ops console aggregate: owner → channel →
+// account grouping, per-account status/output/metrics/budget/approvals/risk,
+// and per-account failure isolation.
+func TestMissionControlOps(t *testing.T) {
+	db := openOrgTestDB(t)
+	ctx := context.Background()
+	userID := newOrgTestUser(t, db, "ops-owner", "member")
+	now := time.Date(2026, 11, 7, 10, 0, 0, 0, time.Local)
+
+	projectID := missionExec(t, db,
+		`INSERT INTO projects (name, owner_type, owner_id) VALUES ('ops-p','user',?)`, userID)
+	colID := missionExec(t, db,
+		`INSERT INTO columns (project_id, name, position) VALUES (?,'todo',0)`, projectID)
+	wsID := missionExec(t, db,
+		`INSERT INTO workspaces (name, path, status, owner_type, owner_id) VALUES ('ops-ws','/tmp/ops-ws','running','user',?)`, userID)
+
+	// Director bot: not an account, so it must not appear in a channel.
+	missionExec(t, db,
+		`INSERT INTO ops_bots (owner_type, owner_id, role, pack_id, account_ref, display_name) `+
+			`VALUES ('user',?,'director','','','总监')`, userID)
+
+	epicID := missionExec(t, db,
+		`INSERT INTO issues (column_id, title, position) VALUES (?,'account epic',0)`, colID)
+	childID := missionExec(t, db,
+		`INSERT INTO issues (column_id, title, position, parent_issue_id) VALUES (?,'child',1,?)`, colID, epicID)
+
+	wechatID := missionExec(t, db,
+		`INSERT INTO ops_bots (owner_type, owner_id, role, pack_id, pack_version, account_ref, display_name, budget_json, epic_issue_id, status) `+
+			`VALUES ('user',?,'account','wechat_mp',1,'brand-a','品牌 A',?,?,'paused')`,
+		userID, `{"monthly_limit":100,"currency":"USD","paused_reason":"budget"}`, epicID)
+	// A second channel: no epic, no budget configured.
+	xhsID := missionExec(t, db,
+		`INSERT INTO ops_bots (owner_type, owner_id, role, pack_id, pack_version, account_ref, display_name) `+
+			`VALUES ('user',?,'account','xiaohongshu',2,'brand-b','品牌 B')`, userID)
+
+	// Output: two published today, one earlier this week, one pending (not output).
+	missionExec(t, db,
+		`INSERT INTO ops_publish_records (issue_id, bot_id, idempotency_key, status, created_at) VALUES (?,?,'k1','published',?)`,
+		childID, wechatID, now.Add(-time.Hour))
+	missionExec(t, db,
+		`INSERT INTO ops_publish_records (issue_id, bot_id, idempotency_key, status, created_at) VALUES (?,?,'k2','published',?)`,
+		childID, wechatID, now.Add(-2*time.Hour))
+	missionExec(t, db,
+		`INSERT INTO ops_publish_records (issue_id, bot_id, idempotency_key, status, created_at) VALUES (?,?,'k3','published',?)`,
+		childID, wechatID, now.AddDate(0, 0, -3))
+	missionExec(t, db,
+		`INSERT INTO ops_publish_records (issue_id, bot_id, idempotency_key, status, created_at) VALUES (?,?,'k4','pending',?)`,
+		childID, wechatID, now.Add(-time.Hour))
+
+	// Spend over the limit inside this month → budget_exceeded.
+	missionExec(t, db,
+		`INSERT INTO issue_exec_events (issue_id, kind, summary, cost_usd, created_at) VALUES (?,'cost','spend',150,?)`,
+		childID, now)
+
+	missionExec(t, db,
+		`INSERT INTO ops_metrics_daily (bot_id, date, metrics_json, source) VALUES (?,?,?,'wechat')`,
+		wechatID, now.Format("2006-01-02"), `{"views":1200,"likes":80}`)
+
+	// Expired browser login and a high-risk engagement both add risk reasons.
+	missionExec(t, db,
+		`INSERT INTO ops_browser_sessions (bot_id, backend, profile_dir, login_status, health, risk_state) `+
+			`VALUES (?,'local','/tmp/profile','expired','healthy','normal')`, wechatID)
+	missionExec(t, db,
+		`INSERT INTO ops_engagements (bot_id, platform_engagement_id, kind, text, risk_level, status) `+
+			`VALUES (?,'eng-1','comment','hi','high','new')`, wechatID)
+
+	missionExec(t, db,
+		`INSERT INTO agent_ask_user_requests (workspace_id, owner_type, owner_id, session_id, questions_json, kind, metadata_json, status, expires_at) `+
+			`VALUES (?, 'user', ?, 'sess-1', '{}', 'ops_approval', ?, 'pending', ?)`,
+		wsID, userID, `{"bot_id":`+strconv.FormatInt(wechatID, 10)+`,"type":"publish"}`, now.Add(time.Hour))
+
+	svc := newMissionControlService(db)
+	svc.now = func() time.Time { return now }
+	view, err := svc.OpsView(ctx, userID, nil)
+	require.NoError(t, err)
+	require.Len(t, view.Owners, 1)
+	assert.Equal(t, 2, view.AccountCount)
+
+	owner := view.Owners[0]
+	assert.Empty(t, owner.Error)
+	assert.Equal(t, "ops-owner", owner.OwnerLabel)
+	require.Len(t, owner.Channels, 2)
+	assert.Equal(t, "wechat_mp", owner.Channels[0].PackID)
+	assert.Equal(t, "xiaohongshu", owner.Channels[1].PackID)
+
+	require.Len(t, owner.Channels[0].Accounts, 1)
+	acc := owner.Channels[0].Accounts[0]
+	assert.Equal(t, wechatID, acc.BotID)
+	assert.Equal(t, "paused", acc.Status)
+	assert.Equal(t, "ops-owner", acc.Operator)
+	assert.Equal(t, int64(2), acc.Output.Today)
+	assert.Equal(t, int64(3), acc.Output.Week)
+	require.NotNil(t, acc.Metrics)
+	assert.Equal(t, now.Format("2006-01-02"), acc.Metrics.Date)
+	assert.Equal(t, int64(1), acc.PendingApprovals)
+	assert.Equal(t, int64(1), acc.HighRiskEngagements)
+	assert.True(t, acc.Budget.Configured)
+	assert.Equal(t, 100.0, acc.Budget.Limit)
+	assert.InDelta(t, 150.0, acc.Budget.Spent, 1e-9)
+	assert.InDelta(t, -50.0, acc.Budget.Remaining, 1e-9)
+	assert.Equal(t, OpsRiskCritical, acc.Risk)
+	assert.ElementsMatch(t,
+		[]string{"paused", "budget_exceeded", "browser_login_expired", "high_risk_engagement"},
+		acc.RiskReasons)
+	require.NotNil(t, acc.Browser)
+	assert.Equal(t, "expired", acc.Browser.LoginStatus)
+	assert.Empty(t, acc.Error)
+
+	require.Len(t, owner.Channels[1].Accounts, 1)
+	other := owner.Channels[1].Accounts[0]
+	assert.Equal(t, xhsID, other.BotID)
+	assert.False(t, other.Budget.Configured)
+	assert.Equal(t, OpsRiskNormal, other.Risk)
+	assert.Empty(t, other.RiskReasons)
+	assert.Nil(t, other.Browser)
+	assert.Nil(t, other.Metrics)
+
+	// A foreign owner filter is never exposed, even if it names a real user.
+	foreign := &OwnerRef{Type: "user", ID: newOrgTestUser(t, db, "ops-other", "member")}
+	path, err := svc.OpsView(ctx, userID, foreign)
+	require.NoError(t, err)
+	assert.Equal(t, 0, path.AccountCount)
+	assert.Empty(t, path.Owners)
 }

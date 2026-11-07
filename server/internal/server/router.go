@@ -373,6 +373,14 @@ func (s *Server) setupRoutes() {
 		mcpGroup.PUT("/issues/:id/completion-profile", s.completionHandler.MCPSetIssueProfile)
 		mcpGroup.GET("/issues/:id/brief", s.taskBriefHandler.GetBrief)
 
+		// Ops Bot MCP tunnel (design 2026-11-06 §12): the opsbot_*/ops_pack_*/
+		// ops_approval_* tools are thin clients over these routes.
+		mcpOps := mcpGroup.Group("/ops")
+		registerOpsRoutes(mcpOps, s.opsBotHandler)
+		// Chat → bot binding shares the imbot owner-gated patch handler; the
+		// MCP token has already resolved auth_user_id.
+		mcpOps.PATCH("/chats/:chatid", s.imbotHandler.PatchChatOwner)
+
 		// External API proxy — universal MCP tool for AI-driven external
 		// API calls. Replaces all old L4 work-item MCP tools.
 		mcpGroup.POST("/external-proxy/call", s.proxyCall)
@@ -835,6 +843,7 @@ func (s *Server) setupRoutes() {
 		// capabilities, plus the global intake pause switch (design §6.6 /
 		// §6.7.8). Cross-project, scoped to the caller's accessible projects.
 		api.GET("/mission-control", s.missionControlHandler.Get)
+		api.GET("/mission-control/ops", s.missionControlHandler.Ops)
 		api.PUT("/mission-control/pause", s.missionControlHandler.SetPause)
 
 		// Completion (自动完成) — project default + named profiles. Independent of
@@ -1236,6 +1245,11 @@ func (s *Server) setupRoutes() {
 		api.DELETE("/imbot/chats/:chatid", s.imbotHandler.DeleteChatOwner)
 	}
 
+	// Ops Bot minimal console (design 2026-11-06 §12). The same handlers also
+	// serve the MCP tunnel below, so a UI action and an agent tool call see
+	// identical status codes and bodies.
+	registerOpsRoutes(api.Group("/ops"), s.opsBotHandler)
+
 	{
 		api.PUT("/workspaces/:id/codex-sandbox", apipkg.SetWorkspaceCodexSandbox(s.workspaceSvc, s.authzSvc))
 	}
@@ -1626,4 +1640,43 @@ func spaFileHandler(frontendFS fs.FS) gin.HandlerFunc {
 		// Fallback to index.html for SPA client-side routing (root "/" or client routes)
 		c.FileFromFS("/", fsHTTP)
 	}
+}
+
+// registerOpsRoutes mounts the Ops Bot surface on one router group. It is
+// shared by /api/ops (the console) and /mcp/ops (the agent tunnel) so the two
+// entry points cannot drift in paths, authz or response envelopes.
+func registerOpsRoutes(g *gin.RouterGroup, h *apipkg.OpsBotHandler) {
+	if h == nil {
+		return
+	}
+	g.GET("/bots", h.ListBots)
+	g.POST("/bots", h.CreateBot)
+	g.GET("/bots/:id", h.GetBot)
+	g.PATCH("/bots/:id", h.UpdateBot)
+	g.POST("/bots/:id/pause", h.PauseBot)
+	g.POST("/bots/:id/resume", h.ResumeBot)
+	g.POST("/bots/:id/disable", h.DisableBot)
+	g.GET("/bots/:id/budget", h.GetBudget)
+	g.POST("/bots/:id/budget", h.SetBudget)
+	g.GET("/bots/:id/metrics", h.GetMetrics)
+	g.GET("/bots/:id/engagements", h.ListEngagements)
+	g.GET("/bots/:id/calendar", h.GetCalendar)
+	g.POST("/bots/:id/publish", h.Publish)
+	g.POST("/bots/:id/browser-login", h.BrowserLogin)
+	g.POST("/bots/:id/credential-link", h.CredentialLink)
+
+	g.GET("/packs", h.ListPacks)
+	g.POST("/packs", h.GeneratePack)
+	g.POST("/packs/import", h.ImportPack)
+	g.POST("/packs/validate", h.ValidatePack)
+	g.POST("/packs/test", h.TestPack)
+	g.POST("/packs/publish", h.PublishPack)
+	g.GET("/packs/:packID/:version/export", h.ExportPack)
+
+	g.GET("/approvals", h.ListApprovals)
+	g.POST("/approvals/:id/approve", h.ApproveApproval)
+	g.POST("/approvals/:id/reject", h.RejectApproval)
+	g.POST("/approvals/:id/modify", h.ModifyApproval)
+
+	g.POST("/engagements/:id/reply", h.ReplyEngagement)
 }

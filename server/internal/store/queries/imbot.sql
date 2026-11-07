@@ -154,6 +154,15 @@ SET intake_mode = ?, updated_at = CURRENT_TIMESTAMP
 WHERE id = ?
 RETURNING *;
 
+-- name: UpdateIMBotChatOpsBot :one
+-- Ops Bot binding (design 2026-11-06 section 12): route this chat to a bot.
+-- Separate UPDATE for the same stale-row reason as the modes above. Passing
+-- NULL clears the binding.
+UPDATE im_bot_chats
+SET ops_bot_id = ?, updated_at = CURRENT_TIMESTAMP
+WHERE id = ?
+RETURNING *;
+
 -- name: ListObserveIMBotChats :many
 -- Every active chat opted into observation mode, for the periodic proactive
 -- analyzer sweep. Only chats already routed to a project can produce work.

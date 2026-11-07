@@ -1,0 +1,91 @@
+{
+  "name": "publish",
+  "steps": [
+    {
+      "action": "goto",
+      "value": "https://zhuanlan.zhihu.com/write",
+      "timeout_ms": 30000
+    },
+    {
+      "action": "wait",
+      "selector": ".WriteIndex",
+      "fallback": [".PostEditor", ".write-container"],
+      "timeout_ms": 20000
+    },
+    {
+      "action": "fill",
+      "selector": "textarea[placeholder*='标题']",
+      "fallback": [".WriteIndex-titleInput textarea", "input[placeholder*='标题']"],
+      "value": "{{title}}"
+    },
+    {
+      "action": "fill",
+      "selector": ".public-DraftEditor-content",
+      "fallback": [".DraftEditor-editorContainer div[contenteditable='true']", "div[contenteditable='true']"],
+      "value": "{{body}}"
+    },
+    {
+      "action": "click",
+      "selector": ".WriteIndex-coverButton",
+      "fallback": [".UploadPicture", ".cover-entry"]
+    },
+    {
+      "action": "wait",
+      "selector": ".UploadPicture-panel",
+      "fallback": [".cover-panel"],
+      "timeout_ms": 15000
+    },
+    {
+      "action": "upload",
+      "selector": "input[type=file].upload-cover-input",
+      "fallback": [".UploadPicture-panel input[type=file]"],
+      "value": "{{cover}}",
+      "timeout_ms": 60000
+    },
+    {
+      "action": "wait",
+      "selector": ".UploadPicture-preview",
+      "fallback": [".cover-preview"],
+      "timeout_ms": 60000
+    },
+    {
+      "action": "click",
+      "selector": ".WriteIndex-topicButton",
+      "fallback": [".TopicSelector", ".topic-entry"]
+    },
+    {
+      "action": "fill",
+      "selector": ".TopicSelector input",
+      "fallback": [".topic-input input"],
+      "value": "{{topics}}"
+    },
+    {
+      "action": "click",
+      "selector": ".TopicSelector-suggestion",
+      "fallback": [".topic-suggestion"],
+      "timeout_ms": 15000
+    },
+    {
+      "action": "click",
+      "selector": "button.PublishPanel-submitButton",
+      "fallback": [".WriteIndex-publishButton", ".publish-btn"]
+    },
+    {
+      "action": "wait",
+      "selector": ".PublishSuccess",
+      "fallback": [".toast-success", ".publish-success"],
+      "timeout_ms": 60000
+    },
+    {
+      "action": "extract",
+      "selector": ".PublishSuccess a",
+      "fallback": [".article-link", ".toast-success a"],
+      "value": "article_url"
+    },
+    {
+      "action": "screenshot",
+      "value": "publish_result"
+    }
+  ],
+  "fixtures": ["fixtures/publish.html"]
+}

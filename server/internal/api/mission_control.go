@@ -57,6 +57,41 @@ func (h *MissionControlHandler) Get(c *gin.Context) {
 	c.JSON(http.StatusOK, view)
 }
 
+// Ops serves GET /api/mission-control/ops.
+//
+// @Summary      Mission control ops bots
+// @Description  Ops Bot console aggregate grouped owner → channel (Platform Pack) → account. Each account carries status, today/week published output, latest daily metrics, current-month budget headroom, pending approval count, and risk level/reasons. A single account's read failure is reported on that row instead of failing the whole panel.
+// @Tags         MissionControl
+// @Produce      json
+// @Param        owner  query     string  false  "owner filter"
+// @Success      200    {object}  service.MissionControlOpsView
+// @Failure      400    {object}  Error
+// @Failure      401    {object}  Error
+// @Failure      500    {object}  Error
+// @Router       /mission-control/ops [get]
+func (h *MissionControlHandler) Ops(c *gin.Context) {
+	uid := c.GetInt64("auth_user_id")
+	if uid <= 0 {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthenticated"})
+		return
+	}
+	owner, err := ParseOwnerFilter(c, h.DB)
+	if err != nil {
+		BadRequest(c, err.Error())
+		return
+	}
+	var filter *service.OwnerRef
+	if owner.Type != "" {
+		filter = &service.OwnerRef{Type: owner.Type, ID: owner.ID}
+	}
+	view, err := h.Svc.OpsView(c.Request.Context(), uid, filter)
+	if err != nil {
+		InternalError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, view)
+}
+
 // SetPause serves PUT /api/mission-control/pause.
 //
 // @Summary      Pause or resume intake for every project in scope

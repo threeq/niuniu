@@ -1,0 +1,8 @@
+{
+  "fields": {
+    "read_count": "views",
+    "share_count": "shares",
+    "like_count": "likes",
+    "net_fans": "follower_delta"
+  }
+}

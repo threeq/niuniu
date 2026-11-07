@@ -11,6 +11,7 @@
     "scenes": "Scenes",
     "harness": "Harness",
     "agents": "Agents",
+    "ops": "Ops",
     "aiHub": "AI Hub"
   },
   "actions": {

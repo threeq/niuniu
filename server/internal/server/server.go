@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"io/fs"
 	"log/slog"
@@ -38,6 +39,9 @@ import (
 	"github.com/niuniu-dev/niuniu/internal/kbindex"
 	"github.com/niuniu-dev/niuniu/internal/mfapolicy"
 	"github.com/niuniu-dev/niuniu/internal/notify"
+	"github.com/niuniu-dev/niuniu/internal/opsbot"
+	"github.com/niuniu-dev/niuniu/internal/opsbot/browser"
+	"github.com/niuniu-dev/niuniu/internal/opsbot/packs"
 	"github.com/niuniu-dev/niuniu/internal/registry"
 	"github.com/niuniu-dev/niuniu/internal/scheduler"
 	"github.com/niuniu-dev/niuniu/internal/service"
@@ -59,58 +63,58 @@ type Server struct {
 	telemetryReporter *telemetry.Reporter
 
 	// Services
-	projectSvc           *service.ProjectService
-	projectBlueprintSvc  *service.ProjectBlueprintService
-	repositorySvc        *service.RepositoryService
-	issueActivitySvc     *service.IssueActivityService
-	issueChecklistSvc    *service.IssueChecklistService
-	issueCommentSvc      *service.IssueCommentService
-	kanbanSvc            *service.KanbanService
-	memoryMaintBoard     service.MaintBoard
-	epicExecSvc          *service.EpicExecutionService
-	checkpointSvc        *service.CheckpointService
-	workspaceSvc         *service.WorkspaceService
-	localRunnerSvc       *service.LocalRunnerService
-	worktreeSvc          *service.WorktreeService
-	agentMgr             *service.AgentManager
-	reviewSvc            *service.ReviewService
-	gitOpsSvc            *service.GitOpsService
-	directorySvc         *service.DirectoryService
-	systemDepsSvc        *service.SystemDepsService
-	agentProxy           *agentproxy.AgentProxy
-	agentFileSvc         *service.AgentService
-	quickActionSvc       *service.QuickActionService
-	envPresetSvc         *service.EnvPresetService
-	envAccountSvc        *service.EnvAccountService
-	envProviderSvc       *service.EnvProviderService
-	capabilityBackendSvc *service.CapabilityBackendService
-	sceneSvc             *service.SceneService
-	sceneSeeder          *service.SceneSeeder
-	sceneLayerSvc        *service.SceneLayerService
-	sceneProjector       *service.SceneProjector
-	sceneMatcher         *service.SceneMatcher
-	pluginInstaller      *service.PluginInstaller
-	marketplaceManager   *service.MarketplaceManager
-	skillManager         *service.SkillManager
-	agentRegistry        *registry.AgentRegistry
-	agentRegistryHandler *api.AgentRegistryHandler
-	scheduler            *scheduler.Scheduler
-	notifyHub            *notify.NotificationHub
-	notifyHandler        *api.NotifyHandler
-	harnessSvc           *service.HarnessService
-	harnessHandler       *api.HarnessHandler
-	mcpGenerator         *service.MCPConfigGenerator
-	mcpRegistry          *service.ClaudeMCPRegistry
-	mcpDetector          *service.WorkspaceMCPDetector
-	teamHandler          *api.TeamHandler
+	projectSvc              *service.ProjectService
+	projectBlueprintSvc     *service.ProjectBlueprintService
+	repositorySvc           *service.RepositoryService
+	issueActivitySvc        *service.IssueActivityService
+	issueChecklistSvc       *service.IssueChecklistService
+	issueCommentSvc         *service.IssueCommentService
+	kanbanSvc               *service.KanbanService
+	memoryMaintBoard        service.MaintBoard
+	epicExecSvc             *service.EpicExecutionService
+	checkpointSvc           *service.CheckpointService
+	workspaceSvc            *service.WorkspaceService
+	localRunnerSvc          *service.LocalRunnerService
+	worktreeSvc             *service.WorktreeService
+	agentMgr                *service.AgentManager
+	reviewSvc               *service.ReviewService
+	gitOpsSvc               *service.GitOpsService
+	directorySvc            *service.DirectoryService
+	systemDepsSvc           *service.SystemDepsService
+	agentProxy              *agentproxy.AgentProxy
+	agentFileSvc            *service.AgentService
+	quickActionSvc          *service.QuickActionService
+	envPresetSvc            *service.EnvPresetService
+	envAccountSvc           *service.EnvAccountService
+	envProviderSvc          *service.EnvProviderService
+	capabilityBackendSvc    *service.CapabilityBackendService
+	sceneSvc                *service.SceneService
+	sceneSeeder             *service.SceneSeeder
+	sceneLayerSvc           *service.SceneLayerService
+	sceneProjector          *service.SceneProjector
+	sceneMatcher            *service.SceneMatcher
+	pluginInstaller         *service.PluginInstaller
+	marketplaceManager      *service.MarketplaceManager
+	skillManager            *service.SkillManager
+	agentRegistry           *registry.AgentRegistry
+	agentRegistryHandler    *api.AgentRegistryHandler
+	scheduler               *scheduler.Scheduler
+	notifyHub               *notify.NotificationHub
+	notifyHandler           *api.NotifyHandler
+	harnessSvc              *service.HarnessService
+	harnessHandler          *api.HarnessHandler
+	mcpGenerator            *service.MCPConfigGenerator
+	mcpRegistry             *service.ClaudeMCPRegistry
+	mcpDetector             *service.WorkspaceMCPDetector
+	teamHandler             *api.TeamHandler
 	workspaceMessageSvc     *service.WorkspaceMessageService
 	workspaceMessageHandler *api.WorkspaceMessageHandler
-	memorySvc            *service.MemoryService
-	memoryHandler        *api.MemoryHandler
-	cleanupSvc           *service.WorkspaceCleanupService
-	cleanupHandler       *api.WorkspaceCleanupHandler
-	projectFloorSvc      *service.ProjectFloorService
-	projectFloorHandler  *api.ProjectFloorHandler
+	memorySvc               *service.MemoryService
+	memoryHandler           *api.MemoryHandler
+	cleanupSvc              *service.WorkspaceCleanupService
+	cleanupHandler          *api.WorkspaceCleanupHandler
+	projectFloorSvc         *service.ProjectFloorService
+	projectFloorHandler     *api.ProjectFloorHandler
 
 	// Intake (任务来源) + Completion (自动完成) contract surface (design §6.9).
 	intakeSvc            *service.IntakeService
@@ -128,6 +132,31 @@ type Server struct {
 	// Mission control: the two independent metric panels + global intake pause.
 	missionControlSvc     *service.MissionControlService
 	missionControlHandler *api.MissionControlHandler
+
+	// Ops Bot (design 2026-11-06 §12): account/director configuration,
+	// approvals, budget and the pack registry.
+	opsPackRegistry  *packs.Registry
+	opsPackGenerator *packs.Generator
+	opsBotSvc        *opsbot.Service
+	opsApproval      *opsbot.Approval
+	opsBudget        *opsbot.Budget
+	opsRisk          *opsbot.Risk
+	opsProvisioner   *opsbot.Provisioner
+	opsBotHandler    *api.OpsBotHandler
+	// Runnable Ops Bot runtime (design 2026-11-06 §15): adapter resolution,
+	// publish, engagement dispatch, metrics and the director/review services.
+	opsSessions   *browser.SessionManager
+	opsWorker     *browser.Worker
+	opsResolver   *opsbot.AdapterResolver
+	opsScheduler  *opsTimerScheduler
+	opsPublisher  *opsbot.Publisher
+	opsEngagement *opsbot.Engagement
+	opsDispatcher *opsbot.EngagementDispatcher
+	opsMetrics    *opsbot.Metrics
+	opsCalendar   *opsbot.Calendar
+	opsFeedback   *opsbot.Feedback
+	opsDirector   *opsbot.Director
+	opsTrend      *opsbot.Trend
 
 	// External credential management (encrypted token storage).
 	intgKeyring          *crypto.Keyring
@@ -184,6 +213,7 @@ type Server struct {
 	// a ConnectorManager of per-channel outbound long connections, and an
 	// event-bus dispatcher pushing outbound notifications.
 	imbotSvc             *service.IMBotService
+	opsOnboarding        *opsbot.Onboarding
 	integrationHealthSvc *service.IntegrationHealthService
 	// integrationDraftSvc is the shared draft -> lint -> confirm -> publish ->
 	// verify/rollback pipeline for both onboarding lines (Epic #726 / #734).
@@ -191,81 +221,81 @@ type Server struct {
 	// functionSvc is the sandbox operation-function runtime (Epic #726 / #739):
 	// AI-authored functions that run in a throwaway OS-fenced process and reach
 	// the outside world only through the proxy egress.
-	functionSvc *service.OperationFunctionService
+	functionSvc     *service.OperationFunctionService
 	imbotHandler    *api.IMBotHandler
 	imbotConnMgr    *imbot.ConnectorManager
 	imbotDispatcher *service.IMBotDispatcher
 	imbotEmployee   *service.IMBotEmployee
 
 	// Handlers
-	projectHandler          *api.ProjectHandler
-	repositoryHandler       *api.RepositoryHandler
-	issueChecklistHandler   *api.IssueChecklistHandler
-	issueCommentHandler     *api.IssueCommentHandler
-	issueTimelineHandler    *api.IssueTimelineHandler
-	kanbanHandler           *api.KanbanHandler
-	managedTaskHandler      *api.ManagedTaskHandler
-	epicExecHandler         *api.EpicExecutionHandler
-	workspaceHandler        *api.WorkspaceHandler
-	tokenUsageHandler       *api.TokenUsageHandler
-	providerUsageHandler    *api.ProviderUsageHandler
-	workspaceMCPHandler     *api.WorkspaceMCPHandler
-	localRunnerHandler      *api.LocalRunnerHandler
-	worktreeHandler         *api.WorktreeHandler
-	agentHandler            *api.AgentHandler
-	reviewHandler           *api.ReviewHandler
-	gitOpsHandler           *api.GitOpsHandler
-	directoryHandler        *api.DirectoryHandler
-	systemDepsHandler       *api.SystemDepsHandler
-	fsHandler               *api.FSHandler
-	agentProxyHandler       *api.AgentProxyHandler
-	slashCommandHandler     *api.SlashCommandHandler
-	workspaceOpsHandler     *api.WorkspaceOpsHandler
-	checkpointHandler       *api.CheckpointHandler
-	videoProjectHandler     *api.VideoProjectHandler
-	agentFileHandler        *api.AgentFileHandler
-	promptGenHandler        *api.PromptGenHandler
-	workspaceTaskHandler    *api.WorkspaceTaskHandler
-	pinnedMessageHandler    *api.PinnedMessageHandler
-	quickActionHandler      *api.QuickActionHandler
-	queueHandler            *api.QueueHandler
-	scheduleHandler         *api.ScheduleHandler
-	healthHandler           *api.HealthHandler
-	appUpdateHandler        *api.AppUpdateHandler
-	configHandler           *api.ConfigHandler
-	eventsHandler           *api.EventsHandler
-	envPresetHandler        *api.EnvPresetHandler
-	envAccountHandler       *api.EnvAccountHandler
-	envProviderHandler      *api.EnvProviderHandler
+	projectHandler           *api.ProjectHandler
+	repositoryHandler        *api.RepositoryHandler
+	issueChecklistHandler    *api.IssueChecklistHandler
+	issueCommentHandler      *api.IssueCommentHandler
+	issueTimelineHandler     *api.IssueTimelineHandler
+	kanbanHandler            *api.KanbanHandler
+	managedTaskHandler       *api.ManagedTaskHandler
+	epicExecHandler          *api.EpicExecutionHandler
+	workspaceHandler         *api.WorkspaceHandler
+	tokenUsageHandler        *api.TokenUsageHandler
+	providerUsageHandler     *api.ProviderUsageHandler
+	workspaceMCPHandler      *api.WorkspaceMCPHandler
+	localRunnerHandler       *api.LocalRunnerHandler
+	worktreeHandler          *api.WorktreeHandler
+	agentHandler             *api.AgentHandler
+	reviewHandler            *api.ReviewHandler
+	gitOpsHandler            *api.GitOpsHandler
+	directoryHandler         *api.DirectoryHandler
+	systemDepsHandler        *api.SystemDepsHandler
+	fsHandler                *api.FSHandler
+	agentProxyHandler        *api.AgentProxyHandler
+	slashCommandHandler      *api.SlashCommandHandler
+	workspaceOpsHandler      *api.WorkspaceOpsHandler
+	checkpointHandler        *api.CheckpointHandler
+	videoProjectHandler      *api.VideoProjectHandler
+	agentFileHandler         *api.AgentFileHandler
+	promptGenHandler         *api.PromptGenHandler
+	workspaceTaskHandler     *api.WorkspaceTaskHandler
+	pinnedMessageHandler     *api.PinnedMessageHandler
+	quickActionHandler       *api.QuickActionHandler
+	queueHandler             *api.QueueHandler
+	scheduleHandler          *api.ScheduleHandler
+	healthHandler            *api.HealthHandler
+	appUpdateHandler         *api.AppUpdateHandler
+	configHandler            *api.ConfigHandler
+	eventsHandler            *api.EventsHandler
+	envPresetHandler         *api.EnvPresetHandler
+	envAccountHandler        *api.EnvAccountHandler
+	envProviderHandler       *api.EnvProviderHandler
 	capabilityBackendHandler *api.CapabilityBackendHandler
-	sceneHandler            *api.SceneHandler
-	workspaceSceneHandler   *api.WorkspaceSceneHandler
-	pluginInstallHandler    *api.PluginInstallHandler
-	skillsHandler           *api.SkillsHandler
-	projectSceneHandler     *api.ProjectSceneHandler
-	projectBlueprintHandler *api.ProjectBlueprintHandler
-	authHandler             *api.AuthHandler
-	mfaHandler              *api.MFAHandler
-	attachmentHandler       *api.AttachmentHandler
-	fileTreeHandler         *api.FileTreeHandler
-	relayHandler            *api.RelayHandler
-	shellHandler            *api.ShellHandler
-	cliLoginHandler         *api.CLILoginHandler
-	autostartHandler        *api.AutostartHandler
-	gitIdentitySvc          *service.GitIdentityService
-	gitIdentityHandler      *api.GitIdentityHandler
-	serverSettingsSvc       *service.ServerSettingsService
-	adminSettingsHandler    *api.AdminSettingsHandler
-	workspaceShareSvc       *service.WorkspaceShareService
-	workspaceShareHandler   *api.WorkspaceShareHandler
-	sharePublicHandler      *api.SharePublicHandler
-	licenseSvc              license.Gate
-	licenseHandler          *api.LicenseHandler
-	consentSvc              *consent.Service
-	consentHandler          *api.ConsentHandler
-	mfaPolicySvc            *mfapolicy.Service
-	authzSvc                *service.Authz
-	eventBus                *event.Bus
+	sceneHandler             *api.SceneHandler
+	workspaceSceneHandler    *api.WorkspaceSceneHandler
+	pluginInstallHandler     *api.PluginInstallHandler
+	skillsHandler            *api.SkillsHandler
+	projectSceneHandler      *api.ProjectSceneHandler
+	projectBlueprintHandler  *api.ProjectBlueprintHandler
+	authHandler              *api.AuthHandler
+	mfaHandler               *api.MFAHandler
+	attachmentHandler        *api.AttachmentHandler
+	fileTreeHandler          *api.FileTreeHandler
+	relayHandler             *api.RelayHandler
+	shellHandler             *api.ShellHandler
+	cliLoginHandler          *api.CLILoginHandler
+	autostartHandler         *api.AutostartHandler
+	gitIdentitySvc           *service.GitIdentityService
+	gitIdentityHandler       *api.GitIdentityHandler
+	serverSettingsSvc        *service.ServerSettingsService
+	adminSettingsHandler     *api.AdminSettingsHandler
+	workspaceShareSvc        *service.WorkspaceShareService
+	workspaceShareHandler    *api.WorkspaceShareHandler
+	sharePublicHandler       *api.SharePublicHandler
+	licenseSvc               license.Gate
+	licenseHandler           *api.LicenseHandler
+	consentSvc               *consent.Service
+	consentHandler           *api.ConsentHandler
+	mfaPolicySvc             *mfapolicy.Service
+	authzSvc                 *service.Authz
+	eventBus                 *event.Bus
 
 	relaySvc *service.RelayService
 
@@ -276,7 +306,7 @@ type Server struct {
 	integrationApprovalSvc *service.IntegrationApprovalService
 	projectMemberSvc       *service.ProjectMemberService
 	approvalHandler        *api.IntegrationApprovalHandler
-	meHandler  *api.MeHandler
+	meHandler              *api.MeHandler
 
 	adminUserSvc     *service.AdminUserService
 	adminUserHandler *api.AdminUserHandler
@@ -962,6 +992,9 @@ func New(cfg *config.Config, db *sql.DB, frontendFS fs.FS) *Server {
 	// after intakeSvc (it reuses its pause get/set) and owns no writes of its own.
 	s.missionControlSvc = service.NewMissionControlService(store.Wrap(db), s.queries, authz, s.intakeSvc)
 	s.missionControlHandler = &api.MissionControlHandler{Svc: s.missionControlSvc, DB: db}
+	// Ops Bot (design 2026-11-06 §12). The credential-link service is wired
+	// after it is constructed further below.
+	s.initOpsBot(authz)
 	// Delivery health (design §12): intake events/decisions are the durable half;
 	// this in-memory tracker carries the 401/400/duplicate signals that are
 	// deliberately not recorded as events. One instance is shared by the inbound
@@ -1682,6 +1715,9 @@ func New(cfg *config.Config, db *sql.DB, frontendFS fs.FS) *Server {
 	// Generic one-time credential links (issue #727). Depends on both encrypted
 	// stores, so it is constructed after them.
 	s.credOnboardingSvc = service.NewCredentialOnboardingService(s.queries, s.extCredSvc, s.dataSourceSvc)
+	if s.opsBotHandler != nil {
+		s.opsBotHandler.CredLinks = s.credOnboardingSvc
+	}
 	s.credOnboardingHandler = api.NewCredentialOnboardingHandler(s.credOnboardingSvc, s.authzSvc)
 
 	// Data proxy: the three-layer gate (read/write separation, data-scope
@@ -1741,6 +1777,48 @@ func New(cfg *config.Config, db *sql.DB, frontendFS fs.FS) *Server {
 		imbot.ChannelWechat:   wechat.New(),
 	}
 	s.imbotSvc = service.NewIMBotService(s.queries, db, keyring, s.authzSvc, imbotAdapters)
+	// Ops Bot conversational setup (Epic #788, design §13): the IM bot gets first
+	// refusal on inbound text for "接入 <渠道>", /bots, /budget and friends.
+	// The domain services come from initOpsBot; onboarding shares that instance
+	// so /approvals and the kill switch see the same state machine.
+	s.opsOnboarding = opsbot.NewOnboarding(s.opsBotSvc)
+	s.opsOnboarding.Approvals = s.opsApproval
+	s.opsOnboarding.Risk = s.opsRisk
+	s.opsOnboarding.Provisioner = s.opsProvisioner
+	s.opsOnboarding.Generator = &opsbot.PackDraftGenerator{Generator: s.opsPackGenerator}
+	s.opsOnboarding.InstallPacks = func(ctx context.Context, ownerType string, ownerID int64) error {
+		return packs.InstallBuiltins(s.opsPackRegistry, ownerType, ownerID)
+	}
+	s.imbotSvc.SetOpsOnboarding(s.opsOnboarding)
+
+	// Chat → Ops Bot routing and approval cards (design §10, §13.4): the IM
+	// service already owns the channel adapters, so it renders/sends the
+	// notification templates and drives the approval state machine on a tap.
+	// Notification is best-effort by contract: NotifyOpsApproval logs failures.
+	s.imbotSvc.SetOpsApproval(s.opsApproval)
+	s.imbotSvc.SetOpsNotifier(&opsbot.Notifier{})
+	// Risk alerts (kill switch, login expiry, throttling) reach the bot's bound
+	// chats through the same best-effort path as budget alerts.
+	s.opsRisk.Notify = func(ctx context.Context, botID int64, reason string) error {
+		s.imbotSvc.NotifyOpsRisk(ctx, botID, reason)
+		return nil
+	}
+	// Credential reader, browser re-login notifier, director messenger, the
+	// real login probe behind /resume, and the approved-reply dispatcher.
+	s.wireOpsLate()
+	s.opsApproval.OnCreated = func(ctx context.Context, req opsbot.ApprovalRequest) error {
+		s.imbotSvc.NotifyOpsApproval(ctx, req)
+		return nil
+	}
+	// The budget pause already broadcasts to the station-in hub; mirror it to the
+	// bot's bound chats as a risk alert (best-effort, never changes the verdict).
+	if prevNotify := s.opsBudget.Notify; prevNotify != nil {
+		s.opsBudget.Notify = func(ctx context.Context, botID int64, reason string) error {
+			err := prevNotify(ctx, botID, reason)
+			s.imbotSvc.NotifyOpsRisk(ctx, botID, reason)
+			return err
+		}
+	}
 	// Rollback switch for the per-chat agent_mode → intake_mode migration (§7.1).
 	s.imbotSvc.SetIntakeLegacyChatMode(s.cfg.Intake.LegacyChatMode)
 	// Health alerts now reach both channels: station-in hub + IM Bot (#744).
@@ -1921,6 +1999,12 @@ func (s *Server) Shutdown() {
 	if s.imbotDispatcher != nil {
 		s.imbotDispatcher.Stop()
 	}
+	if s.opsDispatcher != nil {
+		s.opsDispatcher.Stop()
+	}
+	if s.opsScheduler != nil {
+		s.opsScheduler.Stop()
+	}
 	if s.githubReplySvc != nil {
 		s.githubReplySvc.Stop()
 	}
@@ -1971,4 +2055,287 @@ func (g goalConditionSuggester) Classify(ctx context.Context, userID int64, titl
 		return nil, err
 	}
 	return &service.GoalAssessment{Actionable: a.Actionable, Reason: a.Reason, GoalCondition: a.GoalCondition}, nil
+}
+
+// --- Ops Bot wiring (design 2026-11-06 §12) ---
+
+// initOpsBot builds the Ops Bot domain services and their provisioning
+// adapters. Called once from New, after the kanban/workspace services exist.
+func (s *Server) initOpsBot(authz *service.Authz) {
+	registry := &packs.Registry{DataDir: s.cfg.DataDir}
+	// Conversational Pack generation (design §5.5): OpenAPI documents go
+	// through the SSRF-guarded fetcher, and generated browser recipes are
+	// sandbox-tested against local fixtures before they can be published.
+	packGenerator := &packs.Generator{
+		Registry:      registry,
+		Fetch:         service.FetchOpenAPIDocument,
+		DraftContract: s.draftOpsPackProviderContract,
+		RecipeTester: func(ctx context.Context, root string, recipe packs.Recipe, values map[string]string) error {
+			return (&browser.Sandbox{Root: root, Values: values}).Run(ctx, recipe, nil)
+		},
+	}
+	svc := opsbot.NewService(s.queries, registry)
+	approval := opsbot.NewApproval(store.Wrap(s.db), opsbot.ApprovalPolicy{})
+	svc.Approve = approval
+
+	budget := &opsbot.Budget{}
+	budget.Sum = func(ctx context.Context, epicIssueID int64, from, to time.Time) (float64, error) {
+		return s.queries.SumOpsAccountCost(ctx, store.SumOpsAccountCostParams{
+			ParentIssueID: sql.NullInt64{Int64: epicIssueID, Valid: epicIssueID > 0},
+			CreatedAt:     from,
+			CreatedAt_2:   to,
+		})
+	}
+	budget.Breakdown = func(ctx context.Context, epicIssueID int64, from, to time.Time) ([]opsbot.UsageItem, error) {
+		return opsCostBreakdown(ctx, store.Wrap(s.db), epicIssueID, from, to)
+	}
+	budget.Limit = func(ctx context.Context, botID int64) (float64, string, error) {
+		bot, err := svc.Get(ctx, botID)
+		if err != nil {
+			return 0, "", err
+		}
+		cfg := opsBudgetConfig(bot.BudgetJson)
+		limit, _ := cfg["monthly_limit"].(float64)
+		currency, _ := cfg["currency"].(string)
+		return limit, currency, nil
+	}
+	budget.SaveLimit = func(ctx context.Context, botID int64, limit float64, currency string) error {
+		return s.updateOpsBudget(ctx, svc, botID, func(cfg map[string]any) {
+			cfg["monthly_limit"] = limit
+			cfg["currency"] = currency
+		})
+	}
+	budget.Pause = func(ctx context.Context, botID int64) error {
+		if err := s.updateOpsBudget(ctx, svc, botID, func(cfg map[string]any) {
+			cfg["paused_reason"] = "budget"
+		}); err != nil {
+			return err
+		}
+		_, err := svc.SetStatus(ctx, botID, opsbot.StatusPaused)
+		return err
+	}
+	// Resume only clears a pause this service caused. A manual pause has no
+	// paused_reason marker and is left untouched.
+	budget.Resume = func(ctx context.Context, botID int64) error {
+		bot, err := svc.Get(ctx, botID)
+		if err != nil {
+			return err
+		}
+		cfg := opsBudgetConfig(bot.BudgetJson)
+		if cfg["paused_reason"] != "budget" {
+			return nil
+		}
+		if err := s.updateOpsBudget(ctx, svc, botID, func(cfg map[string]any) {
+			delete(cfg, "paused_reason")
+		}); err != nil {
+			return err
+		}
+		if bot.Status == opsbot.StatusPaused {
+			_, err = svc.SetStatus(ctx, botID, opsbot.StatusActive)
+		}
+		return err
+	}
+	budget.Notify = func(ctx context.Context, botID int64, reason string) error {
+		bot, err := svc.Get(ctx, botID)
+		if err != nil {
+			return err
+		}
+		s.notifyHub.Broadcast(notify.Notification{
+			Topic:     "opsbot",
+			Action:    "budget_exceeded",
+			ID:        botID,
+			OwnerType: bot.OwnerType,
+			OwnerID:   bot.OwnerID,
+			Extra: map[string]any{
+				"bot_id": botID,
+				"reason": reason,
+			},
+		})
+		return nil
+	}
+
+	provisioner := &opsbot.Provisioner{
+		Issues:           opsIssueCreator{kanban: s.kanbanSvc},
+		Workspaces:       opsWorkspaceCreator{workspaces: s.workspaceSvc},
+		Columns:          opsColumnResolver{q: s.queries},
+		Bots:             s.queries,
+		DeleteIssues:     opsIssueDeleter{kanban: s.kanbanSvc},
+		DeleteWorkspaces: opsWorkspaceDeleter{workspaces: s.workspaceSvc},
+	}
+
+	// Risk is the account kill switch and signal evaluator. The IM notifier is
+	// attached once imbotSvc exists; the session backend is shared with the
+	// browser worker's ops_browser_sessions rows.
+	risk := &opsbot.Risk{
+		Bots:        svc,
+		Approvals:   approval,
+		Engagements: s.queries,
+		Sessions:    browser.NewSessionManager(s.queries, s.cfg.DataDir),
+	}
+
+	s.opsPackRegistry = registry
+	s.opsPackGenerator = packGenerator
+	s.opsBotSvc = svc
+	s.opsApproval = approval
+	s.opsBudget = budget
+	s.opsRisk = risk
+	s.opsProvisioner = provisioner
+	s.opsBotHandler = &api.OpsBotHandler{
+		Svc:       svc,
+		Provision: provisioner,
+		Approval:  approval,
+		Budget:    budget,
+		Risk:      risk,
+		Packs:     registry,
+		Authz:     authz,
+		Queries:   s.queries,
+		DB:        s.db,
+		DataDir:   s.cfg.DataDir,
+	}
+
+	// The runnable half: adapter resolver, publisher, engagement + dispatcher,
+	// metrics and the director/calendar/review services.
+	s.initOpsRuntime(svc, approval, budget, registry)
+}
+
+// draftOpsPackProviderContract feeds a Pack generator's OpenAPI contract into
+// the existing integration draft pipeline. It never publishes: the user still
+// confirms the provider draft in the integration card. A nil pipeline (early
+// boot, tests without integrations) simply skips the draft.
+func (s *Server) draftOpsPackProviderContract(ctx context.Context, owner packs.Owner, draft packs.ProviderContractDraft, sourceName, sourceURL string) (int64, error) {
+	if s.integrationDraftSvc == nil {
+		return 0, nil
+	}
+	raw, err := json.Marshal(draft)
+	if err != nil {
+		return 0, err
+	}
+	var contract service.ProviderContract
+	if err := json.Unmarshal(raw, &contract); err != nil {
+		return 0, err
+	}
+
+	ref := strings.TrimSpace(sourceURL)
+	if ref == "" {
+		ref = strings.TrimSpace(sourceName)
+	}
+	host := ""
+	if u, err := url.Parse(contract.BaseURL); err == nil {
+		host = u.Hostname()
+	}
+	docOps := make([]service.OperationKey, 0, len(contract.Operations))
+	for _, op := range contract.Operations {
+		docOps = append(docOps, service.OperationKey{Method: op.Method, Path: op.Path})
+	}
+	createdBy := int64(0)
+	if owner.Type == "user" {
+		createdBy = owner.ID
+	}
+
+	view, err := s.integrationDraftSvc.CreateDraft(ctx, service.CreateDraftInput{
+		OwnerType:     owner.Type,
+		OwnerID:       owner.ID,
+		CreatedBy:     createdBy,
+		Kind:          service.DraftKindProvider,
+		TargetName:    draft.Provider,
+		AgentAuthored: true,
+		Provider: &service.ProviderDraftPayload{
+			Label:      draft.Provider,
+			BaseURL:    contract.BaseURL,
+			Contract:   &contract,
+			OpenAPIURL: sourceURL,
+			// Reads only; enabling writes stays the user's explicit act.
+			WriteEnabled: false,
+		},
+		Origin:  service.NewUntrustedOrigin(service.UntrustedKindOpenAPI, ref),
+		DocOps:  docOps,
+		DocHost: host,
+	})
+	if err != nil {
+		return 0, err
+	}
+	return view.ID, nil
+}
+
+// opsBudgetConfig decodes a bot's budget_json, preserving unknown keys.
+func opsBudgetConfig(raw string) map[string]any {
+	cfg := map[string]any{}
+	if strings.TrimSpace(raw) != "" {
+		_ = json.Unmarshal([]byte(raw), &cfg)
+	}
+	if cfg == nil {
+		cfg = map[string]any{}
+	}
+	return cfg
+}
+
+func (s *Server) updateOpsBudget(ctx context.Context, svc *opsbot.Service, botID int64, mutate func(map[string]any)) error {
+	bot, err := svc.Get(ctx, botID)
+	if err != nil {
+		return err
+	}
+	cfg := opsBudgetConfig(bot.BudgetJson)
+	mutate(cfg)
+	raw, err := json.Marshal(cfg)
+	if err != nil {
+		return err
+	}
+	body := string(raw)
+	_, err = svc.UpdateConfig(ctx, botID, opsbot.ConfigPatch{BudgetJSON: &body})
+	return err
+}
+
+// opsIssueCreator adapts *service.KanbanService to opsbot.IssueCreator.
+type opsIssueCreator struct{ kanban *service.KanbanService }
+
+func (a opsIssueCreator) CreateEpic(ctx context.Context, columnID int64, title, description string, byUserID int64) (int64, error) {
+	issue, err := a.kanban.CreateIssue(ctx, columnID, title, description, 1, 0,
+		"", "", "", 0, nil, "epic", 0, nil, nil, byUserID)
+	if err != nil {
+		return 0, err
+	}
+	return issue.ID, nil
+}
+
+type opsIssueDeleter struct{ kanban *service.KanbanService }
+
+func (d opsIssueDeleter) DeleteIssue(ctx context.Context, issueID int64) error {
+	return d.kanban.DeleteIssue(ctx, issueID)
+}
+
+type opsColumnResolver struct{ q *store.Queries }
+
+func (r opsColumnResolver) FirstColumn(ctx context.Context, projectID int64) (int64, error) {
+	columns, err := r.q.ListColumnsByProject(ctx, projectID)
+	if err != nil {
+		return 0, err
+	}
+	if len(columns) == 0 {
+		return 0, fmt.Errorf("project %d has no columns", projectID)
+	}
+	return columns[0].ID, nil
+}
+
+type opsWorkspaceCreator struct{ workspaces *service.WorkspaceService }
+
+func (w opsWorkspaceCreator) CreateControl(ctx context.Context, issueID int64, ownerType string, ownerID, createdBy int64) (int64, error) {
+	created := createdBy
+	result, err := w.workspaces.Create(ctx, service.CreateWorkspaceInput{
+		IssueID:   &issueID,
+		Name:      fmt.Sprintf("Ops Bot %d", issueID),
+		OwnerType: ownerType,
+		OwnerID:   ownerID,
+		CreatedBy: &created,
+		NoRepo:    true,
+	})
+	if err != nil {
+		return 0, err
+	}
+	return result.Workspace.ID, nil
+}
+
+type opsWorkspaceDeleter struct{ workspaces *service.WorkspaceService }
+
+func (d opsWorkspaceDeleter) DeleteWorkspace(ctx context.Context, workspaceID int64) error {
+	return d.workspaces.Delete(ctx, workspaceID)
 }

@@ -17,6 +17,7 @@ import (
 	"github.com/niuniu-dev/niuniu/internal/imbot"
 	"github.com/niuniu-dev/niuniu/internal/intake"
 	"github.com/niuniu-dev/niuniu/internal/integration/crypto"
+	"github.com/niuniu-dev/niuniu/internal/opsbot"
 	"github.com/niuniu-dev/niuniu/internal/store"
 )
 
@@ -34,6 +35,10 @@ var ErrWebhookUnauthorized = errors.New("imbot: webhook unauthorized")
 // webhook-mode Lark/Telegram channel with no webhook secret, which would fail
 // closed on every inbound request.
 var ErrInvalidChannelConfig = errors.New("imbot: invalid channel config")
+
+// ErrInvalidOpsBotBinding is returned when a chat is bound to an unknown Ops Bot
+// or one owned by a different owner than the chat's channel.
+var ErrInvalidOpsBotBinding = errors.New("imbot: invalid ops bot binding")
 
 // ErrDuplicateIMBotCredential is returned when a channel create would register a
 // second bot for the same app identity (owner + channel_type + credential
@@ -104,6 +109,25 @@ type IMBotService struct {
 	// restart.
 	procMu        sync.Mutex
 	procReactions map[int64][]pendingReaction
+
+	// opsOnboarding is the conversational ops-bot setup/config surface (Epic
+	// #788, design §13). Wired via SetOpsOnboarding after construction; nil
+	// leaves the chat on the plain intake path.
+	opsOnboarding *opsbot.Onboarding
+
+	// opsApproval backs approval-card button callbacks (design §10). Wired via
+	// SetOpsApproval; nil leaves the callbacks ignored.
+	opsApproval *opsbot.Approval
+
+	// opsNotify renders and sends the ops-bot notification templates. Wired via
+	// SetOpsNotifier; nil makes every ops notification a no-op.
+	opsNotify *opsbot.Notifier
+
+	// opsPendingMu guards opsPendingModify: approvals whose operator tapped
+	// "修改" and is expected to reply with the revision. Keyed by chat id;
+	// in-memory only (a restart just makes the user re-tap the card).
+	opsPendingMu     sync.Mutex
+	opsPendingModify map[int64]int64
 
 	// wechatSessions holds in-flight WeChat QR-login handshakes keyed by the
 	// sha256 of the onboarding token. Ephemeral and process-local (the zero-value
@@ -187,6 +211,29 @@ func (s *IMBotService) SetInbound(dispatch TaskRouter, deliverer MessageDelivere
 	}
 }
 
+// SetOpsOnboarding wires the conversational ops-bot onboarding state machine.
+// When set, HandleInbound gives it first refusal on each text message: a
+// non-empty reply means onboarding claimed the turn and intake is skipped.
+func (s *IMBotService) SetOpsOnboarding(o *opsbot.Onboarding) {
+	s.opsOnboarding = o
+}
+
+// SetOpsApproval wires the approval state machine so card buttons (approve /
+// reject / modify) drive Approval.Decide. Optional; nil ignores the callbacks.
+func (s *IMBotService) SetOpsApproval(a *opsbot.Approval) {
+	s.opsApproval = a
+}
+
+// SetOpsNotifier wires the ops-bot notification templates. When the notifier
+// has no Send wired, this service supplies one that pushes over the chat's IM
+// channel adapter, so callers only hand over a typed target/payload.
+func (s *IMBotService) SetOpsNotifier(n *opsbot.Notifier) {
+	if n != nil && n.Send == nil {
+		n.Send = s.pushOpsNotify
+	}
+	s.opsNotify = n
+}
+
 // NewIMBotService wires the dependencies. adapters is the same registry handed
 // to the ConnectorManager so test/welcome pushes reuse the exact adapters.
 func NewIMBotService(q *store.Queries, rawDB *sql.DB, kr *crypto.Keyring, authz *Authz, adapters map[imbot.ChannelType]imbot.ChannelAdapter) *IMBotService {
@@ -266,6 +313,7 @@ type IMBotChatDTO struct {
 	IntakeMode    string    `json:"intake_mode"`
 	PinnedIssueID *int64    `json:"pinned_issue_id"`
 	ActiveIssueID *int64    `json:"active_issue_id"`
+	OpsBotID      *int64    `json:"ops_bot_id"`
 	Status        string    `json:"status"`
 	PairedBy      *int64    `json:"paired_by"`
 	CreatedAt     time.Time `json:"created_at"`
@@ -302,6 +350,7 @@ func chatDTO(r store.ImBotChat) IMBotChatDTO {
 		IntakeMode:    normalizeIntakeMode(r.IntakeMode),
 		PinnedIssueID: nullInt64Ptr(r.PinnedIssueID),
 		ActiveIssueID: nullInt64Ptr(r.ActiveIssueID),
+		OpsBotID:      nullInt64Ptr(r.OpsBotID),
 		Status:        r.Status,
 		PairedBy:      nullInt64Ptr(r.PairedBy),
 		CreatedAt:     r.CreatedAt,
@@ -1035,6 +1084,10 @@ type PatchChatInput struct {
 	// IntakeMode switches this chat's intake mode
 	// ("inherit" | "off" | "observe" | "auto"). Empty preserves the current value.
 	IntakeMode string
+	// OpsBotID binds the chat to an Ops Bot (design 2026-11-06 §12). nil
+	// preserves the current binding; 0 clears it. A non-zero id must name a bot
+	// owned by the same owner as the chat's channel.
+	OpsBotID *int64
 }
 
 // PatchChatByOwner is the owner-level counterpart of PatchChat: it edits a chat's
@@ -1149,7 +1202,50 @@ func (s *IMBotService) applyChatPatch(ctx context.Context, cur store.ImBotChat, 
 			row = updated
 		}
 	}
+	// ops_bot_id is its own UPDATE for the same stale-row reason: the hot inbound
+	// path rewrites the row through UpdateIMBotChat and would revert a binding the
+	// operator just set.
+	if in.OpsBotID != nil {
+		var want sql.NullInt64
+		if *in.OpsBotID > 0 {
+			if err := s.ensureOpsBotSameOwner(ctx, cur.ChannelID, *in.OpsBotID); err != nil {
+				return IMBotChatDTO{}, err
+			}
+			want = sql.NullInt64{Int64: *in.OpsBotID, Valid: true}
+		}
+		updated, uerr := s.q.UpdateIMBotChatOpsBot(ctx, store.UpdateIMBotChatOpsBotParams{
+			OpsBotID: want, ID: cur.ID,
+		})
+		if uerr != nil {
+			return IMBotChatDTO{}, uerr
+		}
+		row = updated
+	}
 	return chatDTO(row), nil
+}
+
+// ensureOpsBotSameOwner rejects binding a chat to a bot from another owner.
+// Channel ids are global, so without this check an operator could route their
+// chat's messages into someone else's bot (and see its replies).
+func (s *IMBotService) ensureOpsBotSameOwner(ctx context.Context, channelID, botID int64) error {
+	channel, err := s.q.GetIMBotChannel(ctx, channelID)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return ErrIMBotNotFound
+		}
+		return err
+	}
+	bot, err := s.q.GetOpsBot(ctx, botID)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return fmt.Errorf("%w: ops bot %d", ErrInvalidOpsBotBinding, botID)
+		}
+		return err
+	}
+	if bot.OwnerType != channel.OwnerType || bot.OwnerID != channel.OwnerID {
+		return fmt.Errorf("%w: ops bot %d", ErrInvalidOpsBotBinding, botID)
+	}
+	return nil
 }
 
 // retirePendingObservations marks a chat's unanalyzed transcript as already

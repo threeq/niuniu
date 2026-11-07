@@ -144,6 +144,8 @@ func (s *AskUserService) Request(
 		OwnerID:       ownerID,
 		SessionID:     sessionID,
 		QuestionsJson: string(questionsJSON),
+		Kind:          "agent_question",
+		MetadataJson:  "{}",
 		ExpiresAt:     expires,
 	})
 	if err != nil {

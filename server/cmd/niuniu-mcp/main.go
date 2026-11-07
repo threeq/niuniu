@@ -177,6 +177,10 @@ func main() {
 	// token's owner, so it needs no project/workspace flag — always registered.
 	registerManagedTaskTool(s, api)
 
+	// Ops Bot (design 2026-11-06 §12): owner-level tools, so they need no
+	// project/workspace flag. The owner comes from the MCP token's user.
+	registerOpsBotTools(s, api)
+
 	if *projectID > 0 {
 		pid := strconv.FormatInt(*projectID, 10)
 		registerProjectTools(s, api, pid)

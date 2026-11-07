@@ -1,0 +1,41 @@
+{
+  "name": "login",
+  "steps": [
+    {
+      "action": "goto",
+      "value": "https://www.zhihu.com/signin?next=%2F",
+      "timeout_ms": 30000
+    },
+    {
+      "action": "wait",
+      "selector": ".SignFlow",
+      "fallback": [".sign-flow", ".login-modal"],
+      "timeout_ms": 15000,
+      "args": { "poll_interval_ms": "500" }
+    },
+    {
+      "action": "assert",
+      "selector": ".SignFlow-qrcode",
+      "fallback": [".Qrcode", ".sign-qrcode"],
+      "value": "qrcode_visible"
+    },
+    {
+      "action": "wait",
+      "selector": ".AppHeader-profile",
+      "fallback": [".AppHeader-userInfo", ".UserAvatar"],
+      "timeout_ms": 180000,
+      "args": { "poll_interval_ms": "2000" }
+    },
+    {
+      "action": "assert",
+      "selector": ".AppHeader-profile",
+      "fallback": [".AppHeader-userInfo", ".UserAvatar"],
+      "value": "logged_in"
+    },
+    {
+      "action": "screenshot",
+      "value": "login_state"
+    }
+  ],
+  "fixtures": ["fixtures/login.html"]
+}

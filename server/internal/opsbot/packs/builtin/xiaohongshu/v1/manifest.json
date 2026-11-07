@@ -1,0 +1,21 @@
+{
+  "id": "xiaohongshu",
+  "version": 1,
+  "status": "published",
+  "display_name": "小红书",
+  "capabilities": ["publish", "metrics", "engagements", "reply"],
+  "bindings": {
+    "publish": { "transport": "browser", "recipe": "browser/recipes/publish.json" },
+    "metrics": { "transport": "browser", "recipe": "browser/recipes/metrics.json" },
+    "engagements": { "transport": "browser", "recipe": "browser/recipes/engagements.json" },
+    "reply": { "transport": "browser", "recipe": "browser/recipes/reply.json" }
+  },
+  "credential_slots": {
+    "account": { "required": true, "scope": "account" }
+  },
+  "allowed_hosts": [
+    "creator.xiaohongshu.com",
+    "www.xiaohongshu.com",
+    "xiaohongshu.com"
+  ]
+}

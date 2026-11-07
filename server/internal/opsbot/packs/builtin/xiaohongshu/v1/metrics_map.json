@@ -1,0 +1,10 @@
+{
+  "fields": {
+    "view_num": "views",
+    "like_num": "likes",
+    "collect_num": "saves",
+    "comment_num": "comments",
+    "share_num": "shares",
+    "fans_add": "follower_delta"
+  }
+}
