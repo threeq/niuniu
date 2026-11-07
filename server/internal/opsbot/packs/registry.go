@@ -142,10 +142,12 @@ func writePackDir(dir string, m Manifest, files map[string][]byte) error {
 		if name == manifestFile {
 			return fmt.Errorf("pack %s files may not include %s", m.ID, manifestFile)
 		}
-		target, err := resolveInside(dir, name)
-		if err != nil {
-			return fmt.Errorf("pack %s file %q: %w", m.ID, name, err)
+		// dir is a freshly staged temp directory, so rejecting non-local names
+		// is enough to keep pack files from escaping it.
+		if !filepath.IsLocal(name) {
+			return fmt.Errorf("pack %s file %q must stay inside the pack directory", m.ID, name)
 		}
+		target := filepath.Join(dir, name)
 		if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
 			return err
 		}

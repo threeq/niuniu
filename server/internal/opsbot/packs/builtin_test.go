@@ -2,7 +2,6 @@ package packs
 
 import (
 	"encoding/json"
-	"io/fs"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -281,37 +280,50 @@ func TestBuiltinsPromptsAndCompliance(t *testing.T) {
 	}
 }
 
-func TestBuiltinsEmbedded(t *testing.T) {
-	manifests, err := fs.Glob(BuiltinFS, "builtin/*/*/manifest.json")
+func TestBuiltinsInstallAndValidate(t *testing.T) {
+	r := &Registry{DataDir: t.TempDir()}
+	if err := InstallBuiltins(r, "user", 1); err != nil {
+		t.Fatalf("install builtins: %v", err)
+	}
+
+	list, err := r.List("user", 1)
 	if err != nil {
-		t.Fatalf("glob embedded manifests: %v", err)
+		t.Fatalf("list installed builtins: %v", err)
 	}
-	if len(manifests) < 2 {
-		t.Fatalf("embedded builtins = %d, want at least 2", len(manifests))
-	}
-
-	for _, path := range manifests {
-		root := strings.TrimSuffix(path, "/manifest.json")
-		// Everything InstallBuiltins copies must be embedded, not just the manifest.
-		for _, name := range []string{"content_schema.json", "compliance.json", "metrics_map.json"} {
-			if _, err := fs.Stat(BuiltinFS, root+"/"+name); err != nil {
-				t.Errorf("%s: %v", root, err)
-			}
-		}
-		prompts, err := fs.Glob(BuiltinFS, root+"/prompts/*.md")
-		if err != nil || len(prompts) == 0 {
-			t.Errorf("%s: no prompts embedded (%v)", root, err)
-		}
+	if len(list) < 2 {
+		t.Fatalf("installed builtins = %d, want at least 2", len(list))
 	}
 
-	for _, name := range []string{"login", "publish", "metrics", "engagements", "reply"} {
-		if _, err := fs.Stat(BuiltinFS, "builtin/xiaohongshu/v1/browser/recipes/"+name+".json"); err != nil {
-			t.Errorf("recipe %s not embedded: %v", name, err)
+	seen := map[string]bool{}
+	for _, m := range list {
+		root, err := r.Root("user", 1, m.ID, m.Version)
+		if err != nil {
+			t.Errorf("%s v%d root: %v", m.ID, m.Version, err)
+			continue
+		}
+		if err := Validate(root, m); err != nil {
+			t.Errorf("installed %s v%d: %v", m.ID, m.Version, err)
+		}
+		seen[m.ID] = true
+	}
+	for _, id := range []string{"wechat_mp", "xiaohongshu"} {
+		if !seen[id] {
+			t.Errorf("installed builtins missing %q", id)
 		}
 	}
+
+	// A browser pack is only usable if the recipes and fixtures were copied
+	// alongside the manifest.
+	xhsRoot, err := r.Root("user", 1, "xiaohongshu", 1)
+	if err != nil {
+		t.Fatal(err)
+	}
 	for _, name := range []string{"login", "publish", "metrics", "engagements", "reply"} {
-		if _, err := fs.Stat(BuiltinFS, "builtin/xiaohongshu/v1/fixtures/"+name+".html"); err != nil {
-			t.Errorf("fixture %s not embedded: %v", name, err)
+		if _, err := os.Stat(filepath.Join(xhsRoot, "browser", "recipes", name+".json")); err != nil {
+			t.Errorf("installed xiaohongshu recipe %s: %v", name, err)
+		}
+		if _, err := os.Stat(filepath.Join(xhsRoot, "fixtures", name+".html")); err != nil {
+			t.Errorf("installed xiaohongshu fixture %s: %v", name, err)
 		}
 	}
 }

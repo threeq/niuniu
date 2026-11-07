@@ -47,11 +47,11 @@ func installBuiltins(fsys fs.FS, r *Registry, ownerType string, ownerID int64) e
 			if !versionEntry.IsDir() {
 				continue
 			}
-			version, err := strconv.Atoi(versionEntry.Name())
+			version, err := parseVersionDir(versionEntry.Name())
 			if err != nil || version <= 0 {
 				continue
 			}
-			if err := installBuiltinPack(fsys, r, ownerType, ownerID, packID, version); err != nil {
+			if err := installBuiltinPack(fsys, r, ownerType, ownerID, packID, versionEntry.Name(), version); err != nil {
 				return err
 			}
 		}
@@ -59,7 +59,13 @@ func installBuiltins(fsys fs.FS, r *Registry, ownerType string, ownerID int64) e
 	return nil
 }
 
-func installBuiltinPack(fsys fs.FS, r *Registry, ownerType string, ownerID int64, packID string, version int) error {
+// parseVersionDir accepts both the numeric layout used by the registry ("1")
+// and the documented seed layout ("v1").
+func parseVersionDir(name string) (int, error) {
+	return strconv.Atoi(strings.TrimPrefix(name, "v"))
+}
+
+func installBuiltinPack(fsys fs.FS, r *Registry, ownerType string, ownerID int64, packID, versionDir string, version int) error {
 	root, err := r.Root(ownerType, ownerID, packID, version)
 	if err != nil {
 		return err
@@ -70,7 +76,7 @@ func installBuiltinPack(fsys fs.FS, r *Registry, ownerType string, ownerID int64
 		return err
 	}
 
-	packDir := path.Join("builtin", packID, strconv.Itoa(version))
+	packDir := path.Join("builtin", packID, versionDir)
 	data, err := fs.ReadFile(fsys, path.Join(packDir, manifestFile))
 	if err != nil {
 		return fmt.Errorf("builtin pack %s v%d: %w", packID, version, err)
