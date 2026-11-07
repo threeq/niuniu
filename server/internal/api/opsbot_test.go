@@ -345,7 +345,8 @@ func TestOpsBudget_OverLimitConflict(t *testing.T) {
 }
 
 func TestOpsPublish_IdempotentOnKey(t *testing.T) {
-	r, _ := setupOpsBot(t)
+	r, db := setupOpsBot(t)
+	mustExec(t, db, `INSERT INTO issues (id, column_id, title) VALUES (7,1,'content 7')`)
 	botID := createTestBot(t, r, "1", "acct-1")
 	path := "/api/ops/bots/" + strconv.FormatInt(botID, 10) + "/publish"
 	body := `{"issue_id":7,"content_version":1,"idempotency_key":"publish-7-v1"}`
@@ -367,6 +368,19 @@ func TestOpsPublish_IdempotentOnKey(t *testing.T) {
 	}
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &second))
 	assert.Equal(t, first.ID, second.ID)
+}
+
+func TestOpsPublish_RejectsForeignIssue(t *testing.T) {
+	r, db := setupOpsBot(t)
+	// Project 2 belongs to user 2; a user-1 bot must not create a publish
+	// record against its issues.
+	mustExec(t, db, `INSERT INTO projects (id, name, owner_type, owner_id) VALUES (2,'p2','user',2)`)
+	mustExec(t, db, `INSERT INTO columns (id, project_id, name, position) VALUES (2,2,'todo',0)`)
+	mustExec(t, db, `INSERT INTO issues (id, column_id, title) VALUES (8,2,'foreign')`)
+	botID := createTestBot(t, r, "1", "acct-1")
+	path := "/api/ops/bots/" + strconv.FormatInt(botID, 10) + "/publish"
+	w := doJSON(t, r, http.MethodPost, path, "1", `{"issue_id":8,"idempotency_key":"foreign"}`)
+	require.Equal(t, http.StatusForbidden, w.Code, w.Body.String())
 }
 
 func TestOpsEngagementReply_RecordsApprovalAndAuthorizes(t *testing.T) {

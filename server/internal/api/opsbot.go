@@ -1228,6 +1228,9 @@ func (h *OpsBotHandler) Publish(c *gin.Context) {
 		BadRequest(c, "issue_id is required")
 		return
 	}
+	if !h.authorizeIssueOwner(c, bot, body.IssueID) {
+		return
+	}
 	key := strings.TrimSpace(body.IdempotencyKey)
 	if key == "" {
 		BadRequest(c, "idempotency_key is required")
@@ -1426,6 +1429,8 @@ func (h *OpsBotHandler) CredentialLink(c *gin.Context) {
 			BadRequest(c, "project_id is required for a bot without a control Epic")
 			return
 		}
+	} else if !h.authorizeProjectOwner(c, bot, projectID) {
+		return
 	}
 	title := strings.TrimSpace(body.Title)
 	if title == "" {
@@ -1451,6 +1456,47 @@ func (h *OpsBotHandler) CredentialLink(c *gin.Context) {
 		"token":   token,
 		"expires": "15m",
 	})
+}
+
+// authorizeProjectOwner rejects a request whose project belongs to a different
+// owner than the bot. Handlers that accept a client-supplied project id must
+// gate it here: a foreign id is an IDOR even though the bot itself is owned.
+func (h *OpsBotHandler) authorizeProjectOwner(c *gin.Context, bot store.OpsBot, projectID int64) bool {
+	project, err := h.Queries.GetProject(c.Request.Context(), projectID)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			RespondError(c, http.StatusNotFound, "OPS_PROJECT_NOT_FOUND", "project not found")
+			return false
+		}
+		h.respondOpsError(c, err)
+		return false
+	}
+	if project.OwnerType != bot.OwnerType || project.OwnerID != bot.OwnerID {
+		RespondError(c, http.StatusForbidden, "OPS_FORBIDDEN", "project does not belong to this bot's owner")
+		return false
+	}
+	return true
+}
+
+// authorizeIssueOwner rejects a request whose issue belongs to a different
+// owner than the bot.
+func (h *OpsBotHandler) authorizeIssueOwner(c *gin.Context, bot store.OpsBot, issueID int64) bool {
+	ctx := c.Request.Context()
+	issue, err := h.Queries.GetIssue(ctx, issueID)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			RespondError(c, http.StatusNotFound, "OPS_ISSUE_NOT_FOUND", "issue not found")
+			return false
+		}
+		h.respondOpsError(c, err)
+		return false
+	}
+	column, err := h.Queries.GetColumn(ctx, issue.ColumnID)
+	if err != nil {
+		h.respondOpsError(c, err)
+		return false
+	}
+	return h.authorizeProjectOwner(c, bot, column.ProjectID)
 }
 
 // projectForBot resolves the project that owns the bot's control Epic.
