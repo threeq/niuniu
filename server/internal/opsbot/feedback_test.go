@@ -185,6 +185,30 @@ func TestWeeklyReportAndBreakdown(t *testing.T) {
 	require.Contains(t, refs, "爆款要素：标题含数字")
 }
 
+func TestWeeklyReportUsesMetricsSummary(t *testing.T) {
+	f := newTestFeedback(t)
+	metricsStore := newFakeMetricsStore()
+	metricsStore.seed(1, "2026-11-01",
+		`{"views":1000,"likes":10,"comments":5,"shares":5,"followers":30}`, "api")
+	metricsStore.seed(1, "2026-11-02",
+		`{"views":500,"likes":5,"comments":5,"shares":5,"followers":10}`, "api")
+	f.Metrics = &Metrics{Store: metricsStore, Bots: fakeBotGetter{goals: `{"followers":100}`}}
+	f.Published = func(context.Context, int64, string, string) ([]PublishedContent, error) {
+		return []PublishedContent{{IssueID: 1, Title: "t", Views: 1}}, nil
+	}
+
+	rep, err := f.WeeklyReport(context.Background(), BotRef{ID: 1}, "2026-11-01", "2026-11-02")
+	require.NoError(t, err)
+	require.Equal(t, 1, rep.Published, "published volume still comes from the publish source")
+	require.InDelta(t, 1500.0, rep.Views, 1e-9)
+	// Interaction keys fall back to likes+comments+shares when the platform
+	// exposes no unified interactions total.
+	require.InDelta(t, 35.0, rep.Interactions, 1e-9)
+	require.InDelta(t, 40.0, rep.Followers, 1e-9)
+	require.InDelta(t, 0.4, rep.Achievement["followers"], 1e-9)
+	require.InDelta(t, 0.4, rep.OverallAchievement, 1e-9)
+}
+
 func TestWriteBackFeedsNextBrief(t *testing.T) {
 	f := newTestFeedback(t)
 	ctx := context.Background()
