@@ -296,6 +296,8 @@ func (a *Approval) Decide(ctx context.Context, id int64, d Decision) (ApprovalRe
 		return ApprovalRequest{}, err
 	}
 	if a.OnDecided != nil {
+		// The decision is already committed; a callback error means the
+		// downstream effect failed, not that the approval is still pending.
 		if err := a.OnDecided(ctx, got, d); err != nil {
 			return got, fmt.Errorf("approval on-decided callback: %w", err)
 		}
@@ -435,6 +437,9 @@ func mergeDecisionMetadata(raw string, d Decision) (string, error) {
 		if err := json.Unmarshal([]byte(raw), &meta); err != nil {
 			return "", fmt.Errorf("parse approval metadata: %w", err)
 		}
+	}
+	if meta == nil { // a literal "null" decodes to a nil map
+		meta = map[string]json.RawMessage{}
 	}
 	if d.OperatorID != 0 {
 		b, _ := json.Marshal(d.OperatorID)
