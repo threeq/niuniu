@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"time"
 
 	"github.com/niuniu-dev/niuniu/internal/store"
@@ -122,8 +123,9 @@ type Approval struct {
 	db     *store.DB
 	policy ApprovalPolicy
 
-	// OnDecided runs after a successful decision transaction commits. It must
-	// not be used for timeout rows: a timeout never publishes anything.
+	// OnDecided runs after any decision (approved/rejected/modified/regenerate)
+	// commits; callers must branch on Decision.Action. It is never invoked for
+	// timeout or cancellation rows.
 	OnDecided func(ctx context.Context, req ApprovalRequest, d Decision) error
 }
 
@@ -249,6 +251,20 @@ func (a *Approval) Decide(ctx context.Context, id int64, d Decision) (ApprovalRe
 	if req.Status != ApprovalStatusPending {
 		return ApprovalRequest{}, ErrAlreadyDecided
 	}
+	if !actionAllowedForCard(req.MetadataJson, d.Action) {
+		return ApprovalRequest{}, ErrInvalidDecision
+	}
+	// An expired row that the sweeper has not reached yet must not be
+	// actionable: retire it as timeout in the same transaction.
+	if !req.ExpiresAt.IsZero() && !time.Now().Before(req.ExpiresAt) {
+		if _, err := q.MarkAskUserRequestTimeout(ctx, id); err != nil {
+			return ApprovalRequest{}, err
+		}
+		if err := tx.Commit(); err != nil {
+			return ApprovalRequest{}, err
+		}
+		return ApprovalRequest{}, ErrAlreadyDecided
+	}
 
 	answersJSON, err := json.Marshal(approvalAnswer{
 		Action:  d.Action,
@@ -364,6 +380,7 @@ func (a *Approval) CancelByBot(ctx context.Context, botID int64) (int, error) {
 	if err := rows.Err(); err != nil {
 		return 0, err
 	}
+	rows.Close()
 
 	q := a.db.Queries()
 	cancelled := 0
@@ -427,6 +444,24 @@ func (a *Approval) resolveOwner(ctx context.Context, workspaceID int64) (string,
 		return "", 0, err
 	}
 	return ownerType, ownerID, nil
+}
+
+// actionAllowedForCard checks an action against the card's own option list.
+// Malformed metadata or an unknown type falls back to the full known set so
+// externally inserted rows stay decidable.
+func actionAllowedForCard(metadataJSON, action string) bool {
+	var meta approvalMetadata
+	if err := json.Unmarshal([]byte(metadataJSON), &meta); err == nil {
+		if opts, ok := approvalOptions[meta.Type]; ok {
+			return slices.Contains(opts, action)
+		}
+	}
+	for _, opts := range approvalOptions {
+		if slices.Contains(opts, action) {
+			return true
+		}
+	}
+	return false
 }
 
 // mergeDecisionMetadata preserves every existing key (preview included) and

@@ -116,11 +116,15 @@ func TestTimeoutNeverAutoApproves(t *testing.T) {
 func TestApprovalKillSwitchCancelsByBot(t *testing.T) {
 	a := newTestApproval(t)
 	ctx := context.Background()
+	var botOneIDs []int64
 	for _, botID := range []int64{1, 1, 2} {
-		_, err := a.Create(ctx, ApprovalInput{
+		req, err := a.Create(ctx, ApprovalInput{
 			BotID: botID, WorkspaceID: 10, Type: ApprovalPublish, PreviewJSON: `{}`,
 		})
 		require.NoError(t, err)
+		if botID == 1 {
+			botOneIDs = append(botOneIDs, req.ID)
+		}
 	}
 	n, err := a.CancelByBot(ctx, 1)
 	require.NoError(t, err)
@@ -132,6 +136,59 @@ func TestApprovalKillSwitchCancelsByBot(t *testing.T) {
 	req, err := a.Get(ctx, pending[0].ID)
 	require.NoError(t, err)
 	require.Contains(t, req.MetadataJSON, `"bot_id":2`)
+
+	cancelled, err := a.Get(ctx, botOneIDs[0])
+	require.NoError(t, err)
+	require.Equal(t, ApprovalStatusCancelled, cancelled.Status)
+	require.Equal(t, "kill_switch", cancelled.DecisionSource)
+}
+
+func TestApprovalReviewHardening(t *testing.T) {
+	a := newTestApproval(t)
+	ctx := context.Background()
+
+	// A card-specific action set rejects actions that belong to another card.
+	req, err := a.Create(ctx, ApprovalInput{
+		BotID: 1, WorkspaceID: 10, Type: ApprovalPublish, PreviewJSON: `{}`,
+	})
+	require.NoError(t, err)
+	_, err = a.Decide(ctx, req.ID, Decision{OperatorID: 7, Action: ActionRegenerate})
+	require.ErrorIs(t, err, ErrInvalidDecision)
+	_, err = a.Decide(ctx, req.ID, Decision{OperatorID: 7, Action: "bogus"})
+	require.ErrorIs(t, err, ErrInvalidDecision)
+	// The rejected attempts did not consume the pending state.
+	got, err := a.Decide(ctx, req.ID, Decision{OperatorID: 7, Action: ActionApproved})
+	require.NoError(t, err)
+	require.Equal(t, ApprovalStatusAnswered, got.Status)
+
+	// A fresh card survives a sweep.
+	fresh, err := a.Create(ctx, ApprovalInput{
+		BotID: 1, WorkspaceID: 10, Type: ApprovalReply, PreviewJSON: `{}`,
+	})
+	require.NoError(t, err)
+	require.NoError(t, a.SweepExpired(ctx))
+	got, err = a.Get(ctx, fresh.ID)
+	require.NoError(t, err)
+	require.Equal(t, ApprovalStatusPending, got.Status)
+}
+
+func TestExpiredApprovalIsNotDecidable(t *testing.T) {
+	a := newTestApproval(t)
+	ctx := context.Background()
+	req, err := a.Create(ctx, ApprovalInput{
+		BotID: 1, WorkspaceID: 10, Type: ApprovalPublish, TTL: time.Millisecond,
+	})
+	require.NoError(t, err)
+	time.Sleep(5 * time.Millisecond)
+
+	// Even before the sweeper runs, an expired card must not be approvable.
+	_, err = a.Decide(ctx, req.ID, Decision{OperatorID: 7, Action: ActionApproved})
+	require.ErrorIs(t, err, ErrAlreadyDecided)
+
+	got, err := a.Get(ctx, req.ID)
+	require.NoError(t, err)
+	require.Equal(t, ApprovalStatusTimeout, got.Status)
+	require.Empty(t, got.AnswersJSON)
 }
 
 func TestApprovalRejectsDisabledTypeAndBadJSON(t *testing.T) {
