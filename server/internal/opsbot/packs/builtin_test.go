@@ -64,6 +64,17 @@ func readJSON[T any](t *testing.T, path string) T {
 	return value
 }
 
+// loadBuiltinManifest goes through the registry loader so the sidecar files
+// participate, exactly as they do for an installed pack.
+func loadBuiltinManifest(t *testing.T, root string) Manifest {
+	t.Helper()
+	m, err := loadManifest(root)
+	if err != nil {
+		t.Fatalf("load %s: %v", root, err)
+	}
+	return m
+}
+
 func findBuiltin(t *testing.T, id string) builtinPack {
 	t.Helper()
 	for _, p := range builtinPacks(t) {
@@ -83,7 +94,7 @@ func TestBuiltinsValidate(t *testing.T) {
 
 	found := map[string]bool{}
 	for _, p := range packs {
-		manifest := readJSON[Manifest](t, filepath.Join(p.root, "manifest.json"))
+		manifest := loadBuiltinManifest(t, p.root)
 		if manifest.ID != p.id {
 			t.Errorf("pack dir %q holds manifest id %q", p.id, manifest.ID)
 		}
@@ -101,7 +112,7 @@ func TestBuiltinsValidate(t *testing.T) {
 
 func TestBuiltinsWechatManifest(t *testing.T) {
 	p := findBuiltin(t, "wechat_mp")
-	m := readJSON[Manifest](t, filepath.Join(p.root, "manifest.json"))
+	m := loadBuiltinManifest(t, p.root)
 
 	for _, capability := range []string{"publish", "metrics", "engagements", "reply"} {
 		binding, ok := m.Bindings[capability]
@@ -143,7 +154,7 @@ func TestBuiltinsWechatManifest(t *testing.T) {
 
 func TestBuiltinsXiaohongshuManifest(t *testing.T) {
 	p := findBuiltin(t, "xiaohongshu")
-	m := readJSON[Manifest](t, filepath.Join(p.root, "manifest.json"))
+	m := loadBuiltinManifest(t, p.root)
 
 	for _, capability := range []string{"publish", "metrics", "engagements", "reply"} {
 		binding, ok := m.Bindings[capability]
@@ -201,7 +212,7 @@ func TestBuiltinsXiaohongshuManifest(t *testing.T) {
 func TestBuiltinsXiaohongshuRecipes(t *testing.T) {
 	p := findBuiltin(t, "xiaohongshu")
 	recipeDir := filepath.Join(p.root, "browser", "recipes")
-	manifest := readJSON[Manifest](t, filepath.Join(p.root, "manifest.json"))
+	manifest := loadBuiltinManifest(t, p.root)
 
 	for _, name := range []string{"login", "publish", "metrics", "engagements", "reply"} {
 		path := filepath.Join(recipeDir, name+".json")
@@ -233,23 +244,26 @@ func TestBuiltinsXiaohongshuRecipes(t *testing.T) {
 	}
 }
 
-func TestBuiltinsSidecarsMatchManifest(t *testing.T) {
+// The design keeps the three big sections in their own files; inlining them in
+// manifest.json as well would create two sources of truth.
+func TestBuiltinsManifestsStayIdentityOnly(t *testing.T) {
 	for _, p := range builtinPacks(t) {
-		m := readJSON[Manifest](t, filepath.Join(p.root, "manifest.json"))
-
-		schema := readJSON[ContentSchema](t, filepath.Join(p.root, "content_schema.json"))
-		if !reflect.DeepEqual(schema, m.ContentSchema) {
-			t.Errorf("%s content_schema.json drifted from manifest.json", p.id)
+		raw := readJSON[map[string]json.RawMessage](t, filepath.Join(p.root, "manifest.json"))
+		for _, key := range []string{"content_schema", "compliance", "metrics_map"} {
+			if _, ok := raw[key]; ok {
+				t.Errorf("%s manifest.json inlines %q; keep it in its sidecar", p.id, key)
+			}
 		}
 
-		compliance := readJSON[Compliance](t, filepath.Join(p.root, "compliance.json"))
-		if !reflect.DeepEqual(compliance, m.Compliance) {
-			t.Errorf("%s compliance.json drifted from manifest.json", p.id)
+		m := loadBuiltinManifest(t, p.root)
+		if len(m.ContentSchema.Formats) == 0 {
+			t.Errorf("%s content_schema.json supplies no formats", p.id)
 		}
-
-		metrics := readJSON[MetricsMap](t, filepath.Join(p.root, "metrics_map.json"))
-		if !reflect.DeepEqual(metrics, m.MetricsMap) {
-			t.Errorf("%s metrics_map.json drifted from manifest.json", p.id)
+		if len(m.Compliance.ForbiddenTerms) == 0 || len(m.Compliance.RequiredChecks) == 0 {
+			t.Errorf("%s compliance.json supplies an empty checklist", p.id)
+		}
+		if len(m.MetricsMap.Fields) == 0 {
+			t.Errorf("%s metrics_map.json supplies no fields", p.id)
 		}
 	}
 }
@@ -270,7 +284,7 @@ func TestBuiltinsPromptsAndCompliance(t *testing.T) {
 			}
 		}
 
-		m := readJSON[Manifest](t, filepath.Join(p.root, "manifest.json"))
+		m := loadBuiltinManifest(t, p.root)
 		if len(m.Compliance.ForbiddenTerms) == 0 {
 			t.Errorf("%s has no forbidden terms", p.id)
 		}
