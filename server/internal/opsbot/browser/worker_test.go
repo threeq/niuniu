@@ -402,3 +402,51 @@ func TestWorkerRejectsInvalidTask(t *testing.T) {
 	_, err = w.Run(context.Background(), Task{BotID: 0, Backend: BackendLocal})
 	require.ErrorIs(t, err, ErrInvalidSession)
 }
+
+func TestWorkerReportsRiskSignalsToController(t *testing.T) {
+	cases := []struct {
+		name   string
+		exec   error
+		signal string
+	}{
+		{"login", ErrLoginExpired, "login_expired"},
+		{"rate", fmt.Errorf("%w: 429", ErrRateLimited), "rate_limited"},
+		{"blocked", ErrBlocked, "banned"},
+		{"recipe", fmt.Errorf("%w: selector", ErrRecipeBroken), "recipe_broken"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			w, _ := newTestWorker(t)
+			w.Exec = func(context.Context, Task) (Result, error) { return Result{}, tc.exec }
+
+			var (
+				mu      sync.Mutex
+				signals []string
+			)
+			w.OnRisk = func(_ context.Context, botID int64, signal string) {
+				require.Equal(t, int64(1), botID)
+				mu.Lock()
+				defer mu.Unlock()
+				signals = append(signals, signal)
+			}
+
+			_, err := w.Run(context.Background(), task())
+			require.Error(t, err)
+
+			mu.Lock()
+			defer mu.Unlock()
+			require.Equal(t, []string{tc.signal}, signals)
+		})
+	}
+}
+
+func TestWorkerDoesNotReportRiskForCancellation(t *testing.T) {
+	w, _ := newTestWorker(t)
+	w.Exec = func(context.Context, Task) (Result, error) { return Result{}, context.Canceled }
+
+	var called bool
+	w.OnRisk = func(context.Context, int64, string) { called = true }
+	_, err := w.Run(context.Background(), task())
+	require.ErrorIs(t, err, context.Canceled)
+	require.False(t, called)
+}

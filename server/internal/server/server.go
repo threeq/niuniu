@@ -143,6 +143,20 @@ type Server struct {
 	opsRisk          *opsbot.Risk
 	opsProvisioner   *opsbot.Provisioner
 	opsBotHandler    *api.OpsBotHandler
+	// Runnable Ops Bot runtime (design 2026-11-06 §15): adapter resolution,
+	// publish, engagement dispatch, metrics and the director/review services.
+	opsSessions   *browser.SessionManager
+	opsWorker     *browser.Worker
+	opsResolver   *opsbot.AdapterResolver
+	opsScheduler  *opsTimerScheduler
+	opsPublisher  *opsbot.Publisher
+	opsEngagement *opsbot.Engagement
+	opsDispatcher *opsbot.EngagementDispatcher
+	opsMetrics    *opsbot.Metrics
+	opsCalendar   *opsbot.Calendar
+	opsFeedback   *opsbot.Feedback
+	opsDirector   *opsbot.Director
+	opsTrend      *opsbot.Trend
 
 	// External credential management (encrypted token storage).
 	intgKeyring          *crypto.Keyring
@@ -1789,6 +1803,9 @@ func New(cfg *config.Config, db *sql.DB, frontendFS fs.FS) *Server {
 		s.imbotSvc.NotifyOpsRisk(ctx, botID, reason)
 		return nil
 	}
+	// Credential reader, browser re-login notifier, director messenger, the
+	// real login probe behind /resume, and the approved-reply dispatcher.
+	s.wireOpsLate()
 	s.opsApproval.OnCreated = func(ctx context.Context, req opsbot.ApprovalRequest) error {
 		s.imbotSvc.NotifyOpsApproval(ctx, req)
 		return nil
@@ -1982,6 +1999,12 @@ func (s *Server) Shutdown() {
 	if s.imbotDispatcher != nil {
 		s.imbotDispatcher.Stop()
 	}
+	if s.opsDispatcher != nil {
+		s.opsDispatcher.Stop()
+	}
+	if s.opsScheduler != nil {
+		s.opsScheduler.Stop()
+	}
 	if s.githubReplySvc != nil {
 		s.githubReplySvc.Stop()
 	}
@@ -2062,6 +2085,9 @@ func (s *Server) initOpsBot(authz *service.Authz) {
 			CreatedAt:     from,
 			CreatedAt_2:   to,
 		})
+	}
+	budget.Breakdown = func(ctx context.Context, epicIssueID int64, from, to time.Time) ([]opsbot.UsageItem, error) {
+		return opsCostBreakdown(ctx, store.Wrap(s.db), epicIssueID, from, to)
 	}
 	budget.Limit = func(ctx context.Context, botID int64) (float64, string, error) {
 		bot, err := svc.Get(ctx, botID)
@@ -2166,6 +2192,10 @@ func (s *Server) initOpsBot(authz *service.Authz) {
 		DB:        s.db,
 		DataDir:   s.cfg.DataDir,
 	}
+
+	// The runnable half: adapter resolver, publisher, engagement + dispatcher,
+	// metrics and the director/calendar/review services.
+	s.initOpsRuntime(svc, approval, budget, registry)
 }
 
 // draftOpsPackProviderContract feeds a Pack generator's OpenAPI contract into

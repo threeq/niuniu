@@ -463,6 +463,58 @@ func (q *Queries) ListOpsEngagementsByStatus(ctx context.Context, arg ListOpsEng
 	return items, nil
 }
 
+const listOpsEngagementsByStatusGlobal = `-- name: ListOpsEngagementsByStatusGlobal :many
+SELECT id, bot_id, issue_id, platform_engagement_id, kind, author, text, category, risk_level, suggested_reply, status, approval_request_id, reply_text, receipt, decided_by, decided_at, created_at, updated_at FROM ops_engagements
+WHERE status = ? ORDER BY updated_at ASC LIMIT ?
+`
+
+type ListOpsEngagementsByStatusGlobalParams struct {
+	Status string `json:"status"`
+	Limit  int64  `json:"limit"`
+}
+
+func (q *Queries) ListOpsEngagementsByStatusGlobal(ctx context.Context, arg ListOpsEngagementsByStatusGlobalParams) ([]OpsEngagement, error) {
+	rows, err := q.db.QueryContext(ctx, listOpsEngagementsByStatusGlobal, arg.Status, arg.Limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []OpsEngagement{}
+	for rows.Next() {
+		var i OpsEngagement
+		if err := rows.Scan(
+			&i.ID,
+			&i.BotID,
+			&i.IssueID,
+			&i.PlatformEngagementID,
+			&i.Kind,
+			&i.Author,
+			&i.Text,
+			&i.Category,
+			&i.RiskLevel,
+			&i.SuggestedReply,
+			&i.Status,
+			&i.ApprovalRequestID,
+			&i.ReplyText,
+			&i.Receipt,
+			&i.DecidedBy,
+			&i.DecidedAt,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listOpsMetricsDaily = `-- name: ListOpsMetricsDaily :many
 SELECT id, bot_id, date, metrics_json, source, created_at FROM ops_metrics_daily
 WHERE bot_id = ? AND date >= ? AND date <= ? ORDER BY date ASC

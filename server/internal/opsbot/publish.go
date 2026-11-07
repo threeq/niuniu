@@ -66,6 +66,9 @@ var degradableAdapterCodes = map[string]bool{
 	"recipe_broken":          true,
 	"no_adapter":             true,
 	"manual":                 true,
+	// An expired browser login cannot be driven automatically right now; the
+	// content still needs to go out, so hand it to the operator as a package.
+	channel.CodeLoginExpired: true,
 }
 
 // PublishInput describes one publish attempt. BotID and IssueID are the only
@@ -181,6 +184,14 @@ type Publisher struct {
 	Notify   func(ctx context.Context, botID int64, event string, detail map[string]any) error
 	// CheckBudget blocks a publish before any record is written.
 	CheckBudget func(ctx context.Context, botID int64) error
+	// BotStatus gates the actual send on the account lifecycle. A paused or
+	// disabled account (including a kill switch) is never published to; the
+	// record stays pending. Optional: nil skips the check.
+	BotStatus func(ctx context.Context, botID int64) (string, error)
+	// OnAdapterFailure observes every failed adapter attempt before degradation
+	// or failure handling, so the account risk controller can pause on login
+	// expiry / rate limits. Optional.
+	OnAdapterFailure func(ctx context.Context, botID int64, err error)
 	// Schedule registers run to fire at at. The run callback reloads the
 	// pending record and dispatches it.
 	Schedule func(ctx context.Context, at time.Time, key string, run func(context.Context)) error
@@ -399,6 +410,18 @@ func (p *Publisher) endFiring(recordID int64) {
 
 // dispatch drives one platform publish and records its outcome.
 func (p *Publisher) dispatch(ctx context.Context, in PublishInput, key string, recordID int64) (PublishResult, error) {
+	if p.BotStatus != nil {
+		status, err := p.BotStatus(ctx, in.BotID)
+		if err != nil {
+			return PublishResult{RecordID: recordID, Status: PublishStatusPending}, fmt.Errorf("opsbot: check bot status: %w", err)
+		}
+		if status != StatusActive {
+			// A kill switch or pause must stop the send even for a record that
+			// was queued before it; the record stays pending for a re-run.
+			return PublishResult{RecordID: recordID, Status: PublishStatusPending},
+				fmt.Errorf("%w: %s", ErrBotNotActive, status)
+		}
+	}
 	adapter, err := p.adapterFor(ctx, in.BotID)
 	if err != nil {
 		return p.handleFailure(ctx, in, key, recordID, err, 0)
@@ -555,6 +578,9 @@ func (p *Publisher) sleep(ctx context.Context, d time.Duration) error {
 // handleFailure degrades a capability/recipe gap to a manual package and
 // records everything else as a terminal failure with a concrete issue.
 func (p *Publisher) handleFailure(ctx context.Context, in PublishInput, key string, recordID int64, cause error, attempts int) (PublishResult, error) {
+	if p.OnAdapterFailure != nil {
+		p.OnAdapterFailure(ctx, in.BotID, cause)
+	}
 	if isDegradablePublishError(cause) {
 		return p.degradeToManual(ctx, in, key, recordID, cause, attempts)
 	}
