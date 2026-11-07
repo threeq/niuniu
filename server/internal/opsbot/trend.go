@@ -200,8 +200,12 @@ func (t *Trend) Poll(ctx context.Context) ([]Signal, error) {
 // Only the director evaluates signals; an empty director.Role is accepted for
 // callers that already resolved it.
 func (t *Trend) Evaluate(ctx context.Context, director BotRef, signals []Signal) ([]TrendDecision, error) {
-	if director.Role != "" && director.Role != RoleDirector {
+	if director.Role != RoleDirector {
 		return nil, fmt.Errorf("%w: only a director evaluates hot-topic signals", ErrInvalidInput)
+	}
+	directorBot, err := t.directorScope(ctx, director)
+	if err != nil {
+		return nil, err
 	}
 
 	now := t.now()
@@ -232,7 +236,7 @@ func (t *Trend) Evaluate(ctx context.Context, director BotRef, signals []Signal)
 			continue
 		}
 		for _, candidate := range candidates {
-			decision, err := t.evaluateAccount(ctx, candidate.botID, candidate.fit, sig, now, week, nextWeek, monday, nextMonday, today, since, scheduled[candidate.botID])
+			decision, err := t.evaluateAccount(ctx, directorBot, candidate.botID, candidate.fit, sig, now, week, nextWeek, monday, nextMonday, today, since, scheduled[candidate.botID])
 			if err != nil {
 				return decisions, err
 			}
@@ -250,7 +254,7 @@ type fitCandidate struct {
 	fit   float64
 }
 
-func (t *Trend) evaluateAccount(ctx context.Context, botID int64, fit float64, sig Signal, now time.Time, week, nextWeek string, monday, nextMonday time.Time, today string, since time.Time, prior []string) (TrendDecision, error) {
+func (t *Trend) evaluateAccount(ctx context.Context, directorBot *store.OpsBot, botID int64, fit float64, sig Signal, now time.Time, week, nextWeek string, monday, nextMonday time.Time, today string, since time.Time, prior []string) (TrendDecision, error) {
 	decision := TrendDecision{
 		Signal: sig,
 		BotID:  botID,
@@ -258,7 +262,7 @@ func (t *Trend) evaluateAccount(ctx context.Context, botID int64, fit float64, s
 		Score:  trendScore(sig, fit),
 	}
 
-	info, err := t.botContext(ctx, botID)
+	info, err := t.botContext(ctx, directorBot, botID)
 	if err != nil {
 		return decision, err
 	}
@@ -337,7 +341,27 @@ type trendBotInfo struct {
 	boost       bool
 }
 
-func (t *Trend) botContext(ctx context.Context, botID int64) (trendBotInfo, error) {
+// directorScope resolves the evaluating director when a bot store is wired.
+// Without a store there is no bot metadata to verify, so the entry layer must
+// have resolved the director already (same trust boundary as Calendar).
+func (t *Trend) directorScope(ctx context.Context, director BotRef) (*store.OpsBot, error) {
+	if t.Bots == nil {
+		return nil, nil
+	}
+	if director.ID <= 0 {
+		return nil, fmt.Errorf("%w: director id is required", ErrInvalidInput)
+	}
+	bot, err := t.Bots.GetOpsBot(ctx, director.ID)
+	if err != nil {
+		return nil, fmt.Errorf("opsbot: load director %d: %w", director.ID, err)
+	}
+	if bot.Role != RoleDirector {
+		return nil, fmt.Errorf("%w: bot %d is not a director", ErrInvalidInput, director.ID)
+	}
+	return &bot, nil
+}
+
+func (t *Trend) botContext(ctx context.Context, directorBot *store.OpsBot, botID int64) (trendBotInfo, error) {
 	info := trendBotInfo{
 		packID:     "generic",
 		accountRef: fmt.Sprintf("bot_%d", botID),
@@ -352,6 +376,12 @@ func (t *Trend) botContext(ctx context.Context, botID int64) (trendBotInfo, erro
 	bot, err := t.Bots.GetOpsBot(ctx, botID)
 	if err != nil {
 		return info, fmt.Errorf("opsbot: load bot %d for trend: %w", botID, err)
+	}
+	if bot.Role != RoleAccount {
+		return info, fmt.Errorf("%w: bot %d is not an account bot", ErrInvalidInput, botID)
+	}
+	if directorBot != nil && (bot.OwnerType != directorBot.OwnerType || bot.OwnerID != directorBot.OwnerID) {
+		return info, fmt.Errorf("%w: account bot %d is not owned by director %d", ErrInvalidInput, botID, directorBot.ID)
 	}
 	info.packID = fallbackText(strings.TrimSpace(bot.PackID), "generic")
 	info.accountRef = fallbackText(strings.TrimSpace(bot.AccountRef), strings.TrimSpace(bot.DisplayName), info.accountRef)

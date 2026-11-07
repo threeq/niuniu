@@ -275,15 +275,17 @@ func TestTrendDedupesRepeatedSignalInOneEvaluation(t *testing.T) {
 func TestTrendRespectsHotSpotBoostSetting(t *testing.T) {
 	tr := newTestTrend(t)
 	tr.Bots = &fakeTrendBots{bots: map[int64]store.OpsBot{
+		2: {ID: 2, Role: RoleDirector, OwnerType: defaultOwnerType, OwnerID: 7},
 		1: {
 			ID: 1, Role: RoleAccount, PackID: "xiaohongshu",
+			OwnerType: defaultOwnerType, OwnerID: 7,
 			CadenceJson: `{"posts_per_week":2,"hot_spot_boost":false}`,
 		},
 	}}
 	planner := &fakeTrendPlanner{}
 	tr.Planner = planner
 
-	decisions, err := tr.Evaluate(context.Background(), BotRef{ID: 0, Role: RoleDirector}, []Signal{
+	decisions, err := tr.Evaluate(context.Background(), BotRef{ID: 2, Role: RoleDirector}, []Signal{
 		{Title: "秋季护肤", Heat: 90, Fit: map[int64]float64{1: 0.9}},
 	})
 	require.NoError(t, err)
@@ -312,8 +314,10 @@ func TestTrendBudgetPrecheckBlocksAdd(t *testing.T) {
 func TestTrendUsesBotContextForBrief(t *testing.T) {
 	tr := newTestTrend(t)
 	tr.Bots = &fakeTrendBots{bots: map[int64]store.OpsBot{
+		2: {ID: 2, Role: RoleDirector, OwnerType: defaultOwnerType, OwnerID: 7},
 		1: {
 			ID: 1, Role: RoleAccount, PackID: "wechat_mp", AccountRef: "wx_main",
+			OwnerType: defaultOwnerType, OwnerID: 7,
 			DisplayName: "主号", EpicIssueID: nullInt64(901),
 			GoalsJson:   `{"type":"brand","text":"护肤知识科普","audience":"25-35 女性"}`,
 			CadenceJson: `{"posts_per_week":2,"hot_spot_boost":true}`,
@@ -322,7 +326,7 @@ func TestTrendUsesBotContextForBrief(t *testing.T) {
 	planner := &fakeTrendPlanner{}
 	tr.Planner = planner
 
-	decisions, err := tr.Evaluate(context.Background(), BotRef{ID: 0, Role: RoleDirector}, []Signal{
+	decisions, err := tr.Evaluate(context.Background(), BotRef{ID: 2, Role: RoleDirector}, []Signal{
 		{Title: "秋季护肤", Heat: 90, Fit: map[int64]float64{1: 0.9}},
 	})
 	require.NoError(t, err)
@@ -339,6 +343,38 @@ func TestTrendUsesBotContextForBrief(t *testing.T) {
 func TestTrendRejectsNonDirectorEvaluation(t *testing.T) {
 	tr := newTestTrend(t)
 	_, err := tr.Evaluate(context.Background(), BotRef{ID: 1, Role: RoleAccount}, []Signal{
+		{Title: "秋季护肤", Heat: 90, Fit: map[int64]float64{1: 0.9}},
+	})
+	require.ErrorIs(t, err, ErrInvalidInput)
+}
+
+func TestTrendRejectsUnresolvedDirectorRole(t *testing.T) {
+	tr := newTestTrend(t)
+	_, err := tr.Evaluate(context.Background(), BotRef{ID: 2}, []Signal{
+		{Title: "秋季护肤", Heat: 90, Fit: map[int64]float64{1: 0.9}},
+	})
+	require.ErrorIs(t, err, ErrInvalidInput)
+}
+
+func TestTrendRejectsForeignAccountBot(t *testing.T) {
+	tr := newTestTrend(t)
+	tr.Bots = &fakeTrendBots{bots: map[int64]store.OpsBot{
+		2: {ID: 2, Role: RoleDirector, OwnerType: defaultOwnerType, OwnerID: 7},
+		1: {ID: 1, Role: RoleAccount, OwnerType: defaultOwnerType, OwnerID: 9},
+	}}
+	_, err := tr.Evaluate(context.Background(), BotRef{ID: 2, Role: RoleDirector}, []Signal{
+		{Title: "秋季护肤", Heat: 90, Fit: map[int64]float64{1: 0.9}},
+	})
+	require.ErrorIs(t, err, ErrInvalidInput)
+	require.ErrorContains(t, err, "not owned by director")
+}
+
+func TestTrendRequiresDirectorIDWhenBotsWired(t *testing.T) {
+	tr := newTestTrend(t)
+	tr.Bots = &fakeTrendBots{bots: map[int64]store.OpsBot{
+		1: {ID: 1, Role: RoleAccount, OwnerType: defaultOwnerType, OwnerID: 7},
+	}}
+	_, err := tr.Evaluate(context.Background(), BotRef{ID: 0, Role: RoleDirector}, []Signal{
 		{Title: "秋季护肤", Heat: 90, Fit: map[int64]float64{1: 0.9}},
 	})
 	require.ErrorIs(t, err, ErrInvalidInput)
