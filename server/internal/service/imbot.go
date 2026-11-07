@@ -17,6 +17,7 @@ import (
 	"github.com/niuniu-dev/niuniu/internal/imbot"
 	"github.com/niuniu-dev/niuniu/internal/intake"
 	"github.com/niuniu-dev/niuniu/internal/integration/crypto"
+	"github.com/niuniu-dev/niuniu/internal/opsbot"
 	"github.com/niuniu-dev/niuniu/internal/store"
 )
 
@@ -105,6 +106,11 @@ type IMBotService struct {
 	procMu        sync.Mutex
 	procReactions map[int64][]pendingReaction
 
+	// opsOnboarding is the conversational ops-bot setup/config surface (Epic
+	// #788, design §13). Wired via SetOpsOnboarding after construction; nil
+	// leaves the chat on the plain intake path.
+	opsOnboarding *opsbot.Onboarding
+
 	// wechatSessions holds in-flight WeChat QR-login handshakes keyed by the
 	// sha256 of the onboarding token. Ephemeral and process-local (the zero-value
 	// sync.Map is ready to use); a lost session just makes the user restart the
@@ -185,6 +191,13 @@ func (s *IMBotService) SetInbound(dispatch TaskRouter, deliverer MessageDelivere
 	if ws, ok := dispatch.(IssueWorkspaceStarter); ok {
 		s.starter = ws
 	}
+}
+
+// SetOpsOnboarding wires the conversational ops-bot onboarding state machine.
+// When set, HandleInbound gives it first refusal on each text message: a
+// non-empty reply means onboarding claimed the turn and intake is skipped.
+func (s *IMBotService) SetOpsOnboarding(o *opsbot.Onboarding) {
+	s.opsOnboarding = o
 }
 
 // NewIMBotService wires the dependencies. adapters is the same registry handed

@@ -38,6 +38,8 @@ import (
 	"github.com/niuniu-dev/niuniu/internal/kbindex"
 	"github.com/niuniu-dev/niuniu/internal/mfapolicy"
 	"github.com/niuniu-dev/niuniu/internal/notify"
+	"github.com/niuniu-dev/niuniu/internal/opsbot"
+	"github.com/niuniu-dev/niuniu/internal/opsbot/packs"
 	"github.com/niuniu-dev/niuniu/internal/registry"
 	"github.com/niuniu-dev/niuniu/internal/scheduler"
 	"github.com/niuniu-dev/niuniu/internal/service"
@@ -184,6 +186,8 @@ type Server struct {
 	// a ConnectorManager of per-channel outbound long connections, and an
 	// event-bus dispatcher pushing outbound notifications.
 	imbotSvc             *service.IMBotService
+	opsBotSvc            *opsbot.Service
+	opsOnboarding        *opsbot.Onboarding
 	integrationHealthSvc *service.IntegrationHealthService
 	// integrationDraftSvc is the shared draft -> lint -> confirm -> publish ->
 	// verify/rollback pipeline for both onboarding lines (Epic #726 / #734).
@@ -1741,6 +1745,17 @@ func New(cfg *config.Config, db *sql.DB, frontendFS fs.FS) *Server {
 		imbot.ChannelWechat:   wechat.New(),
 	}
 	s.imbotSvc = service.NewIMBotService(s.queries, db, keyring, s.authzSvc, imbotAdapters)
+	// Ops Bot conversational setup (Epic #788, design §13): the IM bot gets first
+	// refusal on inbound text for "接入 <渠道>", /bots, /budget and friends.
+	// Provisioning, Pack generation and credential links are wired by their own
+	// services when available; onboarding degrades cleanly until then.
+	opsPackRegistry := &packs.Registry{DataDir: s.cfg.DataDir}
+	s.opsBotSvc = opsbot.NewService(s.queries, opsbot.FilePacks{Registry: opsPackRegistry})
+	s.opsOnboarding = opsbot.NewOnboarding(s.opsBotSvc)
+	s.opsOnboarding.InstallPacks = func(ctx context.Context, ownerType string, ownerID int64) error {
+		return packs.InstallBuiltins(opsPackRegistry, ownerType, ownerID)
+	}
+	s.imbotSvc.SetOpsOnboarding(s.opsOnboarding)
 	// Rollback switch for the per-chat agent_mode → intake_mode migration (§7.1).
 	s.imbotSvc.SetIntakeLegacyChatMode(s.cfg.Intake.LegacyChatMode)
 	// Health alerts now reach both channels: station-in hub + IM Bot (#744).

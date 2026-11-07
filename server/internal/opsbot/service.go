@@ -58,6 +58,16 @@ type PackRegistry interface {
 	LatestPublished(ownerType string, ownerID int64, packID string) (packs.Manifest, error)
 }
 
+// FilePacks adapts the filesystem registry to PackRegistry: bot configs carry
+// an int64 version while the registry API is int.
+type FilePacks struct{ *packs.Registry }
+
+func (f FilePacks) Load(ownerType string, ownerID int64, packID string, version int64) (packs.Manifest, error) {
+	return f.Registry.Load(ownerType, ownerID, packID, int(version))
+}
+
+var _ PackRegistry = FilePacks{}
+
 // ApprovalCanceller cancels outstanding approvals for a bot; KillSwitch uses it
 // so a disabled bot cannot be resumed through a stale approval card.
 type ApprovalCanceller interface {

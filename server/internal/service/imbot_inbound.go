@@ -17,6 +17,7 @@ import (
 
 	"github.com/niuniu-dev/niuniu/internal/imbot"
 	"github.com/niuniu-dev/niuniu/internal/intake"
+	"github.com/niuniu-dev/niuniu/internal/opsbot"
 	"github.com/niuniu-dev/niuniu/internal/store"
 )
 
@@ -109,6 +110,23 @@ func (s *IMBotService) HandleInbound(ctx context.Context, ev imbot.InboundEvent)
 	observedText := text
 	if text == "" {
 		text = attachmentPlaceholder(ev.Attachments)
+	}
+
+	// Conversational ops-bot onboarding gets first refusal: it claims the turn
+	// (non-empty reply) for its own commands/intents and leaves everything else
+	// to the intake pipeline below.
+	if s.opsOnboarding != nil {
+		reply, _, oerr := s.opsOnboarding.Handle(ctx, chat.ID,
+			opsbot.OwnerRef{Type: channel.OwnerType, ID: channel.OwnerID}, routeProjectID, text)
+		if oerr != nil {
+			slog.Warn("imbot: ops onboarding failed", "channel", channel.ID, "chat", chat.ID, "error", oerr)
+			s.pushText(ctx, channel, ev.ChatExtID, ev.ThreadExtID, "处理运营 Bot 接入流程时出错，请稍后重试或回复 /cancel。")
+			return
+		}
+		if reply != "" {
+			s.pushText(ctx, channel, ev.ChatExtID, ev.ThreadExtID, reply)
+			return
+		}
 	}
 
 	// Auto chats are read in full: ambient messages feed the suggestion analysis
