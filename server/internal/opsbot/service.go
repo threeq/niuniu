@@ -58,12 +58,11 @@ type PackRegistry interface {
 	LatestPublished(ownerType string, ownerID int64, packID string) (packs.Manifest, error)
 }
 
-// FilePacks adapts the filesystem registry to PackRegistry: bot configs carry
-// an int64 version while the registry API is int.
+// FilePacks adapts the filesystem registry to PackRegistry.
 type FilePacks struct{ *packs.Registry }
 
-func (f FilePacks) Load(ownerType string, ownerID int64, packID string, version int64) (packs.Manifest, error) {
-	return f.Registry.Load(ownerType, ownerID, packID, int(version))
+func (f FilePacks) Load(ownerType string, ownerID int64, packID string, version int) (packs.Manifest, error) {
+	return f.Registry.Load(ownerType, ownerID, packID, version)
 }
 
 var _ PackRegistry = FilePacks{}
