@@ -140,6 +140,7 @@ type Onboarding struct {
 	Service     *Service
 	Provisioner *Provisioner // optional: creates the control Epic/workspace
 	Approvals   *Approval    // optional: backs /approvals
+	Risk        *Risk        // optional: gates /resume on a re-login check
 	Generator   PackGenerator
 	Credentials CredentialLinker
 	// InstallPacks seeds an owner's built-in Packs on first use (idempotent).
@@ -686,7 +687,18 @@ func (o *Onboarding) statusReply(ctx context.Context, chatID int64, owner OwnerR
 		status = StatusPaused
 		label = "已暂停"
 	}
-	if _, err := o.Service.SetStatus(ctx, bot.ID, status); err != nil {
+	if pause {
+		if _, err := o.Service.SetStatus(ctx, bot.ID, status); err != nil {
+			return "", err
+		}
+	} else if o.Risk != nil {
+		if _, err := o.Risk.Resume(ctx, bot.ID); err != nil {
+			if errors.Is(err, ErrReloginRequired) {
+				return "账号仍需重新登录：请先完成扫码/授权登录，再发送 /resume。", nil
+			}
+			return "", err
+		}
+	} else if _, err := o.Service.SetStatus(ctx, bot.ID, status); err != nil {
 		return "", err
 	}
 	return fmt.Sprintf("%s「%s」。", label, bot.DisplayName), nil

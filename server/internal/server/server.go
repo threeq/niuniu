@@ -140,6 +140,7 @@ type Server struct {
 	opsBotSvc        *opsbot.Service
 	opsApproval      *opsbot.Approval
 	opsBudget        *opsbot.Budget
+	opsRisk          *opsbot.Risk
 	opsProvisioner   *opsbot.Provisioner
 	opsBotHandler    *api.OpsBotHandler
 
@@ -1768,6 +1769,7 @@ func New(cfg *config.Config, db *sql.DB, frontendFS fs.FS) *Server {
 	// so /approvals and the kill switch see the same state machine.
 	s.opsOnboarding = opsbot.NewOnboarding(s.opsBotSvc)
 	s.opsOnboarding.Approvals = s.opsApproval
+	s.opsOnboarding.Risk = s.opsRisk
 	s.opsOnboarding.Provisioner = s.opsProvisioner
 	s.opsOnboarding.Generator = &opsbot.PackDraftGenerator{Generator: s.opsPackGenerator}
 	s.opsOnboarding.InstallPacks = func(ctx context.Context, ownerType string, ownerID int64) error {
@@ -1781,6 +1783,12 @@ func New(cfg *config.Config, db *sql.DB, frontendFS fs.FS) *Server {
 	// Notification is best-effort by contract: NotifyOpsApproval logs failures.
 	s.imbotSvc.SetOpsApproval(s.opsApproval)
 	s.imbotSvc.SetOpsNotifier(&opsbot.Notifier{})
+	// Risk alerts (kill switch, login expiry, throttling) reach the bot's bound
+	// chats through the same best-effort path as budget alerts.
+	s.opsRisk.Notify = func(ctx context.Context, botID int64, reason string) error {
+		s.imbotSvc.NotifyOpsRisk(ctx, botID, reason)
+		return nil
+	}
 	s.opsApproval.OnCreated = func(ctx context.Context, req opsbot.ApprovalRequest) error {
 		s.imbotSvc.NotifyOpsApproval(ctx, req)
 		return nil
@@ -2129,17 +2137,29 @@ func (s *Server) initOpsBot(authz *service.Authz) {
 		DeleteWorkspaces: opsWorkspaceDeleter{workspaces: s.workspaceSvc},
 	}
 
+	// Risk is the account kill switch and signal evaluator. The IM notifier is
+	// attached once imbotSvc exists; the session backend is shared with the
+	// browser worker's ops_browser_sessions rows.
+	risk := &opsbot.Risk{
+		Bots:        svc,
+		Approvals:   approval,
+		Engagements: s.queries,
+		Sessions:    browser.NewSessionManager(s.queries, s.cfg.DataDir),
+	}
+
 	s.opsPackRegistry = registry
 	s.opsPackGenerator = packGenerator
 	s.opsBotSvc = svc
 	s.opsApproval = approval
 	s.opsBudget = budget
+	s.opsRisk = risk
 	s.opsProvisioner = provisioner
 	s.opsBotHandler = &api.OpsBotHandler{
 		Svc:       svc,
 		Provision: provisioner,
 		Approval:  approval,
 		Budget:    budget,
+		Risk:      risk,
 		Packs:     registry,
 		Authz:     authz,
 		Queries:   s.queries,

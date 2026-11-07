@@ -38,6 +38,7 @@ type OpsBotHandler struct {
 	Provision *opsbot.Provisioner
 	Approval  *opsbot.Approval
 	Budget    *opsbot.Budget
+	Risk      *opsbot.Risk
 	Packs     *packs.Registry
 	Authz     *service.Authz
 	Queries   *store.Queries
@@ -389,6 +390,8 @@ func (h *OpsBotHandler) respondOpsError(c *gin.Context, err error) {
 		RespondError(c, http.StatusConflict, "OPS_APPROVAL_ALREADY_DECIDED", err.Error())
 	case errors.Is(err, opsbot.ErrBudgetExceeded):
 		RespondError(c, http.StatusConflict, "OPS_BUDGET_EXCEEDED", err.Error())
+	case errors.Is(err, opsbot.ErrReloginRequired):
+		RespondError(c, http.StatusConflict, "OPS_RELOGIN_REQUIRED", err.Error())
 	case errors.Is(err, packs.ErrVersionExists):
 		RespondError(c, http.StatusConflict, "OPS_PACK_VERSION_EXISTS", err.Error())
 	case errors.Is(err, opsbot.ErrInvalidInput),
@@ -657,9 +660,19 @@ func (h *OpsBotHandler) setBotStatus(c *gin.Context, status string) {
 		updated store.OpsBot
 		err     error
 	)
-	if status == opsbot.StatusDisabled {
+	switch {
+	case status == opsbot.StatusDisabled && h.Risk != nil:
+		// The risk kill switch also drains queued replies and pages the
+		// operator; the plain service path only cancels approvals.
+		if _, err = h.Risk.Kill(c.Request.Context(), bot.ID, "operator"); err == nil {
+			updated, err = h.Svc.Get(c.Request.Context(), bot.ID)
+		}
+	case status == opsbot.StatusActive && h.Risk != nil:
+		// A resume must pass the re-login check first.
+		updated, err = h.Risk.Resume(c.Request.Context(), bot.ID)
+	case status == opsbot.StatusDisabled:
 		updated, err = h.Svc.KillSwitch(c.Request.Context(), bot.ID)
-	} else {
+	default:
 		updated, err = h.Svc.SetStatus(c.Request.Context(), bot.ID, status)
 	}
 	if err != nil {
