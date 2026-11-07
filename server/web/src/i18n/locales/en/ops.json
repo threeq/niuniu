@@ -1,0 +1,141 @@
+{
+  "title": "Ops bots",
+  "subtitle": "Review status, budget headroom and risk by owner → channel → account; open an account to drill down.",
+  "refresh": "Refresh",
+  "loadError": "Failed to load ops data",
+  "retry": "Retry",
+  "emptyTitle": "No ops bots yet",
+  "emptyDescription": "Say \"connect my WeChat Official Account\" in IM to create the first account.",
+  "emptySuggestion1": "Connect WeChat Official Account",
+  "emptySuggestion2": "Connect Xiaohongshu",
+  "ownerError": "Failed to load this owner's data: {{message}}",
+  "channelCount": "{{count}} accounts",
+  "packVersion": "v{{version}}",
+  "packUnbound": "No channel bound",
+  "columns": {
+    "account": "Account",
+    "status": "Status",
+    "pack": "Channel / Pack",
+    "operator": "Operator",
+    "output": "Today / Last 7 days",
+    "budget": "Budget left",
+    "approvals": "Approvals",
+    "risk": "Risk",
+    "actions": "Actions"
+  },
+  "status": {
+    "active": "Active",
+    "paused": "Paused",
+    "disabled": "Disabled"
+  },
+  "risk": {
+    "normal": "Normal",
+    "warning": "Attention",
+    "critical": "Risk"
+  },
+  "riskReason": {
+    "paused": "Account is paused",
+    "disabled": "Account is disabled",
+    "budget_exceeded": "Budget exceeded",
+    "budget_low": "Less than 10% budget left",
+    "browser_blocked": "Browser blocked by platform",
+    "browser_throttled": "Browser throttled",
+    "browser_down": "Browser unavailable",
+    "browser_degraded": "Browser degraded",
+    "browser_login_expired": "Login expired",
+    "high_risk_engagement": "High-risk engagement awaiting handling"
+  },
+  "output": "{{today}} / {{week}}",
+  "budget": {
+    "notConfigured": "Not set",
+    "unlimited": "Unlimited",
+    "remainingOf": "{{amount}} / {{limit}} {{currency}} left",
+    "spent": "Spent {{amount}} {{currency}}",
+    "limit": "Limit {{amount}} {{currency}}"
+  },
+  "approvalsCount": "{{count}} pending",
+  "actions": {
+    "pause": "Pause",
+    "resume": "Resume",
+    "disable": "Disable",
+    "details": "Details",
+    "approve": "Approve",
+    "reject": "Reject",
+    "back": "Back to list"
+  },
+  "toast": {
+    "paused": "Paused {{name}}",
+    "resumed": "Resumed {{name}}",
+    "disabled": "Disabled {{name}}",
+    "actionFailed": "Action failed: {{message}}",
+    "approved": "Approval accepted",
+    "rejected": "Approval rejected"
+  },
+  "detail": {
+    "title": "Account details",
+    "notFound": "Account not found",
+    "summary": "Overview",
+    "metrics": "Metrics",
+    "calendar": "Calendar",
+    "engagements": "Engagements",
+    "approvals": "Approvals",
+    "browser": "Browser session",
+    "metricsEmpty": "No metrics yet",
+    "calendarEmpty": "Nothing scheduled",
+    "engagementsEmpty": "No engagements",
+    "approvalsEmpty": "No pending approvals",
+    "browserEmpty": "No browser session",
+    "metricDate": "{{date}} · source {{source}}",
+    "dueDate": "Due {{date}}",
+    "riskLevel": "Risk {{level}}",
+    "engagementAuthor": "{{author}} · {{kind}}",
+    "approvalType": "{{type}}",
+    "approvalRequestedAt": "Requested {{time}}",
+    "browserLogin": "Login: {{value}}",
+    "browserHealth": "Health: {{value}}",
+    "browserRisk": "Risk state: {{value}}",
+    "browserBackend": "Backend: {{value}}",
+    "browserError": "Last error: {{value}}",
+    "lastUpdated": "Updated {{time}}"
+  },
+  "loginStatus": {
+    "unknown": "Unknown",
+    "valid": "Valid",
+    "expired": "Expired"
+  },
+  "health": {
+    "unknown": "Unknown",
+    "healthy": "Healthy",
+    "degraded": "Degraded",
+    "down": "Down"
+  },
+  "riskState": {
+    "normal": "Normal",
+    "throttled": "Throttled",
+    "blocked": "Blocked"
+  },
+  "engagementRisk": {
+    "low": "Low",
+    "medium": "Medium",
+    "high": "High"
+  },
+  "engagementStatus": {
+    "new": "New",
+    "classified": "Classified",
+    "suggested": "Suggested",
+    "approved": "Approved",
+    "sent": "Sent",
+    "rejected": "Rejected",
+    "escalated": "Escalated",
+    "failed": "Failed"
+  },
+  "calendarStatus": {
+    "created": "To do",
+    "spec": "Spec",
+    "plan": "Plan",
+    "implement": "Implement",
+    "test": "Test",
+    "done": "Done",
+    "complete": "Complete"
+  }
+}

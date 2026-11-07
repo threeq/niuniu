@@ -1,0 +1,141 @@
+{
+  "title": "運營 Bot",
+  "subtitle": "按所有者 → 渠道 → 賬號檢視運營狀態、預算餘量與風險；點選賬號可下鑽。",
+  "refresh": "重新整理",
+  "loadError": "運營資料載入失敗",
+  "retry": "重試",
+  "emptyTitle": "還沒有運營 Bot",
+  "emptyDescription": "在 IM 裡說「接入公眾號」，就能建立第一個運營賬號。",
+  "emptySuggestion1": "接入公眾號",
+  "emptySuggestion2": "接入小紅書",
+  "ownerError": "該所有者的資料載入失敗：{{message}}",
+  "channelCount": "{{count}} 個賬號",
+  "packVersion": "v{{version}}",
+  "packUnbound": "未繫結渠道",
+  "columns": {
+    "account": "賬號",
+    "status": "狀態",
+    "pack": "渠道 / Pack",
+    "operator": "運營人",
+    "output": "今日 / 近 7 天產出",
+    "budget": "預算餘量",
+    "approvals": "待審批",
+    "risk": "風險",
+    "actions": "操作"
+  },
+  "status": {
+    "active": "執行中",
+    "paused": "已暫停",
+    "disabled": "已停用"
+  },
+  "risk": {
+    "normal": "正常",
+    "warning": "注意",
+    "critical": "風險"
+  },
+  "riskReason": {
+    "paused": "賬號已暫停",
+    "disabled": "賬號已停用",
+    "budget_exceeded": "預算超支",
+    "budget_low": "預算不足 10%",
+    "browser_blocked": "瀏覽器被風控攔截",
+    "browser_throttled": "瀏覽器被限流",
+    "browser_down": "瀏覽器不可用",
+    "browser_degraded": "瀏覽器降級",
+    "browser_login_expired": "登入態失效",
+    "high_risk_engagement": "有高風險互動待處理"
+  },
+  "output": "{{today}} / {{week}}",
+  "budget": {
+    "notConfigured": "未設定",
+    "unlimited": "不限",
+    "remainingOf": "餘 {{amount}} / {{limit}} {{currency}}",
+    "spent": "已用 {{amount}} {{currency}}",
+    "limit": "上限 {{amount}} {{currency}}"
+  },
+  "approvalsCount": "{{count}} 待審批",
+  "actions": {
+    "pause": "暫停",
+    "resume": "恢復",
+    "disable": "停用",
+    "details": "詳情",
+    "approve": "透過",
+    "reject": "駁回",
+    "back": "返回列表"
+  },
+  "toast": {
+    "paused": "已暫停 {{name}}",
+    "resumed": "已恢復 {{name}}",
+    "disabled": "已停用 {{name}}",
+    "actionFailed": "操作失敗：{{message}}",
+    "approved": "已透過審批",
+    "rejected": "已駁回審批"
+  },
+  "detail": {
+    "title": "賬號詳情",
+    "notFound": "找不到該賬號",
+    "summary": "概覽",
+    "metrics": "指標",
+    "calendar": "日曆",
+    "engagements": "互動",
+    "approvals": "審批",
+    "browser": "瀏覽器會話",
+    "metricsEmpty": "暫無指標資料",
+    "calendarEmpty": "暫無排期",
+    "engagementsEmpty": "暫無互動",
+    "approvalsEmpty": "暫無待審批",
+    "browserEmpty": "暫無瀏覽器會話",
+    "metricDate": "{{date}} · 來源 {{source}}",
+    "dueDate": "截止 {{date}}",
+    "riskLevel": "風險 {{level}}",
+    "engagementAuthor": "{{author}} · {{kind}}",
+    "approvalType": "{{type}}",
+    "approvalRequestedAt": "申請於 {{time}}",
+    "browserLogin": "登入態：{{value}}",
+    "browserHealth": "健康：{{value}}",
+    "browserRisk": "風控：{{value}}",
+    "browserBackend": "後端：{{value}}",
+    "browserError": "最近錯誤：{{value}}",
+    "lastUpdated": "更新於 {{time}}"
+  },
+  "loginStatus": {
+    "unknown": "未知",
+    "valid": "有效",
+    "expired": "已失效"
+  },
+  "health": {
+    "unknown": "未知",
+    "healthy": "正常",
+    "degraded": "降級",
+    "down": "不可用"
+  },
+  "riskState": {
+    "normal": "正常",
+    "throttled": "限流",
+    "blocked": "攔截"
+  },
+  "engagementRisk": {
+    "low": "低",
+    "medium": "中",
+    "high": "高"
+  },
+  "engagementStatus": {
+    "new": "新",
+    "classified": "已分類",
+    "suggested": "已建議",
+    "approved": "已批准",
+    "sent": "已傳送",
+    "rejected": "已駁回",
+    "escalated": "已升級",
+    "failed": "失敗"
+  },
+  "calendarStatus": {
+    "created": "待辦",
+    "spec": "規格",
+    "plan": "計劃",
+    "implement": "實現",
+    "test": "測試",
+    "done": "完成",
+    "complete": "完成"
+  }
+}

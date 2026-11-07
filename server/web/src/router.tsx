@@ -66,6 +66,11 @@ const IntakeReviewPage = lazyNamed(
   () => import('./pages/intake/intake-review-page'),
   'IntakeReviewPage',
 );
+const OpsBotsPage = lazyNamed(() => import('./pages/ops-bots'), 'OpsBotsPage');
+const OpsBotDetailPage = lazyNamed(
+  () => import('./components/ops/ops-bot-detail'),
+  'OpsBotDetailPage',
+);
 
 function requireAuth() {
   return async () => {
@@ -424,6 +429,23 @@ const intakeRoute = createRoute({
   component: IntakeReviewPage,
 });
 
+// Mission control 运营 Bot console (design 2026-11-06 §14.3). /ops is the
+// owner → channel → account list; /ops/$botId is the account drilldown.
+const opsRoute = createRoute({
+  getParentRoute: () => layoutRoute,
+  path: '/ops',
+  component: OpsBotsPage,
+});
+
+const opsBotDetailRoute = createRoute({
+  getParentRoute: () => layoutRoute,
+  path: '/ops/$botId',
+  component: () => {
+    const { botId } = opsBotDetailRoute.useParams();
+    return <OpsBotDetailPage botId={Number(botId)} />;
+  },
+});
+
 const routeTree = rootRoute.addChildren([
   loginRoute,
   imbotOnboardingRoute,
@@ -461,6 +483,8 @@ const routeTree = rootRoute.addChildren([
     dashboardsRoute,
     dashboardDetailRoute,
     intakeRoute,
+    opsRoute,
+    opsBotDetailRoute,
   ]),
 ]);
 

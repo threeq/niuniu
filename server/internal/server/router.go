@@ -843,6 +843,7 @@ func (s *Server) setupRoutes() {
 		// capabilities, plus the global intake pause switch (design §6.6 /
 		// §6.7.8). Cross-project, scoped to the caller's accessible projects.
 		api.GET("/mission-control", s.missionControlHandler.Get)
+		api.GET("/mission-control/ops", s.missionControlHandler.Ops)
 		api.PUT("/mission-control/pause", s.missionControlHandler.SetPause)
 
 		// Completion (自动完成) — project default + named profiles. Independent of
