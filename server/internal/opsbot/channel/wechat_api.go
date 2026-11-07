@@ -263,7 +263,7 @@ func (c *WeChatAPIClient) post(ctx context.Context, path string, body, out any) 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
 		c.apiURL(path, map[string]string{"access_token": token}), bytes.NewReader(data))
 	if err != nil {
-		return err
+		return &transportError{err: err}
 	}
 	req.Header.Set("Content-Type", "application/json")
 	raw, err := c.do(req)
@@ -273,6 +273,14 @@ func (c *WeChatAPIClient) post(ctx context.Context, path string, body, out any) 
 	return decodeWeChat(raw, out)
 }
 
+// transportError keeps the underlying cause reachable through errors.Is
+// while never rendering the request URL: WeChat credentials travel in query
+// strings by protocol, so a raw *url.Error would leak them into logs.
+type transportError struct{ err error }
+
+func (e *transportError) Error() string { return "wechat: transport error" }
+func (e *transportError) Unwrap() error { return e.err }
+
 func (c *WeChatAPIClient) do(req *http.Request) ([]byte, error) {
 	client := c.HTTP
 	if client == nil {
@@ -280,12 +288,12 @@ func (c *WeChatAPIClient) do(req *http.Request) ([]byte, error) {
 	}
 	resp, err := client.Do(req)
 	if err != nil {
-		return nil, &AdapterError{Capability: capabilityFromPath(req.URL.Path), Code: CodeTransport, Retryable: true, Err: err}
+		return nil, &AdapterError{Capability: capabilityFromPath(req.URL.Path), Code: CodeTransport, Retryable: true, Err: &transportError{err: err}}
 	}
 	defer resp.Body.Close()
 	raw, err := io.ReadAll(io.LimitReader(resp.Body, 4<<20))
 	if err != nil {
-		return nil, &AdapterError{Capability: capabilityFromPath(req.URL.Path), Code: CodeTransport, Retryable: true, Err: err}
+		return nil, &AdapterError{Capability: capabilityFromPath(req.URL.Path), Code: CodeTransport, Retryable: true, Err: &transportError{err: err}}
 	}
 	if resp.StatusCode == http.StatusTooManyRequests {
 		return nil, &AdapterError{Capability: capabilityFromPath(req.URL.Path), Code: CodeRateLimited, Retryable: true,
@@ -322,7 +330,7 @@ func (c *WeChatAPIClient) accessToken(ctx context.Context, force bool) (string, 
 	})
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
 	if err != nil {
-		return "", err
+		return "", &transportError{err: err}
 	}
 	raw, err := c.do(req)
 	if err != nil {

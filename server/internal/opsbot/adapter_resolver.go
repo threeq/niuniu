@@ -336,23 +336,39 @@ func loadPackRecipes(root string, m packs.Manifest) (channel.RecipeSet, error) {
 }
 
 func insidePack(root, rel string) (string, error) {
-	// Resolve symlinks BEFORE the containment check: a pack file imported from
-	// an archive could be a link to /etc/passwd, and a lexical Rel would accept
-	// it. Both sides are resolved so a symlinked pack root still works.
-	realRoot, err := filepath.EvalSymlinks(filepath.Clean(root))
+	realRoot, err := filepath.EvalSymlinks(root)
 	if err != nil {
-		return "", fmt.Errorf("pack root %s: %w", filepath.Base(root), err)
+		return "", fmt.Errorf("pack %s: resolve root: %w", filepath.Base(root), err)
 	}
-	real, err := filepath.EvalSymlinks(filepath.Join(realRoot, filepath.FromSlash(rel)))
+	realRoot = filepath.Clean(realRoot)
+	full := filepath.Clean(filepath.Join(realRoot, filepath.FromSlash(rel)))
+	if !pathWithin(realRoot, full) {
+		return "", fmt.Errorf("pack %s: recipe path %q escapes the pack root", filepath.Base(realRoot), rel)
+	}
+	// Resolve symlinks in the target too: a recipe file that links outside the
+	// pack would otherwise read foreign content.
+	realFull, err := filepath.EvalSymlinks(full)
 	if err != nil {
-		// Callers treat os.ErrNotExist as "optional recipe absent".
-		return "", err
+		// Optional recipes may legitimately be absent; lexical containment was
+		// already checked above, so let the caller's ReadFile report ENOENT.
+		if errors.Is(err, os.ErrNotExist) || os.IsNotExist(err) {
+			return full, nil
+		}
+		return "", fmt.Errorf("pack %s: recipe path %q: %w", filepath.Base(realRoot), rel, err)
 	}
-	inside, err := filepath.Rel(realRoot, real)
-	if err != nil || inside == ".." || strings.HasPrefix(inside, ".."+string(filepath.Separator)) {
-		return "", fmt.Errorf("pack %s: recipe path %q escapes the pack root", filepath.Base(root), rel)
+	if !pathWithin(realRoot, realFull) {
+		return "", fmt.Errorf("pack %s: recipe path %q escapes the pack root", filepath.Base(realRoot), rel)
 	}
-	return real, nil
+	return realFull, nil
+}
+
+func pathWithin(root, target string) bool {
+	inside, err := filepath.Rel(root, target)
+	if err != nil {
+		return false
+	}
+	return inside != ".." && !strings.HasPrefix(inside, ".."+string(filepath.Separator))
+
 }
 
 func packLimits(m packs.Manifest) (channel.BrowserLimits, map[string]string) {
