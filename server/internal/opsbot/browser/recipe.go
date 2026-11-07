@@ -56,13 +56,13 @@ const (
 // mean the platform UI changed and should degrade to a manual package.
 var (
 	ErrUnknownAction    = errors.New("opsbot/browser: unknown recipe action")
+	ErrHostNotAllowed   = errors.New("opsbot/browser: navigation host is not in the allowlist")
+	ErrSelectorNotFound = errors.New("opsbot/browser: selector not found")
 	ErrAssertFailed     = errors.New("opsbot/browser: assert failed")
 	ErrLoopLimit        = errors.New("opsbot/browser: loop iteration limit reached")
 	ErrInvalidRecipe    = errors.New("opsbot/browser: invalid recipe")
 	ErrMissingInput     = errors.New("opsbot/browser: missing recipe input")
 	ErrNoPage           = errors.New("opsbot/browser: no page opener configured")
-	ErrSelectorNotFound = errors.New("opsbot/browser: selector not found")
-	ErrHostNotAllowed   = errors.New("opsbot/browser: host not allowed")
 )
 
 // StepError annotates a failure with the step that produced it and its class.
