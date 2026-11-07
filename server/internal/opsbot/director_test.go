@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"strconv"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -17,8 +18,18 @@ type fakeDirectorAccounts struct {
 	err  error
 }
 
-func (f *fakeDirectorAccounts) Accounts(context.Context, int64) ([]store.OpsBot, error) {
-	return f.bots, f.err
+func (f *fakeDirectorAccounts) Accounts(_ context.Context, owner OwnerRef, _ int64) ([]store.OpsBot, error) {
+	if f.err != nil {
+		return nil, f.err
+	}
+	out := make([]store.OpsBot, 0, len(f.bots))
+	for _, bot := range f.bots {
+		if bot.OwnerType != owner.Type || bot.OwnerID != owner.ID {
+			continue
+		}
+		out = append(out, bot)
+	}
+	return out, nil
 }
 
 type fakeDirectorPlanner struct {
@@ -74,7 +85,20 @@ type fakeProxyApprover struct {
 	lastDecision Decision
 	lastApproval int64
 	err          error
+	getErr       error
+	botID        int64
 	calls        int
+}
+
+func (f *fakeProxyApprover) Get(_ context.Context, approvalID int64) (ApprovalRequest, error) {
+	if f.getErr != nil {
+		return ApprovalRequest{}, f.getErr
+	}
+	return ApprovalRequest{
+		ID:           approvalID,
+		Status:       ApprovalStatusPending,
+		MetadataJSON: `{"bot_id":` + strconv.FormatInt(f.botID, 10) + `}`,
+	}, nil
 }
 
 func (f *fakeProxyApprover) Decide(_ context.Context, approvalID int64, d Decision) (ApprovalRequest, error) {
@@ -84,11 +108,29 @@ func (f *fakeProxyApprover) Decide(_ context.Context, approvalID int64, d Decisi
 	return ApprovalRequest{ID: approvalID, Status: ApprovalStatusAnswered}, f.err
 }
 
+func testAccounts() []store.OpsBot {
+	return []store.OpsBot{
+		{ID: 1, Role: RoleAccount, OwnerType: defaultOwnerType, OwnerID: 2, DisplayName: "账号 A"},
+		{ID: 2, Role: RoleAccount, OwnerType: defaultOwnerType, OwnerID: 2, DisplayName: "账号 B"},
+	}
+}
+
 func newTestDirector(t *testing.T) *Director {
 	t.Helper()
+	saved := map[int64]float64{}
 	return &Director{
+		Owner:      OwnerRef{Type: defaultOwnerType, ID: 2},
+		BotID:      7,
 		OperatorID: 1,
-		Approvals:  &fakeProxyApprover{},
+		Bots:       &fakeDirectorAccounts{bots: testAccounts()},
+		Budget: &Budget{
+			SaveLimit: func(_ context.Context, botID int64, limit float64, _ string) error {
+				saved[botID] = limit
+				return nil
+			},
+			Resume: func(context.Context, int64) error { return nil },
+		},
+		Approvals: &fakeProxyApprover{botID: 1},
 	}
 }
 
@@ -171,14 +213,21 @@ func TestDirectorAllocateBudgetRejectsInvalidLimit(t *testing.T) {
 
 func TestDirectorAllocateBudgetPersistsAndNotifies(t *testing.T) {
 	var saved map[int64]float64
+	var resumed []int64
 	var notified []int64
 	d := newTestDirector(t)
-	d.SaveBudget = func(_ context.Context, botID int64, limit float64) error {
-		if saved == nil {
-			saved = map[int64]float64{}
-		}
-		saved[botID] = limit
-		return nil
+	d.Budget = &Budget{
+		SaveLimit: func(_ context.Context, botID int64, limit float64, _ string) error {
+			if saved == nil {
+				saved = map[int64]float64{}
+			}
+			saved[botID] = limit
+			return nil
+		},
+		Resume: func(_ context.Context, botID int64) error {
+			resumed = append(resumed, botID)
+			return nil
+		},
 	}
 	d.Messenger = directorMessengerFunc(func(_ context.Context, botID int64, _ string) error {
 		notified = append(notified, botID)
@@ -187,17 +236,30 @@ func TestDirectorAllocateBudgetPersistsAndNotifies(t *testing.T) {
 
 	require.NoError(t, d.AllocateBudget(context.Background(), map[int64]float64{1: 100, 2: 200}))
 	require.Equal(t, map[int64]float64{1: 100, 2: 200}, saved)
+	require.ElementsMatch(t, []int64{1, 2}, resumed)
 	require.ElementsMatch(t, []int64{1, 2}, notified)
+
+	allocations := d.BudgetAllocations()
+	require.Len(t, allocations, 2)
+	require.Equal(t, int64(1), allocations[0].OperatorID)
+	require.Equal(t, defaultDirectorCurrency, allocations[0].Currency)
+}
+
+func TestDirectorAllocateBudgetRejectsBotOutsideScope(t *testing.T) {
+	d := newTestDirector(t)
+	err := d.AllocateBudget(context.Background(), map[int64]float64{99: 100})
+	require.ErrorIs(t, err, ErrNotFound)
+	require.Empty(t, d.BudgetAllocations())
 }
 
 func TestDirectorAllocateByWeight(t *testing.T) {
 	d := newTestDirector(t)
 	d.Bots = &fakeDirectorAccounts{bots: []store.OpsBot{
-		{ID: 1, Role: RoleAccount, GoalsJson: `{"weight":3}`},
-		{ID: 2, Role: RoleAccount, GoalsJson: `{"weight":1}`},
+		{ID: 1, Role: RoleAccount, OwnerType: defaultOwnerType, OwnerID: 2, GoalsJson: `{"weight":3}`},
+		{ID: 2, Role: RoleAccount, OwnerType: defaultOwnerType, OwnerID: 2, GoalsJson: `{"weight":1}`},
 	}}
 
-	limits, err := d.AllocateByWeight(context.Background(), 7, 400)
+	limits, err := d.AllocateByWeight(context.Background(), 400)
 	require.NoError(t, err)
 	require.Equal(t, float64(300), limits[1])
 	require.Equal(t, float64(100), limits[2])
@@ -232,7 +294,7 @@ func TestDirectorPlanAllAggregatesCalendarAndReschedulesConflict(t *testing.T) {
 		return nil
 	})
 
-	result, err := d.PlanAll(context.Background(), 7, "2026-W45")
+	result, err := d.PlanAll(context.Background(), "2026-W45")
 	require.NoError(t, err)
 	require.Equal(t, "2026-W45", result.Week)
 	require.Len(t, result.Accounts, 2)
@@ -266,7 +328,7 @@ func TestDirectorPlanAllReportsAccountFailure(t *testing.T) {
 	d.Planner = planner
 	d.Calendar = &fakeDirectorCalendar{}
 
-	result, err := d.PlanAll(context.Background(), 7, "2026-W45")
+	result, err := d.PlanAll(context.Background(), "2026-W45")
 	require.Error(t, err)
 	require.Len(t, result.Accounts, 2)
 	require.Equal(t, []int64{10}, result.Accounts[0].Created)
@@ -292,13 +354,13 @@ func TestDirectorReportRollsUpAccounts(t *testing.T) {
 
 	d := newTestDirector(t)
 	d.Bots = &fakeDirectorAccounts{bots: []store.OpsBot{
-		{ID: 1, Role: RoleAccount, DisplayName: "账号 A"},
-		{ID: 2, Role: RoleAccount, DisplayName: "账号 B"},
+		{ID: 1, Role: RoleAccount, OwnerType: defaultOwnerType, OwnerID: 2, DisplayName: "账号 A"},
+		{ID: 2, Role: RoleAccount, OwnerType: defaultOwnerType, OwnerID: 2, DisplayName: "账号 B"},
 	}}
 	d.Feedback = fb
 	require.NoError(t, d.AllocateBudget(context.Background(), map[int64]float64{1: 100, 2: 200}))
 
-	rep, err := d.Report(context.Background(), 99, "2026-11-01", "2026-11-07")
+	rep, err := d.Report(context.Background(), "2026-11-01", "2026-11-07")
 	require.NoError(t, err)
 	require.Equal(t, 2, rep.Accounts)
 	require.Equal(t, 3, rep.Published)
@@ -307,27 +369,15 @@ func TestDirectorReportRollsUpAccounts(t *testing.T) {
 	require.Equal(t, map[int64]float64{1: 100, 2: 200}, rep.Allocated)
 }
 
-func TestDirectorBudgetSaverWritesBudgetJSON(t *testing.T) {
-	store.Driver = "sqlite"
-	raw, err := sql.Open("sqlite", ":memory:?_foreign_keys=ON")
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = raw.Close() })
-	_, err = raw.Exec(store.Schema)
-	require.NoError(t, err)
-	_, err = raw.Exec(
-		`INSERT INTO ops_bots (id, owner_type, owner_id, role, account_ref, budget_json) VALUES (1, 'user', 2, 'account', 'a', '{"note":"keep"}')`,
-	)
-	require.NoError(t, err)
-
-	svc := NewService(store.Wrap(raw).Queries(), nil)
+func TestDirectorProxyApproveRejectsBotOutsideScope(t *testing.T) {
 	d := newTestDirector(t)
-	d.Currency = "CNY"
-	d.SaveBudget = (&BudgetSaver{Service: svc, Currency: "CNY"}).Save
+	d.Approvals.(*fakeProxyApprover).botID = 99
+	err := d.ProxyApprove(context.Background(), 9, 1, "总监代审")
+	require.ErrorIs(t, err, ErrNotFound)
 
-	require.NoError(t, d.AllocateBudget(context.Background(), map[int64]float64{1: 250}))
-	bot, err := svc.Get(context.Background(), 1)
-	require.NoError(t, err)
-	require.JSONEq(t, `{"note":"keep","monthly_limit":250,"currency":"CNY"}`, bot.BudgetJson)
+	approver := d.Approvals.(*fakeProxyApprover)
+	require.Zero(t, approver.calls)
+	require.Empty(t, d.ProxyApprovals())
 }
 
 func TestDirectorAccountsSQL(t *testing.T) {
@@ -349,23 +399,37 @@ func TestDirectorAccountsSQL(t *testing.T) {
 	}
 
 	accounts := &SQLDirectorAccounts{Q: store.Wrap(raw).Queries()}
-	bots, err := accounts.Accounts(context.Background(), 1)
+	owner := OwnerRef{Type: "user", ID: 2}
+	bots, err := accounts.Accounts(context.Background(), owner, 1)
 	require.NoError(t, err)
 	require.Len(t, bots, 1)
 	require.Equal(t, int64(2), bots[0].ID)
 
-	// No account links to this director: fall back to every account of the
-	// owner (and never another owner's bots).
+	// Another director's accounts are never handed to this director, even when
+	// this one has no assignments of its own.
+	_, err = raw.Exec(`UPDATE ops_bots SET director_bot_id = NULL WHERE id = 2`)
+	require.NoError(t, err)
+	bots, err = accounts.Accounts(context.Background(), owner, 1)
+	require.NoError(t, err)
+	require.Empty(t, bots)
+
+	// Nobody is linked at all: true single-director deployment, so fall back to
+	// every account of the owner (and never another owner's bots).
 	_, err = raw.Exec(`UPDATE ops_bots SET director_bot_id = NULL`)
 	require.NoError(t, err)
-	bots, err = accounts.Accounts(context.Background(), 1)
+	bots, err = accounts.Accounts(context.Background(), owner, 1)
 	require.NoError(t, err)
 	require.Len(t, bots, 2)
 	require.Equal(t, int64(2), bots[0].ID)
 	require.Equal(t, int64(3), bots[1].ID)
 
-	_, err = accounts.Accounts(context.Background(), 2)
+	// A bot that is not a director is rejected.
+	_, err = accounts.Accounts(context.Background(), owner, 2)
 	require.ErrorIs(t, err, ErrInvalidInput)
+
+	// A director bot outside the authenticated owner scope is not found.
+	_, err = accounts.Accounts(context.Background(), OwnerRef{Type: "user", ID: 9}, 1)
+	require.ErrorIs(t, err, ErrNotFound)
 }
 
 type directorMessengerFunc func(context.Context, int64, string) error

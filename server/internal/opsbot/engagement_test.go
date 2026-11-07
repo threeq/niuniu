@@ -112,7 +112,7 @@ func approveAndSend(t *testing.T, e *Engagement, id int64) error {
 	require.NoError(t, e.Suggest(ctx, ref, id))
 	req, err := e.RequestApproval(ctx, ref, id)
 	require.NoError(t, err)
-	return e.Send(ctx, id, req.ID, Decision{Action: ActionApproved})
+	return e.Send(ctx, ref, id, req.ID, Decision{Action: ActionApproved})
 }
 
 func TestEngagementFullLifecycle(t *testing.T) {
@@ -129,8 +129,8 @@ func TestEngagementFullLifecycle(t *testing.T) {
 	require.NoError(t, err)
 	require.NotZero(t, req.ID)
 
-	require.NoError(t, e.Send(ctx, items[0].ID, req.ID, Decision{Action: ActionApproved}))
-	got, err := e.Get(ctx, items[0].ID)
+	require.NoError(t, e.Send(ctx, BotRef{ID: 1}, items[0].ID, req.ID, Decision{Action: ActionApproved}))
+	got, err := e.Get(ctx, BotRef{ID: 1}, items[0].ID)
 	require.NoError(t, err)
 	require.Equal(t, EngagementSent, got.Status)
 	require.NotEmpty(t, got.Receipt)
@@ -144,13 +144,13 @@ func TestHighRiskEscalates(t *testing.T) {
 	item := seedEngagement(t, e, "投诉：要求退款")
 
 	require.NoError(t, e.Classify(ctx, BotRef{ID: 1}, item.ID))
-	got, err := e.Get(ctx, item.ID)
+	got, err := e.Get(ctx, BotRef{ID: 1}, item.ID)
 	require.NoError(t, err)
 	require.Equal(t, EngagementEscalated, got.Status)
 	require.Equal(t, RiskHigh, got.RiskLevel)
 
 	// High-risk items are never auto-sent, even with an approval decision.
-	err = e.Send(ctx, item.ID, 0, Decision{Action: ActionApproved})
+	err = e.Send(ctx, BotRef{ID: 1}, item.ID, 0, Decision{Action: ActionApproved})
 	require.ErrorIs(t, err, ErrHighRiskEscalated)
 }
 
@@ -185,7 +185,7 @@ func TestEngagementRateLimitQueues(t *testing.T) {
 	err := approveAndSend(t, e, second.ID)
 	require.ErrorIs(t, err, ErrRateLimited)
 
-	got, err := e.Get(ctx, second.ID)
+	got, err := e.Get(ctx, BotRef{ID: 1}, second.ID)
 	require.NoError(t, err)
 	require.Equal(t, EngagementApproved, got.Status, "over-limit item waits for the next window")
 	require.Equal(t, 1, adapter.calls, "no second platform send")
@@ -202,8 +202,8 @@ func TestEngagementRejectedClosesWithoutSending(t *testing.T) {
 	req, err := e.RequestApproval(ctx, ref, item.ID)
 	require.NoError(t, err)
 
-	require.NoError(t, e.Send(ctx, item.ID, req.ID, Decision{Action: ActionRejected}))
-	got, err := e.Get(ctx, item.ID)
+	require.NoError(t, e.Send(ctx, BotRef{ID: 1}, item.ID, req.ID, Decision{Action: ActionRejected}))
+	got, err := e.Get(ctx, BotRef{ID: 1}, item.ID)
 	require.NoError(t, err)
 	require.Equal(t, EngagementRejected, got.Status)
 	require.Zero(t, adapter.calls)
@@ -217,10 +217,44 @@ func TestEngagementSendFailureRecordsFailed(t *testing.T) {
 	item := seedEngagement(t, e, "你好")
 	require.Error(t, approveAndSend(t, e, item.ID))
 
-	got, err := e.Get(ctx, item.ID)
+	got, err := e.Get(ctx, BotRef{ID: 1}, item.ID)
 	require.NoError(t, err)
 	require.Equal(t, EngagementFailed, got.Status)
 	require.Equal(t, 1, adapter.calls)
+}
+
+func TestEngagementSendRequiresApproval(t *testing.T) {
+	e, adapter := newEngagementFixture(t, `{"reply":true,"reply_hourly_limit":20}`)
+	ctx := context.Background()
+	ref := BotRef{ID: 1}
+	item := seedEngagement(t, e, "你好")
+
+	require.NoError(t, e.Classify(ctx, ref, item.ID))
+	require.NoError(t, e.Suggest(ctx, ref, item.ID))
+
+	// No approval card: fail closed instead of auto-approving.
+	err := e.Send(ctx, ref, item.ID, 0, Decision{Action: ActionApproved})
+	require.ErrorIs(t, err, ErrApprovalRequired)
+
+	got, err := e.Get(ctx, ref, item.ID)
+	require.NoError(t, err)
+	require.Equal(t, EngagementSuggested, got.Status)
+	require.Zero(t, adapter.calls)
+}
+
+func TestEngagementScopesByBot(t *testing.T) {
+	e := newTestEngagement(t)
+	ctx := context.Background()
+	item := seedEngagement(t, e, "你好")
+
+	_, err := e.Get(ctx, BotRef{ID: 2}, item.ID)
+	require.ErrorIs(t, err, ErrEngagementNotFound)
+	require.ErrorIs(t, e.Classify(ctx, BotRef{ID: 2}, item.ID), ErrEngagementNotFound)
+	require.ErrorIs(t, e.Send(ctx, BotRef{ID: 2}, item.ID, 0, Decision{Action: ActionApproved}), ErrEngagementNotFound)
+
+	// A zero bot id is never a wildcard.
+	_, err = e.Get(ctx, BotRef{}, item.ID)
+	require.ErrorIs(t, err, ErrEngagementNotFound)
 }
 
 func TestClassifyCategories(t *testing.T) {

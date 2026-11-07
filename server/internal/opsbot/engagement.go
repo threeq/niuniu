@@ -65,6 +65,9 @@ var (
 	// ErrRateLimited is returned when the bot's hourly send cap is reached. The
 	// engagement stays approved and is retried in the next window.
 	ErrRateLimited = errors.New("opsbot: reply hourly limit reached")
+	// ErrApprovalRequired is returned when a bot requires reply approval and
+	// the send carries no approval card. It fails closed: no auto-approval.
+	ErrApprovalRequired = errors.New("opsbot: reply approval is required before sending")
 	// ErrBotNotActive is returned when the bot is paused or disabled.
 	ErrBotNotActive = errors.New("opsbot: bot is not active")
 	// ErrEngagementRejected is returned when a rejected engagement is sent.
@@ -176,7 +179,7 @@ func (e *Engagement) Pull(ctx context.Context, ref BotRef, cursor string) ([]sto
 // Classify assigns a category and risk level. A high-risk engagement is
 // escalated instead of continuing down the reply path.
 func (e *Engagement) Classify(ctx context.Context, ref BotRef, id int64) error {
-	cur, err := e.engagementFor(ctx, ref, id)
+	cur, err := e.Get(ctx, ref, id)
 	if err != nil {
 		return err
 	}
@@ -199,7 +202,7 @@ func (e *Engagement) Classify(ctx context.Context, ref BotRef, id int64) error {
 // Suggest writes a proposed reply. Only classified, non-escalated items are
 // eligible; the item then waits for approval.
 func (e *Engagement) Suggest(ctx context.Context, ref BotRef, id int64) error {
-	cur, err := e.engagementFor(ctx, ref, id)
+	cur, err := e.Get(ctx, ref, id)
 	if err != nil {
 		return err
 	}
@@ -235,7 +238,7 @@ func (e *Engagement) Suggest(ctx context.Context, ref BotRef, id int64) error {
 // RequestApproval creates the reply approval card and records its id on the
 // engagement. A bot whose reply approval switch is off is auto-approved.
 func (e *Engagement) RequestApproval(ctx context.Context, ref BotRef, id int64) (ApprovalRequest, error) {
-	cur, err := e.engagementFor(ctx, ref, id)
+	cur, err := e.Get(ctx, ref, id)
 	if err != nil {
 		return ApprovalRequest{}, err
 	}
@@ -300,16 +303,25 @@ func (e *Engagement) RequestApproval(ctx context.Context, ref BotRef, id int64) 
 }
 
 // Send applies the operator decision and, when approved, hands the reply to
-// the channel adapter. Rejected items are closed. Approved items are rate
-// limited per bot and per hour: over the cap the item stays approved so a
-// later dispatch can retry it. High-risk items are never sent.
-func (e *Engagement) Send(ctx context.Context, id, approvalRequestID int64, d Decision) error {
+// the channel adapter. The engagement must belong to ref.ID. Rejected items are
+// closed. Approved items are rate limited per bot and per hour: over the cap
+// the item stays approved so a later dispatch can retry it. High-risk items are
+// never sent.
+//
+// When the bot requires reply approval, a suggested item can only move forward
+// with a real approval card that belongs to this bot; without one Send fails
+// closed instead of auto-approving.
+func (e *Engagement) Send(ctx context.Context, ref BotRef, id, approvalRequestID int64, d Decision) error {
 	if e.Q == nil {
 		return ErrEngagementNotConfigured
 	}
-	cur, err := e.Get(ctx, id)
+	cur, err := e.Get(ctx, ref, id)
 	if err != nil {
 		return err
+	}
+	bot, err := e.Q.GetOpsBot(ctx, cur.BotID)
+	if err != nil {
+		return fmt.Errorf("load bot %d: %w", cur.BotID, err)
 	}
 
 	switch cur.Status {
@@ -328,8 +340,22 @@ func (e *Engagement) Send(ctx context.Context, id, approvalRequestID int64, d De
 		if _, err := e.transition(ctx, cur, EngagementApproved, nil); err != nil {
 			return err
 		}
-		cur, _ = e.Get(ctx, id)
+		cur, err = e.Get(ctx, ref, id)
+		if err != nil {
+			return err
+		}
 	case EngagementSuggested:
+		if replyApprovalEnabled(bot.ApprovalPolicyJson) {
+			if approvalRequestID <= 0 {
+				return ErrApprovalRequired
+			}
+			if cur.ApprovalRequestID.Valid && cur.ApprovalRequestID.Int64 != approvalRequestID {
+				return fmt.Errorf("%w: approval does not match this engagement", ErrApprovalNotFound)
+			}
+			if err := e.verifyApprovalCard(ctx, approvalRequestID, cur); err != nil {
+				return err
+			}
+		}
 		next, err := e.applyDecision(ctx, cur, approvalRequestID, d)
 		if err != nil {
 			return err
@@ -337,22 +363,19 @@ func (e *Engagement) Send(ctx context.Context, id, approvalRequestID int64, d De
 		if next == EngagementRejected || next == EngagementSuggested {
 			return nil
 		}
-		cur, err = e.Get(ctx, id)
+		cur, err = e.Get(ctx, ref, id)
 		if err != nil {
 			return err
 		}
 	case EngagementApproved:
-		// Already approved by the operator (possibly through the HTTP API).
+		// Approved is only reachable through an authenticated operator entry
+		// (HTTP/MCP) or an approved card; the service cannot re-authenticate it.
 	case EngagementNew, EngagementClassified:
 		return fmt.Errorf("%w: send from %q", ErrEngagementStateChanged, cur.Status)
 	default:
 		return fmt.Errorf("%w: send from %q", ErrEngagementStateChanged, cur.Status)
 	}
 
-	bot, err := e.Q.GetOpsBot(ctx, cur.BotID)
-	if err != nil {
-		return fmt.Errorf("load bot %d: %w", cur.BotID, err)
-	}
 	if bot.Status != StatusActive {
 		return fmt.Errorf("%w: %s", ErrBotNotActive, bot.Status)
 	}
@@ -407,7 +430,7 @@ func (e *Engagement) Send(ctx context.Context, id, approvalRequestID int64, d De
 // Escalate moves an engagement to escalated so it is handled by a human. It is
 // the manual counterpart of the automatic high-risk escalation in Classify.
 func (e *Engagement) Escalate(ctx context.Context, ref BotRef, id int64, reason string) error {
-	cur, err := e.engagementFor(ctx, ref, id)
+	cur, err := e.Get(ctx, ref, id)
 	if err != nil {
 		return err
 	}
@@ -429,8 +452,9 @@ func (e *Engagement) Escalate(ctx context.Context, ref BotRef, id int64, reason 
 	return nil
 }
 
-// Get returns one engagement.
-func (e *Engagement) Get(ctx context.Context, id int64) (store.OpsEngagement, error) {
+// Get returns one engagement scoped to ref.ID. A zero ref is rejected: a
+// missing bot id is never treated as a wildcard.
+func (e *Engagement) Get(ctx context.Context, ref BotRef, id int64) (store.OpsEngagement, error) {
 	if e.Q == nil {
 		return store.OpsEngagement{}, ErrEngagementNotConfigured
 	}
@@ -441,7 +465,30 @@ func (e *Engagement) Get(ctx context.Context, id int64) (store.OpsEngagement, er
 		}
 		return store.OpsEngagement{}, err
 	}
+	if ref.ID == 0 || cur.BotID != ref.ID {
+		return store.OpsEngagement{}, ErrEngagementNotFound
+	}
 	return cur, nil
+}
+
+// verifyApprovalCard rejects a decision applied through an approval that
+// belongs to another bot or another card type.
+func (e *Engagement) verifyApprovalCard(ctx context.Context, approvalRequestID int64, cur store.OpsEngagement) error {
+	if e.Approvals == nil {
+		return ErrEngagementNotConfigured
+	}
+	req, err := e.Approvals.Get(ctx, approvalRequestID)
+	if err != nil {
+		return err
+	}
+	var metadata approvalMetadata
+	if err := json.Unmarshal([]byte(req.MetadataJSON), &metadata); err != nil {
+		return fmt.Errorf("read approval metadata: %w", err)
+	}
+	if metadata.BotID != cur.BotID || metadata.Type != ApprovalReply {
+		return fmt.Errorf("%w: approval does not belong to this engagement", ErrApprovalNotFound)
+	}
+	return nil
 }
 
 // applyDecision records the operator's answer and returns the engagement's
@@ -577,17 +624,6 @@ func (e *Engagement) sentLastHour(ctx context.Context, botID int64) (int64, erro
 		}
 	}
 	return n, nil
-}
-
-func (e *Engagement) engagementFor(ctx context.Context, ref BotRef, id int64) (store.OpsEngagement, error) {
-	cur, err := e.Get(ctx, id)
-	if err != nil {
-		return store.OpsEngagement{}, err
-	}
-	if ref.ID != 0 && cur.BotID != ref.ID {
-		return store.OpsEngagement{}, ErrEngagementNotFound
-	}
-	return cur, nil
 }
 
 func (e *Engagement) transition(ctx context.Context, cur store.OpsEngagement, next string, mutate func(*store.UpdateOpsEngagementStatusParams)) (store.OpsEngagement, error) {
