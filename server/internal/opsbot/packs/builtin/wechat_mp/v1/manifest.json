@@ -12,40 +12,5 @@
   },
   "credential_slots": {
     "account": { "required": true, "scope": "account" }
-  },
-  "content_schema": {
-    "formats": {
-      "article": {
-        "fields": ["title", "author", "digest", "cover", "images", "body", "source_url"],
-        "max_chars": 0,
-        "max_title_chars": 64,
-        "image_ratio": "900x383",
-        "max_images": 20,
-        "video_sec": 0
-      }
-    }
-  },
-  "compliance": {
-    "forbidden_terms": [
-      "最佳", "最好", "最强", "最优", "最高级", "第一", "首选", "唯一",
-      "顶级", "国家级", "世界级", "绝无仅有", "独一无二", "史无前例",
-      "100%", "百分百", "万能", "永久有效", "无任何副作用", "药到病除"
-    ],
-    "required_checks": [
-      "医疗、药品、医疗器械内容须具备相应资质并在正文标注",
-      "金融、投资、理财内容须具备资质并提示风险",
-      "引用数据、观点、图片须标注来源并确认授权",
-      "原创/转载类型须声明，转载须获授权并注明出处",
-      "标题与封面不得夸大、误导或制造焦虑",
-      "不得诱导关注、分享、点赞或强制转发"
-    ]
-  },
-  "metrics_map": {
-    "fields": {
-      "read_count": "views",
-      "share_count": "shares",
-      "like_count": "likes",
-      "net_fans": "follower_delta"
-    }
   }
 }
