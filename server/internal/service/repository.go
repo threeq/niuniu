@@ -167,17 +167,31 @@ func (s *RepositoryService) cloneRepository(ctx context.Context, remoteURL, name
 		return "", fmt.Errorf("cannot create staging directory: %w", err)
 	}
 
-	destPath := filepath.Join(stagingBase, name)
+	// Clone into a unique staging directory instead of stagingBase/<name>.
+	// A failed clone (network drop, bad SSH key, auth prompt) can leave a
+	// partial directory behind; with a fixed name the retry then failed with
+	// "destination already exists: <name>" even though the user changed
+	// nothing but the transient cause. The unique suffix makes every attempt
+	// independent, and the deferred cleanup below removes it on failure.
+	destPath, err := os.MkdirTemp(stagingBase, name+"-")
+	if err != nil {
+		return "", fmt.Errorf("cannot create staging directory: %w", err)
+	}
+	// Let git create the directory itself (umask-based perms, matching a
+	// plain `git clone <url> <dir>`); an existing empty dir is also fine, but
+	// removing it keeps the failure cleanup path identical.
+	_ = os.Remove(destPath)
+	keepStaging := false
+	defer func() {
+		if !keepStaging {
+			_ = os.RemoveAll(destPath)
+		}
+	}()
 
 	// Guard against path traversal: the resolved destination must stay inside stagingBase.
 	separator := string(filepath.Separator)
 	if !strings.HasPrefix(destPath+separator, stagingBase+separator) {
 		return "", fmt.Errorf("invalid destination path")
-	}
-
-	// Fail early if destination already exists to give a clear error.
-	if _, err := os.Stat(destPath); err == nil {
-		return "", fmt.Errorf("destination already exists: %s", name)
 	}
 
 	cloneURL, env, cleanup := s.prepareCloneAuth(ctx, userID, remoteURL)
@@ -195,6 +209,7 @@ func (s *RepositoryService) cloneRepository(ctx context.Context, remoteURL, name
 		}
 		return "", fmt.Errorf("git clone failed: %s", msg)
 	}
+	keepStaging = true
 	// A token-carrying clone URL lands verbatim in the cloned origin remote —
 	// restore the clean URL so the secret doesn't persist in .git/config.
 	if cloneURL != remoteURL {
