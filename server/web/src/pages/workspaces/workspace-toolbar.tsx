@@ -6,6 +6,7 @@ import { useWorkspacePanelStore, type PanelId } from '@/stores/workspace-panel-s
 import { useConfigStore } from '@/stores/config-store';
 import { Button } from '@/components/ui/button';
 import { useExtractMemory, useExtractStatus } from '@/lib/hooks/use-memory';
+import { useIsPinned, usePinnedWorkspacesStore } from '@/stores/pinned-workspaces-store';
 import { WorkspaceDataButton } from './panels/workspace-data-drawer';
 import { WorkspaceShareDialog } from '@/components/dialogs/workspace-share-dialog';
 import type { Workspace } from '@/types/api';
@@ -40,6 +41,10 @@ export function WorkspaceToolbar({ workspace, onOpenSearch, onOpenWorkspaceList 
   const personalMode = useConfigStore((s) => s.personalMode);
   const [shareOpen, setShareOpen] = useState(false);
   const workspaceId = Number(workspace.id);
+  // Same per-user pin as the sidebar cards: the header toggle and the sidebar
+  // stay in sync (server-backed, cross-device).
+  const isPinned = useIsPinned(workspaceId);
+  const togglePin = usePinnedWorkspacesStore((s) => s.toggle);
   const extractMemory = useExtractMemory();
   const extractStatus = useExtractStatus(workspaceId);
   // Spinner shows while the async extraction is running on the server (survives
@@ -92,6 +97,23 @@ export function WorkspaceToolbar({ workspace, onOpenSearch, onOpenWorkspaceList 
         )}
         <span className="text-warm-text-muted/60">/</span>
         <span className="truncate text-sm font-medium text-warm-text">{workspace.name}</span>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          onClick={() => togglePin(workspaceId)}
+          aria-pressed={isPinned}
+          aria-label={t(isPinned ? 'sidebar.pinned.unpin' : 'sidebar.pinned.pin')}
+          title={t(isPinned ? 'sidebar.pinned.unpin' : 'sidebar.pinned.pin')}
+          className={cn(
+            'h-7 w-7 shrink-0 rounded-md',
+            isPinned
+              ? 'text-brand hover:bg-brand-soft hover:text-brand'
+              : 'text-warm-text-muted hover:bg-warm-muted hover:text-warm-text',
+          )}
+        >
+          <Pin className={cn('h-3.5 w-3.5', isPinned && 'fill-brand')} aria-hidden="true" />
+        </Button>
         {workspace.is_archived === 1 && (
           <span className="ml-2 inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] bg-warning/15 text-warning border border-warning/30 shrink-0">
             <Archive className="w-3 h-3" aria-hidden="true" />
