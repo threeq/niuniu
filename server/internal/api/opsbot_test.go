@@ -145,7 +145,7 @@ func newTestBudget(q *store.Queries, svc *opsbot.Service) *opsbot.Budget {
 func createTestBot(t *testing.T, r *gin.Engine, uid, accountRef string) int64 {
 	t.Helper()
 	w := doJSON(t, r, http.MethodPost, "/api/ops/bots", uid,
-		`{"role":"account","pack_id":"wechat_mp","account_ref":"`+accountRef+`","display_name":"品牌 A"}`)
+		`{"role":"account","pack_id":"wechat_mp","account_ref":"`+accountRef+`","display_name":"品牌 A","project_id":1}`)
 	require.Equal(t, http.StatusCreated, w.Code, w.Body.String())
 	var bot struct {
 		ID int64 `json:"id"`
@@ -166,7 +166,7 @@ func TestOpsBot_CreateListAndDuplicateAccount(t *testing.T) {
 
 	// The same (owner, pack, account_ref) is a conflict.
 	w := doJSON(t, r, http.MethodPost, "/api/ops/bots", "1",
-		`{"role":"account","pack_id":"wechat_mp","account_ref":"acct-1"}`)
+		`{"role":"account","pack_id":"wechat_mp","account_ref":"acct-1","project_id":1}`)
 	require.Equal(t, http.StatusConflict, w.Code, w.Body.String())
 	assert.Contains(t, w.Body.String(), "OPS_ACCOUNT_EXISTS")
 
@@ -510,16 +510,16 @@ func TestOpsHTTPAndMCPParity(t *testing.T) {
 
 	// Create one bot through each entry point.
 	w := doJSON(t, r, http.MethodPost, "/api/ops/bots", "1",
-		`{"role":"account","pack_id":"wechat_mp","account_ref":"acct-1","display_name":"A"}`)
+		`{"role":"account","pack_id":"wechat_mp","account_ref":"acct-1","display_name":"A","project_id":1}`)
 	require.Equal(t, http.StatusCreated, w.Code, w.Body.String())
 	httpBody := w.Body.String()
 
 	w = doJSON(t, r, http.MethodPost, "/mcp/ops/bots", "1",
-		`{"role":"account","pack_id":"wechat_mp","account_ref":"acct-2","display_name":"B"}`)
+		`{"role":"account","pack_id":"wechat_mp","account_ref":"acct-2","display_name":"B","project_id":1}`)
 	require.Equal(t, http.StatusCreated, w.Code, w.Body.String())
 
 	// Duplicate account: identical status + error code on both surfaces.
-	dupBody := `{"role":"account","pack_id":"wechat_mp","account_ref":"acct-1"}`
+	dupBody := `{"role":"account","pack_id":"wechat_mp","account_ref":"acct-1","project_id":1}`
 	httpDup := doJSON(t, r, http.MethodPost, "/api/ops/bots", "1", dupBody)
 	mcpDup := doJSON(t, r, http.MethodPost, "/mcp/ops/bots", "1", dupBody)
 	assert.Equal(t, http.StatusConflict, httpDup.Code)

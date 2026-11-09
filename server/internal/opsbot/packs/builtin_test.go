@@ -119,8 +119,8 @@ func TestBuiltinsWechatManifest(t *testing.T) {
 		if !ok {
 			t.Fatalf("wechat_mp missing binding for %q", capability)
 		}
-		if binding.Transport != "mcp" || binding.Provider != "wechat-mp" {
-			t.Errorf("wechat_mp %s binding = %+v, want mcp/wechat-mp", capability, binding)
+		if binding.Transport != "openapi" || binding.Provider != "wechat-mp" {
+			t.Errorf("wechat_mp %s binding = %+v, want openapi/wechat-mp (native API, no MCP)", capability, binding)
 		}
 	}
 
@@ -349,4 +349,23 @@ func isAllowedHost(rawURL string, allowed []string) bool {
 		}
 	}
 	return false
+}
+
+func TestBuiltinProviderSeeds(t *testing.T) {
+	seeds, err := BuiltinProviderSeeds()
+	if err != nil {
+		t.Fatalf("seeds: %v", err)
+	}
+	found := false
+	for _, seed := range seeds {
+		if seed.Name == "wechat-mp" {
+			found = true
+			if seed.BaseURL == "" || len(seed.Contract) == 0 {
+				t.Fatalf("wechat seed incomplete: %+v", seed)
+			}
+		}
+	}
+	if !found {
+		t.Fatal("wechat-mp provider seed missing")
+	}
 }

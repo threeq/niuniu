@@ -195,3 +195,61 @@ func installBuiltinPack(fsys fs.FS, r *Registry, ownerType string, ownerID int64
 	_, err = r.Save(ownerType, ownerID, m, files)
 	return err
 }
+
+// ProviderSeed is an integration provider contract shipped with a builtin Pack.
+// The server registers it once so "install the Pack" is all a user needs — no
+// separate MCP/gateway deployment.
+type ProviderSeed struct {
+	Name     string
+	Label    string
+	BaseURL  string
+	Contract json.RawMessage
+}
+
+// BuiltinProviderSeeds reads builtin/<pack>/<version>/provider.json.
+func BuiltinProviderSeeds() ([]ProviderSeed, error) {
+	var seeds []ProviderSeed
+	packEntries, err := fs.ReadDir(builtinFS, "builtin")
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	for _, packEntry := range packEntries {
+		if !packEntry.IsDir() {
+			continue
+		}
+		versionEntries, err := fs.ReadDir(builtinFS, path.Join("builtin", packEntry.Name()))
+		if err != nil {
+			continue
+		}
+		for _, versionEntry := range versionEntries {
+			if !versionEntry.IsDir() {
+				continue
+			}
+			data, err := fs.ReadFile(builtinFS, path.Join("builtin", packEntry.Name(), versionEntry.Name(), "provider.json"))
+			if err != nil {
+				continue
+			}
+			var probe struct {
+				Name     string `json:"name"`
+				Provider string `json:"provider"`
+				BaseURL  string `json:"base_url"`
+			}
+			if err := json.Unmarshal(data, &probe); err != nil {
+				return nil, fmt.Errorf("builtin provider %s: %w", packEntry.Name(), err)
+			}
+			name := strings.TrimSpace(probe.Name)
+			if name == "" {
+				name = strings.ReplaceAll(packEntry.Name(), "_", "-")
+			}
+			label := strings.TrimSpace(probe.Provider)
+			if label == "" {
+				label = name
+			}
+			seeds = append(seeds, ProviderSeed{Name: name, Label: label, BaseURL: probe.BaseURL, Contract: data})
+		}
+	}
+	return seeds, nil
+}

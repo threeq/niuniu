@@ -119,7 +119,7 @@ Platform Pack: xiaohongshu
 
 - Platform Pack：内容 schema、合规规则、提示词、能力绑定、browser recipe；
 - 总监 Bot、品牌知识库、跨账号内容日历；
-- 可选的 app 级凭据（如 Facebook App、公众号 MCP 端点）。
+- 可选的 app 级凭据（如 Facebook App ID/Secret）。
 
 **独立（Account 级）：**
 
@@ -134,7 +134,7 @@ Platform Pack: xiaohongshu
 
 | 层级 | 例子 | 归属 |
 |---|---|---|
-| App credential | Facebook App ID/Secret、公众号 MCP token | owner/org，可跨账号共享 |
+| App credential | Facebook App ID/Secret | owner/org，可跨账号共享 |
 | Account credential | Page access token、公众号 AppID/Secret、小红书登录态 | 每个账号独立 |
 
 Pack 只写 `credential_ref`，不写密钥；Adapter 按账号解析对应凭据。
@@ -193,7 +193,7 @@ server/internal/opsbot/
   channel/
     adapter.go      # ChannelAdapter 接口
     manual.go       # 人工发布包
-    wechat.go       # 公众号官方 API/MCP
+    wechat.go       # 公众号官方 API（直连，不依赖外部 MCP）
     xhs.go          # 小红书浏览器
     facebook.go     # Graph API
   browser/
@@ -523,7 +523,7 @@ type OpsContentBrief struct {
 
 - Ops Bot 只存 `credential_ref`，不存明文。
 - 凭据分两层：app credential（owner/org 共享）+ account credential（每账号独立）。
-- 公众号：AppID/AppSecret 或访问自有 MCP 的 token，走 credstore / 一次性安全链接。
+- 公众号：AppID/AppSecret 直连官方 API（open.weixin.qq.com），不依赖任何外部 MCP；凭据走 credstore / 一次性安全链接。
 - 小红书：不收集密码；运营人扫码登录，会话加密保存。
 - 对话中永不出现密钥；Bot 只说“请点链接 / 请扫码”。
 - 所有外发动作经 egress/授权/审计；外部文本只作数据，不构成指令。

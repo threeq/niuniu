@@ -63,6 +63,7 @@ func newTestResolver(t *testing.T, creds CredentialReader) (*AdapterResolver, *r
 		{4, "facebook", 1, "page-1"},
 		{5, "ghost", 1, "ghost-account"},
 		{6, "wechat_mp", 1, "gh_456"},
+		{7, "mcpdemo", 1, "mcp-account"},
 	}
 	for _, b := range bots {
 		_, err := raw.Exec(`INSERT INTO ops_bots
@@ -78,13 +79,28 @@ func newTestResolver(t *testing.T, creds CredentialReader) (*AdapterResolver, *r
 
 	registry := &packs.Registry{DataDir: t.TempDir()}
 	require.NoError(t, packs.InstallBuiltins(registry, "user", 2))
+	_, err = registry.Save("user", 2, packs.Manifest{
+		ID: "mcpdemo", Version: 1, Status: "published", DisplayName: "MCP Demo",
+		Capabilities: []string{"publish", "metrics"},
+		ContentSchema: packs.ContentSchema{Formats: map[string]packs.ContentFormat{
+			"post": {Fields: []string{"title", "body"}, MaxChars: 2000, MaxTitleChars: 100},
+		}},
+		MetricsMap: packs.MetricsMap{Fields: map[string]string{"views": "views"}},
+		Bindings: map[string]packs.Binding{
+			"publish": {Transport: "mcp", Provider: "demo-mcp", Operation: "publish_tool"},
+			"metrics": {Transport: "mcp", Provider: "demo-mcp", Operation: "metrics_tool"},
+		},
+	}, nil)
+	require.NoError(t, err)
 
 	worker := &resolverWorker{}
 	resolver := &AdapterResolver{
-		Bots:   store.NewQueries(raw),
-		Packs:  registry,
-		Creds:  creds,
-		Worker: worker,
+		Bots:        store.NewQueries(raw),
+		Packs:       registry,
+		Creds:       creds,
+		Worker:      worker,
+		Integration: &resolverOpsCaller{},
+		MCP:         &resolverOpsCaller{},
 	}
 	return resolver, worker
 }
@@ -124,9 +140,18 @@ func TestAdapterResolverWeChat(t *testing.T) {
 	}})
 	adapter, err := resolver.AdapterFor(context.Background(), 3)
 	require.NoError(t, err)
-	require.IsType(t, &channel.WeChatAdapter{}, adapter)
+	// Declarative pack -> the ONE generic openapi adapter; no WeChat Go code.
+	require.IsType(t, &channel.OpenAPIAdapter{}, adapter)
 	require.True(t, adapter.Capabilities().Supports(channel.CapPublish))
-	require.False(t, adapter.Capabilities().Supports(channel.CapEngagements))
+	require.True(t, adapter.Capabilities().Supports(channel.CapMetrics))
+	require.True(t, adapter.Capabilities().Supports(channel.CapEngagements))
+	require.True(t, adapter.Capabilities().Supports(channel.CapReply))
+}
+
+type resolverOpsCaller struct{}
+
+func (c *resolverOpsCaller) CallOperation(context.Context, channel.OperationCall) (channel.OperationResult, error) {
+	return channel.OperationResult{Status: 200, Body: map[string]any{}}, nil
 }
 
 func TestAdapterResolverHonorsCredentialAlias(t *testing.T) {
@@ -135,7 +160,7 @@ func TestAdapterResolverHonorsCredentialAlias(t *testing.T) {
 	}})
 	adapter, err := resolver.AdapterFor(context.Background(), 6)
 	require.NoError(t, err)
-	require.IsType(t, &channel.WeChatAdapter{}, adapter)
+	require.IsType(t, &channel.OpenAPIAdapter{}, adapter)
 }
 
 func TestAdapterResolverFacebook(t *testing.T) {
@@ -144,8 +169,19 @@ func TestAdapterResolverFacebook(t *testing.T) {
 	}})
 	adapter, err := resolver.AdapterFor(context.Background(), 4)
 	require.NoError(t, err)
-	require.IsType(t, &channel.FacebookAdapter{}, adapter)
+	require.IsType(t, &channel.OpenAPIAdapter{}, adapter)
 	require.True(t, adapter.Capabilities().Supports(channel.CapEngagements))
+}
+
+func TestAdapterResolverMCPUsesGenericAdapter(t *testing.T) {
+	resolver, _ := newTestResolver(t, resolverCreds{cfg: map[string]map[string]any{
+		"mcpdemo|mcp-account": {"token": "tok"},
+	}})
+	adapter, err := resolver.AdapterFor(context.Background(), 7)
+	require.NoError(t, err)
+	require.IsType(t, &channel.OpenAPIAdapter{}, adapter)
+	require.True(t, adapter.Capabilities().Supports(channel.CapPublish))
+	require.True(t, adapter.Capabilities().Supports(channel.CapMetrics))
 }
 
 func TestAdapterResolverMissingCredentialIsUnavailable(t *testing.T) {

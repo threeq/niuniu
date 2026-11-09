@@ -272,6 +272,48 @@ func (s *ExternalCredentialService) GetBoundByID(ctx context.Context, id int64) 
 	return rowToDecoded(row, cfg), nil
 }
 
+// GetByAlias loads one credential by (owner, user, provider, alias) and
+// returns the decoded form. Server-side callers that act on behalf of a
+// specific account (the Ops Bot runtime) use it to select that account's
+// credential without going through a project source binding.
+func (s *ExternalCredentialService) GetByAlias(
+	ctx context.Context, owner OwnerRef, userID int64,
+	provider integration.ProviderName, alias string,
+) (*ExternalCredentialDecoded, error) {
+	var row store.ExternalProviderCredential
+	err := s.db.QueryRowContext(ctx, `
+		SELECT id, owner_type, owner_id, user_id, provider, alias, config, last_verified_at, created_at, updated_at
+		FROM external_provider_credentials
+		WHERE owner_type = ? AND owner_id = ? AND user_id = ? AND provider = ? AND alias = ?`,
+		owner.Type, owner.ID, userID, string(provider), strings.TrimSpace(alias)).Scan(
+		&row.ID,
+		&row.OwnerType,
+		&row.OwnerID,
+		&row.UserID,
+		&row.Provider,
+		&row.Alias,
+		&row.Config,
+		&row.LastVerifiedAt,
+		&row.CreatedAt,
+		&row.UpdatedAt,
+	)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrNoCredential
+	}
+	if err != nil {
+		return nil, err
+	}
+	pt, err := s.keyring.Decrypt([]byte(row.Config))
+	if err != nil {
+		return nil, fmt.Errorf("decrypt config: %w", err)
+	}
+	var cfg map[string]any
+	if err := json.Unmarshal(pt, &cfg); err != nil {
+		return nil, fmt.Errorf("unmarshal config: %w", err)
+	}
+	return rowToDecoded(row, cfg), nil
+}
+
 // GetDecryptedConfigByAlias returns the decrypted config map for the
 // (owner, user, provider, alias) credential. Unlike GetByID it addresses the
 // credential by its scene-facing alias rather than a numeric id, so the scene

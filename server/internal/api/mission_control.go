@@ -10,6 +10,7 @@ package api
 import (
 	"database/sql"
 	"net/http"
+	"strconv"
 
 	"github.com/gin-gonic/gin"
 	"github.com/niuniu-dev/niuniu/internal/service"
@@ -84,7 +85,16 @@ func (h *MissionControlHandler) Ops(c *gin.Context) {
 	if owner.Type != "" {
 		filter = &service.OwnerRef{Type: owner.Type, ID: owner.ID}
 	}
-	view, err := h.Svc.OpsView(c.Request.Context(), uid, filter)
+	projectID := int64(0)
+	if raw := c.Query("project_id"); raw != "" {
+		parsed, perr := strconv.ParseInt(raw, 10, 64)
+		if perr != nil || parsed < 0 {
+			BadRequest(c, "invalid project_id")
+			return
+		}
+		projectID = parsed
+	}
+	view, err := h.Svc.OpsView(c.Request.Context(), uid, filter, projectID)
 	if err != nil {
 		InternalError(c, err)
 		return

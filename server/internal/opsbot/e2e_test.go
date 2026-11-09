@@ -158,115 +158,63 @@ func (w *e2eBrowserWorker) recipe(name string) (browser.Task, bool) {
 	return browser.Task{}, false
 }
 
-type e2eFacebookClient struct {
-	mu sync.Mutex
-
-	pageID      string
-	posts       []channel.FacebookPostRequest
-	comments    []channel.FacebookComment
-	replyTo     string
-	replyText   string
-	metrics     map[string]float64
-	insightsErr error
-}
-
-func (c *e2eFacebookClient) VerifyPage(_ context.Context, pageID string) (channel.FacebookPageAuth, error) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.pageID = pageID
-	return channel.FacebookPageAuth{
-		ID:   pageID,
-		Name: "E2E Page",
-		Permissions: map[string]string{
-			channel.FacebookPermissionManagePosts:    "granted",
-			channel.FacebookPermissionReadEngagement: "granted",
-		},
-	}, nil
-}
-
-func (c *e2eFacebookClient) CreatePost(_ context.Context, req channel.FacebookPostRequest) (channel.FacebookReceipt, error) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.posts = append(c.posts, req)
-	return channel.FacebookReceipt{ExternalID: "fb-post-1", URL: "https://facebook.example.test/posts/1"}, nil
-}
-
-func (c *e2eFacebookClient) PageInsights(context.Context, string, string, string, []string) (map[string]float64, error) {
-	return map[string]float64{"page_fans": c.metrics["page_fans"]}, nil
-}
-
-func (c *e2eFacebookClient) PostInsights(context.Context, string, string, string, []string) (map[string]float64, error) {
-	if c.insightsErr != nil {
-		return nil, c.insightsErr
-	}
-	out := map[string]float64{}
-	for _, key := range []string{"post_impressions", "post_reactions_by_type_total", "post_comments", "post_shares"} {
-		if v, ok := c.metrics[key]; ok {
-			out[key] = v
-		}
-	}
-	return out, nil
-}
-
-func (c *e2eFacebookClient) ListComments(context.Context, string, string) (channel.FacebookCommentPage, error) {
-	return channel.FacebookCommentPage{Comments: append([]channel.FacebookComment(nil), c.comments...)}, nil
-}
-
-func (c *e2eFacebookClient) ReplyComment(_ context.Context, commentID, message string) (channel.FacebookReceipt, error) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.replyTo, c.replyText = commentID, message
-	return channel.FacebookReceipt{ExternalID: "fb-reply-1"}, nil
-}
-
-func (c *e2eFacebookClient) SendMessage(context.Context, string, string, string) (channel.FacebookReceipt, error) {
-	return channel.FacebookReceipt{ExternalID: "fb-dm-1"}, nil
-}
-
-type e2eWeChatClient struct {
+// e2eOpsCaller stands in for the shared integration proxy: the Ops Bot reads
+// and writes exclusively through provider-contract operations, so a channel
+// test scripts operations instead of a channel-specific client.
+type e2eOpsCaller struct {
 	mu        sync.Mutex
-	uploads   []string
-	drafts    []channel.DraftRequest
+	files     []string
 	publishes []string
-	stats     map[string]float64
+	replies   []string
+	metrics   map[string]float64
+	comments  []map[string]any
 }
 
-func (c *e2eWeChatClient) Ping(context.Context) error { return nil }
-
-func (c *e2eWeChatClient) UploadMaterial(_ context.Context, path string) (string, error) {
+func (c *e2eOpsCaller) CallOperation(_ context.Context, call channel.OperationCall) (channel.OperationResult, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	c.uploads = append(c.uploads, path)
-	return "media-" + filepath.Base(path), nil
+	switch call.Operation {
+	case "publish":
+		c.publishes = append(c.publishes, fmt.Sprint(call.Params["title"]))
+		return channel.OperationResult{Status: 200, Body: map[string]any{
+			"publish_id": "wechat-publish-e2e", "article_url": "https://mp.weixin.qq.com/s/e2e",
+		}}, nil
+	case "metrics":
+		body := map[string]any{}
+		for key, value := range c.metrics {
+			body[key] = value
+		}
+		body["net_fans_count"] = 10.0
+		return channel.OperationResult{Status: 200, Body: body}, nil
+	case "comments":
+		items := make([]any, 0, len(c.comments))
+		for _, comment := range c.comments {
+			items = append(items, comment)
+		}
+		return channel.OperationResult{Status: 200, Body: map[string]any{"comment": items}}, nil
+	case "reply":
+		c.replies = append(c.replies, fmt.Sprint(call.Params["content"]))
+		return channel.OperationResult{Status: 200, Body: map[string]any{"errcode": 0}}, nil
+	default:
+		return channel.OperationResult{Status: 200, Body: map[string]any{}}, nil
+	}
 }
 
-func (c *e2eWeChatClient) DraftAdd(_ context.Context, req channel.DraftRequest) (string, error) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.drafts = append(c.drafts, req)
-	return "draft-e2e", nil
+func e2eOpenAPIBindings() map[channel.Capability]packs.Binding {
+	return map[channel.Capability]packs.Binding{
+		channel.CapPublish: {Transport: "openapi", Provider: "wechat-mp", Operation: "publish"},
+		channel.CapMetrics: {Transport: "openapi", Provider: "wechat-mp", Operation: "metrics",
+			Params: map[string]string{"from": "begin_date", "to": "end_date"}},
+		channel.CapEngagements: {Transport: "openapi", Provider: "wechat-mp", Operation: "comments",
+			Items: "comment", Fields: map[string]string{"id": "user_comment_id", "author": "openid", "text": "content"}},
+		channel.CapReply: {Transport: "openapi", Provider: "wechat-mp", Operation: "reply",
+			Params: map[string]string{"id": "user_comment_id", "text": "content"}},
+	}
 }
 
-func (c *e2eWeChatClient) Publish(_ context.Context, mediaID string) (string, error) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.publishes = append(c.publishes, mediaID)
-	return "wechat-publish-e2e", nil
-}
-
-func (c *e2eWeChatClient) PublishScheduled(_ context.Context, mediaID string, _ time.Time) (string, error) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.publishes = append(c.publishes, mediaID)
-	return "wechat-scheduled-e2e", nil
-}
-
-func (c *e2eWeChatClient) ArticleStats(context.Context, string, string) (map[string]float64, error) {
-	return c.stats, nil
-}
-
-func (c *e2eWeChatClient) UserSummary(context.Context, string, string) (map[string]float64, error) {
-	return map[string]float64{"net_fans_count": 10}, nil
+func newE2EWeChatAdapter(caller *e2eOpsCaller) channel.ChannelAdapter {
+	return channel.NewOpenAPIAdapter(caller, "wechat-mp", e2eOpenAPIBindings(),
+		map[string]string{"read_count": "views", "share_count": "shares", "like_count": "likes", "net_fans_count": "follower_delta"})
 }
 
 // --- content fakes -------------------------------------------------------
@@ -519,6 +467,12 @@ func newE2EHarness(t *testing.T) *e2eHarness {
 	require.NoError(t, err)
 	_, err = raw.Exec(`INSERT INTO users (id, username, password_hash) VALUES (7, 'operator', 'x')`)
 	require.NoError(t, err)
+	// Every ops bot belongs to a project (its control Epic lives there); the
+	// onboarding flow therefore starts from a project.
+	_, err = raw.Exec(`INSERT INTO projects (id, name, owner_type, owner_id) VALUES (1, 'ops-project', 'user', 7)`)
+	require.NoError(t, err)
+	_, err = raw.Exec(`INSERT INTO columns (id, project_id, name, position) VALUES (1, 1, 'todo', 0)`)
+	require.NoError(t, err)
 
 	db := store.Wrap(raw)
 	q := db.Queries()
@@ -653,11 +607,11 @@ func newE2EHarness(t *testing.T) *e2eHarness {
 	}
 
 	h.eng = &Engagement{
-		Q:          q,
-		DB:         db,
-		AdapterFor: h.adapterFor,
-		Approvals:  h.approval,
-		Sleep:      func(context.Context, time.Duration) error { return nil },
+		Q:           q,
+		DB:          db,
+		AdapterFor:  h.adapterFor,
+		Approvals:   h.approval,
+		Sleep:       func(context.Context, time.Duration) error { return nil },
 		MaxAttempts: 2,
 		Backoff:     time.Millisecond,
 	}
@@ -895,7 +849,7 @@ func TestE2E01ConversationalWeChatPublishLoop(t *testing.T) {
 	onboarding.Credentials = e2eLinker{}
 
 	step := func(text string) (string, bool) {
-		reply, done, err := onboarding.Handle(ctx, 1001, owner, 0, text)
+		reply, done, err := onboarding.Handle(ctx, 1001, owner, 1, text)
 		require.NoError(t, err)
 		return reply, done
 	}
@@ -924,8 +878,8 @@ func TestE2E01ConversationalWeChatPublishLoop(t *testing.T) {
 	require.EqualValues(t, 1, bot.PackVersion)
 	require.Contains(t, bot.BudgetJson, `"monthly_limit":500`)
 
-	wechatClient := &e2eWeChatClient{stats: map[string]float64{"read_count": 120}}
-	h.adapters[bot.ID] = channel.NewWeChatAdapter(wechatClient)
+	wechatClient := &e2eOpsCaller{metrics: map[string]float64{"read_count": 120}}
+	h.adapters[bot.ID] = newE2EWeChatAdapter(wechatClient)
 
 	brief := content.OpsContentBrief{
 		Channel: bot.PackID, AccountRef: bot.AccountRef,
@@ -954,13 +908,12 @@ func TestE2E01ConversationalWeChatPublishLoop(t *testing.T) {
 	published, err := h.pub.Publish(ctx, PublishInput{
 		BotID: bot.ID, IssueID: 501, ContentVersion: int64(art.Version),
 		Platform: bot.PackID, PackID: bot.PackID, AccountRef: bot.AccountRef,
-		Payload: channel.WeChatPublishPayload{
-			Kind: "article", Title: "秋季护肤的三个关键步骤", Content: "先讲清换季为什么容易出问题。",
-		},
+		Payload: channel.OpenAPIPublishPayload{Fields: map[string]any{
+			"title": "秋季护肤的三个关键步骤", "content": "先讲清换季为什么容易出问题。",
+		}},
 	})
 	require.NoError(t, err)
 	require.Equal(t, PublishStatusPublished, published.Status)
-	require.Len(t, wechatClient.drafts, 1)
 	require.Len(t, wechatClient.publishes, 1)
 
 	require.NoError(t, h.metrics.Sync(ctx, bot.ID, "2026-11-03", "2026-11-04"))
@@ -1037,37 +990,39 @@ func TestE2E03XiaohongshuBrowserLoop(t *testing.T) {
 
 	worker := &e2eBrowserWorker{
 		values: map[string]browser.Result{
-			channel.XHSRecipeLogin: {},
-			channel.XHSRecipePublish: {Values: map[string]string{
-				"note_url": "https://www.xiaohongshu.com/explore/e2e001",
+			"login": {},
+			"publish": {Values: map[string]string{
+				"url": "https://www.xiaohongshu.com/explore/e2e001",
 			}},
-			channel.XHSRecipeMetrics: {Values: map[string]string{
+			"metrics": {Values: map[string]string{
 				"view_num": "1200", "like_num": "80", "collect_num": "20",
 				"comment_num": "5", "share_num": "3", "fans_add": "10",
 			}},
-			channel.XHSRecipeEngagements: {Values: map[string]string{
+			"engagements": {Values: map[string]string{
 				"engagements": `[{"id":"c-1","kind":"comment","author":"u1","text":"这个颜色真好看"}]`,
 			}},
-			channel.XHSRecipeReply: {Values: map[string]string{"receipt": "reply-1"}},
+			"reply": {Values: map[string]string{"receipt": "reply-1"}},
 		},
 		errs: map[string]error{},
 	}
-	xhs := channel.NewXHSAdapter(worker, recipes)
+	limits, metricMap := packLimits(manifest)
+	xhs := channel.NewBrowserAdapter(worker, recipes, manifest.Capabilities, limits, metricMap)
+	xhs.BindAccount(bot.ID)
 	h.adapters[bot.ID] = xhs
 
 	// 扫码登录：EnsureSession runs the pack's login recipe.
 	published, err := h.pub.Publish(ctx, PublishInput{
 		BotID: bot.ID, IssueID: 701, Platform: "xiaohongshu", PackID: "xiaohongshu",
 		AccountRef: fmt.Sprintf("%d", bot.ID),
-		Payload: channel.XHSPublishPayload{
-			Kind: channel.XHSKindNote, Title: "秋日护肤", Body: "三步护理法，简单好坚持。",
+		Payload: channel.BrowserPublishPayload{
+			Kind: channel.KindNote, Title: "秋日护肤", Body: "三步护理法，简单好坚持。",
 			Images: []string{"cover.png"}, ImageRatio: "3:4",
 		},
 	})
 	require.NoError(t, err)
 	require.Equal(t, PublishStatusPublished, published.Status)
 	require.Equal(t, "https://www.xiaohongshu.com/explore/e2e001", published.URL)
-	_, ok := worker.recipe(channel.XHSRecipeLogin)
+	_, ok := worker.recipe("login")
 	require.True(t, ok)
 
 	require.NoError(t, h.metrics.Sync(ctx, bot.ID, "2026-11-03", "2026-11-04"))
@@ -1085,7 +1040,7 @@ func TestE2E03XiaohongshuBrowserLoop(t *testing.T) {
 	// Fail-closed: a suggestion cannot be sent without an approval card.
 	err = h.eng.Send(ctx, BotRef{ID: bot.ID}, items[0].ID, 0, Decision{Action: ActionApproved})
 	require.ErrorIs(t, err, ErrApprovalRequired)
-	_, replied := worker.recipe(channel.XHSRecipeReply)
+	_, replied := worker.recipe("reply")
 	require.False(t, replied, "no reply may reach the platform before approval")
 
 	req, err := h.eng.RequestApproval(ctx, BotRef{ID: bot.ID}, items[0].ID)
@@ -1107,8 +1062,8 @@ func TestE2E04VideoArtifactApprovalAndPublish(t *testing.T) {
 	ctx := context.Background()
 	owner := OwnerRef{Type: "user", ID: e2eOwnerUser}
 	bot := h.createAccount(owner, "wechat_mp", "video-brand", "视频号", `{"currency":"USD","monthly_limit":300}`)
-	wechatClient := &e2eWeChatClient{stats: map[string]float64{"read_count": 50}}
-	h.adapters[bot.ID] = channel.NewWeChatAdapter(wechatClient)
+	wechatClient := &e2eOpsCaller{metrics: map[string]float64{"read_count": 50}}
+	h.adapters[bot.ID] = newE2EWeChatAdapter(wechatClient)
 
 	brief := content.OpsContentBrief{
 		Channel: bot.PackID, AccountRef: bot.AccountRef, Format: content.FormatVideo,
@@ -1135,16 +1090,13 @@ func TestE2E04VideoArtifactApprovalAndPublish(t *testing.T) {
 	published, err := h.pub.Publish(ctx, PublishInput{
 		BotID: bot.ID, IssueID: 801, ContentVersion: int64(art.Version),
 		Platform: bot.PackID, PackID: bot.PackID, AccountRef: bot.AccountRef,
-		Payload: channel.WeChatPublishPayload{
-			Kind: "video", Title: art.Title, Content: art.Title,
-			VideoPath: art.FinalPath, ThumbMediaPath: art.CoverPath,
-		},
+		Payload: channel.OpenAPIPublishPayload{Fields: map[string]any{
+			"kind": "video", "title": art.Title, "content": art.Title,
+			"video_path": art.FinalPath, "cover_path": art.CoverPath,
+		}},
 	})
 	require.NoError(t, err)
 	require.Equal(t, PublishStatusPublished, published.Status)
-	require.Len(t, wechatClient.drafts, 1)
-	require.NotEmpty(t, wechatClient.drafts[0].VideoMediaID)
-	require.Contains(t, wechatClient.uploads, art.FinalPath)
 	require.Len(t, wechatClient.publishes, 1)
 }
 
@@ -1373,25 +1325,22 @@ func TestE2E09FacebookPackPublishMetricsAndComments(t *testing.T) {
 	owner := OwnerRef{Type: "user", ID: e2eOwnerUser}
 	bot := h.createAccount(owner, "facebook", "page-1", "FB Page", `{"currency":"USD","monthly_limit":300}`)
 
-	client := &e2eFacebookClient{
-		metrics: map[string]float64{
-			"page_fans": 5000, "post_impressions": 3200,
-			"post_reactions_by_type_total": 180, "post_comments": 24, "post_shares": 9,
-		},
-		comments: []channel.FacebookComment{{ID: "c-9", Author: "visitor", Text: "非常喜欢这个系列"}},
-	}
-	fb := channel.NewFacebookAdapter(client)
+	caller := &e2eFacebookCaller{}
+	fb := channel.NewOpenAPIAdapter(caller, "facebook-graph", e2eFacebookBindings(), map[string]string{
+		"page_fans": "followers", "page_impressions": "views", "page_post_engagements": "likes",
+	})
+	fb.Account = bot.AccountRef
 	h.adapters[bot.ID] = fb
 
 	published, err := h.pub.Publish(ctx, PublishInput{
 		BotID: bot.ID, IssueID: 1101, Platform: "facebook", PackID: "facebook",
 		AccountRef: "page-1",
-		Payload:    channel.FacebookPublishPayload{Kind: channel.FacebookKindPost, Message: "秋季上新"},
+		Payload:    channel.OpenAPIPublishPayload{Fields: map[string]any{"message": "秋季上新"}},
 	})
 	require.NoError(t, err)
 	require.Equal(t, PublishStatusPublished, published.Status)
-	require.Len(t, client.posts, 1)
-	require.Equal(t, "page-1", client.posts[0].PageID)
+	require.Equal(t, 1, caller.publishes)
+	require.Equal(t, "page-1", caller.account)
 
 	require.NoError(t, h.metrics.Sync(ctx, bot.ID, "2026-11-03", "2026-11-04"))
 	summary, err := h.metrics.Summary(ctx, bot.ID, "2026-11-03", "2026-11-04")
@@ -1408,8 +1357,50 @@ func TestE2E09FacebookPackPublishMetricsAndComments(t *testing.T) {
 	require.NoError(t, err)
 	h.decide(t, req, ActionApproved)
 	require.NoError(t, h.eng.Send(ctx, BotRef{ID: bot.ID}, items[0].ID, req.ID, Decision{Action: ActionApproved}))
-	require.Equal(t, "c-9", client.replyTo)
-	require.NotEmpty(t, client.replyText)
+	require.Equal(t, "c-9", caller.replyTo)
+}
+
+// e2eFacebookCaller scripts the Graph operations the Facebook pack declares.
+type e2eFacebookCaller struct {
+	publishes int
+	account   string
+	replyTo   string
+}
+
+func (c *e2eFacebookCaller) CallOperation(_ context.Context, call channel.OperationCall) (channel.OperationResult, error) {
+	if account, ok := call.Params["account"].(string); ok && account != "" {
+		c.account = account
+	}
+	switch call.Operation {
+	case "publish_feed":
+		c.publishes++
+		return channel.OperationResult{Status: 200, Body: map[string]any{"id": "page-1_post_9"}}, nil
+	case "page_metrics":
+		return channel.OperationResult{Status: 200, Body: map[string]any{"data": []any{
+			map[string]any{"name": "page_impressions", "values": []any{map[string]any{"value": 3200.0}}},
+			map[string]any{"name": "page_fans", "values": []any{map[string]any{"value": 5000.0}}},
+			map[string]any{"name": "page_post_engagements", "values": []any{map[string]any{"value": 180.0}}},
+		}}}, nil
+	case "page_comments":
+		return channel.OperationResult{Status: 200, Body: map[string]any{"data": []any{
+			map[string]any{"id": "c-9", "message": "非常喜欢这个系列"},
+		}}}, nil
+	default:
+		c.replyTo = fmt.Sprint(call.Params["comment_id"])
+		return channel.OperationResult{Status: 200, Body: map[string]any{"id": "reply-9"}}, nil
+	}
+}
+
+func e2eFacebookBindings() map[channel.Capability]packs.Binding {
+	return map[channel.Capability]packs.Binding{
+		channel.CapPublish: {Transport: "openapi", Provider: "facebook-graph", Operation: "publish_feed"},
+		channel.CapMetrics: {Transport: "openapi", Provider: "facebook-graph", Operation: "page_metrics",
+			Params: map[string]string{"from": "since", "to": "until"}, Items: "data", ValueKey: "values"},
+		channel.CapEngagements: {Transport: "openapi", Provider: "facebook-graph", Operation: "page_comments",
+			Items: "data", Fields: map[string]string{"id": "id", "text": "message"}},
+		channel.CapReply: {Transport: "openapi", Provider: "facebook-graph", Operation: "comment_reply",
+			Params: map[string]string{"id": "comment_id", "text": "message"}},
+	}
 }
 
 // --- scenario 10 ---------------------------------------------------------

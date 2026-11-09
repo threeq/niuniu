@@ -87,8 +87,19 @@ type ContractAuth struct {
 	Header string `json:"header,omitempty"`
 	// Prefix precedes the credential value, e.g. "Bearer ".
 	Prefix string `json:"prefix,omitempty"`
-	// Param is the query-parameter name for strategy=query_param.
+	// Param is the query-parameter name for strategy=query_param, and the
+	// token-carrying query parameter for a token-exchange strategy that
+	// declares token_auth=query (WeChat access_token).
 	Param string `json:"param,omitempty"`
+	// Token-exchange details (strategy=oauth2_refresh, client_credentials).
+	// Declared on the contract so the credential only needs the raw client
+	// id/secret; the endpoint shape lives with the provider definition.
+	TokenURL          string `json:"token_url,omitempty"`
+	GrantType         string `json:"grant_type,omitempty"`
+	TokenAuth         string `json:"token_auth,omitempty"`          // query | body | basic
+	TokenMethod       string `json:"token_method,omitempty"`        // GET | POST
+	ClientIDParam     string `json:"client_id_param,omitempty"`     // e.g. appid
+	ClientSecretParam string `json:"client_secret_param,omitempty"` // e.g. secret
 	// Note is an agent-facing hint, e.g. "injected by the proxy — do NOT
 	// include it yourself".
 	Note string `json:"note,omitempty"`
@@ -111,6 +122,11 @@ type ContractOperation struct {
 	ReadOnly bool `json:"read_only"`
 	// Parameters lists the inputs and where they go.
 	Parameters []ContractParam `json:"parameters,omitempty"`
+	// BodyEncoding is how the proxy encodes the request body: "json" (default)
+	// or "multipart". Multipart operations take file inputs from
+	// ProxyInput.Files (param name -> local path), so upload-style APIs are
+	// modeled declaratively without channel-specific code.
+	BodyEncoding string `json:"body_encoding,omitempty"`
 	// RequestExample is a representative request (query object or body).
 	RequestExample json.RawMessage `json:"request_example,omitempty"`
 	// ResponseShape is a compact human/agent-readable hint of the response

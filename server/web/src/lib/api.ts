@@ -1362,9 +1362,9 @@ export const skillApi = {
 // owner-scoped, so every call accepts the same ?owner= the list was opened with.
 // ---------------------------------------------------------------------------
 export const opsApi = {
-  list: (owner?: string | null) =>
+  list: (owner?: string | null, projectId?: number) =>
     api.get<MissionControlOpsView>('/mission-control/ops', {
-      params: { owner: owner ?? undefined },
+      params: { owner: owner ?? undefined, project_id: projectId ?? undefined },
       suppressError: true,
     }),
 

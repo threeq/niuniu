@@ -27,8 +27,12 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"mime/multipart"
 	"net/http"
 	"net/url"
+	"os"
+	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -188,11 +192,11 @@ type ProxyInput struct {
 	// — the semantic, operation-level authorization added in issue #737. When
 	// empty, the legacy Method+Path pair is matched against the contract (and
 	// against the curated whitelist as a fallback).
-	Operation   string
-	Method      string
-	Path        string
-	Query       map[string]any
-	Body        map[string]any
+	Operation string
+	Method    string
+	Path      string
+	Query     map[string]any
+	Body      map[string]any
 	// Params carries the operation arguments a sandbox function supplied via
 	// http_request({operation, params}). The box author names them separately
 	// from query/body, so they must ride alongside them rather than being
@@ -200,6 +204,21 @@ type ProxyInput struct {
 	Params      map[string]any
 	WorkspaceID int64  // >0 when called by an in-workspace MCP agent; resolve credential by project binding
 	SourceKey   string // optional disambiguator when a project binds multiple sources for the same provider
+
+	// OwnerType/OwnerID + CredentialAlias select one account credential
+	// directly. Server-side runtimes acting for a specific account (the Ops
+	// Bot publisher / engagement dispatcher) set these; every other caller
+	// leaves them empty and keeps project-binding or caller-own resolution.
+	// The lookup is scoped by owner, so it can never cross owners.
+	OwnerType       string
+	OwnerID         int64
+	CredentialAlias string
+
+	// Files maps a multipart file parameter to a local path. Only honoured for
+	// operations whose contract declares body_encoding=multipart, and reads are
+	// confined to FileRoot.
+	Files    map[string]string
+	FileRoot string
 
 	// Probe marks an internal verification probe (see provider_verify.go), not
 	// an agent call. A probe runs against a not-yet-enabled provider and skips
@@ -324,8 +343,21 @@ func (s *ExternalProxyService) Call(ctx context.Context, in ProxyInput) (*ProxyO
 	// 6. Marshal the body once; the exact bytes feed both the request and the
 	// audit fingerprint (a re-marshal could differ). A body is sent exactly
 	// when the caller supplied one, matching pre-#737 behaviour.
+	// Multipart is chosen by the contract operation, never by the caller: the
+	// same write gate that authorized the operation also authorizes the upload.
+	operation := contractOperation(contract, in.Operation)
+	multipartBody := operation != nil && strings.EqualFold(operation.BodyEncoding, "multipart")
+
 	var bodyBytes []byte
-	if in.Body != nil {
+	contentType := "application/json"
+	switch {
+	case multipartBody:
+		encoded, ct, berr := buildMultipartBody(body, in.Files, in.FileRoot)
+		if berr != nil {
+			return nil, berr
+		}
+		bodyBytes, contentType = encoded, ct
+	case in.Body != nil:
 		bodyBytes, err = json.Marshal(body)
 		if err != nil {
 			return nil, fmt.Errorf("marshal body: %w", err)
@@ -337,7 +369,13 @@ func (s *ExternalProxyService) Call(ctx context.Context, in ProxyInput) (*ProxyO
 	// before anything leaves the machine — so a team-edition policy that BLOCKS
 	// is enforced no matter which path produced the call. The personal edition
 	// ships a warn-only policy: it never blocks, only flags and notifies.
-	summary := SummarizeEgressBody(bodyBytes)
+	summaryBody := bodyBytes
+	if multipartBody {
+		// Binary uploads are not text; the file names below are surfaced in the
+		// audit row instead.
+		summaryBody = nil
+	}
+	summary := SummarizeEgressBody(summaryBody)
 	egressVerdict := s.egressPolicyOrDefault().Evaluate(ctx, EgressRequest{
 		UserID:     in.UserID,
 		Provider:   in.Provider,
@@ -382,7 +420,7 @@ func (s *ExternalProxyService) Call(ctx context.Context, in ProxyInput) (*ProxyO
 			return nil, nil, nil, fmt.Errorf("build request: %w", rerr)
 		}
 		if bodyBytes != nil {
-			req.Header.Set("Content-Type", "application/json")
+			req.Header.Set("Content-Type", contentType)
 		}
 		req.Header.Set("Accept", "application/json")
 
@@ -552,6 +590,7 @@ func (s *ExternalProxyService) authorizeCall(prov *ProviderDef, contract *Provid
 		}
 		op = resolved
 		method = strings.ToUpper(strings.TrimSpace(op.Method))
+		foldOperationParams(op, in.Params, query, body)
 		resolvedPath, consumed, perr := op.ResolvePath(query, body)
 		if perr != nil {
 			return "", "", nil, nil, &ProxyError{
@@ -698,6 +737,26 @@ func logAuthInjection(in ProxyInput, outcome *AuthOutcome, mode string, cfgKeys 
 // SPA direct calls (WorkspaceID==0, settings self-test) keep the legacy
 // behaviour: the caller's own credential for that provider.
 func (s *ExternalProxyService) resolveCredential(ctx context.Context, in ProxyInput) (*ExternalCredentialDecoded, error) {
+	// Explicit account selection (Ops Bot runtime): the caller acts for one ops
+	// bot account, so it names the credential alias owned by that bot's owner.
+	// The query is scoped by (owner, user, provider, alias); an alias belonging
+	// to another owner simply does not match.
+	if alias := strings.TrimSpace(in.CredentialAlias); alias != "" {
+		if in.OwnerType == "" || in.OwnerID <= 0 || in.UserID <= 0 {
+			return nil, &ProxyError{Code: "credential_scope_required",
+				Message:  "an aliased credential requires owner_type, owner_id and user_id",
+				Provider: in.Provider}
+		}
+		cred, err := s.credSvc.GetByAlias(ctx, OwnerRef{Type: in.OwnerType, ID: in.OwnerID}, in.UserID,
+			integration.ProviderName(in.Provider), alias)
+		if err != nil {
+			return nil, err
+		}
+		if cred.Provider != integration.ProviderName(in.Provider) {
+			return nil, ErrCredentialProviderMismatch
+		}
+		return cred, nil
+	}
 	if in.WorkspaceID > 0 {
 		projectID, err := s.q.GetProjectIDForWorkspace(ctx, in.WorkspaceID)
 		if err != nil {
@@ -1103,6 +1162,7 @@ func credToken(cfg map[string]any) string {
 		strFromCfg(cfg, "token"),
 		strFromCfg(cfg, "access_token"),
 		strFromCfg(cfg, "api_key"),
+		strFromCfg(cfg, "page_token"),
 	))
 }
 
@@ -1213,4 +1273,137 @@ func fingerprintBody(raw []byte) bodyFingerprint {
 		bytes:  int64(len(raw)),
 		fields: string(encoded),
 	}
+}
+
+// contractOperation returns the named operation, or nil when the call is not
+// operation-addressed.
+func contractOperation(contract *ProviderContract, name string) *ContractOperation {
+	name = strings.TrimSpace(name)
+	if contract == nil || name == "" {
+		return nil
+	}
+	for i := range contract.Operations {
+		if contract.Operations[i].Name == name {
+			return &contract.Operations[i]
+		}
+	}
+	return nil
+}
+
+// buildMultipartBody encodes text fields plus file parts. File reads are
+// confined to root (when set) so a caller cannot exfiltrate arbitrary files
+// through the egress proxy.
+func buildMultipartBody(fields map[string]any, files map[string]string, root string) ([]byte, string, error) {
+	var buf bytes.Buffer
+	w := multipart.NewWriter(&buf)
+
+	keys := make([]string, 0, len(fields))
+	for key := range fields {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	for _, key := range keys {
+		if err := w.WriteField(key, fmt.Sprintf("%v", fields[key])); err != nil {
+			return nil, "", fmt.Errorf("multipart field %s: %w", key, err)
+		}
+	}
+
+	names := make([]string, 0, len(files))
+	for name := range files {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	if len(names) == 0 {
+		return nil, "", fmt.Errorf("multipart operation needs at least one file")
+	}
+	for _, name := range names {
+		path, err := confinedFile(files[name], root)
+		if err != nil {
+			return nil, "", err
+		}
+		part, err := w.CreateFormFile(name, filepath.Base(path))
+		if err != nil {
+			return nil, "", fmt.Errorf("multipart file %s: %w", name, err)
+		}
+		f, err := os.Open(path)
+		if err != nil {
+			return nil, "", fmt.Errorf("open upload %s: %w", path, err)
+		}
+		if _, err := io.Copy(part, io.LimitReader(f, 64<<20)); err != nil {
+			f.Close()
+			return nil, "", fmt.Errorf("read upload %s: %w", path, err)
+		}
+		f.Close()
+	}
+	if err := w.Close(); err != nil {
+		return nil, "", fmt.Errorf("close multipart: %w", err)
+	}
+	return buf.Bytes(), w.FormDataContentType(), nil
+}
+
+func confinedFile(path, root string) (string, error) {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return "", fmt.Errorf("upload path is empty")
+	}
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return "", err
+	}
+	if strings.TrimSpace(root) == "" {
+		return abs, nil
+	}
+	realRoot, err := filepath.EvalSymlinks(root)
+	if err != nil {
+		return "", fmt.Errorf("resolve upload root: %w", err)
+	}
+	realFile, err := filepath.EvalSymlinks(abs)
+	if err != nil {
+		return "", fmt.Errorf("resolve upload %s: %w", path, err)
+	}
+	inside, err := filepath.Rel(realRoot, realFile)
+	if err != nil || inside == ".." || strings.HasPrefix(inside, ".."+string(filepath.Separator)) {
+		return "", fmt.Errorf("upload %s is outside the allowed root", path)
+	}
+	return realFile, nil
+}
+
+// foldOperationParams places caller-supplied operation arguments where the
+// contract says they belong. Path parameters go into query so ResolvePath can
+// consume them; unknown keys default to query for GET/HEAD and body otherwise.
+func foldOperationParams(op *ContractOperation, params map[string]any, query, body map[string]any) {
+	if op == nil || len(params) == 0 {
+		return
+	}
+	locations := make(map[string]string, len(op.Parameters))
+	for _, p := range op.Parameters {
+		locations[p.Name] = p.In
+	}
+	for key, value := range params {
+		where := locations[key]
+		switch where {
+		case "query", "path":
+			query[key] = value
+		case "body":
+			body[key] = value
+		case "header":
+			// Headers are injected by the auth strategy / caller headers; a
+			// contract header param is not forwarded from caller arguments.
+		default:
+			if op.Method == http.MethodGet || op.Method == http.MethodHead {
+				query[key] = value
+			} else {
+				body[key] = value
+			}
+		}
+	}
+}
+
+// HTTPClient returns the proxy's SSRF-guarded HTTP client so other server-side
+// integrations (the MCP gateway) share the same egress protection.
+func (s *ExternalProxyService) HTTPClient() *http.Client {
+	if s.client != nil {
+		return s.client
+	}
+	return http.DefaultClient
 }

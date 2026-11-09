@@ -405,7 +405,7 @@ func TestMissionControlOps(t *testing.T) {
 
 	svc := newMissionControlService(db)
 	svc.now = func() time.Time { return now }
-	view, err := svc.OpsView(ctx, userID, nil)
+	view, err := svc.OpsView(ctx, userID, nil, 0)
 	require.NoError(t, err)
 	require.Len(t, view.Owners, 1)
 	assert.Equal(t, 2, view.AccountCount)
@@ -451,7 +451,7 @@ func TestMissionControlOps(t *testing.T) {
 
 	// A foreign owner filter is never exposed, even if it names a real user.
 	foreign := &OwnerRef{Type: "user", ID: newOrgTestUser(t, db, "ops-other", "member")}
-	path, err := svc.OpsView(ctx, userID, foreign)
+	path, err := svc.OpsView(ctx, userID, foreign, 0)
 	require.NoError(t, err)
 	assert.Equal(t, 0, path.AccountCount)
 	assert.Empty(t, path.Owners)

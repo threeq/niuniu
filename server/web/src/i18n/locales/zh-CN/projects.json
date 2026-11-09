@@ -10,6 +10,7 @@
     "tabs": {
       "kanban": "看板",
       "learnings": "经验库",
+      "ops": "运营 Bot",
       "memory": "记忆",
       "settings": "设置"
     },

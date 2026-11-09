@@ -1,0 +1,178 @@
+{
+  "name": "wechat-mp",
+  "schema_version": "1",
+  "provider": "WeChat Official Account",
+  "base_url": "https://api.weixin.qq.com",
+  "auth": {
+    "strategy": "oauth2_refresh",
+    "param": "access_token",
+    "token_url": "https://api.weixin.qq.com/cgi-bin/token",
+    "grant_type": "client_credentials",
+    "token_auth": "query",
+    "token_method": "GET",
+    "client_id_param": "appid",
+    "client_secret_param": "secret"
+  },
+  "capabilities": [
+    "publish",
+    "metrics",
+    "engagements",
+    "reply"
+  ],
+  "operations": [
+    {
+      "name": "material_upload",
+      "method": "POST",
+      "path": "/cgi-bin/material/add_material",
+      "summary": "上传永久素材，返回 media_id",
+      "read_only": false,
+      "body_encoding": "multipart",
+      "parameters": [
+        {
+          "name": "type",
+          "in": "query",
+          "required": true,
+          "description": "image | video | thumb"
+        },
+        {
+          "name": "description",
+          "in": "body",
+          "required": false
+        },
+        {
+          "name": "media",
+          "in": "body",
+          "type": "file",
+          "required": true
+        }
+      ]
+    },
+    {
+      "name": "draft_add",
+      "method": "POST",
+      "path": "/cgi-bin/draft/add",
+      "summary": "新建图文草稿，返回 media_id",
+      "read_only": false,
+      "parameters": [
+        {
+          "name": "articles",
+          "in": "body",
+          "required": true
+        }
+      ]
+    },
+    {
+      "name": "freepublish_submit",
+      "method": "POST",
+      "path": "/cgi-bin/freepublish/submit",
+      "summary": "发布草稿",
+      "read_only": false,
+      "parameters": [
+        {
+          "name": "media_id",
+          "in": "body",
+          "required": true
+        }
+      ]
+    },
+    {
+      "name": "datacube_article_total",
+      "method": "POST",
+      "path": "/cgi-bin/datacube/getarticletotal",
+      "summary": "图文统计数据",
+      "read_only": true,
+      "parameters": [
+        {
+          "name": "begin_date",
+          "in": "body",
+          "required": true
+        },
+        {
+          "name": "end_date",
+          "in": "body",
+          "required": true
+        }
+      ]
+    },
+    {
+      "name": "freepublish_batchget",
+      "method": "POST",
+      "path": "/cgi-bin/freepublish/batchget",
+      "summary": "已发布文章列表",
+      "read_only": true,
+      "parameters": [
+        {
+          "name": "offset",
+          "in": "body"
+        },
+        {
+          "name": "count",
+          "in": "body"
+        },
+        {
+          "name": "no_content",
+          "in": "body"
+        }
+      ]
+    },
+    {
+      "name": "comment_list",
+      "method": "POST",
+      "path": "/cgi-bin/comment/list",
+      "summary": "文章留言列表",
+      "read_only": true,
+      "parameters": [
+        {
+          "name": "msg_data_id",
+          "in": "body",
+          "required": true
+        },
+        {
+          "name": "index",
+          "in": "body"
+        },
+        {
+          "name": "begin",
+          "in": "body"
+        },
+        {
+          "name": "count",
+          "in": "body"
+        },
+        {
+          "name": "type",
+          "in": "body"
+        }
+      ]
+    },
+    {
+      "name": "comment_reply",
+      "method": "POST",
+      "path": "/cgi-bin/comment/reply/add",
+      "summary": "回复文章留言",
+      "read_only": false,
+      "parameters": [
+        {
+          "name": "msg_data_id",
+          "in": "body",
+          "required": true
+        },
+        {
+          "name": "index",
+          "in": "body"
+        },
+        {
+          "name": "user_comment_id",
+          "in": "body",
+          "required": true
+        },
+        {
+          "name": "content",
+          "in": "body",
+          "required": true
+        }
+      ]
+    }
+  ],
+  "notes": "Official WeChat Official Account API. Auth is a client_credential token exchange (GET, appid/secret in query) injected as the access_token query parameter. No external MCP or gateway is involved."
+}

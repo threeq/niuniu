@@ -244,20 +244,24 @@ func (o *oauth2AuthStrategy) Apply(ctx context.Context, req *AuthRequest) (*Auth
 	if err != nil {
 		return nil, err
 	}
-	header := strings.TrimSpace(strFromCfg(req.Config, "auth_header"))
-	if header == "" {
-		header = req.Provider.AuthHeader
+	cfg := effectiveAuthConfig(req)
+	// Some APIs take the minted token as a query parameter rather than a
+	// header (WeChat's access_token). Declared with `auth_param`.
+	if param := strings.TrimSpace(strFromCfg(cfg, "auth_param")); param != "" {
+		if req.URL != nil {
+			q := req.URL.Query()
+			q.Set(param, token)
+			req.URL.RawQuery = q.Encode()
+		}
+		return &AuthOutcome{Strategy: "oauth2_refresh", Scheme: "query", HeaderName: param, Payload: token}, nil
 	}
+	header := strings.TrimSpace(strFromCfg(cfg, "auth_header"))
 	if header == "" {
 		header = "Authorization"
 	}
-	prefix := strings.TrimSpace(strFromCfg(req.Config, "auth_prefix"))
+	prefix := strings.TrimSpace(strFromCfg(cfg, "auth_prefix"))
 	if prefix == "" {
-		if req.Provider.AuthPrefix != "" {
-			prefix = req.Provider.AuthPrefix
-		} else {
-			prefix = "Bearer"
-		}
+		prefix = "Bearer"
 	}
 	value := token
 	if prefix != "" {
@@ -276,7 +280,7 @@ func (o *oauth2AuthStrategy) Apply(ctx context.Context, req *AuthRequest) (*Auth
 // freshly minted one. A credential carrying only a static `access_token` and no
 // token_url (the GSC "pasted token" shape) is passed through untouched.
 func (o *oauth2AuthStrategy) token(ctx context.Context, req *AuthRequest) (string, error) {
-	cfg := req.Config
+	cfg := effectiveAuthConfig(req)
 	tokenURL := strings.TrimSpace(strFromCfg(cfg, "token_url"))
 	if tokenURL == "" {
 		if tok := credToken(cfg); tok != "" {
@@ -308,15 +312,29 @@ func (o *oauth2AuthStrategy) token(ctx context.Context, req *AuthRequest) (strin
 
 // exchange performs the token-endpoint round trip for one grant.
 func (o *oauth2AuthStrategy) exchange(ctx context.Context, req *AuthRequest, tokenURL, grantType string) (string, time.Duration, error) {
-	cfg := req.Config
-	clientID := strings.TrimSpace(firstNonEmpty(strFromCfg(cfg, "client_id"), strFromCfg(cfg, "username")))
-	clientSecret := firstNonEmpty(strFromCfg(cfg, "client_secret"), strFromCfg(cfg, "password"))
+	cfg := effectiveAuthConfig(req)
+	clientID := strings.TrimSpace(firstNonEmpty(strFromCfg(cfg, "client_id"), strFromCfg(cfg, "app_id"), strFromCfg(cfg, "appid"), strFromCfg(cfg, "username")))
+	clientSecret := firstNonEmpty(strFromCfg(cfg, "client_secret"), strFromCfg(cfg, "app_secret"), strFromCfg(cfg, "appsecret"), strFromCfg(cfg, "secret"), strFromCfg(cfg, "password"))
 	scope := strings.TrimSpace(firstNonEmpty(strFromCfg(cfg, "scope"), strFromCfg(cfg, "scopes")))
+	// Token-endpoint shape is provider-specific: some APIs expect a GET whose
+	// query carries the credentials (WeChat client_credential), others a form
+	// POST with body or Basic auth. Both are expressed declaratively.
+	idParam := firstNonEmpty(strFromCfg(cfg, "client_id_param"), "client_id")
+	secretParam := firstNonEmpty(strFromCfg(cfg, "client_secret_param"), "client_secret")
+	tokenAuth := strings.ToLower(strings.TrimSpace(strFromCfg(cfg, "token_auth"))) // query | body | basic/empty
+	tokenMethod := strings.ToUpper(strings.TrimSpace(strFromCfg(cfg, "token_method")))
+	if tokenMethod == "" {
+		if tokenAuth == "query" {
+			tokenMethod = http.MethodGet
+		} else {
+			tokenMethod = http.MethodPost
+		}
+	}
 
 	form := url.Values{}
 	form.Set("grant_type", grantType)
-	if clientID != "" {
-		form.Set("client_id", clientID)
+	if clientID != "" && tokenAuth != "query" {
+		form.Set(idParam, clientID)
 	}
 	if scope != "" {
 		form.Set("scope", scope)
@@ -341,10 +359,12 @@ func (o *oauth2AuthStrategy) exchange(ctx context.Context, req *AuthRequest, tok
 
 	// RFC 6749 §2.3.1: a confidential client authenticates with HTTP Basic,
 	// form-url-encoding id/secret first. `token_auth: body` opts into sending
-	// them in the form body instead (some providers require that).
-	useBodyAuth := strings.EqualFold(strings.TrimSpace(strFromCfg(cfg, "token_auth")), "body")
+	// them in the form body instead; `token_auth: query` sends a GET whose
+	// query carries them (WeChat client_credential).
+	useBodyAuth := tokenAuth == "body"
+	useQueryAuth := tokenAuth == "query"
 	if clientSecret != "" && useBodyAuth {
-		form.Set("client_secret", clientSecret)
+		form.Set(secretParam, clientSecret)
 	}
 
 	endpoint, err := url.Parse(tokenURL)
@@ -355,13 +375,33 @@ func (o *oauth2AuthStrategy) exchange(ctx context.Context, req *AuthRequest, tok
 		return "", 0, &AuthStrategyError{Strategy: "oauth2_refresh",
 			Message: "token_url must be http(s)"}
 	}
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint.String(), strings.NewReader(form.Encode()))
+	var tokenBody io.Reader
+	if useQueryAuth {
+		q := endpoint.Query()
+		for key, values := range form {
+			for _, value := range values {
+				q.Set(key, value)
+			}
+		}
+		if clientID != "" {
+			q.Set(idParam, clientID)
+		}
+		if clientSecret != "" {
+			q.Set(secretParam, clientSecret)
+		}
+		endpoint.RawQuery = q.Encode()
+	} else {
+		tokenBody = strings.NewReader(form.Encode())
+	}
+	httpReq, err := http.NewRequestWithContext(ctx, tokenMethod, endpoint.String(), tokenBody)
 	if err != nil {
 		return "", 0, &AuthStrategyError{Strategy: "oauth2_refresh", Message: "build token request", Err: err}
 	}
-	httpReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	if !useQueryAuth {
+		httpReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	}
 	httpReq.Header.Set("Accept", "application/json")
-	if clientSecret != "" && !useBodyAuth {
+	if clientSecret != "" && !useBodyAuth && !useQueryAuth {
 		httpReq.SetBasicAuth(url.QueryEscape(clientID), url.QueryEscape(clientSecret))
 	}
 
@@ -855,4 +895,48 @@ func (mtlsAuthStrategy) Client(base *http.Client, cfg map[string]any) (*http.Cli
 	}
 	cloned.TLSClientConfig = tlsCfg
 	return &http.Client{Transport: cloned, Timeout: base.Timeout}, nil
+}
+
+// effectiveAuthConfig merges the provider contract's auth declaration under the
+// credential config, so endpoint shape (token_url, grant, param names) can live
+// on the provider while the credential only carries the raw client id/secret.
+// Explicit credential values always win.
+func effectiveAuthConfig(req *AuthRequest) map[string]any {
+	if req == nil {
+		return nil
+	}
+	cfg := req.Config
+	if req.Provider == nil {
+		return cfg
+	}
+	contract := req.Provider.Contract()
+	if contract == nil || contract.Auth == nil {
+		return cfg
+	}
+	auth := contract.Auth
+	merged := make(map[string]any, len(cfg)+10)
+	for key, value := range cfg {
+		merged[key] = value
+	}
+	setIfMissing := func(key, value string) {
+		if strings.TrimSpace(value) == "" {
+			return
+		}
+		if existing, ok := merged[key]; ok {
+			if s, _ := existing.(string); strings.TrimSpace(s) != "" {
+				return
+			}
+		}
+		merged[key] = value
+	}
+	setIfMissing("token_url", auth.TokenURL)
+	setIfMissing("grant_type", auth.GrantType)
+	setIfMissing("token_auth", auth.TokenAuth)
+	setIfMissing("token_method", auth.TokenMethod)
+	setIfMissing("client_id_param", auth.ClientIDParam)
+	setIfMissing("client_secret_param", auth.ClientSecretParam)
+	setIfMissing("auth_param", auth.Param)
+	setIfMissing("auth_header", auth.Header)
+	setIfMissing("auth_prefix", auth.Prefix)
+	return merged
 }

@@ -1069,18 +1069,19 @@ type MissionControlOpsView struct {
 
 // OpsView aggregates the ops console. ownerFilter, when set, narrows the scope
 // to that owner after the accessibility check, mirroring View.
-func (s *MissionControlService) OpsView(ctx context.Context, userID int64, ownerFilter *OwnerRef) (MissionControlOpsView, error) {
+func (s *MissionControlService) OpsView(ctx context.Context, userID int64, ownerFilter *OwnerRef, projectID int64) (MissionControlOpsView, error) {
 	now := s.clock()
 	owners, err := s.authz.Accessible(ctx, userID)
 	if err != nil {
 		return MissionControlOpsView{}, err
 	}
 
-	// Scope is owner-level, exactly matching OpsBotHandler.ListBots: a bot
-	// belongs to an owner, not to a project, so there is no project-level
-	// filter to apply here. A personal owner can only ever see their own row;
-	// org owners require membership (authz.Accessible). The explicit
-	// ownerFilter below is validated against this same set, never trusted.
+	// Scope is owner-level for authorization, then optionally narrowed to one
+	// project: every bot is created under a project (its control Epic lives
+	// there), so projectID filters the account rows by that binding. A personal
+	// owner can only ever see their own row; org owners require membership
+	// (authz.Accessible). The explicit ownerFilter is validated against this
+	// same set, never trusted.
 	scope := []OwnerRef{{Type: "user", ID: userID}}
 	for _, orgID := range owners.OrgIDs {
 		scope = append(scope, OwnerRef{Type: "org", ID: orgID})
@@ -1101,11 +1102,28 @@ func (s *MissionControlService) OpsView(ctx context.Context, userID int64, owner
 
 	view := MissionControlOpsView{Owners: []MissionControlOpsOwner{}}
 	for _, owner := range scope {
-		group := s.opsOwner(ctx, owner, now)
+		group := s.opsOwner(ctx, owner, now, projectID)
 		view.AccountCount += countOpsAccounts(group)
 		view.Owners = append(view.Owners, group)
 	}
 	return view, nil
+}
+
+// botProjectID resolves the project a bot belongs to via its control Epic. A
+// bot without a control Epic has no project (0).
+func (s *MissionControlService) botProjectID(ctx context.Context, bot store.OpsBot) int64 {
+	if !bot.EpicIssueID.Valid {
+		return 0
+	}
+	issue, err := s.q.GetIssue(ctx, bot.EpicIssueID.Int64)
+	if err != nil {
+		return 0
+	}
+	column, err := s.q.GetColumn(ctx, issue.ColumnID)
+	if err != nil {
+		return 0
+	}
+	return column.ProjectID
 }
 
 func countOpsAccounts(group MissionControlOpsOwner) int {
@@ -1116,7 +1134,7 @@ func countOpsAccounts(group MissionControlOpsOwner) int {
 	return n
 }
 
-func (s *MissionControlService) opsOwner(ctx context.Context, owner OwnerRef, now time.Time) MissionControlOpsOwner {
+func (s *MissionControlService) opsOwner(ctx context.Context, owner OwnerRef, now time.Time, projectID int64) MissionControlOpsOwner {
 	group := MissionControlOpsOwner{
 		OwnerType:  owner.Type,
 		OwnerID:    owner.ID,
@@ -1137,6 +1155,9 @@ func (s *MissionControlService) opsOwner(ctx context.Context, owner OwnerRef, no
 	order := []string{}
 	for _, bot := range bots {
 		if bot.Role != "account" {
+			continue
+		}
+		if projectID > 0 && s.botProjectID(ctx, bot) != projectID {
 			continue
 		}
 		ch, ok := byPack[bot.PackID]

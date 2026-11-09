@@ -173,6 +173,7 @@ type Server struct {
 	// layer with auth injection + whitelist enforcement + audit logging.
 	externalProviderSvc *service.ExternalProviderService
 	externalProxySvc    *service.ExternalProxyService
+	mcpGateway          *service.MCPGateway
 	// Read side of the two integration audit tables (Epic #726 / #728).
 	integrationAuditSvc *service.IntegrationAuditService
 	// Operable capability descriptions (Epic #726 / #738): the "how to drive
@@ -1661,6 +1662,8 @@ func New(cfg *config.Config, db *sql.DB, frontendFS fs.FS) *Server {
 	proxySvc := service.NewExternalProxyService(s.queries, db, providerSvc, s.extCredSvc, authz, s.credUsagePolicySvc)
 	s.externalProviderSvc = providerSvc
 	s.externalProxySvc = proxySvc
+	s.mcpGateway = service.NewMCPGateway(s.queries, providerSvc, s.extCredSvc, proxySvc.HTTPClient())
+	s.seedOpsProviders(context.Background())
 	s.integrationAuditSvc = service.NewIntegrationAuditService(s.queries)
 	// Reproject the owner's office-mail workspaces when the imap write-
 	// permission toggle changes, so config.toml (outgoing/SMTP) +
@@ -2075,6 +2078,7 @@ func (s *Server) initOpsBot(authz *service.Authz) {
 		},
 	}
 	svc := opsbot.NewService(s.queries, registry)
+	svc.Writes = opsProviderWrites{s: s}
 	approval := opsbot.NewApproval(store.Wrap(s.db), opsbot.ApprovalPolicy{})
 	svc.Approve = approval
 

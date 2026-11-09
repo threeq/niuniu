@@ -5,10 +5,49 @@
   "display_name": "微信公众号",
   "capabilities": ["publish", "metrics", "engagements", "reply"],
   "bindings": {
-    "publish": { "transport": "mcp", "provider": "wechat-mp" },
-    "metrics": { "transport": "mcp", "provider": "wechat-mp" },
-    "engagements": { "transport": "mcp", "provider": "wechat-mp" },
-    "reply": { "transport": "mcp", "provider": "wechat-mp" }
+    "publish": {
+      "transport": "openapi",
+      "provider": "wechat-mp",
+      "operations": {
+        "upload": "material_upload",
+        "draft": "draft_add",
+        "publish": "freepublish_submit"
+      },
+      "step_fields": {
+        "upload": ["type"],
+        "draft": ["title", "author", "digest", "content", "content_source_url", "thumb_media_id"]
+      },
+      "files": { "upload": { "media": "cover_path" } },
+      "params": { "type": "type" },
+      "templates": {
+        "draft": { "articles": [ { "title": "{{title}}", "author": "{{author}}", "digest": "{{digest}}", "content": "{{content}}", "content_source_url": "{{content_source_url}}", "thumb_media_id": "{{media_id}}" } ] },
+        "publish": { "media_id": "{{media_id}}" }
+      },
+      "outputs": { "id": "publish_id", "url": "article_url" }
+    },
+    "metrics": {
+      "transport": "openapi",
+      "provider": "wechat-mp",
+      "operation": "datacube_article_total",
+      "params": { "from": "begin_date", "to": "end_date" }
+    },
+    "engagements": {
+      "transport": "openapi",
+      "provider": "wechat-mp",
+      "operations": { "list": "freepublish_batchget", "comments": "comment_list" },
+      "items": "item",
+      "sub_items": "comment",
+      "fixed": { "offset": 0, "count": 20, "no_content": 0, "index": 0, "begin": 0, "type": 0 },
+      "params": { "parent": "msg_data_id", "id": "user_comment_id", "text": "content" },
+      "fields": { "parent_id": "article_id", "id": "user_comment_id", "author": "openid", "text": "content" }
+    },
+    "reply": {
+      "transport": "openapi",
+      "provider": "wechat-mp",
+      "operation": "comment_reply",
+      "fixed": { "index": 0 },
+      "params": { "parent": "msg_data_id", "id": "user_comment_id", "text": "content" }
+    }
   },
   "credential_slots": {
     "account": { "required": true, "scope": "account" }

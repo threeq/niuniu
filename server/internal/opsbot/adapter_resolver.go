@@ -44,13 +44,14 @@ type AdapterResolver struct {
 	Creds CredentialReader
 	// Worker runs browser recipes. Nil makes browser-bound packs unavailable.
 	Worker channel.BrowserWorker
+	// Integration executes provider-contract operations (the shared egress
+	// proxy). Nil makes openapi-bound packs unavailable.
+	Integration channel.OperationCaller
+	// MCP executes MCP tool calls through the audited gateway. Nil makes
+	// mcp-bound packs unavailable.
+	MCP channel.OperationCaller
 	// Manual is the adapter for packs bound to manual hand-off.
 	Manual *channel.ManualAdapter
-
-	// WeChatClient overrides the WeChat client factory in tests.
-	WeChatClient func(ctx context.Context, bot store.OpsBot, cfg map[string]any) (channel.WeChatClient, error)
-	// FacebookClient overrides the Graph client factory in tests.
-	FacebookClient func(ctx context.Context, bot store.OpsBot, cfg map[string]any) (channel.FacebookClient, error)
 
 	mu    sync.Mutex
 	cache map[int64]resolvedAdapter
@@ -109,7 +110,7 @@ func (r *AdapterResolver) AdapterFor(ctx context.Context, botID int64) (channel.
 		}
 		adapter = built
 	case "mcp":
-		built, buildErr := r.mcpAdapter(ctx, bot, binding)
+		built, buildErr := r.mcpAdapter(ctx, bot, manifest, binding)
 		if buildErr != nil {
 			return nil, buildErr
 		}
@@ -150,66 +151,92 @@ func (r *AdapterResolver) browserAdapter(bot store.OpsBot, manifest packs.Manife
 	return adapter, nil
 }
 
+// openAPIAdapter builds the single generic adapter. Every platform that ships
+// an OpenAPI provider contract runs through the shared integration proxy —
+// adding a channel needs Pack declarations and a provider contract, never
+// channel-specific Go.
 func (r *AdapterResolver) openAPIAdapter(ctx context.Context, bot store.OpsBot, manifest packs.Manifest, binding packs.Binding) (channel.ChannelAdapter, error) {
-	switch binding.Provider {
-	case "facebook-graph":
-		cfg, err := r.credentials(ctx, bot)
-		if err != nil {
-			return nil, err
-		}
-		if r.FacebookClient != nil {
-			client, err := r.FacebookClient(ctx, bot, cfg)
-			if err != nil {
-				return nil, unavailable(channel.CapPublish, fmt.Sprintf("facebook client: %v", err))
-			}
-			return channel.NewFacebookAdapter(client), nil
-		}
-		token := firstCredential(cfg, "page_token", "access_token", "token")
-		if token == "" {
-			return nil, unavailable(channel.CapPublish, "facebook page token is not configured")
-		}
-		return channel.NewFacebookAdapter(channel.NewGraphHTTPClient(token)), nil
-	default:
-		return nil, unavailable(channel.CapPublish, fmt.Sprintf("pack %s: openapi provider %q is not wired", manifest.ID, binding.Provider))
+	// Transitional: a binding that declares no contract operation still uses
+	// the legacy provider adapter (Facebook today). New packs are declarative.
+	if strings.TrimSpace(binding.Operation) == "" && len(binding.Operations) == 0 {
+		return nil, unavailable(channel.CapPublish, fmt.Sprintf("pack %s: openapi binding for %q declares no operation", manifest.ID, binding.Provider))
 	}
+	if r.Integration == nil {
+		return nil, unavailable(channel.CapPublish, "integration proxy is not configured")
+	}
+	// Fail fast when the account credential is missing; the proxy would catch
+	// it on the first call, but resolving at build time keeps the bot's state
+	// honest (unavailable rather than silently degraded).
+	if r.Creds != nil {
+		if _, err := r.credentials(ctx, bot, binding.Provider); err != nil {
+			return nil, unavailable(channel.CapPublish, fmt.Sprintf("pack %s: %v", manifest.ID, err))
+		}
+	}
+	_, metricsMap := packLimits(manifest)
+	adapter := channel.NewOpenAPIAdapter(r.Integration, binding.Provider, capabilityBindings(manifest, "openapi"), metricsMap)
+	adapter.OwnerType = bot.OwnerType
+	adapter.OwnerID = bot.OwnerID
+	adapter.Alias = credentialAlias(bot)
+	adapter.Account = bot.AccountRef
+	if bot.OwnerType == "user" {
+		adapter.UserID = bot.OwnerID
+	}
+	return adapter, nil
 }
 
-func (r *AdapterResolver) mcpAdapter(ctx context.Context, bot store.OpsBot, binding packs.Binding) (channel.ChannelAdapter, error) {
-	switch binding.Provider {
-	case "wechat-mp":
-		cfg, err := r.credentials(ctx, bot)
-		if err != nil {
-			return nil, err
+// capabilityBindings narrows a manifest's capability-keyed bindings to the
+// adapter's capability set.
+func capabilityBindings(manifest packs.Manifest, transport string) map[channel.Capability]packs.Binding {
+	out := make(map[channel.Capability]packs.Binding, len(manifest.Bindings))
+	for name, binding := range manifest.Bindings {
+		if binding.Transport != transport {
+			continue
 		}
-		if r.WeChatClient != nil {
-			client, err := r.WeChatClient(ctx, bot, cfg)
-			if err != nil {
-				return nil, unavailable(channel.CapPublish, fmt.Sprintf("wechat client: %v", err))
-			}
-			return channel.NewWeChatAdapter(client), nil
-		}
-		appID := firstCredential(cfg, "app_id", "appid")
-		secret := firstCredential(cfg, "app_secret", "appsecret", "secret")
-		if appID == "" || secret == "" {
-			return nil, unavailable(channel.CapPublish, "wechat app_id/app_secret are not configured")
-		}
-		return channel.NewWeChatAdapter(channel.NewWeChatAPIClient(appID, secret)), nil
-	default:
-		return nil, unavailable(channel.CapPublish, fmt.Sprintf("pack %s: mcp provider %q is not wired", bot.PackID, binding.Provider))
+		out[channel.Capability(name)] = binding
 	}
+	return out
 }
 
-func (r *AdapterResolver) credentials(ctx context.Context, bot store.OpsBot) (map[string]any, error) {
+// mcpAdapter is the legacy transport: a Pack bound to "mcp" needs an
+// operator-registered MCP provider, which the Ops Bot does not manage.
+// mcpAdapter routes an MCP-bound pack through the generic adapter: the binding
+// names the MCP tools, and the gateway performs the call with credential
+// injection and an audit record.
+func (r *AdapterResolver) mcpAdapter(_ context.Context, bot store.OpsBot, manifest packs.Manifest, binding packs.Binding) (channel.ChannelAdapter, error) {
+	if r.MCP == nil {
+		return nil, unavailable(channel.CapPublish, "mcp gateway is not configured")
+	}
+	_, metricsMap := packLimits(manifest)
+	adapter := channel.NewOpenAPIAdapter(r.MCP, binding.Provider, capabilityBindings(manifest, "mcp"), metricsMap)
+	adapter.OwnerType = bot.OwnerType
+	adapter.OwnerID = bot.OwnerID
+	adapter.Alias = credentialAlias(bot)
+	adapter.Account = bot.AccountRef
+	if bot.OwnerType == "user" {
+		adapter.UserID = bot.OwnerID
+	}
+	return adapter, nil
+}
+
+func (r *AdapterResolver) credentials(ctx context.Context, bot store.OpsBot, provider string) (map[string]any, error) {
 	if r.Creds == nil {
 		return nil, unavailable(channel.CapPublish, "credential store is not configured")
 	}
-	// credential_refs_json may pin an explicit account credential alias; when
-	// it does not, the account ref is the alias the onboarding link used.
+	// credential_refs_json may pin an explicit account credential alias; when it
+	// does not, the account ref is the alias the onboarding link used.
 	alias := credentialAlias(bot)
-	cfg, err := r.Creds.Decrypted(ctx, bot.OwnerType, bot.OwnerID, bot.PackID, alias)
+	key := strings.TrimSpace(provider)
+	if key == "" {
+		key = bot.PackID
+	}
+	cfg, err := r.Creds.Decrypted(ctx, bot.OwnerType, bot.OwnerID, key, alias)
+	if err != nil && key != bot.PackID {
+		// Legacy rows were stored under the pack id; keep them working.
+		cfg, err = r.Creds.Decrypted(ctx, bot.OwnerType, bot.OwnerID, bot.PackID, alias)
+	}
 	if err != nil {
 		return nil, unavailable(channel.CapPublish,
-			fmt.Sprintf("credential for %s/%s is unavailable: %v", bot.PackID, alias, err))
+			fmt.Sprintf("credential for %s/%s is unavailable: %v", key, alias, err))
 	}
 	return cfg, nil
 }

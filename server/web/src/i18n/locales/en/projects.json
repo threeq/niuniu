@@ -10,6 +10,7 @@
     "tabs": {
       "kanban": "Kanban",
       "learnings": "Learnings",
+      "ops": "Ops Bot",
       "memory": "Memory",
       "settings": "Settings"
     },

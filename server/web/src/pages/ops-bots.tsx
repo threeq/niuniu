@@ -15,13 +15,19 @@ import type { OpsAccount, OpsOwner } from '@/types/ops'
  * score. Pause/resume is available inline; every account drills into its own
  * page for metrics, calendar, engagements, approvals and browser state.
  */
-export function OpsBotsPage() {
+interface OpsBotsPageProps {
+  /** When set, the console lists only bots whose control Epic lives in this
+   *  project — the embedded "运营 Bot" project tab. */
+  projectId?: number
+}
+
+export function OpsBotsPage({ projectId }: OpsBotsPageProps = {}) {
   const { t } = useTranslation('ops')
   const queryClient = useQueryClient()
 
   const { data, isLoading, isError, isFetching, refetch } = useQuery({
-    queryKey: ['ops-bots'],
-    queryFn: () => opsApi.list(null),
+    queryKey: ['ops-bots', projectId ?? 'all'],
+    queryFn: () => opsApi.list(null, projectId),
     refetchInterval: 60_000,
     staleTime: 30_000,
     retry: 1,
@@ -40,6 +46,7 @@ export function OpsBotsPage() {
           : t('toast.resumed', { name }),
       )
       queryClient.invalidateQueries({ queryKey: ['ops-bots'] })
+      queryClient.invalidateQueries({ queryKey: ['project-ops-bots'] })
     },
     onError: (err: unknown) => {
       toast.error(

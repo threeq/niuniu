@@ -51,10 +51,12 @@ func (s *Server) initOpsRuntime(svc *opsbot.Service, approval *opsbot.Approval, 
 	manual := channel.NewManualAdapter(filepath.Join(s.cfg.DataDir, "ops", "manual"))
 
 	resolver := &opsbot.AdapterResolver{
-		Bots:   s.queries,
-		Packs:  registry,
-		Worker: worker,
-		Manual: manual,
+		Bots:        s.queries,
+		Packs:       registry,
+		Worker:      worker,
+		Manual:      manual,
+		Integration: &opsProxyCaller{s: s},
+		MCP:         &opsMCPCaller{s: s},
 	}
 
 	scheduler := &opsTimerScheduler{}
