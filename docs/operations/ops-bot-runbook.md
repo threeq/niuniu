@@ -62,6 +62,9 @@ Bot ：账号已登记。请点这个一次性链接完成授权：https://…
 
 - 授权只通过**一次性链接/二维码**完成，会话只出现链接，不接收也不回显明文密钥（`CredentialLinker` 契约）。
 - 凭据按 `credential_refs_json` 中的 `{app, account}` 槽位解析；不同账号的凭据、profile、预算互不串号。
+- **微信公众号不依赖任何外部 MCP，也没有渠道专属 Go 代码**：内置 Pack 用声明式 `openapi` 绑定（`provider.json` 契约 + 操作/模板/multipart 映射），由共享 integration 代理执行官方 API（发布/草稿/素材/数据/评论）。服务启动时自动登记该 provider（`seedOpsProviders`），创建账号 Bot 时自动为该 owner 打开写权限；用户只需通过一次性链接录入 AppID/AppSecret。
+- **MCP 平台同样是无专属代码的通用 Adapter**：Pack 用 `transport: "mcp"` + 工具名（`operation`/`operations`）声明，服务端 `MCPGateway` 调 `tools/call`，凭据经 credstore 注入；每次调用写 `external_api_audit`（`Method=MCP`、`Path=tool:<name>`、参数指纹），因此 MCP 接入也能进入 Ops Bot 的发布/指标/互动与审计链路，而不是只存在于 agent 对话里。
+  - **两种传输都支持**：HTTP(Streamable) 用 profile 的 `url`；stdio 用 `command: ["npx","-y","some-mcp"]`、可选 `env`/`workdir`。stdio 的 `env` 值可用 `${cred:<key>}` 从账号凭据解密注入，密钥不落在 provider profile。
 - 浏览器渠道（小红书/知乎等）每个账号使用独立 profile：`<DataDir>/ops/browser/<botID>/local/`，登录态留在磁盘；同一 profile 被两个 Bot 复用会直接报 `ErrProfileShared`。
 - 扫码/登录态是账号级资产：登录失效时风险控制器会暂停该账号并通知运营人，恢复前必须重新验证登录。
 

@@ -8,13 +8,15 @@ import { KanbanHeaderSlotContext } from '@/components/shared/kanban/kanban-heade
 import { ProjectKanbanPage } from './project-kanban-page'
 import { ProjectMemoryTab } from '../project/memory-tab'
 import { ProjectSettingsTab } from '../project/settings-tab'
+import { OpsBotsPage } from '../ops-bots'
+import { opsApi } from '@/lib/api'
 
 interface ProjectDetailPageProps {
   projectId: string
   // Deep-link entry point: which tab (and, for settings, which sub-section) to
   // open on mount. Used by the 工程规范 page to link straight at a project's
   // 底线 editor instead of dropping the user on the board.
-  initialTab?: 'kanban' | 'memory' | 'settings'
+  initialTab?: 'kanban' | 'ops' | 'memory' | 'settings'
   initialSettingsSection?: string
 }
 
@@ -25,7 +27,8 @@ export function ProjectDetailPage({
 }: ProjectDetailPageProps) {
   const { t } = useTranslation('projects')
   const { t: tIntake } = useTranslation('intake')
-  const [activeTab, setActiveTab] = useState<'kanban' | 'memory' | 'settings'>(initialTab ?? 'kanban')
+  const [activeTab, setActiveTab] = useState<'kanban' | 'ops' | 'memory' | 'settings'>(initialTab ?? 'kanban')
+  const projectIdNum = parseInt(projectId, 10)
   // Unsaved intake edits live inside the settings tab; switching top-level tabs
   // unmounts it, so warn here as well as on route changes.
   const [settingsDirty, setSettingsDirty] = useState(false)
@@ -39,6 +42,19 @@ export function ProjectDetailPage({
     queryFn: () => api.get<Project>(`/projects/${projectId}`),
     retry: 1,
   })
+
+  // The 运营 Bot tab only exists once this project actually owns an ops bot
+  // (its control Epic lives here). The count query is the same aggregate the
+  // tab renders, so visibility and content can never disagree.
+  const ownerParam = project?.owner ? `${project.owner.type}:${project.owner.id}` : null
+  const { data: opsView } = useQuery({
+    queryKey: ['project-ops-bots', projectId],
+    queryFn: () => opsApi.list(ownerParam, projectIdNum),
+    enabled: !!ownerParam && Number.isFinite(projectIdNum),
+    staleTime: 30_000,
+    retry: 1,
+  })
+  const hasOpsBots = (opsView?.account_count ?? 0) > 0
 
   if (isLoading) {
     return (
@@ -56,15 +72,16 @@ export function ProjectDetailPage({
     )
   }
 
-  const projectIdNum = parseInt(projectId, 10)
-
   return (
     <div className="flex flex-col h-full">
       {/* Tab navigation — fixed 40px chrome row (matches the workspace header
           height). On the 看板 tab, the board toolbar portals into the right-hand
           slot so tabs + toolbar share this single row instead of stacking. */}
       <div className="flex h-10 shrink-0 items-center gap-1 overflow-x-auto border-b border-warm-border bg-warm-muted px-2 sm:px-4 md:overflow-visible">
-        {(['kanban', 'memory', 'settings'] as const).map((tab) => (
+        {(hasOpsBots
+          ? (['kanban', 'ops', 'memory', 'settings'] as const)
+          : (['kanban', 'memory', 'settings'] as const)
+        ).map((tab) => (
           <button
             key={tab}
             onClick={() => {
@@ -100,6 +117,11 @@ export function ProjectDetailPage({
       <KanbanHeaderSlotContext.Provider value={headerSlot}>
         <div className="flex-1 min-w-0 overflow-hidden">
           {activeTab === 'kanban' && <ProjectKanbanPage projectId={projectId} />}
+          {activeTab === 'ops' && (
+            <div className="h-full overflow-y-auto">
+              <OpsBotsPage projectId={projectIdNum} />
+            </div>
+          )}
           {activeTab === 'memory' && (
             <div className="h-full overflow-y-auto">
               <ProjectMemoryTab projectId={projectIdNum} owner={project.owner} />

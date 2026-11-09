@@ -511,6 +511,25 @@ func (h *OpsBotHandler) CreateBot(c *gin.Context) {
 		return
 	}
 
+	// A bot belongs to a project: when the caller is a project workspace agent
+	// (MCP session), default the control-Epic project to that workspace's
+	// project so the bot shows up in the project's 运营 Bot tab.
+	projectID := body.ProjectID
+	if projectID <= 0 {
+		if wsID := c.GetInt64("mcp_workspace_id"); wsID > 0 && h.Queries != nil {
+			if pid, perr := h.Queries.GetProjectIDForWorkspace(c.Request.Context(), wsID); perr == nil {
+				projectID = pid
+			}
+		}
+	}
+	// Every Ops Bot belongs to a project: its control Epic (and therefore the
+	// project 运营 Bot tab) is created there. There is no owner-level,
+	// project-less bot, so reject a create that names no project.
+	if projectID <= 0 {
+		BadRequest(c, "project_id is required: create the bot from a project workspace or pass project_id")
+		return
+	}
+
 	var bot store.OpsBot
 	if strings.TrimSpace(body.Role) == opsbot.RoleDirector || strings.TrimSpace(body.Role) == "" && body.PackID == "" {
 		bot, err = h.Svc.CreateDirector(c.Request.Context(), opsbot.CreateDirectorInput{
@@ -547,10 +566,13 @@ func (h *OpsBotHandler) CreateBot(c *gin.Context) {
 		return
 	}
 
-	if body.ProjectID > 0 && h.Provision != nil {
-		if err := h.provisionBot(c, bot, owner, body.ProjectID, uid); err != nil {
-			// The bot row exists; provisioning is idempotent, so a retry through
-			// the same create path would 409. Report the failure explicitly.
+	if projectID > 0 && h.Provision != nil {
+		if err := h.provisionBot(c, bot, owner, projectID, uid); err != nil {
+			// A bot without its control Epic has no project, which the product
+			// does not allow. Roll the row back so a retry starts clean.
+			if h.DB != nil {
+				_, _ = h.DB.ExecContext(c.Request.Context(), `DELETE FROM ops_bots WHERE id = ?`, bot.ID)
+			}
 			RespondErrorWithDetails(c, http.StatusInternalServerError, "OPS_PROVISION_FAILED", err.Error(),
 				gin.H{"bot_id": bot.ID})
 			return
@@ -1451,12 +1473,15 @@ func (h *OpsBotHandler) CredentialLink(c *gin.Context) {
 	}
 	fields := body.Fields
 	if len(fields) == 0 {
+		fields = h.packCredentialFields(bot)
+	}
+	if len(fields) == 0 {
 		fields = []string{"app_id", "app_secret"}
 	}
 	token, err := h.CredLinks.Issue(c.Request.Context(), projectID, uid,
 		service.CredentialKindProviderCredential, title, fields,
 		map[string]any{
-			"provider":  bot.PackID,
+			"provider":  h.packProviderName(bot),
 			"alias":     bot.AccountRef,
 			"auth_mode": body.AuthMode,
 		})
@@ -1510,6 +1535,40 @@ func (h *OpsBotHandler) authorizeIssueOwner(c *gin.Context, bot store.OpsBot, is
 		return false
 	}
 	return h.authorizeProjectOwner(c, bot, column.ProjectID)
+}
+
+// packProviderName returns the integration provider the pack binds (what the
+// proxy/MCP gateway resolves credentials by), falling back to the pack id for
+// packs that still use a legacy transport.
+func (h *OpsBotHandler) packProviderName(bot store.OpsBot) string {
+	if h.Packs != nil {
+		if manifest, err := h.Packs.LatestPublished(bot.OwnerType, bot.OwnerID, bot.PackID); err == nil {
+			for _, capability := range []string{"publish", "metrics", "engagements", "reply"} {
+				binding, ok := manifest.Bindings[capability]
+				if !ok {
+					continue
+				}
+				if provider := strings.TrimSpace(binding.Provider); provider != "" &&
+					(binding.Transport == "openapi" || binding.Transport == "mcp") {
+					return provider
+				}
+			}
+		}
+	}
+	return bot.PackID
+}
+
+// packCredentialFields returns the pack's declared account credential fields,
+// so a platform that needs a page token asks for it instead of AppID/Secret.
+func (h *OpsBotHandler) packCredentialFields(bot store.OpsBot) []string {
+	if h.Packs == nil {
+		return nil
+	}
+	manifest, err := h.Packs.LatestPublished(bot.OwnerType, bot.OwnerID, bot.PackID)
+	if err != nil {
+		return nil
+	}
+	return manifest.CredentialSlots["account"].Fields
 }
 
 // projectForBot resolves the project that owns the bot's control Epic.

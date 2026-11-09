@@ -499,6 +499,10 @@ func (o *Onboarding) finishLocked(ctx context.Context, s *Session) (string, bool
 		"video":   s.Approval.Video,
 	})
 
+	if s.ProjectID <= 0 {
+		delete(o.sessions, s.ChatID)
+		return "", false, fmt.Errorf("opsbot: onboarding must start from a project so the bot has a control Epic")
+	}
 	bot, err := o.Service.CreateAccountBot(ctx, CreateAccountInput{
 		Owner:              s.Owner,
 		PackID:             s.PackID,

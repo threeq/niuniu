@@ -1,0 +1,68 @@
+{
+  "name": "facebook-graph",
+  "schema_version": "1",
+  "provider": "Facebook Graph API",
+  "base_url": "https://graph.facebook.com/v21.0",
+  "auth": {
+    "strategy": "bearer",
+    "header": "Authorization",
+    "prefix": "Bearer"
+  },
+  "capabilities": ["publish", "metrics", "engagements", "reply"],
+  "verify_operation": "page_metrics",
+  "operations": [
+    {
+      "name": "publish_feed",
+      "method": "POST",
+      "path": "/{account}/feed",
+      "summary": "发布 Page 动态",
+      "read_only": false,
+      "parameters": [
+        { "name": "account", "in": "path", "required": true },
+        { "name": "message", "in": "body" },
+        { "name": "link", "in": "body" },
+        { "name": "published", "in": "body" },
+        { "name": "scheduled_publish_time", "in": "body" }
+      ]
+    },
+    {
+      "name": "page_metrics",
+      "method": "GET",
+      "path": "/{account}/insights",
+      "summary": "Page/managed-post insights",
+      "read_only": true,
+      "parameters": [
+        { "name": "account", "in": "path", "required": true },
+        { "name": "metric", "in": "query" },
+        { "name": "period", "in": "query" },
+        { "name": "since", "in": "query" },
+        { "name": "until", "in": "query" }
+      ]
+    },
+    {
+      "name": "page_comments",
+      "method": "GET",
+      "path": "/{account}/comments",
+      "summary": "Page 评论",
+      "read_only": true,
+      "parameters": [
+        { "name": "account", "in": "path", "required": true },
+        { "name": "since", "in": "query" },
+        { "name": "until", "in": "query" },
+        { "name": "after", "in": "query" }
+      ]
+    },
+    {
+      "name": "comment_reply",
+      "method": "POST",
+      "path": "/{comment_id}/comments",
+      "summary": "回复评论 / 私信",
+      "read_only": false,
+      "parameters": [
+        { "name": "comment_id", "in": "path", "required": true },
+        { "name": "message", "in": "body", "required": true }
+      ]
+    }
+  ],
+  "notes": "Facebook Graph API. A Page access token is injected as a Bearer header; the Page id arrives as the account parameter. No channel-specific code."
+}

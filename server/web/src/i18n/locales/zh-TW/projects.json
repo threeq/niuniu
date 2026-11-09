@@ -10,6 +10,7 @@
     "tabs": {
       "kanban": "看板",
       "learnings": "經驗庫",
+      "ops": "營運 Bot",
       "memory": "記憶",
       "settings": "設定"
     },

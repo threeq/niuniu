@@ -3,16 +3,70 @@
   "version": 1,
   "status": "published",
   "display_name": "Facebook",
-  "capabilities": ["publish", "metrics", "engagements", "reply"],
+  "capabilities": [
+    "publish",
+    "metrics",
+    "engagements",
+    "reply"
+  ],
   "bindings": {
-    "publish": { "transport": "openapi", "provider": "facebook-graph" },
-    "metrics": { "transport": "openapi", "provider": "facebook-graph" },
-    "engagements": { "transport": "openapi", "provider": "facebook-graph" },
-    "reply": { "transport": "openapi", "provider": "facebook-graph" }
+    "publish": {
+      "transport": "openapi",
+      "provider": "facebook-graph",
+      "operation": "publish_feed",
+      "params": {
+        "link": "link"
+      },
+      "outputs": {
+        "id": "id"
+      }
+    },
+    "metrics": {
+      "transport": "openapi",
+      "provider": "facebook-graph",
+      "operation": "page_metrics",
+      "params": {
+        "from": "since",
+        "to": "until"
+      },
+      "fixed": {
+        "metric": "page_fans,page_impressions,page_post_engagements",
+        "period": "day"
+      },
+      "items": "data",
+      "value_key": "values"
+    },
+    "engagements": {
+      "transport": "openapi",
+      "provider": "facebook-graph",
+      "operation": "page_comments",
+      "items": "data",
+      "fields": {
+        "id": "id",
+        "text": "message"
+      }
+    },
+    "reply": {
+      "transport": "openapi",
+      "provider": "facebook-graph",
+      "operation": "comment_reply",
+      "params": {
+        "id": "comment_id",
+        "text": "message"
+      }
+    }
   },
   "credential_slots": {
-    "app": { "required": true, "scope": "owner" },
-    "account": { "required": true, "scope": "account" }
-  },
-  "allowed_hosts": ["graph.facebook.com"]
+    "app": {
+      "required": false,
+      "scope": "owner"
+    },
+    "account": {
+      "required": true,
+      "scope": "account",
+      "fields": [
+        "page_token"
+      ]
+    }
+  }
 }

@@ -78,16 +78,16 @@ func NewBrowserAdapter(worker BrowserWorker, recipes RecipeSet, capabilities []s
 		}
 	}
 	if len(caps) == 0 {
-		if _, ok := recipes[XHSRecipePublish]; ok {
+		if _, ok := recipes[RecipePublish]; ok {
 			caps[CapPublish] = true
 		}
-		if _, ok := recipes[XHSRecipeMetrics]; ok {
+		if _, ok := recipes[RecipeMetrics]; ok {
 			caps[CapMetrics] = true
 		}
-		if _, ok := recipes[XHSRecipeEngagements]; ok {
+		if _, ok := recipes[RecipeEngagements]; ok {
 			caps[CapEngagements] = true
 		}
-		if _, ok := recipes[XHSRecipeReply]; ok {
+		if _, ok := recipes[RecipeReply]; ok {
 			caps[CapReply] = true
 		}
 	}
@@ -123,25 +123,25 @@ func (a *BrowserAdapter) BindAccount(botID int64) {
 // the QR re-login flow for) the stored session. accountRef may be the bot id;
 // when it is not numeric the account bound by the resolver is kept.
 func (a *BrowserAdapter) EnsureSession(ctx context.Context, accountRef string) error {
-	botID, err := parseXHSAccountRef(accountRef)
+	botID, err := parseAccountRef(accountRef)
 	switch {
 	case err == nil:
 		a.BindAccount(botID)
 	case !a.bound():
 		return err
 	}
-	if _, ok := a.recipes[XHSRecipeLogin]; !ok {
+	if _, ok := a.recipes[RecipeLogin]; !ok {
 		return nil
 	}
-	_, err = a.execute(ctx, CapPublish, XHSRecipeLogin, nil)
+	_, err = a.execute(ctx, CapPublish, RecipeLogin, nil)
 	return err
 }
 
 func (a *BrowserAdapter) HealthCheck(ctx context.Context) error {
-	if _, ok := a.recipes[XHSRecipeHealth]; !ok {
+	if _, ok := a.recipes[RecipeHealth]; !ok {
 		return nil
 	}
-	_, err := a.execute(ctx, CapMetrics, XHSRecipeHealth, nil)
+	_, err := a.execute(ctx, CapMetrics, RecipeHealth, nil)
 	return err
 }
 
@@ -155,17 +155,17 @@ func (a *BrowserAdapter) Publish(ctx context.Context, payload any) (Receipt, err
 		return Receipt{}, err
 	}
 
-	recipe := XHSRecipePublish
-	if kind == XHSKindVideo {
-		if _, ok := a.recipes[XHSRecipePublishVideo]; ok {
-			recipe = XHSRecipePublishVideo
+	recipe := RecipePublish
+	if kind == KindVideo {
+		if _, ok := a.recipes[RecipePublishVideo]; ok {
+			recipe = RecipePublishVideo
 		}
 	}
 	res, err := a.execute(ctx, CapPublish, recipe, input)
 	if err != nil {
 		return Receipt{}, err
 	}
-	return xhsReceipt(res, "url"), nil
+	return browserReceipt(res, "url"), nil
 }
 
 func browserPayload(payload any) (BrowserPublishPayload, bool) {
@@ -215,7 +215,7 @@ func (a *BrowserAdapter) publishInput(p BrowserPublishPayload) (string, map[stri
 		return "", nil, invalidPayload(CapPublish,
 			fmt.Sprintf("channel: video duration %ds exceeds %ds", p.DurationSec, max))
 	}
-	if kind == XHSKindVideo && strings.TrimSpace(p.VideoPath) == "" {
+	if kind == KindVideo && strings.TrimSpace(p.VideoPath) == "" {
 		return "", nil, invalidPayload(CapPublish, "channel: video requires a video path")
 	}
 
@@ -233,7 +233,7 @@ func (a *BrowserAdapter) publishInput(p BrowserPublishPayload) (string, map[stri
 	if cover := strings.TrimSpace(p.Cover); cover != "" {
 		input["cover"] = cover
 	}
-	if tags := xhsTags(p.Tags); tags != "" {
+	if tags := tagsValue(p.Tags); tags != "" {
 		input["tags"] = tags
 	}
 	for key, value := range p.Params {
@@ -247,11 +247,11 @@ func (a *BrowserAdapter) publishInput(p BrowserPublishPayload) (string, map[stri
 // FetchMetrics runs the metrics recipe and folds its native keys into the
 // unified namespace declared by the pack.
 func (a *BrowserAdapter) FetchMetrics(ctx context.Context, from, to string) (map[string]float64, error) {
-	rng, err := xhsDateRange(from, to)
+	rng, err := dateRangePreset(from, to)
 	if err != nil {
 		return nil, err
 	}
-	res, err := a.execute(ctx, CapMetrics, XHSRecipeMetrics, map[string]string{
+	res, err := a.execute(ctx, CapMetrics, RecipeMetrics, map[string]string{
 		"range": rng,
 		"from":  strings.TrimSpace(from),
 		"to":    strings.TrimSpace(to),
@@ -265,7 +265,7 @@ func (a *BrowserAdapter) FetchMetrics(ctx context.Context, from, to string) (map
 		if !ok {
 			continue
 		}
-		value, err := parseXHSMetric(raw)
+		value, err := parseMetricValue(raw)
 		if err != nil {
 			return nil, invalidPayload(CapMetrics, fmt.Sprintf("channel: metric %s: %v", native, err))
 		}
@@ -280,13 +280,13 @@ func (a *BrowserAdapter) FetchMetrics(ctx context.Context, from, to string) (map
 }
 
 func (a *BrowserAdapter) ListEngagements(ctx context.Context, cursor string) ([]Engagement, error) {
-	res, err := a.execute(ctx, CapEngagements, XHSRecipeEngagements, map[string]string{
+	res, err := a.execute(ctx, CapEngagements, RecipeEngagements, map[string]string{
 		"cursor": strings.TrimSpace(cursor),
 	})
 	if err != nil {
 		return nil, err
 	}
-	return parseXHSEngagements(res.Values["engagements"])
+	return parseEngagementList(res.Values["engagements"])
 }
 
 func (a *BrowserAdapter) Reply(ctx context.Context, engagementID, text string) (Receipt, error) {
@@ -298,14 +298,14 @@ func (a *BrowserAdapter) Reply(ctx context.Context, engagementID, text string) (
 	if body == "" {
 		return Receipt{}, invalidPayload(CapReply, "channel: reply text is required")
 	}
-	res, err := a.execute(ctx, CapReply, XHSRecipeReply, map[string]string{
+	res, err := a.execute(ctx, CapReply, RecipeReply, map[string]string{
 		"engagement_id": id,
 		"reply_text":    body,
 	})
 	if err != nil {
 		return Receipt{}, err
 	}
-	return xhsReceipt(res, "receipt"), nil
+	return browserReceipt(res, "receipt"), nil
 }
 
 func (a *BrowserAdapter) execute(ctx context.Context, capability Capability, recipeName string, input map[string]string) (browser.Result, error) {
@@ -343,7 +343,7 @@ func (a *BrowserAdapter) execute(ctx context.Context, capability Capability, rec
 		Input:   input,
 	})
 	if err != nil {
-		return browser.Result{}, xhsError(capability, err)
+		return browser.Result{}, browserError(capability, err)
 	}
 	return res, nil
 }

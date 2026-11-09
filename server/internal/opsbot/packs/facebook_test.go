@@ -26,22 +26,21 @@ func TestFacebookBuiltinManifest(t *testing.T) {
 		if !ok {
 			t.Fatalf("facebook missing binding for %q", capability)
 		}
-		if binding.Transport != "openapi" || binding.Provider != "facebook-graph" {
-			t.Errorf("facebook %s binding = %+v, want openapi/facebook-graph", capability, binding)
+		if binding.Transport != "openapi" || binding.Provider != "facebook-graph" || len(binding.Operations)+len(binding.Operation) == 0 {
+			t.Errorf("facebook %s binding = %+v, want declarative openapi", capability, binding)
 		}
 	}
 
-	app, ok := m.CredentialSlots["app"]
-	if !ok || !app.Required || app.Scope != "owner" {
-		t.Errorf("facebook app credential slot = %+v, want required owner", app)
+	if app, ok := m.CredentialSlots["app"]; ok && app.Required {
+		t.Errorf("facebook app credential slot = %+v, want optional (page token is account-level)", app)
 	}
 	account, ok := m.CredentialSlots["account"]
 	if !ok || !account.Required || account.Scope != "account" {
 		t.Errorf("facebook account credential slot = %+v, want required account", account)
 	}
 
-	if !containsString(m.AllowedHosts, "graph.facebook.com") {
-		t.Errorf("facebook allowed_hosts = %v, want graph.facebook.com", m.AllowedHosts)
+	if got := m.CredentialSlots["account"].Fields; len(got) != 1 || got[0] != "page_token" {
+		t.Errorf("facebook account credential fields = %v, want [page_token]", got)
 	}
 }
 

@@ -92,3 +92,30 @@ func TestBrowserAdapterRequiresBoundAccount(t *testing.T) {
 	require.ErrorAs(t, err, &adapterErr)
 	require.Equal(t, CodeCredentialInvalid, adapterErr.Code)
 }
+
+type fakeBrowserWorker struct {
+	tasks  []browser.Task
+	byName map[string]fakeBrowserResult
+	def    fakeBrowserResult
+}
+
+type fakeBrowserResult struct {
+	result browser.Result
+	err    error
+}
+
+func (f *fakeBrowserWorker) lastTask(t *testing.T) browser.Task {
+	t.Helper()
+	if len(f.tasks) == 0 {
+		t.Fatal("no recipe was executed")
+	}
+	return f.tasks[len(f.tasks)-1]
+}
+
+func (f *fakeBrowserWorker) Run(_ context.Context, task browser.Task) (browser.Result, error) {
+	f.tasks = append(f.tasks, task)
+	if r, ok := f.byName[task.Recipe]; ok {
+		return r.result, r.err
+	}
+	return f.def.result, f.def.err
+}

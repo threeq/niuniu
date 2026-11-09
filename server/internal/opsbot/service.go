@@ -78,6 +78,16 @@ type Service struct {
 	Q       *store.Queries
 	Packs   PackRegistry
 	Approve ApprovalCanceller
+	// Writes enables the owner's write access on a pack's integration
+	// providers (publishing is a write). Optional.
+	Writes ProviderWriteEnabler
+}
+
+// ProviderWriteEnabler grants owner-scoped write access on a provider, so a
+// newly created publishing bot can call write operations without the operator
+// hunting for a settings toggle.
+type ProviderWriteEnabler interface {
+	EnableProviderWrites(ctx context.Context, ownerType string, ownerID int64, provider string) error
 }
 
 // NewService wires a service. packs may be nil only for director-only callers.
@@ -189,7 +199,25 @@ func (s *Service) CreateAccountBot(ctx context.Context, in CreateAccountInput) (
 		}
 		return store.OpsBot{}, err
 	}
+	s.enablePackWrites(ctx, owner, packID, version)
 	return bot, nil
+}
+
+// enablePackWrites grants write access on every openapi provider the pack
+// binds, best-effort (a provider may not be registered yet).
+func (s *Service) enablePackWrites(ctx context.Context, owner OwnerRef, packID string, version int64) {
+	if s.Writes == nil || s.Packs == nil {
+		return
+	}
+	manifest, err := s.Packs.Load(owner.Type, owner.ID, packID, int(version))
+	if err != nil {
+		return
+	}
+	for _, binding := range manifest.Bindings {
+		if binding.Transport == "openapi" && strings.TrimSpace(binding.Provider) != "" {
+			_ = s.Writes.EnableProviderWrites(ctx, owner.Type, owner.ID, binding.Provider)
+		}
+	}
 }
 
 // CreateDirector registers the owner's brand-level director bot.

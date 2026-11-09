@@ -96,9 +96,20 @@ func validateBinding(root, packID, capability string, b Binding) error {
 	}
 
 	switch b.Transport {
-	case "openapi", "mcp":
+	case "openapi":
 		if strings.TrimSpace(b.Provider) == "" {
-			return fmt.Errorf("pack %s capability %q uses %s without a provider", packID, capability, b.Transport)
+			return fmt.Errorf("pack %s capability %q uses openapi without a provider", packID, capability)
+		}
+		// New packs declare the contract operation(s); bindings without one are
+		// transitional and resolve to the legacy provider adapter.
+		for step, op := range b.Operations {
+			if strings.TrimSpace(op) == "" {
+				return fmt.Errorf("pack %s capability %q has empty operation for step %q", packID, capability, step)
+			}
+		}
+	case "mcp":
+		if strings.TrimSpace(b.Provider) == "" {
+			return fmt.Errorf("pack %s capability %q uses mcp without a provider", packID, capability)
 		}
 	case "browser":
 		if strings.TrimSpace(b.Recipe) == "" {
