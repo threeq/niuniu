@@ -115,6 +115,10 @@ Platform Pack: xiaohongshu
 └── Ops Bot: 小红书号 2
 ```
 
+**项目归属**：每个 Ops Bot 创建时必须归属一个项目——其控制 Epic 落在该项目，由该项目的
+工作空间 Agent 通过对话/MCP 创建（MCP 未显式传 `project_id` 时默认取调用工作空间所属项目）。
+不存在无项目的 Bot；控制 Epic/工作空间创建失败时回滚 bot 行。
+
 **共享（Channel 级）：**
 
 - Platform Pack：内容 schema、合规规则、提示词、能力绑定、browser recipe；
@@ -191,11 +195,12 @@ server/internal/opsbot/
     video.go        # 视频流水线
     review.go       # 合规与质量门禁
   channel/
-    adapter.go      # ChannelAdapter 接口
-    manual.go       # 人工发布包
-    wechat.go       # 公众号官方 API（直连，不依赖外部 MCP）
-    xhs.go          # 小红书浏览器
-    facebook.go     # Graph API
+    adapter.go         # ChannelAdapter 接口 + 共享错误码/统一指标键
+    openapi.go         # 通用 openapi/mcp 适配器（按 Pack 声明执行 provider contract / MCP 工具）
+    browser_adapter.go # 通用 browser 适配器（recipe）
+    browser_common.go  # recipe 名称、指标/互动解析等通用工具
+    manual.go          # 人工发布包
+  mcpclient/           # MCP 客户端：Streamable HTTP + stdio
   browser/
     worker.go       # 任务执行、队列、限速、证据
     session.go      # profile、登录态、租约
@@ -240,6 +245,7 @@ IM 对话
 | 跨账号协作 | `send_workspace_message` + blackboard |
 | 审批 | imbot `ask_user` / permission 卡片 |
 | 指标 | Mission control |
+| 运营 Bot 控制台 | 项目详情页「运营 Bot」tab（按项目过滤，存在 Bot 才显示） |
 
 ---
 
@@ -261,11 +267,31 @@ type ChannelAdapter interface {
 
 Ops Bot 只依赖这个契约，不感知平台。
 
+**执行模型（实现约定）**：适配器不按渠道分叉，只有三类通用实现——`OpenAPIAdapter`
+（按 Pack 声明调共享 integration 代理）、MCP（复用同一适配器，经审计过的 MCP 网关调
+`tools/call`）、`BrowserAdapter`（recipe）。新增渠道只需要 Pack + provider contract /
+recipe，**不新增渠道专属 Go 代码**。
+
+Pack 的 binding 是声明式的：
+
+| 字段 | 含义 |
+|---|---|
+| `transport` | `openapi` / `mcp` / `browser` / `manual` |
+| `provider` | 集成 provider 名（openapi / mcp） |
+| `operation` / `operations` | 单操作，或多步发布（upload → draft → publish） |
+| `step_fields` | 每个发布步骤接收的 payload 字段 |
+| `templates` | 请求体模板（`{{field}}` 递归渲染），表达平台特定结构 |
+| `files` | 声明式 multipart 上传（步骤 → 文件参数 → payload 路径字段） |
+| `params` / `fixed` | 字段 → 操作参数映射 / 常量参数 |
+| `outputs` | 回执字段（`id` / `url`） |
+| `items` / `sub_items` / `fields` / `value_key` | 指标与互动列表的响应解析 |
+
 ### 5.2 Platform Pack 结构
 
 ```
 packs/<pack_id>/<version>/
   manifest.json        # id、版本、状态、能力列表、能力绑定、认证层级
+  provider.json        # 内置 provider 契约（base_url/auth/operations），启动时自动登记
   content_schema.json  # 图文/笔记/视频的字段、尺寸、字数、标签规则
   compliance.json      # 平台红线、广告法、版权、审核清单
   metrics_map.json     # 平台指标 → 统一指标
@@ -284,42 +310,34 @@ packs/<pack_id>/<version>/
   "display_name": "Facebook Page",
   "capabilities": ["publish", "metrics", "engagements", "reply"],
   "bindings": {
-    "publish":     { "transport": "openapi", "provider": "facebook-graph" },
-    "metrics":     { "transport": "openapi", "provider": "facebook-graph" },
-    "engagements": { "transport": "openapi", "provider": "facebook-graph" },
-    "reply":       { "transport": "openapi", "provider": "facebook-graph" }
+    "publish":     { "transport": "openapi", "provider": "facebook-graph",
+                     "operation": "publish_feed", "outputs": { "id": "id" } },
+    "metrics":     { "transport": "openapi", "provider": "facebook-graph",
+                     "operation": "page_metrics", "params": { "from": "since", "to": "until" },
+                     "items": "data", "value_key": "values" },
+    "engagements": { "transport": "openapi", "provider": "facebook-graph",
+                     "operation": "page_comments", "items": "data",
+                     "fields": { "id": "id", "text": "message" } },
+    "reply":       { "transport": "openapi", "provider": "facebook-graph",
+                     "operation": "comment_reply", "params": { "id": "comment_id", "text": "message" } }
   },
   "credential_slots": {
-    "app":     { "required": true, "scope": "owner" },
-    "account": { "required": true, "scope": "account" }
+    "account": { "required": true, "scope": "account", "fields": ["page_token"] }
   }
 }
 ```
 
+多步/含素材上传的平台用 `operations` + `templates` + `files` 声明，例如公众号：
+`upload(material_upload, multipart) → draft(draft_add, 模板构造 articles) → publish(freepublish_submit)`。
+小红书/知乎等无 API 的平台改用 `transport: browser` + recipes。
+
 ### 5.3 API 优先的能力级绑定
 
-`bindings.yaml` 按能力绑定，不是整个平台一个接入方式：
+能力级绑定见 §5.1 的 binding 字段：一个平台可以混合不同 transport，不是整个平台
+一个接入方式。解析顺序：
 
-```yaml
-capabilities:
-  publish:
-    preferred: openapi
-    binding: facebook-graph
-  metrics:
-    preferred: openapi
-    binding: facebook-graph
-  engagements:
-    preferred: openapi
-    binding: facebook-graph
-  reply:
-    preferred: openapi
-    binding: facebook-graph
-```
-
-解析顺序：
-
-1. **官方 OpenAPI**：有规范就优先走 integration 草稿流水线（`draft_integration` → 预检 → 用户确认 → `publish_provider`）。
-2. **现有 MCP / provider**：没有 OpenAPI 但有现成 MCP，直接绑定。
+1. **官方 OpenAPI**：有规范就优先走 integration 草稿流水线（`draft_integration` → 预检 → 用户确认 → `publish_provider`），运行时由共享代理执行。
+2. **现有 MCP / provider**：没有 OpenAPI 但有现成 MCP，绑定为 `transport: "mcp"`，经统一 MCP 网关（HTTP/stdio）调 `tools/call`；每次调用写 `external_api_audit`（`Method=MCP`、`Path=tool:<name>`），与 API 调用同一审计链路。
 3. **浏览器 recipe**：API 覆盖不到的能力才走 Browser Worker。
 4. **人工**：以上都不可用，生成发布包，人工执行。
 
@@ -334,6 +352,7 @@ capabilities:
 ```
 ~/.niuniu/users/<uid>/ops/packs/<pack_id>/<version>/
   manifest.json          # id/version/status/capabilities/bindings
+  provider.json          # 内置 provider 契约（openapi/mcp 绑定使用）
   content_schema.json
   compliance.json
   metrics_map.json
@@ -377,7 +396,7 @@ capabilities:
 | 情况 | 需要做什么 | 是否改 Ops Bot 核心 |
 |---|---|---|
 | 有 OpenAPI | 生成 provider contract + Pack | 否 |
-| 有 MCP | 绑定 MCP + Pack | 否 |
+| 有 MCP | 绑定 MCP + Pack（统一网关，带审计） | 否 |
 | 无 API、页面稳定 | 写 browser recipe | 否 |
 | 新认证族（OAuth 刷新、签名） | 新增 provider/MCP 适配 | 否，属于集成层 |
 | 新能力类型（直播、广告投放） | 扩展 `CapabilitySet` | 是，契约演进 |
@@ -521,8 +540,14 @@ type OpsContentBrief struct {
 
 ## 9. 凭据、安全与合规
 
-- Ops Bot 只存 `credential_ref`，不存明文。
+- Ops Bot 只存 `credential_ref`（alias），不存明文。
 - 凭据分两层：app credential（owner/org 共享）+ account credential（每账号独立）。
+- 凭据统一存于 `external_provider_credentials`（owner/user/provider/alias，AES-GCM 加密）；
+  唯一键含 alias，同渠道多账号天然隔离。
+- `provider` 键取 Pack 绑定的 provider 名（如 `wechat-mp`），旧数据回退 Pack ID。
+- 内置 Pack 的 provider 契约随服务启动自动登记（`seedOpsProviders`）；创建账号 Bot 时自动
+  为该 owner 打开对应 provider 的写权限。
+- MCP 工具调用同样写 `external_api_audit`，凭据经 credstore 注入（HTTP header 或 stdio env）。
 - 公众号：AppID/AppSecret 直连官方 API（open.weixin.qq.com），不依赖任何外部 MCP；凭据走 credstore / 一次性安全链接。
 - 小红书：不收集密码；运营人扫码登录，会话加密保存。
 - 对话中永不出现密钥；Bot 只说“请点链接 / 请扫码”。
@@ -722,6 +747,7 @@ ALTER TABLE agent_ask_user_requests ADD COLUMN metadata_json TEXT NOT NULL DEFAU
 **Ops Bot / 账号：**
 
 - `opsbot_create` / `opsbot_list` / `opsbot_get` / `opsbot_update`
+  - `opsbot_create` 必须落到项目：未传 `project_id` 时默认取 MCP 会话所属工作空间的项目；解析不到则拒绝创建。
 - `opsbot_pause` / `opsbot_resume` / `opsbot_kill`
 - `opsbot_bind_chat`
 - `opsbot_request_credential_link` / `opsbot_browser_login`
@@ -837,7 +863,8 @@ Bot：已创建「品牌 B 公众号 Bot」，独立预算与审批人。
 
 ### 14.3 呈现
 
-Mission control 增加「运营 Bot」面板，按渠道/账号下钻；不合并成单一分数。
+「运营 Bot」不是全局一级入口：控制台位于**项目详情页的「运营 Bot」tab**，仅当该项目下
+存在运营 Bot（其控制 Epic 在该项目）时显示；按渠道/账号下钻，不合并成单一分数。
 
 ---
 
