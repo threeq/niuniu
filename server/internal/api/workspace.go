@@ -603,15 +603,12 @@ func (h *WorkspaceHandler) Create(c *gin.Context) {
 		}
 	}
 
-	// Resolve owner: explicit body wins, but treat both nil and the SPA
-	// no-currentUser fallback {type:"user", id:0} as "default to caller".
-	// See project.go Create for context.
-	owner := service.OwnerRef{Type: "user", ID: userID}
-	if req.Owner != nil && req.Owner.Type != "" && !(req.Owner.Type == "user" && req.Owner.ID == 0) {
-		owner = service.OwnerRef{Type: req.Owner.Type, ID: req.Owner.ID}
-	}
-
-	// If the workspace is linked to an issue, validate that owner matches the issue's project owner.
+	// A workspace inherits its owner from the issue's project: the project is
+	// mandatory and already pins exactly one owner, so asking the user to pick
+	// it again (the old owner picker) can only produce a value that must match
+	// anyway. Resolve the project owner first, then let an explicit body value
+	// win for older clients — but it still has to match.
+	var projectOwner service.OwnerRef
 	if req.IssueID != nil && h.Q != nil {
 		issue, err := h.Q.GetIssue(c.Request.Context(), *req.IssueID)
 		if err != nil {
@@ -628,12 +625,24 @@ func (h *WorkspaceHandler) Create(c *gin.Context) {
 			BadRequest(c, "issue project not found")
 			return
 		}
-		if owner.Type != proj.OwnerType || owner.ID != proj.OwnerID {
-			c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf(
-				"workspace owner must match the issue's project owner (type=%s id=%d)",
-				proj.OwnerType, proj.OwnerID)})
-			return
-		}
+		projectOwner = service.OwnerRef{Type: proj.OwnerType, ID: proj.OwnerID}
+	}
+
+	// Owner: infer from the project; an explicit body value (legacy clients)
+	// still wins but must match the project owner below. The SPA no-currentUser
+	// fallback {type:"user", id:0} counts as "not supplied".
+	owner := service.OwnerRef{Type: "user", ID: userID}
+	if projectOwner.Type != "" {
+		owner = projectOwner
+	}
+	if req.Owner != nil && req.Owner.Type != "" && !(req.Owner.Type == "user" && req.Owner.ID == 0) {
+		owner = service.OwnerRef{Type: req.Owner.Type, ID: req.Owner.ID}
+	}
+	if projectOwner.Type != "" && (owner.Type != projectOwner.Type || owner.ID != projectOwner.ID) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf(
+			"workspace owner must match the issue's project owner (type=%s id=%d)",
+			projectOwner.Type, projectOwner.ID)})
+		return
 	}
 
 	if userID > 0 && h.Authz != nil {

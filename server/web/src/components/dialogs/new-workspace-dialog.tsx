@@ -3,9 +3,6 @@ import { useTranslation } from 'react-i18next';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { ChevronsUpDown, X, Search, Package } from 'lucide-react';
 import { api } from '@/lib/api';
-import { useAuthStore } from '@/stores/auth-store';
-import { OwnerPicker } from '@/components/shared/owner-picker';
-import type { OwnerRef } from '@/types/org';
 import type { AvailableIssue, Project } from '@/types/api';
 import {
   Dialog,
@@ -33,12 +30,15 @@ interface NewWorkspaceDialogProps {
  * Create-workspace dialog.
  *
  * A workspace is ALWAYS bound to an issue. The flow therefore asks for the
- * project first (owner → project → issue): pick an existing issue, or leave it
- * empty and type a name — that name becomes a new issue created in the
- * project's first column. Either way the server runs the SAME creation path as
- * "create workspace from an issue", so the project's default repositories,
- * scenes and provider binding are inherited automatically (no per-dialog repo
- * picker, no no-repo switch).
+ * project first (project → issue): pick an existing issue, or leave it empty
+ * and type a name — that name becomes a new issue created in the project's
+ * first column. Either way the server runs the SAME creation path as "create
+ * workspace from an issue", so the project's default repositories, scenes and
+ * provider binding are inherited automatically (no per-dialog repo picker, no
+ * no-repo switch).
+ *
+ * The owner is deliberately NOT asked for: the project is mandatory and
+ * already pins its owner, so the server infers the workspace owner from it.
  */
 export function NewWorkspaceDialog({ open, onOpenChange, defaultIssueId, defaultWorkspaceName }: NewWorkspaceDialogProps) {
   const { t } = useTranslation('workspaces');
@@ -50,9 +50,6 @@ export function NewWorkspaceDialog({ open, onOpenChange, defaultIssueId, default
   const [workspaceName, setWorkspaceName] = useState(defaultWorkspaceName || '');
   const [cliType, setCliType] = useState<CliType>(DEFAULT_CLI_TYPE);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const currentUser = useAuthStore((s) => s.user);
-  const userId = currentUser?.id ?? 0;
-  const [owner, setOwner] = useState<OwnerRef>({ type: 'user', id: userId });
   const queryClient = useQueryClient();
 
   const { data: projects = [] } = useQuery({
@@ -103,9 +100,8 @@ export function NewWorkspaceDialog({ open, onOpenChange, defaultIssueId, default
       setProjectId('');
       setWorkspaceName(defaultWorkspaceName || '');
       setCliType(DEFAULT_CLI_TYPE);
-      setOwner({ type: 'user', id: userId });
     }
-  }, [open, defaultIssueId, defaultWorkspaceName, userId]);
+  }, [open, defaultIssueId, defaultWorkspaceName]);
 
   const handleSelectIssue = (issue: AvailableIssue) => {
     setIssueId(String(issue.id));
@@ -141,7 +137,6 @@ export function NewWorkspaceDialog({ open, onOpenChange, defaultIssueId, default
         // Repositories are inherited server-side from the project's defaults —
         // the same set the issue-based flow uses.
         repos: [],
-        ...(owner.id > 0 ? { owner } : {}),
         cli_type: cliType,
       });
       queryClient.invalidateQueries({ queryKey: ['workspaces'] });
@@ -208,10 +203,9 @@ export function NewWorkspaceDialog({ open, onOpenChange, defaultIssueId, default
               </p>
             </div>
 
-            <OwnerPicker value={owner} onChange={setOwner} userId={userId} />
-
-            {/* Project — required: it decides the inherited repos, scenes and
-                provider, and hosts the issue the workspace is bound to. */}
+            {/* Project — required: it decides the inherited repos, scenes,
+                provider and owner, and hosts the issue the workspace is bound
+                to. */}
             <div className="grid gap-2">
               <label htmlFor="projectSelect" className="text-sm font-medium">
                 {t('dialogs.newWorkspace.project')}
