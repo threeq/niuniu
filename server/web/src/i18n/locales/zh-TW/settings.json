@@ -902,15 +902,15 @@
     },
     "providersTitle": "訂閱平臺 Provider",
     "platformTitle": "訂閱平臺",
-    "platformDescription": "統一配置各平臺的 Provider（base_url / 模型 / API Key）與訂閱平臺帳戶；預設透過 ${ACCOUNT:帳戶名} 引用帳戶，修改 Key 只改一處，所有引用它的 Agent 即刻生效。",
-    "emptyPlatform": "暫無訂閱平臺設定，先新建 Provider 或帳戶。",
+    "platformDescription": "統一配置各平臺的 Provider（base_url / 模型 / API Key）與訂閱平臺賬戶；預設透過 ${ACCOUNT:賬戶名} 引用賬戶，修改 Key 只改一處，所有引用它的 Agent 即刻生效。",
+    "emptyPlatform": "暫無訂閱平臺配置，先新建 Provider 或賬戶。",
     "ownerGroup": {
       "personal": "個人",
       "user": "使用者 #{{id}}",
       "org": "組織 #{{id}}",
       "system": "系統內建",
-      "counts": "{{providers}} 個 Provider · {{accounts}} 個帳戶",
-      "none": "未指定擁有者"
+      "counts": "{{providers}} 個 Provider · {{accounts}} 個賬戶",
+      "none": "未指定所有者"
     },
     "providersDescription": "統一配置平臺的 base_url / 模型 / API Key，按目標 Agent 型別自動生成正確的環境變數（Claude Code 用 ANTHROPIC_*，Codex/Qwen 等用 OPENAI_*）。配置一次，匯入為預設即可應用到任意 Agent。",
     "newProvider": "新建 Provider",
