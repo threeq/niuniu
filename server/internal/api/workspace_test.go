@@ -228,9 +228,8 @@ func TestCreateWorkspace_FromProjectAutoCreatesIssue(t *testing.T) {
 		"name":       "订单服务重构",
 		"project_id": proj.ID,
 		"repos":      []any{},
-		// No auth user in the test server: state the project's owner
-		// explicitly, exactly as the SPA does.
-		"owner": map[string]any{"type": "user", "id": 1},
+		// No owner in the payload: the handler must infer it from the
+		// project (the SPA no longer asks the user to pick one).
 	})
 	req, _ := http.NewRequest("POST", "/api/workspaces", bytes.NewBuffer(payload))
 	req.Header.Set("Content-Type", "application/json")
@@ -264,4 +263,7 @@ func TestCreateWorkspace_FromProjectAutoCreatesIssue(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, ws.IssueID.Valid)
 	require.Equal(t, issueID, ws.IssueID.Int64)
+	// Owner inherited from the project instead of the (anonymous) caller.
+	require.Equal(t, "user", ws.OwnerType)
+	require.Equal(t, int64(1), ws.OwnerID)
 }

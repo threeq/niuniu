@@ -31,9 +31,9 @@ const inheritRepos = {
 
 /**
  * New flow: a workspace is ALWAYS bound to an issue. The dialog asks for
- * owner → project → issue; with no issue picked, the typed name becomes a new
- * issue's title. Repositories/scenes are inherited from the project server-side
- * (the dialog no longer offers a repo picker).
+ * project → issue; with no issue picked, the typed name becomes a new issue's
+ * title. Repositories/scenes/owner are inherited from the project server-side
+ * (the dialog offers neither a repo picker nor an owner picker).
  */
 describe('NewWorkspaceDialog (issue-bound flow)', () => {
   beforeEach(() => {
@@ -78,6 +78,8 @@ describe('NewWorkspaceDialog (issue-bound flow)', () => {
     expect(payload.name).toBe('订单服务重构');
     // No issue picked → the server creates one; no issue_id in the payload.
     expect(payload.issue_id).toBeUndefined();
+    // Owner is inferred from the project server-side — never sent.
+    expect(payload.owner).toBeUndefined();
     // Repositories are inherited, never hand-picked here.
     expect(payload.repos).toEqual([]);
   });
