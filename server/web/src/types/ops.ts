@@ -39,6 +39,26 @@ export interface OpsBrowserSnapshot {
   last_error?: string
 }
 
+/** Browser login lifecycle reported by GET /api/ops/bots/:id/browser. */
+export type OpsLoginState = 'idle' | 'running' | 'succeeded' | 'failed' | 'not_required'
+
+export interface OpsBrowserStatus {
+  bot_id: number
+  state: OpsLoginState
+  login_status: string
+  backend: string
+  has_session: boolean
+  has_login_recipe: boolean
+  profile_dir?: string
+  last_login_at?: string
+  last_error?: string
+  started_at?: string
+  finished_at?: string
+  evidence_path?: string
+  next_action: 'none' | 'login' | 'relogin'
+  evidence_url?: string
+}
+
 export interface OpsAccount {
   bot_id: number
   role: OpsBotRole

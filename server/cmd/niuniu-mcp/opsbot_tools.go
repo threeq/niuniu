@@ -244,9 +244,28 @@ func registerOpsBotConfig(api *apiClient, s *server.MCPServer) {
 	)
 
 	s.AddTool(
-		mcp.NewTool("opsbot_browser_login",
-			mcp.WithDescription("Register (or return) the bot's browser profile for a backend. The actual login "+
-				"runs in the browser worker against the returned profile directory."),
+		mcp.NewTool("opsbot_browser_status",
+			mcp.WithDescription("Read the bot's browser session: login_status (valid|expired|unknown), whether the "+
+				"Pack needs an interactive login, the last login error, and a machine-readable next_action."),
+			mcp.WithNumber("bot_id", mcp.Description("Ops Bot ID"), mcp.Required()),
+		),
+		func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			id, errRes := opsIDArg(req.GetArguments(), "bot_id")
+			if errRes != nil {
+				return errRes, nil
+			}
+			data, err := api.get("/mcp/ops/bots/" + id + "/browser")
+			if err != nil {
+				return mcp.NewToolResultError(err.Error()), nil
+			}
+			return mcp.NewToolResultText(string(data)), nil
+		},
+	)
+
+	s.AddTool(
+		mcp.NewTool("opsbot_browser_profile",
+			mcp.WithDescription("Register (or return) the bot's browser profile directory. This does NOT log in; "+
+				"call opsbot_browser_login to start the interactive login."),
 			mcp.WithNumber("bot_id", mcp.Description("Ops Bot ID"), mcp.Required()),
 			mcp.WithString("backend", mcp.Description("local (default) | cloud")),
 		),
@@ -260,6 +279,26 @@ func registerOpsBotConfig(api *apiClient, s *server.MCPServer) {
 				payload["backend"] = backend
 			}
 			data, err := api.post("/mcp/ops/bots/"+id+"/browser-login", payload)
+			if err != nil {
+				return mcp.NewToolResultError(err.Error()), nil
+			}
+			return mcp.NewToolResultText(string(data)), nil
+		},
+	)
+
+	s.AddTool(
+		mcp.NewTool("opsbot_browser_login",
+			mcp.WithDescription("Start the bot's interactive login now and return immediately with state=running "+
+				"(the operator scans the QR code in the browser window). Poll opsbot_browser_status until "+
+				"login_status=valid. Channels that authenticate with a credential return state=not_required."),
+			mcp.WithNumber("bot_id", mcp.Description("Ops Bot ID"), mcp.Required()),
+		),
+		func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			id, errRes := opsIDArg(req.GetArguments(), "bot_id")
+			if errRes != nil {
+				return errRes, nil
+			}
+			data, err := api.post("/mcp/ops/bots/"+id+"/login", map[string]any{})
 			if err != nil {
 				return mcp.NewToolResultError(err.Error()), nil
 			}

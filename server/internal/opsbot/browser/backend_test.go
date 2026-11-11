@@ -2,6 +2,7 @@ package browser
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"net/http"
@@ -15,8 +16,10 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
+	_ "modernc.org/sqlite"
 
 	"github.com/niuniu-dev/niuniu/internal/opsbot/packs"
+	"github.com/niuniu-dev/niuniu/internal/store"
 )
 
 // fakeDriver is an in-memory Driver. Tests declare which selectors exist and
@@ -698,4 +701,41 @@ func TestBackendLocalCDPChrome(t *testing.T) {
 	require.Equal(t, "saved:标题", out.Values["result"])
 	require.NotEmpty(t, out.Screenshot)
 	require.FileExists(t, out.ScreenshotPath)
+}
+
+func TestLocalBackendAllowExpiredBypassesSessionGuard(t *testing.T) {
+	store.Driver = "sqlite"
+	raw, err := sql.Open("sqlite", ":memory:?_foreign_keys=ON")
+	require.NoError(t, err)
+	raw.SetMaxOpenConns(1)
+	t.Cleanup(func() { _ = raw.Close() })
+	_, err = raw.Exec(store.Schema)
+	require.NoError(t, err)
+	_, err = raw.Exec(`INSERT INTO ops_bots
+		(id, owner_type, owner_id, role, pack_id, account_ref, display_name)
+		VALUES (1, 'user', 2, 'account', 'xiaohongshu', 'acct-1', 'X')`)
+	require.NoError(t, err)
+
+	sessions := NewSessionManager(store.Wrap(raw).Queries(), t.TempDir())
+	ctx := context.Background()
+	_, err = sessions.Ensure(ctx, 1, BackendLocal)
+	require.NoError(t, err)
+	expired := LoginExpired
+	_, err = sessions.Update(ctx, 1, BackendLocal, StatePatch{LoginStatus: &expired})
+	require.NoError(t, err)
+
+	b, _ := newFakeBackend(t, func(cfg *LocalConfig) {
+		cfg.Sessions = sessions
+		cfg.DisableLease = true
+	})
+	h := localSpec(t, b, 1)
+	recipe := packs.Recipe{Name: "login", Steps: []packs.RecipeStep{
+		{Action: "goto", Value: "https://creator.example.com/"},
+	}}
+
+	_, err = b.Exec(ctx, h, recipe, ExecInput{})
+	require.ErrorIs(t, err, ErrLoginExpired)
+
+	_, err = b.Exec(ctx, h, recipe, ExecInput{AllowExpired: true})
+	require.NoError(t, err)
 }

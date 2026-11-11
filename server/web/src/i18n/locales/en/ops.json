@@ -61,7 +61,28 @@
     "details": "Details",
     "approve": "Approve",
     "reject": "Reject",
+    "relogin": "Log in again",
     "back": "Back to list"
+  },
+  "login": {
+    "action": "Scan to log in",
+    "relogin": "Log in again",
+    "running": "Logging in…",
+    "state": "Login state: {{value}}",
+    "scanHint": "Scan the QR code below with your phone, then finish in the browser window.",
+    "headedHint": "Login opens a browser window on this machine; scan the QR code there.",
+    "qrAlt": "Login QR code",
+    "started": "Login started; scan the QR code",
+    "startedFor": "Login started for {{name}}; scan the QR code",
+    "notRequired": "This channel does not need a browser login",
+    "failed": "Login failed: {{message}}"
+  },
+  "loginState": {
+    "idle": "Not logged in",
+    "running": "Logging in",
+    "succeeded": "Logged in",
+    "failed": "Failed",
+    "not_required": "Not required"
   },
   "toast": {
     "paused": "Paused {{name}}",

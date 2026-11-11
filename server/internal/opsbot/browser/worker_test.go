@@ -450,3 +450,26 @@ func TestWorkerDoesNotReportRiskForCancellation(t *testing.T) {
 	require.ErrorIs(t, err, context.Canceled)
 	require.False(t, called)
 }
+
+// A login task must still run when the stored session is expired: it is the
+// only path that can recover the account. Every other task stays refused.
+func TestWorkerRunsLoginRecipeOnExpiredSession(t *testing.T) {
+	w, _ := newTestWorker(t)
+	ctx := context.Background()
+	_, err := w.Sessions.Ensure(ctx, 1, BackendLocal)
+	require.NoError(t, err)
+	setExpired := func() {
+		expired := LoginExpired
+		_, err := w.Sessions.Update(ctx, 1, BackendLocal, StatePatch{LoginStatus: &expired})
+		require.NoError(t, err)
+	}
+	setExpired()
+	w.Exec = func(context.Context, Task) (Result, error) { return Result{}, nil }
+
+	_, err = w.Run(ctx, Task{BotID: 1, Backend: BackendLocal, Recipe: "login", IsLogin: true})
+	require.NoError(t, err)
+
+	setExpired()
+	_, err = w.Run(ctx, Task{BotID: 1, Backend: BackendLocal, Recipe: "publish"})
+	require.ErrorIs(t, err, ErrLoginExpired)
+}

@@ -148,6 +148,7 @@ type Server struct {
 	opsSessions   *browser.SessionManager
 	opsWorker     *browser.Worker
 	opsResolver   *opsbot.AdapterResolver
+	opsLogin      *opsbot.LoginManager
 	opsScheduler  *opsTimerScheduler
 	opsPublisher  *opsbot.Publisher
 	opsEngagement *opsbot.Engagement

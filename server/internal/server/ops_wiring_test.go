@@ -55,6 +55,12 @@ func TestOpsRuntimeWiring(t *testing.T) {
 	require.NotNil(t, s.opsResolver)
 	require.NotNil(t, s.opsSessions)
 	require.NotNil(t, s.opsWorker)
+	// The browser executor is wired: without it every recipe would fail with
+	// ErrNoExecutor and browser packs would silently degrade to manual.
+	require.NotNil(t, s.opsWorker.Exec)
+	require.NotNil(t, s.opsLogin)
+	require.NotNil(t, s.opsBotHandler.Login)
+	require.NotNil(t, s.opsBotHandler.Sessions)
 	require.NotNil(t, s.opsScheduler)
 	require.NotNil(t, s.opsPublisher)
 	require.NotNil(t, s.opsEngagement)

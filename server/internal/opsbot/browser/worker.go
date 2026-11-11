@@ -12,6 +12,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/niuniu-dev/niuniu/internal/opsbot/packs"
 )
 
 // Task execution outcomes that the worker must surface distinctly so callers
@@ -55,6 +57,15 @@ type Task struct {
 	BotID   int64
 	Backend string
 	Recipe  string
+	// RecipeSpec is the parsed recipe the executor runs. The caller that
+	// resolved the Pack supplies it; the worker never reads recipe files.
+	RecipeSpec *packs.Recipe
+	// AllowedHosts is the Pack's navigation allowlist. An empty list denies
+	// every navigation.
+	AllowedHosts []string
+	// IsLogin marks the login recipe. It is the only task allowed to run while
+	// the stored session is expired (otherwise recovery would be impossible).
+	IsLogin bool
 	// Input is forwarded verbatim to the executor (title, body, media paths,
 	// reply text, ...).
 	Input map[string]string
@@ -160,11 +171,15 @@ func (w *Worker) Run(ctx context.Context, task Task) (Result, error) {
 		return Result{}, err
 	}
 
-	// Refuse to act on a session that already needs operator attention.
-	switch sess.LoginStatus {
-	case LoginExpired:
-		w.notifyRelogin(ctx, task, "login expired")
-		return Result{}, ErrLoginExpired
+	// Refuse to act on a session that already needs operator attention. The
+	// login recipe is the exception: it is exactly what recovers an expired
+	// session, so it must still run.
+	if !task.IsLogin {
+		switch sess.LoginStatus {
+		case LoginExpired:
+			w.notifyRelogin(ctx, task, "login expired")
+			return Result{}, ErrLoginExpired
+		}
 	}
 	switch sess.RiskState {
 	case RiskBlocked:

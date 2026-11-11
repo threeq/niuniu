@@ -3,7 +3,15 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link } from '@tanstack/react-router'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
-import { ArrowLeft, CalendarDays, MessageSquare, ShieldCheck, TrendingUp } from 'lucide-react'
+import {
+  ArrowLeft,
+  CalendarDays,
+  MessageSquare,
+  QrCode,
+  RefreshCw,
+  ShieldCheck,
+  TrendingUp,
+} from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { OpsBudgetBar } from './budget-bar'
@@ -150,6 +158,36 @@ export function OpsBotDetailPage({ botId }: { botId: number }) {
   })
   const approvals = (approvalsQuery.data?.items ?? []).filter((item) => item.bot_id === botId)
 
+  // The browser read model is the authoritative login state: the account
+  // aggregate only carries the last persisted snapshot.
+  const browserQuery = useQuery({
+    queryKey: ['ops-bot-browser', botId],
+    queryFn: () => opsApi.browserStatus(botId),
+    enabled: !!bot,
+    retry: 1,
+    refetchInterval: (query) => (query.state.data?.state === 'running' ? 2000 : false),
+  })
+  const browserStatus = browserQuery.data
+
+  const login = useMutation({
+    mutationFn: () => opsApi.login(botId),
+    onSuccess: (status) => {
+      if (status.state === 'not_required') {
+        toast.success(t('login.notRequired'))
+      } else {
+        toast.success(t('login.started'))
+      }
+      queryClient.invalidateQueries({ queryKey: ['ops-bot-browser', botId] })
+      queryClient.invalidateQueries({ queryKey: ['ops-bot', botId] })
+      queryClient.invalidateQueries({ queryKey: ['ops-bots'] })
+    },
+    onError: (err: unknown) => {
+      toast.error(
+        t('toast.actionFailed', { message: err instanceof Error ? err.message : String(err) }),
+      )
+    },
+  })
+
   const toggle = useMutation({
     mutationFn: () => (bot?.status === 'active' ? opsApi.pause(botId) : opsApi.resume(botId)),
     onSuccess: () => {
@@ -167,6 +205,7 @@ export function OpsBotDetailPage({ botId }: { botId: number }) {
       )
     },
   })
+  const loginRunning = browserStatus?.state === 'running' || login.isPending
 
   const decide = useMutation({
     mutationFn: ({ approval, action }: { approval: OpsApproval; action: 'approve' | 'reject' }) =>
@@ -421,10 +460,61 @@ export function OpsBotDetailPage({ botId }: { botId: number }) {
                   {t('detail.browserError', { value: browser.last_error })}
                 </li>
               ) : null}
+              {browserStatus ? (
+                <li>
+                  {t('login.state', {
+                    value: t(`loginState.${browserStatus.state}`, {
+                      defaultValue: browserStatus.state,
+                    }),
+                  })}
+                </li>
+              ) : null}
             </ul>
           ) : (
             <EmptyLine>{t('detail.browserEmpty')}</EmptyLine>
           )}
+
+          {browserStatus?.has_login_recipe ? (
+            <div className="flex flex-wrap items-center gap-2">
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={loginRunning}
+                onClick={() => login.mutate()}
+              >
+                {loginRunning ? (
+                  <RefreshCw className="h-4 w-4 animate-spin" />
+                ) : (
+                  <QrCode className="h-4 w-4" />
+                )}
+                {loginRunning
+                  ? t('login.running')
+                  : browserStatus.next_action === 'relogin'
+                    ? t('login.relogin')
+                    : t('login.action')}
+              </Button>
+              {browserStatus.state === 'failed' && browserStatus.last_error ? (
+                <span className="text-xs text-destructive-text">
+                  {t('login.failed', { message: browserStatus.last_error })}
+                </span>
+              ) : null}
+            </div>
+          ) : null}
+
+          {browserStatus?.has_login_recipe &&
+          browserStatus.evidence_url &&
+          (browserStatus.state === 'running' || browserStatus.state === 'failed') ? (
+            <div className="space-y-1">
+              <p className="text-xs text-muted-foreground">{t('login.scanHint')}</p>
+              <img
+                src={browserStatus.evidence_url}
+                alt={t('login.qrAlt')}
+                className="max-h-64 w-auto rounded border"
+              />
+            </div>
+          ) : browserStatus?.has_login_recipe && !loginRunning ? (
+            <p className="text-xs text-muted-foreground">{t('login.headedHint')}</p>
+          ) : null}
         </Section>
       </div>
     </div>

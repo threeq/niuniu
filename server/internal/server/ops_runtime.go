@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -48,6 +49,50 @@ func (s *Server) initOpsRuntime(svc *opsbot.Service, approval *opsbot.Approval, 
 		}
 		_, _ = s.opsRisk.Evaluate(ctx, botID, signal)
 	}
+	// The executor bridges a recipe task to a BrowserBackend. Local execution
+	// launches a headed Chrome so the operator can scan the QR code; the
+	// enterprise build registers a cloud factory instead.
+	backend, backendErr := browser.NewBackend(browser.BackendConfig{
+		Kind: browser.BackendLocal,
+		Local: browser.LocalConfig{
+			DataDir:      s.cfg.DataDir,
+			Sessions:     sessions,
+			DisableLease: true, // the Worker already holds the account lease
+		},
+	})
+	if backendErr != nil {
+		slog.Warn("opsbot: browser backend unavailable; browser packs will degrade", "error", backendErr)
+	} else {
+		worker.Exec = func(ctx context.Context, task browser.Task) (browser.Result, error) {
+			if task.RecipeSpec == nil {
+				return browser.Result{}, fmt.Errorf("%w: recipe %q was not resolved", browser.ErrInvalidRecipe, task.Recipe)
+			}
+			handle, err := backend.Start(ctx, browser.SessionSpec{
+				BotID:        task.BotID,
+				Backend:      task.Backend,
+				AllowedHosts: task.AllowedHosts,
+			})
+			if err != nil {
+				return browser.Result{}, err
+			}
+			defer func() {
+				stopCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
+				defer cancel()
+				_ = backend.Stop(stopCtx, handle)
+			}()
+			out, err := backend.Exec(ctx, handle, *task.RecipeSpec, browser.ExecInput{
+				Values:       task.Input,
+				AllowExpired: task.IsLogin,
+			})
+			return browser.Result{
+				Values:       out.Values,
+				Receipt:      out.Receipt,
+				Screenshot:   out.Screenshot,
+				EvidencePath: out.ScreenshotPath,
+			}, err
+		}
+	}
+
 	manual := channel.NewManualAdapter(filepath.Join(s.cfg.DataDir, "ops", "manual"))
 
 	resolver := &opsbot.AdapterResolver{
@@ -57,6 +102,11 @@ func (s *Server) initOpsRuntime(svc *opsbot.Service, approval *opsbot.Approval, 
 		Manual:      manual,
 		Integration: &opsProxyCaller{s: s},
 		MCP:         &opsMCPCaller{s: s},
+	}
+	login := opsbot.NewLoginManager(resolver.AdapterFor, s.queries, sessions)
+	if s.opsBotHandler != nil {
+		s.opsBotHandler.Login = login
+		s.opsBotHandler.Sessions = sessions
 	}
 
 	scheduler := &opsTimerScheduler{}
@@ -190,6 +240,7 @@ func (s *Server) initOpsRuntime(svc *opsbot.Service, approval *opsbot.Approval, 
 	s.opsSessions = sessions
 	s.opsWorker = worker
 	s.opsResolver = resolver
+	s.opsLogin = login
 	s.opsScheduler = scheduler
 	s.opsPublisher = publisher
 	s.opsEngagement = engagement
@@ -211,25 +262,23 @@ func (s *Server) wireOpsLate() {
 	if s.opsWorker != nil && s.imbotSvc != nil {
 		s.opsWorker.Notifier = opsReloginNotifier{imbot: s.imbotSvc}
 	}
+	if s.imbotSvc != nil && s.opsLogin != nil {
+		// The relogin alert's button starts the same asynchronous login the
+		// console and MCP tool use.
+		s.imbotSvc.SetOpsLogin(s.opsLogin)
+	}
 	if s.opsEngagement != nil && s.imbotSvc != nil {
 		s.opsEngagement.OnEscalated = func(ctx context.Context, cur store.OpsEngagement, reason string) error {
 			s.imbotSvc.NotifyOpsRisk(ctx, cur.BotID, "高风险互动已升级总监："+reason)
 			return nil
 		}
 	}
-	if s.opsRisk != nil && s.opsResolver != nil {
+	if s.opsRisk != nil && s.opsLogin != nil {
 		// A resume probes the real platform session instead of trusting the
-		// stored login flag.
+		// stored login flag. The probe is bounded by LoginManager.VerifyTimeout:
+		// it must never wait for an operator to scan a QR code.
 		s.opsRisk.VerifyLogin = func(ctx context.Context, botID int64) error {
-			bot, err := s.queries.GetOpsBot(ctx, botID)
-			if err != nil {
-				return err
-			}
-			adapter, err := s.opsResolver.AdapterFor(ctx, botID)
-			if err != nil {
-				return err
-			}
-			return adapter.EnsureSession(ctx, bot.AccountRef)
+			return s.opsLogin.Verify(ctx, botID)
 		}
 	}
 	if s.opsDirector != nil && s.workspaceMessageSvc != nil {
@@ -467,7 +516,7 @@ func (n opsReloginNotifier) RequestRelogin(ctx context.Context, req browser.Relo
 	if n.imbot == nil {
 		return nil
 	}
-	n.imbot.NotifyOpsRisk(ctx, req.BotID, "登录态失效，请运营人重新扫码登录："+req.Reason)
+	n.imbot.NotifyOpsRelogin(ctx, req.BotID, "登录态失效，请运营人重新扫码登录："+req.Reason)
 	return nil
 }
 

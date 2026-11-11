@@ -140,6 +140,26 @@ backend, err := browser.NewBackend(browser.BackendConfig{
 
 `NewLocalBackend` 在 `DataDir` 为空时返回 `*ConfigError`（含修复 hint），不会半启动。
 
+## 2.8 登录契约（HTTP / MCP）
+
+登录是交互式长流程，**不能**在一个同步调用里等待扫码。
+
+| 动作 | HTTP | MCP | 行为 |
+|---|---|---|---|
+| 读状态 | `GET /api/ops/bots/:id/browser` | `opsbot_browser_status` | 返回 `login_status`、`has_login_recipe`、`state`、`next_action`（`none`/`login`/`relogin`）、`evidence_url` |
+| 开始登录 | `POST /api/ops/bots/:id/login` | `opsbot_browser_login` | 立即 202 + `state=running`，后台执行 login recipe；轮询状态直到 `login_status=valid` |
+| 注册 profile | `POST /api/ops/bots/:id/browser-login` | `opsbot_browser_profile` | 只创建/返回 profile 目录，**不登录**；非浏览器渠道返回 409 `OPS_LOGIN_NOT_REQUIRED` |
+| 二维码/证据 | `GET /api/ops/bots/:id/browser/evidence` | — | 返回最近一张登录截图（扫码中或失败时即二维码） |
+
+约束：
+
+- `login_status=expired` 的 session 只允许 login recipe 运行（`Task.IsLogin` /
+  `ExecInput.AllowExpired`）；否则账号永远无法恢复。
+- resume / onboarding 的验证走 `VerifySession`（优先 `health`
+  recipe，短超时），不会触发扫码，也不会阻塞 login recipe 的 180 秒等待。
+- 非浏览器 transport（openapi / mcp / manual）返回 `state=not_required`，
+  不写 browser session，也不注册 profile。
+
 ## 3. CloudBackend（团队版）
 
 实现位于 enterprise 仓库，通过同一接口注入；个人版仓库只提供契约和「未配置」的明确失败。

@@ -53,6 +53,8 @@ type BrowserAdapter struct {
 	unified       []string
 	// Backend selects the browser backend; empty means the local backend.
 	Backend string
+	// allowedHosts is the Pack's navigation allowlist. Empty denies navigation.
+	allowedHosts []string
 
 	mu    sync.RWMutex
 	botID int64
@@ -110,6 +112,23 @@ func NewBrowserAdapter(worker BrowserWorker, recipes RecipeSet, capabilities []s
 
 func (a *BrowserAdapter) Capabilities() CapabilitySet { return a.caps }
 
+// SetAllowedHosts pins the Pack's navigation allowlist. The resolver calls it
+// when the adapter is built so every recipe (including login) runs under the
+// same egress policy.
+func (a *BrowserAdapter) SetAllowedHosts(hosts []string) {
+	a.mu.Lock()
+	a.allowedHosts = append([]string(nil), hosts...)
+	a.mu.Unlock()
+}
+
+// HasLoginRecipe reports whether the Pack declares an interactive login recipe.
+// False means the account authenticates per call (openapi/mcp) or needs no
+// session at all, so a "login now" request is a no-op.
+func (a *BrowserAdapter) HasLoginRecipe() bool {
+	_, ok := a.recipes[RecipeLogin]
+	return ok
+}
+
 // BindAccount pins the adapter to a bot row. The resolver calls it when the
 // adapter is built, so a caller that only knows the platform account name (for
 // example the publisher) can still EnsureSession without a numeric ref.
@@ -123,18 +142,53 @@ func (a *BrowserAdapter) BindAccount(botID int64) {
 // the QR re-login flow for) the stored session. accountRef may be the bot id;
 // when it is not numeric the account bound by the resolver is kept.
 func (a *BrowserAdapter) EnsureSession(ctx context.Context, accountRef string) error {
+	_, err := a.Login(ctx, accountRef)
+	return err
+}
+
+// VerifySession is the non-interactive probe used by resume and onboarding
+// checks. It prefers the Pack's health recipe (navigate home, assert the
+// logged-in element) so a valid session never gets sent through the QR flow;
+// packs without one fall back to the login recipe under the caller's timeout.
+func (a *BrowserAdapter) VerifySession(ctx context.Context, accountRef string) error {
+	if err := a.bindAccount(accountRef); err != nil {
+		return err
+	}
+	if _, ok := a.recipes[RecipeHealth]; ok {
+		_, err := a.execute(ctx, CapPublish, RecipeHealth, nil)
+		return err
+	}
+	if _, ok := a.recipes[RecipeLogin]; ok {
+		_, err := a.execute(ctx, CapPublish, RecipeLogin, nil)
+		return err
+	}
+	return nil
+}
+
+// Login runs the Pack's login recipe and returns the task result, including the
+// evidence screenshot the login recipe captured (the QR page while the operator
+// is still scanning).
+func (a *BrowserAdapter) Login(ctx context.Context, accountRef string) (browser.Result, error) {
+	if err := a.bindAccount(accountRef); err != nil {
+		return browser.Result{}, err
+	}
+	if _, ok := a.recipes[RecipeLogin]; !ok {
+		return browser.Result{}, nil
+	}
+	return a.execute(ctx, CapPublish, RecipeLogin, nil)
+}
+
+func (a *BrowserAdapter) bindAccount(accountRef string) error {
 	botID, err := parseAccountRef(accountRef)
 	switch {
 	case err == nil:
 		a.BindAccount(botID)
+		return nil
 	case !a.bound():
 		return err
-	}
-	if _, ok := a.recipes[RecipeLogin]; !ok {
+	default:
 		return nil
 	}
-	_, err = a.execute(ctx, CapPublish, RecipeLogin, nil)
-	return err
 }
 
 func (a *BrowserAdapter) HealthCheck(ctx context.Context) error {
@@ -335,12 +389,16 @@ func (a *BrowserAdapter) execute(ctx context.Context, capability Capability, rec
 	name := recipe.Name
 	if name == "" {
 		name = recipeName
+		recipe.Name = name
 	}
 	res, err := a.worker.Run(ctx, browser.Task{
-		BotID:   botID,
-		Backend: a.backend(),
-		Recipe:  name,
-		Input:   input,
+		BotID:        botID,
+		Backend:      a.backend(),
+		Recipe:       name,
+		RecipeSpec:   &recipe,
+		AllowedHosts: a.allowedHostsList(),
+		IsLogin:      recipeName == RecipeLogin,
+		Input:        input,
 	})
 	if err != nil {
 		return browser.Result{}, browserError(capability, err)
@@ -364,6 +422,12 @@ func (a *BrowserAdapter) backend() string {
 		return browser.BackendLocal
 	}
 	return a.Backend
+}
+
+func (a *BrowserAdapter) allowedHostsList() []string {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+	return append([]string(nil), a.allowedHosts...)
 }
 
 // utf8Len counts characters the way platform limits do (runes, not bytes).

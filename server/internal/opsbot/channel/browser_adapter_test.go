@@ -119,3 +119,46 @@ func (f *fakeBrowserWorker) Run(_ context.Context, task browser.Task) (browser.R
 	}
 	return f.def.result, f.def.err
 }
+
+func TestBrowserAdapterLoginCarriesRecipeAndAllowlist(t *testing.T) {
+	worker := &fakeBrowserWorker{byName: map[string]fakeBrowserResult{
+		"login": {result: browser.Result{EvidencePath: "/tmp/qr.png"}},
+	}}
+	adapter := browserTestAdapter(worker)
+	adapter.SetAllowedHosts([]string{"creator.example.com", "www.example.com"})
+	require.True(t, adapter.HasLoginRecipe())
+
+	res, err := adapter.Login(context.Background(), "7")
+	require.NoError(t, err)
+	require.Equal(t, "/tmp/qr.png", res.EvidencePath)
+
+	task := worker.lastTask(t)
+	require.True(t, task.IsLogin)
+	require.Equal(t, []string{"creator.example.com", "www.example.com"}, task.AllowedHosts)
+	require.NotNil(t, task.RecipeSpec)
+	require.Equal(t, "login", task.RecipeSpec.Name)
+}
+
+func TestBrowserAdapterVerifySessionPrefersHealthRecipe(t *testing.T) {
+	worker := &fakeBrowserWorker{}
+	recipes := RecipeSet{
+		"login":  packs.Recipe{Name: "login"},
+		"health": packs.Recipe{Name: "health"},
+	}
+	adapter := NewBrowserAdapter(worker, recipes, []string{"publish"}, BrowserLimits{}, nil)
+
+	require.NoError(t, adapter.VerifySession(context.Background(), "7"))
+	task := worker.lastTask(t)
+	require.Equal(t, "health", task.Recipe)
+	require.False(t, task.IsLogin)
+}
+
+func TestBrowserAdapterVerifySessionFallsBackToLogin(t *testing.T) {
+	worker := &fakeBrowserWorker{}
+	adapter := browserTestAdapter(worker) // login recipe, no health recipe
+
+	require.NoError(t, adapter.VerifySession(context.Background(), "7"))
+	task := worker.lastTask(t)
+	require.Equal(t, "login", task.Recipe)
+	require.True(t, task.IsLogin)
+}

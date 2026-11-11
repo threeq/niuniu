@@ -2,6 +2,7 @@ package opsbot
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -308,4 +309,65 @@ func TestOnboardingConfigCommands(t *testing.T) {
 	reply, _, err = o.Handle(context.Background(), 60, owner, 42, "/calendar")
 	require.NoError(t, err)
 	require.Contains(t, reply, "内容日历")
+}
+
+func TestOnboardingRequiresLoginVerification(t *testing.T) {
+	o := newTestOnboarding(t)
+	owner := OwnerRef{"user", 1}
+	calls := 0
+	o.VerifyLogin = func(context.Context, int64) error {
+		calls++
+		return errors.New("session expired")
+	}
+
+	for _, in := range []string{"接入公众号", "品牌 A", "涨粉", "每周 2 篇", "每月 200"} {
+		_, _, err := o.Handle(context.Background(), 20, owner, 42, in)
+		require.NoError(t, err)
+	}
+	reply, done := step(t, o, 20, owner, 42, "需要", "登录态验证未通过")
+	require.False(t, done)
+	require.Contains(t, reply, "opsbot_browser_login")
+
+	reply, done = step(t, o, 20, owner, 42, "完成", "登录态仍未通过")
+	require.False(t, done)
+	require.Equal(t, 2, calls)
+}
+
+func TestOnboardingVerifiesLoginBeforeCompletion(t *testing.T) {
+	o := newTestOnboarding(t)
+	owner := OwnerRef{"user", 1}
+	calls := 0
+	o.VerifyLogin = func(context.Context, int64) error {
+		calls++
+		return nil
+	}
+
+	for _, in := range []string{"接入公众号", "品牌 A", "涨粉", "每周 2 篇", "每月 200"} {
+		_, _, err := o.Handle(context.Background(), 21, owner, 42, in)
+		require.NoError(t, err)
+	}
+	_, done := step(t, o, 21, owner, 42, "需要", "已创建")
+	require.True(t, done)
+	require.Equal(t, 1, calls)
+}
+
+func TestOnboardingCredentialCompletionVerifiesLogin(t *testing.T) {
+	o := newTestOnboarding(t)
+	o.Credentials = &fakeLinker{link: "https://example.test/cred/once"}
+	owner := OwnerRef{"user", 1}
+
+	for _, in := range []string{"接入公众号", "品牌 A", "涨粉", "每周 2 篇", "每月 200"} {
+		_, _, err := o.Handle(context.Background(), 22, owner, 42, in)
+		require.NoError(t, err)
+	}
+	step(t, o, 22, owner, 42, "需要", "https://example.test/cred/once")
+
+	o.VerifyLogin = func(context.Context, int64) error { return errors.New("not logged in") }
+	reply, done := step(t, o, 22, owner, 42, "完成", "登录态仍未通过")
+	require.False(t, done)
+	require.Contains(t, reply, "opsbot_browser_login")
+
+	o.VerifyLogin = func(context.Context, int64) error { return nil }
+	_, done = step(t, o, 22, owner, 42, "完成", "已创建")
+	require.True(t, done)
 }

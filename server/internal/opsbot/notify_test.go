@@ -1,6 +1,7 @@
 package opsbot
 
 import (
+	"context"
 	"strings"
 	"testing"
 
@@ -95,5 +96,53 @@ func TestApproverForPrefersPolicyOperator(t *testing.T) {
 	}
 	if got := ApproverFor(store.OpsBot{}, 1); got != 1 {
 		t.Fatalf("fallback approver = %d, want owner 1", got)
+	}
+}
+
+func TestReloginCallbackRoundTrip(t *testing.T) {
+	value := ReloginCallbackValue(42)
+	if value != "opslogin:42" {
+		t.Fatalf("callback value = %q", value)
+	}
+	id, ok := ParseReloginCallback(value)
+	if !ok || id != 42 {
+		t.Fatalf("parse = (%d, %v)", id, ok)
+	}
+	for _, bad := range []string{"opslogin:0", "opslogin:", "opsapproval:approve:1", "opslogin:1:2"} {
+		if _, ok := ParseReloginCallback(bad); ok {
+			t.Fatalf("parse(%q) unexpectedly succeeded", bad)
+		}
+	}
+}
+
+func TestRenderRiskAlertIncludesActionHint(t *testing.T) {
+	got := RenderRiskAlert(RiskAlert{
+		Account: "小红书 A",
+		Reason:  "登录态失效",
+		Action:  &NotifyButton{Label: "重新登录", Value: ReloginCallbackValue(7)},
+	})
+	for _, want := range []string{"风险告警", "重新登录", "opsbot_browser_login"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("risk alert %q missing %q", got, want)
+		}
+	}
+}
+
+func TestPushRiskCarriesActionButton(t *testing.T) {
+	var got NotifyPayload
+	n := &Notifier{Send: func(_ context.Context, _ NotifyTarget, payload NotifyPayload) error {
+		got = payload
+		return nil
+	}}
+	err := n.PushRisk(context.Background(), NotifyTarget{}, RiskAlert{
+		Account: "A",
+		Reason:  "r",
+		Action:  &NotifyButton{Label: "重新登录", Value: ReloginCallbackValue(9)},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Buttons) != 1 || got.Buttons[0].Label != "重新登录" || got.Buttons[0].Value != "opslogin:9" {
+		t.Fatalf("buttons = %+v", got.Buttons)
 	}
 }
