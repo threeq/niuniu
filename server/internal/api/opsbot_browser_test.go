@@ -3,6 +3,7 @@ package api_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -91,8 +92,11 @@ type browserStatusBody struct {
 	BotID          int64  `json:"bot_id"`
 	State          string `json:"state"`
 	LoginStatus    string `json:"login_status"`
+	Health         string `json:"health"`
+	RiskState      string `json:"risk_state"`
 	HasLoginRecipe bool   `json:"has_login_recipe"`
 	NextAction     string `json:"next_action"`
+	LastError      string `json:"last_error"`
 	ProfileDir     string `json:"profile_dir"`
 	EvidenceURL    string `json:"evidence_url"`
 }
@@ -115,6 +119,8 @@ func TestBrowserStatusIsMachineReadable(t *testing.T) {
 	require.Equal(t, id, body.BotID)
 	require.Equal(t, "idle", body.State)
 	require.Equal(t, "unknown", body.LoginStatus)
+	require.Equal(t, "unknown", body.Health)
+	require.Equal(t, "normal", body.RiskState)
 	require.True(t, body.HasLoginRecipe)
 	require.Equal(t, opsbot.LoginActionLogin, body.NextAction)
 	require.NotEmpty(t, body.ProfileDir)
@@ -130,7 +136,7 @@ func TestStartLoginReturnsAcceptedAndCompletes(t *testing.T) {
 	require.Equal(t, http.StatusAccepted, w.Code, w.Body.String())
 	var started browserStatusBody
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &started))
-	require.Equal(t, "running", started.State)
+	require.Equal(t, "started", started.State)
 
 	deadline := time.Now().Add(3 * time.Second)
 	for {
@@ -209,6 +215,28 @@ func TestBrowserEvidenceServesNewestScreenshot(t *testing.T) {
 	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
 	require.Equal(t, png, w.Body.Bytes())
 	require.Equal(t, "no-store", w.Header().Get("Cache-Control"))
+}
+
+func TestVerifyLoginReportsResult(t *testing.T) {
+	adapter := &apiFakeBrowserAdapter{hasLogin: true}
+	r, _, _ := setupOpsBrowser(t, adapter)
+	id := createTestBot(t, r, "1", "brand")
+	path := "/api/ops/bots/" + strconv.FormatInt(id, 10) + "/login/verify"
+
+	w := doJSON(t, r, http.MethodPost, path, "1", "")
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+	var body browserStatusBody
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
+	require.Equal(t, "succeeded", body.State)
+	require.Equal(t, opsbot.LoginActionNone, body.NextAction)
+
+	adapter.loginErr = errors.New("session expired")
+	w = doJSON(t, r, http.MethodPost, path, "1", "")
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
+	require.Equal(t, "failed", body.State)
+	require.Equal(t, opsbot.LoginActionRelogin, body.NextAction)
+	require.Contains(t, body.LastError, "session expired")
 }
 
 func TestBrowserStatusRequiresOwner(t *testing.T) {

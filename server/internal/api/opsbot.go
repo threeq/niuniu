@@ -1521,8 +1521,50 @@ func (h *OpsBotHandler) StartLogin(c *gin.Context) {
 	code := http.StatusAccepted
 	if status.State == opsbot.LoginStateNotRequired {
 		code = http.StatusOK
+	} else {
+		// The run was accepted but has not executed yet; polling returns the
+		// running/succeeded/failed state.
+		status.State = opsbot.LoginStateStarted
 	}
 	c.JSON(code, h.browserDTO(c, bot.ID, status))
+}
+
+// VerifyLogin probes the stored session now with a short timeout. It is the
+// explicit verification path for an already-active bot: Risk.Resume returns
+// early for active bots, so this is where onboarding/operators confirm a
+// session without waiting for a QR scan.
+func (h *OpsBotHandler) VerifyLogin(c *gin.Context) {
+	if !h.requireReady(c) {
+		return
+	}
+	bot, _, ok := h.botForAccess(c, true)
+	if !ok {
+		return
+	}
+	if h.Login == nil {
+		RespondError(c, http.StatusServiceUnavailable, "OPS_LOGIN_UNAVAILABLE", "browser login service is not configured")
+		return
+	}
+	ctx := c.Request.Context()
+	verifyErr := h.Login.Verify(ctx, bot.ID)
+	status, err := h.Login.Status(ctx, bot.ID)
+	if err != nil {
+		h.respondOpsError(c, err)
+		return
+	}
+	switch {
+	case !status.HasLogin:
+		status.State = opsbot.LoginStateNotRequired
+		status.NextAction = opsbot.LoginActionNone
+	case verifyErr != nil:
+		status.State = opsbot.LoginStateFailed
+		status.LastError = verifyErr.Error()
+		status.NextAction = opsbot.LoginActionRelogin
+	default:
+		status.State = opsbot.LoginStateSucceeded
+		status.NextAction = opsbot.LoginActionNone
+	}
+	c.JSON(http.StatusOK, h.browserDTO(c, bot.ID, status))
 }
 
 // BrowserEvidence serves the newest login screenshot (the QR page while the

@@ -79,6 +79,7 @@
   },
   "loginState": {
     "idle": "待登录",
+    "started": "已开始",
     "running": "登录中",
     "succeeded": "已登录",
     "failed": "失败",

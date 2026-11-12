@@ -79,6 +79,7 @@
   },
   "loginState": {
     "idle": "Not logged in",
+    "started": "Started",
     "running": "Logging in",
     "succeeded": "Logged in",
     "failed": "Failed",

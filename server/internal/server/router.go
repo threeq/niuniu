@@ -1666,6 +1666,7 @@ func registerOpsRoutes(g *gin.RouterGroup, h *apipkg.OpsBotHandler) {
 	g.GET("/bots/:id/browser/evidence", h.BrowserEvidence)
 	g.POST("/bots/:id/browser-login", h.BrowserLogin)
 	g.POST("/bots/:id/login", h.StartLogin)
+	g.POST("/bots/:id/login/verify", h.VerifyLogin)
 	g.POST("/bots/:id/credential-link", h.CredentialLink)
 
 	g.GET("/packs", h.ListPacks)

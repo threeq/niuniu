@@ -105,6 +105,7 @@ func registerOpsTestRoutes(g *gin.RouterGroup, h *api.OpsBotHandler) {
 	g.GET("/bots/:id/browser/evidence", h.BrowserEvidence)
 	g.POST("/bots/:id/browser-login", h.BrowserLogin)
 	g.POST("/bots/:id/login", h.StartLogin)
+	g.POST("/bots/:id/login/verify", h.VerifyLogin)
 	g.GET("/approvals", h.ListApprovals)
 	g.POST("/approvals/:id/approve", h.ApproveApproval)
 	g.POST("/approvals/:id/reject", h.RejectApproval)

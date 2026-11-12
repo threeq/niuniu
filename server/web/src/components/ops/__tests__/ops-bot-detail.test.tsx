@@ -112,6 +112,8 @@ const browserStatus: OpsBrowserStatus = {
   state: 'failed',
   login_status: 'expired',
   backend: 'local',
+  health: 'degraded',
+  risk_state: 'normal',
   has_session: true,
   has_login_recipe: true,
   next_action: 'relogin',

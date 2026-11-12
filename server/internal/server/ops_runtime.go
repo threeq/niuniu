@@ -53,7 +53,7 @@ func (s *Server) initOpsRuntime(svc *opsbot.Service, approval *opsbot.Approval, 
 	// launches a headed Chrome so the operator can scan the QR code; the
 	// enterprise build registers a cloud factory instead.
 	backend, backendErr := browser.NewBackend(browser.BackendConfig{
-		Kind: browser.BackendLocal,
+		Kind: browser.ConfiguredBackend(),
 		Local: browser.LocalConfig{
 			DataDir:      s.cfg.DataDir,
 			Sessions:     sessions,
@@ -62,7 +62,10 @@ func (s *Server) initOpsRuntime(svc *opsbot.Service, approval *opsbot.Approval, 
 	})
 	if backendErr != nil {
 		slog.Warn("opsbot: browser backend unavailable; browser packs will degrade", "error", backendErr)
-	} else {
+	}
+	if backend != nil {
+		// The configured backend exists even when it is an UnsupportedBackend:
+		// its methods fail loudly with CodeUnsupported instead of ErrNoExecutor.
 		worker.Exec = func(ctx context.Context, task browser.Task) (browser.Result, error) {
 			if task.RecipeSpec == nil {
 				return browser.Result{}, fmt.Errorf("%w: recipe %q was not resolved", browser.ErrInvalidRecipe, task.Recipe)

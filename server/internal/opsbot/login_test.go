@@ -209,6 +209,8 @@ func TestLoginManagerStatusNextAction(t *testing.T) {
 	st, err := m.Status(context.Background(), 1)
 	require.NoError(t, err)
 	require.Equal(t, browser.LoginUnknown, st.LoginStatus)
+	require.Equal(t, browser.HealthUnknown, st.Health)
+	require.Equal(t, browser.RiskNormal, st.RiskState)
 	require.Equal(t, LoginActionLogin, st.NextAction)
 
 	valid := browser.LoginValid

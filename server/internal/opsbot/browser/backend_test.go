@@ -739,3 +739,12 @@ func TestLocalBackendAllowExpiredBypassesSessionGuard(t *testing.T) {
 	_, err = b.Exec(ctx, h, recipe, ExecInput{AllowExpired: true})
 	require.NoError(t, err)
 }
+
+func TestConfiguredBackend(t *testing.T) {
+	t.Setenv("NIUNIU_OPS_BROWSER_BACKEND", "")
+	require.Equal(t, BackendLocal, ConfiguredBackend())
+	t.Setenv("NIUNIU_OPS_BROWSER_BACKEND", "cloud")
+	require.Equal(t, BackendCloud, ConfiguredBackend())
+	t.Setenv("NIUNIU_OPS_BROWSER_BACKEND", "weird")
+	require.Equal(t, "weird", ConfiguredBackend())
+}
