@@ -25,6 +25,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/niuniu-dev/niuniu/internal/opsbot"
+	"github.com/niuniu-dev/niuniu/internal/opsbot/browser"
 	"github.com/niuniu-dev/niuniu/internal/opsbot/packs"
 	"github.com/niuniu-dev/niuniu/internal/service"
 	"github.com/niuniu-dev/niuniu/internal/store"
@@ -47,6 +48,11 @@ type OpsBotHandler struct {
 	CredLinks *service.CredentialOnboardingService
 	// DataDir roots the browser profile directory.
 	DataDir string
+	// Login makes browser login a first-class asynchronous action and exposes
+	// the session read model. Optional: browser routes answer 503 when absent.
+	Login *opsbot.LoginManager
+	// Sessions roots the browser evidence lookup for the QR screenshot.
+	Sessions *browser.SessionManager
 }
 
 // --- DTOs ---
@@ -1384,9 +1390,29 @@ type browserLoginBody struct {
 	Backend string `json:"backend"`
 }
 
+// browserStatusDTO is the machine-readable browser/login state returned by the
+// status and login endpoints. Embedding keeps the JSON flat for agents.
+type browserStatusDTO struct {
+	BotID int64 `json:"bot_id"`
+	opsbot.LoginStatus
+	EvidenceURL string `json:"evidence_url,omitempty"`
+}
+
+func (h *OpsBotHandler) browserDTO(c *gin.Context, botID int64, status opsbot.LoginStatus) browserStatusDTO {
+	evidence := ""
+	if status.HasLogin {
+		// Derive the evidence URL from the mounted prefix so /api/ops and
+		// /mcp/ops each get a path that actually resolves.
+		base := strings.TrimSuffix(c.Request.URL.Path, "/browser")
+		evidence = base + "/browser/evidence"
+	}
+	return browserStatusDTO{BotID: botID, LoginStatus: status, EvidenceURL: evidence}
+}
+
 // BrowserLogin registers (or returns) the bot's browser profile for a backend.
-// The actual login happens in the browser worker; this records where the
-// profile lives so the worker and the operator agree on one directory.
+// It deliberately does NOT log in: login is an interactive, long-running action
+// exposed by StartLogin. The response is machine-readable so an agent never has
+// to infer the next step from prose.
 func (h *OpsBotHandler) BrowserLogin(c *gin.Context) {
 	if !h.requireReady(c) {
 		return
@@ -1412,19 +1438,141 @@ func (h *OpsBotHandler) BrowserLogin(c *gin.Context) {
 		BadRequest(c, "backend must be local or cloud")
 		return
 	}
+	ctx := c.Request.Context()
+	// A credential/API channel has no interactive login. Registering a browser
+	// profile for it would make the account look configured when it is not.
+	if h.Login != nil {
+		if supported, serr := h.Login.SupportsLogin(ctx, bot.ID); serr == nil && !supported {
+			RespondError(c, http.StatusConflict, "OPS_LOGIN_NOT_REQUIRED",
+				"this channel authenticates with a credential, not a browser login")
+			return
+		}
+	}
 	profileDir := filepath.Join(h.DataDir, "ops", "browser", strconv.FormatInt(bot.ID, 10), backend)
-	session, err := h.Queries.UpsertOpsBrowserSession(c.Request.Context(), store.UpsertOpsBrowserSessionParams{
+	session, err := h.Queries.UpsertOpsBrowserSession(ctx, store.UpsertOpsBrowserSessionParams{
 		BotID: bot.ID, Backend: backend, ProfileDir: profileDir,
 	})
 	if err != nil {
 		h.respondOpsError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{
-		"session":   session,
-		"backend":   backend,
-		"next_step": "run the browser worker login against this profile directory",
-	})
+	resp := gin.H{
+		"session":          session,
+		"backend":          backend,
+		"profile_dir":      session.ProfileDir,
+		"login_status":     session.LoginStatus,
+		"has_login_recipe": false,
+		"next_action":      opsbot.LoginActionLogin,
+	}
+	if h.Login != nil {
+		if status, serr := h.Login.Status(ctx, bot.ID); serr == nil {
+			resp["login_status"] = status.LoginStatus
+			resp["has_login_recipe"] = status.HasLogin
+			resp["next_action"] = status.NextAction
+			resp["state"] = status.State
+		}
+	}
+	c.JSON(http.StatusOK, resp)
+}
+
+// BrowserStatus returns the persisted browser session plus the last login run.
+// It is the read half of the login contract: an agent calls this before and
+// after StartLogin instead of guessing.
+func (h *OpsBotHandler) BrowserStatus(c *gin.Context) {
+	if !h.requireReady(c) {
+		return
+	}
+	bot, _, ok := h.botForAccess(c, false)
+	if !ok {
+		return
+	}
+	if h.Login == nil {
+		RespondError(c, http.StatusServiceUnavailable, "OPS_LOGIN_UNAVAILABLE", "browser login service is not configured")
+		return
+	}
+	status, err := h.Login.Status(c.Request.Context(), bot.ID)
+	if err != nil {
+		h.respondOpsError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, h.browserDTO(c, bot.ID, status))
+}
+
+// StartLogin starts the interactive login recipe and returns immediately with
+// state=running (202). The operator scans the QR code, then polls BrowserStatus.
+// A Pack whose transport needs no interactive login answers 200 not_required.
+func (h *OpsBotHandler) StartLogin(c *gin.Context) {
+	if !h.requireReady(c) {
+		return
+	}
+	bot, _, ok := h.botForAccess(c, true)
+	if !ok {
+		return
+	}
+	if h.Login == nil {
+		RespondError(c, http.StatusServiceUnavailable, "OPS_LOGIN_UNAVAILABLE", "browser login service is not configured")
+		return
+	}
+	status, err := h.Login.Start(c.Request.Context(), bot.ID)
+	if err != nil {
+		h.respondOpsError(c, err)
+		return
+	}
+	code := http.StatusAccepted
+	if status.State == opsbot.LoginStateNotRequired {
+		code = http.StatusOK
+	}
+	c.JSON(code, h.browserDTO(c, bot.ID, status))
+}
+
+// BrowserEvidence serves the newest login screenshot (the QR page while the
+// operator is still scanning, or the final logged-in state). It is scoped to
+// the bot's own evidence directory and never follows a caller-supplied path.
+func (h *OpsBotHandler) BrowserEvidence(c *gin.Context) {
+	if !h.requireReady(c) {
+		return
+	}
+	bot, _, ok := h.botForAccess(c, false)
+	if !ok {
+		return
+	}
+	if strings.TrimSpace(h.DataDir) == "" {
+		RespondError(c, http.StatusNotFound, "OPS_EVIDENCE_NOT_FOUND", "no browser evidence for this account")
+		return
+	}
+	dir := filepath.Join(h.DataDir, "ops", "evidence", strconv.FormatInt(bot.ID, 10))
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		RespondError(c, http.StatusNotFound, "OPS_EVIDENCE_NOT_FOUND", "no browser evidence for this account")
+		return
+	}
+	var (
+		latest    string
+		latestMod time.Time
+	)
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(strings.ToLower(entry.Name()), ".png") {
+			continue
+		}
+		info, ierr := entry.Info()
+		if ierr != nil {
+			continue
+		}
+		if latest == "" || info.ModTime().After(latestMod) {
+			latest, latestMod = entry.Name(), info.ModTime()
+		}
+	}
+	if latest == "" {
+		RespondError(c, http.StatusNotFound, "OPS_EVIDENCE_NOT_FOUND", "no browser evidence for this account")
+		return
+	}
+	path := filepath.Join(dir, filepath.Base(latest))
+	if !strings.HasPrefix(path, dir+string(os.PathSeparator)) {
+		RespondError(c, http.StatusNotFound, "OPS_EVIDENCE_NOT_FOUND", "no browser evidence for this account")
+		return
+	}
+	c.Header("Cache-Control", "no-store")
+	c.File(path)
 }
 
 type credentialLinkBody struct {

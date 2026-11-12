@@ -40,6 +40,8 @@ vi.mock('@/lib/api', () => ({
     list: vi.fn(),
     pause: vi.fn(),
     resume: vi.fn(),
+    login: vi.fn(),
+    browserStatus: vi.fn(),
   },
 }))
 
@@ -168,5 +170,23 @@ describe('OpsBotsPage', () => {
     renderPage()
 
     expect(await screen.findByText('ownerError(message=boom)')).toBeInTheDocument()
+  })
+
+  it('offers a relogin action when the browser session expired', async () => {
+    vi.mocked(opsApi.list).mockResolvedValue(view())
+    vi.mocked(opsApi.login).mockResolvedValue({
+      bot_id: 7,
+      state: 'running',
+      login_status: 'expired',
+      backend: 'local',
+      has_session: true,
+      has_login_recipe: true,
+      next_action: 'relogin',
+    })
+    renderPage()
+
+    const buttons = await screen.findAllByText('actions.relogin')
+    fireEvent.click(buttons[0])
+    await waitFor(() => expect(opsApi.login).toHaveBeenCalledWith(7))
   })
 })

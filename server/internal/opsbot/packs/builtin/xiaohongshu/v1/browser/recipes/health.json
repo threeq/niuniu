@@ -1,0 +1,23 @@
+{
+  "name": "health",
+  "steps": [
+    {
+      "action": "goto",
+      "value": "https://creator.xiaohongshu.com/",
+      "timeout_ms": 20000
+    },
+    {
+      "action": "wait",
+      "selector": ".user-avatar",
+      "fallback": [".side-nav .avatar"],
+      "timeout_ms": 10000,
+      "args": { "poll_interval_ms": "500" }
+    },
+    {
+      "action": "assert",
+      "selector": ".user-avatar",
+      "fallback": [".side-nav .avatar"],
+      "value": "logged_in"
+    }
+  ]
+}

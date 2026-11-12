@@ -1,0 +1,23 @@
+{
+  "name": "health",
+  "steps": [
+    {
+      "action": "goto",
+      "value": "https://www.zhihu.com/",
+      "timeout_ms": 20000
+    },
+    {
+      "action": "wait",
+      "selector": ".AppHeader-profile",
+      "fallback": [".AppHeader-userInfo", ".UserAvatar"],
+      "timeout_ms": 10000,
+      "args": { "poll_interval_ms": "500" }
+    },
+    {
+      "action": "assert",
+      "selector": ".AppHeader-profile",
+      "fallback": [".AppHeader-userInfo", ".UserAvatar"],
+      "value": "logged_in"
+    }
+  ]
+}

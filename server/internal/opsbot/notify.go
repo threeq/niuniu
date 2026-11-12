@@ -77,6 +77,9 @@ type RiskAlert struct {
 	Account string
 	Reason  string
 	Paused  bool
+	// Action, when set, renders one actionable button (used by the relogin
+	// alert so the operator does not have to know a slash command).
+	Action *NotifyButton
 }
 
 // ApprovalCard is one approval notification: the row id plus the typed preview.
@@ -150,7 +153,11 @@ func (n *Notifier) PushRisk(ctx context.Context, target NotifyTarget, alert Risk
 	if n == nil || n.Send == nil {
 		return nil
 	}
-	return n.Send(ctx, target, NotifyPayload{Text: RenderRiskAlert(alert)})
+	payload := NotifyPayload{Text: RenderRiskAlert(alert)}
+	if alert.Action != nil && strings.TrimSpace(alert.Action.Label) != "" && strings.TrimSpace(alert.Action.Value) != "" {
+		payload.Buttons = []NotifyButton{*alert.Action}
+	}
+	return n.Send(ctx, target, payload)
 }
 
 // RenderApprovalCard renders the card-specific template and its action buttons.
@@ -207,7 +214,31 @@ func RenderRiskAlert(alert RiskAlert) string {
 	} else {
 		b.WriteString("\n状态：运行中，请关注。")
 	}
+	if alert.Action != nil && strings.TrimSpace(alert.Action.Label) != "" {
+		b.WriteString("\n处理：点击「")
+		b.WriteString(alert.Action.Label)
+		b.WriteString("」，或让 agent 调用 opsbot_browser_login。")
+	}
 	return b.String()
+}
+
+// ReloginCallbackValue builds the button payload for a relogin alert. It is a
+// distinct prefix from approvals so the inbound dispatcher can route it.
+func ReloginCallbackValue(botID int64) string {
+	return "opslogin:" + strconv.FormatInt(botID, 10)
+}
+
+// ParseReloginCallback decodes "opslogin:<botID>".
+func ParseReloginCallback(data string) (int64, bool) {
+	parts := strings.Split(data, ":")
+	if len(parts) != 2 || parts[0] != "opslogin" {
+		return 0, false
+	}
+	id, err := strconv.ParseInt(parts[1], 10, 64)
+	if err != nil || id <= 0 {
+		return 0, false
+	}
+	return id, true
 }
 
 func writeField(b *strings.Builder, label, value string) {

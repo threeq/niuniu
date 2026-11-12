@@ -55,7 +55,27 @@ export function OpsBotsPage({ projectId }: OpsBotsPageProps = {}) {
     },
   })
 
+  const login = useMutation({
+    mutationFn: (account: OpsAccount) => opsApi.login(account.bot_id),
+    onSuccess: (status, account) => {
+      const name = account.display_name || account.account_ref || `#${account.bot_id}`
+      toast.success(
+        status.state === 'not_required'
+          ? t('login.notRequired')
+          : t('login.startedFor', { name }),
+      )
+      queryClient.invalidateQueries({ queryKey: ['ops-bots'] })
+      queryClient.invalidateQueries({ queryKey: ['project-ops-bots'] })
+    },
+    onError: (err: unknown) => {
+      toast.error(
+        t('toast.actionFailed', { message: err instanceof Error ? err.message : String(err) }),
+      )
+    },
+  })
+
   const busyBotId = toggleStatus.isPending ? toggleStatus.variables?.bot_id : null
+  const loginBusyBotId = login.isPending ? login.variables?.bot_id : null
 
   const owners: OpsOwner[] = (data?.owners ?? []).filter(
     (owner) => owner.channels.length > 0 || owner.error,
@@ -139,6 +159,8 @@ export function OpsBotsPage({ projectId }: OpsBotsPageProps = {}) {
                       accounts={channel.accounts}
                       busyBotId={busyBotId}
                       onToggleStatus={(account) => toggleStatus.mutate(account)}
+                      onLogin={(account) => login.mutate(account)}
+                      loginBusyBotId={loginBusyBotId}
                     />
                   </div>
                 </div>

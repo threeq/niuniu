@@ -53,6 +53,36 @@ function ToggleButton({
   )
 }
 
+function needsLogin(account: OpsAccount) {
+  return (
+    account.browser?.login_status === 'expired' ||
+    account.risk_reasons.includes('browser_login_expired')
+  )
+}
+
+function LoginButton({
+  account,
+  busy,
+  onLogin,
+}: {
+  account: OpsAccount
+  busy: boolean
+  onLogin: (account: OpsAccount) => void
+}) {
+  const { t } = useTranslation('ops')
+  return (
+    <Button
+      size="sm"
+      variant="outline"
+      disabled={busy}
+      onClick={() => onLogin(account)}
+      aria-label={t('actions.relogin') + ' ' + accountName(account)}
+    >
+      {t('actions.relogin')}
+    </Button>
+  )
+}
+
 function DetailsLink({ account }: { account: OpsAccount }) {
   const { t } = useTranslation('ops')
   return (
@@ -73,10 +103,15 @@ export function AccountList({
   accounts,
   busyBotId,
   onToggleStatus,
+  onLogin,
+  loginBusyBotId,
 }: {
   accounts: OpsAccount[]
   busyBotId?: number | null
   onToggleStatus: (account: OpsAccount) => void
+  /** Optional quick relogin entry for accounts whose browser session expired. */
+  onLogin?: (account: OpsAccount) => void
+  loginBusyBotId?: number | null
 }) {
   const { t } = useTranslation('ops')
 
@@ -146,6 +181,13 @@ export function AccountList({
                 </TableCell>
                 <TableCell>
                   <div className="flex justify-end gap-1">
+                    {onLogin && needsLogin(account) ? (
+                      <LoginButton
+                        account={account}
+                        busy={loginBusyBotId === account.bot_id}
+                        onLogin={onLogin}
+                      />
+                    ) : null}
                     <ToggleButton
                       account={account}
                       busy={busyBotId === account.bot_id}
@@ -212,6 +254,13 @@ export function AccountList({
             <div className="flex flex-wrap items-center justify-between gap-2">
               <OpsRiskBadge level={account.risk} reasons={account.risk_reasons} />
               <div className="flex gap-1">
+                {onLogin && needsLogin(account) ? (
+                  <LoginButton
+                    account={account}
+                    busy={loginBusyBotId === account.bot_id}
+                    onLogin={onLogin}
+                  />
+                ) : null}
                 <ToggleButton
                   account={account}
                   busy={busyBotId === account.bot_id}

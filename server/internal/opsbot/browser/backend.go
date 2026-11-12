@@ -65,6 +65,10 @@ type ExecInput struct {
 	// Files maps logical names to absolute local paths. Recipes may upload only
 	// paths listed here (or under LocalConfig.FileRoot).
 	Files map[string]string
+	// AllowExpired runs the recipe even when the stored session is expired. Only
+	// the login recipe sets it: without this bypass an expired session could
+	// never be recovered.
+	AllowExpired bool
 }
 
 // ExecOutput is the recipe's result.

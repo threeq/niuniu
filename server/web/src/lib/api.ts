@@ -106,6 +106,7 @@ import type {
   MissionControlOpsView,
   OpsApproval,
   OpsBot,
+  OpsBrowserStatus,
   OpsBudgetUsage,
   OpsCalendar,
   OpsEngagement,
@@ -1374,6 +1375,10 @@ export const opsApi = {
   pause: (botId: number) => api.post<OpsBot>(`/ops/bots/${botId}/pause`),
   resume: (botId: number) => api.post<OpsBot>(`/ops/bots/${botId}/resume`),
   disable: (botId: number) => api.post<OpsBot>(`/ops/bots/${botId}/disable`),
+
+  browserStatus: (botId: number) =>
+    api.get<OpsBrowserStatus>(`/ops/bots/${botId}/browser`, { suppressError: true }),
+  login: (botId: number) => api.post<OpsBrowserStatus>(`/ops/bots/${botId}/login`),
 
   budget: (botId: number) =>
     api.get<OpsBudgetUsage>(`/ops/bots/${botId}/budget`, { suppressError: true }),

@@ -1662,7 +1662,10 @@ func registerOpsRoutes(g *gin.RouterGroup, h *apipkg.OpsBotHandler) {
 	g.GET("/bots/:id/engagements", h.ListEngagements)
 	g.GET("/bots/:id/calendar", h.GetCalendar)
 	g.POST("/bots/:id/publish", h.Publish)
+	g.GET("/bots/:id/browser", h.BrowserStatus)
+	g.GET("/bots/:id/browser/evidence", h.BrowserEvidence)
 	g.POST("/bots/:id/browser-login", h.BrowserLogin)
+	g.POST("/bots/:id/login", h.StartLogin)
 	g.POST("/bots/:id/credential-link", h.CredentialLink)
 
 	g.GET("/packs", h.ListPacks)

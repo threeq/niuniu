@@ -148,6 +148,9 @@ func (r *AdapterResolver) browserAdapter(bot store.OpsBot, manifest packs.Manife
 	// Browser sessions are keyed by bot id; bind it here so callers that only
 	// know the platform account name can still use the adapter.
 	adapter.BindAccount(bot.ID)
+	// The Pack's allowlist is the egress boundary for every recipe, including
+	// login; an empty list denies all navigation by design.
+	adapter.SetAllowedHosts(manifest.AllowedHosts)
 	return adapter, nil
 }
 

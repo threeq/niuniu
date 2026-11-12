@@ -143,6 +143,9 @@ type Onboarding struct {
 	Risk        *Risk        // optional: gates /resume on a re-login check
 	Generator   PackGenerator
 	Credentials CredentialLinker
+	// VerifyLogin proves the account can actually authenticate before onboarding
+	// is declared complete. Optional; nil skips the check (API-only packs).
+	VerifyLogin func(ctx context.Context, botID int64) error
 	// InstallPacks seeds an owner's built-in Packs on first use (idempotent).
 	// Optional: nil means Packs must already be installed.
 	InstallPacks func(ctx context.Context, ownerType string, ownerID int64) error
@@ -547,6 +550,16 @@ func (o *Onboarding) finishLocked(ctx context.Context, s *Session) (string, bool
 		}
 	}
 
+	// No credential-link step: this is a browser pack, so prove the scanned
+	// session works before declaring onboarding complete. A failure keeps the
+	// conversation open at the credential stage so "完成" retries the probe.
+	if verr := o.verifyLogin(ctx, bot.ID); verr != nil {
+		s.BotID = bot.ID
+		s.Stage = stageCredential
+		return fmt.Sprintf("账号已登记，但登录态验证未通过：%v。请让 agent 调用 opsbot_browser_login 扫码，或打开运营 Bot 详情点「扫码登录」，完成后回复「完成」。%s",
+			verr, note), false, nil
+	}
+
 	delete(o.sessions, s.ChatID)
 	return o.summary(bot, s.EpicIssueID, s.WorkspaceID) + note, true, nil
 }
@@ -554,12 +567,26 @@ func (o *Onboarding) finishLocked(ctx context.Context, s *Session) (string, bool
 // confirmCredentialLocked finishes the flow after the operator completed the
 // out-of-band authorization. The user's text is deliberately never stored.
 func (o *Onboarding) confirmCredentialLocked(ctx context.Context, s *Session) (string, bool, error) {
-	delete(o.sessions, s.ChatID)
 	bot, err := o.Service.Get(ctx, s.BotID)
 	if err != nil {
+		delete(o.sessions, s.ChatID)
 		return "账号已登记，可用 /bots 查看。", true, nil
 	}
+	if verr := o.verifyLogin(ctx, s.BotID); verr != nil {
+		// Keep the conversation at this stage: the operator can fix the login and
+		// reply "完成" again instead of starting over.
+		s.Stage = stageCredential
+		return fmt.Sprintf("登录态仍未通过：%v。请让 agent 调用 opsbot_browser_login 扫码，或打开运营 Bot 详情点「扫码登录」，完成后回复「完成」。", verr), false, nil
+	}
+	delete(o.sessions, s.ChatID)
 	return o.summary(bot, s.EpicIssueID, s.WorkspaceID), true, nil
+}
+
+func (o *Onboarding) verifyLogin(ctx context.Context, botID int64) error {
+	if o.VerifyLogin == nil {
+		return nil
+	}
+	return o.VerifyLogin(ctx, botID)
 }
 
 func (o *Onboarding) summary(bot store.OpsBot, epicID, wsID int64) string {

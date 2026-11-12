@@ -61,7 +61,28 @@
     "details": "詳情",
     "approve": "透過",
     "reject": "駁回",
+    "relogin": "重新登入",
     "back": "返回列表"
+  },
+  "login": {
+    "action": "掃碼登入",
+    "relogin": "重新登入",
+    "running": "登入中…",
+    "state": "登入狀態：{{value}}",
+    "scanHint": "請用手機掃描下方二維碼；掃碼後在本機瀏覽器視窗完成登入。",
+    "headedHint": "登入會開啟本機瀏覽器視窗，請在該視窗掃碼。",
+    "qrAlt": "登入二維碼",
+    "started": "已開始登入，請掃碼",
+    "startedFor": "已開始登入 {{name}}，請掃碼",
+    "notRequired": "該渠道不需要瀏覽器登入",
+    "failed": "登入失敗：{{message}}"
+  },
+  "loginState": {
+    "idle": "待登入",
+    "running": "登入中",
+    "succeeded": "已登入",
+    "failed": "失敗",
+    "not_required": "無需登入"
   },
   "toast": {
     "paused": "已暫停 {{name}}",

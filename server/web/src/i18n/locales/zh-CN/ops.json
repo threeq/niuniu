@@ -61,7 +61,28 @@
     "details": "详情",
     "approve": "通过",
     "reject": "驳回",
+    "relogin": "重新登录",
     "back": "返回列表"
+  },
+  "login": {
+    "action": "扫码登录",
+    "relogin": "重新登录",
+    "running": "登录中…",
+    "state": "登录状态：{{value}}",
+    "scanHint": "请用手机扫描下方二维码；扫码后在本机浏览器窗口完成登录。",
+    "headedHint": "登录会打开本机浏览器窗口，请在该窗口扫码。",
+    "qrAlt": "登录二维码",
+    "started": "已开始登录，请扫码",
+    "startedFor": "已开始登录 {{name}}，请扫码",
+    "notRequired": "该渠道不需要浏览器登录",
+    "failed": "登录失败：{{message}}"
+  },
+  "loginState": {
+    "idle": "待登录",
+    "running": "登录中",
+    "succeeded": "已登录",
+    "failed": "失败",
+    "not_required": "无需登录"
   },
   "toast": {
     "paused": "已暂停 {{name}}",

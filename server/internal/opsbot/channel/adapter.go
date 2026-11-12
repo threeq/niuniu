@@ -50,6 +50,13 @@ type ChannelAdapter interface {
 	HealthCheck(ctx context.Context) error
 }
 
+// SessionVerifier is an optional adapter capability: check the stored account
+// session without starting an interactive login flow. The caller bounds ctx so
+// a resume or onboarding check never waits for a QR scan.
+type SessionVerifier interface {
+	VerifySession(ctx context.Context, accountRef string) error
+}
+
 // ErrCapabilityUnavailable marks an operation the adapter cannot serve.
 var ErrCapabilityUnavailable = errors.New("opsbot: capability unavailable")
 

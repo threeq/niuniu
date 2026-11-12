@@ -87,6 +87,8 @@ func (s *IMBotService) HandleInbound(ctx context.Context, ev imbot.InboundEvent)
 		switch {
 		case strings.HasPrefix(ev.CallbackData, "opsapproval:"):
 			s.handleOpsApprovalCallback(ctx, channel, chat, ev)
+		case strings.HasPrefix(ev.CallbackData, "opslogin:"):
+			s.handleOpsReloginCallback(ctx, channel, ev)
 		case strings.HasPrefix(ev.CallbackData, "askuser:"):
 			s.handleAskUserCallback(ctx, channel, chat, ev)
 		default:
@@ -1107,6 +1109,35 @@ func (s *IMBotService) decideOpsApproval(ctx context.Context, channel store.ImBo
 	s.pushText(ctx, channel, ev.ChatExtID, ev.ThreadExtID, opsDecisionText(action))
 }
 
+// handleOpsReloginCallback starts the interactive login behind the relogin
+// alert's button. Authorization mirrors approval decisions: the bot must belong
+// to the chat's channel owner.
+func (s *IMBotService) handleOpsReloginCallback(ctx context.Context, channel store.ImBotChannel, ev imbot.InboundEvent) {
+	botID, ok := opsbot.ParseReloginCallback(ev.CallbackData)
+	if !ok || s.opsLogin == nil {
+		return
+	}
+	bot, err := s.q.GetOpsBot(ctx, botID)
+	if err != nil || bot.OwnerType != channel.OwnerType || bot.OwnerID != channel.OwnerID {
+		s.pushText(ctx, channel, ev.ChatExtID, ev.ThreadExtID, "无权为该账号发起登录。")
+		return
+	}
+	status, err := s.opsLogin.Start(ctx, botID)
+	if err != nil {
+		slog.Warn("imbot: start ops relogin failed", "bot", botID, "error", err)
+		s.pushText(ctx, channel, ev.ChatExtID, ev.ThreadExtID, "启动登录失败，请稍后重试。")
+		return
+	}
+	switch status.State {
+	case opsbot.LoginStateNotRequired:
+		s.pushText(ctx, channel, ev.ChatExtID, ev.ThreadExtID, "该渠道不需要浏览器登录。")
+	case opsbot.LoginStateRunning:
+		s.pushText(ctx, channel, ev.ChatExtID, ev.ThreadExtID, "已开始登录「"+bot.DisplayName+"」，请在本机浏览器窗口扫码。")
+	default:
+		s.pushText(ctx, channel, ev.ChatExtID, ev.ThreadExtID, "「"+bot.DisplayName+"」登录态："+status.LoginStatus+"。")
+	}
+}
+
 func opsDecisionText(action string) string {
 	switch action {
 	case opsbot.ActionApproved:
@@ -1176,6 +1207,19 @@ func (s *IMBotService) NotifyOpsApproval(ctx context.Context, req opsbot.Approva
 // every active chat bound to the bot. Like NotifyOpsApproval it is best-effort:
 // failures are logged, never returned.
 func (s *IMBotService) NotifyOpsRisk(ctx context.Context, botID int64, reason string) {
+	s.notifyOpsAlert(ctx, botID, reason, nil)
+}
+
+// NotifyOpsRelogin is the login-expired variant: it attaches a "重新登录" button
+// so the operator has a real action instead of just being told to scan.
+func (s *IMBotService) NotifyOpsRelogin(ctx context.Context, botID int64, reason string) {
+	s.notifyOpsAlert(ctx, botID, reason, &opsbot.NotifyButton{
+		Label: "重新登录",
+		Value: opsbot.ReloginCallbackValue(botID),
+	})
+}
+
+func (s *IMBotService) notifyOpsAlert(ctx context.Context, botID int64, reason string, action *opsbot.NotifyButton) {
 	if s.opsNotify == nil {
 		return
 	}
@@ -1188,6 +1232,7 @@ func (s *IMBotService) NotifyOpsRisk(ctx context.Context, botID int64, reason st
 		Account: bot.DisplayName,
 		Reason:  reason,
 		Paused:  bot.Status != opsbot.StatusActive,
+		Action:  action,
 	}
 	chats, err := s.opsBotChats(ctx, botID)
 	if err != nil {

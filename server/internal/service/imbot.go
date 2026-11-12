@@ -123,6 +123,10 @@ type IMBotService struct {
 	// SetOpsNotifier; nil makes every ops notification a no-op.
 	opsNotify *opsbot.Notifier
 
+	// opsLogin starts the interactive browser login behind the relogin alert's
+	// button. Wired via SetOpsLogin; nil leaves the button inert.
+	opsLogin *opsbot.LoginManager
+
 	// opsPendingMu guards opsPendingModify: approvals whose operator tapped
 	// "修改" and is expected to reply with the revision. Keyed by chat id;
 	// in-memory only (a restart just makes the user re-tap the card).
@@ -222,6 +226,12 @@ func (s *IMBotService) SetOpsOnboarding(o *opsbot.Onboarding) {
 // reject / modify) drive Approval.Decide. Optional; nil ignores the callbacks.
 func (s *IMBotService) SetOpsApproval(a *opsbot.Approval) {
 	s.opsApproval = a
+}
+
+// SetOpsLogin wires the browser login manager used by the relogin alert button.
+// Optional; nil leaves the button inert.
+func (s *IMBotService) SetOpsLogin(login *opsbot.LoginManager) {
+	s.opsLogin = login
 }
 
 // SetOpsNotifier wires the ops-bot notification templates. When the notifier

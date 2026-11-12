@@ -224,7 +224,7 @@ func (b *LocalBackend) Exec(ctx context.Context, handle SessionHandle, recipe pa
 		return ExecOutput{}, fmt.Errorf("%w: %s", ErrSessionClosed, handle.ID)
 	}
 
-	if err := b.checkUsable(ctx, handle); err != nil {
+	if err := b.checkUsable(ctx, handle, in.AllowExpired); err != nil {
 		return ExecOutput{}, err
 	}
 	release, err := b.acquireLease(ctx, handle)
@@ -265,7 +265,7 @@ func (b *LocalBackend) session(handle SessionHandle) (*localSession, error) {
 	return s, nil
 }
 
-func (b *LocalBackend) checkUsable(ctx context.Context, handle SessionHandle) error {
+func (b *LocalBackend) checkUsable(ctx context.Context, handle SessionHandle, allowExpired bool) error {
 	if b.cfg.Sessions == nil {
 		return nil
 	}
@@ -276,7 +276,7 @@ func (b *LocalBackend) checkUsable(ctx context.Context, handle SessionHandle) er
 		}
 		return err
 	}
-	if sess.LoginStatus == LoginExpired {
+	if sess.LoginStatus == LoginExpired && !allowExpired {
 		return fmt.Errorf("%w: bot %d", ErrLoginExpired, handle.BotID)
 	}
 	switch sess.RiskState {

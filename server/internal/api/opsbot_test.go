@@ -25,6 +25,11 @@ import (
 
 func setupOpsBot(t *testing.T) (*gin.Engine, *sql.DB) {
 	t.Helper()
+	return setupOpsBotWith(t, nil)
+}
+
+func setupOpsBotWith(t *testing.T, configure func(*api.OpsBotHandler)) (*gin.Engine, *sql.DB) {
+	t.Helper()
 	gin.SetMode(gin.TestMode)
 	db := openMCPPermTestDB(t)
 	db.SetMaxOpenConns(1)
@@ -54,6 +59,9 @@ func setupOpsBot(t *testing.T) (*gin.Engine, *sql.DB) {
 		Queries:  q,
 		DB:       db,
 		DataDir:  t.TempDir(),
+	}
+	if configure != nil {
+		configure(h)
 	}
 
 	r := gin.New()
@@ -93,7 +101,10 @@ func registerOpsTestRoutes(g *gin.RouterGroup, h *api.OpsBotHandler) {
 	g.POST("/packs/import", h.ImportPack)
 	g.POST("/packs/validate", h.ValidatePack)
 	g.GET("/packs/:packID/:version/export", h.ExportPack)
+	g.GET("/bots/:id/browser", h.BrowserStatus)
+	g.GET("/bots/:id/browser/evidence", h.BrowserEvidence)
 	g.POST("/bots/:id/browser-login", h.BrowserLogin)
+	g.POST("/bots/:id/login", h.StartLogin)
 	g.GET("/approvals", h.ListApprovals)
 	g.POST("/approvals/:id/approve", h.ApproveApproval)
 	g.POST("/approvals/:id/reject", h.RejectApproval)
