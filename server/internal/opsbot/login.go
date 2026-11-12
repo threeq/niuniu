@@ -18,6 +18,9 @@ type LoginState string
 const (
 	// LoginStateIdle means no login has been started in this process.
 	LoginStateIdle LoginState = "idle"
+	// LoginStateStarted is the initial 202 response: the run has been accepted
+	// and is about to execute.
+	LoginStateStarted LoginState = "started"
 	// LoginStateRunning means a login recipe is executing; the operator must
 	// usually scan a QR code in the browser window.
 	LoginStateRunning LoginState = "running"
@@ -44,6 +47,8 @@ type LoginStatus struct {
 	State        LoginState `json:"state"`
 	LoginStatus  string     `json:"login_status"`
 	Backend      string     `json:"backend"`
+	Health       string     `json:"health"`
+	RiskState    string     `json:"risk_state"`
 	HasSession   bool       `json:"has_session"`
 	HasLogin     bool       `json:"has_login_recipe"`
 	ProfileDir   string     `json:"profile_dir,omitempty"`
@@ -83,7 +88,7 @@ type loginRun struct {
 
 const (
 	defaultLoginTimeout  = 5 * time.Minute
-	defaultVerifyTimeout = 15 * time.Second
+	defaultVerifyTimeout = 10 * time.Second
 )
 
 // LoginManager makes browser login a first-class, asynchronous action. Starting
@@ -220,6 +225,8 @@ func (m *LoginManager) Status(ctx context.Context, botID int64) (LoginStatus, er
 		State:       LoginStateIdle,
 		LoginStatus: browser.LoginUnknown,
 		Backend:     backend,
+		Health:      browser.HealthUnknown,
+		RiskState:   browser.RiskNormal,
 		HasLogin:    hasLogin,
 	}
 	if m.Sessions != nil {
@@ -229,6 +236,8 @@ func (m *LoginManager) Status(ctx context.Context, botID int64) (LoginStatus, er
 		case err == nil:
 			out.HasSession = true
 			out.LoginStatus = sess.LoginStatus
+			out.Health = sess.Health
+			out.RiskState = sess.RiskState
 			out.ProfileDir = sess.ProfileDir
 			out.LastError = sess.LastError
 			if sess.LastLoginAt.Valid {

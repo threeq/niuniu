@@ -31,6 +31,7 @@ func TestOpsRoutesRegister(t *testing.T) {
 		"GET /api/ops/bots/:id/browser":              false,
 		"GET /api/ops/bots/:id/browser/evidence":     false,
 		"POST /api/ops/bots/:id/login":               false,
+		"POST /api/ops/bots/:id/login/verify":        false,
 		"GET /api/ops/packs":                         false,
 		"POST /api/ops/packs/import":                 false,
 		"GET /api/ops/packs/:packID/:version/export": false,

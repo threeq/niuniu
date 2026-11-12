@@ -40,13 +40,15 @@ export interface OpsBrowserSnapshot {
 }
 
 /** Browser login lifecycle reported by GET /api/ops/bots/:id/browser. */
-export type OpsLoginState = 'idle' | 'running' | 'succeeded' | 'failed' | 'not_required'
+export type OpsLoginState = 'idle' | 'started' | 'running' | 'succeeded' | 'failed' | 'not_required'
 
 export interface OpsBrowserStatus {
   bot_id: number
   state: OpsLoginState
   login_status: string
   backend: string
+  health: string
+  risk_state: string
   has_session: boolean
   has_login_recipe: boolean
   profile_dir?: string

@@ -307,6 +307,26 @@ func registerOpsBotConfig(api *apiClient, s *server.MCPServer) {
 	)
 
 	s.AddTool(
+		mcp.NewTool("opsbot_login_verify",
+			mcp.WithDescription("Probe the bot's stored browser session now with a short timeout (no QR scan). "+
+				"Use this for an active bot: opsbot_resume returns early for active bots. Returns "+
+				"login_status/state/next_action."),
+			mcp.WithNumber("bot_id", mcp.Description("Ops Bot ID"), mcp.Required()),
+		),
+		func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			id, errRes := opsIDArg(req.GetArguments(), "bot_id")
+			if errRes != nil {
+				return errRes, nil
+			}
+			data, err := api.post("/mcp/ops/bots/"+id+"/login/verify", map[string]any{})
+			if err != nil {
+				return mcp.NewToolResultError(err.Error()), nil
+			}
+			return mcp.NewToolResultText(string(data)), nil
+		},
+	)
+
+	s.AddTool(
 		mcp.NewTool("opsbot_bind_chat",
 			mcp.WithDescription("Route an IM chat to an Ops Bot. The bot must belong to the same owner as the chat's channel."),
 			mcp.WithNumber("chat_id", mcp.Description("IM chat ID"), mcp.Required()),

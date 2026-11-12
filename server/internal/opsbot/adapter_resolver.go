@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/niuniu-dev/niuniu/internal/opsbot/browser"
 	"github.com/niuniu-dev/niuniu/internal/opsbot/channel"
 	"github.com/niuniu-dev/niuniu/internal/opsbot/packs"
 	"github.com/niuniu-dev/niuniu/internal/store"
@@ -145,6 +146,7 @@ func (r *AdapterResolver) browserAdapter(bot store.OpsBot, manifest packs.Manife
 	}
 	limits, metricMap := packLimits(manifest)
 	adapter := channel.NewBrowserAdapter(r.Worker, recipes, manifest.Capabilities, limits, metricMap)
+	adapter.Backend = browser.ConfiguredBackend()
 	// Browser sessions are keyed by bot id; bind it here so callers that only
 	// know the platform account name can still use the adapter.
 	adapter.BindAccount(bot.ID)

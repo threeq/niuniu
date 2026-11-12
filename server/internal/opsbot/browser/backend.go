@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net"
 	"net/url"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -152,6 +153,16 @@ func (e *ConfigError) Error() string {
 // Unwrap lets errors.Is(err, ErrBackendNotConfigured) match configuration
 // failures without losing the specific kind/reason.
 func (e *ConfigError) Unwrap() error { return ErrBackendNotConfigured }
+
+// ConfiguredBackend returns the backend kind selected by
+// NIUNIU_OPS_BROWSER_BACKEND, defaulting to local. An unknown value is returned
+// unchanged so NewBackend fails loudly instead of silently running locally.
+func ConfiguredBackend() string {
+	if kind := strings.TrimSpace(os.Getenv("NIUNIU_OPS_BROWSER_BACKEND")); kind != "" {
+		return kind
+	}
+	return BackendLocal
+}
 
 // BackendConfig is the factory input. Only the section named by Kind is used.
 type BackendConfig struct {
