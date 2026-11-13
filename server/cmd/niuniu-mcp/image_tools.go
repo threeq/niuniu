@@ -1,14 +1,11 @@
 package main
 
-// MCP tool for image reading via OCR / downsampled vision (issue #283).
+// MCP tool for the read-accel image fast path + optional OCR (issue #283).
 //
-// Priority: the default mode is VISION — the image is downsampled/compressed
-// and handed to the model as a vision content block, preserving layout and
-// visual detail without flooding the context. OCR is the fallback for models
-// without vision (or an explicit OCR request). Both behaviors are decided by
-// probing whether the optional Tesseract OCR engine is installed (the same
-// dependency the Settings -> System Dependencies page probes via
-// /api/system-deps):
+// read_image is the single entry point the Read PreToolUse hook (readhook.go)
+// reroutes large images to. It has two behaviors, decided by probing whether
+// the optional Tesseract OCR engine is installed (the same dependency the
+// Settings -> System Dependencies page probes via /api/system-deps):
 //
 //   - Tesseract INSTALLED  -> OCR the image to plain text and return the text.
 //     This is the only "see an image" path for agents without native vision
@@ -84,10 +81,12 @@ var imageExtMIME = map[string]string{
 func registerImageTools(s *server.MCPServer) {
 	s.AddTool(
 		mcp.NewTool("read_image",
-			mcp.WithDescription("Read an image/screenshot/scan with compression. Use this instead of a raw built-in Read for large images: it downsamples the image (long edge capped ~1568px) and returns a vision content block, so the model still sees the picture without flooding context. "+
-				"Default mode is VISION — use your model's visual understanding first. Only pass mode=\"ocr\" when your model cannot process images (text-only) or you explicitly need OCR'd text; with Tesseract installed that returns the image's text, otherwise it degrades to vision and never errors."),
+			mcp.WithDescription("Read an image/screenshot/scan. If your model supports multimodal vision, PREFER your own visual capability first (look at the image directly as an image/vision block) — it preserves layout, colors and detail; "+
+				"call this tool only when native vision is unavailable or insufficient (a text-only model, a failed native read, or an explicit need for OCR text). "+
+				"With Tesseract OCR installed it returns the image's text as plain text (good for screenshots, scans, table images); without OCR it degrades to model vision — downsamples the image and hands it to the model directly, plus an install-guide link — never erroring or failing silently. "+
+				"For large images it compresses before returning (the right path when a raw read would flood the context); pass mode=\"vision\" to see the compressed image yourself, or leave the default auto to get OCR text when available."),
 			mcp.WithString("path", mcp.Description("Absolute path to the image"), mcp.Required()),
-			mcp.WithString("mode", mcp.Description("vision (default) = downsample/compress and hand the image to the model; ocr = force OCR text (for text-only models; degrades to vision if Tesseract is missing); auto = OCR if installed, else vision")),
+			mcp.WithString("mode", mcp.Description("auto (default) = OCR if installed, else vision; ocr = force OCR (degrades to vision if not installed); vision = skip OCR and hand the image to the model")),
 			mcp.WithString("lang", mcp.Description("OCR language (tesseract -l), e.g. \"eng\", \"chi_sim+eng\". Omit = auto-select installed English/Chinese packs.")),
 		),
 		func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -96,9 +95,7 @@ func registerImageTools(s *server.MCPServer) {
 			if errRes != nil {
 				return errRes, nil
 			}
-			// Vision first: the compressed image goes to the model's visual
-			// understanding. Text-only models must opt into OCR explicitly.
-			mode := "vision"
+			mode := "auto"
 			if v, ok := args["mode"].(string); ok && strings.TrimSpace(v) != "" {
 				mode = strings.ToLower(strings.TrimSpace(v))
 			}

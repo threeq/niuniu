@@ -156,10 +156,9 @@ func main() {
 	// a {fallback:"read",...} envelope steering the agent to the built-in Read.
 	registerDocumentTools(s)
 
-	// Image vision/OCR (#283) — read_image defaults to VISION mode: it
-	// downsamples/compresses the image and hands it to the model. OCR (when
-	// Tesseract is installed) is the text-only-model fallback; without OCR
-	// the tool still degrades to vision with an install-guide link. Always
+	// Read-accel image fast path + optional OCR (#283) — read_image OCRs
+	// images to text when Tesseract is installed, else degrades to model
+	// vision (downsampled image) with an install-guide link. Always
 	// registered: it operates on local file paths, probes Tesseract itself,
 	// and never errors on a missing OCR engine.
 	registerImageTools(s)
