@@ -380,7 +380,9 @@
     "about": "About",
     "providerUsage": "Usage stats",
     "share": "Share",
-    "workspaceCleanup": "Workspace cleanup"
+    "workspaceCleanup": "Workspace cleanup",
+    "scenes": "Scenes",
+    "agents": "Agents"
   },
   "capability": {
     "title": "Capability Configuration",

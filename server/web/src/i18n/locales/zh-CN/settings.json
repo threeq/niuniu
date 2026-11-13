@@ -380,7 +380,9 @@
     "about": "关于",
     "providerUsage": "用量统计",
     "share": "分享",
-    "workspaceCleanup": "工作空间清理"
+    "workspaceCleanup": "工作空间清理",
+    "scenes": "场景",
+    "agents": "Agent 管理"
   },
   "capability": {
     "title": "能力配置",
