@@ -102,7 +102,7 @@ describe('ChatRow intake mode', () => {
     expect(await screen.findByRole('combobox', { name: '应答方式' })).toHaveTextContent('仅响应')
   })
 
-  it('links to the calibration queue with this conversation counted', async () => {
+  it('links to the task-suggestion queue with this conversation counted', async () => {
     listDecisions.mockResolvedValue([
       decision({ id: 1 }),
       decision({ id: 2, payload: { ChatExtID: 'oc_other' } }),
@@ -110,6 +110,6 @@ describe('ChatRow intake mode', () => {
     ])
     renderRow()
 
-    expect(await screen.findByText('查看待校准 1')).toBeInTheDocument()
+    expect(await screen.findByText('查看任务建议 1')).toBeInTheDocument()
   })
 })

@@ -1,6 +1,6 @@
 # 质量闸门检查项明细（G0–G5）
 
-三道审的落点：**机器审** = 工具层校验 + skill 步骤（确定性，可脚本化）；**AI 审** = rubric + 看板 AI 预审（`ai_native_review`）与 `read_image` 回看；**人审** = 审查列（`approve_review` / `request_changes`）+ issue checklist 逐项打勾。闸门**不可跳过**；承诺的是「闸门存在且不可跳过」，rubric 随项目复盘迭代。
+三道审的落点：**机器审** = 工具层校验 + skill 步骤（确定性，可脚本化）；**AI 审** = rubric + 看板 AI 预审（`ai_native_review`）与原生多模态视觉回看（模型不支持视觉时用 `read_image`）；**人审** = 审查列（`approve_review` / `request_changes`）+ issue checklist 逐项打勾。闸门**不可跳过**；承诺的是「闸门存在且不可跳过」，rubric 随项目复盘迭代。
 
 统一通过条件：该闸门所有机器审项通过 + AI 审无「不合格」判定（阈值见各节）+ 人审确认（需要时）。不通过 = 产物标 `in-review` 并 `request_changes` 打回对应子 issue 重做（revision 递增）。
 
@@ -29,7 +29,7 @@
 ## G2 · 角色 / 场景图（characters.json / scenes.json + assets/）
 
 - 机器审：参考图存在、尺寸与画幅匹配、格式为 png/jpg；角色卡含 `appearance_prompt` + `reference_image`（+ 可选 `seed`），场景卡含环境 / 光线 / 氛围；两张卡都不内联进分镜（只被 id 引用）。
-- AI 审（`read_image` 回看）：
+- AI 审（优先原生多模态视觉回看；模型不支持视觉时用 `read_image`）：
   - 风格一致性：与画风包描述一致，组内（多角色 / 多场景）互相不串味；
   - 细节：五官 / 服装 / 关键道具无畸变（多指、融脸、文字乱码）；
   - **多角色同框测试**：把主要角色合成一图回看，验证形象可区分、比例合理。

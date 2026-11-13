@@ -81,9 +81,10 @@ var imageExtMIME = map[string]string{
 func registerImageTools(s *server.MCPServer) {
 	s.AddTool(
 		mcp.NewTool("read_image",
-			mcp.WithDescription("Read an image/screenshot/scan. With Tesseract OCR installed, returns the image's text as plain text (good for screenshots, scans, table images); "+
-				"without OCR it degrades to model vision — downsamples the image and hands it to the model directly, plus an install-guide link — never erroring or failing silently. "+
-				"Prefer this over the built-in Read for large images (built-in Read dumps the whole image as base64 into context: slow and token-heavy)."),
+			mcp.WithDescription("Read an image/screenshot/scan. If your model supports multimodal vision, PREFER your own visual capability first (look at the image directly as an image/vision block) — it preserves layout, colors and detail; "+
+				"call this tool only when native vision is unavailable or insufficient (a text-only model, a failed native read, or an explicit need for OCR text). "+
+				"With Tesseract OCR installed it returns the image's text as plain text (good for screenshots, scans, table images); without OCR it degrades to model vision — downsamples the image and hands it to the model directly, plus an install-guide link — never erroring or failing silently. "+
+				"For large images it compresses before returning (the right path when a raw read would flood the context); pass mode=\"vision\" to see the compressed image yourself, or leave the default auto to get OCR text when available."),
 			mcp.WithString("path", mcp.Description("Absolute path to the image"), mcp.Required()),
 			mcp.WithString("mode", mcp.Description("auto (default) = OCR if installed, else vision; ocr = force OCR (degrades to vision if not installed); vision = skip OCR and hand the image to the model")),
 			mcp.WithString("lang", mcp.Description("OCR language (tesseract -l), e.g. \"eng\", \"chi_sim+eng\". Omit = auto-select installed English/Chinese packs.")),

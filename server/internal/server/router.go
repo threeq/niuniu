@@ -699,6 +699,9 @@ func (s *Server) setupRoutes() {
 	api.GET("/config", s.configHandler.Get)
 	api.PUT("/config", s.configHandler.Update)
 
+	// Global task-suggestion queue count: the SPA hides the nav entry when 0.
+	api.GET("/intake/pending-count", s.intakeHandler.PendingCount)
+
 	// Project routes
 	projects := api.Group("/projects")
 	{

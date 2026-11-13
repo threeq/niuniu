@@ -970,8 +970,8 @@
       "respond": "Respond only"
     },
     "intakeModeOverridden": "Overrides project default",
-    "intakeModeObserveHint": "Messages are recorded for calibration; the bot will not act on its own.",
-    "intakePendingLink": "Review {{count}} awaiting calibration",
+    "intakeModeObserveHint": "Messages are recorded as suggestions; the bot will not act on its own.",
+    "intakePendingLink": "Review {{count}} task suggestions",
     "wechat": {
       "scanHint": "Scan the QR code below with WeChat (Discover → Scan) to connect the bot.",
       "starting": "Fetching QR code…",

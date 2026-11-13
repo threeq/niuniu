@@ -323,7 +323,7 @@ func TestEmployeeSweep_TaskVerdictNeverStartsWork(t *testing.T) {
 	}
 	// Exactly one reminder telling the chat a suggestion was queued — no task
 	// announcement (there is no task yet).
-	if n := len(f.adapter.pushes); n != 1 || !strings.Contains(f.adapter.pushes[0].Text, "待校准") {
+	if n := len(f.adapter.pushes); n != 1 || !strings.Contains(f.adapter.pushes[0].Text, "任务建议") {
 		t.Fatalf("proactive verdict pushes = %+v, want one review-queue reminder", f.adapter.pushes)
 	}
 
@@ -366,7 +366,7 @@ func TestEmployeeSweep_ObserveIntakeRecordsDryRun(t *testing.T) {
 	if n := len(f.deliverer.calls); n != 0 {
 		t.Fatalf("dry-run delivered %d messages, want 0", n)
 	}
-	if n := len(f.adapter.pushes); n != 1 || !strings.Contains(f.adapter.pushes[0].Text, "待校准") {
+	if n := len(f.adapter.pushes); n != 1 || !strings.Contains(f.adapter.pushes[0].Text, "任务建议") {
 		t.Fatalf("suggestion pushes = %+v, want one review-queue reminder", f.adapter.pushes)
 	}
 

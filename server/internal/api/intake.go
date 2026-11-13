@@ -68,6 +68,29 @@ func (h *IntakeHandler) intakeProjectAccess(c *gin.Context, write bool) (project
 	return pid, true
 }
 
+// PendingCount serves GET /api/intake/pending-count: the number of pending,
+// actionable suggestions across every project the caller can access. The SPA
+// uses it to show the task-suggestion nav entry only when the queue is
+// non-empty (and to badge it with the count).
+func (h *IntakeHandler) PendingCount(c *gin.Context) {
+	uid := c.GetInt64("auth_user_id")
+	var orgIDs []int64
+	if uid > 0 && h.authz != nil {
+		owners, err := h.authz.Accessible(c.Request.Context(), uid)
+		if err != nil {
+			writeAuthzError(c, err)
+			return
+		}
+		orgIDs = owners.OrgIDs
+	}
+	count, err := h.svc.CountPendingDecisions(c.Request.Context(), uid, orgIDs)
+	if err != nil {
+		InternalError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"count": count})
+}
+
 func (h *IntakeHandler) mapIntakeErr(c *gin.Context, err error) {
 	switch {
 	case errors.Is(err, service.ErrDecisionAcceptorUnavailable):

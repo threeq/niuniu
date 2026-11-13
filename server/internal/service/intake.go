@@ -847,6 +847,22 @@ func trimNonEmpty(in []string) []string {
 // ListDecisions returns decisions joined with their events. executed/decision/
 // sourceKind are optional filters; the calibration queue passes
 // executed=0&decision=accept and narrows by source when the user picks one.
+// CountPendingDecisions returns how many still-actionable suggestions exist
+// across the caller's projects. userID 0 means the personal edition (auth
+// disabled), where every project belongs to the single local user.
+func (s *IntakeService) CountPendingDecisions(ctx context.Context, userID int64, orgIDs []int64) (int64, error) {
+	if userID <= 0 {
+		return s.q.CountPendingIntakeDecisions(ctx)
+	}
+	if len(orgIDs) == 0 {
+		orgIDs = []int64{-1}
+	}
+	return s.q.CountPendingIntakeDecisionsForOwners(ctx, store.CountPendingIntakeDecisionsForOwnersParams{
+		OwnerID: userID,
+		OrgIds:  orgIDs,
+	})
+}
+
 func (s *IntakeService) ListDecisions(ctx context.Context, projectID int64, executed *bool, decision, sourceKind string, limit int) ([]IntakeDecisionDTO, error) {
 	if limit <= 0 || limit > 500 {
 		limit = 100

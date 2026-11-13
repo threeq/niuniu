@@ -11,6 +11,7 @@ import { useAuthStore } from '@/stores/auth-store';
 import { useConfigStore } from '@/stores/config-store';
 import { usePermissionPendingTotal } from '@/stores/notification-ws-store';
 import { listDashboards } from '@/lib/dashboards-api';
+import { intakeApi } from '@/lib/intake-api';
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { Button } from '@/components/ui/button';
 import { ThemeToggle } from './theme-toggle';
@@ -46,6 +47,20 @@ export function GlobalNav() {
     staleTime: 30_000,
   });
   const showDashboards = (dashboards?.length ?? 0) > 0;
+
+  // Task-suggestion queue: the entry exists only while there is something to
+  // review. Polling keeps it appearing on its own when a new message is filed;
+  // accept/ignore/delete invalidate the count so it disappears immediately
+  // once the queue is emptied.
+  const { data: intakePending = 0 } = useQuery({
+    queryKey: ['intake-pending-count'],
+    queryFn: intakeApi.pendingCount,
+    refetchInterval: 30_000,
+    staleTime: 15_000,
+  });
+  const visibleNavLinks = navLinks.filter(
+    (link) => link.to !== '/intake' || intakePending > 0,
+  );
 
   // Edition detection for the AI 直达 entry: gate on configLoaded so team
   // edition doesn't flash it before /api/health resolves (personalMode
@@ -115,10 +130,11 @@ export function GlobalNav() {
             each link. The vertical padding gives them room inside the scroll
             box; the matching negative margin keeps the header height unchanged. */}
         <nav className="hidden min-w-0 items-center gap-1 overflow-x-auto py-1.5 -my-1.5 md:flex">
-          {navLinks.map(({ to, labelKey }) => {
+          {visibleNavLinks.map(({ to, labelKey }) => {
             const isActive = currentPath === to || currentPath.startsWith(to + '/');
             const showBadge = to === '/workspaces' && activeCount > 0;
             const showPermBell = to === '/workspaces' && pendingPermTotal > 0;
+            const showIntakeBadge = to === '/intake' && intakePending > 0;
             return (
               <Link
                 key={to}
@@ -147,6 +163,15 @@ export function GlobalNav() {
                   >
                     <Bell className="w-2.5 h-2.5" />
                     {pendingPermTotal}
+                  </span>
+                )}
+                {showIntakeBadge && (
+                  <span
+                    className="absolute -top-1 -right-1 flex h-4 min-w-[16px] items-center justify-center rounded-full bg-brand px-1 text-[9px] font-bold text-white"
+                    title={t('menu.intakeBadge', { count: intakePending })}
+                    aria-label={t('menu.intakeBadge', { count: intakePending })}
+                  >
+                    {intakePending}
                   </span>
                 )}
               </Link>
@@ -236,7 +261,7 @@ export function GlobalNav() {
             </SheetTitle>
           </SheetHeader>
           <nav className="flex flex-col gap-0.5 p-2">
-            {navLinks.map(({ to, labelKey }) => {
+            {visibleNavLinks.map(({ to, labelKey }) => {
               const isActive = currentPath === to || currentPath.startsWith(to + '/');
               return (
                 <Link
@@ -260,6 +285,11 @@ export function GlobalNav() {
                     <span className="ml-1 flex items-center gap-0.5 rounded-full bg-amber-500 px-1 text-[10px] font-semibold text-neutral-950 dark:bg-amber-400 dark:text-neutral-950">
                       <Bell className="h-2.5 w-2.5" />
                       {pendingPermTotal}
+                    </span>
+                  )}
+                  {to === '/intake' && intakePending > 0 && (
+                    <span className="ml-2 min-w-4 rounded-full bg-brand px-1 text-center text-[10px] font-semibold tabular-nums text-white">
+                      {intakePending}
                     </span>
                   )}
                 </Link>
