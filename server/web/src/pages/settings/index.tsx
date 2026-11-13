@@ -12,6 +12,7 @@ import {
   Info,
   KeyRound,
   Layers,
+  Menu,
   MonitorCog,
   Plug,
   Settings2,
@@ -29,6 +30,7 @@ import {
 import { useTranslation } from 'react-i18next'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
+import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet'
 import { AboutSettings } from './about-settings'
 import { CapabilitySettings } from './capability-settings'
 import { EnvSettings } from './env-settings'
@@ -144,6 +146,7 @@ export function SettingsPage({ children, orgsActive = false }: SettingsPageProps
   const showOrgsLink = orgEnabled && authEnabled && (myOrgs.length > 0 || isAdmin)
 
   const [activeTab, setActiveTab] = useState<SettingsTab>(() => resolveTab(search.tab, ctx) ?? 'general')
+  const [mobileNavOpen, setMobileNavOpen] = useState(false)
 
   // Re-sync when the URL ?tab changes (e.g. tray menu navigates here from
   // another page). Done as a render-time adjustment instead of a useEffect to
@@ -162,7 +165,7 @@ export function SettingsPage({ children, orgsActive = false }: SettingsPageProps
     setActiveTab(tabId)
     void navigate({ to: '/settings', search: { tab: tabId } })
   }
-  // Grouped nav entries shared by the desktop sidebar and the mobile picker;
+  // Grouped nav entries shared by the desktop sidebar and the mobile drawer;
   // groups with nothing visible to show are dropped entirely.
   const navEntries = navGroups
     .map((group) => ({
@@ -186,35 +189,97 @@ export function SettingsPage({ children, orgsActive = false }: SettingsPageProps
 
       <div className="flex min-h-0 flex-1 flex-col lg:flex-row">
         {/* Mobile: the grouped sidebar would turn into a horizontally scrolling
-            strip of tall vertical lists, so collapse it into one picker. */}
+            strip of tall vertical lists, so it collapses into a left drawer
+            opened from a trigger that always shows the active tab. */}
         <div className="shrink-0 border-b border-warm-border bg-warm-surface px-4 py-3 md:hidden">
-          <label htmlFor="settings-mobile-tab" className="sr-only">
-            {t('page.navLabel')}
-          </label>
-          <select
-            id="settings-mobile-tab"
-            value={orgsActive ? 'orgs' : activeTab}
-            onChange={(e) => {
-              const value = e.target.value
-              if (value === 'orgs') {
-                void navigate({ to: '/settings/orgs' })
-                return
-              }
-              handleTabClick(value as SettingsTab)
-            }}
-            className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm text-foreground"
-          >
-            {navEntries.map((group) => (
-              <optgroup key={group.id} label={t(group.labelKey)}>
-                {group.tabs.map((tab) => (
-                  <option key={tab.id} value={tab.id}>
-                    {t(tab.labelKey)}
-                  </option>
+          <Sheet open={mobileNavOpen} onOpenChange={setMobileNavOpen}>
+            <SheetTrigger asChild>
+              <Button
+                type="button"
+                variant="outline"
+                className="h-11 w-full justify-between gap-2 px-3 text-sm font-normal"
+              >
+                <span className="flex min-w-0 items-center gap-2">
+                  {(() => {
+                    const Icon = orgsActive ? Building2 : activeTabMeta?.icon ?? Settings2
+                    return <Icon className="h-4 w-4 shrink-0" aria-hidden="true" />
+                  })()}
+                  <span className="truncate">
+                    {orgsActive
+                      ? t('page.orgsLink')
+                      : activeTabMeta
+                        ? t(activeTabMeta.labelKey)
+                        : t('page.navLabel')}
+                  </span>
+                </span>
+                <Menu className="h-4 w-4 shrink-0 text-warm-text-muted" aria-hidden="true" />
+              </Button>
+            </SheetTrigger>
+            <SheetContent
+              side="left"
+              className="flex w-4/5 max-w-xs flex-col gap-0 border-warm-border bg-warm-surface p-0"
+            >
+              <SheetHeader className="border-b border-warm-border px-4 py-3 text-left">
+                <SheetTitle className="text-sm font-semibold text-warm-text">
+                  {t('page.navLabel')}
+                </SheetTitle>
+              </SheetHeader>
+              <nav
+                className="min-h-0 flex-1 space-y-3 overflow-y-auto p-3"
+                aria-label={t('page.navLabel')}
+              >
+                {navEntries.map((group) => (
+                  <div key={group.id} className="space-y-1">
+                    <div className="px-2 pb-1 text-xs font-medium uppercase tracking-normal text-warm-text-muted">
+                      {t(group.labelKey)}
+                    </div>
+                    <div className="space-y-1">
+                      {group.tabs.map((tab) => {
+                        const Icon = tab.icon ?? Settings2
+                        const selected = !children && activeTab === tab.id
+                        return (
+                          <Button
+                            key={tab.id}
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            aria-current={selected ? 'page' : undefined}
+                            onClick={() => {
+                              handleTabClick(tab.id)
+                              setMobileNavOpen(false)
+                            }}
+                            className={cn(
+                              'h-10 w-full justify-start gap-2 px-2 text-left text-warm-text-muted',
+                              selected && 'bg-brand-soft text-brand hover:bg-brand-soft hover:text-brand'
+                            )}
+                          >
+                            <Icon className="h-4 w-4 shrink-0" aria-hidden="true" />
+                            <span className="truncate">{t(tab.labelKey)}</span>
+                          </Button>
+                        )
+                      })}
+                      {group.hasOrgEntry && (
+                        <Button
+                          asChild
+                          variant="ghost"
+                          size="sm"
+                          className={cn(
+                            'h-10 w-full justify-start gap-2 px-2 text-left text-warm-text-muted',
+                            orgsActive && 'bg-brand-soft text-brand hover:bg-brand-soft hover:text-brand'
+                          )}
+                        >
+                          <Link to="/settings/orgs" onClick={() => setMobileNavOpen(false)}>
+                            <Building2 className="h-4 w-4 shrink-0" aria-hidden="true" />
+                            <span className="truncate">{t('page.orgsLink')}</span>
+                          </Link>
+                        </Button>
+                      )}
+                    </div>
+                  </div>
                 ))}
-                {group.hasOrgEntry && <option value="orgs">{t('page.orgsLink')}</option>}
-              </optgroup>
-            ))}
-          </select>
+              </nav>
+            </SheetContent>
+          </Sheet>
         </div>
 
         <aside className="hidden shrink-0 border-b border-warm-border bg-warm-surface px-4 py-4 md:block lg:min-h-0 lg:w-72 lg:border-b-0 lg:border-r lg:overflow-y-auto lg:px-5 lg:py-6">
@@ -234,6 +299,7 @@ export function SettingsPage({ children, orgsActive = false }: SettingsPageProps
                         type="button"
                         variant="ghost"
                         size="sm"
+                        aria-current={selected ? 'page' : undefined}
                         onClick={() => handleTabClick(tab.id)}
                         className={cn(
                           'h-9 w-full justify-start gap-2 px-2 text-left text-warm-text-muted',
@@ -270,12 +336,12 @@ export function SettingsPage({ children, orgsActive = false }: SettingsPageProps
         <div className="min-w-0 flex-1 overflow-y-auto px-4 py-4 sm:px-5 sm:py-5 lg:px-8 lg:py-6">
           <div className="max-w-5xl">
             {children ? (
-              <div className="mb-5 flex items-center gap-2 text-sm text-warm-text-muted">
+              <div className="mb-5 hidden items-center gap-2 text-sm text-warm-text-muted md:flex">
                 <Building2 className="h-4 w-4" aria-hidden="true" />
                 <span>{t('page.orgsLink')}</span>
               </div>
             ) : activeTabMeta && (
-              <div className="mb-5 flex items-center gap-2 text-sm text-warm-text-muted">
+              <div className="mb-5 hidden items-center gap-2 text-sm text-warm-text-muted md:flex">
                 {(() => {
                   const Icon = activeTabMeta.icon ?? Settings2
                   return <Icon className="h-4 w-4" aria-hidden="true" />
