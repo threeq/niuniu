@@ -1,5 +1,5 @@
 import { useState, type ReactNode } from 'react'
-import { useSearch, Link, useNavigate, useRouterState } from '@tanstack/react-router'
+import { useSearch, Link, useNavigate } from '@tanstack/react-router'
 import {
   BadgeCheck,
   Bot,
@@ -40,6 +40,8 @@ import { HarnessSettings } from './harness-settings'
 import { LicenseSettings } from './license-settings'
 import { MobileAccessSettings } from './mobile-access'
 import { SkillSettings } from './skill-settings'
+import { AgentSettings } from './agent-settings'
+import { SceneListPage } from '@/pages/scenes/scene-list-page'
 import { SystemDepsSettings } from './system-deps-settings'
 import { UsersSettings } from './users-settings'
 import { IntegrationsPage } from './integrations'
@@ -54,7 +56,7 @@ import { useAuthStore } from '@/stores/auth-store'
 import { useConfigStore } from '@/stores/config-store'
 import { useLicenseStore } from '@/stores/license-store'
 
-type SettingsTab = 'general' | 'users' | 'security' | 'env' | 'providers' | 'capability' | 'provider-usage' | 'git-identity' | 'mobile-access' | 'system-deps' | 'skills' | 'integrations' | 'license' | 'orchestration' | 'share' | 'blueprints' | 'imbot' | 'harness' | 'workspace-cleanup' | 'about' | 'claude'
+type SettingsTab = 'general' | 'users' | 'security' | 'env' | 'providers' | 'capability' | 'provider-usage' | 'git-identity' | 'mobile-access' | 'system-deps' | 'skills' | 'integrations' | 'license' | 'orchestration' | 'share' | 'blueprints' | 'imbot' | 'harness' | 'workspace-cleanup' | 'about' | 'claude' | 'scenes' | 'agents'
 
 interface TabVisibilityCtx {
   authEnabled: boolean
@@ -68,6 +70,8 @@ const tabs: { id: SettingsTab; labelKey: string; icon?: LucideIcon; visible?: (c
   { id: 'general', labelKey: 'tabs.general', icon: SlidersHorizontal },
   { id: 'system-deps', labelKey: 'tabs.systemDeps', icon: Cpu },
   { id: 'skills', labelKey: 'tabs.skills', icon: Sparkles },
+  { id: 'scenes', labelKey: 'tabs.scenes', icon: Layers },
+  { id: 'agents', labelKey: 'tabs.agents', icon: Bot },
   { id: 'env', labelKey: 'tabs.env', icon: Variable },
   { id: 'providers', labelKey: 'tabs.providers', icon: Server },
   { id: 'capability', labelKey: 'tabs.capability', icon: KeyRound },
@@ -88,25 +92,12 @@ const tabs: { id: SettingsTab; labelKey: string; icon?: LucideIcon; visible?: (c
   { id: 'about', labelKey: 'tabs.about', icon: Info },
 ]
 
-// Cross-page management screens that used to sit in the top nav. They are
-// low-frequency configuration, so they live under Settings instead of
-// competing with the daily projects/workspaces loop.
-type SettingsLink = {
-  group: string
-  to: '/scenes' | '/settings/agents'
-  labelKey: string
-  icon: LucideIcon
-}
-
-const settingsLinks: SettingsLink[] = [
-  { group: 'agents', to: '/scenes', labelKey: 'tabs.scenes', icon: Layers },
-  { group: 'agents', to: '/settings/agents', labelKey: 'tabs.agents', icon: Bot },
-]
-
+// Scenes and the agent registry are configuration screens: they render inside
+// the Settings shell (left nav + content), not as standalone pages.
 const navGroups: { id: string; labelKey: string; tabIds: SettingsTab[] }[] = [
   { id: 'personal', labelKey: 'groups.personal', tabIds: ['general', 'security'] },
   { id: 'team', labelKey: 'groups.team', tabIds: ['users'] },
-  { id: 'agents', labelKey: 'groups.agents', tabIds: ['claude', 'skills', 'integrations', 'orchestration', 'share', 'blueprints', 'imbot', 'harness'] },
+  { id: 'agents', labelKey: 'groups.agents', tabIds: ['claude', 'skills', 'integrations', 'orchestration', 'share', 'blueprints', 'imbot', 'harness', 'scenes', 'agents'] },
   { id: 'system', labelKey: 'groups.system', tabIds: ['system-deps', 'env', 'providers', 'capability', 'provider-usage', 'git-identity', 'workspace-cleanup', 'license', 'about'] },
 ]
 
@@ -142,7 +133,6 @@ export function SettingsPage({ children, orgsActive = false }: SettingsPageProps
   const { t } = useTranslation('settings')
   const search = useSearch({ strict: false }) as { tab?: string }
   const navigate = useNavigate()
-  const currentPath = useRouterState({ select: (s) => s.location.pathname })
   const myOrgs = useOrgStore((s) => s.myOrgs)
   const authUser = useAuthStore((s) => s.user)
   const authEnabled = useConfigStore((s) => s.authEnabled)
@@ -181,10 +171,9 @@ export function SettingsPage({ children, orgsActive = false }: SettingsPageProps
       tabs: group.tabIds
         .map((id) => visibleTabById.get(id))
         .filter((tab): tab is (typeof visibleTabs)[number] => Boolean(tab)),
-      links: settingsLinks.filter((link) => link.group === group.id),
       hasOrgEntry: group.id === 'team' && showOrgsLink,
     }))
-    .filter((group) => group.tabs.length > 0 || group.links.length > 0 || group.hasOrgEntry)
+    .filter((group) => group.tabs.length > 0 || group.hasOrgEntry)
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-warm-canvas">
@@ -211,11 +200,6 @@ export function SettingsPage({ children, orgsActive = false }: SettingsPageProps
                 void navigate({ to: '/settings/orgs' })
                 return
               }
-              const link = settingsLinks.find((item) => `link:${item.to}` === value)
-              if (link) {
-                void navigate({ to: link.to })
-                return
-              }
               handleTabClick(value as SettingsTab)
             }}
             className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm text-foreground"
@@ -225,11 +209,6 @@ export function SettingsPage({ children, orgsActive = false }: SettingsPageProps
                 {group.tabs.map((tab) => (
                   <option key={tab.id} value={tab.id}>
                     {t(tab.labelKey)}
-                  </option>
-                ))}
-                {group.links.map((link) => (
-                  <option key={link.to} value={`link:${link.to}`}>
-                    {t(link.labelKey)}
                   </option>
                 ))}
                 {group.hasOrgEntry && <option value="orgs">{t('page.orgsLink')}</option>}
@@ -263,27 +242,6 @@ export function SettingsPage({ children, orgsActive = false }: SettingsPageProps
                       >
                         <Icon className="h-4 w-4 shrink-0" aria-hidden="true" />
                         <span className="truncate">{t(tab.labelKey)}</span>
-                      </Button>
-                    )
-                  })}
-                  {group.links.map((link) => {
-                    const Icon = link.icon
-                    const active = currentPath === link.to || currentPath.startsWith(link.to + '/')
-                    return (
-                      <Button
-                        key={link.to}
-                        asChild
-                        variant="ghost"
-                        size="sm"
-                        className={cn(
-                          'h-9 w-full justify-start gap-2 px-2 text-left text-warm-text-muted',
-                          active && 'bg-brand-soft text-brand hover:bg-brand-soft hover:text-brand'
-                        )}
-                      >
-                        <Link to={link.to}>
-                          <Icon className="h-4 w-4 shrink-0" aria-hidden="true" />
-                          <span className="truncate">{t(link.labelKey)}</span>
-                        </Link>
                       </Button>
                     )
                   })}
@@ -330,6 +288,8 @@ export function SettingsPage({ children, orgsActive = false }: SettingsPageProps
                 {activeTab === 'general' && <GeneralSettings />}
                 {activeTab === 'system-deps' && <SystemDepsSettings />}
                 {activeTab === 'skills' && <SkillSettings />}
+                {activeTab === 'scenes' && <SceneListPage embedded />}
+                {activeTab === 'agents' && <AgentSettings />}
                 {activeTab === 'env' && <EnvSettings mode="presets" />}
                 {activeTab === 'providers' && <EnvSettings mode="providers" />}
                 {activeTab === 'capability' && <CapabilitySettings />}

@@ -11,7 +11,7 @@ import { SceneCard } from './components/scene-card';
 
 type SourceFilter = 'all' | SceneSource;
 
-export function SceneListPage() {
+export function SceneListPage({ embedded = false }: { embedded?: boolean } = {}) {
   const { t } = useTranslation('scenes');
   const { data: scenes, isLoading } = useQuery({
     queryKey: ['scenes'],
@@ -46,15 +46,21 @@ export function SceneListPage() {
   }, [scenes, search, tagFilter, sourceFilter]);
 
   return (
-    <div className="flex flex-col h-full overflow-y-auto">
-      <div className="p-6 max-w-6xl mx-auto w-full space-y-4">
-        <header className="flex items-start justify-between gap-4">
-          <div>
-            <h1 className="text-2xl font-semibold text-warm-text">
-              {t('list.title')}
-            </h1>
-            <p className="text-sm text-warm-text-muted mt-1">{t('list.subtitle')}</p>
-          </div>
+    <div className={embedded ? 'flex flex-col' : 'flex flex-col h-full overflow-y-auto'}>
+      <div className={embedded ? 'w-full space-y-4' : 'p-6 max-w-6xl mx-auto w-full space-y-4'}>
+        <header className="flex flex-wrap items-start justify-between gap-4">
+          {embedded ? (
+            // The Settings shell already renders the tab title above; keep the
+            // explanatory subtitle but drop the duplicated H1.
+            <p className="text-sm text-warm-text-muted">{t('list.subtitle')}</p>
+          ) : (
+            <div>
+              <h1 className="text-2xl font-semibold text-warm-text">
+                {t('list.title')}
+              </h1>
+              <p className="text-sm text-warm-text-muted mt-1">{t('list.subtitle')}</p>
+            </div>
+          )}
           <div className="flex items-center gap-2 shrink-0">
             <Button asChild variant="outline">
               <Link to="/knowledge-bases">
