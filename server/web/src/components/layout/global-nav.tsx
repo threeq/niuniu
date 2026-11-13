@@ -16,14 +16,14 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sh
 import { Button } from '@/components/ui/button';
 import { ThemeToggle } from './theme-toggle';
 
+// Primary workspace loop only. Scenes and the agent registry moved into
+// Settings (they are low-frequency configuration, not daily destinations).
 const navLinks = [
   { to: '/projects', labelKey: 'menu.projects' },
   { to: '/workspaces', labelKey: 'menu.workspaces' },
   { to: '/intake', labelKey: 'menu.intake' },
   { to: '/repositories', labelKey: 'menu.repositories' },
   { to: '/knowledge-bases', labelKey: 'menu.knowledgeBases' },
-  { to: '/scenes', labelKey: 'menu.scenes' },
-  { to: '/settings/agents', labelKey: 'menu.agents' },
 ] as const;
 
 export function GlobalNav() {
@@ -167,7 +167,7 @@ export function GlobalNav() {
                 )}
                 {showIntakeBadge && (
                   <span
-                    className="absolute -top-1 -right-1 flex h-4 min-w-[16px] items-center justify-center rounded-full bg-brand px-1 text-[9px] font-bold text-white"
+                    className="absolute -top-1 -right-1 flex h-4 min-w-[16px] items-center justify-center rounded-full bg-red-500 px-1 text-[9px] font-bold text-white dark:bg-red-400 dark:text-white"
                     title={t('menu.intakeBadge', { count: intakePending })}
                     aria-label={t('menu.intakeBadge', { count: intakePending })}
                   >
@@ -288,7 +288,7 @@ export function GlobalNav() {
                     </span>
                   )}
                   {to === '/intake' && intakePending > 0 && (
-                    <span className="ml-2 min-w-4 rounded-full bg-brand px-1 text-center text-[10px] font-semibold tabular-nums text-white">
+                    <span className="ml-2 min-w-4 rounded-full bg-red-500 px-1 text-center text-[10px] font-semibold tabular-nums text-white dark:bg-red-400 dark:text-white">
                       {intakePending}
                     </span>
                   )}
