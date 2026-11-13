@@ -6,6 +6,7 @@ import { toast } from 'sonner'
 import { ChevronDown, ChevronRight, Inbox, RefreshCw, Trash2, Zap } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { Checkbox } from '@/components/ui/checkbox'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -203,6 +204,22 @@ export function IntakeReviewPage() {
     setSelectedIds(new Set())
   }
 
+  // "Select all" covers exactly the rows currently visible (view + source +
+  // chat filters), so selecting in the pending view never sweeps in history.
+  const visibleIds = useMemo(() => decisions.map((d) => d.id), [decisions])
+  const allSelected = visibleIds.length > 0 && visibleIds.every((id) => selectedIds.has(id))
+  const someSelected = visibleIds.some((id) => selectedIds.has(id))
+  function toggleSelectAll(checked: boolean) {
+    setSelectedIds((current) => {
+      const next = new Set(current)
+      for (const id of visibleIds) {
+        if (checked) next.add(id)
+        else next.delete(id)
+      }
+      return next
+    })
+  }
+
   function refreshAll() {
     for (const query of decisionQueries) void query.refetch()
   }
@@ -223,10 +240,53 @@ export function IntakeReviewPage() {
       resetSelection()
       toast.success(t('review.ignoredCount', { count }))
       queryClient.invalidateQueries({ queryKey: ['intake-decisions'] })
+      queryClient.invalidateQueries({ queryKey: ['intake-calibration'] })
+      queryClient.invalidateQueries({ queryKey: ['intake-pending-count'] })
     },
     onError: (error) => {
       toast.error(error instanceof Error ? error.message : t('review.ignoreFailed'))
       queryClient.invalidateQueries({ queryKey: ['intake-decisions'] })
+      queryClient.invalidateQueries({ queryKey: ['intake-pending-count'] })
+    },
+  })
+
+  // Accept the selected suggestions with their stored briefs (no per-item edit
+  // in batch mode). Each accept runs the normal pipeline, so this creates and
+  // starts the matching tasks/workspaces. Sequential on purpose: a burst of
+  // agent starts is heavier than the reviewer expects from one click.
+  const batchAccept = useMutation({
+    mutationFn: async () => {
+      const byProject = new Map(decisions.map((d) => [d.id, d.project_id]))
+      // Rows that vanished from the current view (already handled elsewhere)
+      // are simply skipped rather than reported as failures.
+      const ids = [...selectedIds].filter((id) => byProject.has(id))
+      let accepted = 0
+      let failed = 0
+      for (const id of ids) {
+        try {
+          await intakeApi.accept(byProject.get(id) as number, id)
+          accepted++
+        } catch {
+          failed++
+        }
+      }
+      return { accepted, failed }
+    },
+    onSuccess: ({ accepted, failed }) => {
+      resetSelection()
+      if (failed === 0) {
+        toast.success(t('review.acceptedCount', { count: accepted }))
+      } else {
+        toast.warning(t('review.batchPartial', { ok: accepted, failed }))
+      }
+      queryClient.invalidateQueries({ queryKey: ['intake-decisions'] })
+      queryClient.invalidateQueries({ queryKey: ['intake-calibration'] })
+      queryClient.invalidateQueries({ queryKey: ['intake-pending-count'] })
+    },
+    onError: (error) => {
+      toast.error(error instanceof Error ? error.message : t('review.acceptFailed'))
+      queryClient.invalidateQueries({ queryKey: ['intake-decisions'] })
+      queryClient.invalidateQueries({ queryKey: ['intake-pending-count'] })
     },
   })
 
@@ -245,10 +305,12 @@ export function IntakeReviewPage() {
       resetSelection()
       toast.success(t('review.deletedCount', { count }))
       queryClient.invalidateQueries({ queryKey: ['intake-decisions'] })
+      queryClient.invalidateQueries({ queryKey: ['intake-pending-count'] })
     },
     onError: (error) => {
       toast.error(error instanceof Error ? error.message : t('review.deleteFailed'))
       queryClient.invalidateQueries({ queryKey: ['intake-decisions'] })
+      queryClient.invalidateQueries({ queryKey: ['intake-pending-count'] })
     },
   })
 
@@ -316,6 +378,16 @@ export function IntakeReviewPage() {
             {t(`review.view.${value}`)}
           </Button>
         ))}
+        {decisions.length > 0 && (
+          <label className="flex cursor-pointer select-none items-center gap-1.5 text-xs text-warm-text-muted">
+            <Checkbox
+              checked={allSelected ? true : someSelected ? 'indeterminate' : false}
+              onCheckedChange={(checked) => toggleSelectAll(checked === true)}
+              aria-label={t('review.selectAll')}
+            />
+            {t('review.selectAll')}
+          </label>
+        )}
         <Button
           type="button"
           variant="ghost"
@@ -413,15 +485,46 @@ export function IntakeReviewPage() {
           <span className="text-xs font-medium tabular-nums">
             {t('review.selectedCount', { count: selectedIds.size })}
           </span>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            className="h-7 border-destructive/50 px-2 text-xs text-destructive-text hover:bg-destructive/10 hover:text-destructive-text"
-            onClick={() => setBatchOpen(true)}
-          >
-            {t('review.batchIgnore')}
-          </Button>
+          {view === 'pending' && (
+            <AlertDialog>
+              <AlertDialogTrigger asChild>
+                <Button
+                  type="button"
+                  size="sm"
+                  className="h-7 gap-1 px-2 text-xs"
+                  disabled={batchAccept.isPending}
+                >
+                  <Zap className="h-3.5 w-3.5" aria-hidden />
+                  {batchAccept.isPending ? t('review.batchAccepting') : t('review.batchAccept')}
+                </Button>
+              </AlertDialogTrigger>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>
+                    {t('review.batchAcceptTitle', { count: selectedIds.size })}
+                  </AlertDialogTitle>
+                  <AlertDialogDescription>{t('review.batchAcceptDescription')}</AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel>{t('review.cancel')}</AlertDialogCancel>
+                  <AlertDialogAction onClick={() => batchAccept.mutate()}>
+                    {t('review.batchAccept')}
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
+          )}
+          {view === 'pending' && (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="h-7 border-destructive/50 px-2 text-xs text-destructive-text hover:bg-destructive/10 hover:text-destructive-text"
+              onClick={() => setBatchOpen(true)}
+            >
+              {t('review.batchIgnore')}
+            </Button>
+          )}
           <AlertDialog>
             <AlertDialogTrigger asChild>
               <Button

@@ -5,7 +5,8 @@
   "menu": {
     "projects": "專案",
     "workspaces": "工作空間",
-    "intake": "待校準",
+    "intake": "任務建議",
+    "intakeBadge": "{{count}} 條任務建議待確認",
     "repositories": "倉庫",
     "knowledgeBases": "知識庫",
     "scenes": "場景",

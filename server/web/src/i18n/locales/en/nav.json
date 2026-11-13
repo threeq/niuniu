@@ -5,7 +5,8 @@
   "menu": {
     "projects": "Projects",
     "workspaces": "Workspaces",
-    "intake": "Needs calibration",
+    "intake": "Task suggestions",
+    "intakeBadge": "{{count}} task suggestions to review",
     "repositories": "Repositories",
     "knowledgeBases": "Knowledge bases",
     "scenes": "Scenes",

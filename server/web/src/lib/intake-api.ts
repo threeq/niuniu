@@ -425,6 +425,11 @@ export const intakeApi = {
 
   // ── Calibration queue ─────────────────────────────────────────────────────
 
+  /** Pending, still-actionable suggestions across every accessible project.
+   *  Drives the global nav entry's visibility + count badge. */
+  pendingCount: () =>
+    api.get<{ count: number }>('/intake/pending-count').then((r) => r.count),
+
   // suppressError: the page renders an inline retry row instead of a toast on
   // every failed poll / project switch.
   listDecisions: (projectId: number, filter: IntakeDecisionFilter = {}) =>

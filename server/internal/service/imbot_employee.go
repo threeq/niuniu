@@ -620,7 +620,7 @@ func (e *IMBotEmployee) proposeTask(ctx context.Context, chat store.ImBotChat, v
 	// requires an accept in the review queue, and the reminder is what makes the
 	// suggestion discoverable without reading the queue.
 	notice := "我从最近的讨论里整理出一条待确认的任务：\n\n" +
-		truncateOutbound(verdict.Task) + "\n\n已放入待校准，确认后才会开始。"
+		truncateOutbound(verdict.Task) + "\n\n已放入任务建议，确认后才会开始。"
 	if extra := strings.TrimSpace(verdict.Message); extra != "" {
 		notice += "\n\n" + truncateOutbound(extra)
 	}
