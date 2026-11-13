@@ -87,6 +87,7 @@
     "mongoUriEditHint": "出于安全，URI 中不回显密码；不填写密码段则保留已存密码，其余部分按 URI 更新。",
     "mongoUriInvalid": "MongoDB 连接 URI 无效",
     "redisDbLabel": "DB 编号（留空为 0）",
+    "redisUserHint": "Redis 6+ 支持 ACL 用户名，默认 default；仅使用密码认证时可留空。",
     "trinoCatalogLabel": "Catalog",
     "trinoSchemaLabel": "Schema（可选）",
     "esAuthModeLabel": "认证方式",

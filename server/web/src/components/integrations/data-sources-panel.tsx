@@ -590,7 +590,12 @@ function DataSourceForm({ editing, onClose }: FormProps) {
   const [port, setPort] = useState(
     editing?.config.port != null ? String(editing.config.port) : '',
   );
-  const [user, setUser] = useState(editing?.config.user ?? '');
+  // Redis 6+ ACL accepts a username; "default" is the built-in user. Prefill
+  // it for redis (create and legacy rows that stored no user) so the common
+  // case needs no typing — it can be cleared for password-only AUTH.
+  const [user, setUser] = useState(
+    editing?.config.user ?? ((editing?.kind ?? 'mysql') === 'redis' ? 'default' : ''),
+  );
   const [password, setPassword] = useState('');
   // For redis, `database` holds the logical db number; for trino, the catalog.
   const [database, setDatabase] = useState(editing?.config.database ?? '');
@@ -727,6 +732,8 @@ function DataSourceForm({ editing, onClose }: FormProps) {
     // api_key is the drop signal (switching to basic auth must clear it).
     switch (family) {
       case 'redis':
+        // Redis 6+ ACL username (defaults to the built-in "default" user).
+        config.user = user.trim();
         config.database = database.trim();
         if (password.length > 0) config.password = password;
         break;
@@ -900,7 +907,7 @@ function DataSourceForm({ editing, onClose }: FormProps) {
                 // redis db-number validation with no visible error.
                 if (formFamily(next) !== family) {
                   setDatabase('');
-                  setUser('');
+                  setUser(next === 'redis' ? 'default' : '');
                   setPassword('');
                   setMongoUri('');
                   setTrinoSchema('');
@@ -1059,6 +1066,7 @@ function DataSourceForm({ editing, onClose }: FormProps) {
 
           {(family === 'sql' ||
             family === 'trino' ||
+            family === 'redis' ||
             family === 'http' ||
             (family === 'elastic' && esAuthMode === 'basic')) && (
             <div className="flex flex-col gap-2">
@@ -1070,6 +1078,9 @@ function DataSourceForm({ editing, onClose }: FormProps) {
                 value={user}
                 onChange={onConnChange(setUser)}
               />
+              {family === 'redis' && (
+                <p className="text-xs text-warm-text-muted">{t('sources.redisUserHint')}</p>
+              )}
             </div>
           )}
 
