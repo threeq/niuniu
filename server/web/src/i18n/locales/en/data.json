@@ -87,6 +87,7 @@
     "mongoUriEditHint": "For security the password is not shown in the URI; leave the password segment empty to keep the stored one — the rest follows the URI.",
     "mongoUriInvalid": "Invalid MongoDB connection URI",
     "redisDbLabel": "DB number (blank = 0)",
+    "redisUserHint": "Redis 6+ ACL username; defaults to \"default\". Leave blank for password-only auth.",
     "trinoCatalogLabel": "Catalog",
     "trinoSchemaLabel": "Schema (optional)",
     "esAuthModeLabel": "Authentication",
