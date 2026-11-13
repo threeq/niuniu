@@ -52,14 +52,12 @@ const KnowledgeBaseLayout = lazyNamed(() => import('./pages/knowledge-bases/know
 const KnowledgeBaseDetailPage = lazyNamed(() => import('./pages/knowledge-bases/knowledge-base-detail-page'), 'KnowledgeBaseDetailPage');
 const SettingsPage = lazyNamed(() => import('./pages/settings'), 'SettingsPage');
 const SchedulesPage = lazyNamed(() => import('./pages/schedules'), 'SchedulesPage');
-const SceneListPage = lazyNamed(() => import('./pages/scenes/scene-list-page'), 'SceneListPage');
 const SceneDetailPage = lazyNamed(() => import('./pages/scenes/scene-detail-page'), 'SceneDetailPage');
 const SceneNewPage = lazyNamed(() => import('./pages/scenes/scene-new-page'), 'SceneNewPage');
 const SceneEditPage = lazyNamed(() => import('./pages/scenes/scene-edit-page'), 'SceneEditPage');
 const OrgsListPage = lazyNamed(() => import('./pages/settings/orgs'), 'OrgsListPage');
 const OrgDetailPage = lazyNamed(() => import('./pages/settings/orgs/org-detail-page'), 'OrgDetailPage');
 const IntegrationsPage = lazyNamed(() => import('./pages/settings/integrations'), 'IntegrationsPage');
-const AgentsPage = lazyNamed(() => import('./pages/agents'), 'AgentsPage');
 const DashboardsPage = lazyNamed(() => import('./pages/dashboards/dashboards-page'), 'DashboardsPage');
 const DashboardDetail = lazyNamed(() => import('./pages/dashboards/dashboard-detail'), 'DashboardDetail');
 const IntakeReviewPage = lazyNamed(
@@ -271,15 +269,12 @@ const knowledgeBaseDetailRoute = createRoute({
   component: KnowledgeBaseDetailPage,
 });
 
-// Legacy ?tab= values for tabs that were promoted out of /settings to their
-// own top-level routes. Old bookmarks / desktop tray entries land on the new
-// home instead of silently falling back to "general".
-//
-// `harness` was promoted out and has now been moved BACK in as a settings tab,
-// so it is deliberately absent here — ?tab=harness must resolve to the tab.
+// Legacy ?tab= aliases that used to live at their own routes. Agent management
+// is a Settings tab again, so these now canonicalize to the tab id instead of
+// bouncing through the old /settings/agents route.
 const promotedSettingsTabs: Record<string, string> = {
-  agent: '/settings/agents',
-  'agent-registry': '/settings/agents',
+  agent: 'agents',
+  'agent-registry': 'agents',
 };
 
 const settingsRoute = createRoute({
@@ -290,7 +285,7 @@ const settingsRoute = createRoute({
   }),
   beforeLoad: ({ search }) => {
     const target = search.tab ? promotedSettingsTabs[search.tab] : undefined;
-    if (target) throw redirect({ to: target });
+    if (target) throw redirect({ to: '/settings', search: { tab: target } });
   },
   component: SettingsPage,
 });
@@ -306,7 +301,11 @@ const schedulesRoute = createRoute({
 const scenesRoute = createRoute({
   getParentRoute: () => layoutRoute,
   path: '/scenes',
-  component: SceneListPage,
+  // The scene list is a Settings screen now (left nav + content); keep the old
+  // URL working by redirecting to the tab. Detail/new/edit stay standalone.
+  beforeLoad: () => {
+    throw redirect({ to: '/settings', search: { tab: 'scenes' } });
+  },
 });
 
 const sceneNewRoute = createRoute({
@@ -388,7 +387,10 @@ const harnessRoute = createRoute({
 const agentsRoute = createRoute({
   getParentRoute: () => layoutRoute,
   path: '/settings/agents',
-  component: AgentsPage,
+  // Agent management lives inside the Settings shell now.
+  beforeLoad: () => {
+    throw redirect({ to: '/settings', search: { tab: 'agents' } });
+  },
 });
 
 const dashboardsRoute = createRoute({
