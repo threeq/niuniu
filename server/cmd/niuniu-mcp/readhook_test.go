@@ -109,6 +109,9 @@ func TestReadHook_LargeImageReroutedToReadImage(t *testing.T) {
 
 	_, dec, _ := runReadHookWith(t, "sess-img", dir, p, 0, 0)
 	mustDeny(t, dec, "mcp__niuniu__read_image")
+	// Vision first: the reroute must direct the agent to the compressed
+	// vision path, not OCR.
+	mustDeny(t, dec, `mode="vision"`)
 }
 
 func TestReadHook_SmallImageAllowed(t *testing.T) {

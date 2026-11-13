@@ -305,9 +305,10 @@ func randSuffix() string {
 //     `--worktree` mode (and Agent({isolation:"worktree"})) crash on niuniu
 //     workspaces because the workspace root is not itself a git repo (the real
 //     git worktrees live one level down at .worktrees/<repo>).
-//   - PreToolUse on Read — reroutes large images / binary documents to the
-//     niuniu MCP fast-path tools (read_image / read_document). Fails open and
-//     is loop-safe (see readhook.go).
+//   - PreToolUse on Read — reroutes binary documents to read_document and
+//     nudges huge text reads toward offset/limit. Images are left to native
+//     vision (read_image is the text-only-model fallback). Fails open and is
+//     loop-safe (see readhook.go).
 //
 // It MERGES rather than skips: an existing settings.json (user-hand-edited, or
 // written by an older niuniu that predates a hook) has the managed hooks added

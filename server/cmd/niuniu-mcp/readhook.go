@@ -52,16 +52,19 @@ type preToolUseDecision struct {
 // rebuild. Defaults chosen so small reads stay on the fast built-in path
 // and only genuinely heavy reads get rerouted.
 //
-//   - Images at or above imageRouteBytes go to mcp__niuniu__read_image
-//     (built-in Read base64-inlines the whole image into the vision
-//     context — slow and token-expensive for large images).
+//   - Large images are rerouted to mcp__niuniu__read_image so they are
+//     downsampled/compressed before reaching the model. Its default mode is
+//     VISION: the compressed image is handed to the model's vision
+//     capability (OCR text is only for models without vision). A raw
+//     built-in Read would inline the full-resolution image and flood the
+//     context — compression is the point, not avoiding vision.
 //   - Binary office/PDF documents are ALWAYS rerouted regardless of size:
 //     built-in Read cannot parse them into meaningful text at all.
 //   - Plain text / code at or above textRouteBytes is denied with a nudge
 //     to use Read offset/limit or Grep instead of loading it whole.
 const (
-	defaultImageRouteBytes int64 = 512 * 1024       // 512 KiB
-	defaultTextRouteBytes  int64 = 2 * 1024 * 1024  // 2 MiB
+	defaultImageRouteBytes int64 = 512 * 1024        // 512 KiB
+	defaultTextRouteBytes  int64 = 2 * 1024 * 1024   // 2 MiB
 	defaultMarkerTTL             = 180 * time.Second // loop-prevention window
 
 	// defaultImageRouteLongEdge is the pixel long-edge trigger (issue #490
@@ -88,8 +91,9 @@ var (
 // runReadHook is the PreToolUse hook handler for the built-in Read tool. It
 // reads the hook JSON from stdin and decides whether to let the Read run
 // (the fast built-in path for small files) or deny it and redirect the
-// agent to a niuniu MCP fast-path tool (read_image / read_document) for
-// large images and binary documents.
+// agent to mcp__niuniu__read_image (large images, which must be compressed
+// first) or mcp__niuniu__read_document (binary documents), and to
+// offset/limit reads for huge text.
 //
 // FAIL-OPEN: any parse/stat/IO error results in "allow" (exit 0, empty
 // stdout). A misbehaving hook must never wedge the agent — the worst
@@ -155,8 +159,9 @@ func runReadHook(stdin io.Reader, stdout, stderr io.Writer) int {
 	switch {
 	case imageExts[ext] && imageNeedsReroute(abs, size):
 		reason = fmt.Sprintf(
-			"图片 %s（%s）较大，内置 Read 会把整图 base64 塞进视觉上下文——慢且耗 token。"+
-				"请改用 mcp__niuniu__read_image 读取该路径（装了 Tesseract 则 OCR 出文本，否则自动降采样供视觉）。"+
+			"图片 %s（%s）较大，需要先降采样/压缩再交给模型，避免整图 base64 塞满上下文。"+
+				"请用 mcp__niuniu__read_image 读取，并使用 mode=\"vision\"（默认）：它会压缩图片后交给你的视觉能力查看；"+
+				"仅当你的模型不支持视觉时，才改用 mode=\"ocr\" 提取文字。"+
 				"若该工具失败并返回 fallback:read，再次 Read 同一路径会被直接放行、不再改道。",
 			abs, humanBytes(size))
 	case docExts[ext]:
@@ -270,8 +275,8 @@ func markerTTL() time.Duration {
 }
 
 // imageNeedsReroute decides whether a built-in image Read should be denied
-// and rerouted to mcp__niuniu__read_image. Two independent triggers, EITHER
-// suffices:
+// and rerouted to mcp__niuniu__read_image (which compresses before handing
+// the image to the model). Two independent triggers, EITHER suffices:
 //
 //   - file size >= NIUNIU_READHOOK_IMAGE_BYTES (default 512 KiB): a large
 //     on-disk image is expensive to base64-inline regardless of pixel count.
