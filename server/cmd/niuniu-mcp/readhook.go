@@ -60,8 +60,8 @@ type preToolUseDecision struct {
 //   - Plain text / code at or above textRouteBytes is denied with a nudge
 //     to use Read offset/limit or Grep instead of loading it whole.
 const (
-	defaultImageRouteBytes int64 = 512 * 1024       // 512 KiB
-	defaultTextRouteBytes  int64 = 2 * 1024 * 1024  // 2 MiB
+	defaultImageRouteBytes int64 = 512 * 1024        // 512 KiB
+	defaultTextRouteBytes  int64 = 2 * 1024 * 1024   // 2 MiB
 	defaultMarkerTTL             = 180 * time.Second // loop-prevention window
 
 	// defaultImageRouteLongEdge is the pixel long-edge trigger (issue #490
@@ -156,7 +156,8 @@ func runReadHook(stdin io.Reader, stdout, stderr io.Writer) int {
 	case imageExts[ext] && imageNeedsReroute(abs, size):
 		reason = fmt.Sprintf(
 			"图片 %s（%s）较大，内置 Read 会把整图 base64 塞进视觉上下文——慢且耗 token。"+
-				"请改用 mcp__niuniu__read_image 读取该路径（装了 Tesseract 则 OCR 出文本，否则自动降采样供视觉）。"+
+				"请改用 mcp__niuniu__read_image 读取该路径：如果你的模型支持多模态视觉，用 mode=\"vision\" 查看压缩后的图片；"+
+				"模型不支持视觉时保持默认 auto（装了 Tesseract 则 OCR 出文本，否则自动降采样供视觉）。"+
 				"若该工具失败并返回 fallback:read，再次 Read 同一路径会被直接放行、不再改道。",
 			abs, humanBytes(size))
 	case docExts[ext]:
