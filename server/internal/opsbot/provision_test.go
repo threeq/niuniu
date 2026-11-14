@@ -244,3 +244,18 @@ func TestProvisionRejectsForeignBot(t *testing.T) {
 	require.Empty(t, issues.created)
 	require.Empty(t, workspaces.created)
 }
+
+func TestProvisionerDeprovision(t *testing.T) {
+	p, issues, workspaces := newTestProvisioner(newFakeBots())
+	bot := store.OpsBot{
+		ID:                 7,
+		EpicIssueID:        sql.NullInt64{Int64: 901, Valid: true},
+		ControlWorkspaceID: sql.NullInt64{Int64: 1601, Valid: true},
+	}
+	require.NoError(t, p.Deprovision(context.Background(), bot))
+	require.Equal(t, []int64{1601}, workspaces.deleted)
+	require.Equal(t, []int64{901}, issues.deleted)
+
+	// Missing halves are skipped.
+	require.NoError(t, p.Deprovision(context.Background(), store.OpsBot{ID: 8}))
+}

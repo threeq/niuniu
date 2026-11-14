@@ -62,7 +62,17 @@
     "approve": "透過",
     "reject": "駁回",
     "relogin": "重新登入",
+    "delete": "刪除",
     "back": "返回列表"
+  },
+  "deleteBot": {
+    "title": "刪除運營 Bot",
+    "description": "確定刪除「{{name}}」嗎？這會同時刪除待審批、聊天綁定、瀏覽器會話、控制工作空間與 Epic，且不可恢復。",
+    "cancel": "取消",
+    "delete": "刪除",
+    "deleting": "刪除中…",
+    "deleted": "已刪除 {{name}}",
+    "cleanupFailed": "Bot 已刪除，但部分資源清理失敗：{{message}}"
   },
   "login": {
     "action": "掃碼登入",

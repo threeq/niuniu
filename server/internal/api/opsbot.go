@@ -611,6 +611,65 @@ func (h *OpsBotHandler) GetBot(c *gin.Context) {
 	c.JSON(http.StatusOK, botDTO(bot))
 }
 
+// DeleteBot hard-deletes an Ops Bot and the resources it owns: pending
+// approvals, IM chat bindings, browser profile/evidence, control workspace and
+// control Epic. Irreversible; requires confirm=true. Cleanup failures are
+// reported alongside success so a leftover control space is visible instead of
+// silently masking a partial delete.
+func (h *OpsBotHandler) DeleteBot(c *gin.Context) {
+	if !h.requireReady(c) {
+		return
+	}
+	bot, _, ok := h.botForAccess(c, true)
+	if !ok {
+		return
+	}
+	if !strings.EqualFold(strings.TrimSpace(c.Query("confirm")), "true") {
+		RespondError(c, http.StatusBadRequest, "OPS_CONFIRM_REQUIRED",
+			"deleting an ops bot is irreversible; pass confirm=true")
+		return
+	}
+	ctx := c.Request.Context()
+	cleanup := []string{}
+
+	if h.Approval != nil {
+		if _, err := h.Approval.CancelByBot(ctx, bot.ID); err != nil {
+			cleanup = append(cleanup, "cancel approvals: "+err.Error())
+		}
+	}
+	if h.DB != nil {
+		if _, err := store.Wrap(h.DB).ExecContext(ctx,
+			`UPDATE im_bot_chats SET ops_bot_id = NULL, updated_at = CURRENT_TIMESTAMP WHERE ops_bot_id = ?`,
+			bot.ID); err != nil {
+			cleanup = append(cleanup, "unbind chats: "+err.Error())
+		}
+	}
+	if err := h.Queries.DeleteOpsBot(ctx, bot.ID); err != nil {
+		h.respondOpsError(c, err)
+		return
+	}
+	if strings.TrimSpace(h.DataDir) != "" {
+		for _, dir := range []string{
+			filepath.Join(h.DataDir, "ops", "browser", strconv.FormatInt(bot.ID, 10)),
+			filepath.Join(h.DataDir, "ops", "evidence", strconv.FormatInt(bot.ID, 10)),
+		} {
+			if err := os.RemoveAll(dir); err != nil {
+				cleanup = append(cleanup, "remove "+dir+": "+err.Error())
+			}
+		}
+	}
+	if h.Provision != nil {
+		if err := h.Provision.Deprovision(ctx, bot); err != nil {
+			cleanup = append(cleanup, "deprovision: "+err.Error())
+		}
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"deleted":        true,
+		"bot_id":         bot.ID,
+		"cleanup_errors": cleanup,
+	})
+}
+
 type updateOpsBotBody struct {
 	DisplayName        *string         `json:"display_name"`
 	PersonaJSON        json.RawMessage `json:"persona_json"`

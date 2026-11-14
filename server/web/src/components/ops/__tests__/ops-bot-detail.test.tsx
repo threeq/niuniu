@@ -5,6 +5,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 
 vi.mock('@tanstack/react-router', () => ({
   Link: ({ children }: { children: React.ReactNode }) => <a href="#">{children}</a>,
+  useNavigate: () => vi.fn(),
 }))
 
 vi.mock('react-i18next', () => ({
@@ -32,6 +33,7 @@ vi.mock('@/lib/api', () => ({
     listApprovals: vi.fn(),
     browserStatus: vi.fn(),
     login: vi.fn(),
+    deleteBot: vi.fn(),
     pause: vi.fn(),
     resume: vi.fn(),
     approve: vi.fn(),
@@ -151,6 +153,7 @@ beforeEach(() => {
   vi.mocked(opsApi.listApprovals).mockResolvedValue({ items: [], count: 0 })
   vi.mocked(opsApi.browserStatus).mockResolvedValue(browserStatus)
   vi.mocked(opsApi.login).mockResolvedValue({ ...browserStatus, state: 'running' })
+  vi.mocked(opsApi.deleteBot).mockResolvedValue({ deleted: true, bot_id: 7, cleanup_errors: [] })
 })
 
 describe('OpsBotDetailPage login', () => {
@@ -163,5 +166,15 @@ describe('OpsBotDetailPage login', () => {
 
     fireEvent.click(button)
     await waitFor(() => expect(opsApi.login).toHaveBeenCalledWith(7))
+  })
+
+  it('deletes the bot after confirmation', async () => {
+    renderDetail()
+
+    fireEvent.click(await screen.findByText('actions.delete'))
+    expect(await screen.findByText('deleteBot.title')).toBeInTheDocument()
+    fireEvent.click(screen.getByText('deleteBot.delete'))
+
+    await waitFor(() => expect(opsApi.deleteBot).toHaveBeenCalledWith(7))
   })
 })

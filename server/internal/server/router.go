@@ -1653,6 +1653,7 @@ func registerOpsRoutes(g *gin.RouterGroup, h *apipkg.OpsBotHandler) {
 	g.POST("/bots", h.CreateBot)
 	g.GET("/bots/:id", h.GetBot)
 	g.PATCH("/bots/:id", h.UpdateBot)
+	g.DELETE("/bots/:id", h.DeleteBot)
 	g.POST("/bots/:id/pause", h.PauseBot)
 	g.POST("/bots/:id/resume", h.ResumeBot)
 	g.POST("/bots/:id/disable", h.DisableBot)

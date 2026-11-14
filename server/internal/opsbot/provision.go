@@ -117,6 +117,28 @@ func (p *Provisioner) EnsureAll(ctx context.Context, ownerType string, ownerID, 
 	return report, nil
 }
 
+// Deprovision deletes the control workspace and Epic that provisioning created
+// for a Bot. Missing halves are skipped; both deletions are attempted and their
+// failures joined, so one failing half does not block the other.
+func (p *Provisioner) Deprovision(ctx context.Context, bot store.OpsBot) error {
+	var errs []error
+	if bot.ControlWorkspaceID.Valid && bot.ControlWorkspaceID.Int64 > 0 {
+		if p.DeleteWorkspaces == nil {
+			errs = append(errs, fmt.Errorf("no workspace deleter configured for workspace %d", bot.ControlWorkspaceID.Int64))
+		} else if err := p.DeleteWorkspaces.DeleteWorkspace(ctx, bot.ControlWorkspaceID.Int64); err != nil {
+			errs = append(errs, fmt.Errorf("delete control workspace %d: %w", bot.ControlWorkspaceID.Int64, err))
+		}
+	}
+	if bot.EpicIssueID.Valid && bot.EpicIssueID.Int64 > 0 {
+		if p.DeleteIssues == nil {
+			errs = append(errs, fmt.Errorf("no issue deleter configured for epic %d", bot.EpicIssueID.Int64))
+		} else if err := p.DeleteIssues.DeleteIssue(ctx, bot.EpicIssueID.Int64); err != nil {
+			errs = append(errs, fmt.Errorf("delete control epic %d: %w", bot.EpicIssueID.Int64, err))
+		}
+	}
+	return errors.Join(errs...)
+}
+
 func (p *Provisioner) provision(ctx context.Context, ownerType string, ownerID, projectID, botID int64, displayName string, byUserID int64, titlePrefix, roleLabel string) (int64, int64, error) {
 	if err := p.validate(); err != nil {
 		return 0, 0, err

@@ -38,6 +38,12 @@ UPDATE ops_bots SET epic_issue_id = ?, control_workspace_id = ?,
     updated_at = CURRENT_TIMESTAMP
 WHERE id = ? RETURNING *;
 
+-- name: DeleteOpsBot :exec
+-- Hard delete. ops_publish_records / ops_metrics_daily / ops_engagements /
+-- ops_browser_sessions cascade; IM chat bindings and the control workspace
+-- and Epic are cleaned up by the delete flow.
+DELETE FROM ops_bots WHERE id = ?;
+
 -- name: CreateOpsPublishRecord :one
 INSERT INTO ops_publish_records (
     issue_id, bot_id, pack_id, account_ref, content_version, idempotency_key, status
