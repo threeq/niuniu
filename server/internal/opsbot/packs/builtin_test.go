@@ -369,3 +369,25 @@ func TestBuiltinProviderSeeds(t *testing.T) {
 		t.Fatal("wechat-mp provider seed missing")
 	}
 }
+
+func TestBuiltinVersionHelpers(t *testing.T) {
+	latest, ok := LatestBuiltinVersion("xiaohongshu")
+	if !ok {
+		t.Fatal("xiaohongshu builtin pack not found")
+	}
+	if latest < 2 {
+		t.Fatalf("xiaohongshu latest builtin version = %d, want >= 2 (v2 carries the login recipe fix)", latest)
+	}
+	if !IsBuiltinVersion("xiaohongshu", 1) {
+		t.Fatal("v1 should be a builtin version")
+	}
+	if !IsBuiltinVersion("xiaohongshu", latest) {
+		t.Fatalf("v%d should be a builtin version", latest)
+	}
+	if IsBuiltinVersion("xiaohongshu", 99) {
+		t.Fatal("v99 is not a builtin version")
+	}
+	if _, ok := LatestBuiltinVersion("no-such-pack"); ok {
+		t.Fatal("unknown pack should not resolve a builtin version")
+	}
+}

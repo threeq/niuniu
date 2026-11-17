@@ -1,0 +1,20 @@
+{
+  "formats": {
+    "note": {
+      "fields": ["title", "body", "images", "tags", "cover"],
+      "max_chars": 1000,
+      "max_title_chars": 20,
+      "image_ratio": "3:4",
+      "max_images": 18,
+      "video_sec": 0
+    },
+    "video": {
+      "fields": ["title", "body", "video", "cover", "tags"],
+      "max_chars": 1000,
+      "max_title_chars": 20,
+      "image_ratio": "3:4",
+      "max_images": 1,
+      "video_sec": 900
+    }
+  }
+}

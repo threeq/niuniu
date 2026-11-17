@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <title>小红书创作服务平台 - 登录</title>
+</head>
+<body>
+  <!-- 2026-11 平台改版：默认展示短信登录，右上角的小图标切到扫码登录。
+       二维码切换图标与二维码图片都是 CSS-in-JS 哈希类名，用 base64 头做兜底
+       （选择器见 browser/recipes/login.json）。 -->
+  <div class="login-container">
+    <div class="sso-login-wrapper">
+      <img class="css-wemwzq" alt="切换到扫码登录"
+           src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAYAAADDPmHLAAA">
+      <div class="css-dvxtzn">
+        <img class="css-1lhmg90" alt="扫码登录二维码"
+             src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAPQAAAD0CAYAAA">
+      </div>
+    </div>
+    <div class="login-tip">请使用小红书 App 扫码登录</div>
+  </div>
+  <!-- 沙箱占位：真实登录完成后该元素出现 -->
+  <header class="side-nav" hidden id="logged-in-state">
+    <img class="user_avatar" alt="测试账号">
+    <span class="account-name">测试账号</span>
+  </header>
+</body>
+</html>

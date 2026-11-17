@@ -997,6 +997,9 @@ func New(cfg *config.Config, db *sql.DB, frontendFS fs.FS) *Server {
 	// Ops Bot (design 2026-11-06 §12). The credential-link service is wired
 	// after it is constructed further below.
 	s.initOpsBot(authz)
+	// Builtin packs are product-owned: advance bots pinned to an older seed
+	// version so a shipped recipe fix reaches them without user action.
+	s.backfillBuiltinPackVersions(context.Background())
 	// Delivery health (design §12): intake events/decisions are the durable half;
 	// this in-memory tracker carries the 401/400/duplicate signals that are
 	// deliberately not recorded as events. One instance is shared by the inbound

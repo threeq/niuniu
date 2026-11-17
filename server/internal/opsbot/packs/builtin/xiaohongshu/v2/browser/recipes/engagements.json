@@ -1,0 +1,43 @@
+{
+  "name": "engagements",
+  "steps": [
+    {
+      "action": "goto",
+      "value": "https://creator.xiaohongshu.com/creator/messages?tab=comments",
+      "timeout_ms": 30000
+    },
+    {
+      "action": "wait",
+      "selector": ".comment-list",
+      "fallback": [".message-list", ".interaction-list"],
+      "timeout_ms": 20000
+    },
+    {
+      "action": "loop",
+      "selector": ".comment-list",
+      "value": "scroll",
+      "args": {
+        "max_iterations": "20",
+        "until": "no_new_items",
+        "scroll_step": "800"
+      }
+    },
+    {
+      "action": "wait",
+      "selector": ".comment-item",
+      "fallback": [".interaction-item"],
+      "timeout_ms": 15000
+    },
+    {
+      "action": "extract",
+      "selector": ".comment-item",
+      "fallback": [".interaction-item"],
+      "value": "engagements"
+    },
+    {
+      "action": "screenshot",
+      "value": "engagements_snapshot"
+    }
+  ],
+  "fixtures": ["fixtures/engagements.html"]
+}

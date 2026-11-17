@@ -8,6 +8,9 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"sort"
+	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -158,8 +161,23 @@ func TestRecipeRejectsNestedLoopInBranch(t *testing.T) {
 	require.ErrorIs(t, err, ErrInvalidRecipe)
 }
 
+// latestBuiltinVersionDir returns the highest seed version directory for a
+// builtin pack, so recipe tests always exercise the shipped version.
+func latestBuiltinVersionDir(t *testing.T, packID string) string {
+	t.Helper()
+	matches, err := filepath.Glob(filepath.Join("..", "packs", "builtin", packID, "v*"))
+	require.NoError(t, err)
+	require.NotEmpty(t, matches)
+	sort.Slice(matches, func(i, j int) bool {
+		vi, _ := strconv.Atoi(strings.TrimPrefix(filepath.Base(matches[i]), "v"))
+		vj, _ := strconv.Atoi(strings.TrimPrefix(filepath.Base(matches[j]), "v"))
+		return vi < vj
+	})
+	return matches[len(matches)-1]
+}
+
 func TestSandboxRunsBuiltinRecipes(t *testing.T) {
-	root := filepath.Join("..", "packs", "builtin", "xiaohongshu", "v1")
+	root := latestBuiltinVersionDir(t, "xiaohongshu")
 	allowedHosts := []string{"creator.xiaohongshu.com", "www.xiaohongshu.com", "xiaohongshu.com"}
 
 	cases := []struct {

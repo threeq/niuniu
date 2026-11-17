@@ -740,6 +740,26 @@ func TestLocalBackendAllowExpiredBypassesSessionGuard(t *testing.T) {
 	require.NoError(t, err)
 }
 
+// The login recipe navigates to the login page by design; its selector
+// failures must surface as a broken recipe, not as "login expired" (which hid
+// the real cause when Xiaohongshu changed its login page).
+func TestLoginRecipeSelectorFailureIsRecipeBroken(t *testing.T) {
+	b, _ := newFakeBackend(t, nil)
+	h := localSpec(t, b, 1)
+	recipe := packs.Recipe{Name: "login", Steps: []packs.RecipeStep{
+		{Action: "goto", Value: "https://creator.example.com/login"},
+		{Action: "wait", Selector: ".login-qrcode", Timeout: 100},
+	}}
+
+	_, err := b.Exec(context.Background(), h, recipe, ExecInput{AllowExpired: true})
+	require.ErrorIs(t, err, ErrRecipeBroken)
+	require.NotErrorIs(t, err, ErrLoginExpired)
+
+	// Non-login recipes still treat a login-wall redirect as an expired session.
+	_, err = b.Exec(context.Background(), h, recipe, ExecInput{})
+	require.ErrorIs(t, err, ErrLoginExpired)
+}
+
 func TestConfiguredBackend(t *testing.T) {
 	t.Setenv("NIUNIU_OPS_BROWSER_BACKEND", "")
 	require.Equal(t, BackendLocal, ConfiguredBackend())
