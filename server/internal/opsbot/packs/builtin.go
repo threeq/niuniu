@@ -145,6 +145,39 @@ func readSidecarFS(fsys fs.FS, name string, target any) error {
 	return nil
 }
 
+// LatestBuiltinVersion returns the highest embedded seed version for packID.
+func LatestBuiltinVersion(packID string) (int, bool) {
+	m, _, err := BuiltinPack(packID)
+	if err != nil {
+		return 0, false
+	}
+	return m.Version, true
+}
+
+// IsBuiltinVersion reports whether version is one of the embedded seed
+// versions for packID, as opposed to a user-generated or imported version that
+// happens to share the pack id. A pack seeded by the product may be advanced to
+// a newer seed version; a user's own version is never touched.
+func IsBuiltinVersion(packID string, version int) bool {
+	if version <= 0 {
+		return false
+	}
+	entries, err := fs.ReadDir(builtinFS, path.Join("builtin", packID))
+	if err != nil {
+		return false
+	}
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		v, err := parseVersionDir(entry.Name())
+		if err == nil && v == version {
+			return true
+		}
+	}
+	return false
+}
+
 func installBuiltinPack(fsys fs.FS, r *Registry, ownerType string, ownerID int64, packID, versionDir string, version int) error {
 	root, err := r.Root(ownerType, ownerID, packID, version)
 	if err != nil {

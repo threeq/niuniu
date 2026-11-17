@@ -1,0 +1,58 @@
+{
+  "name": "login",
+  "steps": [
+    {
+      "action": "goto",
+      "value": "https://creator.xiaohongshu.com/login",
+      "timeout_ms": 30000
+    },
+    {
+      "action": "wait",
+      "selector": ".login-container",
+      "fallback": [".sso-login-wrapper"],
+      "timeout_ms": 15000,
+      "args": { "poll_interval_ms": "500" }
+    },
+    {
+      "action": "click",
+      "selector": ".sso-login-wrapper img.css-wemwzq",
+      "fallback": [".sso-login-wrapper img[src^=\"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAEAAAABAC\"]"],
+      "timeout_ms": 10000
+    },
+    {
+      "action": "wait",
+      "selector": "img.css-1lhmg90[src^=\"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAPQAAAD0\"]",
+      "fallback": ["img[src^=\"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAPQAAAD0\"]"],
+      "timeout_ms": 15000,
+      "args": { "poll_interval_ms": "500" }
+    },
+    {
+      "action": "assert",
+      "selector": "img.css-1lhmg90[src^=\"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAPQAAAD0\"]",
+      "fallback": ["img[src^=\"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAPQAAAD0\"]"],
+      "value": "qrcode_visible"
+    },
+    {
+      "action": "screenshot",
+      "value": "qrcode"
+    },
+    {
+      "action": "wait",
+      "selector": ".user_avatar",
+      "fallback": [".account-name"],
+      "timeout_ms": 180000,
+      "args": { "poll_interval_ms": "2000" }
+    },
+    {
+      "action": "assert",
+      "selector": ".user_avatar",
+      "fallback": [".account-name"],
+      "value": "logged_in"
+    },
+    {
+      "action": "screenshot",
+      "value": "login_state"
+    }
+  ],
+  "fixtures": ["fixtures/login.html"]
+}

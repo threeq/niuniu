@@ -247,7 +247,7 @@ func (b *LocalBackend) Exec(ctx context.Context, handle SessionHandle, recipe pa
 		b.recordState(ctx, handle, successPatch())
 		return out, nil
 	}
-	classified := b.classify(ctx, s.driver, execErr)
+	classified := b.classify(ctx, s.driver, execErr, in.AllowExpired)
 	b.recordState(ctx, handle, failurePatch(classified))
 	return out, classified
 }
@@ -355,9 +355,12 @@ func failurePatch(err error) StatePatch {
 }
 
 // classify maps a driver/interpreter failure to a sentinel the Worker can act
-// on. Login redirects and risk banners win over generic selector failures
-// because retrying those would be harmful.
-func (b *LocalBackend) classify(ctx context.Context, driver Driver, err error) error {
+// on. For non-login recipes a login redirect is reported as an expired session
+// (that is how the operator learns a re-login is needed). The login recipe
+// itself is exempt: it navigates to the login page by design, so its selector
+// failures are recipe faults — reporting them as "login expired" hides the
+// real cause from the console.
+func (b *LocalBackend) classify(ctx context.Context, driver Driver, err error, isLogin bool) error {
 	if err == nil {
 		return nil
 	}
@@ -376,8 +379,10 @@ func (b *LocalBackend) classify(ctx context.Context, driver Driver, err error) e
 		return err
 	}
 
-	if url, uerr := driver.CurrentURL(ctx); uerr == nil && isLoginURL(url) {
-		return errors.Join(ErrLoginExpired, err)
+	if !isLogin {
+		if url, uerr := driver.CurrentURL(ctx); uerr == nil && isLoginURL(url) {
+			return errors.Join(ErrLoginExpired, err)
+		}
 	}
 	if risk := detectRisk(ctx, driver); risk != nil {
 		return errors.Join(risk, err)

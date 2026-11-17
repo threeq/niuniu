@@ -3,6 +3,8 @@ package server
 import (
 	"context"
 	"database/sql"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -11,6 +13,7 @@ import (
 
 	"github.com/niuniu-dev/niuniu/internal/config"
 	"github.com/niuniu-dev/niuniu/internal/opsbot"
+	"github.com/niuniu-dev/niuniu/internal/opsbot/packs"
 	"github.com/niuniu-dev/niuniu/internal/service"
 	"github.com/niuniu-dev/niuniu/internal/store"
 )
@@ -136,4 +139,47 @@ func TestOpsRuntimeWiring(t *testing.T) {
 	require.ErrorIs(t,
 		s.opsScheduler.Register(context.Background(), time.Now(), "k2", func(context.Context) {}),
 		errOpsSchedulerStopped)
+}
+
+// A bot pinned to an older builtin seed version follows the newest shipped
+// version (recipe fixes must reach existing bots), while a pin to a
+// user-generated version is left untouched.
+func TestBackfillBuiltinPackVersionsAdvancesPinnedBuiltin(t *testing.T) {
+	s := newOpsWiringServer(t)
+	ctx := context.Background()
+	create := func(version int64, ref string) store.OpsBot {
+		bot, err := s.queries.CreateOpsBot(ctx, store.CreateOpsBotParams{
+			OwnerType:          "user",
+			OwnerID:            2,
+			Role:               "account",
+			PackID:             "xiaohongshu",
+			PackVersion:        version,
+			AccountRef:         ref,
+			DisplayName:        ref,
+			PersonaJson:        "{}",
+			CredentialRefsJson: "{}",
+			KnowledgeScopeJson: "{}",
+			GoalsJson:          "{}",
+			CadenceJson:        "{}",
+			ApprovalPolicyJson: "{}",
+			BudgetJson:         "{}",
+		})
+		require.NoError(t, err)
+		return bot
+	}
+	pinned := create(1, "acct-builtin")
+	custom := create(99, "acct-custom")
+	require.NoError(t, os.MkdirAll(filepath.Join(s.cfg.DataDir, "users", "2", "ops", "packs"), 0o755))
+
+	s.backfillBuiltinPackVersions(ctx)
+
+	latest, ok := packs.LatestBuiltinVersion("xiaohongshu")
+	require.True(t, ok)
+	got, err := s.queries.GetOpsBot(ctx, pinned.ID)
+	require.NoError(t, err)
+	require.Equal(t, int64(latest), got.PackVersion)
+
+	gotCustom, err := s.queries.GetOpsBot(ctx, custom.ID)
+	require.NoError(t, err)
+	require.Equal(t, int64(99), gotCustom.PackVersion, "a custom version pin must not be rewritten")
 }
