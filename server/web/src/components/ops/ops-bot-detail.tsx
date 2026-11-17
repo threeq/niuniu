@@ -1,6 +1,6 @@
-import type { ComponentType, ReactNode } from 'react'
+import { useState, type ComponentType, type ReactNode } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Link } from '@tanstack/react-router'
+import { Link, useNavigate } from '@tanstack/react-router'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 import {
@@ -10,11 +10,13 @@ import {
   QrCode,
   RefreshCw,
   ShieldCheck,
+  Trash2,
   TrendingUp,
 } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { OpsBudgetBar } from './budget-bar'
+import { OpsDeleteBotDialog } from './ops-delete-bot-dialog'
 import { OpsRiskBadge } from './risk-badge'
 import { OpsStatusBadge } from './status-badge'
 import { opsApi } from '@/lib/api'
@@ -105,6 +107,8 @@ function ApprovalRow({
 export function OpsBotDetailPage({ botId }: { botId: number }) {
   const { t } = useTranslation('ops')
   const queryClient = useQueryClient()
+  const navigate = useNavigate()
+  const [deleteOpen, setDeleteOpen] = useState(false)
 
   const botQuery = useQuery({
     queryKey: ['ops-bot', botId],
@@ -297,15 +301,38 @@ export function OpsBotDetailPage({ botId }: { botId: number }) {
               {[bot.account_ref, bot.pack_id || t('packUnbound')].filter(Boolean).join(' · ')}
             </p>
           </div>
-          <Button
-            variant="outline"
-            size="sm"
-            disabled={toggle.isPending}
-            onClick={() => toggle.mutate()}
-          >
-            {bot.status === 'active' ? t('actions.pause') : t('actions.resume')}
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={toggle.isPending}
+              onClick={() => toggle.mutate()}
+            >
+              {bot.status === 'active' ? t('actions.pause') : t('actions.resume')}
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              className="text-destructive-text"
+              onClick={() => setDeleteOpen(true)}
+            >
+              <Trash2 className="h-4 w-4" />
+              {t('actions.delete')}
+            </Button>
+          </div>
         </div>
+
+        <OpsDeleteBotDialog
+          open={deleteOpen}
+          onOpenChange={setDeleteOpen}
+          botId={bot.id}
+          botName={bot.display_name || bot.account_ref || `#${bot.id}`}
+          onDeleted={() => {
+            queryClient.invalidateQueries({ queryKey: ['ops-bots'] })
+            queryClient.invalidateQueries({ queryKey: ['project-ops-bots'] })
+            navigate({ to: '/ops' })
+          }}
+        />
 
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
           <SummaryCard

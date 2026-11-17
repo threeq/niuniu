@@ -1380,6 +1380,11 @@ export const opsApi = {
     api.get<OpsBrowserStatus>(`/ops/bots/${botId}/browser`, { suppressError: true }),
   login: (botId: number) => api.post<OpsBrowserStatus>(`/ops/bots/${botId}/login`),
 
+  deleteBot: (botId: number) =>
+    api.delete<{ deleted: boolean; bot_id: number; cleanup_errors?: string[] }>(
+      `/ops/bots/${botId}?confirm=true`,
+    ),
+
   budget: (botId: number) =>
     api.get<OpsBudgetUsage>(`/ops/bots/${botId}/budget`, { suppressError: true }),
 

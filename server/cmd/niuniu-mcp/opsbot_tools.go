@@ -327,6 +327,31 @@ func registerOpsBotConfig(api *apiClient, s *server.MCPServer) {
 	)
 
 	s.AddTool(
+		mcp.NewTool("opsbot_delete",
+			mcp.WithDescription("Permanently delete an Ops Bot and the resources it owns (pending approvals, "+
+				"IM chat bindings, browser profile/evidence, control workspace and Epic). Irreversible; "+
+				"confirm must be true."),
+			mcp.WithNumber("bot_id", mcp.Description("Ops Bot ID"), mcp.Required()),
+			mcp.WithBoolean("confirm", mcp.Description("Must be true; deletion is irreversible"), mcp.Required()),
+		),
+		func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			id, errRes := opsIDArg(req.GetArguments(), "bot_id")
+			if errRes != nil {
+				return errRes, nil
+			}
+			confirm, _ := req.GetArguments()["confirm"].(bool)
+			if !confirm {
+				return mcp.NewToolResultError("confirm must be true: deleting an ops bot is irreversible"), nil
+			}
+			data, err := api.delete("/mcp/ops/bots/" + id + "?confirm=true")
+			if err != nil {
+				return mcp.NewToolResultError(err.Error()), nil
+			}
+			return mcp.NewToolResultText(string(data)), nil
+		},
+	)
+
+	s.AddTool(
 		mcp.NewTool("opsbot_bind_chat",
 			mcp.WithDescription("Route an IM chat to an Ops Bot. The bot must belong to the same owner as the chat's channel."),
 			mcp.WithNumber("chat_id", mcp.Description("IM chat ID"), mcp.Required()),

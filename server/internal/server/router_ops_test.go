@@ -21,6 +21,7 @@ func TestOpsRoutesRegister(t *testing.T) {
 		"POST /api/ops/bots":                         false,
 		"GET /api/ops/bots/:id":                      false,
 		"PATCH /api/ops/bots/:id":                    false,
+		"DELETE /api/ops/bots/:id":                   false,
 		"POST /api/ops/bots/:id/pause":               false,
 		"POST /api/ops/bots/:id/resume":              false,
 		"POST /api/ops/bots/:id/disable":             false,

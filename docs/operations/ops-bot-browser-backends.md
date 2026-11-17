@@ -161,6 +161,20 @@ backend, err := browser.NewBackend(browser.BackendConfig{
 - 非浏览器 transport（openapi / mcp / manual）返回 `state=not_required`，
   不写 browser session，也不注册 profile。
 
+## 2.9 删除 Bot
+
+| 动作 | HTTP | MCP |
+|---|---|---|
+| 删除 | `DELETE /api/ops/bots/:id?confirm=true` | `opsbot_delete(bot_id, confirm=true)` |
+
+删除会：取消待审批、解绑 IM chat、删除 Bot 行（`ops_publish_records` /
+`ops_metrics_daily` / `ops_engagements` / `ops_browser_sessions` 级联）、删除该
+账号的浏览器 profile 与 evidence 目录，并 deprovision 控制 workspace 与 Epic。
+控制 Epic 下的子 issue 由 `ON DELETE SET NULL` 保留为顶层任务，不会被删除。
+
+删除不可恢复，必须显式传 `confirm=true`。清理失败不会回滚已完成的 Bot 删除，
+而是通过 `cleanup_errors` 返回具体原因。
+
 ## 3. CloudBackend（团队版）
 
 实现位于 enterprise 仓库，通过同一接口注入；个人版仓库只提供契约和「未配置」的明确失败。

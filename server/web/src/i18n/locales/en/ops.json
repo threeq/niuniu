@@ -62,7 +62,17 @@
     "approve": "Approve",
     "reject": "Reject",
     "relogin": "Log in again",
+    "delete": "Delete",
     "back": "Back to list"
+  },
+  "deleteBot": {
+    "title": "Delete Ops Bot",
+    "description": "Delete \"{{name}}\"? This also removes pending approvals, chat bindings, browser sessions, the control workspace and Epic, and cannot be undone.",
+    "cancel": "Cancel",
+    "delete": "Delete",
+    "deleting": "Deleting…",
+    "deleted": "Deleted {{name}}",
+    "cleanupFailed": "The bot was deleted, but some resources could not be cleaned up: {{message}}"
   },
   "login": {
     "action": "Scan to log in",

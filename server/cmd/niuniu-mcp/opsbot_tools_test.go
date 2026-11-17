@@ -16,7 +16,7 @@ func TestOpsBotToolsRegistered(t *testing.T) {
 
 	for _, name := range []string{
 		"opsbot_create", "opsbot_list", "opsbot_get", "opsbot_update",
-		"opsbot_pause", "opsbot_resume", "opsbot_kill", "opsbot_bind_chat",
+		"opsbot_pause", "opsbot_resume", "opsbot_kill", "opsbot_delete", "opsbot_bind_chat",
 		"opsbot_request_credential_link", "opsbot_browser_login",
 		"opsbot_browser_profile", "opsbot_browser_status", "opsbot_login_verify",
 		"opsbot_set_goals", "opsbot_set_cadence", "opsbot_set_budget", "opsbot_set_approval",
@@ -42,6 +42,7 @@ func TestOpsBotToolsRequiredArgs(t *testing.T) {
 	cases := map[string]string{
 		"opsbot_get":             "bot_id",
 		"opsbot_update":          "bot_id",
+		"opsbot_delete":          "bot_id",
 		"opsbot_pause":           "bot_id",
 		"opsbot_browser_status":  "bot_id",
 		"opsbot_browser_profile": "bot_id",
@@ -74,5 +75,26 @@ func TestOpsBotToolsRequiredArgs(t *testing.T) {
 		if !required {
 			t.Fatalf("%q must require %s", name, arg)
 		}
+	}
+}
+
+// Deleting an Ops Bot is irreversible: both the id and the explicit confirm
+// flag must be required at the tool boundary.
+func TestOpsDeleteRequiresConfirm(t *testing.T) {
+	s := server.NewMCPServer("niuniu-test", "test")
+	registerOpsBotTools(s, &apiClient{})
+	tool, ok := s.ListTools()["opsbot_delete"]
+	if !ok {
+		t.Fatal("missing MCP tool opsbot_delete")
+	}
+	if _, ok := tool.Tool.InputSchema.Properties["confirm"]; !ok {
+		t.Fatal("opsbot_delete must accept confirm")
+	}
+	required := false
+	for _, name := range tool.Tool.InputSchema.Required {
+		required = required || name == "confirm"
+	}
+	if !required {
+		t.Fatal("opsbot_delete must require confirm")
 	}
 }

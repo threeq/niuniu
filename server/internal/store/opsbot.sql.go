@@ -618,6 +618,15 @@ func (q *Queries) SetOpsBotProvision(ctx context.Context, arg SetOpsBotProvision
 	return i, err
 }
 
+const deleteOpsBot = `-- name: DeleteOpsBot :exec
+DELETE FROM ops_bots WHERE id = ?
+`
+
+func (q *Queries) DeleteOpsBot(ctx context.Context, id int64) error {
+	_, err := q.db.ExecContext(ctx, deleteOpsBot, id)
+	return err
+}
+
 const sumOpsAccountCost = `-- name: SumOpsAccountCost :one
 SELECT CAST(COALESCE(SUM(e.cost_usd), 0) AS REAL)
 FROM issue_exec_events e
