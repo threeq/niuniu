@@ -87,6 +87,7 @@ type Server struct {
 	envPresetSvc            *service.EnvPresetService
 	envAccountSvc           *service.EnvAccountService
 	envProviderSvc          *service.EnvProviderService
+	modelBudgetSvc          *service.ModelBudgetService
 	capabilityBackendSvc    *service.CapabilityBackendService
 	sceneSvc                *service.SceneService
 	sceneSeeder             *service.SceneSeeder
@@ -1188,6 +1189,11 @@ func New(cfg *config.Config, db *sql.DB, frontendFS fs.FS) *Server {
 	// into the usage panel so it can show the authoritative 5h-window reset
 	// time (only obtainable via this passive path; /api/oauth/usage is blocked).
 	s.agentProxy.SetUsageRecorder(claudeUsageSvc)
+
+	// Monthly model-token budgets: the owner cap is a hard stop enforced in
+	// AgentProxy (new sessions/turns); project caps only emit a warning.
+	s.modelBudgetSvc = service.NewModelBudgetService(s.queries, s.notifyHub)
+	s.agentProxy.SetModelBudgetChecker(s.modelBudgetSvc)
 
 	// Session-state recorder: snapshots workspace git state on idle and
 	// reports drift on the next --resume. See P1.1 design notes.
