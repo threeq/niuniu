@@ -123,6 +123,20 @@ func (s *ModelLibraryService) Upsert(ctx context.Context, owner OwnerRef, name, 
 	return modelToDTO(created), nil
 }
 
+// Get returns one model row by id without owner filtering. Callers must run
+// the owner authorization check themselves; the API layer uses this to answer
+// 403 (not 404) when a caller targets another owner's row.
+func (s *ModelLibraryService) Get(ctx context.Context, id int64) (ModelDTO, error) {
+	m, err := s.q.GetModel(ctx, id)
+	if errors.Is(err, sql.ErrNoRows) {
+		return ModelDTO{}, ErrNotFound
+	}
+	if err != nil {
+		return ModelDTO{}, err
+	}
+	return modelToDTO(m), nil
+}
+
 // Update patches display name and/or enabled on an owner row. System rows are
 // immutable; another owner's row is reported as not found.
 func (s *ModelLibraryService) Update(ctx context.Context, owner OwnerRef, id int64, displayName *string, enabled *bool) (ModelDTO, error) {

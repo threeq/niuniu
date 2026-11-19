@@ -270,6 +270,7 @@ type Server struct {
 	envPresetHandler         *api.EnvPresetHandler
 	envAccountHandler        *api.EnvAccountHandler
 	envProviderHandler       *api.EnvProviderHandler
+	modelHandler             *api.ModelHandler
 	capabilityBackendHandler *api.CapabilityBackendHandler
 	sceneHandler             *api.SceneHandler
 	workspaceSceneHandler    *api.WorkspaceSceneHandler
@@ -1194,6 +1195,16 @@ func New(cfg *config.Config, db *sql.DB, frontendFS fs.FS) *Server {
 	// AgentProxy (new sessions/turns); project caps only emit a warning.
 	s.modelBudgetSvc = service.NewModelBudgetService(s.queries, s.notifyHub)
 	s.agentProxy.SetModelBudgetChecker(s.modelBudgetSvc)
+
+	// Shared model library + usage/budget API (design §11.1).
+	modelLibrarySvc := service.NewModelLibraryService(s.queries)
+	s.modelHandler = api.NewModelHandler(
+		modelLibrarySvc,
+		service.NewModelRefreshService(s.queries, modelLibrarySvc),
+		service.NewModelUsageService(s.queries),
+		s.modelBudgetSvc,
+	)
+	s.modelHandler.Authz = authz
 
 	// Session-state recorder: snapshots workspace git state on idle and
 	// reports drift on the next --resume. See P1.1 design notes.
