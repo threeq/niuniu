@@ -220,7 +220,9 @@
       "selectAllChildren": "全選子任務",
       "subtasks": "子任務",
       "empty": "暫無任務",
-      "childCount": "{{count}} 個子任務"
+      "childCount": "{{count}} 個子任務",
+      "collapseColumn": "摺疊欄目 {{name}}",
+      "expandColumn": "展開欄目 {{name}}"
     }
   },
   "issue": {

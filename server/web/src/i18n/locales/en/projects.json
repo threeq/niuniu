@@ -220,7 +220,9 @@
       "selectAllChildren": "Select all subtasks",
       "subtasks": "Subtasks",
       "empty": "No issues",
-      "childCount": "{{count}} subtasks"
+      "childCount": "{{count}} subtasks",
+      "collapseColumn": "Collapse column {{name}}",
+      "expandColumn": "Expand column {{name}}"
     }
   },
   "issue": {
