@@ -27,6 +27,7 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 import { ScheduleManager } from './schedule-manager';
+import { WorkspaceModelUsage } from '@/components/models/workspace-model-usage';
 import { AutohostSettingsDialog } from '@/components/dialogs/autohost-settings-dialog';
 import { WorkspaceKBsManager } from './workspace-kbs-manager';
 
@@ -498,6 +499,21 @@ export function WorkspaceSettingsDialog({ workspace }: WorkspaceSettingsDialogPr
               </div>
             )}
           </div>
+
+          {/* Model usage summary: current model, this month's tokens, owner budget */}
+          <WorkspaceModelUsage
+            workspaceId={workspace.id}
+            model={agentFields.NIUNIU_MODEL}
+            provider={workspace.active_env_provider_name}
+            owner={
+              workspace.project_owner_type && workspace.project_owner_id
+                ? {
+                    type: workspace.project_owner_type,
+                    id: workspace.project_owner_id,
+                  }
+                : undefined
+            }
+          />
 
           {/* Knowledge bases (KB as a first-class workspace citizen) */}
           <div className="rounded-md border border-border p-3">
