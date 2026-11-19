@@ -33,10 +33,10 @@ Epic 执行存在三类分支：`epic/<id>`（集成分支）、父（控制）�
 
 - **判定**：issue 存在活跃工作空间（is_archived=0）。
 - **服务端校验**（store 新查询 `HasActiveWorkspaceForIssue`，kanban 服务直查）：
-  - `SetIssueExecFields`（kanban.go:321，含 EpicHierarchyControl 与 MCP update_issue）：给 issue 设 `parent_issue_id` 时——issue 自身有活跃工作空间 → 拒绝（不能变子）；新父有活跃工作空间 → 拒绝（普通任务不能升父收子）。
-  - `CreateIssue` / `BatchCreateIssues`（带 parent_issue_id）：父 issue 有活跃工作空间 → 拒绝创建子任务。
-  - 错误文案：「该任务已创建工作空间，不能变更父子关系」（变子）/「父任务已创建工作空间，不能再添加子任务」（收子）。
-- **前端隐藏**：issue DTO 增加 `has_workspace`；`EpicHierarchyControl`（设置父任务）与 `issue-quick-create-dialog`（加子任务）在 `has_workspace` 时隐藏入口。
+  - `SetIssueExecFields`（kanban.go:321，含 EpicHierarchyControl 与 MCP update_issue）：给 issue 设 `parent_issue_id` 时——issue 自身有活跃工作空间 → 拒绝（不能变子）。
+  - **2026-11-19 修订：收子侧限制已移除。** 父 issue（普通任务或 Epic）即使已有活跃工作空间，也可以继续新增子任务——第一个子任务正是把它升级为 Epic 的方式。`CreateIssue` / `BatchCreateIssues` 只保留同项目 + 两级层次校验。
+  - 错误文案：「该任务已创建工作空间，不能变更父子关系」（仅变子）。
+- **前端**：issue DTO 仍带 `has_workspace`（变子判断用）；`EpicHierarchyControl` 与 `issue-quick-create-dialog` 不再因父任务有工作空间而隐藏「加子任务/选择父任务」入口。
 
 ### 4. C：epic 完成后的集成提示词（2026-09-30 修订：合并下放工作树，服务端流水线删除）
 

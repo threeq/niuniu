@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { useNavigate } from '@tanstack/react-router';
@@ -6,7 +7,7 @@ import { useTranslation } from 'react-i18next';
 import type { Issue, Workspace, WorkspaceStatus, EpicProgress } from '@/types/api';
 import { epicApi } from '@/lib/api';
 import { HighlightText } from './search-filter';
-import { Box, Circle, FileEdit, GitMerge, Layers, CornerDownRight } from 'lucide-react';
+import { Box, Circle, FileEdit, GitMerge, Layers, CornerDownRight, ChevronDown, ChevronRight } from 'lucide-react';
 import { WORKSPACE_STATUS_LABELS } from '@/lib/workspace-status';
 import { contrastTextColor } from '@/lib/label-color';
 import { avatarColorFor } from '@/lib/avatar-color';
@@ -34,6 +35,13 @@ interface IssueCardProps {
   selected?: boolean;
   selectionActive?: boolean;
   onToggleSelect?: (shiftKey: boolean) => void;
+  /** Epic card: its children, shown in an expandable sub-list so subtasks can
+   * be opened or batch-selected without switching to the list view. */
+  subIssues?: Issue[];
+  /** Selected ids across the board (drives child checkboxes). */
+  selectedIds?: Set<number>;
+  onOpenSubIssue?: (issueId: number) => void;
+  onToggleSelectMany?: (issueIds: number[], checked: boolean) => void;
 }
 
 // Workspace status badge colors — migrated to design system semantic tokens.
@@ -65,8 +73,9 @@ const priorityBarColors: Record<number, string> = {
   3: 'bg-prio-critical',
 };
 
-export function IssueCard({ issue, workspace, isDragging, onClick, highlightQuery, selected, selectionActive, onToggleSelect }: IssueCardProps) {
+export function IssueCard({ issue, workspace, isDragging, onClick, highlightQuery, selected, selectionActive, onToggleSelect, subIssues, selectedIds, onOpenSubIssue, onToggleSelectMany }: IssueCardProps) {
   const { t } = useTranslation('projects');
+  const [subtasksOpen, setSubtasksOpen] = useState(false);
   const navigate = useNavigate();
   const priorityLabels: Record<number, string> = {
     0: t('kanban.priority.low'),
@@ -346,6 +355,80 @@ export function IssueCard({ issue, workspace, isDragging, onClick, highlightQuer
           )}
         </div>
       </div>
+
+      {/* Epic subtasks — expandable, each child selectable for bulk ops. */}
+      {isEpic && (subIssues?.length ?? 0) > 0 && (
+        <div
+          className="mt-2 border-t border-warm-border/60 pt-1.5"
+          onPointerDown={(e) => e.stopPropagation()}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div className="flex items-center justify-between gap-2">
+            <button
+              type="button"
+              onClick={() => setSubtasksOpen((v) => !v)}
+              aria-expanded={subtasksOpen}
+              className="inline-flex items-center gap-1 rounded text-[11px] font-medium text-warm-text-muted hover:text-warm-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand"
+            >
+              {subtasksOpen ? (
+                <ChevronDown className="h-3 w-3" aria-hidden="true" />
+              ) : (
+                <ChevronRight className="h-3 w-3" aria-hidden="true" />
+              )}
+              {t('kanban.list.subtasks')}
+              <span className="tabular-nums">({subIssues!.length})</span>
+            </button>
+            {subtasksOpen && (
+              <div
+                className="flex items-center gap-1"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  const ids = (subIssues ?? []).map((c) => c.id);
+                  onToggleSelectMany?.(ids, !ids.every((id) => selectedIds?.has(id)));
+                }}
+              >
+                <Checkbox
+                  checked={(subIssues ?? []).every((c) => selectedIds?.has(c.id))}
+                  className="pointer-events-none"
+                  aria-label={t('kanban.list.selectAllChildren')}
+                  title={t('kanban.list.selectAllChildren')}
+                />
+              </div>
+            )}
+          </div>
+          {subtasksOpen && (
+            <ul className="mt-1 space-y-0.5">
+              {(subIssues ?? []).map((child) => {
+                const childSelected = selectedIds?.has(child.id) ?? false;
+                return (
+                  <li key={child.id} className="flex items-center gap-1.5">
+                    <div
+                      className="flex shrink-0 items-center"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onToggleSelectMany?.([child.id], !childSelected);
+                      }}
+                    >
+                      <Checkbox
+                        checked={childSelected}
+                        className="pointer-events-none h-3.5 w-3.5"
+                        aria-label={t('kanban.bulk.selectIssue', { title: child.title })}
+                      />
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => onOpenSubIssue?.(child.id)}
+                      className="min-w-0 flex-1 truncate text-left text-[11px] text-warm-text hover:text-brand focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand rounded"
+                    >
+                      {child.title}
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </div>
+      )}
       </div>
     </div>
   );

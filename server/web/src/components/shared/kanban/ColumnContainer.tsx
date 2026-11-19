@@ -31,8 +31,12 @@ interface ColumnContainerProps {
   workspaceByIssueId?: Record<string, Workspace>;
   selectedIds?: Set<number>;
   selectionActive?: boolean;
+  /** Epic id → its child issues (across columns), for the card's expandable
+   * subtask list. */
+  childrenByParent?: Map<number, Issue[]>;
   onToggleSelect?: (issueId: number, shiftKey: boolean, columnIssues: Issue[]) => void;
   onToggleSelectColumn?: (columnIssues: Issue[], checked: boolean) => void;
+  onToggleSelectMany?: (issueIds: number[], checked: boolean) => void;
   onUpdateColumn?: (id: number, name: string) => void;
   onIssueClick?: (issueId: number) => void;
   onCreateIssueInColumn?: (columnId: number) => void;
@@ -85,8 +89,10 @@ export function ColumnContainer({
   workspaceByIssueId,
   selectedIds,
   selectionActive,
+  childrenByParent,
   onToggleSelect,
   onToggleSelectColumn,
+  onToggleSelectMany,
   onUpdateColumn,
   onIssueClick,
   onCreateIssueInColumn,
@@ -256,6 +262,10 @@ export function ColumnContainer({
                 onClick={() => onIssueClick?.(issue.id)}
                 selected={selectedIds?.has(issue.id)}
                 selectionActive={selectionActive}
+                subIssues={childrenByParent?.get(issue.id)}
+                selectedIds={selectedIds}
+                onOpenSubIssue={onIssueClick}
+                onToggleSelectMany={onToggleSelectMany}
                 onToggleSelect={
                   onToggleSelect
                     ? (shiftKey) => onToggleSelect(issue.id, shiftKey, displayIssues)

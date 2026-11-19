@@ -53,12 +53,12 @@ export function IssueQuickCreateDialog({ open, onOpenChange, projectId, columnId
   // collide with the general quick-create flow on the Epic's column).
   const isSubtask = parentIssueId != null
 
-  // Spec 2026-09-28 §3: a plain task with a live workspace cannot collect
-  // children (server 409s 收子) — drop it from the general-mode parent picker
-  // so the "attach as child" entry disappears per parent. Epic-typed parents
-  // are exempt (their workspace IS the orchestration control workspace).
+  // Parent picker: any top-level issue can collect children (2026-11-19 —
+  // workspace-bound parents are eligible too; the first child is what promotes
+  // a plain task into an Epic). Children themselves are excluded by the
+  // two-level cap.
   const eligibleParents = useMemo(
-    () => issues.filter((i) => i.issue_type === 'epic' || i.has_workspace !== true),
+    () => issues.filter((i) => (i.parent_issue_id ?? null) === null),
     [issues],
   )
 

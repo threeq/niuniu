@@ -25,13 +25,11 @@ export function EpicHierarchyControl({ issue, onOpenIssue, onAddChild }: EpicHie
 
   const parentId = issue.parent_issue_id ?? null
   const isEpic = issue.issue_type === 'epic'
-  // Spec 2026-09-28 §3: an issue with a live workspace can neither gain a
-  // parent (变子) nor collect children (收子) — the server 409s both, so hide
-  // the action row up front. Children keep the parent chip + wave editing
-  // (display / non-relation fields, not guarded).
-  const hasWorkspace = issue.has_workspace === true
-  // Free issue: neither a child nor a parent -> may go either way (2-level cap).
-  const showHierarchyActions = parentId === null && !isEpic && !hasWorkspace
+  // A free issue (no parent, no children) may become a parent or a child
+  // (2-level cap). 2026-11-19: an issue that already has a workspace can still
+  // gain its first subtask — that is what promotes it into an Epic — so the
+  // action is no longer hidden on has_workspace.
+  const showHierarchyActions = parentId === null && !isEpic
 
   const { data: allIssues } = useQuery({
     queryKey: ['all-issues', issue.project_id],
@@ -42,14 +40,10 @@ export function EpicHierarchyControl({ issue, onOpenIssue, onAddChild }: EpicHie
   const parent = (allIssues ?? []).find((i) => i.id === parentId)
 
   // Eligible parents: same-project, not self, and top-level (so the result stays
-  // within two levels). A plain task with a live workspace cannot collect
-  // children (spec 2026-09-28 §3 收子) — excluded here; epic parents are exempt.
+  // within two levels). Workspace-bound parents are eligible too (2026-11-19).
   // The server re-validates these constraints.
   const eligibleParents = (allIssues ?? []).filter(
-    (i) =>
-      i.id !== issue.id &&
-      (i.parent_issue_id ?? null) === null &&
-      (i.issue_type === 'epic' || i.has_workspace !== true),
+    (i) => i.id !== issue.id && (i.parent_issue_id ?? null) === null,
   )
 
   const mutation = useMutation({
