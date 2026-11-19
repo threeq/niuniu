@@ -181,6 +181,16 @@ func main() {
 	// project/workspace flag. The owner comes from the MCP token's user.
 	registerOpsBotTools(s, api)
 
+	// Shared model library (design 2026-11-19 §11.2): ten owner-level tools over
+	// /api/models, /api/model-usage and /api/model-budget. They need no
+	// project/workspace flag; the project soft-cap tool defaults to this
+	// workspace's project when one is bound.
+	modelPid := ""
+	if *projectID > 0 {
+		modelPid = strconv.FormatInt(*projectID, 10)
+	}
+	registerModelTools(s, api, modelPid)
+
 	if *projectID > 0 {
 		pid := strconv.FormatInt(*projectID, 10)
 		registerProjectTools(s, api, pid)
