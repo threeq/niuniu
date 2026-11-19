@@ -298,13 +298,10 @@ func TestModelHandler_RefreshPreviewAndImport(t *testing.T) {
 	w := modelReq(t, f.r, http.MethodPost, "/api/models/refresh-preview",
 		`{"provider_id":`+strconv.FormatInt(provider.ID, 10)+`}`, f.userA)
 	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
-	var preview struct {
-		Models []service.ModelCandidate `json:"models"`
-		Hint   string                   `json:"hint"`
-	}
+	var preview []service.ModelCandidate
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &preview))
-	require.Len(t, preview.Models, 2)
-	for _, c := range preview.Models {
+	require.Len(t, preview, 2)
+	for _, c := range preview {
 		if c.Name == "glm-5.1" {
 			assert.True(t, c.AlreadyInLibrary, "seeded system model must be flagged")
 		}

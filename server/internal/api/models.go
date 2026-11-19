@@ -306,12 +306,12 @@ func (h *ModelHandler) RefreshPreview(c *gin.Context) {
 		RespondError(c, http.StatusBadGateway, "MODEL_REFRESH_FAILED", err.Error())
 		return
 	}
-	resp := gin.H{"models": candidates}
-	if len(candidates) == 0 {
-		// The picker shows this as a hint; an empty list is still a 200.
-		resp["hint"] = "provider returned no models"
+	if candidates == nil {
+		candidates = []service.ModelCandidate{}
 	}
-	c.JSON(http.StatusOK, resp)
+	// An empty list is still a 200; the picker renders its own "no models"
+	// hint, matching the ModelCandidate[] contract in web/src/lib/model-api.ts.
+	c.JSON(http.StatusOK, candidates)
 }
 
 // Import merges a list of model names into the owner's library.
