@@ -58,12 +58,18 @@ export function WorkspaceToolbar({ workspace, onOpenSearch, onOpenWorkspaceList 
     [workspace.issue_id]
   );
 
-  const toolbarBtn = 'h-7 px-2 gap-1 text-xs rounded-md font-normal';
+  // Phones get a 36px control (inside the 40px action row) for touch;
+  // md+ restores the compact 28px header buttons.
+  const toolbarBtn = 'h-9 px-2 gap-1 text-xs rounded-md font-normal md:h-7';
 
   return (
     <div
       className={cn(
-        'flex h-10 shrink-0 items-center justify-between gap-2 overflow-x-auto border-b border-warm-border bg-warm-muted px-2 sm:px-3',
+        // Phones: two rows — identity first (so the workspace name is never
+        // pushed off-screen by the action icons), then a horizontally
+        // scrollable action row. md+ keeps the original single 40px row.
+        'flex shrink-0 flex-col border-b border-warm-border bg-warm-muted',
+        'md:h-10 md:flex-row md:items-center md:justify-between md:gap-2 md:overflow-x-auto md:px-3',
         workspace.is_archived === 1 && 'border-l-2 border-l-warning/60',
       )}
     >
@@ -72,13 +78,13 @@ export function WorkspaceToolbar({ workspace, onOpenSearch, onOpenWorkspaceList 
           the issue `#<id>` is the primary id (matches what IM/kanban show) and
           the workspace `!<id>` trails as the secondary technical id; an issue-less
           workspace shows only `!<id>`. */}
-      <div className="flex min-w-0 items-center gap-1.5">
+      <div className="flex h-10 min-w-0 items-center gap-1.5 px-2 md:h-auto md:px-0">
         {onOpenWorkspaceList && (
           <Button
             variant="ghost"
             size="icon"
             onClick={onOpenWorkspaceList}
-            className="h-7 w-7 shrink-0 md:hidden"
+            className="h-9 w-9 shrink-0 md:hidden"
             aria-label={t('sidebar.collapse.expand')}
             title={t('sidebar.collapse.expand')}
           >
@@ -106,7 +112,7 @@ export function WorkspaceToolbar({ workspace, onOpenSearch, onOpenWorkspaceList 
           aria-label={t(isPinned ? 'sidebar.pinned.unpin' : 'sidebar.pinned.pin')}
           title={t(isPinned ? 'sidebar.pinned.unpin' : 'sidebar.pinned.pin')}
           className={cn(
-            'h-7 w-7 shrink-0 rounded-md',
+            'h-9 w-9 shrink-0 rounded-md md:h-7 md:w-7',
             isPinned
               ? 'text-brand hover:bg-brand-soft hover:text-brand'
               : 'text-warm-text-muted hover:bg-warm-muted hover:text-warm-text',
@@ -125,7 +131,7 @@ export function WorkspaceToolbar({ workspace, onOpenSearch, onOpenWorkspaceList 
       {/* Action groups: a unified panel-toggle set on the left, secondary
           actions on the right — split by their own container edges instead of a
           loose flat row of equal-weight buttons. */}
-      <div className="flex items-center gap-2 shrink-0">
+      <div className="flex h-10 min-w-0 items-center justify-between gap-2 overflow-x-auto border-t border-warm-border/60 px-2 md:h-auto md:shrink-0 md:justify-end md:overflow-visible md:border-t-0 md:px-0">
         {/* Panel toggles — one bordered group of independent on/off toggles.
             Several can be active at once (openPanels is a set). */}
         <div className="inline-flex items-center gap-0.5 rounded-lg border border-warm-border bg-warm-surface p-0.5">

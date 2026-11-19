@@ -59,7 +59,9 @@
       "workspace": {
         "ahead": "領先基礎分支 {{count}} 個提交",
         "changes": "{{count}} 個未提交變更"
-      }
+      },
+      "expandSubtasks": "展開子任務",
+      "collapseSubtasks": "摺疊子任務"
     },
     "attention": {
       "title": "需要我處理的",
@@ -207,6 +209,18 @@
         "waitingInput": "等待答覆",
         "abandoned": "已放棄"
       }
+    },
+    "view": {
+      "kanban": "看板",
+      "list": "列表"
+    },
+    "list": {
+      "expandAll": "展開全部",
+      "collapseAll": "摺疊全部",
+      "selectAllChildren": "全選子任務",
+      "subtasks": "子任務",
+      "empty": "暫無任務",
+      "childCount": "{{count}} 個子任務"
     }
   },
   "issue": {

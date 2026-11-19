@@ -81,7 +81,7 @@ describe('IssueQuickCreateDialog', () => {
     expect(localStorage.getItem('niuniu:issue-draft:1:2')).toBeNull()
   })
 
-  it('drops workspace-bound plain tasks from the parent picker (spec 2026-09-28 s3)', () => {
+  it('lists workspace-bound parents in the parent picker (2026-11-19)', () => {
     renderDialog({
       issues: [
         makeIssue({ id: 11, title: 'free plain task' }),
@@ -93,9 +93,8 @@ describe('IssueQuickCreateDialog', () => {
     fireEvent.click(screen.getByTestId('quick-create-parent'))
     expect(screen.getByText('#11')).toBeInTheDocument()
     expect(screen.getByText('#13')).toBeInTheDocument()
-    // A plain task with a live workspace cannot collect children (server 409s)
-    // — its entry is hidden. Epic parents are exempt and stay listed.
-    expect(screen.queryByText('#12')).not.toBeInTheDocument()
+    // Having a workspace no longer blocks a parent from collecting children.
+    expect(screen.getByText('#12')).toBeInTheDocument()
   })
 
   describe('Epic subtask mode (parentIssueId set)', () => {

@@ -58,9 +58,11 @@ var (
 	// live workspace, so its branch baseline can no longer follow an epic
 	// re-parenting — parent/child relations are frozen.
 	ErrIssueHasWorkspace = errors.New("该任务已创建工作空间，不能变更父子关系")
-	// ErrParentHasWorkspace (spec 2026-09-28 §3, 收子): the target parent is a
-	// plain task with a live workspace and cannot be promoted into a child
-	// collector. Epic-typed parents are exempt (see ensureParentChangeAllowed).
+	// ErrParentHasWorkspace is deprecated: the 收子 guard was removed in
+	// 2026-11-19 so an issue that already has a workspace can still gain its
+	// first subtask (which is what promotes it to an Epic). Kept so older API
+	// error mapping still compiles and external callers can recognise historic
+	// error payloads.
 	ErrParentHasWorkspace = errors.New("父任务已创建工作空间，不能再添加子任务")
 )
 
@@ -327,13 +329,14 @@ func (s *KanbanService) hasActiveWorkspace(ctx context.Context, issueID int64) b
 // workspace IS the orchestration control workspace, and creating/attaching
 // children under it is the epic workflow itself.
 func (s *KanbanService) parentMayCollectChildren(ctx context.Context, parentIssueID int64) error {
-	parent, err := s.q.GetIssue(ctx, parentIssueID)
-	if err != nil {
+	if _, err := s.q.GetIssue(ctx, parentIssueID); err != nil {
 		return fmt.Errorf("parent issue %d out of scope", parentIssueID)
 	}
-	if parent.IssueType != "epic" && s.hasActiveWorkspace(ctx, parentIssueID) {
-		return ErrParentHasWorkspace
-	}
+	// 2026-11-19: the former "a plain parent with a live workspace cannot
+	// collect children" guard (ErrParentHasWorkspace) was removed at the user's
+	// request. An issue that already has a workspace must still be able to gain
+	// its first subtask — that is exactly what promotes it into an Epic. The
+	// child-side guard (ErrIssueHasWorkspace, 变子) and the two-level cap remain.
 	return nil
 }
 
@@ -1206,8 +1209,8 @@ func (s *KanbanService) BatchCreateIssues(ctx context.Context, projectID int64, 
 			if err := s.ensureTwoLevelParent(ctx, 0, *tasks[i].ParentIssueID); err != nil {
 				return result, fmt.Errorf("task %d: %w", i, err)
 			}
-			// Workspace guardrail (spec 2026-09-28 §3, 收子): same rule as the
-			// single-create path.
+			// Parent may collect children regardless of its own workspace
+			// (2026-11-19 — the first child promotes it to an Epic).
 			if err := s.parentMayCollectChildren(ctx, *tasks[i].ParentIssueID); err != nil {
 				return result, fmt.Errorf("task %d: %w", i, err)
 			}
@@ -1325,8 +1328,9 @@ func (s *KanbanService) CreateIssue(ctx context.Context, columnID int64, title, 
 		if err := s.ensureTwoLevelParent(ctx, 0, *parentIssueID); err != nil {
 			return IssueDetail{}, err
 		}
-		// Workspace guardrail (spec 2026-09-28 §3, 收子): a brand-new issue has
-		// no workspace of its own yet, so only the parent side can trip.
+		// Parent may collect children regardless of its own workspace
+		// (2026-11-19); the child-side guard applies only to re-parenting an
+		// existing issue, not to a brand-new one.
 		if err := s.parentMayCollectChildren(ctx, *parentIssueID); err != nil {
 			return IssueDetail{}, err
 		}

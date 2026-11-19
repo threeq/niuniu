@@ -507,7 +507,7 @@ export function ChatMessage({ event, cliType, showAgentLabel, toolResults, works
         (event.inputTokens != null && event.inputTokens > 0) ||
         (event.outputTokens != null && event.outputTokens > 0);
       return (
-        <div id={anchorId} className="flex items-center gap-1.5 text-xs text-muted-foreground py-1 border-t border-border mt-2">
+        <div id={anchorId} className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-xs text-muted-foreground py-1 border-t border-border mt-2">
           <CheckCircle className="h-3.5 w-3.5 text-success shrink-0" />
           <span className="text-success font-medium">Done</span>
           {hasTokens && (

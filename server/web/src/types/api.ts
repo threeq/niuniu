@@ -133,9 +133,9 @@ export interface Issue extends BaseEntity {
   /** Human-readable reason behind a terminal exec_status (blocked-needs-human /
    *  abandoned-with-reason, spec section 19). Null/absent when not terminal. */
   exec_status_reason?: string | null
-  /** Spec section 3 (2026-09-28) frontend flag: the issue owns a live
-   *  (non-archived) workspace, so its parent/child relations are frozen —
-   *  the UI hides parent/child entries the server would 409 anyway. */
+  /** The issue owns a live (non-archived) workspace. Used by the 变子 guard:
+   *  such an issue cannot be re-parented. Since 2026-11-19 it no longer blocks
+   *  collecting children (a workspace-bound issue may still become an Epic). */
   has_workspace?: boolean
   /** Completion policy override (design §6.5). Null = inherit the project
    *  default. Set via PUT/PATCH /issues/:id with `completion_profile_id`. */

@@ -3,12 +3,14 @@ package service_test
 // Epic 统一分支 Wave 2 (spec docs/superpowers/specs/2026-09-28-epic-unified-branch-design.md
 // §3 普通任务工作空间的父子护栏)。
 //
-// Guard under test: an issue (or a plain-task parent) that already has a live
-// (non-archived) workspace must not gain/lose parent/child relations, because
-// the workspace's branch baseline can no longer follow an epic re-parenting.
-// Epic-typed parents keep accepting children — their workspace IS the
-// orchestration control workspace, and dispatching children to it is the epic
-// workflow itself.
+// Guard under test: an issue that already has a live (non-archived) workspace
+// must not become a child (变子), because its workspace branch baseline can no
+// longer follow an Epic re-parenting.
+//
+// 2026-11-19 update: the 收子 side was removed — a parent (plain task or Epic)
+// with a live workspace MAY collect children. That is how an issue that already
+// has a workspace gains its first subtask and becomes an Epic. The two-level
+// hierarchy cap still applies.
 
 import (
 	"context"
@@ -97,35 +99,32 @@ func TestHierarchyGuard_IssueWithWorkspace_CannotBecomeChild(t *testing.T) {
 	assert.Equal(t, int64(0), g.parentOf(t, g.issueA), "relation must stay unchanged")
 }
 
-// TestHierarchyGuard_PlainParentWithWorkspace_CannotTakeChild pins guard (b):
-// a plain (task-typed) parent with an active workspace cannot collect a child,
-// via SetIssueExecFields…
-func TestHierarchyGuard_PlainParentWithWorkspace_CannotTakeChild(t *testing.T) {
+// TestHierarchyGuard_PlainParentWithWorkspace_CanTakeChild: a plain parent
+// with an active workspace may still collect a child (2026-11-19 — the first
+// child is what promotes it to an Epic).
+func TestHierarchyGuard_PlainParentWithWorkspace_CanTakeChild(t *testing.T) {
 	g := setupHierarchyGuardTest(t)
 	g.attachActiveWorkspace(t, g.issueA)
 
 	_, err := g.svc.SetIssueExecFields(g.ctx, g.issueB, &g.issueA, "task", 0, "idle")
-	require.Error(t, err)
-	assert.True(t, errors.Is(err, service.ErrParentHasWorkspace), "want ErrParentHasWorkspace, got %v", err)
-	assert.Equal(t, int64(0), g.parentOf(t, g.issueB), "relation must stay unchanged")
+	require.NoError(t, err)
+	assert.Equal(t, g.issueA, g.parentOf(t, g.issueB))
 }
 
-// TestHierarchyGuard_CreateIssueUnderParentWithWorkspace_Rejected pins the
-// creation-path guard: CreateIssue with parent_issue_id is rejected when the
-// parent already has an active workspace…
-func TestHierarchyGuard_CreateIssueUnderParentWithWorkspace_Rejected(t *testing.T) {
+// TestHierarchyGuard_CreateIssueUnderParentWithWorkspace_Succeeds: creating a
+// child under a workspace-bound parent is allowed.
+func TestHierarchyGuard_CreateIssueUnderParentWithWorkspace_Succeeds(t *testing.T) {
 	g := setupHierarchyGuardTest(t)
 	g.attachActiveWorkspace(t, g.issueA)
 
-	_, err := g.svc.CreateIssue(g.ctx, g.colID, "新子任务", "", 0, 0, "", "", "", 0, &g.issueA, "task", 0, nil, nil, 0)
-	require.Error(t, err)
-	assert.True(t, errors.Is(err, service.ErrParentHasWorkspace), "want ErrParentHasWorkspace, got %v", err)
+	d, err := g.svc.CreateIssue(g.ctx, g.colID, "新子任务", "", 0, 0, "", "", "", 0, &g.issueA, "task", 0, nil, nil, 0)
+	require.NoError(t, err)
+	assert.Equal(t, g.issueA, g.parentOf(t, d.ID))
 }
 
-// TestHierarchyGuard_BatchCreateUnderParentWithWorkspace_Rejected pins the same
-// guard on batch_create_issues (the orchestration agent's create path must hit
-// the same rule for plain-task parents).
-func TestHierarchyGuard_BatchCreateUnderParentWithWorkspace_Rejected(t *testing.T) {
+// TestHierarchyGuard_BatchCreateUnderParentWithWorkspace_Succeeds pins the same
+// behaviour on batch_create_issues (the orchestration agent's create path).
+func TestHierarchyGuard_BatchCreateUnderParentWithWorkspace_Succeeds(t *testing.T) {
 	g := setupHierarchyGuardTest(t)
 	g.attachActiveWorkspace(t, g.issueA)
 
@@ -133,11 +132,12 @@ func TestHierarchyGuard_BatchCreateUnderParentWithWorkspace_Rejected(t *testing.
 	col, err := g.svc.GetColumn(g.ctx, g.colID)
 	require.NoError(t, err)
 	parent := g.issueA
-	_, err = g.svc.BatchCreateIssues(g.ctx, col.ProjectID, []service.BatchCreateIssuesTask{
+	res, err := g.svc.BatchCreateIssues(g.ctx, col.ProjectID, []service.BatchCreateIssuesTask{
 		{Title: "批量子任务", ParentIssueID: &parent},
 	}, 0)
-	require.Error(t, err)
-	assert.True(t, errors.Is(err, service.ErrParentHasWorkspace), "want ErrParentHasWorkspace, got %v", err)
+	require.NoError(t, err)
+	require.Len(t, res.Issues, 1)
+	assert.Equal(t, g.issueA, g.parentOf(t, res.Issues[0].ID))
 }
 
 // TestHierarchyGuard_WithoutWorkspace_ParentFlowSucceeds pins the happy path:

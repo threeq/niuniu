@@ -21,11 +21,12 @@ import {
 } from '@dnd-kit/sortable';
 import { useColumns } from '@/lib/hooks/use-columns';
 import { ColumnContainer } from './ColumnContainer';
+import { KanbanListView } from './KanbanListView';
 import { SearchFilter, type FilterState } from './search-filter';
 import { BulkActionsToolbar } from './bulk-actions-toolbar';
 import { LoadingSkeleton } from '@/components/shared/loading-skeleton';
 import { EmptyState } from '@/components/shared/empty-state';
-import { Plus, Columns3, ListTodo } from 'lucide-react';
+import { Plus, Columns3, ListTodo, List } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { api, labels as labelsApi } from '@/lib/api';
 import { useIsMobile } from '@/hooks/use-media-query';
@@ -81,6 +82,23 @@ export function KanbanBoard({ project, filteredIssuesByColumn: filteredIssuesByC
   const isMobile = useIsMobile();
   const mergeIntoHeader = !!headerSlot && !isMobile;
   const [activeIssue, setActiveIssue] = useState<Issue | null>(null);
+  // Board ⇄ list view preference. Persisted locally so the last choice sticks
+  // across visits; the list view is where epic subtasks can be batch-selected.
+  const [view, setView] = useState<'board' | 'list'>(() => {
+    try {
+      return localStorage.getItem('niuniu:kanban-view') === 'list' ? 'list' : 'board';
+    } catch {
+      return 'board';
+    }
+  });
+  const changeView = useCallback((next: 'board' | 'list') => {
+    setView(next);
+    try {
+      localStorage.setItem('niuniu:kanban-view', next);
+    } catch {
+      // Private mode / storage disabled — the in-memory choice still works.
+    }
+  }, []);
   const [overId, setOverId] = useState<string | null>(null);
   const [selectedIssueId, setSelectedIssueId] = useState<number | null>(null);
   const [quickCreateColumnId, setQuickCreateColumnId] = useState<number | null>(null);
@@ -124,6 +142,17 @@ export function KanbanBoard({ project, filteredIssuesByColumn: filteredIssuesByC
     },
     []
   );
+
+  const toggleSelectMany = useCallback((ids: number[], checked: boolean) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      for (const id of ids) {
+        if (checked) next.add(id);
+        else next.delete(id);
+      }
+      return next;
+    });
+  }, []);
 
   const toggleSelectColumn = useCallback((columnIssues: Issue[], checked: boolean) => {
     setSelectedIds((prev) => {
@@ -198,6 +227,21 @@ export function KanbanBoard({ project, filteredIssuesByColumn: filteredIssuesByC
     }
     return map;
   }, [allWorkspaces]);
+
+  // Epic id → children, regardless of the board's sub-issue visibility toggle:
+  // epic cards render their subtasks inline for bulk selection.
+  const childrenByParent = useMemo(() => {
+    const map = new Map<number, Issue[]>();
+    for (const issue of allIssues ?? []) {
+      const parent = issue.parent_issue_id;
+      if (parent == null) continue;
+      const arr = map.get(parent) ?? [];
+      arr.push(issue);
+      map.set(parent, arr);
+    }
+    for (const arr of map.values()) arr.sort((a, b) => a.position - b.position);
+    return map;
+  }, [allIssues]);
 
   // Compute stats
   const stats = useMemo(() => {
@@ -558,6 +602,32 @@ export function KanbanBoard({ project, filteredIssuesByColumn: filteredIssuesByC
         />
       </div>
 
+      {/* Board ⇄ list view */}
+      <div className="inline-flex shrink-0 items-center gap-0.5 rounded-md border border-warm-border bg-warm-surface p-0.5">
+        <Button
+          variant={view === 'board' ? 'secondary' : 'ghost'}
+          size="sm"
+          className="h-7 gap-1 px-2 text-xs"
+          onClick={() => changeView('board')}
+          aria-pressed={view === 'board'}
+          title={t('kanban.view.kanban')}
+        >
+          <Columns3 className="h-3.5 w-3.5" aria-hidden="true" />
+          <span className="hidden lg:inline">{t('kanban.view.kanban')}</span>
+        </Button>
+        <Button
+          variant={view === 'list' ? 'secondary' : 'ghost'}
+          size="sm"
+          className="h-7 gap-1 px-2 text-xs"
+          onClick={() => changeView('list')}
+          aria-pressed={view === 'list'}
+          title={t('kanban.view.list')}
+        >
+          <List className="h-3.5 w-3.5" aria-hidden="true" />
+          <span className="hidden lg:inline">{t('kanban.view.list')}</span>
+        </Button>
+      </div>
+
       {/* Add issue */}
       <Button
         variant="outline"
@@ -598,35 +668,53 @@ export function KanbanBoard({ project, filteredIssuesByColumn: filteredIssuesByC
             </div>
           )}
 
-          {/* Kanban columns */}
-          <div className="flex-1 overflow-x-auto overflow-y-hidden bg-warm-canvas">
-            <div className="flex h-full min-w-full gap-3 p-2 sm:gap-4 sm:p-4">
-              {columns.map((column, index) => (
-                <ColumnContainer
-                  key={column.id}
-                  column={column}
-                  index={index}
-                  isFirst={index === 0}
-                  isLast={index === columns.length - 1}
-                  isDragOver={visualDragOverColumnId === Number(column.id)}
-                  isDraggingAny={activeIssue !== null}
-                  isMoveDisabled={isMovingColumn}
-                  filteredIssues={filteredIssuesByColumn?.[column.id]}
-                  showSubIssues={showSubIssues}
-                  highlightQuery={highlightQuery}
-                  workspaceByIssueId={workspaceByIssueId}
-                  selectedIds={selectedIds}
-                  selectionActive={selectionActive}
-                  onToggleSelect={toggleSelect}
-                  onToggleSelectColumn={toggleSelectColumn}
-                  onUpdateColumn={(id, name) => updateColumn({ id, data: { name } })}
-                  onMoveColumn={handleMoveColumn}
-                  onIssueClick={handleIssueClick}
-                  onCreateIssueInColumn={handleCreateIssueInColumn}
-                />
-              ))}
+          {/* Kanban columns / list view */}
+          {view === 'list' ? (
+            <div className="min-h-0 flex-1">
+              <KanbanListView
+                columns={columns}
+                issues={hasActiveFilter ? (filteredFlat ?? []) : (allIssues ?? [])}
+                workspaceByIssueId={workspaceByIssueId}
+                selectedIds={selectedIds}
+                selectionActive={selectionActive}
+                onToggleSelect={toggleSelect}
+                onToggleSelectMany={toggleSelectMany}
+                onIssueClick={handleIssueClick}
+                highlightQuery={highlightQuery}
+              />
             </div>
-          </div>
+          ) : (
+            <div className="flex-1 overflow-x-auto overflow-y-hidden bg-warm-canvas">
+              <div className="flex h-full min-w-full gap-3 p-2 sm:gap-4 sm:p-4">
+                {columns.map((column, index) => (
+                  <ColumnContainer
+                    key={column.id}
+                    column={column}
+                    index={index}
+                    isFirst={index === 0}
+                    isLast={index === columns.length - 1}
+                    isDragOver={visualDragOverColumnId === Number(column.id)}
+                    isDraggingAny={activeIssue !== null}
+                    isMoveDisabled={isMovingColumn}
+                    filteredIssues={filteredIssuesByColumn?.[column.id]}
+                    showSubIssues={showSubIssues}
+                    highlightQuery={highlightQuery}
+                    workspaceByIssueId={workspaceByIssueId}
+                    selectedIds={selectedIds}
+                    selectionActive={selectionActive}
+                    childrenByParent={childrenByParent}
+                    onToggleSelect={toggleSelect}
+                    onToggleSelectColumn={toggleSelectColumn}
+                    onToggleSelectMany={toggleSelectMany}
+                    onUpdateColumn={(id, name) => updateColumn({ id, data: { name } })}
+                    onMoveColumn={handleMoveColumn}
+                    onIssueClick={handleIssueClick}
+                    onCreateIssueInColumn={handleCreateIssueInColumn}
+                  />
+                ))}
+              </div>
+            </div>
+          )}
 
           {/* Bulk actions toolbar — visible only while issues are selected */}
           {selectionActive && (

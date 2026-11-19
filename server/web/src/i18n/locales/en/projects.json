@@ -59,7 +59,9 @@
       "workspace": {
         "ahead": "{{count}} commits ahead of base branch",
         "changes": "{{count}} uncommitted changes"
-      }
+      },
+      "expandSubtasks": "Expand subtasks",
+      "collapseSubtasks": "Collapse subtasks"
     },
     "attention": {
       "title": "Needs my attention",
@@ -207,6 +209,18 @@
         "waitingInput": "Waiting for you",
         "abandoned": "Abandoned"
       }
+    },
+    "view": {
+      "kanban": "Board",
+      "list": "List"
+    },
+    "list": {
+      "expandAll": "Expand all",
+      "collapseAll": "Collapse all",
+      "selectAllChildren": "Select all subtasks",
+      "subtasks": "Subtasks",
+      "empty": "No issues",
+      "childCount": "{{count}} subtasks"
     }
   },
   "issue": {

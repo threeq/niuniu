@@ -59,7 +59,9 @@
       "workspace": {
         "ahead": "领先基础分支 {{count}} 个提交",
         "changes": "{{count}} 个未提交变更"
-      }
+      },
+      "expandSubtasks": "展开子任务",
+      "collapseSubtasks": "折叠子任务"
     },
     "attention": {
       "title": "需要我处理的",
@@ -207,6 +209,18 @@
         "waitingInput": "等待答复",
         "abandoned": "已放弃"
       }
+    },
+    "view": {
+      "kanban": "看板",
+      "list": "列表"
+    },
+    "list": {
+      "expandAll": "展开全部",
+      "collapseAll": "折叠全部",
+      "selectAllChildren": "全选子任务",
+      "subtasks": "子任务",
+      "empty": "暂无任务",
+      "childCount": "{{count}} 个子任务"
     }
   },
   "issue": {
