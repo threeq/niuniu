@@ -2608,3 +2608,69 @@ CREATE TABLE IF NOT EXISTS ops_browser_sessions (
     updated_at       TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     UNIQUE(bot_id, backend)
 );
+
+-- ============================================================
+-- Shared model library + usage budget
+-- (docs/superpowers/specs/2026-11-19-shared-model-library-design.md 5).
+--
+-- models: owner-scoped model names. Rows with owner_id=0 are system builtins
+-- visible to every owner; an owner row of the same name overrides its display
+-- name / enabled state. source is diagnostic only (builtin|refreshed|manual).
+--
+-- model_usage_hourly: per-hour token attribution keyed by owner, project,
+-- workspace, CLI, model and provider. project_id=0 / provider_id=0 / model_name=''
+-- mean "unknown" for that dimension. estimated=1 marks an hour whose usage
+-- could not be read from upstream (tokens 0, interaction still counted).
+--
+-- model_budget_settings: project_id=0 is the owner monthly token hard cap;
+-- project_id>0 is a per-project soft cap (warn only). monthly_tokens=0 is
+-- unlimited; no row also means unlimited.
+-- ============================================================
+CREATE TABLE IF NOT EXISTS models (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    owner_type   TEXT NOT NULL DEFAULT 'user' CHECK (owner_type IN ('user','org')),
+    owner_id     INTEGER NOT NULL DEFAULT 0,
+    name         TEXT NOT NULL,
+    display_name TEXT NOT NULL DEFAULT '',
+    enabled      INTEGER NOT NULL DEFAULT 1,
+    source       TEXT NOT NULL DEFAULT 'manual',
+    created_at   TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at   TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(owner_type, owner_id, name)
+);
+CREATE INDEX IF NOT EXISTS idx_models_owner ON models(owner_type, owner_id, enabled);
+
+CREATE TABLE IF NOT EXISTS model_usage_hourly (
+    id                    INTEGER PRIMARY KEY AUTOINCREMENT,
+    owner_type            TEXT NOT NULL DEFAULT 'user' CHECK (owner_type IN ('user','org')),
+    owner_id              INTEGER NOT NULL DEFAULT 0,
+    project_id            INTEGER NOT NULL DEFAULT 0,
+    workspace_id          INTEGER NOT NULL DEFAULT 0,
+    agent_cli             TEXT NOT NULL DEFAULT '',
+    model_name            TEXT NOT NULL DEFAULT '',
+    provider_id           INTEGER NOT NULL DEFAULT 0,
+    bucket_hour           TIMESTAMP NOT NULL,
+    input_tokens          INTEGER NOT NULL DEFAULT 0,
+    output_tokens         INTEGER NOT NULL DEFAULT 0,
+    cache_creation_tokens INTEGER NOT NULL DEFAULT 0,
+    cache_read_tokens     INTEGER NOT NULL DEFAULT 0,
+    interaction_count     INTEGER NOT NULL DEFAULT 0,
+    estimated             INTEGER NOT NULL DEFAULT 0,
+    UNIQUE(owner_type, owner_id, project_id, workspace_id, agent_cli, model_name, provider_id, bucket_hour)
+);
+CREATE INDEX IF NOT EXISTS idx_model_usage_owner_time
+    ON model_usage_hourly(owner_type, owner_id, bucket_hour);
+CREATE INDEX IF NOT EXISTS idx_model_usage_project_time
+    ON model_usage_hourly(project_id, bucket_hour);
+
+CREATE TABLE IF NOT EXISTS model_budget_settings (
+    id             INTEGER PRIMARY KEY AUTOINCREMENT,
+    owner_type     TEXT NOT NULL DEFAULT 'user' CHECK (owner_type IN ('user','org')),
+    owner_id       INTEGER NOT NULL DEFAULT 0,
+    project_id     INTEGER NOT NULL DEFAULT 0,
+    monthly_tokens INTEGER NOT NULL DEFAULT 0,
+    enabled        INTEGER NOT NULL DEFAULT 1,
+    created_at     TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at     TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(owner_type, owner_id, project_id)
+);

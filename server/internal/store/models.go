@@ -1098,6 +1098,47 @@ type MfaTrustedDevice struct {
 	CreatedAt  time.Time `json:"created_at"`
 }
 
+type Model struct {
+	ID          int64     `json:"id"`
+	OwnerType   string    `json:"owner_type"`
+	OwnerID     int64     `json:"owner_id"`
+	Name        string    `json:"name"`
+	DisplayName string    `json:"display_name"`
+	Enabled     int64     `json:"enabled"`
+	Source      string    `json:"source"`
+	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
+}
+
+type ModelBudgetSetting struct {
+	ID            int64     `json:"id"`
+	OwnerType     string    `json:"owner_type"`
+	OwnerID       int64     `json:"owner_id"`
+	ProjectID     int64     `json:"project_id"`
+	MonthlyTokens int64     `json:"monthly_tokens"`
+	Enabled       int64     `json:"enabled"`
+	CreatedAt     time.Time `json:"created_at"`
+	UpdatedAt     time.Time `json:"updated_at"`
+}
+
+type ModelUsageHourly struct {
+	ID                  int64     `json:"id"`
+	OwnerType           string    `json:"owner_type"`
+	OwnerID             int64     `json:"owner_id"`
+	ProjectID           int64     `json:"project_id"`
+	WorkspaceID         int64     `json:"workspace_id"`
+	AgentCli            string    `json:"agent_cli"`
+	ModelName           string    `json:"model_name"`
+	ProviderID          int64     `json:"provider_id"`
+	BucketHour          time.Time `json:"bucket_hour"`
+	InputTokens         int64     `json:"input_tokens"`
+	OutputTokens        int64     `json:"output_tokens"`
+	CacheCreationTokens int64     `json:"cache_creation_tokens"`
+	CacheReadTokens     int64     `json:"cache_read_tokens"`
+	InteractionCount    int64     `json:"interaction_count"`
+	Estimated           int64     `json:"estimated"`
+}
+
 type OpsBot struct {
 	ID                 int64         `json:"id"`
 	OwnerType          string        `json:"owner_type"`

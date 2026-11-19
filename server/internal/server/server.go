@@ -622,6 +622,13 @@ func New(cfg *config.Config, db *sql.DB, frontendFS fs.FS) *Server {
 		store.MarkEnvSeedDone(db)
 	}
 
+	// Shared model library: seed the owner_id=0 builtin rows. Idempotent and
+	// cheap, so it runs on every startup (not just fresh installs) to backfill
+	// databases created before the model library existed.
+	if err := service.SeedBuiltinModels(context.Background(), s.queries); err != nil {
+		slog.Warn("seed builtin models failed", "error", err)
+	}
+
 	// Scene services (M1 — see docs/superpowers/specs/2026-05-17-scene-based-mcp-plugin-management-design.md).
 	// Order: SceneService → SceneSeeder seeds builtins from embedded YAML →
 	// PluginInstaller + SceneProjector wires depend on MCPConfigGenerator which is

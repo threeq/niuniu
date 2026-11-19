@@ -891,6 +891,29 @@ func Migrate(db *sql.DB) {
 	if err := migrateOpsBot(db); err != nil {
 		slog.Warn("ops bot migration failed", "error", err)
 	}
+
+	// 2026-11-19 Shared model library + usage budget: the three tables are
+	// created by schema.sql / schema_postgres.sql on every startup; their indexes
+	// live here per the rule that indexes on tables added to existing DBs are
+	// created during migration.
+	migrateModels(db)
+}
+
+// migrateModels creates the model-library indexes on existing databases. The
+// models / model_usage_hourly / model_budget_settings tables themselves are
+// created by the schema files (CREATE TABLE IF NOT EXISTS) before Migrate runs,
+// so this pass is index-only and safe to repeat.
+func migrateModels(db *sql.DB) {
+	indexes := []string{
+		`CREATE INDEX IF NOT EXISTS idx_models_owner ON models(owner_type, owner_id, enabled)`,
+		`CREATE INDEX IF NOT EXISTS idx_model_usage_owner_time ON model_usage_hourly(owner_type, owner_id, bucket_hour)`,
+		`CREATE INDEX IF NOT EXISTS idx_model_usage_project_time ON model_usage_hourly(project_id, bucket_hour)`,
+	}
+	for _, stmt := range indexes {
+		if _, err := execMigration(db, stmt); err != nil {
+			slog.Warn("model library index creation failed", "error", err)
+		}
+	}
 }
 
 // migrateOpsBot retrofits the Ops Bot columns onto existing databases (design
