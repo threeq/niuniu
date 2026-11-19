@@ -388,6 +388,20 @@
   "models": {
     "title": "Model library & budget",
     "description": "Maintain the owner-wide shared model library used by every provider and CLI, and set this month's token budget.",
+    "addToLibrary": "Add to library",
+    "addedToLibrary": "Added {{name}} to the model library",
+    "addToLibraryFailed": "Could not add the model: {{detail}}",
+    "refreshButton": "Refresh models",
+    "refreshTitle": "Refresh models",
+    "refreshDescription": "Model names listed by {{name}}. Pick the ones to add to the shared library.",
+    "refreshLoading": "Fetching the model list…",
+    "refreshUnsupported": "This provider does not expose a /models endpoint — enter model names manually.",
+    "refreshFailed": "Refresh failed: {{detail}}",
+    "refreshEmpty": "The provider returned no models.",
+    "alreadyInLibrary": "Already in library",
+    "importButton": "Import selected ({{selected}})",
+    "imported": "Imported {{added}}, skipped {{skipped}}",
+    "importFailed": "Import failed: {{detail}}",
     "tabs": {
       "library": "Library",
       "budget": "Budget"
@@ -1073,6 +1087,7 @@
       "apiKeyAccountLabel": "Reference account",
       "apiKeyAccountNone": "No reference — paste the key directly",
       "apiKeyHint": "Choosing an account fills the key as ${ACCOUNT:name}; changing the account key updates everywhere it is referenced.",
+      "modelsSectionLabel": "Models",
       "modelLabel": "Default model",
       "haikuModelLabel": "Small model (haiku)",
       "sonnetModelLabel": "Standard model (sonnet)",
