@@ -66,4 +66,9 @@ const (
 	// ID is the binding id and Extra carries {source_id, project_id, source_kind,
 	// provider, reason_code, message} so the SPA can toast and refresh.
 	TopicIntakeHealth = "intake_health"
+	// TopicModelBudget signals a monthly model-token budget event. Action is
+	// "exceeded" (owner hard cap reached; new turns are refused) or
+	// "project_warning" (project soft cap reached; work continues). Extra
+	// carries {period, used, limit} plus {project_id} for project warnings.
+	TopicModelBudget = "model_budget"
 )

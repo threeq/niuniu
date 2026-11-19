@@ -244,6 +244,18 @@ type AgentProxy struct {
 	serverSettings    ServerSettingsReader // optional; admin-tunable K/V reader
 	gitIdentity       GitIdentityResolver  // optional; nil = no GIT_AUTHOR_* injection
 	permissionGate    PermissionGate       // optional; nil = codex approval bridge auto-denies (safe default)
+	budgetChecker     ModelBudgetChecker   // optional; nil = no token budget enforcement
+}
+
+// SetModelBudgetChecker registers the monthly token budget enforcer. nil means
+// budgets are not configured and every request is allowed.
+func (p *AgentProxy) SetModelBudgetChecker(c ModelBudgetChecker) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.budgetChecker = c
+	for _, s := range p.sessions {
+		s.budgetChecker = c
+	}
 }
 
 // SetPermissionGate wires the codex approval-bridge so approval/request
@@ -638,6 +650,10 @@ type WorkspaceSession struct {
 	autohostChainID string
 	ownerType       string
 	ownerID         int64
+
+	// budgetChecker gates each new turn on the owner's monthly token budget.
+	// nil = budgets not configured; every turn is allowed.
+	budgetChecker ModelBudgetChecker
 }
 
 const idleTimeout = 30 * time.Minute
@@ -713,6 +729,22 @@ func (p *AgentProxy) GetOrStartSession(ctx context.Context, workspaceID int64, u
 		projectID = 0
 	}
 
+	// Budget enforcement: a new session may not start once the owner has used
+	// up the month's token allowance. Check() is fail-open — an internal lookup
+	// failure returns Allowed=true rather than blocking work.
+	p.mu.RLock()
+	checker := p.budgetChecker
+	p.mu.RUnlock()
+	if checker != nil {
+		dec, cerr := checker.Check(ctx, ws.OwnerType, ws.OwnerID, projectID)
+		if cerr != nil {
+			slog.Warn("agentproxy: model budget check failed (fail-open)",
+				"workspaceID", workspaceID, "error", cerr)
+		} else if !dec.Allowed {
+			return nil, fmt.Errorf("%w: 本月已用 %d / %d tokens", ErrModelBudgetExceeded, dec.UsedTokens, dec.LimitTokens)
+		}
+	}
+
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	if s := p.sessions[workspaceID]; s != nil {
@@ -756,6 +788,7 @@ func (p *AgentProxy) GetOrStartSession(ctx context.Context, workspaceID int64, u
 		rand:              rand.New(rand.NewSource(time.Now().UnixNano() ^ workspaceID)),
 		ownerType:         ws.OwnerType,
 		ownerID:           ws.OwnerID,
+		budgetChecker:     p.budgetChecker,
 		autohostChainID:   "", // allocated per SendLoop run (T1.8)
 	}
 	p.sessions[workspaceID] = s
@@ -1854,6 +1887,30 @@ func (s *WorkspaceSession) SendLoop(ctx context.Context, workDir, content, attac
 		if stopReq {
 			slog.Info("agent sendLoop: stop requested — terminating loop", "workspaceID", s.workspaceID)
 			return
+		}
+
+		// Budget gate: every new turn re-checks the owner's monthly token cap so
+		// a long-running loop cannot keep spending after the cap is crossed.
+		// Fail-open on lookup errors (Check returns Allowed=true itself).
+		if s.budgetChecker != nil {
+			dec, berr := s.budgetChecker.Check(ctx, s.ownerType, s.ownerID, s.projectID)
+			if berr != nil {
+				slog.Warn("agent sendLoop: model budget check failed (fail-open)",
+					"workspaceID", s.workspaceID, "error", berr)
+			} else if !dec.Allowed {
+				reason := fmt.Sprintf("本月模型 token 已用 %d / %d，请调整预算或等待下月", dec.UsedTokens, dec.LimitTokens)
+				slog.Warn("agent sendLoop: model budget exceeded — refusing turn",
+					"workspaceID", s.workspaceID, "used", dec.UsedTokens, "limit", dec.LimitTokens)
+				s.emitAutohostSystemInfo(ctx, reason)
+				// This is a deliberate stop, not a failed turn: route it through
+				// the attention path so the queue rollback (which would re-queue
+				// the user message and immediately retry it) does not fire.
+				s.mu.Lock()
+				s.autohostAttention = reason
+				s.mu.Unlock()
+				s.finalizeSendLoopTurn(ctx, false, reason, true)
+				return
+			}
 		}
 
 		if err := s.Send(ctx, workDir, content, attachmentsJSON, injected); err != nil {
