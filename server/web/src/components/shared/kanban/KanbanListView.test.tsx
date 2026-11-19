@@ -63,6 +63,20 @@ describe('KanbanListView', () => {
     expect(screen.getByText('Child A1')).toBeInTheDocument()
   })
 
+  it('collapses and expands a column from its header', () => {
+    renderList()
+    const collapse = screen.getByRole('button', { name: /collapse column|折叠栏目|摺疊欄目/i })
+    expect(screen.getByText('Standalone')).toBeInTheDocument()
+
+    fireEvent.click(collapse)
+    expect(screen.queryByText('Standalone')).not.toBeInTheDocument()
+    expect(screen.queryByText('Epic A')).not.toBeInTheDocument()
+
+    const expand = screen.getByRole('button', { name: /expand column|展开栏目|展開欄目/i })
+    fireEvent.click(expand)
+    expect(screen.getByText('Standalone')).toBeInTheDocument()
+  })
+
   it('allows selecting a subtask for bulk actions', () => {
     const onToggleSelect = vi.fn()
     renderList({ onToggleSelect })

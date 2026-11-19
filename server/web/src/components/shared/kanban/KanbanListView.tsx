@@ -49,6 +49,7 @@ export function KanbanListView({
 }: KanbanListViewProps) {
   const { t } = useTranslation('projects')
   const [expanded, setExpanded] = useState<Set<number>>(() => new Set())
+  const [collapsedColumns, setCollapsedColumns] = useState<Set<number>>(() => new Set())
 
   const childrenByParent = useMemo(() => {
     const map = new Map<number, Issue[]>()
@@ -87,10 +88,12 @@ export function KanbanListView({
   )
 
   // Flattened order drives shift-range selection: epics, then their children
-  // when expanded.
+  // when expanded. Rows in collapsed columns are not visible and therefore not
+  // part of the shift-range.
   const visibleRows = useMemo(() => {
     const rows: Issue[] = []
     for (const group of groups) {
+      if (collapsedColumns.has(group.column.id)) continue
       for (const issue of group.items) {
         rows.push(issue)
         if (expanded.has(issue.id)) {
@@ -99,7 +102,16 @@ export function KanbanListView({
       }
     }
     return rows
-  }, [groups, expanded, childrenByParent])
+  }, [groups, expanded, childrenByParent, collapsedColumns])
+
+  const toggleColumn = (id: number) => {
+    setCollapsedColumns((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
 
   const toggleExpanded = (id: number) => {
     setExpanded((prev) => {
@@ -110,8 +122,16 @@ export function KanbanListView({
     })
   }
 
-  const expandAll = () => setExpanded(new Set(epicIdsWithChildren))
-  const collapseAll = () => setExpanded(new Set())
+  // The header pair expands/collapses both levels: every column and every
+  // epic's subtasks. Individual column headers and epic rows stay independent.
+  const expandAll = () => {
+    setExpanded(new Set(epicIdsWithChildren))
+    setCollapsedColumns(new Set())
+  }
+  const collapseAll = () => {
+    setExpanded(new Set())
+    setCollapsedColumns(new Set(columns.map((c) => c.id)))
+  }
 
   const toggleEpicChildren = (epicId: number, checked: boolean) => {
     onToggleSelectMany((childrenByParent.get(epicId) ?? []).map((c) => c.id), checked)
@@ -144,13 +164,31 @@ export function KanbanListView({
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto">
-        {groups.map(({ column, items }) => (
+        {groups.map(({ column, items }) => {
+          const collapsed = collapsedColumns.has(column.id)
+          return (
           <section key={column.id}>
-            <div className="sticky top-0 z-10 flex items-center gap-2 border-b border-warm-border bg-warm-surface px-3 py-1.5 text-xs font-medium text-warm-text-muted">
-              <span className="truncate">{column.name}</span>
-              <span className="rounded-full bg-warm-muted px-1.5 tabular-nums">{items.length}</span>
+            <div className="sticky top-0 z-10 border-b border-warm-border bg-warm-surface">
+              <button
+                type="button"
+                onClick={() => toggleColumn(column.id)}
+                aria-expanded={!collapsed}
+                aria-label={t(
+                  collapsed ? 'kanban.list.expandColumn' : 'kanban.list.collapseColumn',
+                  { name: column.name },
+                )}
+                className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs font-medium text-warm-text-muted hover:bg-warm-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand"
+              >
+                {collapsed ? (
+                  <ChevronRight className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                ) : (
+                  <ChevronDown className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                )}
+                <span className="truncate">{column.name}</span>
+                <span className="rounded-full bg-warm-muted px-1.5 tabular-nums">{items.length}</span>
+              </button>
             </div>
-            {items.length === 0 ? (
+            {!collapsed && (items.length === 0 ? (
               <p className="px-4 py-2 text-xs text-warm-text-muted">{t('kanban.list.empty')}</p>
             ) : (
               <ul>
@@ -323,9 +361,10 @@ export function KanbanListView({
                   )
                 })}
               </ul>
-            )}
+            ))}
           </section>
-        ))}
+          )
+        })}
       </div>
     </div>
   )
