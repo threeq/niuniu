@@ -404,7 +404,8 @@
     "importFailed": "导入失败：{{detail}}",
     "tabs": {
       "library": "模型库",
-      "budget": "预算"
+      "budget": "预算",
+      "usage": "用量"
     },
     "library": {
       "title": "模型库",
@@ -500,7 +501,37 @@
         "noProjects": "没有可选项目",
         "limit": "月度上限（token）",
         "limitHint": "0 表示不限制。"
+      },
+      "exceededToast": "本月模型 token 预算已超限（{{period}}）：已用 {{used}} / {{limit}}。",
+      "projectWarningToast": "项目 {{project}} 的模型 token 预算已超限：已用 {{used}} / {{limit}}。"
+    },
+    "usage": {
+      "title": "用量",
+      "loading": "正在加载用量…",
+      "loadFailed": "用量加载失败",
+      "empty": "本期暂无用量",
+      "totalTokens": "总 token",
+      "totalRequests": "请求数",
+      "groups": {
+        "model": "模型",
+        "cli": "CLI",
+        "provider": "Provider",
+        "project": "项目"
+      },
+      "columns": {
+        "name": "名称",
+        "tokens": "Token",
+        "requests": "请求数"
       }
+    },
+    "workspace": {
+      "title": "模型用量",
+      "currentProvider": "当前 Provider",
+      "currentModel": "当前模型",
+      "defaultModel": "默认（跟随 CLI）",
+      "monthTokens": "本月 token",
+      "budgetStatus": "Owner 预算",
+      "loading": "加载中…"
     }
   },
   "capability": {

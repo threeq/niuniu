@@ -62,9 +62,10 @@ import {
   upsertModel,
 } from '@/lib/model-api'
 import type { ModelBudget, ModelItem, ModelProjectBudget } from '@/types/model'
+import { ModelUsagePanel } from '@/components/models/model-usage-panel'
 import { cn } from '@/lib/utils'
 
-type Section = 'library' | 'budget'
+type Section = 'library' | 'usage' | 'budget'
 
 const MODELS_QUERY_KEY = ['models', 'library']
 const BUDGET_QUERY_KEY = ['model-budget']
@@ -85,6 +86,7 @@ export function ModelSettings() {
 
   const sections: { id: Section; labelKey: string }[] = [
     { id: 'library', labelKey: 'models.tabs.library' },
+    { id: 'usage', labelKey: 'models.tabs.usage' },
     { id: 'budget', labelKey: 'models.tabs.budget' },
   ]
 
@@ -119,7 +121,9 @@ export function ModelSettings() {
         ))}
       </div>
 
-      {section === 'library' ? <LibraryPanel /> : <BudgetPanel />}
+      {section === 'library' && <LibraryPanel />}
+      {section === 'usage' && <ModelUsagePanel />}
+      {section === 'budget' && <BudgetPanel />}
     </div>
   )
 }
@@ -518,7 +522,7 @@ function BudgetPanel() {
     isLoading,
     isError,
     refetch,
-  } = useQuery({ queryKey: BUDGET_QUERY_KEY, queryFn: getBudget })
+  } = useQuery({ queryKey: BUDGET_QUERY_KEY, queryFn: () => getBudget() })
   const { projects = [] } = useProjects()
 
   // Soft caps can point at a project that is no longer active; keep those

@@ -80,6 +80,9 @@ const INVALIDATION_MAP: Record<string, QueryKeyMapper> = {
   // Team-edition integration approvals (issue #741): a request raised/decided/
   // escalated/invalidated refreshes both the org queue and the "mine" view.
   integration_approval: () => [['org-integration-approvals'], ['me-integration-approvals']],
+  // Model token budget crossed a threshold: refresh the budget snapshot and
+  // every usage view so the numbers the toast is talking about are current.
+  model_budget: () => [['model-budget'], ['model-usage']],
 };
 
 export type ToastTarget =
@@ -218,6 +221,22 @@ function shouldAlert(n: Notification): boolean {
   return (ids as number[]).includes(me);
 }
 
+// Budget events are deduped per period (and per project for soft caps). The
+// server also dedupes within its process, but a reconnect or a server restart
+// can redeliver the same event — repeating the toast would train the user to
+// ignore it, so the client keeps its own set for the session.
+const seenModelBudgetKeys = new Set<string>();
+
+function budgetKey(n: Notification): string {
+  const extra = (n.extra as Record<string, unknown>) ?? {};
+  const period = typeof extra.period === 'string' ? extra.period : '';
+  const projectId =
+    n.action === 'project_warning' && extra.project_id != null
+      ? String(extra.project_id)
+      : '';
+  return `${n.action}:${period}:${projectId}`;
+}
+
 function handleToast(n: Notification) {
   // Integration-source health (#744) is owner-scoped by the hub, not gated by
   // the workspace alertScope contract, so it toasts independently.
@@ -277,6 +296,37 @@ function handleToast(n: Notification) {
     return;
   }
 
+  // Model token budget (design §9.3/§10.3): the owner hard cap was hit, or a
+  // project soft cap was crossed. Owner-scoped by the hub, so the workspace
+  // alertScope contract does not apply. Deduped per period.
+  if (n.topic === 'model_budget') {
+    const extra = (n.extra as Record<string, unknown>) ?? {};
+    const key = budgetKey(n);
+    if (seenModelBudgetKeys.has(key)) return;
+    seenModelBudgetKeys.add(key);
+    const period = typeof extra.period === 'string' ? extra.period : '';
+    const used = Number(extra.used ?? 0);
+    const limit = Number(extra.limit ?? 0);
+    if (n.action === 'project_warning') {
+      toast.warning(
+        i18n.t('settings:models.budget.projectWarningToast', {
+          project: extra.project_id != null ? String(extra.project_id) : '',
+          used,
+          limit,
+        }),
+      );
+    } else {
+      toast.error(
+        i18n.t('settings:models.budget.exceededToast', {
+          period,
+          used,
+          limit,
+        }),
+      );
+    }
+    return;
+  }
+
   if (n.topic !== 'workspace') return;
   if (!shouldAlert(n)) return;     // ← single gate; covers all workspace events
 
@@ -305,6 +355,7 @@ export function __resetForTests() {
     throw new Error('__resetForTests is for vitest only');
   }
   groupToToastIds.clear();
+  seenModelBudgetKeys.clear();
   toastSeq = 0;
 }
 

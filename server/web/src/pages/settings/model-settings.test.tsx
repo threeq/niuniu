@@ -13,6 +13,7 @@ vi.mock('@/lib/model-api', () => ({
   refreshPreview: vi.fn(),
   importModels: vi.fn(),
   getBudget: vi.fn(),
+  getUsage: vi.fn(),
   setBudget: vi.fn(),
   setProjectBudget: vi.fn(),
   deleteProjectBudget: vi.fn(),
@@ -147,6 +148,25 @@ describe('ModelSettings', () => {
         true
       )
     )
+  })
+
+  it('shows the usage total and per-model breakdown', async () => {
+    vi.mocked(modelApi.getUsage).mockImplementation(async (groupBy) => ({
+      total_tokens: 500,
+      requests: 5,
+      ...(groupBy === 'model'
+        ? {
+            by_model: [{ key: 'usage-model', total_tokens: 500, requests: 5 }],
+          }
+        : {}),
+    }))
+    renderPage()
+    await screen.findByText('glm-4')
+
+    fireEvent.click(screen.getByRole('tab', { name: '用量' }))
+
+    await screen.findByText('usage-model')
+    expect(screen.getByText('总 token')).toBeInTheDocument()
   })
 
   it('shows owner usage progress and saves a new cap', async () => {

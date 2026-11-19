@@ -404,7 +404,8 @@
     "importFailed": "Import failed: {{detail}}",
     "tabs": {
       "library": "Library",
-      "budget": "Budget"
+      "budget": "Budget",
+      "usage": "Usage"
     },
     "library": {
       "title": "Model library",
@@ -500,7 +501,37 @@
         "noProjects": "No selectable projects",
         "limit": "Monthly cap (tokens)",
         "limitHint": "0 means unlimited."
+      },
+      "exceededToast": "Monthly model token budget ({{period}}) exceeded: {{used}} / {{limit}} tokens.",
+      "projectWarningToast": "Project {{project}} model token cap exceeded: {{used}} / {{limit}} tokens."
+    },
+    "usage": {
+      "title": "Usage",
+      "loading": "Loading usage…",
+      "loadFailed": "Failed to load usage",
+      "empty": "No usage in this period yet",
+      "totalTokens": "Total tokens",
+      "totalRequests": "Requests",
+      "groups": {
+        "model": "Model",
+        "cli": "CLI",
+        "provider": "Provider",
+        "project": "Project"
+      },
+      "columns": {
+        "name": "Name",
+        "tokens": "Tokens",
+        "requests": "Requests"
       }
+    },
+    "workspace": {
+      "title": "Model usage",
+      "currentProvider": "Current provider",
+      "currentModel": "Current model",
+      "defaultModel": "Default (follows CLI)",
+      "monthTokens": "Tokens this month",
+      "budgetStatus": "Owner budget",
+      "loading": "Loading…"
     }
   },
   "capability": {

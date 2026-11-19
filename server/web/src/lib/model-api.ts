@@ -1,5 +1,22 @@
 import { api } from './api'
-import type { ModelBudget, ModelCandidate, ModelItem } from '@/types/model'
+import type {
+  ModelBudget,
+  ModelCandidate,
+  ModelItem,
+  ModelUsageGroup,
+  ModelUsageSummary,
+} from '@/types/model'
+
+/** Optional explicit owner scope; omitted = the caller's personal owner. */
+export interface OwnerParam {
+  type: 'user' | 'org'
+  id: number
+}
+
+function ownerParams(owner?: OwnerParam): Record<string, string> | undefined {
+  if (!owner) return undefined
+  return { owner_type: owner.type, owner_id: String(owner.id) }
+}
 
 // Owner-scoped shared model library. Names are shared by every provider and
 // CLI; the library never belongs to a specific provider.
@@ -46,8 +63,26 @@ export function importModels(
   })
 }
 
-export function getBudget(): Promise<ModelBudget> {
-  return api.get<ModelBudget>('/model-budget')
+export function getBudget(owner?: OwnerParam): Promise<ModelBudget> {
+  return api.get<ModelBudget>('/model-budget', {
+    params: ownerParams(owner),
+  })
+}
+
+/**
+ * Aggregate model usage for one owner. The backend returns one breakdown per
+ * call: omit groupBy for the window total, or pass a dimension to get its rows.
+ * The window defaults to the current UTC calendar month.
+ */
+export function getUsage(
+  groupBy?: ModelUsageGroup,
+  owner?: OwnerParam
+): Promise<ModelUsageSummary> {
+  const params: Record<string, string> = { ...(ownerParams(owner) ?? {}) }
+  if (groupBy) params.group_by = groupBy
+  return api.get<ModelUsageSummary>('/model-usage/summary', {
+    params: Object.keys(params).length > 0 ? params : undefined,
+  })
 }
 
 export function setBudget(monthlyTokens: number): Promise<void> {
