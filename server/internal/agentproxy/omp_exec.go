@@ -274,6 +274,8 @@ func (s *WorkspaceSession) recordOMPCost(ctx context.Context, ev agentbackend.Ev
 	s.mu.Unlock()
 	recordProviderTokens(ctx, s.q, usageProviderID, s.ownerType, s.ownerID,
 		time.Now(), ev.InputTokens, ev.OutputTokens, 0, 0)
+	s.recordTurnModelUsage(ctx, usageProviderID,
+		ev.InputTokens, ev.OutputTokens, 0, 0, ev.NumTurns)
 }
 
 // signalOMPTurnDone marks the turn complete: updates the session columns to

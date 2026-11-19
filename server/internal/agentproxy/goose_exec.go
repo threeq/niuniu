@@ -316,6 +316,8 @@ func (s *WorkspaceSession) recordGooseCost(ctx context.Context, ev agentbackend.
 	// for goose this stays 0).
 	recordProviderTokens(ctx, s.q, usageProviderID, s.ownerType, s.ownerID,
 		time.Now(), ev.InputTokens, ev.OutputTokens, 0, ev.CacheReadTokens)
+	s.recordTurnModelUsage(ctx, usageProviderID,
+		ev.InputTokens, ev.OutputTokens, 0, ev.CacheReadTokens, ev.NumTurns)
 }
 
 // signalGooseTurnDone marks the turn complete: updates the session columns to

@@ -327,6 +327,7 @@ func SetGitRemoteEnvFunc(fn func(ctx context.Context, workspaceID int64) []strin
 type WorkspaceSession struct {
 	workspaceID      int64
 	issueID          int64  // workspaces.issue_id, 0 if unlinked; cached at session start
+	projectID        int64  // issue -> column -> project, 0 when unlinked; cached at session start
 	sessionId        string // Claude Code session ID (from init event or DB)
 	workDir          string // workspace directory
 	cliType          string // "claude" or "codex"; controls spawn and JSON parser
@@ -703,6 +704,15 @@ func (p *AgentProxy) GetOrStartSession(ctx context.Context, workspaceID int64, u
 		return nil, err
 	}
 
+	// Resolve the owning project once per session (workspace -> issue ->
+	// column -> project is 1:1) so per-turn usage rows can attribute to it
+	// without a lookup each turn. An unlinked workspace resolves to 0, which
+	// the aggregation reads as "no project".
+	projectID, err := p.q.GetProjectIDForWorkspace(ctx, workspaceID)
+	if err != nil {
+		projectID = 0
+	}
+
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	if s := p.sessions[workspaceID]; s != nil {
@@ -717,6 +727,7 @@ func (p *AgentProxy) GetOrStartSession(ctx context.Context, workspaceID int64, u
 	s := &WorkspaceSession{
 		workspaceID:       workspaceID,
 		issueID:           ws.IssueID.Int64, // 0 when invalid/NULL
+		projectID:         projectID,
 		sessionId:         sessionId,
 		workDir:           ws.Path,
 		cliType:           normalizedCliType(ws.CliType),
@@ -3150,6 +3161,11 @@ func (s *WorkspaceSession) handleEvent(ctx context.Context, ev ParsedEvent, msgI
 				s.mu.Unlock()
 				recordProviderTokens(ctx, s.q, usageProviderID, s.ownerType, s.ownerID,
 					time.Now(), ev.InputTokens, ev.OutputTokens, ev.CacheCreationTokens, ev.CacheReadTokens)
+				// Same turn, attributed by model/project/CLI for the model
+				// usage dashboard and the owner budget.
+				s.recordTurnModelUsage(ctx, usageProviderID,
+					ev.InputTokens, ev.OutputTokens, ev.CacheCreationTokens, ev.CacheReadTokens,
+					ev.NumTurns)
 			}
 		}
 
