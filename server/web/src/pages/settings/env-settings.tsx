@@ -1,9 +1,13 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
-import { Plus, Trash2, Pencil, ChevronDown, ChevronRight, ChevronUp, Package, KeyRound, Server, Copy, Power, User, Building2 } from 'lucide-react'
+import { Plus, Trash2, Pencil, ChevronDown, ChevronRight, ChevronUp, Package, KeyRound, Server, Copy, Power, User, Building2, RefreshCw } from 'lucide-react'
+import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { ModelInput } from '@/components/models/model-input'
+import { ModelRefreshDialog } from '@/components/models/model-refresh-dialog'
+import { listModels, upsertModel } from '@/lib/model-api'
 import {
   Dialog,
   DialogContent,
@@ -65,6 +69,15 @@ function OwnerGroupHeader({
 
 const PROVIDER_CLI_TYPES = ['claude', 'codex', 'qwen', 'omp', 'goose'] as const
 type ProviderCliType = (typeof PROVIDER_CLI_TYPES)[number]
+
+// cooldown_until is RFC3339; only show the "rate-limited" state while it is
+// still in the future (the backend treats a past value as healthy). Kept out of
+// the component body so the render pass stays free of impure Date.now() calls.
+function isInCooldown(provider: EnvProvider): boolean {
+  if (!provider.cooldown_until) return false
+  const ts = new Date(provider.cooldown_until).getTime()
+  return Number.isFinite(ts) && ts > Date.now()
+}
 
 function PresetCard({ preset, onEdit, onDelete }: { preset: EnvPreset; onEdit: (p: EnvPreset) => void; onDelete: (id: number) => void }) {
   const { t } = useTranslation('settings')
@@ -194,13 +207,7 @@ function ProviderCard({ provider, onEdit, onDelete, onDuplicate, onClearCooldown
 
   const cliLabel = (c: string) => t(`env.providerCliType${c.charAt(0).toUpperCase()}${c.slice(1)}`)
 
-  // cooldown_until is RFC3339; only render the "rate-limited" state while it is
-  // still in the future (the backend treats a past value as healthy).
-  const inCooldown = (() => {
-    if (!provider.cooldown_until) return false
-    const ts = new Date(provider.cooldown_until).getTime()
-    return Number.isFinite(ts) && ts > Date.now()
-  })()
+  const inCooldown = isInCooldown(provider)
 
   return (
     <div className={`border rounded-lg p-4 ${provider.enabled ? 'border-border' : 'border-border bg-muted/40 opacity-70'}`}>
@@ -455,6 +462,29 @@ export function EnvSettings({ mode = 'all' }: { mode?: 'all' | 'presets' | 'prov
   const [provExtra, setProvExtra] = useState<{ key: string; value: string }[]>([])
   const [provGroup, setProvGroup] = useState('')
   const [provOwner, setProvOwner] = useState<OwnerRef>({ type: 'user', id: currentUser?.id ?? 0 })
+  const [refreshDialogOpen, setRefreshDialogOpen] = useState(false)
+
+  // Shared model library feeding the six model pickers. A failed read must not
+  // block the form: the fields fall back to plain free-text inputs.
+  const { data: libraryModels = [] } = useQuery({
+    queryKey: ['models', 'library'],
+    queryFn: () => listModels(false),
+    retry: false,
+  })
+  const modelNames = libraryModels.map((m) => m.name)
+  const addModelMutation = useMutation({
+    mutationFn: (name: string) => upsertModel(name, name, true),
+    onSuccess: (_data, name) => {
+      queryClient.invalidateQueries({ queryKey: ['models', 'library'] })
+      toast.success(t('models.addedToLibrary', { name }))
+    },
+    onError: (err) =>
+      toast.error(
+        t('models.addToLibraryFailed', {
+          detail: err instanceof Error ? err.message : String(err),
+        })
+      ),
+  })
 
   const createProviderMutation = useMutation({
     mutationFn: (data: CreateEnvProviderData) => api.createEnvProvider(data),
@@ -1061,30 +1091,41 @@ export function EnvSettings({ mode = 'all' }: { mode?: 'all' | 'presets' | 'prov
               </select>
               <p className="mt-1 text-xs text-muted-foreground">{t('env.provider.apiKeyHint')}</p>
             </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="block text-sm font-medium text-foreground mb-1">{t('env.provider.modelLabel')}</label>
-                <Input value={provModel} onChange={(e) => setProvModel(e.target.value)} />
+            <div>
+              <div className="mb-1 flex items-center justify-between">
+                <span className="block text-sm font-medium text-foreground">{t('env.provider.modelsSectionLabel')}</span>
+                {editingProvider ? (
+                  <Button type="button" variant="outline" size="sm" onClick={() => setRefreshDialogOpen(true)}>
+                    <RefreshCw className="mr-1 h-3.5 w-3.5" />
+                    {t('models.refreshButton')}
+                  </Button>
+                ) : null}
               </div>
-              <div>
-                <label className="block text-sm font-medium text-foreground mb-1">{t('env.provider.haikuModelLabel')}</label>
-                <Input value={provHaiku} onChange={(e) => setProvHaiku(e.target.value)} />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-foreground mb-1">{t('env.provider.sonnetModelLabel')}</label>
-                <Input value={provSonnet} onChange={(e) => setProvSonnet(e.target.value)} />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-foreground mb-1">{t('env.provider.opusModelLabel')}</label>
-                <Input value={provOpus} onChange={(e) => setProvOpus(e.target.value)} />
-              </div>
-              <div className="col-span-2">
-                <label className="block text-sm font-medium text-foreground mb-1">{t('env.provider.subagentModelLabel')}</label>
-                <Input value={provSubagent} onChange={(e) => setProvSubagent(e.target.value)} />
-              </div>
-              <div className="col-span-2">
-                <label className="block text-sm font-medium text-foreground mb-1">{t('env.provider.codexModelLabel')}</label>
-                <Input value={provCodexModel} onChange={(e) => setProvCodexModel(e.target.value)} placeholder={provModel || undefined} />
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-sm font-medium text-foreground mb-1">{t('env.provider.modelLabel')}</label>
+                  <ModelInput value={provModel} onChange={setProvModel} models={modelNames} onAdd={(name) => addModelMutation.mutate(name)} />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-foreground mb-1">{t('env.provider.haikuModelLabel')}</label>
+                  <ModelInput value={provHaiku} onChange={setProvHaiku} models={modelNames} onAdd={(name) => addModelMutation.mutate(name)} />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-foreground mb-1">{t('env.provider.sonnetModelLabel')}</label>
+                  <ModelInput value={provSonnet} onChange={setProvSonnet} models={modelNames} onAdd={(name) => addModelMutation.mutate(name)} />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-foreground mb-1">{t('env.provider.opusModelLabel')}</label>
+                  <ModelInput value={provOpus} onChange={setProvOpus} models={modelNames} onAdd={(name) => addModelMutation.mutate(name)} />
+                </div>
+                <div className="col-span-2">
+                  <label className="block text-sm font-medium text-foreground mb-1">{t('env.provider.subagentModelLabel')}</label>
+                  <ModelInput value={provSubagent} onChange={setProvSubagent} models={modelNames} onAdd={(name) => addModelMutation.mutate(name)} />
+                </div>
+                <div className="col-span-2">
+                  <label className="block text-sm font-medium text-foreground mb-1">{t('env.provider.codexModelLabel')}</label>
+                  <ModelInput value={provCodexModel} onChange={setProvCodexModel} models={modelNames} onAdd={(name) => addModelMutation.mutate(name)} placeholder={provModel || undefined} />
+                </div>
               </div>
             </div>
             <div>
@@ -1134,6 +1175,14 @@ export function EnvSettings({ mode = 'all' }: { mode?: 'all' | 'presets' | 'prov
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <ModelRefreshDialog
+        open={refreshDialogOpen}
+        onOpenChange={setRefreshDialogOpen}
+        providerId={editingProvider?.id ?? null}
+        providerName={editingProvider?.name ?? ''}
+        onImported={() => queryClient.invalidateQueries({ queryKey: ['models', 'library'] })}
+      />
 
     </div>
   )

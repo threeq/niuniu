@@ -388,6 +388,20 @@
   "models": {
     "title": "模型库与预算",
     "description": "维护 owner 级共享模型库，所有 provider 与 CLI 共用同一份模型名；同时设置本月 token 用量预算。",
+    "addToLibrary": "加入模型库",
+    "addedToLibrary": "已将 {{name}} 加入模型库",
+    "addToLibraryFailed": "加入模型库失败：{{detail}}",
+    "refreshButton": "刷新模型",
+    "refreshTitle": "刷新模型",
+    "refreshDescription": "以下为 {{name}} 返回的模型名，勾选后导入共享模型库。",
+    "refreshLoading": "正在获取模型列表…",
+    "refreshUnsupported": "该 provider 未提供 /models 接口，请手动输入模型名。",
+    "refreshFailed": "刷新失败：{{detail}}",
+    "refreshEmpty": "该 provider 没有返回任何模型。",
+    "alreadyInLibrary": "已在模型库中",
+    "importButton": "导入所选（{{selected}}）",
+    "imported": "已导入 {{added}} 个，跳过 {{skipped}} 个",
+    "importFailed": "导入失败：{{detail}}",
     "tabs": {
       "library": "模型库",
       "budget": "预算"
@@ -1073,6 +1087,7 @@
       "apiKeyAccountLabel": "引用账户",
       "apiKeyAccountNone": "不引用，直接填 Key",
       "apiKeyHint": "选择账户会把 Key 填为 ${ACCOUNT:账户名}，账户 Key 改动一处，所有引用它的地方生效。",
+      "modelsSectionLabel": "模型",
       "modelLabel": "默认模型",
       "haikuModelLabel": "小模型（haiku）",
       "sonnetModelLabel": "标准模型（sonnet）",
