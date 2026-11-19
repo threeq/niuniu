@@ -12,6 +12,7 @@ import {
   Info,
   KeyRound,
   Layers,
+  Library,
   Menu,
   MonitorCog,
   Plug,
@@ -34,6 +35,7 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from '@/co
 import { AboutSettings } from './about-settings'
 import { CapabilitySettings } from './capability-settings'
 import { EnvSettings } from './env-settings'
+import { ModelSettings } from './model-settings'
 import { ProviderUsageSettings } from './provider-usage-settings'
 import { GeneralSettings } from './general-settings'
 import { GitCredentialsSettings } from './git-credentials-settings'
@@ -58,7 +60,7 @@ import { useAuthStore } from '@/stores/auth-store'
 import { useConfigStore } from '@/stores/config-store'
 import { useLicenseStore } from '@/stores/license-store'
 
-type SettingsTab = 'general' | 'users' | 'security' | 'env' | 'providers' | 'capability' | 'provider-usage' | 'git-identity' | 'mobile-access' | 'system-deps' | 'skills' | 'integrations' | 'license' | 'orchestration' | 'share' | 'blueprints' | 'imbot' | 'harness' | 'workspace-cleanup' | 'about' | 'claude' | 'scenes' | 'agents'
+type SettingsTab = 'general' | 'users' | 'security' | 'env' | 'providers' | 'models' | 'capability' | 'provider-usage' | 'git-identity' | 'mobile-access' | 'system-deps' | 'skills' | 'integrations' | 'license' | 'orchestration' | 'share' | 'blueprints' | 'imbot' | 'harness' | 'workspace-cleanup' | 'about' | 'claude' | 'scenes' | 'agents'
 
 interface TabVisibilityCtx {
   authEnabled: boolean
@@ -76,6 +78,7 @@ const tabs: { id: SettingsTab; labelKey: string; icon?: LucideIcon; visible?: (c
   { id: 'agents', labelKey: 'tabs.agents', icon: Bot },
   { id: 'env', labelKey: 'tabs.env', icon: Variable },
   { id: 'providers', labelKey: 'tabs.providers', icon: Server },
+  { id: 'models', labelKey: 'tabs.models', icon: Library },
   { id: 'capability', labelKey: 'tabs.capability', icon: KeyRound },
   { id: 'provider-usage', labelKey: 'tabs.providerUsage', icon: ChartColumn },
   { id: 'git-identity', labelKey: 'tabs.gitIdentity', icon: GitBranch },
@@ -100,7 +103,7 @@ const navGroups: { id: string; labelKey: string; tabIds: SettingsTab[] }[] = [
   { id: 'personal', labelKey: 'groups.personal', tabIds: ['general', 'security'] },
   { id: 'team', labelKey: 'groups.team', tabIds: ['users'] },
   { id: 'agents', labelKey: 'groups.agents', tabIds: ['claude', 'skills', 'integrations', 'orchestration', 'share', 'blueprints', 'imbot', 'harness', 'scenes', 'agents'] },
-  { id: 'system', labelKey: 'groups.system', tabIds: ['system-deps', 'env', 'providers', 'capability', 'provider-usage', 'git-identity', 'workspace-cleanup', 'license', 'about'] },
+  { id: 'system', labelKey: 'groups.system', tabIds: ['system-deps', 'env', 'providers', 'models', 'capability', 'provider-usage', 'git-identity', 'workspace-cleanup', 'license', 'about'] },
 ]
 
 // Map legacy ?tab values to their current home so old bookmarks/links don't
@@ -358,6 +361,7 @@ export function SettingsPage({ children, orgsActive = false }: SettingsPageProps
                 {activeTab === 'agents' && <AgentSettings />}
                 {activeTab === 'env' && <EnvSettings mode="presets" />}
                 {activeTab === 'providers' && <EnvSettings mode="providers" />}
+                {activeTab === 'models' && <ModelSettings />}
                 {activeTab === 'capability' && <CapabilitySettings />}
                 {activeTab === 'provider-usage' && <ProviderUsageSettings />}
                 {activeTab === 'git-identity' && (
