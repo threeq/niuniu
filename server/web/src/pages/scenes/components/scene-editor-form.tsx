@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useQuery } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
@@ -65,11 +65,14 @@ export function SceneEditorForm({ mode, initial, submitting, error, onSubmit }: 
   const [owner, setOwner] = useState<OwnerRef>(initial?.owner ?? { type: 'user', id: userId });
   const [localError, setLocalError] = useState<string | null>(null);
 
-  useEffect(() => {
+  // Default a new scene's owner to the signed-in user once auth resolves.
+  const [prevUserId, setPrevUserId] = useState(userId);
+  if (userId !== prevUserId) {
+    setPrevUserId(userId);
     if (mode === 'create' && owner.type === 'user' && owner.id === 0 && userId > 0) {
       setOwner({ type: 'user', id: userId });
     }
-  }, [mode, owner.id, owner.type, userId]);
+  }
 
   // Existing system agents (managed on the Agents page) the scene can reference.
   const { data: availableAgents = [] } = useQuery({

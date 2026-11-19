@@ -839,7 +839,8 @@
       "toastDescription": "Open the official site to download the latest version",
       "dismiss": "Later",
       "networkUnavailable": "Couldn't fetch the latest version (your network may be restricted). Open the official site to check for updates.",
-      "notesTitle": "What's changed"
+      "notesTitle": "What's changed",
+      "notesSeparator": "; "
     }
   },
   "general": {

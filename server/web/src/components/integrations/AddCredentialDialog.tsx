@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Github, Building2, Eye, EyeOff, Info, Plug } from 'lucide-react';
 import { toast } from 'sonner';
@@ -59,7 +59,7 @@ export function AddCredentialDialog({
   // Only meaningful in Create mode; owner is immutable on existing credentials.
   const [owner, setOwner] = useState<OwnerRef>({ type: 'user', id: userId });
   const providers = useExternalProviders();
-  const allProviders = providers.data ?? [];
+  const allProviders = useMemo(() => providers.data ?? [], [providers.data]);
   const enabledProviders = useMemo(
     () => allProviders.filter((p) => p.enabled),
     [allProviders],
@@ -67,19 +67,30 @@ export function AddCredentialDialog({
 
   const [providerName, setProviderName] = useState<string>('');
   // Hydrate provider selection from the editing target (locked) or — for
-  // create — pick a sensible default once the provider list loads.
-  useEffect(() => {
-    if (!open) return;
-    if (editing) {
-      setProviderName(editing.provider);
-      return;
+  // create — pick a sensible default once the provider list loads. Adjusting
+  // state during render keeps the form right on the first paint.
+  // `null` forces the check on mount (the dialog may mount already open).
+  const [prevProviderHydration, setPrevProviderHydration] = useState<{
+    open: boolean; editing: typeof editing; providerName: string; enabledProviders: typeof enabledProviders;
+  } | null>(null);
+  if (
+    prevProviderHydration === null ||
+    open !== prevProviderHydration.open ||
+    editing !== prevProviderHydration.editing ||
+    providerName !== prevProviderHydration.providerName ||
+    enabledProviders !== prevProviderHydration.enabledProviders
+  ) {
+    setPrevProviderHydration({ open, editing, providerName, enabledProviders });
+    if (open) {
+      if (editing) {
+        setProviderName(editing.provider);
+      } else if (!providerName && enabledProviders.length > 0) {
+        const preferred =
+          enabledProviders.find((p) => p.name === 'github') ?? enabledProviders[0];
+        setProviderName(preferred.name);
+      }
     }
-    if (providerName) return;
-    if (enabledProviders.length === 0) return;
-    const preferred =
-      enabledProviders.find((p) => p.name === 'github') ?? enabledProviders[0];
-    setProviderName(preferred.name);
-  }, [open, providerName, enabledProviders, editing]);
+  }
 
   // In Edit mode the credential's provider may have been disabled since
   // — fall back to the full provider list so the dialog still renders
@@ -94,13 +105,22 @@ export function AddCredentialDialog({
   // Mode state — defaults to the provider's first listed mode whenever
   // the provider changes.
   const [authMode, setAuthMode] = useState<ProxyAuthMode>('bearer');
-  useEffect(() => {
-    if (!selectedProvider) return;
-    const modes = selectedProvider.auth_modes ?? [selectedProvider.auth_type];
-    if (modes.length === 0) return;
-    if (modes.includes(authMode)) return;
-    setAuthMode(modes[0] as ProxyAuthMode);
-  }, [selectedProvider, authMode]);
+  const [prevAuthSelection, setPrevAuthSelection] = useState<{
+    selectedProvider: typeof selectedProvider; authMode: ProxyAuthMode;
+  } | null>(null);
+  if (
+    prevAuthSelection === null ||
+    selectedProvider !== prevAuthSelection.selectedProvider ||
+    authMode !== prevAuthSelection.authMode
+  ) {
+    setPrevAuthSelection({ selectedProvider, authMode });
+    if (selectedProvider) {
+      const modes = selectedProvider.auth_modes ?? [selectedProvider.auth_type];
+      if (modes.length > 0 && !modes.includes(authMode)) {
+        setAuthMode(modes[0] as ProxyAuthMode);
+      }
+    }
+  }
 
   const [alias, setAlias] = useState('');
   const [token, setToken] = useState('');
@@ -143,15 +163,16 @@ export function AddCredentialDialog({
 
   // Hydrate the alias from the editing target whenever the dialog opens.
   // Secret fields stay empty by design (see Props.editing doc).
-  useEffect(() => {
-    if (!open) return;
-    if (editing) {
+  const [prevAliasTarget, setPrevAliasTarget] = useState<{ open: boolean; editing: typeof editing } | null>(null);
+  if (prevAliasTarget === null || open !== prevAliasTarget.open || editing !== prevAliasTarget.editing) {
+    setPrevAliasTarget({ open, editing });
+    if (open && editing) {
       setAlias(editing.alias);
       setToken('');
       setBasicUser('');
       setBasicPassword('');
     }
-  }, [open, editing]);
+  }
 
   const handleProviderChange = (next: string) => {
     setProviderName(next);
@@ -356,7 +377,7 @@ export function AddCredentialDialog({
     onOpenChange(next);
   };
 
-  const TitleIcon = pickIcon(selectedProvider?.name);
+
   const providerLabel =
     selectedProvider?.label || selectedProvider?.name || '';
   const titleLabel = isEdit
@@ -372,7 +393,7 @@ export function AddCredentialDialog({
       <DialogContent>
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
-            <TitleIcon className="size-4" /> {titleLabel}
+            <ProviderIcon name={selectedProvider?.name} className="size-4" /> {titleLabel}
           </DialogTitle>
         </DialogHeader>
         <div className="flex flex-col gap-3">
@@ -538,10 +559,10 @@ export function AddCredentialDialog({
   );
 }
 
-function pickIcon(name?: string) {
-  if (name === 'github') return Github;
-  if (name === 'tapd' || name === 'jira') return Building2;
-  return Plug;
+function ProviderIcon({ name, className }: { name?: string; className?: string }) {
+  if (name === 'github') return <Github className={className} />;
+  if (name === 'tapd' || name === 'jira') return <Building2 className={className} />;
+  return <Plug className={className} />;
 }
 
 function authModeLabelKey(mode: ProxyAuthMode): string {

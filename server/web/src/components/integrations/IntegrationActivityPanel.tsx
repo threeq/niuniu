@@ -8,7 +8,7 @@
 // (GET /api/me/integration-activity), so paging stays correct across the two
 // sources instead of being paginated twice and stitched together client-side.
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useQuery } from '@tanstack/react-query';
 import { Activity, AlertCircle, ChevronLeft, ChevronRight, RefreshCw } from 'lucide-react';
@@ -83,6 +83,13 @@ export function IntegrationActivityPanel() {
   const [source, setSource] = useState('all');
   const [range, setRange] = useState<RangeFilter>('7d');
   const [page, setPage] = useState(0);
+  // The relative window needs a clock reading, which is impure during render.
+  // Keep it in state and tick once a minute; hourly windows are unaffected.
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const id = window.setInterval(() => setNow(Date.now()), 60_000);
+    return () => window.clearInterval(id);
+  }, []);
 
   const providers = useExternalProviders();
   const dataSources = useQuery({
@@ -113,10 +120,10 @@ export function IntegrationActivityPanel() {
     if (tag === 'd' && Number.isFinite(id)) f.source_id = id;
     if (range !== 'all') {
       const hours = RANGE_HOURS[range];
-      f.from = new Date(Date.now() - hours * 3600 * 1000).toISOString();
+      f.from = new Date(now - hours * 3600 * 1000).toISOString();
     }
     return f;
-  }, [kind, source, range]);
+  }, [kind, source, range, now]);
 
   const { data, isLoading, isError, error, isFetching, refetch } =
     useIntegrationActivity(filters, page);

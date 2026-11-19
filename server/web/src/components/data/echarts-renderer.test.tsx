@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 
-import { injectDatasetSource } from './echarts-renderer'
+import { injectDatasetSource } from './echarts-options'
 import type { ResultSet } from '@/types/data'
 
 const result: ResultSet = {

@@ -100,7 +100,8 @@ const AGENT_HINTS: Record<string, Record<string, string>> = {
   },
   cursor: {
     NIUNIU_AGENT_COMMAND: 'agent',
-    NIUNIU_AGENT_ARGS: '(ACP 模式，无需额外参数)',
+    // Prose hint rather than a technical token: rendered from i18n, see below.
+    NIUNIU_AGENT_ARGS: '',
     NIUNIU_MODEL: 'sonnet-4, sonnet-4-thinking, gpt-5',
     NIUNIU_ALLOWED_TOOLS: 'Bash Edit Read',
   },
@@ -530,7 +531,10 @@ export function WorkspaceSettingsDialog({ workspace }: WorkspaceSettingsDialogPr
             </p>
             <div className="space-y-2">
               {SHARED_AGENT_FIELDS.map(({ key, i18nKey }) => {
-                const hint = (AGENT_HINTS[workspace.cli_type ?? 'claude'] ?? AGENT_HINTS.claude)[key];
+                const cli = workspace.cli_type ?? 'claude';
+                const hint = key === 'NIUNIU_AGENT_ARGS' && cli === 'cursor'
+                  ? t('panels.workspaceSettings.agentAcpNoArgs')
+                  : (AGENT_HINTS[cli] ?? AGENT_HINTS.claude)[key];
                 const placeholder = key === 'NIUNIU_AGENT_COMMAND'
                   ? t('panels.workspaceSettings.agentDefaultHint', { value: hint })
                   : t('panels.workspaceSettings.agentEgHint', { value: hint });

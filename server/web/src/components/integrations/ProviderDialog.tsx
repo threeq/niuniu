@@ -9,7 +9,7 @@
 // auth wiring, whitelist, OpenAPI URL, enabled flag) round-trip through
 // the PUT endpoint.
 
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
 import {
@@ -77,36 +77,46 @@ export function ProviderDialog({ open, onOpenChange, editing }: Props) {
   const update = useUpdateExternalProvider();
 
   // Reset / hydrate when the dialog opens or the editing target changes.
-  useEffect(() => {
-    if (!open) return;
-    if (!editing) {
-      setName('');
-      setLabel('');
-      setApiBaseUrl('');
-      setAuthType('bearer');
-      setAuthHeader('Authorization');
-      setAuthPrefix('Bearer');
-      setWhitelist(DEFAULT_WHITELIST);
-      setOpenapiUrl('');
-      setEnabled(true);
-      return;
+  // Adjusting state during render (rather than in an effect) keeps the form
+  // consistent with the first paint and avoids a cascading render.
+  // `null` forces the hydration check on mount too (a dialog can open already
+  // populated, e.g. mounted with editing set).
+  const [prevHydrate, setPrevHydrate] = useState<{ open: boolean; editing: typeof editing } | null>(null);
+  if (prevHydrate === null || open !== prevHydrate.open || editing !== prevHydrate.editing) {
+    setPrevHydrate({ open, editing });
+    if (open) {
+      if (!editing) {
+        setName('');
+        setLabel('');
+        setApiBaseUrl('');
+        setAuthType('bearer');
+        setAuthHeader('Authorization');
+        setAuthPrefix('Bearer');
+        setWhitelist(DEFAULT_WHITELIST);
+        setOpenapiUrl('');
+        setEnabled(true);
+      } else {
+        setName(editing.name);
+        setLabel(editing.label ?? '');
+        setApiBaseUrl(editing.api_base_url);
+        setAuthType(editing.auth_type);
+        setOpenapiUrl(editing.openapi_url ?? '');
+        setEnabled(editing.enabled);
+      }
     }
-    setName(editing.name);
-    setLabel(editing.label ?? '');
-    setApiBaseUrl(editing.api_base_url);
-    setAuthType(editing.auth_type);
-    setOpenapiUrl(editing.openapi_url ?? '');
-    setEnabled(editing.enabled);
-  }, [open, editing]);
+  }
 
   // Once the schema loads in Edit mode, hydrate the fields that aren't on
   // the list item.
-  useEffect(() => {
-    if (!isEdit || !schema.data) return;
-    setAuthHeader(schema.data.auth_header || 'Authorization');
-    setAuthPrefix(schema.data.auth_prefix || 'Bearer');
-    setWhitelist(schema.data.whitelist || DEFAULT_WHITELIST);
-  }, [isEdit, schema.data]);
+  const [prevSchemaData, setPrevSchemaData] = useState<typeof schema.data | null>(null);
+  if (schema.data !== prevSchemaData) {
+    setPrevSchemaData(schema.data);
+    if (isEdit && schema.data) {
+      setAuthHeader(schema.data.auth_header || 'Authorization');
+      setAuthPrefix(schema.data.auth_prefix || 'Bearer');
+      setWhitelist(schema.data.whitelist || DEFAULT_WHITELIST);
+    }
+  }
 
   const validate = (): string | null => {
     if (!name.trim()) return t('integrations.providers.dialog.nameLabel');

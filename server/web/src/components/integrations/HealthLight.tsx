@@ -26,7 +26,7 @@ function normalize(status?: string): HealthStatus {
   }
 }
 
-export function healthLabelKey(status: HealthStatus): string {
+function healthLabelKey(status: HealthStatus): string {
   return `integrations.health.status.${status}`;
 }
 

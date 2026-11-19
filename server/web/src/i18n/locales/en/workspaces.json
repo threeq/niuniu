@@ -756,6 +756,7 @@
       "agentSectionDesc": "Applies to whichever engine this workspace runs — command / args / model / allowed tools.",
       "agentDefaultHint": "default: {{value}}",
       "agentEgHint": "e.g. {{value}}",
+      "agentAcpNoArgs": "ACP mode, no extra args",
       "name": "Name",
       "boundRepos": "Bound repositories",
       "addRepo": "Add repository",

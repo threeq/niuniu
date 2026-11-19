@@ -1,4 +1,4 @@
-import React, { useRef, useState, useLayoutEffect } from 'react';
+import { useRef, useState, useLayoutEffect } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { useNavigate } from '@tanstack/react-router';
 import { ChevronDown, ChevronRight, FolderKanban, SquareArrowOutUpRight } from 'lucide-react';
@@ -6,8 +6,9 @@ import { useTranslation } from 'react-i18next';
 import { cn } from '@/lib/utils';
 import { WorkspaceCard } from './workspace-sidebar-card';
 import { getProjectColorStyles } from '@/lib/project-color';
-import { buildWorkspaceTree } from './workspace-tree';
-import type { Workspace, Project } from '@/types/api';
+import { buildRows, type Row, type WorkspaceVirtualListProps } from './workspace-sidebar-rows';
+
+export type { Row, WorkspaceVirtualListProps } from './workspace-sidebar-rows';
 
 // Above this many flattened rows the list windows (only visible rows mount) to
 // keep the DOM bounded at hundreds/thousands of workspaces. Below it, and in any
@@ -15,70 +16,6 @@ import type { Workspace, Project } from '@/types/api';
 // pre-layout first paint), every row renders — identical output to the
 // non-virtualized path, so small sidebars and unit tests are never windowed.
 const VIRTUALIZE_THRESHOLD = 60;
-
-type Row =
-  | { kind: 'header'; key: string; projKey: string; project: Project; count: number; expanded: boolean }
-  | {
-      kind: 'card';
-      key: string;
-      ws: Workspace;
-      project: Project;
-      depth: 0 | 1;
-      hasChildren: boolean;
-      collapsed: boolean;
-      isLast: boolean;
-      parentId: string;
-    };
-
-export interface WorkspaceVirtualListProps {
-  /** The shared scroll container (also holds the priority zone above the list). */
-  scrollRef: React.RefObject<HTMLDivElement | null>;
-  orderedProjectKeys: string[];
-  byProject: Map<string, Workspace[]>;
-  /** Resolves a Project (or a fallback shape) for a project key + its workspaces. */
-  getProject: (projKey: string, wss: Workspace[]) => Project;
-  activeWorkspaceId?: string;
-  selectMode?: boolean;
-  selectedIds?: Set<number>;
-  onToggleSelect?: (id: string) => void;
-  isProjectExpanded: (projKey: string) => boolean;
-  onToggleProjectExpand: (projKey: string) => void;
-  isParentCollapsed: (parentId: string) => boolean;
-  onToggleParentCollapse: (parentId: string) => void;
-}
-
-// Flatten the grouped/collapsible/2-level-tree sidebar into a linear row list so
-// it can be windowed. Respects project expand state and per-parent collapse.
-// Exported for unit testing the flattening (the highest-risk pure logic).
-export function buildRows(props: WorkspaceVirtualListProps): Row[] {
-  const rows: Row[] = [];
-  for (const projKey of props.orderedProjectKeys) {
-    const wss = props.byProject.get(projKey) ?? [];
-    const project = props.getProject(projKey, wss);
-    const expanded = props.isProjectExpanded(projKey);
-    rows.push({ kind: 'header', key: `h:${projKey}`, projKey, project, count: wss.length, expanded });
-    if (!expanded) continue;
-    for (const node of buildWorkspaceTree(wss)) {
-      const parentId = String(node.ws.id);
-      const hasChildren = node.children.length > 0;
-      const collapsed = hasChildren && props.isParentCollapsed(parentId);
-      rows.push({
-        kind: 'card', key: `c:${parentId}`, ws: node.ws, project, depth: 0,
-        hasChildren, collapsed, isLast: false, parentId,
-      });
-      if (hasChildren && !collapsed) {
-        node.children.forEach((child, i) => {
-          rows.push({
-            kind: 'card', key: `c:${child.id}`, ws: child, project, depth: 1,
-            hasChildren: false, collapsed: false, isLast: i === node.children.length - 1,
-            parentId,
-          });
-        });
-      }
-    }
-  }
-  return rows;
-}
 
 export function WorkspaceVirtualList(props: WorkspaceVirtualListProps) {
   const { t } = useTranslation('workspaces');
@@ -201,6 +138,9 @@ export function WorkspaceVirtualList(props: WorkspaceVirtualListProps) {
   // jsdom tests and small sidebars are unaffected.
   const windowed = viewportH > 0 && rows.length > VIRTUALIZE_THRESHOLD;
 
+  // TanStack Virtual's API returns functions the compiler can't memoize
+  // safely; it documents skipping memoization for this hook as expected.
+  // eslint-disable-next-line react-hooks/incompatible-library
   const virtualizer = useVirtualizer({
     count: rows.length,
     getScrollElement: () => props.scrollRef.current,
