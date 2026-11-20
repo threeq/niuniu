@@ -52,6 +52,7 @@ func (w *sceneMCPWriter) NiuniuMcpServer(config.MCPGenerateOptions) (config.McpS
 	return config.McpServerEntry{}, nil
 }
 func (w *sceneMCPWriter) SetWorkspaceKBReadonly(string, []string) error { return nil }
+func (w *sceneMCPWriter) WriteJSONMCPServer(string, config.MCPGenerateOptions) error { return nil }
 
 func TestProjectNiuniuAgentFiles(t *testing.T) {
 	dir := t.TempDir()

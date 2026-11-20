@@ -1160,6 +1160,7 @@ func (s *WorkspaceService) Create(ctx context.Context, input CreateWorkspaceInpu
 			RepositoryID: wsRepo.RepositoryID,
 			WorktreePath: wsRepo.WorktreePath,
 			Branch:       wsRepo.Branch,
+			BaseBranch:   wsRepo.BaseBranch,
 		})
 	}
 
@@ -1328,8 +1329,19 @@ func (s *WorkspaceService) generateWorkspaceAgentInstructions(ctx context.Contex
 		if err == nil {
 			repoName = repo.Name
 		}
-		sb.WriteString(fmt.Sprintf("- **%s** — `.worktrees/%s/` (branch: `%s`)\n", repoName, dirName, r.Branch))
+		if r.BaseBranch != "" {
+			sb.WriteString(fmt.Sprintf("- **%s** — `.worktrees/%s/` (branch: `%s`, target: `%s`)\n", repoName, dirName, r.Branch, r.BaseBranch))
+		} else {
+			sb.WriteString(fmt.Sprintf("- **%s** — `.worktrees/%s/` (branch: `%s`)\n", repoName, dirName, r.Branch))
+		}
 	}
+
+	// Make the merge target explicit. Without this the agent has to infer the
+	// "target branch" from context; Codex in particular defaulted to main and
+	// merged Epic sub-task work into main instead of the Epic branch.
+	sb.WriteString("\n## Git Workflow\n\n")
+	sb.WriteString("Commit your work on the worktree branch listed above. When the task is complete, merge that branch into its **target branch** — never into `main`/`master` unless the target branch is `main`/`master`.\n")
+	sb.WriteString("For Epic sub-tasks the target is the Epic feature branch (e.g. `epic/<id>`); the platform also merges the worktree into it when the sub-task completes.\n")
 
 	// Codex workspaces should surface repository-level AGENTS.md instructions
 	// before workspace-level guidance so repo norms take precedence.
@@ -1492,6 +1504,7 @@ type WorkspaceRepoResult struct {
 	RepositoryID int64
 	WorktreePath string
 	Branch       string
+	BaseBranch   string
 }
 
 type WorkspaceRepoError struct {
