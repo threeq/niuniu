@@ -23,13 +23,16 @@ const AUTOHOST_BUDGET_DEFAULT = '36';
 const AUTOHOST_ERROR_BUDGET_DEFAULT = '9';
 const AUTOHOST_GOAL_CONDITION_MAX = 4000;
 
-// Default prompts must stay in sync with
+// Agent-facing prompts, not UI copy: these are the exact strings sent to the
+// agent process and must stay byte-identical to
 // server/internal/agentproxy/autohost.go (autohostContinuePrompt /
-// autohostRecoverPrompt).
+// autohostRecoverPrompt), so they are intentionally not i18n keys.
+/* eslint-disable local/no-chinese-literal */
 const AUTOHOST_CONTINUE_PROMPT_DEFAULT =
   `继续推进当前任务的剩余步骤。遇到选择请按你的最佳判断决定，不要停下来询问我。\n\n如果当前任务已经全部完成，请在回复末尾单独输出一行：[AUTOHOST_DONE]`;
 const AUTOHOST_RECOVER_PROMPT_DEFAULT =
   `上一轮以错误结束。请先诊断失败原因（看日志/报错信息），然后换一种方式继续推进。不要重复完全相同的失败操作。\n\n如果错误确实无法恢复（例如外部依赖不可用、需要人工介入的凭证问题），请在回复末尾单独输出一行：[AUTOHOST_DONE]`;
+/* eslint-enable local/no-chinese-literal */
 
 interface AutohostSettingsDialogProps {
   open: boolean;

@@ -93,7 +93,12 @@ export function ChatStickyUserHeader({ scrollRef, events }: Props) {
     };
     container.addEventListener('scroll', onScroll, { passive: true });
     // Recompute when the events list changes too (new messages appended, etc.)
-    recompute();
+    // Deferred to the next frame like the scroll handler so the effect body
+    // never calls setState synchronously.
+    rafRef.current = requestAnimationFrame(() => {
+      rafRef.current = null;
+      recompute();
+    });
     return () => {
       container.removeEventListener('scroll', onScroll);
       if (rafRef.current != null) {

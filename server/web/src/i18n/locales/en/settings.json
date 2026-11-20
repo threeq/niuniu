@@ -363,6 +363,7 @@
     "skills": "Skills",
     "env": "Environment Variables",
     "providers": "Platforms",
+    "models": "Models",
     "capability": "Capabilities",
     "gitIdentity": "Git",
     "users": "Users",
@@ -383,6 +384,155 @@
     "workspaceCleanup": "Workspace cleanup",
     "scenes": "Scenes",
     "agents": "Agents"
+  },
+  "models": {
+    "title": "Model library & budget",
+    "description": "Maintain the owner-wide shared model library used by every provider and CLI, and set this month's token budget.",
+    "addToLibrary": "Add to library",
+    "addedToLibrary": "Added {{name}} to the model library",
+    "addToLibraryFailed": "Could not add the model: {{detail}}",
+    "refreshButton": "Refresh models",
+    "refreshTitle": "Refresh models",
+    "refreshDescription": "Model names listed by {{name}}. Pick the ones to add to the shared library.",
+    "refreshLoading": "Fetching the model list…",
+    "refreshUnsupported": "This provider does not expose a /models endpoint — enter model names manually.",
+    "refreshFailed": "Refresh failed: {{detail}}",
+    "refreshEmpty": "The provider returned no models.",
+    "alreadyInLibrary": "Already in library",
+    "importButton": "Import selected ({{selected}})",
+    "imported": "Imported {{added}}, skipped {{skipped}}",
+    "importFailed": "Import failed: {{detail}}",
+    "tabs": {
+      "library": "Library",
+      "budget": "Budget",
+      "usage": "Usage"
+    },
+    "library": {
+      "title": "Model library",
+      "description": "Model names are shared by every provider and by Claude Code / Codex / Qwen Code. System rows can only be hidden.",
+      "add": "Add model",
+      "searchPlaceholder": "Search models",
+      "loadFailed": "Failed to load the model library",
+      "retry": "Retry",
+      "empty": "The model library is empty",
+      "emptyHint": "Add a model name directly, or refresh from a provider in its form.",
+      "noResults": "No matching models",
+      "noResultsHint": "Try a different keyword.",
+      "columns": {
+        "name": "Name",
+        "displayName": "Display name",
+        "enabled": "Enabled",
+        "source": "Source",
+        "actions": "Actions"
+      },
+      "statusEnabled": "Enabled",
+      "toggleEnabled": "Toggle enabled state for {{name}}",
+      "hide": "Hide",
+      "edit": "Edit the display name of {{name}}",
+      "delete": "Delete {{name}}",
+      "hidden": "Model hidden",
+      "added": "Model added",
+      "updated": "Model updated",
+      "deleted": "Model deleted",
+      "saveFailed": "Save failed: {{detail}}",
+      "deleteFailed": "Delete failed: {{detail}}",
+      "deleteTitle": "Delete model",
+      "deleteDescription": "Remove {{name}} from the model library? Saved provider configuration is unaffected.",
+      "cancel": "Cancel",
+      "save": "Save",
+      "addTitle": "Add model",
+      "editTitle": "Edit model",
+      "formDescription": "The library is shared by every provider and CLI; the display name only affects presentation.",
+      "fields": {
+        "name": "Model name",
+        "namePlaceholder": "e.g. glm-5.1",
+        "displayName": "Display name",
+        "displayNamePlaceholder": "Optional; defaults to the model name"
+      },
+      "sources": {
+        "builtin": "Built-in",
+        "manual": "Manual",
+        "refreshed": "Refreshed"
+      }
+    },
+    "budget": {
+      "ownerTitle": "Owner monthly token cap",
+      "ownerDescription": "This is a hard cap: once reached, new sessions and new turns are refused. 0 means unlimited.",
+      "usedOfLimit": "Used this month {{used}} / {{limit}} tokens ({{percent}}%)",
+      "usedUnlimited": "Used this month {{used}} tokens (no limit)",
+      "progressLabel": "Token usage this month",
+      "ownerLimit": "Monthly cap (tokens)",
+      "ownerLimitHint": "0 means unlimited. New sessions/turns are blocked once exceeded.",
+      "save": "Save",
+      "saved": "Budget saved",
+      "saveFailed": "Save failed: {{detail}}",
+      "loadFailed": "Failed to load the budget",
+      "projectTitle": "Project soft caps",
+      "projectDescription": "Project caps only warn and never block work; the owner cap is the hard limit.",
+      "addProject": "Add project cap",
+      "noProjects": "No project caps yet",
+      "noProjectsHint": "Set a monthly token soft cap for a single project; exceeding it only warns.",
+      "columns": {
+        "project": "Project",
+        "limit": "Cap",
+        "used": "Used",
+        "status": "Status",
+        "actions": "Actions"
+      },
+      "unlimited": "Unlimited",
+      "status": {
+        "unlimited": "Unlimited",
+        "exceeded": "Exceeded",
+        "near": "Near cap ({{percent}}%)",
+        "ok": "OK ({{percent}}%)"
+      },
+      "editProject": "Edit the cap for {{name}}",
+      "deleteProject": "Delete the cap for {{name}}",
+      "deleteProjectTitle": "Delete project cap",
+      "deleteProjectDescription": "Delete the soft cap for {{name}}?",
+      "projectDeleted": "Project cap deleted",
+      "addProjectTitle": "Add project cap",
+      "editProjectTitle": "Edit project cap",
+      "projectFormDescription": "A project soft cap only warns when exceeded; it never blocks work.",
+      "projectSaved": "Project cap saved",
+      "fields": {
+        "project": "Project",
+        "projectPlaceholder": "Select a project",
+        "noProjects": "No selectable projects",
+        "limit": "Monthly cap (tokens)",
+        "limitHint": "0 means unlimited."
+      },
+      "exceededToast": "Monthly model token budget ({{period}}) exceeded: {{used}} / {{limit}} tokens.",
+      "projectWarningToast": "Project {{project}} model token cap exceeded: {{used}} / {{limit}} tokens."
+    },
+    "usage": {
+      "title": "Usage",
+      "loading": "Loading usage…",
+      "loadFailed": "Failed to load usage",
+      "empty": "No usage in this period yet",
+      "totalTokens": "Total tokens",
+      "totalRequests": "Requests",
+      "groups": {
+        "model": "Model",
+        "cli": "CLI",
+        "provider": "Provider",
+        "project": "Project"
+      },
+      "columns": {
+        "name": "Name",
+        "tokens": "Tokens",
+        "requests": "Requests"
+      }
+    },
+    "workspace": {
+      "title": "Model usage",
+      "currentProvider": "Current provider",
+      "currentModel": "Current model",
+      "defaultModel": "Default (follows CLI)",
+      "monthTokens": "Tokens this month",
+      "budgetStatus": "Owner budget",
+      "loading": "Loading…"
+    }
   },
   "capability": {
     "title": "Capability Configuration",
@@ -689,7 +839,8 @@
       "toastDescription": "Open the official site to download the latest version",
       "dismiss": "Later",
       "networkUnavailable": "Couldn't fetch the latest version (your network may be restricted). Open the official site to check for updates.",
-      "notesTitle": "What's changed"
+      "notesTitle": "What's changed",
+      "notesSeparator": "; "
     }
   },
   "general": {
@@ -968,6 +1119,7 @@
       "apiKeyAccountLabel": "Reference account",
       "apiKeyAccountNone": "No reference — paste the key directly",
       "apiKeyHint": "Choosing an account fills the key as ${ACCOUNT:name}; changing the account key updates everywhere it is referenced.",
+      "modelsSectionLabel": "Models",
       "modelLabel": "Default model",
       "haikuModelLabel": "Small model (haiku)",
       "sonnetModelLabel": "Standard model (sonnet)",

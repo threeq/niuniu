@@ -9,7 +9,10 @@ import noChineseLiteral from './eslint-rules/no-chinese-literal.js'
 const localPlugin = { rules: { 'no-chinese-literal': noChineseLiteral } }
 
 export default defineConfig([
-  globalIgnores(['dist']),
+  // dist is build output; public/ holds vendored runtime assets copied verbatim
+  // (drawio bundles from `pnpm vendor:drawio`) that were never meant to be
+  // linted as source.
+  globalIgnores(['dist', 'public']),
   {
     files: ['**/*.{ts,tsx}'],
     extends: [

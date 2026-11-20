@@ -670,7 +670,7 @@ export function ChatPanel({ workspace, readOnly }: ChatPanelProps) {
   );
 
   // Translate builtin commands to natural prompts for -p mode
-  const translateBuiltinPrompt = (content: string): string => {
+  const translateBuiltinPrompt = useCallback((content: string): string => {
     const parts = content.trim().split(/\s+/);
     const cmd = parts[0].toLowerCase();
     const rest = parts.slice(1).join(' ');
@@ -729,7 +729,7 @@ export function ChatPanel({ workspace, readOnly }: ChatPanelProps) {
       default:
         return content;
     }
-  };
+  }, [cliType]);
 
   const handleSend = useCallback(
     async (content: string, attachments: ChatAttachment[] = []) => {
@@ -781,7 +781,7 @@ export function ChatPanel({ workspace, readOnly }: ChatPanelProps) {
         setSending(false);
       }
     },
-    [workspaceId, handleBuiltinCommand, attachmentStore, queryClient, cliType],
+    [workspaceId, handleBuiltinCommand, translateBuiltinPrompt, attachmentStore, queryClient],
   );
 
   // Cross-panel prompt injection (e.g. "sync from branch" in the changes panel

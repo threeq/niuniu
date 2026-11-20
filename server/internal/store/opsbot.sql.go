@@ -183,6 +183,18 @@ func (q *Queries) CreateOpsPublishRecord(ctx context.Context, arg CreateOpsPubli
 	return i, err
 }
 
+const deleteOpsBot = `-- name: DeleteOpsBot :exec
+DELETE FROM ops_bots WHERE id = ?
+`
+
+// Hard delete. ops_publish_records / ops_metrics_daily / ops_engagements /
+// ops_browser_sessions cascade; IM chat bindings and the control workspace
+// and Epic are cleaned up by the delete flow.
+func (q *Queries) DeleteOpsBot(ctx context.Context, id int64) error {
+	_, err := q.db.ExecContext(ctx, deleteOpsBot, id)
+	return err
+}
+
 const getOpsBot = `-- name: GetOpsBot :one
 SELECT id, owner_type, owner_id, role, pack_id, pack_version, account_ref, display_name, persona_json, credential_refs_json, knowledge_scope_json, goals_json, cadence_json, approval_policy_json, budget_json, runtime_json, epic_issue_id, control_workspace_id, status, director_bot_id, created_at, updated_at FROM ops_bots WHERE id = ?
 `
@@ -616,15 +628,6 @@ func (q *Queries) SetOpsBotProvision(ctx context.Context, arg SetOpsBotProvision
 		&i.UpdatedAt,
 	)
 	return i, err
-}
-
-const deleteOpsBot = `-- name: DeleteOpsBot :exec
-DELETE FROM ops_bots WHERE id = ?
-`
-
-func (q *Queries) DeleteOpsBot(ctx context.Context, id int64) error {
-	_, err := q.db.ExecContext(ctx, deleteOpsBot, id)
-	return err
 }
 
 const sumOpsAccountCost = `-- name: SumOpsAccountCost :one

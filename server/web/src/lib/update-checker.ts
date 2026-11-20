@@ -85,7 +85,7 @@ function surfaceToast(version: string, downloadURL: string, releaseURL: string, 
   const target = downloadURL || releaseURL || releasesPageURL
   // Notes summary: the first few release-note lines instead of a fixed blurb,
   // so the toast itself answers "what changed". Long entries truncate.
-  const summary = notesSummary(notes)
+  const summary = notesSummary(notes, t('about.update.notesSeparator'))
   toast(t('about.update.newVersion', { version }), {
     description: summary || t('about.update.toastDescription'),
     duration: 12_000,
@@ -106,7 +106,7 @@ function surfaceToast(version: string, downloadURL: string, releaseURL: string, 
 // three non-heading lines, joined; a trailing ellipsis when there is more.
 // Undefined when there is nothing usable (caller falls back to the fixed
 // description).
-function notesSummary(notes?: string): string | undefined {
+function notesSummary(notes?: string, separator = '; '): string | undefined {
   if (!notes) return undefined
   const lines = notes
     .split('\n')
@@ -114,5 +114,5 @@ function notesSummary(notes?: string): string | undefined {
     .filter((l) => l && !l.startsWith('#'))
   if (lines.length === 0) return undefined
   const head = lines.slice(0, 3).map((l) => l.replace(/^[-*]\s+/, '').replace(/\*\*/g, ''))
-  return head.join('；') + (lines.length > 3 ? '…' : '')
+  return head.join(separator) + (lines.length > 3 ? '…' : '')
 }

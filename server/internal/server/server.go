@@ -87,6 +87,7 @@ type Server struct {
 	envPresetSvc            *service.EnvPresetService
 	envAccountSvc           *service.EnvAccountService
 	envProviderSvc          *service.EnvProviderService
+	modelBudgetSvc          *service.ModelBudgetService
 	capabilityBackendSvc    *service.CapabilityBackendService
 	sceneSvc                *service.SceneService
 	sceneSeeder             *service.SceneSeeder
@@ -269,6 +270,7 @@ type Server struct {
 	envPresetHandler         *api.EnvPresetHandler
 	envAccountHandler        *api.EnvAccountHandler
 	envProviderHandler       *api.EnvProviderHandler
+	modelHandler             *api.ModelHandler
 	capabilityBackendHandler *api.CapabilityBackendHandler
 	sceneHandler             *api.SceneHandler
 	workspaceSceneHandler    *api.WorkspaceSceneHandler
@@ -620,6 +622,13 @@ func New(cfg *config.Config, db *sql.DB, frontendFS fs.FS) *Server {
 		// Mark done regardless: existing installs (with data) skip seeding;
 		// fresh installs just seeded. Either way, never re-seed again.
 		store.MarkEnvSeedDone(db)
+	}
+
+	// Shared model library: seed the owner_id=0 builtin rows. Idempotent and
+	// cheap, so it runs on every startup (not just fresh installs) to backfill
+	// databases created before the model library existed.
+	if err := service.SeedBuiltinModels(context.Background(), s.queries); err != nil {
+		slog.Warn("seed builtin models failed", "error", err)
 	}
 
 	// Scene services (M1 — see docs/superpowers/specs/2026-05-17-scene-based-mcp-plugin-management-design.md).
@@ -1181,6 +1190,21 @@ func New(cfg *config.Config, db *sql.DB, frontendFS fs.FS) *Server {
 	// into the usage panel so it can show the authoritative 5h-window reset
 	// time (only obtainable via this passive path; /api/oauth/usage is blocked).
 	s.agentProxy.SetUsageRecorder(claudeUsageSvc)
+
+	// Monthly model-token budgets: the owner cap is a hard stop enforced in
+	// AgentProxy (new sessions/turns); project caps only emit a warning.
+	s.modelBudgetSvc = service.NewModelBudgetService(s.queries, s.notifyHub)
+	s.agentProxy.SetModelBudgetChecker(s.modelBudgetSvc)
+
+	// Shared model library + usage/budget API (design §11.1).
+	modelLibrarySvc := service.NewModelLibraryService(s.queries)
+	s.modelHandler = api.NewModelHandler(
+		modelLibrarySvc,
+		service.NewModelRefreshService(s.queries, modelLibrarySvc),
+		service.NewModelUsageService(s.queries),
+		s.modelBudgetSvc,
+	)
+	s.modelHandler.Authz = authz
 
 	// Session-state recorder: snapshots workspace git state on idle and
 	// reports drift on the next --resume. See P1.1 design notes.

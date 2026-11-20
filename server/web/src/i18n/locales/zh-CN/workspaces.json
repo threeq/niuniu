@@ -756,6 +756,7 @@
       "agentSectionDesc": "适用于本工作空间运行的任意引擎 —— 命令 / 参数 / 模型 / 允许的工具。",
       "agentDefaultHint": "默认: {{value}}",
       "agentEgHint": "例: {{value}}",
+      "agentAcpNoArgs": "ACP 模式，无需额外参数",
       "name": "名称",
       "boundRepos": "绑定仓库",
       "addRepo": "添加仓库",

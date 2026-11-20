@@ -121,6 +121,9 @@ export function FileTreePanel({ workspaceId }: FileTreePanelProps) {
   }, []);
 
   const windowed = rows.length > VIRTUALIZE_THRESHOLD;
+  // TanStack Virtual's API returns functions the compiler can't memoize
+  // safely; it documents skipping memoization for this hook as expected.
+  // eslint-disable-next-line react-hooks/incompatible-library
   const virtualizer = useVirtualizer({
     count: rows.length,
     getScrollElement: () => scrollRef.current,

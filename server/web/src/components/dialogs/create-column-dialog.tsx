@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
@@ -31,12 +31,17 @@ export function CreateColumnDialog({ open, onOpenChange, projectId }: Props) {
   const [name, setName] = useState('')
   const [attemptedSubmit, setAttemptedSubmit] = useState(false)
 
-  useEffect(() => {
+  // Reset on every open transition. Adjusting state during render (React's
+  // documented alternative to a reset effect) lands the reset in the same
+  // render as the open and skips the extra effect pass.
+  const [prevOpen, setPrevOpen] = useState(open)
+  if (open !== prevOpen) {
+    setPrevOpen(open)
     if (open) {
       setName('')
       setAttemptedSubmit(false)
     }
-  }, [open])
+  }
 
   const nameInvalid = !name.trim()
   const showNameError = attemptedSubmit && nameInvalid

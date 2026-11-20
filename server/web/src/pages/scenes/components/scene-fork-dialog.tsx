@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
@@ -37,11 +37,16 @@ export function SceneForkDialog({ open, onOpenChange, scene, onForked }: SceneFo
   const defaultSlug = scene ? `${scene.slug}-fork` : '';
   const newSlug = customSlug ?? defaultSlug;
 
-  useEffect(() => {
+  // Default the owner to the signed-in user once auth resolves. Adjusting
+  // state during render (React's documented alternative to a sync effect)
+  // keeps the picker correct on the first paint with an id.
+  const [prevUserId, setPrevUserId] = useState(userId);
+  if (userId !== prevUserId) {
+    setPrevUserId(userId);
     if (owner.type === 'user' && owner.id === 0 && userId > 0) {
       setOwner({ type: 'user', id: userId });
     }
-  }, [owner.id, owner.type, userId]);
+  }
 
   const forkMut = useMutation({
     mutationFn: async () => {

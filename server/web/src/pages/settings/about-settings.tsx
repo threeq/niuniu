@@ -225,7 +225,7 @@ export function AboutSettings() {
 // renderer (bold markers, compare links) is stripped to plain text.
 function ReleaseNotes({ notes, releaseURL }: { notes: string; releaseURL: string }) {
   const { t } = useTranslation('settings')
-  const tag = releaseURL.match(/releases\/tag\/(v[\w.\-]+)/)?.[1]
+  const tag = releaseURL.match(/releases\/tag\/(v[\w.-]+)/)?.[1]
   const compareURL = tag
     ? releaseURL.replace(/releases\/tag\/.*/, `releases/tag/${tag}`)
     : releaseURL

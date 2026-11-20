@@ -2550,3 +2550,58 @@ DO $$ BEGIN
             FOREIGN KEY (completion_profile_id) REFERENCES completion_profiles(id) ON DELETE SET NULL;
     END IF;
 END $$;
+
+-- ============================================================
+-- Shared model library + usage budget
+-- (docs/superpowers/specs/2026-11-19-shared-model-library-design.md 5).
+-- Mirrors the SQLite DDL in schema.sql. owner_id=0 models are system builtins;
+-- project_id=0 budgets are the owner monthly hard cap.
+-- ============================================================
+CREATE TABLE IF NOT EXISTS models (
+    id           BIGSERIAL PRIMARY KEY,
+    owner_type   TEXT NOT NULL DEFAULT 'user' CHECK (owner_type IN ('user','org')),
+    owner_id     BIGINT NOT NULL DEFAULT 0,
+    name         TEXT NOT NULL,
+    display_name TEXT NOT NULL DEFAULT '',
+    enabled      INTEGER NOT NULL DEFAULT 1,
+    source       TEXT NOT NULL DEFAULT 'manual',
+    created_at   TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at   TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(owner_type, owner_id, name)
+);
+CREATE INDEX IF NOT EXISTS idx_models_owner ON models(owner_type, owner_id, enabled);
+
+CREATE TABLE IF NOT EXISTS model_usage_hourly (
+    id                    BIGSERIAL PRIMARY KEY,
+    owner_type            TEXT NOT NULL DEFAULT 'user' CHECK (owner_type IN ('user','org')),
+    owner_id              BIGINT NOT NULL DEFAULT 0,
+    project_id            BIGINT NOT NULL DEFAULT 0,
+    workspace_id          BIGINT NOT NULL DEFAULT 0,
+    agent_cli             TEXT NOT NULL DEFAULT '',
+    model_name            TEXT NOT NULL DEFAULT '',
+    provider_id           BIGINT NOT NULL DEFAULT 0,
+    bucket_hour           TIMESTAMPTZ NOT NULL,
+    input_tokens          BIGINT NOT NULL DEFAULT 0,
+    output_tokens         BIGINT NOT NULL DEFAULT 0,
+    cache_creation_tokens BIGINT NOT NULL DEFAULT 0,
+    cache_read_tokens     BIGINT NOT NULL DEFAULT 0,
+    interaction_count     BIGINT NOT NULL DEFAULT 0,
+    estimated             INTEGER NOT NULL DEFAULT 0,
+    UNIQUE(owner_type, owner_id, project_id, workspace_id, agent_cli, model_name, provider_id, bucket_hour)
+);
+CREATE INDEX IF NOT EXISTS idx_model_usage_owner_time
+    ON model_usage_hourly(owner_type, owner_id, bucket_hour);
+CREATE INDEX IF NOT EXISTS idx_model_usage_project_time
+    ON model_usage_hourly(project_id, bucket_hour);
+
+CREATE TABLE IF NOT EXISTS model_budget_settings (
+    id             BIGSERIAL PRIMARY KEY,
+    owner_type     TEXT NOT NULL DEFAULT 'user' CHECK (owner_type IN ('user','org')),
+    owner_id       BIGINT NOT NULL DEFAULT 0,
+    project_id     BIGINT NOT NULL DEFAULT 0,
+    monthly_tokens BIGINT NOT NULL DEFAULT 0,
+    enabled        INTEGER NOT NULL DEFAULT 1,
+    created_at     TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at     TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(owner_type, owner_id, project_id)
+);

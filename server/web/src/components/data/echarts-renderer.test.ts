@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { buildOption, normalizeNativeOption } from './echarts-renderer'
+import { buildOption, normalizeNativeOption } from './echarts-options'
 
 describe('normalizeNativeOption', () => {
   it('pushes a colliding legend below a title with subtext and opens grid.top', () => {

@@ -15,7 +15,7 @@ export function isIMEComposing(
 ): boolean {
   const native: KeyboardEvent = 'nativeEvent' in e ? e.nativeEvent : e;
   if (native.isComposing) return true;
-  // eslint-disable-next-line deprecation/deprecation
+  // keyCode is deprecated but is the only signal these IMEs emit.
   if (native.keyCode === 229) return true;
   return false;
 }

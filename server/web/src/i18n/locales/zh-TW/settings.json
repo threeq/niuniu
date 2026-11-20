@@ -363,6 +363,7 @@
     "skills": "Skill 管理",
     "env": "環境變數",
     "providers": "訂閱平臺",
+    "models": "模型庫",
     "capability": "能力配置",
     "gitIdentity": "Git",
     "users": "使用者",
@@ -383,6 +384,155 @@
     "workspaceCleanup": "工作空間清理",
     "scenes": "場景",
     "agents": "Agent 管理"
+  },
+  "models": {
+    "title": "模型庫與預算",
+    "description": "維護 owner 級共享模型庫，所有 provider 與 CLI 共用同一份模型名；同時設定本月 token 用量預算。",
+    "addToLibrary": "加入模型庫",
+    "addedToLibrary": "已將 {{name}} 加入模型庫",
+    "addToLibraryFailed": "加入模型庫失敗：{{detail}}",
+    "refreshButton": "重新整理模型",
+    "refreshTitle": "重新整理模型",
+    "refreshDescription": "以下為 {{name}} 返回的模型名，勾選後匯入共享模型庫。",
+    "refreshLoading": "正在獲取模型列表…",
+    "refreshUnsupported": "該 provider 未提供 /models 介面，請手動輸入模型名。",
+    "refreshFailed": "重新整理失敗：{{detail}}",
+    "refreshEmpty": "該 provider 沒有返回任何模型。",
+    "alreadyInLibrary": "已在模型庫中",
+    "importButton": "匯入所選（{{selected}}）",
+    "imported": "已匯入 {{added}} 個，跳過 {{skipped}} 個",
+    "importFailed": "匯入失敗：{{detail}}",
+    "tabs": {
+      "library": "模型庫",
+      "budget": "預算",
+      "usage": "用量"
+    },
+    "library": {
+      "title": "模型庫",
+      "description": "模型名由所有 provider 與 Claude Code / Codex / Qwen Code 共用。系統行只能隱藏。",
+      "add": "新增模型",
+      "searchPlaceholder": "搜尋模型",
+      "loadFailed": "模型庫載入失敗",
+      "retry": "重試",
+      "empty": "模型庫為空",
+      "emptyHint": "可直接新增模型名，或在 provider 表單中從 provider 重新整理匯入。",
+      "noResults": "沒有匹配的模型",
+      "noResultsHint": "換個關鍵詞試試。",
+      "columns": {
+        "name": "名稱",
+        "displayName": "顯示名",
+        "enabled": "啟用",
+        "source": "來源",
+        "actions": "操作"
+      },
+      "statusEnabled": "啟用",
+      "toggleEnabled": "切換 {{name}} 的啟用狀態",
+      "hide": "隱藏",
+      "edit": "編輯 {{name}} 的顯示名",
+      "delete": "刪除 {{name}}",
+      "hidden": "已隱藏該模型",
+      "added": "已新增模型",
+      "updated": "已更新模型",
+      "deleted": "已刪除模型",
+      "saveFailed": "儲存失敗：{{detail}}",
+      "deleteFailed": "刪除失敗：{{detail}}",
+      "deleteTitle": "刪除模型",
+      "deleteDescription": "從模型庫中移除 {{name}}？已儲存的 provider 配置不受影響。",
+      "cancel": "取消",
+      "save": "儲存",
+      "addTitle": "新增模型",
+      "editTitle": "編輯模型",
+      "formDescription": "模型庫由所有 provider 與 CLI 共用；顯示名隻影響展示。",
+      "fields": {
+        "name": "模型名",
+        "namePlaceholder": "例如 glm-5.1",
+        "displayName": "顯示名",
+        "displayNamePlaceholder": "可選，預設與模型名相同"
+      },
+      "sources": {
+        "builtin": "內建",
+        "manual": "手動",
+        "refreshed": "重新整理"
+      }
+    },
+    "budget": {
+      "ownerTitle": "owner 月度 token 上限",
+      "ownerDescription": "這是硬上限：達到後，新會話與新一輪對話會被拒絕。0 表示不限。",
+      "usedOfLimit": "本月已用 {{used}} / {{limit}} token（{{percent}}%）",
+      "usedUnlimited": "本月已用 {{used}} token（不限上限）",
+      "progressLabel": "本月 token 用量",
+      "ownerLimit": "月度上限（token）",
+      "ownerLimitHint": "0 表示不限制。超出後新會話/新回合會被攔截。",
+      "save": "儲存",
+      "saved": "預算已儲存",
+      "saveFailed": "儲存失敗：{{detail}}",
+      "loadFailed": "預算載入失敗",
+      "projectTitle": "專案軟上限",
+      "projectDescription": "專案上限只告警，不阻斷執行；owner 上限才是硬攔截。",
+      "addProject": "新增專案上限",
+      "noProjects": "還沒有專案上限",
+      "noProjectsHint": "為單個專案設定本月 token 軟上限，超過時僅提醒，不阻斷。",
+      "columns": {
+        "project": "專案",
+        "limit": "上限",
+        "used": "已用",
+        "status": "狀態",
+        "actions": "操作"
+      },
+      "unlimited": "不限",
+      "status": {
+        "unlimited": "不限",
+        "exceeded": "已超限",
+        "near": "接近上限（{{percent}}%）",
+        "ok": "正常（{{percent}}%）"
+      },
+      "editProject": "編輯 {{name}} 的上限",
+      "deleteProject": "刪除 {{name}} 的上限",
+      "deleteProjectTitle": "刪除專案上限",
+      "deleteProjectDescription": "刪除 {{name}} 的軟上限？",
+      "projectDeleted": "已刪除專案上限",
+      "addProjectTitle": "新增專案上限",
+      "editProjectTitle": "編輯專案上限",
+      "projectFormDescription": "專案軟上限只在超過時提醒，不會阻斷執行。",
+      "projectSaved": "專案上限已儲存",
+      "fields": {
+        "project": "專案",
+        "projectPlaceholder": "選擇專案",
+        "noProjects": "沒有可選專案",
+        "limit": "月度上限（token）",
+        "limitHint": "0 表示不限制。"
+      },
+      "exceededToast": "本月模型 token 預算已超限（{{period}}）：已用 {{used}} / {{limit}}。",
+      "projectWarningToast": "專案 {{project}} 的模型 token 預算已超限：已用 {{used}} / {{limit}}。"
+    },
+    "usage": {
+      "title": "用量",
+      "loading": "正在載入用量…",
+      "loadFailed": "用量載入失敗",
+      "empty": "本期暫無用量",
+      "totalTokens": "總 token",
+      "totalRequests": "請求數",
+      "groups": {
+        "model": "模型",
+        "cli": "CLI",
+        "provider": "Provider",
+        "project": "專案"
+      },
+      "columns": {
+        "name": "名稱",
+        "tokens": "Token",
+        "requests": "請求數"
+      }
+    },
+    "workspace": {
+      "title": "模型用量",
+      "currentProvider": "當前 Provider",
+      "currentModel": "當前模型",
+      "defaultModel": "預設（跟隨 CLI）",
+      "monthTokens": "本月 token",
+      "budgetStatus": "Owner 預算",
+      "loading": "載入中…"
+    }
   },
   "capability": {
     "title": "能力配置",
@@ -689,7 +839,8 @@
       "toastDescription": "前往官網下載最新版本",
       "dismiss": "稍後",
       "networkUnavailable": "無法獲取最新版本資訊（可能因網路環境受限）。可點選下方按鈕前往官網檢視最新版本。",
-      "notesTitle": "本次更新內容"
+      "notesTitle": "本次更新內容",
+      "notesSeparator": "；"
     }
   },
   "general": {
@@ -968,6 +1119,7 @@
       "apiKeyAccountLabel": "引用賬戶",
       "apiKeyAccountNone": "不引用，直接填 Key",
       "apiKeyHint": "選擇賬戶會把 Key 填為 ${ACCOUNT:賬戶名}，賬戶 Key 改動一處，所有引用它的地方生效。",
+      "modelsSectionLabel": "模型",
       "modelLabel": "預設模型",
       "haikuModelLabel": "小模型（haiku）",
       "sonnetModelLabel": "標準模型（sonnet）",

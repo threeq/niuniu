@@ -62,13 +62,19 @@ export function IssueQuickCreateDialog({ open, onOpenChange, projectId, columnId
     [issues],
   )
 
-  // On open: restore any involuntarily-kept draft for this project+column.
-  useEffect(() => {
+  // On open (or when the project/column/subtask target changes): restore any
+  // involuntarily-kept draft. Done by adjusting state during render so the
+  // draft is ready in the same pass as the dialog becoming visible.
+  const draftKey = `${open}|${projectId}|${columnId}|${isSubtask}`
+  // `null` forces the restore check on mount (the dialog may mount open).
+  const [prevDraftKey, setPrevDraftKey] = useState<string | null>(null)
+  if (draftKey !== prevDraftKey) {
+    setPrevDraftKey(draftKey)
     if (open) {
       setDraft(isSubtask ? EMPTY : (loadIssueDraft(projectId, columnId) ?? EMPTY))
       setSubmitting(false)
     }
-  }, [open, projectId, columnId, isSubtask])
+  }
 
   // Mirror the form into localStorage as the user types (empty draft is not stored).
   useEffect(() => {

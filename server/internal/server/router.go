@@ -1414,6 +1414,26 @@ func (s *Server) setupRoutes() {
 		envProviders.POST("/reorder", s.envProviderHandler.ReorderGroup)
 	}
 
+	// Shared model library, usage attribution and monthly budgets
+	// (design §11.1). ?all=1 lists disabled rows for the management page.
+	models := api.Group("/models")
+	{
+		models.GET("", s.modelHandler.List)
+		models.POST("", s.modelHandler.Upsert)
+		models.PATCH("/:id", s.modelHandler.Update)
+		models.DELETE("/:id", s.modelHandler.Delete)
+		models.POST("/refresh-preview", s.modelHandler.RefreshPreview)
+		models.POST("/import", s.modelHandler.Import)
+	}
+	api.GET("/model-usage/summary", s.modelHandler.UsageSummary)
+	modelBudget := api.Group("/model-budget")
+	{
+		modelBudget.GET("", s.modelHandler.GetBudget)
+		modelBudget.PUT("", s.modelHandler.SetBudget)
+		modelBudget.PUT("/projects/:id", s.modelHandler.SetProjectBudget)
+		modelBudget.DELETE("/projects/:id", s.modelHandler.DeleteProjectBudget)
+	}
+
 	// Capability config (video-creation capability modules + their backends).
 	// Plan: docs/superpowers/plans/2026-09-27-video-creation-implementation.md §1.1.
 	api.GET("/capability-modules", s.capabilityBackendHandler.ListModules)

@@ -35,10 +35,6 @@ const SOURCE_KEYS: Record<string, string> = {
 // Module-level cache to avoid re-fetching on every mount.
 const _commandsCache = new Map<string, SlashCommandItem[]>();
 
-export function clearSlashCommandCache() {
-  _commandsCache.clear();
-}
-
 export const SlashCommandPopup = forwardRef<SlashCommandPopupHandle, SlashCommandPopupProps>(
   function SlashCommandPopup({ anchorRef, filter, workspaceId, cliType = 'claude', onSelect, onClose }, ref) {
     const { t } = useTranslation('workspaces');

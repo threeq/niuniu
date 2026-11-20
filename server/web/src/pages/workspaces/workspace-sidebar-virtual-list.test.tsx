@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { buildRows, type WorkspaceVirtualListProps } from './workspace-sidebar-virtual-list';
+import { buildRows, type WorkspaceVirtualListProps } from './workspace-sidebar-rows';
 import type { Workspace, Project } from '@/types/api';
 
 // Minimal workspace factory — buildRows only reads id / issue_id /
