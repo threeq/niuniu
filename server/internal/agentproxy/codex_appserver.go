@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/niuniu-dev/niuniu/internal/agentproxy/adapter"
+	"github.com/niuniu-dev/niuniu/internal/config"
 	"github.com/niuniu-dev/niuniu/internal/sceneenv"
 	"github.com/niuniu-dev/niuniu/internal/store"
 )
@@ -517,6 +518,32 @@ func (s *WorkspaceSession) buildCodexAppServerRuntime(ctx context.Context, workD
 		slog.Warn("codex app-server: prepare provider home failed", "workspaceID", s.workspaceID, "err", herr)
 	} else if homeDir != "" {
 		out.env = append(out.env, "CODEX_HOME="+homeDir)
+	}
+
+	// Wire the niuniu MCP server into the app-server. The one-shot (codex exec)
+	// path passes GenerateCodexConfigArgs as `-c` overrides; without the same
+	// overrides here the app-server starts with no niuniu tools, so the agent's
+	// start_workspace / list_issues calls fail as "unsupported call".
+	if s.mcpWriter != nil {
+		projectID, _ := s.q.GetProjectIDForWorkspace(ctx, s.workspaceID)
+		mcpOpts := config.MCPGenerateOptions{
+			ProjectID:           projectID,
+			WorkspaceID:         s.workspaceID,
+			InboxDir:            filepath.Join(workDir, ".team", "inboxes"),
+			SessionToken:        s.sessionToken,
+			CodexSandboxMode:    out.sandboxMode,
+			CodexApprovalPolicy: out.approvalPolicy,
+		}
+		if mcpArgs, err := s.mcpWriter.GenerateCodexConfigArgs(mcpOpts); err != nil {
+			slog.Warn("codex app-server: build codex mcp config args failed",
+				"workspaceID", s.workspaceID, "err", err)
+		} else {
+			out.configArgs = append(out.configArgs, mcpArgs...)
+		}
+		if err := s.mcpWriter.GenerateCodexConfigToml(workDir, mcpOpts); err != nil {
+			slog.Warn("codex app-server: write .codex/config.toml failed",
+				"workspaceID", s.workspaceID, "err", err)
+		}
 	}
 
 	worktrees, wtErr := s.q.ListWorktrees(ctx, s.workspaceID)
