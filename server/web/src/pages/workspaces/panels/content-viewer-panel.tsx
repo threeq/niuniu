@@ -134,7 +134,7 @@ export function ContentViewerPanel({ workspaceId, target }: ContentViewerPanelPr
           />
         )}
         {target.kind === 'diff' && (
-          <CodeView workspaceId={workspaceId} repo={target.repo} relPath={path} allowDiff />
+          <CodeView workspaceId={workspaceId} repo={target.repo} relPath={path} allowDiff showDownload />
         )}
         {target.kind === 'checkpoint-diff' && (
           <CheckpointDiffBody
@@ -257,7 +257,10 @@ function CheckpointDiffBody({
 }
 
 /** 提交为产物 + 下载 — carried over from the retired file modal header. */
-function FileHeaderActions({
+/** Download one workspace file (raw bytes) with progress + completion toast.
+ *  Shared by the viewer header and the diff view's own toolbar so a diff can
+ *  download the underlying file without switching to the file tab. */
+function FileDownloadButton({
   workspaceId,
   path,
   name,
@@ -267,27 +270,10 @@ function FileHeaderActions({
   name: string;
 }) {
   const { t } = useTranslation('workspaces');
-  const queryClient = useQueryClient();
-  const [submitting, setSubmitting] = useState(false);
   // Download feedback: the bare `<a download>` this replaces gave the webview
   // no signal at all — no progress, no completion, no failure.
   const [downloading, setDownloading] = useState(false);
   const [progress, setProgress] = useState(100);
-
-  const handleSubmitArtifact = async () => {
-    if (submitting) return;
-    setSubmitting(true);
-    try {
-      await api.post(`/workspaces/${workspaceId}/artifacts`, { path, title: name });
-      await queryClient.invalidateQueries({ queryKey: ['workspace-artifacts', workspaceId] });
-      toast.success(t('filePreview.submitArtifactDone', { name }));
-    } catch (err) {
-      const msg = err instanceof ApiError ? err.message : t('filePreview.submitArtifactFailed');
-      toast.error(msg || t('filePreview.submitArtifactFailed'));
-    } finally {
-      setSubmitting(false);
-    }
-  };
 
   const handleDownload = async () => {
     if (downloading) return;
@@ -310,6 +296,60 @@ function FileHeaderActions({
   };
 
   return (
+    <Button
+      variant="outline"
+      size="sm"
+      className="h-6 shrink-0 gap-1 px-2 text-xs"
+      onClick={handleDownload}
+      disabled={downloading}
+      title={t('filePreview.download')}
+      aria-label={t('filePreview.download')}
+    >
+      {downloading ? (
+        <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
+      ) : (
+        <Download className="h-3.5 w-3.5" aria-hidden="true" />
+      )}
+      <span className="hidden sm:inline">
+        {downloading
+          ? progress < 100
+            ? `${progress}%`
+            : t('filePreview.downloading')
+          : t('filePreview.download')}
+      </span>
+    </Button>
+  );
+}
+
+function FileHeaderActions({
+  workspaceId,
+  path,
+  name,
+}: {
+  workspaceId: string;
+  path: string;
+  name: string;
+}) {
+  const { t } = useTranslation('workspaces');
+  const queryClient = useQueryClient();
+  const [submitting, setSubmitting] = useState(false);
+
+  const handleSubmitArtifact = async () => {
+    if (submitting) return;
+    setSubmitting(true);
+    try {
+      await api.post(`/workspaces/${workspaceId}/artifacts`, { path, title: name });
+      await queryClient.invalidateQueries({ queryKey: ['workspace-artifacts', workspaceId] });
+      toast.success(t('filePreview.submitArtifactDone', { name }));
+    } catch (err) {
+      const msg = err instanceof ApiError ? err.message : t('filePreview.submitArtifactFailed');
+      toast.error(msg || t('filePreview.submitArtifactFailed'));
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
     <>
       <Button
         variant="outline"
@@ -321,26 +361,7 @@ function FileHeaderActions({
         <PackagePlus className="h-3.5 w-3.5" aria-hidden="true" />
         <span className="hidden sm:inline">{t('filePreview.submitArtifact')}</span>
       </Button>
-      <Button
-        variant="outline"
-        size="sm"
-        className="h-6 shrink-0 gap-1 px-2 text-xs"
-        onClick={handleDownload}
-        disabled={downloading}
-      >
-        {downloading ? (
-          <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
-        ) : (
-          <Download className="h-3.5 w-3.5" aria-hidden="true" />
-        )}
-        <span className="hidden sm:inline">
-          {downloading
-            ? progress < 100
-              ? `${progress}%`
-              : t('filePreview.downloading')
-            : t('filePreview.download')}
-        </span>
-      </Button>
+      <FileDownloadButton workspaceId={workspaceId} path={path} name={name} />
     </>
   );
 }
@@ -580,6 +601,7 @@ function CodeView({
   allowDiff,
   jumpToLine,
   refreshTick,
+  showDownload = false,
 }: {
   workspaceId: string;
   repo: string;
@@ -595,6 +617,10 @@ function CodeView({
   /** Bumped by the header refresh button; re-fetches the file from disk.
    *  Only meaningful with a rawPath (the file-tree content view). */
   refreshTick?: number;
+  /** Show a raw-file download action in this view's own toolbar. The file-tree
+   *  content view already has one in the viewer header, so it stays false
+   *  there; the changes-list diff has no header action, so it enables it. */
+  showDownload?: boolean;
 }) {
   const { t } = useTranslation('workspaces');
   // A search hit anchors to a line in the FULL file, which the diff view may not
@@ -660,6 +686,13 @@ function CodeView({
           </div>
         )}
         <div className="ml-auto flex items-center gap-2">
+          {showDownload && (
+            <FileDownloadButton
+              workspaceId={workspaceId}
+              path={fileRawPath}
+              name={baseName(fileRawPath)}
+            />
+          )}
           <SendQueueButton pendingCount={pendingCount} sending={sendingAll} onClick={handleSendAll} />
           {activeMode === 'diff' && <ViewModeToggle mode={viewMode} onChange={setViewMode} />}
         </div>
