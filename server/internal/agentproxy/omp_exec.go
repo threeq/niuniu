@@ -12,6 +12,7 @@ import (
 
 	"github.com/niuniu-dev/niuniu/internal/agentbackend"
 	"github.com/niuniu-dev/niuniu/internal/agentbackend/omp"
+	"github.com/niuniu-dev/niuniu/internal/config"
 	"github.com/niuniu-dev/niuniu/internal/sceneenv"
 	"github.com/niuniu-dev/niuniu/internal/store"
 )
@@ -139,6 +140,21 @@ func (s *WorkspaceSession) getOrStartOMPBackend(ctx context.Context, workDir str
 			if model != "" {
 				args = append(args, "--model", model)
 			}
+		}
+	}
+
+	// MCP collaboration: omp reads project-scope MCP config and imports Claude
+	// Code's .mcp.json (portable fallback). Write the shared project-root
+	// .mcp.json so the agent gets the niuniu tool surface.
+	if s.mcpWriter != nil {
+		projectID, _ := s.q.GetProjectIDForWorkspace(ctx, s.workspaceID)
+		if _, err := s.mcpWriter.Generate(workDir, config.MCPGenerateOptions{
+			ProjectID:    projectID,
+			WorkspaceID:  s.workspaceID,
+			InboxDir:     filepath.Join(workDir, ".team", "inboxes"),
+			SessionToken: s.sessionToken,
+		}, nil, ""); err != nil {
+			slog.Warn("omp: write .mcp.json failed", "workspaceID", s.workspaceID, "err", err)
 		}
 	}
 

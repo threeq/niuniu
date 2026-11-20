@@ -5,9 +5,11 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/niuniu-dev/niuniu/internal/agentproxy/adapter"
+	"github.com/niuniu-dev/niuniu/internal/config"
 	"github.com/niuniu-dev/niuniu/internal/sceneenv"
 )
 
@@ -84,6 +86,21 @@ func (s *WorkspaceSession) buildQwenOneShotExec(ctx context.Context, workDir str
 		GitAuthorName:  gitName,
 		GitAuthorEmail: gitEmail,
 	})
+
+	// MCP collaboration: Qwen Code reads the project-root .mcp.json (its
+	// "project" MCP scope) — the same file the Claude path writes — so the
+	// agent gets the niuniu tool surface (board / memory / documents / …).
+	if s.mcpWriter != nil {
+		projectID, _ := s.q.GetProjectIDForWorkspace(ctx, s.workspaceID)
+		if _, err := s.mcpWriter.Generate(workDir, config.MCPGenerateOptions{
+			ProjectID:    projectID,
+			WorkspaceID:  s.workspaceID,
+			InboxDir:     filepath.Join(workDir, ".team", "inboxes"),
+			SessionToken: s.sessionToken,
+		}, nil, ""); err != nil {
+			slog.Warn("qwen chat: write .mcp.json failed", "workspaceID", s.workspaceID, "err", err)
+		}
+	}
 
 	// Permission flags (--yolo for auto-run modes) so a headless, non-TTY qwen
 	// run does not hang on an interactive approval it can never receive.
