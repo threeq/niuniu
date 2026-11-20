@@ -39,6 +39,12 @@ func prepareCodexProviderHome(workspaceID int64, e codexProviderEnv) (string, er
 	if err != nil {
 		return "", err
 	}
+	// The per-workspace CODEX_HOME is created on first use. Without this the
+	// models.json write below fails with ENOENT on a fresh data dir and the
+	// agent silently falls back to Codex's default OpenAI endpoint.
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return "", fmt.Errorf("codex provider home: mkdir %s: %w", dir, err)
+	}
 	catalog := filepath.ToSlash(filepath.Join(dir, "models.json"))
 	if err := os.WriteFile(catalog, []byte(codexModelsJSON(e.Model, e.ContextWindow)), 0o600); err != nil {
 		return "", fmt.Errorf("codex provider home: write models.json: %w", err)
