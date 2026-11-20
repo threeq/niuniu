@@ -62,6 +62,9 @@ type MCPConfigWriter interface {
 	// NiuniuMcpServer resolves the niuniu-mcp server entry (command/args/env) for
 	// a workspace so an MCP-client agent (goose) can consume niuniu tools.
 	NiuniuMcpServer(opts config.MCPGenerateOptions) (config.McpServerEntry, error)
+	// WriteJSONMCPServer merges the niuniu server into a {"mcpServers": …}
+	// JSON settings file (Qwen Code settings.local.json, OMP mcp.json).
+	WriteJSONMCPServer(path string, opts config.MCPGenerateOptions) error
 	// SetWorkspaceKBReadonly write-denies the given KB dataset roots in
 	// <wsPath>/.claude/settings.json (KB base4: directories exposed read-only).
 	// An empty roots slice clears the managed entries.

@@ -148,13 +148,18 @@ func (s *WorkspaceSession) getOrStartOMPBackend(ctx context.Context, workDir str
 	// .mcp.json so the agent gets the niuniu tool surface.
 	if s.mcpWriter != nil {
 		projectID, _ := s.q.GetProjectIDForWorkspace(ctx, s.workspaceID)
-		if _, err := s.mcpWriter.Generate(workDir, config.MCPGenerateOptions{
+		mcpOpts := config.MCPGenerateOptions{
 			ProjectID:    projectID,
 			WorkspaceID:  s.workspaceID,
 			InboxDir:     filepath.Join(workDir, ".team", "inboxes"),
 			SessionToken: s.sessionToken,
-		}, nil, ""); err != nil {
+		}
+		if _, err := s.mcpWriter.Generate(workDir, mcpOpts, nil, ""); err != nil {
 			slog.Warn("omp: write .mcp.json failed", "workspaceID", s.workspaceID, "err", err)
+		}
+		// omp's native project-scope file (highest priority, no fallback needed).
+		if err := s.mcpWriter.WriteJSONMCPServer(filepath.Join(workDir, ".omp", "mcp.json"), mcpOpts); err != nil {
+			slog.Warn("omp: write .omp/mcp.json failed", "workspaceID", s.workspaceID, "err", err)
 		}
 	}
 

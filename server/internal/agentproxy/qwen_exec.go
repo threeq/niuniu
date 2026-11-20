@@ -92,13 +92,19 @@ func (s *WorkspaceSession) buildQwenOneShotExec(ctx context.Context, workDir str
 	// agent gets the niuniu tool surface (board / memory / documents / …).
 	if s.mcpWriter != nil {
 		projectID, _ := s.q.GetProjectIDForWorkspace(ctx, s.workspaceID)
-		if _, err := s.mcpWriter.Generate(workDir, config.MCPGenerateOptions{
+		mcpOpts := config.MCPGenerateOptions{
 			ProjectID:    projectID,
 			WorkspaceID:  s.workspaceID,
 			InboxDir:     filepath.Join(workDir, ".team", "inboxes"),
 			SessionToken: s.sessionToken,
-		}, nil, ""); err != nil {
+		}
+		if _, err := s.mcpWriter.Generate(workDir, mcpOpts, nil, ""); err != nil {
 			slog.Warn("qwen chat: write .mcp.json failed", "workspaceID", s.workspaceID, "err", err)
+		}
+		// Local scope keeps the server out of the project-trust approval path
+		// that gates Qwen's project-level .mcp.json.
+		if err := s.mcpWriter.WriteJSONMCPServer(filepath.Join(workDir, ".qwen", "settings.local.json"), mcpOpts); err != nil {
+			slog.Warn("qwen chat: write .qwen/settings.local.json failed", "workspaceID", s.workspaceID, "err", err)
 		}
 	}
 

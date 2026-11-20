@@ -60,6 +60,10 @@ func (s *mcpWriterShim) NiuniuMcpServer(opts config.MCPGenerateOptions) (config.
 	return s.inner.NiuniuMcpServer(opts)
 }
 
+func (s *mcpWriterShim) WriteJSONMCPServer(path string, opts config.MCPGenerateOptions) error {
+	return s.inner.WriteJSONMCPServer(path, opts)
+}
+
 // kbResolverShim adapts *KBService to agentproxy.KBDatasetResolver, translating
 // the service.KBDatasetDir result into agentproxy's import-light mirror type so
 // the agent-spawn path can expose bound KB dataset dirs without importing

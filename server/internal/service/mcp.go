@@ -1570,6 +1570,62 @@ func (g *MCPConfigGenerator) NiuniuMcpServer(opts config.MCPGenerateOptions) (co
 	return entry, nil
 }
 
+// WriteJSONMCPServer merges the niuniu MCP server entry into a JSON settings
+// file that uses the standard {"mcpServers": {name: {command, args, env}}}
+// shape — Qwen Code's .qwen/settings.local.json and OMP's .omp/mcp.json both
+// use it. Existing keys and other servers are preserved; the write is
+// stage-and-swap so an agent never reads a partial file.
+func (g *MCPConfigGenerator) WriteJSONMCPServer(path string, opts config.MCPGenerateOptions) error {
+	entry, err := g.NiuniuMcpServer(opts)
+	if err != nil {
+		return err
+	}
+	doc := map[string]any{}
+	if b, rerr := os.ReadFile(path); rerr == nil && len(strings.TrimSpace(string(b))) > 0 {
+		if uerr := json.Unmarshal(b, &doc); uerr != nil {
+			return fmt.Errorf("parse %s: %w", path, uerr)
+		}
+	}
+	servers, _ := doc["mcpServers"].(map[string]any)
+	if servers == nil {
+		servers = map[string]any{}
+	}
+	server := map[string]any{"command": entry.Command, "args": entry.Args}
+	if len(entry.Env) > 0 {
+		env := map[string]any{}
+		for k, v := range entry.Env {
+			env[k] = v
+		}
+		server["env"] = env
+	}
+	servers[entry.Name] = server
+	doc["mcpServers"] = servers
+
+	out, merr := json.MarshalIndent(doc, "", "  ")
+	if merr != nil {
+		return merr
+	}
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return err
+	}
+	tmp, terr := os.CreateTemp(dir, ".mcp-*.tmp")
+	if terr != nil {
+		return terr
+	}
+	tmpName := tmp.Name()
+	defer os.Remove(tmpName)
+	if _, werr := tmp.Write(append(out, '\n')); werr != nil {
+		tmp.Close()
+		return werr
+	}
+	if cerr := tmp.Close(); cerr != nil {
+		return cerr
+	}
+	_ = os.Chmod(tmpName, 0o600)
+	return os.Rename(tmpName, path)
+}
+
 func (g *MCPConfigGenerator) detectActualPort() int {
 	if g.dataDir != "" {
 		if p, ok := readLockfilePort(filepath.Join(g.dataDir, "server.lock")); ok {
