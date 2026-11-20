@@ -2,12 +2,18 @@ import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { http, HttpResponse } from 'msw';
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import i18n from '@/i18n';
 import { server } from '@/mocks/server-node';
+import { fetchFileWithProgress, saveBlobToLocal } from '@/lib/download-file';
 
 import { ContentViewerPanel } from './content-viewer-panel';
 import type { GitDiffLine } from '@/lib/hooks/use-file-diff';
+
+vi.mock('@/lib/download-file', () => ({
+  fetchFileWithProgress: vi.fn(async () => new Blob(['file-bytes'])),
+  saveBlobToLocal: vi.fn(),
+}));
 
 // Files opened from the changes list carry a Diff/File toggle; rich-preview
 // formats (markdown, images, pdf, …) must additionally offer the rendered
@@ -149,5 +155,22 @@ describe('CodeView preview tab (diff-opened files)', () => {
     // The tab strip itself is gone for the code file — the stale mode must not
     // keep highlighting a tab that no longer exists.
     expect(screen.queryByText(label('viewPreview'))).not.toBeInTheDocument();
+  });
+});
+
+describe('diff view download', () => {
+  it('downloads the underlying working-tree file from the diff toolbar', async () => {
+    const user = userEvent.setup();
+    mount({ repo: 'acme', path: 'docs/report.md' });
+
+    const btn = await screen.findByTitle(i18n.t('filePreview.download', { ns: 'workspaces' }));
+    await user.click(btn);
+
+    await waitFor(() => expect(fetchFileWithProgress).toHaveBeenCalled());
+    const url = vi.mocked(fetchFileWithProgress).mock.calls[0][0] as string;
+    expect(url).toContain('/api/workspaces/w1/file-content');
+    expect(decodeURIComponent(url)).toContain('.worktrees/acme/docs/report.md');
+    expect(url).toContain('mode=raw');
+    expect(saveBlobToLocal).toHaveBeenCalled();
   });
 });
