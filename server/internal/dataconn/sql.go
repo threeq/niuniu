@@ -41,12 +41,13 @@ func (s *SQLConnector) Ping(ctx context.Context, conn ConnConfig) error {
 }
 
 // Execute runs the statement and normalizes rows.
-// When readOnlyTx is true (MySQL/Postgres and all compat variants) the query
-// is wrapped in a READ ONLY transaction as defense-in-depth; the service gate
-// rejects write statements before reaching here.
-// When readOnlyTx is false (ClickHouse, MSSQL) the query runs directly because
-// those drivers do not support sql.TxOptions{ReadOnly:true}; the service gate
-// is still the write-statement barrier.
+// Writes (mode == ModeWrite) run committed and report rows_affected; the
+// service layer has already gated them behind the source's readwrite access
+// mode, the data scope, and an explicit user confirmation.
+// Reads are wrapped in a READ ONLY transaction when readOnlyTx is true
+// (MySQL/Postgres and all compat variants) as defense-in-depth. When
+// readOnlyTx is false (ClickHouse, MSSQL, Trino) the read runs directly
+// because those drivers do not support sql.TxOptions{ReadOnly:true}.
 func (s *SQLConnector) Execute(ctx context.Context, conn ConnConfig, op Operation) (*ResultSet, error) {
 	db, err := s.open(s.dsn(conn))
 	if err != nil {
@@ -65,6 +66,23 @@ func (s *SQLConnector) Execute(ctx context.Context, conn ConnConfig, op Operatio
 		limit = 1000
 	}
 
+	if op.Mode == ModeWrite {
+		res, err := db.ExecContext(ctx, op.Statement, op.Params...)
+		if err != nil {
+			return nil, err
+		}
+		affected, err := res.RowsAffected()
+		if err != nil {
+			affected = 0
+		}
+		return &ResultSet{
+			Columns:      []Column{{Name: "rows_affected", Type: "number"}},
+			Rows:         [][]any{{affected}},
+			RowsAffected: affected,
+			Engine:       string(s.kind),
+		}, nil
+	}
+
 	if s.readOnlyTx {
 		tx, err := db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
 		if err != nil {
@@ -78,7 +96,8 @@ func (s *SQLConnector) Execute(ctx context.Context, conn ConnConfig, op Operatio
 		return s.collectRows(rows, limit)
 	}
 
-	// readOnlyTx=false: run directly (service gate already blocks writes).
+	// readOnlyTx=false: the driver cannot enforce a read-only transaction, so
+	// the read runs directly (writes took the ExecContext branch above).
 	rows, err := db.QueryContext(ctx, op.Statement, op.Params...)
 	if err != nil {
 		return nil, err

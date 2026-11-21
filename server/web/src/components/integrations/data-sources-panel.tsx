@@ -54,6 +54,7 @@ import {
   type ScopeConfig,
   type DataSourceBinding,
   type SSHAuthMethod,
+  type AccessMode,
 } from '@/lib/data-sources-api';
 import { HealthLight } from './HealthLight';
 import {
@@ -665,6 +666,9 @@ function DataSourceForm({ editing, onClose }: FormProps) {
   const [httpMethods, setHttpMethods] = useState(
     listToCsv(editing?.scope_config.methods),
   );
+  const [accessMode, setAccessMode] = useState<AccessMode>(
+    editing?.default_access_mode ?? 'read',
+  );
   const [requireConfirm, setRequireConfirm] = useState<
     CreateDataSourceBody['require_confirm']
   >(editing?.require_confirm ?? 'writes_only');
@@ -807,8 +811,7 @@ function DataSourceForm({ editing, onClose }: FormProps) {
           // secrets (password / api_key / options) survive the PATCH.
           ...(connDirty ? { config } : {}),
           scope_config,
-          // M1: default access mode locked to read-only.
-          default_access_mode: 'read',
+          default_access_mode: accessMode,
           require_confirm: requireConfirm,
           bindings,
         });
@@ -823,7 +826,7 @@ function DataSourceForm({ editing, onClose }: FormProps) {
           : {}),
         config,
         scope_config,
-        default_access_mode: 'read',
+        default_access_mode: accessMode,
         require_confirm: requireConfirm,
         bindings,
       });
@@ -1363,17 +1366,19 @@ function DataSourceForm({ editing, onClose }: FormProps) {
 
           <div className="flex flex-col gap-2">
             <Label htmlFor="ds-access">{t('sources.accessModeLabel')}</Label>
-            {/* M1: read-only only — the select is locked. */}
             <select
               id="ds-access"
-              value="read"
-              disabled
-              className="h-9 rounded-md border border-input bg-background px-3 py-1 text-sm text-warm-text-muted"
+              value={accessMode}
+              onChange={(e) => setAccessMode(e.target.value as AccessMode)}
+              className="h-9 rounded-md border border-input bg-background px-3 py-1 text-sm"
             >
               <option value="read">{t('sources.accessModeRead')}</option>
+              <option value="readwrite">
+                {t('sources.accessModeReadwrite')}
+              </option>
             </select>
             <p className="text-xs text-warm-text-muted">
-              {t('sources.accessModeM1Note')}
+              {t('sources.accessModeHint')}
             </p>
           </div>
 

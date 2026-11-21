@@ -328,6 +328,10 @@ func (s *DataProxyService) planQuery(ctx context.Context, in DataQueryInput) (*q
 		ref.Database = cc.Database
 	}
 	p.mode, p.ref, p.classified = mode, ref, true
+	// Hand the classified mode to the connector so it can pick the execution
+	// path (SQL reads stay in a read-only transaction; writes run committed).
+	// p.op is a copy taken before Classify, so stamp it here, not the local op.
+	p.op.Mode = mode
 
 	// The redacted per-protocol summary feeds the permission card and the
 	// audit row — including the audit rows for gate rejections below, so it is
@@ -502,11 +506,11 @@ func (s *DataProxyService) Precheck(ctx context.Context, in DataQueryInput) (*Qu
 			return nil, err
 		}
 		res := &QueryPrecheck{
-			OK:       false,
-			Rejected: true,
-			Code:     pe.Code,
-			Reason:   pe.Message,
-			Kind:     string(p.kind),
+			OK:         false,
+			Rejected:   true,
+			Code:       pe.Code,
+			Reason:     pe.Message,
+			Kind:       string(p.kind),
 			NextAction: precheckNextAction(pe.Code),
 		}
 		if p.src != nil {
