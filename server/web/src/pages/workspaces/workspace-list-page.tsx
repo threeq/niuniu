@@ -94,7 +94,11 @@ export function WorkspaceListPage() {
           <Plus className="w-4 h-4" />
           {t('list.createWorkspace')}
         </button>
-        <NewWorkspaceDialog open={newWsOpen} onOpenChange={setNewWsOpen} />
+        <NewWorkspaceDialog
+          open={newWsOpen}
+          onOpenChange={setNewWsOpen}
+          onCreated={(id) => navigate({ to: '/workspaces/$id', params: { id } })}
+        />
       </div>
     </div>
   );

@@ -24,6 +24,9 @@ interface NewWorkspaceDialogProps {
   onOpenChange: (open: boolean) => void;
   defaultIssueId?: string;
   defaultWorkspaceName?: string;
+  /** Called after a successful create with the new workspace id, so the
+   *  caller can open it right away. */
+  onCreated?: (workspaceId: string) => void;
 }
 
 /**
@@ -40,7 +43,7 @@ interface NewWorkspaceDialogProps {
  * The owner is deliberately NOT asked for: the project is mandatory and
  * already pins its owner, so the server infers the workspace owner from it.
  */
-export function NewWorkspaceDialog({ open, onOpenChange, defaultIssueId, defaultWorkspaceName }: NewWorkspaceDialogProps) {
+export function NewWorkspaceDialog({ open, onOpenChange, defaultIssueId, defaultWorkspaceName, onCreated }: NewWorkspaceDialogProps) {
   const { t } = useTranslation('workspaces');
   const [issueId, setIssueId] = useState(defaultIssueId || '');
   const [issueName, setIssueName] = useState('');
@@ -148,6 +151,8 @@ export function NewWorkspaceDialog({ open, onOpenChange, defaultIssueId, default
         toast.warning(t('dialogs.newWorkspace.partialSuccess', { lines: lines.join('\n') }));
       }
       onOpenChange(false);
+      // The workspace exists even with per-repo errors, so open it either way.
+      onCreated?.(result.id);
     } catch (error) {
       console.error('Failed to create workspace:', error);
       toast.error(t('dialogs.newWorkspace.createFailed'));
