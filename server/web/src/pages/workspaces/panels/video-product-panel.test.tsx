@@ -134,7 +134,7 @@ describe('VideoProductPanel', () => {
   it('shows the empty state when the workspace has no video project', async () => {
     getMock.mockResolvedValue(emptyResponse);
     renderPanel();
-    expect(await screen.findByText(/该工作空间尚无视频项目/)).toBeInTheDocument();
+    expect(await screen.findByText(/该会话尚无视频项目/)).toBeInTheDocument();
   });
 
   it('renders the product tree and storyboard shot cards', async () => {

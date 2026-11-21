@@ -55,7 +55,7 @@
     "resources": {
       "description": "以下為屬於該組織的資源統計。點選跳轉到對應列表頁面。",
       "projects": "專案",
-      "workspaces": "工作空間",
+      "workspaces": "會話",
       "repositories": "倉庫"
     },
     "audit": {
@@ -81,7 +81,7 @@
       "deleteHint": "永久刪除此組織。此操作不可撤銷。",
       "deleteHasResources": "組織下仍有資源（{{summary}}），請先清空後再刪除。",
       "deleteResourceProjects": "{{count}} 個專案",
-      "deleteResourceWorkspaces": "{{count}} 個工作空間",
+      "deleteResourceWorkspaces": "{{count}} 個會話",
       "deleteResourceRepositories": "{{count}} 個倉庫",
       "deleteResourceSeparator": "、",
       "deleteButton": "刪除組織",

@@ -24,7 +24,7 @@
   "deletePanel": "刪除面板",
   "deletePanelConfirm": "確定刪除該面板？",
   "openWorkspace": "跳轉到來源工作區",
-  "backToWorkspace": "返回工作空間",
+  "backToWorkspace": "返回會話",
   "enlarge": "放大",
   "liveBadge": "實時",
   "snapshotBadge": "快照",

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Link, useParams } from '@tanstack/react-router';
-import { Plus, Search, Archive, LayoutDashboard, Inbox, PanelLeftClose, Loader2, ListChecks, Trash2 } from 'lucide-react';
+import { useNavigate, useParams } from '@tanstack/react-router';
+import { Plus, Search, Archive, LayoutDashboard, Inbox, PanelLeftClose, Loader2, ListChecks, Trash2, MoreHorizontal } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
@@ -9,6 +9,12 @@ import { useProjectsWithStats } from '@/lib/hooks/use-projects';
 import { NewWorkspaceDialog } from '@/components/dialogs/new-workspace-dialog';
 import { ArchivedWorkspacesDialog } from '@/components/dialogs/archived-workspaces-dialog';
 import { Button } from '@/components/ui/button';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import { Checkbox } from '@/components/ui/checkbox';
 import {
   AlertDialog,
@@ -36,6 +42,7 @@ const MAX_SIDEBAR_WIDTH = 480;
 
 export function WorkspaceSidebar() {
   const { t } = useTranslation('workspaces');
+  const navigate = useNavigate();
   const sidebarWidth = useWorkspacePanelStore((s) => s.sidebarWidth);
   const setSidebarWidth = useWorkspacePanelStore((s) => s.setSidebarWidth);
   const toggleSidebar = useWorkspacePanelStore((s) => s.toggleSidebar);
@@ -383,48 +390,43 @@ export function WorkspaceSidebar() {
       <div className="flex h-10 shrink-0 items-center justify-between px-3 border-b">
         <span className="text-sm font-semibold text-foreground">{t('sidebar.title')}</span>
         <div className="flex items-center gap-1 text-muted-foreground">
-          <Link
-            to="/workspaces/overview"
-            className="p-0.5 rounded hover:bg-accent hover:text-foreground transition-colors"
-            aria-label={t('sidebar.kanbanOverview')}
-            title={t('sidebar.kanbanOverview')}
-            activeProps={{ className: 'p-0.5 rounded bg-accent text-foreground' }}
-          >
-            <LayoutDashboard className="w-4 h-4" />
-          </Link>
-          <button
-            type="button"
-            onClick={() => (selectMode ? exitSelect() : setSelectMode(true))}
-            className={cn(
-              'p-0.5 rounded transition-colors',
-              selectMode
-                ? 'bg-accent text-foreground'
-                : 'hover:bg-accent hover:text-foreground'
-            )}
-            aria-pressed={selectMode}
-            aria-label={t(selectMode ? 'overview.batch.exit' : 'overview.batch.enter')}
-            title={t(selectMode ? 'overview.batch.exit' : 'overview.batch.enter')}
-          >
-            <ListChecks className="w-4 h-4" />
-          </button>
-          <button
-            type="button"
-            onClick={() => setArchivedOpen(true)}
-            className="p-0.5 rounded hover:bg-accent hover:text-foreground transition-colors"
-            aria-label={t('sidebar.archived')}
-            title={t('sidebar.archived')}
-          >
-            <Archive className="w-4 h-4" />
-          </button>
-          <button
-            type="button"
-            onClick={() => setNewWsOpen(true)}
-            className="p-0.5 rounded hover:bg-accent hover:text-foreground transition-colors"
-            aria-label={t('sidebar.newWorkspace')}
-            title={t('sidebar.newWorkspace')}
-          >
-            <Plus className="w-4 h-4" />
-          </button>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button
+                type="button"
+                className={cn(
+                  'p-0.5 rounded transition-colors',
+                  selectMode
+                    ? 'bg-accent text-foreground'
+                    : 'hover:bg-accent hover:text-foreground'
+                )}
+                aria-label={t('common:actions.more')}
+                title={t('common:actions.more')}
+              >
+                <MoreHorizontal className="w-4 h-4" />
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-44">
+              <DropdownMenuItem
+                className="gap-2"
+                onSelect={() => navigate({ to: '/workspaces/overview' })}
+              >
+                <LayoutDashboard className="w-4 h-4" />
+                {t('sidebar.kanbanOverview')}
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                className="gap-2"
+                onSelect={() => (selectMode ? exitSelect() : setSelectMode(true))}
+              >
+                <ListChecks className="w-4 h-4" />
+                {t(selectMode ? 'overview.batch.exit' : 'overview.batch.enter')}
+              </DropdownMenuItem>
+              <DropdownMenuItem className="gap-2" onSelect={() => setArchivedOpen(true)}>
+                <Archive className="w-4 h-4" />
+                {t('sidebar.archived')}
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
           <button
             type="button"
             onClick={toggleSidebar}
@@ -437,9 +439,26 @@ export function WorkspaceSidebar() {
         </div>
       </div>
 
-      {/* [2] Toolbar: scope segmented control + search */}
-      <div className="px-3 py-2 flex items-center gap-2 border-b">
-        <div className="inline-flex bg-background border rounded-md p-0.5 text-[11px]">
+      {/* [1b] Primary action — the main way to start, always visible. */}
+      <div className="px-3 pt-2 pb-1">
+        <Button
+          type="button"
+          onClick={() => setNewWsOpen(true)}
+          className="w-full h-9 justify-center gap-1.5"
+        >
+          <Plus className="w-4 h-4" aria-hidden />
+          {t('sidebar.newWorkspace')}
+        </Button>
+        {(workspaces?.length ?? 0) === 0 && (
+          <p className="mt-1.5 text-[11px] leading-snug text-muted-foreground">
+            {t('sidebar.startHint')}
+          </p>
+        )}
+      </div>
+
+      {/* [2] Toolbar: scope selector, then a full-width search field. */}
+      <div className="px-3 py-2 space-y-2 border-b">
+        <div className="grid grid-cols-2 bg-background border rounded-md p-0.5 text-[11px]">
           <button
             type="button"
             onClick={() => setScopePersist('mine')}
@@ -461,14 +480,14 @@ export function WorkspaceSidebar() {
             {t('sidebar.scope.all')}
           </button>
         </div>
-        <div className="flex-1 relative">
+        <div className="relative">
           <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
           <input
             type="text"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder={t('sidebar.searchPlaceholder')}
-            className="w-full bg-background border rounded-md text-xs pl-7 pr-7 py-1
+            className="w-full bg-background border rounded-md text-xs pl-7 pr-7 py-1.5
                        placeholder:text-muted-foreground outline-none"
           />
           {/* Non-blocking content-search indicator. Sits inside the input on the
@@ -544,15 +563,31 @@ export function WorkspaceSidebar() {
             {t('common:actions.loading')}
           </div>
         ) : orderedProjectKeys.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-10 text-muted-foreground">
+          <div className="flex flex-col items-center justify-center px-4 py-10 text-center text-muted-foreground">
             <Inbox className="w-8 h-8 mb-2" />
-            <span className="text-xs">
+            <span className="text-xs font-medium">
               {isSearching
                 ? t('sidebar.search.searching')
                 : search
                   ? t('sidebar.search.noMatch')
                   : t('sidebar.empty.noProjects')}
             </span>
+            {!search.trim() && !isSearching && (
+              <>
+                <p className="mt-1 text-[11px] leading-relaxed">
+                  {t('sidebar.empty.startHint')}
+                </p>
+                <Button
+                  type="button"
+                  size="sm"
+                  className="mt-3 gap-1"
+                  onClick={() => setNewWsOpen(true)}
+                >
+                  <Plus className="w-3.5 h-3.5" aria-hidden />
+                  {t('sidebar.newWorkspace')}
+                </Button>
+              </>
+            )}
           </div>
         ) : (
           <WorkspaceVirtualList

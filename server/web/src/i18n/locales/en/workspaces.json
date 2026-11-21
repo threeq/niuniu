@@ -16,7 +16,7 @@
       "defaultPrompt": "Prefer the local executor toolset (local_exec / local_read / local_sync) to run build/package/test commands in the bound directory; code reads and writes still happen in the remote worktree. Fall back to server execution when the toolset is not visible.",
       "dirLabel": "Local working directory",
       "dirPlaceholder": "/path/to/local/project",
-      "dirHint": "Absolute path to a directory on your computer to bind to this workspace.",
+      "dirHint": "Absolute path to a directory on your computer to bind to this session.",
       "dirLockedHint": "The working directory cannot be changed after binding.",
       "browse": "Browse…",
       "promptLabel": "Prompt fragment",
@@ -30,7 +30,7 @@
     },
     "log": {
       "title": "Local execution logs",
-      "description": "Commands and output executed locally for this workspace.",
+      "description": "Commands and output executed locally for this session.",
       "boundTo": "Bound to {{dir}}",
       "configButton": "Configure",
       "empty": "No local executions yet."
@@ -76,15 +76,15 @@
     "dismiss": "Got it"
   },
   "list": {
-    "empty": "No workspaces yet",
-    "createWorkspace": "Create workspace"
+    "empty": "No sessions yet",
+    "createWorkspace": "Create session"
   },
   "detail": {
-    "notFound": "Workspace not found"
+    "notFound": "Session not found"
   },
   "sidebar": {
-    "title": "Workspaces",
-    "newWorkspace": "New workspace",
+    "title": "Sessions",
+    "newWorkspace": "New session",
     "openKanban": "Open project kanban",
     "archivedList": "Archived list",
     "overview": "Overview",
@@ -104,7 +104,7 @@
       "collapse": "Collapse",
       "sortHint": "Sorted by ID ↓",
       "filterLabel": "Filter by status",
-      "filteredEmpty": "No workspaces match the current filter"
+      "filteredEmpty": "No sessions match the current filter"
     },
     "pinned": {
       "zoneTitle": "Pinned",
@@ -118,9 +118,9 @@
       "success": "Marked as done",
       "undo": "Undo",
       "undoError": "Undo failed",
-      "undoStale": "Undo failed: workspace is no longer in the completed state",
+      "undoStale": "Undo failed: session is no longer in the completed state",
       "error": "Failed to mark as done",
-      "runningError": "Stop the agent first before marking a running workspace as done",
+      "runningError": "Stop the agent first before marking a running session as done",
       "partialSuccess": "Marked done, but issue sync failed"
     },
     "scope": {
@@ -128,11 +128,12 @@
       "all": "All"
     },
     "search": {
-      "noMatch": "No matching workspaces",
+      "noMatch": "No matching sessions",
       "searching": "Searching chat content…"
     },
     "empty": {
-      "noProjects": "No projects yet"
+      "noProjects": "No sessions yet",
+      "startHint": "Pick a project and describe what you want to do — Niuniu will create the first session."
     },
     "card": {
       "creatorUnknown": "Unknown creator",
@@ -152,30 +153,31 @@
     },
     "resize": {
       "handle": "Drag to resize sidebar"
-    }
+    },
+    "startHint": "A session is one task in progress. Pick a project, describe the goal, and start."
   },
   "workspace": {
     "scope": {
       "mine": "Mine",
       "all": "All",
       "popover": {
-        "mine": "Workspaces I created",
+        "mine": "Sessions I created",
         "all": "All in organization"
       }
     },
     "empty": {
       "mine": {
-        "title": "No workspaces yet",
-        "cta": "Go to workspace overview"
+        "title": "No sessions yet",
+        "cta": "Go to session overview"
       }
     }
   },
   "overview": {
-    "title": "Workspaces Overview",
-    "subtitle": "Cost, activity, and stuck-detection across workspaces",
+    "title": "Sessions Overview",
+    "subtitle": "Cost, activity, and stuck-detection across sessions",
     "loadFailed": "Failed to load",
     "retry": "Retry",
-    "empty": "No workspaces to display",
+    "empty": "No sessions to display",
     "stuck": "Stuck",
     "stuckTooltip": "Running but no activity in over 2 hours",
     "messages": "{{count}} messages",
@@ -190,24 +192,24 @@
       "aheadTooltip": "{{count}} commits ahead of base branch",
       "changesTooltip": "{{count}} uncommitted changes"
     },
-    "workspaceList": "Workspaces",
+    "workspaceList": "Sessions",
     "workspaceCount": "{{count}} total",
     "batch": {
       "enter": "Batch manage",
       "exit": "Done",
       "selectedCount": "{{count}} selected",
-      "selectAria": "Select workspace !{{id}}",
+      "selectAria": "Select session !{{id}}",
       "forceLabel": "Force (ignore uncommitted changes)",
       "deleteSelected": "Delete ({{count}})",
       "deleting": "Deleting",
-      "deletingTooltip": "This workspace is being deleted",
-      "deleteStarted": "Deleting {{count}} workspace(s) in the background",
+      "deletingTooltip": "This session is being deleted",
+      "deleteStarted": "Deleting {{count}} session(s) in the background",
       "skippedChanges": "{{count}} skipped due to uncommitted changes (enable Force to delete)",
       "skippedOther": "{{count}} skipped",
       "deleteFailed": "Batch delete failed: {{message}}",
-      "confirmTitle": "Delete {{count}} workspace(s)?",
-      "confirmDesc": "Selected workspaces will be deleted in the background. Workspaces with uncommitted or unmerged changes are skipped.",
-      "confirmDescForce": "Selected workspaces will be deleted in the background, including any with uncommitted or unmerged changes. This cannot be undone.",
+      "confirmTitle": "Delete {{count}} session(s)?",
+      "confirmDesc": "Selected sessions will be deleted in the background. Sessions with uncommitted or unmerged changes are skipped.",
+      "confirmDescForce": "Selected sessions will be deleted in the background, including any with uncommitted or unmerged changes. This cannot be undone.",
       "confirmAction": "Delete"
     },
     "column": {
@@ -269,7 +271,7 @@
   },
   "dataDrawer": {
     "open": "Pinned charts",
-    "title": "Charts pinned from this workspace",
+    "title": "Charts pinned from this session",
     "inDashboard": "In: {{name}}"
   },
   "team": {
@@ -315,18 +317,18 @@
   },
   "dialogs": {
     "newWorkspace": {
-      "title": "New workspace",
-      "description": "Create a new development workspace, can link multiple repositories",
+      "title": "New session",
+      "description": "Pick a project and describe the task. Repositories, scenes, and CLI inherit the project defaults.",
       "mode": {
         "label": "Create from",
         "standard": "Issue / repositories",
         "fromDirectory": "From local directory",
-        "standardHint": "Create a dev workspace linking existing repositories and an issue.",
+        "standardHint": "Create a dev session linking existing repositories and an issue.",
         "fromDirectoryHint": "Pick a local folder to build from: a non-git folder is auto-initialized (with .gitignore and Git LFS); an existing repo is bound in place."
       },
       "fromDir": {
         "pathLabel": "Local directory",
-        "pathHint": "Pick the local folder to build from. Drafts iterate in the workspace; click Deliver to write back to the original directory.",
+        "pathHint": "Pick the local folder to build from. Drafts iterate in the session; click Deliver to write back to the original directory.",
         "missingDir": "Please pick a local directory first",
         "lfsMissing": "git-lfs not detected; large files are not LFS-tracked (the repo may bloat). Install git-lfs in system dependencies and retry.",
         "identityMissing": "git user.name / user.email is not configured, so the repo could not be auto-initialized. Configure your git identity in settings and retry."
@@ -340,21 +342,21 @@
         "notGitRepo": "That directory is not a valid git repository.",
         "addFailed": "Failed to add the repository. Please try again."
       },
-      "name": "Workspace name",
-      "namePlaceholder": "Enter workspace name",
+      "name": "Session name",
+      "namePlaceholder": "Enter session name",
       "linkIssue": "Link issue",
       "selectIssue": "Select issue (optional)",
       "searchIssue": "Search issue...",
       "noAvailableIssue": "No available issues",
-      "issueHint": "Optional: only shows incomplete issues not linked to a workspace",
+      "issueHint": "Optional: only shows incomplete issues not linked to a session",
       "project": "Project",
       "selectProject": "Select a project",
       "noProject": "No projects available",
       "projectRequired": "Select a project",
-      "nameAndNewIssue": "Workspace name / new issue title",
+      "nameAndNewIssue": "Session name / new issue title",
       "nameRequiredForNewIssue": "Enter a name (it becomes the new issue's title)",
       "inheritTitle": "Inherited from the project",
-      "inheritNoRepos": "This project binds no repositories - a plain-directory workspace will be created",
+      "inheritNoRepos": "This project binds no repositories - a plain-directory session will be created",
       "inheritRepos": "{{count}} repositories: {{names}}",
       "noRepo": {
         "label": "No repository (office / plain-directory task)",
@@ -365,8 +367,8 @@
       "allReposAdded": "All repositories added",
       "selectedRepos": "Selected repositories ({{count}})",
       "missingBranch": "Please select a branch for repository \"{{name}}\"",
-      "partialSuccess": "Workspace created, but some repositories failed to create worktrees:\n\n{{lines}}",
-      "createFailed": "Failed to create workspace",
+      "partialSuccess": "Session created, but some repositories failed to create worktrees:\n\n{{lines}}",
+      "createFailed": "Failed to create session",
       "submitting": "Creating...",
       "submit": "Create",
       "claudeAccount": "Claude Account",
@@ -395,7 +397,7 @@
       }
     },
     "deleteWorkspace": {
-      "title": "Workspace has uncommitted or unmerged changes",
+      "title": "Session has uncommitted or unmerged changes",
       "unstaged": "Unstaged changes ({{count}})",
       "staged": "Staged but not committed ({{count}})",
       "mergeConflict": "Merge conflicts ({{count}})",
@@ -405,15 +407,15 @@
       "forceDelete": "Force delete"
     },
     "archived": {
-      "title": "Archived workspaces",
-      "count": "{{count}} archived workspaces",
+      "title": "Archived sessions",
+      "count": "{{count}} archived sessions",
       "loading": "Loading...",
-      "empty": "No archived workspaces",
-      "viewArchived": "View archived workspace",
+      "empty": "No archived sessions",
+      "viewArchived": "View archived session",
       "archivedAt": "Archived at {{date}} · Created at {{created}}",
-      "footer": "Deleting will permanently remove all data of this workspace (including messages, costs and other history)",
+      "footer": "Deleting will permanently remove all data of this session (including messages, costs and other history)",
       "confirmTitle": "Confirm deletion",
-      "confirmDescription": "This will permanently delete all data of this workspace, including message history and cost records. This action cannot be undone.",
+      "confirmDescription": "This will permanently delete all data of this session, including message history and cost records. This action cannot be undone.",
       "confirmDelete": "Confirm delete"
     }
   },
@@ -446,7 +448,7 @@
       "repoNoChanges": "No changes",
       "collapseRepo": "Collapse",
       "expandRepo": "Expand",
-      "commitHint": "All {{count}} commit(s) in this workspace are included",
+      "commitHint": "All {{count}} commit(s) in this session are included",
       "noChanges": "No changes",
       "syncFromBranchTitle": "Sync latest code",
       "syncFromBranchPickerTitle": "Pick a branch to merge in",
@@ -507,7 +509,7 @@
         "reviewProgressShowHint": "Review focus is on — click to show all files and comments",
         "commentsOnlyEmpty": "No files with review comments"
       },
-      "syncFromBranchPrompt": "Please merge the latest code from branch `{{sourceBranch}}` into the current branch `{{currentBranch}}` of the specific worktree below.\n\n⚠️ This workspace may contain multiple worktrees. Operate ONLY on the worktree below — do not switch to or `cd` into any other worktree:\n- Worktree name: {{worktreeName}}\n- Worktree absolute path: {{worktreePath}}\n- Current branch: {{currentBranch}}\n- Branch to merge in: {{sourceBranch}}\n\nFollow these steps. Always pin every git invocation with `git -C \"{{worktreePath}}\"` instead of relying on cwd:\n1. Run `git -C \"{{worktreePath}}\" status` to check the worktree is clean. If there are uncommitted changes, stop and ask me before continuing;\n2. Run `git -C \"{{worktreePath}}\" merge {{sourceBranch}}`;\n3. If there are merge conflicts: first list every conflicted file, then try to resolve them one by one (preserving both sides' intent, no lost changes), then commit with `git -C \"{{worktreePath}}\" commit --no-edit`. If you hit a conflict you cannot judge, stop and report the file and reason — do **not** run `git merge --abort`, leave the state for me;\n4. After a successful merge, briefly report: merge style (fast-forward or merge commit), new HEAD commit, and whether anything is still uncommitted."
+      "syncFromBranchPrompt": "Please merge the latest code from branch `{{sourceBranch}}` into the current branch `{{currentBranch}}` of the specific worktree below.\n\n⚠️ This session may contain multiple worktrees. Operate ONLY on the worktree below — do not switch to or `cd` into any other worktree:\n- Worktree name: {{worktreeName}}\n- Worktree absolute path: {{worktreePath}}\n- Current branch: {{currentBranch}}\n- Branch to merge in: {{sourceBranch}}\n\nFollow these steps. Always pin every git invocation with `git -C \"{{worktreePath}}\"` instead of relying on cwd:\n1. Run `git -C \"{{worktreePath}}\" status` to check the worktree is clean. If there are uncommitted changes, stop and ask me before continuing;\n2. Run `git -C \"{{worktreePath}}\" merge {{sourceBranch}}`;\n3. If there are merge conflicts: first list every conflicted file, then try to resolve them one by one (preserving both sides' intent, no lost changes), then commit with `git -C \"{{worktreePath}}\" commit --no-edit`. If you hit a conflict you cannot judge, stop and report the file and reason — do **not** run `git merge --abort`, leave the state for me;\n4. After a successful merge, briefly report: merge style (fast-forward or merge commit), new HEAD commit, and whether anything is still uncommitted."
     },
     "chat": {
       "loadMore": "Load more messages...",
@@ -519,7 +521,7 @@
       "scheduleToast": "Scheduled task triggered",
       "scheduleDesc": "Executing queue messages",
       "builtin": {
-        "unsupported": "⚠️ {{command}} is only available in Claude CLI interactive mode; workspace chat does not support this command.",
+        "unsupported": "⚠️ {{command}} is only available in Claude CLI interactive mode; session chat does not support this command.",
         "cleared": "Session cleared, starting new conversation",
         "noCost": "No cost records yet",
         "costSummary": "Cost summary (cumulative): ${{cost}} | {{turns}} turns | {{interactions}} interactions | {{minutes}}m{{seconds}}s",
@@ -617,7 +619,7 @@
       "trigger": "Claude",
       "triggerTitle": "Claude settings",
       "title": "Claude settings",
-      "description": "Configure Claude Code behavior for this workspace (only applies to current workspace)",
+      "description": "Configure Claude Code behavior for this session (only applies to current session)",
       "cliFlags": "Launch config",
       "cliFlagsDesc": "Override global config, converted to Claude CLI launch arguments",
       "envVars": "Environment variables",
@@ -661,17 +663,17 @@
     },
     "workspaceScenes": {
       "trigger": "Scenes",
-      "triggerTitle": "Manage scenes attached to this workspace",
-      "title": "Workspace scenes",
-      "description": "Attach scenes to this workspace. Each scene bundles MCP servers, Claude plugins, and assets that get projected into .mcp.json and the ~/.claude overlay."
+      "triggerTitle": "Manage scenes attached to this session",
+      "title": "Session scenes",
+      "description": "Attach scenes to this session. Each scene bundles MCP servers, Claude plugins, and assets that get projected into .mcp.json and the ~/.claude overlay."
     },
     "skillInstall": {
       "trigger": "Skills",
       "triggerTitle": "Install a curated Claude skill / plugin",
       "title": "Install skills",
-      "description": "Pick a skill (Claude plugin) from the curated list. Install globally into ~/.claude or into this workspace's bound Claude account directory.",
+      "description": "Pick a skill (Claude plugin) from the curated list. Install globally into ~/.claude or into this session's bound Claude account directory.",
       "installGlobal": "Install global",
-      "installWorkspace": "Install (workspace)",
+      "installWorkspace": "Install (session)",
       "install": "Install",
       "uninstall": "Uninstall",
       "installedBadge": "Installed",
@@ -681,12 +683,12 @@
         "installed": "Installed"
       },
       "tabEmpty": "No skills in this category",
-      "workspaceCliBadge": "Workspace CLI: {{cli}}",
+      "workspaceCliBadge": "Session CLI: {{cli}}",
       "noVersionForCli": "No version",
       "noVersionForCliTooltip": "This curated entry has no version published in the active CLI's marketplace; install is unavailable.",
       "scope": {
         "global": "global",
-        "workspace": "workspace"
+        "workspace": "session"
       },
       "installedToast": "{{name}} installed ({{scope}})",
       "uninstalledToast": "{{name}} uninstalled ({{scope}})",
@@ -700,7 +702,7 @@
       "addMarketplaceHint": "Accepts a GitHub repo shorthand (owner/repo), a full URL, or a local path. Once added you can install plugins from this marketplace.",
       "addMarketplacePlaceholder": "owner/repo or https://github.com/...",
       "addMarketplaceGlobal": "Add global",
-      "addMarketplaceWorkspace": "Add (workspace)",
+      "addMarketplaceWorkspace": "Add (session)",
       "marketplaceAddedToast": "Marketplace {{source}} added ({{scope}})",
       "marketplaceAddFailedToast": "Add marketplace {{source}} failed: {{detail}}",
       "marketplaceAddErrorToast": "Add marketplace request failed",
@@ -735,7 +737,7 @@
       "trigger": "OpenAI Codex",
       "triggerTitle": "Codex settings",
       "title": "Codex settings",
-      "description": "Sandbox and approval policy for this Codex workspace.",
+      "description": "Sandbox and approval policy for this Codex session.",
       "sandboxLabel": "Sandbox mode",
       "approvalLabel": "Approval policy",
       "saving": "Saving..."
@@ -745,15 +747,15 @@
       "triggerTitle": "Qwen settings",
       "title": "Qwen settings",
       "description": "Qwen Code engine settings.",
-      "sharedNote": "Qwen has no engine-specific settings yet. The model and CLI command live in Workspace settings; approval mode is set via the permission selector in the toolbar."
+      "sharedNote": "Qwen has no engine-specific settings yet. The model and CLI command live in Session settings; approval mode is set via the permission selector in the toolbar."
     },
     "workspaceSettings": {
-      "trigger": "Workspace",
-      "triggerTitle": "Workspace settings",
-      "title": "Workspace settings",
-      "description": "Configure workspace name, repositories and environment variables",
+      "trigger": "Session",
+      "triggerTitle": "Session settings",
+      "title": "Session settings",
+      "description": "Configure session name, repositories and environment variables",
       "agentSection": "Agent (shared)",
-      "agentSectionDesc": "Applies to whichever engine this workspace runs — command / args / model / allowed tools.",
+      "agentSectionDesc": "Applies to whichever engine this session runs — command / args / model / allowed tools.",
       "agentDefaultHint": "default: {{value}}",
       "agentEgHint": "e.g. {{value}}",
       "agentAcpNoArgs": "ACP mode, no extra args",
@@ -772,7 +774,7 @@
       "envVars": "Environment variables",
       "envProvider": "Subscription platform provider",
       "envProviderNone": "No binding (use scene/manual env)",
-      "envProviderHint": "Pick a provider directly — its base_url / models / API key expand into environment variables for this workspace's Agent type at spawn, no scene needed. Pick a group to auto-use the group's best currently-available provider (in manual order).",
+      "envProviderHint": "Pick a provider directly — its base_url / models / API key expand into environment variables for this session's Agent type at spawn, no scene needed. Pick a group to auto-use the group's best currently-available provider (in manual order).",
       "envProviderLimited": " (rate-limited)",
       "envProviderDisabled": " (disabled)",
       "envProviderGroups": "Groups (auto-pick best available)",
@@ -785,15 +787,15 @@
       "noEnvVars": "No environment variables",
       "addEnvVar": "Add",
       "dangerZone": "Danger zone",
-      "archiveDesc": "Archiving will delete the workspace directory but preserve history data",
+      "archiveDesc": "Archiving will delete the session directory but preserve history data",
       "archiving": "Archiving...",
-      "archive": "Archive workspace",
+      "archive": "Archive session",
       "deleting": "Deleting...",
-      "delete": "Delete workspace",
+      "delete": "Delete session",
       "saving": "Saving...",
       "save": "Save",
       "confirmArchiveTitle": "Confirm archive",
-      "confirmArchiveDesc": "Archiving will delete the workspace directory and git branches, but preserve messages, costs and other history. This action cannot be undone.",
+      "confirmArchiveDesc": "Archiving will delete the session directory and git branches, but preserve messages, costs and other history. This action cannot be undone.",
       "confirmArchive": "Confirm archive",
       "claudeAccount": "Claude Account",
       "claudeAccountFollow": "(Follow active)",
@@ -849,7 +851,7 @@
       "searchPlaceholder": "Search quick actions",
       "searchEmpty": "No matching quick actions",
       "dialogTitle": "Manage quick actions",
-      "dialogDescription": "Configure commonly used quick input actions, shared across workspaces",
+      "dialogDescription": "Configure commonly used quick input actions, shared across sessions",
       "labelPlaceholder": "Display name",
       "contentPlaceholder": "Preset content (will fill into input box)",
       "autoSendLabel": "Auto-send when selected",
@@ -870,7 +872,7 @@
         "activeTitle": "Auto-host is active",
         "openSettings": "Open auto-host settings",
         "dialogTitle": "Auto-host settings",
-        "dialogDescription": "Tune how the agent auto-continues and recovers from errors in this workspace.",
+        "dialogDescription": "Tune how the agent auto-continues and recovers from errors in this session.",
         "budgetSection": "Budgets",
         "continueBudget": "Continue limit",
         "continueBudgetDesc": "Max consecutive auto-continues when the queue is idle. 0 disables continue.",
@@ -963,7 +965,7 @@
       "prefix": "Prefix: {{value}}",
       "onlyThisFile": "Only this file",
       "currentDir": "Current directory: {{dir}}/",
-      "wholeWorkspace": "Entire workspace",
+      "wholeWorkspace": "Entire session",
       "domain": "Domain: {{host}}",
       "onlyThisURL": "Only this URL",
       "allCalls": "All calls"
@@ -999,21 +1001,21 @@
   "autohost": {
     "fallbackCondition": {
       "title": "Completion criterion fallback (optional)",
-      "hint": "Only used when the issue bound to this workspace has no completion criterion. Prefer setting it on the issue so the criterion follows the task.",
+      "hint": "Only used when the issue bound to this session has no completion criterion. Prefer setting it on the issue so the criterion follows the task.",
       "placeholder": "e.g. All unit tests pass",
       "charCount": "{{n}} / {{max}} chars"
     }
   },
   "mcp": {
     "section_title": "MCP Configuration",
-    "scene_title": "This workspace's scene",
+    "scene_title": "This session's scene",
     "loading": "Detecting...",
     "recommended_label": "Recommended",
     "available_heading": "All available",
     "no_servers_available": "No MCP servers detected locally",
     "skip_label": "Optional; only niuniu MCP will be loaded",
     "plugin_conflict": {
-      "global_load": "Loaded globally via plugin (cannot be disabled per workspace)"
+      "global_load": "Loaded globally via plugin (cannot be disabled per session)"
     },
     "unavailable_warning": "{{count}} MCP server(s) unavailable on the current account",
     "redetect": "Re-detect",
@@ -1021,11 +1023,11 @@
     "save": "Save",
     "restart_agent": "Restart Agent",
     "niuniu_required": "Required",
-    "strict_label": "Disable global MCP config (use only this workspace's)",
+    "strict_label": "Disable global MCP config (use only this session's)",
     "strict_hint": "Takes effect after the agent restarts.",
     "strict_failed": "Failed to update, reverted.",
     "effective": "Effective",
-    "overrides": "Workspace overrides"
+    "overrides": "Session overrides"
   },
   "canvas": {
     "title": "Annotate",
@@ -1058,8 +1060,8 @@
     "refresh": "Refresh"
   },
   "search": {
-    "title": "Search workspace",
-    "description": "Search by file name or file content across every repository in this workspace.",
+    "title": "Search session",
+    "description": "Search by file name or file content across every repository in this session.",
     "open": "Search",
     "openHint": "Search files and contents (Ctrl/Cmd+Shift+F)",
     "placeholder": "Search file names and contents…",
@@ -1104,7 +1106,7 @@
     },
     "empty": {
       "title": "No video project yet",
-      "description": "This workspace has no video project yet — it will appear here once the agent starts creating in a media-studio scene."
+      "description": "This session has no video project yet — it will appear here once the agent starts creating in a media-studio scene."
     },
     "products": {
       "brief": "Director's brief",
@@ -1159,8 +1161,8 @@
   },
   "share": {
     "toolbarButton": "Share",
-    "title": "Share workspace",
-    "description": "Create a password-protected, time-limited read-only link so external viewers can follow this workspace conversation in a browser.",
+    "title": "Share session",
+    "description": "Create a password-protected, time-limited read-only link so external viewers can follow this session conversation in a browser.",
     "passwordLabel": "Access password",
     "generatePassword": "Regenerate password",
     "expiryLabel": "Expires in",
@@ -1194,10 +1196,10 @@
     "empty": "No conversation content yet",
     "allowChatLabel": "Allow conversation",
     "allowChatShort": "Chat",
-    "allowChatHint": "Unlocked viewers can send messages to this workspace's AI assistant (consumes real quota, off by default).",
+    "allowChatHint": "Unlocked viewers can send messages to this session's AI assistant (consumes real quota, off by default).",
     "allowChatUpdateFailed": "Failed to update chat permission",
     "chatEnabled": "Conversational share",
-    "chatPlaceholder": "Type a message to this workspace's AI assistant…",
+    "chatPlaceholder": "Type a message to this session's AI assistant…",
     "chatSend": "Send",
     "chatSendFailed": "Send failed. Please retry."
   }

@@ -1,12 +1,12 @@
 {
   "list": {
     "title": "自动AI · 定时任务",
-    "subtitle": "管理所有工作空间的定时执行计划",
+    "subtitle": "管理所有会话的定时执行计划",
     "filterAll": "全部 ({{count}})",
     "filterEnabled": "启用 ({{count}})",
     "filterDisabled": "停用 ({{count}})",
     "emptyAll": "暂无定时任务",
-    "workspaceFallback": "工作空间 {{id}}",
+    "workspaceFallback": "会话 {{id}}",
     "tasksCountSuffix": "{{count}} 个任务",
     "addTask": "添加任务",
     "onceLabel": "单次执行",

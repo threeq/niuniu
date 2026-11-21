@@ -55,7 +55,7 @@
     "resources": {
       "description": "以下为属于该组织的资源统计。点击跳转到对应列表页面。",
       "projects": "项目",
-      "workspaces": "工作空间",
+      "workspaces": "会话",
       "repositories": "仓库"
     },
     "audit": {
@@ -81,7 +81,7 @@
       "deleteHint": "永久删除此组织。此操作不可撤销。",
       "deleteHasResources": "组织下仍有资源（{{summary}}），请先清空后再删除。",
       "deleteResourceProjects": "{{count}} 个项目",
-      "deleteResourceWorkspaces": "{{count}} 个工作空间",
+      "deleteResourceWorkspaces": "{{count}} 个会话",
       "deleteResourceRepositories": "{{count}} 个仓库",
       "deleteResourceSeparator": "、",
       "deleteButton": "删除组织",
@@ -95,13 +95,12 @@
   "dialogs": {
     "createOrg": {
       "title": "新建组织",
-      "description": "创建一个新的组织，管理成员和资源。",
+      "description": "描述（可选）",
       "name": "名称",
       "namePlaceholder": "例如：我的组织",
       "slug": "Slug（可选）",
       "slugPlaceholder": "留空则由后端自动生成",
       "slugHint": "用于 URL 路径，仅允许小写字母、数字和连字符",
-      "description": "描述（可选）",
       "descriptionPlaceholder": "组织的简要描述",
       "cancel": "取消",
       "submit": "创建",
@@ -149,7 +148,7 @@
     "deny": "拒绝",
     "selfDecide": "您是发起人，不能批准自己的申请。",
     "notPermitted": "您的角色无权批准此项。"
-  },
+  },
   "activity": {
     "tab": "集成活动",
     "hint": "组织内成员使用集成时的审计记录：谁、何时、用了哪份凭证、调了什么、结果如何。审批决定同样留痕。记录只增不改、不可删，可导出留档。",

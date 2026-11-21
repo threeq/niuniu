@@ -369,11 +369,11 @@
       "critical": "Critical"
     },
     "workspace": {
-      "title": "Workspace",
+      "title": "Session",
       "loading": "Loading...",
       "loadFailed": "Load failed",
-      "notBound": "No workspace bound yet",
-      "create": "Create workspace",
+      "notBound": "No session bound yet",
+      "create": "Create session",
       "createWithCount": "Create",
       "createWithCountSuffix": " ({{count}})",
       "cliType": {
@@ -406,7 +406,7 @@
       "archived": "Archived",
       "archivedAt": "Archived at {{date}}",
       "selectBranch": "Please select a branch for repository \"{{name}}\"",
-      "partialSuccess": "Workspace created, but some repositories failed to set up worktrees:\n\n{{lines}}"
+      "partialSuccess": "Session created, but some repositories failed to set up worktrees:\n\n{{lines}}"
     },
     "sidebar": {
       "name": "Name",
@@ -415,9 +415,9 @@
       "inactive": "○ Inactive",
       "agentRunning": "● Running",
       "agentIdle": "○ Idle",
-      "openWorkspace": "Open workspace",
-      "noWorkspace": "No workspace created yet",
-      "createWorkspace": "Create workspace"
+      "openWorkspace": "Open session",
+      "noWorkspace": "No session created yet",
+      "createWorkspace": "Create session"
     }
   },
   "createIssue": {
@@ -434,9 +434,9 @@
       "startDateLabel": "Start date",
       "dueDateLabel": "Due date",
       "estimateLabel": "Estimate",
-      "createWorkspace": "Also create workspace",
-      "workspaceName": "Workspace name",
-      "workspaceNamePlaceholder": "Workspace name will match issue title",
+      "createWorkspace": "Also create session",
+      "workspaceName": "Session name",
+      "workspaceNamePlaceholder": "Session name will match issue title",
       "addRepo": "Add repository",
       "selectedRepos": "Selected repositories ({{count}})",
       "selectColumn": "Select column...",
@@ -464,7 +464,7 @@
     "errors": {
       "fetchBranchesFailed": "Failed to fetch repository branches",
       "createIssueFailed": "Failed to create issue",
-      "issueCreatedWorkspaceFailed": "Issue created, but workspace creation failed",
+      "issueCreatedWorkspaceFailed": "Issue created, but session creation failed",
       "confirmCloseUnsaved": "Close anyway? Unsaved content will be lost."
     },
     "noRepoSelected": "No repository selected yet",
@@ -603,10 +603,10 @@
       "projectName": "Project name",
       "projectDescription": "Project description",
       "defaultAgent": "Default agent",
-      "defaultAgentHint": "Pre-selected when creating workspaces under this project; used as-is for issue-auto-created workspaces.",
+      "defaultAgentHint": "Pre-selected when creating sessions under this project; used as-is for issue-auto-created sessions.",
       "defaultProvider": "Default Provider",
-      "defaultProviderNone": "No binding (workspace picks its own)",
-      "defaultProviderHint": "New workspaces created from issues under this project inherit this binding (provider or group); can be changed afterward. Pick a group to auto-use the group's best available provider.",
+      "defaultProviderNone": "No binding (session picks its own)",
+      "defaultProviderHint": "New sessions created from issues under this project inherit this binding (provider or group); can be changed afterward. Pick a group to auto-use the group's best available provider.",
       "defaultProviderGroups": "Groups (auto-pick best available)",
       "defaultProviderGroupLabel": "Group: {{group}}",
       "defaultProviderSingles": "Single providers",
@@ -637,12 +637,12 @@
         "externalSources": "External sources",
         "memory": "Memory",
         "imbot": "IM bot",
-        "cleanup": "Workspace cleanup",
+        "cleanup": "Session cleanup",
         "danger": "Danger zone"
       },
       "memory": {
         "title": "Automatic memory maintenance",
-        "description": "On a schedule, create a \"memory cleanup\" task that an agent runs in a workspace, reconciling and correcting this project's memory library against the current code via niuniu-mcp. Off by default; projects without a repository are skipped.",
+        "description": "On a schedule, create a \"memory cleanup\" task that an agent runs in a session, reconciling and correcting this project's memory library against the current code via niuniu-mcp. Off by default; projects without a repository are skipped.",
         "enable": "Enable scheduled maintenance",
         "enableHint": "When on, runs automatically on the schedule below; when off, only manual runs are possible.",
         "runOnce": "Run once now",
@@ -673,13 +673,13 @@
         "saveFailed": "Save failed: {{message}}"
       },
       "cleanup": {
-        "title": "Workspace auto-cleanup",
-        "description": "On an hourly schedule, delete each workspace — and its linked issue — whose issue is completed or not started and that has had no activity for at least the retention window below. Off by default. Workspaces with uncommitted changes are always skipped.",
+        "title": "Session auto-cleanup",
+        "description": "On an hourly schedule, delete each session — and its linked issue — whose issue is completed or not started and that has had no activity for at least the retention window below. Off by default. Sessions with uncommitted changes are always skipped.",
         "enable": "Enable auto-cleanup",
-        "enableHint": "When on, qualifying workspaces are swept automatically; when off, nothing is deleted.",
+        "enableHint": "When on, qualifying sessions are swept automatically; when off, nothing is deleted.",
         "inactiveDays": "Inactive for at least",
         "daysUnit": "days",
-        "statuses": "Target workspace states",
+        "statuses": "Target session states",
         "status": {
           "completed": "Completed",
           "not_started": "Not started"
@@ -779,7 +779,7 @@
       },
       "defaultScenes": {
         "title": "Default scenes",
-        "hint": "Scenes listed here are auto-attached, in order, to every new workspace created under this project. When scenes stack, shared resources (MCP / agents / quick actions) are deduplicated — only one copy is kept.",
+        "hint": "Scenes listed here are auto-attached, in order, to every new session created under this project. When scenes stack, shared resources (MCP / agents / quick actions) are deduplicated — only one copy is kept.",
         "loading": "Loading…",
         "empty": "No default scenes configured yet.",
         "add": "Add",
@@ -864,11 +864,11 @@
   "hooks": {
     "extractedLearnings": "Extracted {{count}} learnings",
     "noLearningsExtracted": "No noteworthy learnings found",
-    "noLinkedProject": "Current workspace is not linked to a project",
+    "noLinkedProject": "Current session is not linked to a project",
     "extractInProgress": "Extraction in progress, please wait",
     "extractFailed": "Extraction failed",
-    "extractWorkspace": "Workspace !{{id}}",
-    "gotoWorkspace": "Go to workspace"
+    "extractWorkspace": "Session !{{id}}",
+    "gotoWorkspace": "Go to session"
   },
   "externalSources": {
     "title": "External sources",
@@ -891,12 +891,12 @@
     "delete": "Remove",
     "deleteConfirm": "Detach external source {{key}}? Already-imported issues are kept but comment writeback stops.",
     "addFailed": "Add failed: {{message}}",
-    "tapdWorkspaceIdLabel": "TAPD workspace ID",
+    "tapdWorkspaceIdLabel": "TAPD session ID",
     "tapdWorkspaceIdPlaceholder": "Numeric, e.g. 12345",
     "invalidGithubRepo": "GitHub repo must be in owner/repo format",
-    "invalidTapdWorkspaceId": "TAPD workspace ID must be numeric",
+    "invalidTapdWorkspaceId": "TAPD session ID must be numeric",
     "genericSourceKeyLabel": "Source key",
-    "genericSourceKeyPlaceholder": "Unique key of this source in the external system (e.g. workspace/project ID)"
+    "genericSourceKeyPlaceholder": "Unique key of this source in the external system (e.g. session/project ID)"
   },
   "imbot": {
     "title": "IM bot",
@@ -1141,7 +1141,7 @@
   },
   "projectDataSources": {
     "title": "Data sources",
-    "description": "Associate data sources with this project so the project’s agents can query them. A source must be associated with a project (or a workspace) to be visible.",
+    "description": "Associate data sources with this project so the project’s agents can query them. A source must be associated with a project (or a session) to be visible.",
     "loading": "Loading…",
     "noSources": "No data sources associated yet",
     "add": "Associate",

@@ -369,11 +369,11 @@
       "critical": "緊急"
     },
     "workspace": {
-      "title": "工作空間",
+      "title": "會話",
       "loading": "載入中...",
       "loadFailed": "載入失敗",
-      "notBound": "尚未繫結工作空間",
-      "create": "建立工作空間",
+      "notBound": "尚未繫結會話",
+      "create": "建立會話",
       "createWithCount": "建立",
       "createWithCountSuffix": " ({{count}})",
       "cliType": {
@@ -406,7 +406,7 @@
       "archived": "已歸檔",
       "archivedAt": "歸檔於 {{date}}",
       "selectBranch": "請為倉庫「{{name}}」選擇一個分支",
-      "partialSuccess": "工作空間已建立，但部分倉庫未能建立 worktree：\n\n{{lines}}"
+      "partialSuccess": "會話已建立，但部分倉庫未能建立 worktree：\n\n{{lines}}"
     },
     "sidebar": {
       "name": "名稱",
@@ -415,9 +415,9 @@
       "inactive": "○ 非活躍",
       "agentRunning": "● 執行中",
       "agentIdle": "○ 空閒",
-      "openWorkspace": "開啟工作空間",
-      "noWorkspace": "還未建立工作空間",
-      "createWorkspace": "建立工作空間"
+      "openWorkspace": "開啟會話",
+      "noWorkspace": "還未建立會話",
+      "createWorkspace": "建立會話"
     }
   },
   "createIssue": {
@@ -434,9 +434,9 @@
       "startDateLabel": "開始日期",
       "dueDateLabel": "截止日期",
       "estimateLabel": "估時",
-      "createWorkspace": "同時建立工作空間",
-      "workspaceName": "工作空間名稱",
-      "workspaceNamePlaceholder": "工作空間名稱將與問題標題相同",
+      "createWorkspace": "同時建立會話",
+      "workspaceName": "會話名稱",
+      "workspaceNamePlaceholder": "會話名稱將與問題標題相同",
       "addRepo": "新增倉庫",
       "selectedRepos": "已選倉庫 ({{count}})",
       "selectColumn": "選擇欄目...",
@@ -464,7 +464,7 @@
     "errors": {
       "fetchBranchesFailed": "獲取倉庫分支失敗",
       "createIssueFailed": "建立問題失敗",
-      "issueCreatedWorkspaceFailed": "問題已建立，但工作空間建立失敗",
+      "issueCreatedWorkspaceFailed": "問題已建立，但會話建立失敗",
       "confirmCloseUnsaved": "確定要關閉嗎？未儲存的內容將丟失。"
     },
     "noRepoSelected": "還未選擇倉庫",
@@ -605,7 +605,7 @@
       "defaultAgent": "預設 Agent",
       "defaultAgentHint": "在本專案下新建工作區時預選；issue 自動建立工作區時直接採用。",
       "defaultProvider": "預設 Provider",
-      "defaultProviderNone": "不繫結（工作空間自行選擇）",
+      "defaultProviderNone": "不繫結（會話自行選擇）",
       "defaultProviderHint": "在本專案下透過 issue 建立工作區時自動繼承該繫結（Provider 或分組），後續可修改。選「分組」則自動使用該組內當前可用的最優 Provider。",
       "defaultProviderGroups": "分組（自動選用組內可用最優）",
       "defaultProviderGroupLabel": "分組：{{group}}",
@@ -637,12 +637,12 @@
         "externalSources": "外部源",
         "memory": "記憶",
         "imbot": "IM 機器人",
-        "cleanup": "工作空間清理",
+        "cleanup": "會話清理",
         "danger": "危險操作"
       },
       "memory": {
         "title": "記憶庫自動整理",
-        "description": "定時建立一個「記憶庫整理」任務，由 Agent 在工作空間內透過 niuniu-mcp 核對並修正本專案記憶庫（與當前程式碼對齊）。預設關閉；無倉庫的專案會跳過。",
+        "description": "定時建立一個「記憶庫整理」任務，由 Agent 在會話內透過 niuniu-mcp 核對並修正本專案記憶庫（與當前程式碼對齊）。預設關閉；無倉庫的專案會跳過。",
         "enable": "啟用定時整理",
         "enableHint": "開啟後按下方計劃自動執行；關閉後僅可手動執行。",
         "runOnce": "立即執行一次",
@@ -673,13 +673,13 @@
         "saveFailed": "儲存失敗：{{message}}"
       },
       "cleanup": {
-        "title": "工作空間自動清理",
-        "description": "每小時自動掃描：刪除「已完成」或「未開始」且在下方保留天數內無任何活躍的工作空間及其對應 issue。預設關閉。存在未提交改動的工作空間始終跳過。",
+        "title": "會話自動清理",
+        "description": "每小時自動掃描：刪除「已完成」或「未開始」且在下方保留天數內無任何活躍的會話及其對應 issue。預設關閉。存在未提交改動的會話始終跳過。",
         "enable": "啟用自動清理",
-        "enableHint": "開啟後自動清理符合條件的工作空間；關閉後不會刪除任何內容。",
+        "enableHint": "開啟後自動清理符合條件的會話；關閉後不會刪除任何內容。",
         "inactiveDays": "無活躍時長至少",
         "daysUnit": "天",
-        "statuses": "目標工作空間狀態",
+        "statuses": "目標會話狀態",
         "status": {
           "completed": "已完成",
           "not_started": "未開始"
@@ -779,7 +779,7 @@
       },
       "defaultScenes": {
         "title": "預設場景",
-        "hint": "在此專案下建立工作空間時，會按順序自動掛載這些場景；多個場景疊加時，相同的 MCP / Agent / 快捷操作等資源會自動去重，只保留一個。",
+        "hint": "在此專案下建立會話時，會按順序自動掛載這些場景；多個場景疊加時，相同的 MCP / Agent / 快捷操作等資源會自動去重，只保留一個。",
         "loading": "載入中…",
         "empty": "尚未配置預設場景。",
         "add": "新增",
@@ -864,11 +864,11 @@
   "hooks": {
     "extractedLearnings": "提取了 {{count}} 條經驗",
     "noLearningsExtracted": "未發現值得記錄的經驗",
-    "noLinkedProject": "當前工作空間未關聯專案",
+    "noLinkedProject": "當前會話未關聯專案",
     "extractInProgress": "正在提取中，請稍候",
     "extractFailed": "提取失敗",
-    "extractWorkspace": "工作空間 !{{id}}",
-    "gotoWorkspace": "前往工作空間"
+    "extractWorkspace": "會話 !{{id}}",
+    "gotoWorkspace": "前往會話"
   },
   "externalSources": {
     "title": "外部源管理",
@@ -1141,7 +1141,7 @@
   },
   "projectDataSources": {
     "title": "資料來源",
-    "description": "將資料來源關聯到本專案，本專案的 Agent 即可查詢這些資料來源。資料來源需關聯到專案（或工作空間）後才對 Agent 可見。",
+    "description": "將資料來源關聯到本專案，本專案的 Agent 即可查詢這些資料來源。資料來源需關聯到專案（或會話）後才對 Agent 可見。",
     "loading": "載入中…",
     "noSources": "尚未關聯任何資料來源",
     "add": "關聯",

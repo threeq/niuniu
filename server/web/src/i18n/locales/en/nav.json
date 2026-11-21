@@ -4,7 +4,7 @@
   },
   "menu": {
     "projects": "Projects",
-    "workspaces": "Workspaces",
+    "workspaces": "Sessions",
     "intake": "Task suggestions",
     "intakeBadge": "{{count}} task suggestions to review",
     "repositories": "Repositories",

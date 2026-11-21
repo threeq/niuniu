@@ -252,7 +252,7 @@ describe('WorkspaceSidebar', () => {
     fireEvent.change(screen.getByPlaceholderText(/搜索|Search/i), {
       target: { value: 'xyzxyzxyz' },
     });
-    expect(screen.getByText(/无匹配工作空间|No matching workspaces/i)).toBeInTheDocument();
+    expect(screen.getByText(/无匹配会话|No matching sessions/i)).toBeInTheDocument();
   });
 
   it('priority zone sorts cards by id descending', async () => {

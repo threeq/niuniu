@@ -239,7 +239,7 @@
       "writeEnabledHint": "關閉：只允許預設安全集合的介面（通常是隻讀 GET）。開啟：AI 可以呼叫任意 method / 任意 path，請確認完全信任此 Provider 再開。",
       "writeEnabledOn": "已開啟 {{name}} 的完全訪問許可權",
       "writeEnabledOff": "已關閉 {{name}} 的完全訪問，僅保留預設安全集合",
-      "writeWarning": "預設只放行各 Provider 的安全集合（通常是 GET 只讀）。開啟「允許寫入」後，AI 對該 Provider 擁有任意 method / 任意 path 的完整呼叫權，請按 Provider 單獨評估再開。授權按歸屬生效：個人空間只作用於個人工作空間的 AI，組織授權對該組織下所有成員的工作空間 AI 生效。",
+      "writeWarning": "預設只放行各 Provider 的安全集合（通常是 GET 只讀）。開啟「允許寫入」後，AI 對該 Provider 擁有任意 method / 任意 path 的完整呼叫權，請按 Provider 單獨評估再開。授權按歸屬生效：個人空間只作用於個人會話的 AI，組織授權對該組織下所有成員的會話 AI 生效。",
       "writeScopeLabel": "寫入授權歸屬",
       "writeScopePersonal": "個人空間",
       "empty": "尚未配置 Provider。點選下方按鈕新增。",
@@ -306,7 +306,7 @@
       "examples": "示例",
       "limits": "限制",
       "agentBlock": "Agent 看到的內容",
-      "agentBlockHint": "以下內容會以“資料（非指令）”分割槽注入工作空間的指令檔案，與實際下發完全一致。"
+      "agentBlockHint": "以下內容會以“資料（非指令）”分割槽注入會話的指令檔案，與實際下發完全一致。"
     },
     "functions": {
       "title": "操作函式（沙箱執行時）",
@@ -381,7 +381,7 @@
     "about": "關於",
     "providerUsage": "用量統計",
     "share": "分享",
-    "workspaceCleanup": "工作空間清理",
+    "workspaceCleanup": "會話清理",
     "scenes": "場景",
     "agents": "Agent 管理"
   },
@@ -536,13 +536,13 @@
   },
   "capability": {
     "title": "能力配置",
-    "description": "為已裝配的能力模組配置三方生成服務賬號。在此配置的賬號為全域性預設，工作空間可單獨覆蓋；金鑰加密儲存，永不回顯明文。",
+    "description": "為已裝配的能力模組配置三方生成服務賬號。在此配置的賬號為全域性預設，會話可單獨覆蓋；金鑰加密儲存，永不回顯明文。",
     "noModules": {
       "title": "未裝配任何能力模組",
       "description": "當前版本未包含需要配置的能力模組，這裡無需配置。"
     },
     "addAccount": "新增賬號",
-    "emptyHint": "配置後，{{module}}工作空間即可呼叫對應生成服務。",
+    "emptyHint": "配置後，{{module}}會話即可呼叫對應生成服務。",
     "keySourceHint": "API Key 請到所選服務商的開發者控制檯獲取。",
     "keySet": "已配置金鑰",
     "keyUnset": "未配置金鑰",
@@ -571,11 +571,11 @@
   },
   "skills": {
     "title": "Skill 管理",
-    "subtitle": "跨 agent（Claude Code / Codex / Qwen / OMP / Goose）管理 Agent Skill 的安裝、啟用、更新與解除安裝。安裝 ≠ 啟用：全域性安裝後預設不生效，按需在全域性或具體工作空間開啟。",
+    "subtitle": "跨 agent（Claude Code / Codex / Qwen / OMP / Goose）管理 Agent Skill 的安裝、啟用、更新與解除安裝。安裝 ≠ 啟用：全域性安裝後預設不生效，按需在全域性或具體會話開啟。",
     "scopeGlobal": "全域性（按 Agent）",
-    "scopeWorkspace": "工作空間",
-    "workspacePlaceholder": "選擇工作空間…",
-    "pickWorkspaceHint": "請先選擇一個工作空間，再管理該工作空間內啟用的 skill。",
+    "scopeWorkspace": "會話",
+    "workspacePlaceholder": "選擇會話…",
+    "pickWorkspaceHint": "請先選擇一個會話，再管理該會話內啟用的 skill。",
     "searchPlaceholder": "搜尋 skill…",
     "loading": "載入中…",
     "empty": "暫無 skill",
@@ -590,7 +590,7 @@
     "install": "安裝",
     "update": "更新",
     "uninstall": "解除安裝",
-    "modelHint": "開關 = 在當前範圍啟用/停用該 agent 的 skill。場景宣告的 skill 會在對應工作空間自動啟用；全域性已啟用的 skill 不會再向工作空間重複安裝。",
+    "modelHint": "開關 = 在當前範圍啟用/停用該 agent 的 skill。場景宣告的 skill 會在對應會話自動啟用；全域性已啟用的 skill 不會再向會話重複安裝。",
     "toasts": {
       "installed": "已安裝到全域性庫（預設未啟用）",
       "updated": "已更新到最新版本",
@@ -669,11 +669,11 @@
   },
   "orchestration": {
     "title": "編排成本護欄",
-    "description": "限制 AI 看板編排器。修改後幾秒內生效，無需重啟。預算按每棵編排樹（一個 Epic 加其子工作空間）獨立計費。",
+    "description": "限制 AI 看板編排器。修改後幾秒內生效，無需重啟。預算按每棵編排樹（一個 Epic 加其子會話）獨立計費。",
     "budget": "鏈路成本預算（美元）",
     "budgetHint": "單棵編排樹的累計成本上限。0 表示不限制。僅支援整數美元。",
-    "maxConcurrent": "最大併發工作空間",
-    "maxConcurrentHint": "每個所有者同時活躍的工作空間數。超過上限時 start_workspace 排隊而非拒絕。0 表示不限制。",
+    "maxConcurrent": "最大併發會話",
+    "maxConcurrentHint": "每個所有者同時活躍的會話數。超過上限時 start_workspace 排隊而非拒絕。0 表示不限制。",
     "maxBatch": "單批最多建立任務數",
     "maxBatchHint": "一次 batch_create_issues 最多建立多少個任務。0 表示不限制。",
     "warnRatio": "接近預算預警閾值",
@@ -683,11 +683,11 @@
     "saveFailed": "儲存失敗：{{message}}"
   },
   "workspaceCleanup": {
-    "title": "工作空間清理",
-    "description": "伺服器每小時掃描一次。最後活躍時間超過過期時長的工作空間會被自動刪除，並連同關聯的 issue 一併刪除；正在執行或存在未提交改動的工作空間會被保留。",
+    "title": "會話清理",
+    "description": "伺服器每小時掃描一次。最後活躍時間超過過期時長的會話會被自動刪除，並連同關聯的 issue 一併刪除；正在執行或存在未提交改動的會話會被保留。",
     "expireDays": "過期時長（天）",
     "expireDaysHint": "設為 0 表示關閉自動清理。修改後在下一次每小時掃描時生效，無需重啟。",
-    "enabledHint": "超過 {{days}} 天未活躍的工作空間將被刪除。",
+    "enabledHint": "超過 {{days}} 天未活躍的會話將被刪除。",
     "disabledHint": "自動清理已關閉。",
     "save": "儲存",
     "saved": "已儲存",
@@ -904,12 +904,12 @@
         "title": "通知範圍",
         "permissionNote": "許可權請求徽標始終只針對你正在驅動的 agent 出現，不受此設定影響。",
         "mine": {
-          "title": "僅自己的工作空間（建立或被指派）",
-          "description": "只對你建立的或被指派給你的問題對應的工作空間彈框、響鈴。其他工作空間狀態在列表裡照常更新，但不打擾你。"
+          "title": "僅自己的會話（建立或被指派）",
+          "description": "只對你建立的或被指派給你的問題對應的會話彈框、響鈴。其他會話狀態在列表裡照常更新，但不打擾你。"
         },
         "all": {
-          "title": "全部工作空間",
-          "description": "所有可訪問的工作空間都會彈框、響鈴。"
+          "title": "全部會話",
+          "description": "所有可訪問的會話都會彈框、響鈴。"
         },
         "none": {
           "title": "完全關閉通知（狀態仍重新整理）",
@@ -1016,8 +1016,8 @@
     }
   },
   "env": {
-    "description": "管理環境變數預設組，可在工作空間中快速匯入",
-    "oneShotHint": "提示：在某個預設里加入環境變數 NIUNIU_ONESHOT_PROVIDER=1，即可讓系統級 AI 輔助呼叫（目標推斷 / 開工判定 / 列說明生成等一次性呼叫）使用該預設的模型供應商。這類呼叫不在工作空間裡執行，預設只用本機環境變數。",
+    "description": "管理環境變數預設組，可在會話中快速匯入",
+    "oneShotHint": "提示：在某個預設里加入環境變數 NIUNIU_ONESHOT_PROVIDER=1，即可讓系統級 AI 輔助呼叫（目標推斷 / 開工判定 / 列說明生成等一次性呼叫）使用該預設的模型供應商。這類呼叫不在會話裡執行，預設只用本機環境變數。",
     "newPreset": "新建預設",
     "noPresets": "暫無預設",
     "presetsAdvancedTitle": "原始環境變數預設（高階）",
@@ -1026,7 +1026,7 @@
     "dialog": {
       "createTitle": "新建預設",
       "editTitle": "編輯預設",
-      "description": "配置環境變數預設組，可在工作空間設定中快速匯入",
+      "description": "配置環境變數預設組，可在會話設定中快速匯入",
       "nameLabel": "名稱",
       "namePlaceholder": "預設名稱",
       "descLabel": "描述",
@@ -1082,7 +1082,7 @@
     "groupOrderHint": "↑↓ 調整備援順序：越靠上越優先使用",
     "standaloneTitle": "獨立 Provider（未分組）",
     "providerImportTitle": "匯入為預設",
-    "providerImportDesc": "把該 Provider 的配置按 Agent 型別轉換為環境變數，生成一個可掛載到場景/工作空間的預設。",
+    "providerImportDesc": "把該 Provider 的配置按 Agent 型別轉換為環境變數，生成一個可掛載到場景/會話的預設。",
     "providerCliTypeLabel": "目標 Agent 型別",
     "providerCliTypeClaude": "Claude Code",
     "providerCliTypeCodex": "Codex",
@@ -1094,7 +1094,7 @@
     "providerOverwriteLabel": "覆蓋同名預設",
     "providerPreviewLabel": "生成的環境變數預覽",
     "providerImportBtn": "匯入為預設",
-    "providerImported": "已生成預設「{{name}}」，可在工作空間/場景中掛載。",
+    "providerImported": "已生成預設「{{name}}」，可在會話/場景中掛載。",
     "providerImportFailed": "匯入失敗：{{error}}",
     "provider": {
       "createTitle": "新建 Provider",
@@ -1140,7 +1140,7 @@
     },
     "floors": {
       "title": "專案底線閘",
-      "subtitle": "工作空間標記完成時必須透過的命令（Epic 自動完成同樣校驗）。留空 = 不設閘。在 專案 → 設定 → 看板 中按專案配置。",
+      "subtitle": "會話標記完成時必須透過的命令（Epic 自動完成同樣校驗）。留空 = 不設閘。在 專案 → 設定 → 看板 中按專案配置。",
       "noProjects": "暫無活躍專案",
       "summary": "{{total}} 個專案中有 {{active}} 個已配置底線閘",
       "notSet": "未配置底線閘 — 該專案當前沒有任何強制校驗",
@@ -1375,14 +1375,14 @@
       "sections": {
         "orgs": "所屬組織",
         "projects": "專案",
-        "workspaces": "工作空間",
+        "workspaces": "會話",
         "repositories": "倉庫",
         "otherResources": "其他資源"
       },
       "empty": {
         "orgs": "未加入任何組織",
         "projects": "暫無專案",
-        "workspaces": "暫無工作空間",
+        "workspaces": "暫無會話",
         "repositories": "暫無倉庫"
       },
       "counts": {
@@ -1409,7 +1409,7 @@
         "success": "已刪除",
         "types": {
           "project": "專案",
-          "workspace": "工作空間",
+          "workspace": "會話",
           "repository": "倉庫"
         }
       },
@@ -1603,7 +1603,7 @@
     },
     "range": "最近 {{count}} 天",
     "emptyTitle": "暫無用量資料",
-    "emptyDescription": "完成對話輪次後，這裡會按小時記錄 Token 消耗；繫結訂閱平臺 provider 的工作空間還會按平臺拆分統計。",
+    "emptyDescription": "完成對話輪次後，這裡會按小時記錄 Token 消耗；繫結訂閱平臺 provider 的會話還會按平臺拆分統計。",
     "chart": {
       "title": "每小時 Token 消耗（按平臺堆疊）",
       "titleDaily": "每日 Token 消耗（按平臺堆疊）",
@@ -1639,7 +1639,7 @@
     }
   },
   "share": {
-    "title": "工作空間分享",
+    "title": "會話分享",
     "description": "配置分享連結的訪問域名（僅團隊版）。生成的分享連結形如 <域名>/share/ws/<token>。",
     "baseUrlLabel": "訪問域名",
     "baseUrlPlaceholder": "https://share.example.com",
