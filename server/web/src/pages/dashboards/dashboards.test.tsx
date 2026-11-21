@@ -104,7 +104,7 @@ describe('DashboardDetail back-to-workspace + enlarge', () => {
     render(withQuery(<DashboardDetail dashboardId="1" />));
 
     const btn = await screen.findByRole('button', {
-      name: /返回工作空间|back to workspace/i,
+      name: /返回会话|back to session/i,
     });
     fireEvent.click(btn);
     expect(navigateMock).toHaveBeenCalledWith({
@@ -119,7 +119,7 @@ describe('DashboardDetail back-to-workspace + enlarge', () => {
 
     await screen.findByText('Panel A');
     expect(
-      screen.queryByRole('button', { name: /返回工作空间|back to workspace/i }),
+      screen.queryByRole('button', { name: /返回会话|back to session/i }),
     ).toBeNull();
 
     // Clicking the chart enlarges it (opens a dialog) — it must NOT navigate.

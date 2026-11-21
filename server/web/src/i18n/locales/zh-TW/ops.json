@@ -67,7 +67,7 @@
   },
   "deleteBot": {
     "title": "刪除運營 Bot",
-    "description": "確定刪除「{{name}}」嗎？這會同時刪除待審批、聊天繫結、瀏覽器會話、控制工作空間與 Epic，且不可恢復。",
+    "description": "確定刪除「{{name}}」嗎？這會同時刪除待審批、聊天繫結、瀏覽器會話、控制會話與 Epic，且不可恢復。",
     "cancel": "取消",
     "delete": "刪除",
     "deleting": "刪除中…",

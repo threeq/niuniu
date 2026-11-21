@@ -117,7 +117,7 @@
     "saveFailed": "保存失败：{{error}}",
     "saveSuccess": "数据源已保存",
     "bindingsTitle": "可见范围",
-    "bindingsHint": "选择哪些项目可以看到此数据源。Agent 仅通过其工作空间所属的项目看到数据源。未关联任何项目的数据源对所有 Agent 不可见。",
+    "bindingsHint": "选择哪些项目可以看到此数据源。Agent 仅通过其会话所属的项目看到数据源。未关联任何项目的数据源对所有 Agent 不可见。",
     "bindingsEmpty": "未关联 — 对所有 Agent 不可见",
     "bindingTypeProject": "项目",
     "bindingAdd": "添加关联",

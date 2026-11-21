@@ -68,8 +68,8 @@
     "fileUploadFailed": "Failed to upload {{name}}"
   },
   "notifications": {
-    "agentAttention": "Workspace !{{id}}: agent error, attention required",
-    "agentDone": "Workspace !{{id}}: agent done, waiting for review"
+    "agentAttention": "Session !{{id}}: agent error, attention required",
+    "agentDone": "Session !{{id}}: agent done, waiting for review"
   },
   "soundOptions": {
     "cowMooing": "Cow Mooing",

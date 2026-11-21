@@ -239,7 +239,7 @@
       "writeEnabledHint": "Off: only the provider's default safe set passes (usually GET only). On: AI can call any method on any path — enable only when you fully trust this provider.",
       "writeEnabledOn": "Full access granted for {{name}}",
       "writeEnabledOff": "Full access revoked for {{name}}; only the default safe set remains",
-      "writeWarning": "By default only each provider's safe set (typically read-only GET) is allowed. Turning on \"Allow writes\" grants the AI full method/path access — review each provider before enabling. Grants are owner-scoped: a personal grant covers AI in your personal workspaces only, while an org grant covers every member's agent across the org's workspaces.",
+      "writeWarning": "By default only each provider's safe set (typically read-only GET) is allowed. Turning on \"Allow writes\" grants the AI full method/path access — review each provider before enabling. Grants are owner-scoped: a personal grant covers AI in your personal sessions only, while an org grant covers every member's agent across the org's sessions.",
       "writeScopeLabel": "Write-grant scope",
       "writeScopePersonal": "Personal",
       "empty": "No providers configured yet. Use the button below to add one.",
@@ -306,7 +306,7 @@
       "examples": "Examples",
       "limits": "Limits",
       "agentBlock": "What the agent sees",
-      "agentBlockHint": "This is the exact block injected into the workspace instruction file as a DATA (not instructions) section."
+      "agentBlockHint": "This is the exact block injected into the session instruction file as a DATA (not instructions) section."
     },
     "functions": {
       "title": "Operation functions (sandbox runtime)",
@@ -381,7 +381,7 @@
     "about": "About",
     "providerUsage": "Usage stats",
     "share": "Share",
-    "workspaceCleanup": "Workspace cleanup",
+    "workspaceCleanup": "Session cleanup",
     "scenes": "Scenes",
     "agents": "Agents"
   },
@@ -536,13 +536,13 @@
   },
   "capability": {
     "title": "Capability Configuration",
-    "description": "Configure third-party generation-service accounts for installed capability modules. An account configured here is the global default; individual workspaces can override it. Keys are stored encrypted and never echoed back in plaintext.",
+    "description": "Configure third-party generation-service accounts for installed capability modules. An account configured here is the global default; individual sessions can override it. Keys are stored encrypted and never echoed back in plaintext.",
     "noModules": {
       "title": "No capability modules installed",
       "description": "This build ships no capability module that needs configuration."
     },
     "addAccount": "Add account",
-    "emptyHint": "Once configured, {{module}} workspaces can call this generation service.",
+    "emptyHint": "Once configured, {{module}} sessions can call this generation service.",
     "keySourceHint": "Get the API key from the provider's developer console.",
     "keySet": "Key saved",
     "keyUnset": "No key",
@@ -571,11 +571,11 @@
   },
   "skills": {
     "title": "Skill Management",
-    "subtitle": "Install, enable, update and uninstall Agent Skills across agents (Claude Code / Codex / Qwen / OMP / Goose). Install != enable: a global install stays disabled by default until you turn it on globally or for a specific workspace.",
+    "subtitle": "Install, enable, update and uninstall Agent Skills across agents (Claude Code / Codex / Qwen / OMP / Goose). Install != enable: a global install stays disabled by default until you turn it on globally or for a specific session.",
     "scopeGlobal": "Global (per Agent)",
-    "scopeWorkspace": "Workspace",
-    "workspacePlaceholder": "Pick a workspace…",
-    "pickWorkspaceHint": "Pick a workspace first to manage its enabled skills.",
+    "scopeWorkspace": "Session",
+    "workspacePlaceholder": "Pick a session…",
+    "pickWorkspaceHint": "Pick a session first to manage its enabled skills.",
     "searchPlaceholder": "Search skills…",
     "loading": "Loading…",
     "empty": "No skills",
@@ -590,7 +590,7 @@
     "install": "Install",
     "update": "Update",
     "uninstall": "Uninstall",
-    "modelHint": "A switch enables/disables the skill for that agent at the current scope. Scene-declared skills enable automatically in their workspace; a skill already enabled globally is not re-installed per workspace.",
+    "modelHint": "A switch enables/disables the skill for that agent at the current scope. Scene-declared skills enable automatically in their session; a skill already enabled globally is not re-installed per session.",
     "toasts": {
       "installed": "Installed to the global store (disabled by default)",
       "updated": "Updated to the latest version",
@@ -669,11 +669,11 @@
   },
   "orchestration": {
     "title": "Orchestration Cost Guardrails",
-    "description": "Bound the AI-native board orchestrator. Changes apply within a few seconds — no restart needed. The budget is enforced per orchestration tree (an epic plus its child workspaces).",
+    "description": "Bound the AI-native board orchestrator. Changes apply within a few seconds — no restart needed. The budget is enforced per orchestration tree (an epic plus its child sessions).",
     "budget": "Chain cost budget (USD)",
     "budgetHint": "Cumulative cost cap for one orchestration tree. 0 disables the cap. Whole dollars only.",
-    "maxConcurrent": "Max concurrent workspaces",
-    "maxConcurrentHint": "Per-owner concurrent active workspaces. Over the cap, start_workspace queues instead of rejecting. 0 disables.",
+    "maxConcurrent": "Max concurrent sessions",
+    "maxConcurrentHint": "Per-owner concurrent active sessions. Over the cap, start_session queues instead of rejecting. 0 disables.",
     "maxBatch": "Max issues per batch",
     "maxBatchHint": "Cap on how many issues one batch_create_issues call may create. 0 disables.",
     "warnRatio": "Near-budget warning at",
@@ -683,11 +683,11 @@
     "saveFailed": "Save failed: {{message}}"
   },
   "workspaceCleanup": {
-    "title": "Workspace cleanup",
-    "description": "The server sweeps workspaces once an hour. A workspace whose last activity is older than the expiry window is deleted together with its linked issue. Running workspaces and workspaces with uncommitted changes are always kept.",
+    "title": "Session cleanup",
+    "description": "The server sweeps sessions once an hour. A session whose last activity is older than the expiry window is deleted together with its linked issue. Running sessions and sessions with uncommitted changes are always kept.",
     "expireDays": "Expiry window (days)",
     "expireDaysHint": "0 disables automatic cleanup. Changes apply on the next hourly sweep — no restart needed.",
-    "enabledHint": "Workspaces idle for more than {{days}} days will be deleted.",
+    "enabledHint": "Sessions idle for more than {{days}} days will be deleted.",
     "disabledHint": "Automatic cleanup is off.",
     "save": "Save",
     "saved": "Saved",
@@ -706,7 +706,7 @@
   },
   "gitIdentity": {
     "title": "Git Author Identity",
-    "description": "The author niuniu records on commits it makes on your behalf. Used by the Claude CLI agent in your workspaces.",
+    "description": "The author niuniu records on commits it makes on your behalf. Used by the Claude CLI agent in your sessions.",
     "emailLabel": "Email",
     "emailPlaceholder": "you@example.com",
     "emailHint": "Empty means niuniu will use the synthetic \"<username>@niuniu.local\" so commits still succeed.",
@@ -722,11 +722,11 @@
   },
   "gitCredentials": {
     "title": "Git Remote Credentials",
-    "description": "Configure an SSH private key or an access token per repository host: new-repository clones and in-workspace push / pull authenticate with the matching host's credential automatically. Secrets are AES-GCM encrypted at rest.",
+    "description": "Configure an SSH private key or an access token per repository host: new-repository clones and in-session push / pull authenticate with the matching host's credential automatically. Secrets are AES-GCM encrypted at rest.",
     "hostHint": "One credential per host. Wildcards (e.g. \"*\") are allowed for catch-all configurations.",
     "add": "Add credential",
     "addTitle": "Add Git remote credential",
-    "addDescription": "SSH private keys authenticate git@ remotes; access tokens authenticate https:// remotes (used by new-repository clones and in-workspace push / pull).",
+    "addDescription": "SSH private keys authenticate git@ remotes; access tokens authenticate https:// remotes (used by new-repository clones and in-session push / pull).",
     "loadFailed": "Could not load credentials.",
     "loading": "Loading...",
     "empty": "No Git remote credentials yet.",
@@ -740,7 +740,7 @@
     "deleted": "Credential deleted.",
     "deleteFailed": "Could not delete credential: {{detail}}",
     "deleteTitle": "Delete Git remote credential",
-    "deleteConfirm": "Delete the credential for {{host}}? Workspaces using it will fail to authenticate against {{host}} until you add a new one.",
+    "deleteConfirm": "Delete the credential for {{host}}? Sessions using it will fail to authenticate against {{host}} until you add a new one.",
     "deleteAria": "Delete credential for {{host}}",
     "kind": {
       "ssh": "SSH private key",
@@ -905,11 +905,11 @@
         "permissionNote": "Permission-request badges always show only for the agent you're driving and are unaffected by this setting.",
         "mine": {
           "title": "Mine only (creator or assignee)",
-          "description": "Only workspaces you created or where you're assigned on the linked issue will pop up and play a sound. Others still refresh silently in the list."
+          "description": "Only sessions you created or where you're assigned on the linked issue will pop up and play a sound. Others still refresh silently in the list."
         },
         "all": {
-          "title": "All workspaces",
-          "description": "Every accessible workspace will trigger a toast and sound."
+          "title": "All sessions",
+          "description": "Every accessible session will trigger a toast and sound."
         },
         "none": {
           "title": "Silent (status still refreshes)",
@@ -1009,15 +1009,15 @@
       "saved": "Saved to git global config",
       "invalid": "Please enter a valid name and email",
       "saveFailed": "Save failed: {{detail}}",
-      "disambiguation": "OS-level fallback (git config --global). niuniu uses this when there's no per-user override — for example when auto-creating a new repository's first commit. To set your own commit author for niuniu workspaces, go to Settings → Git.",
+      "disambiguation": "OS-level fallback (git config --global). niuniu uses this when there's no per-user override — for example when auto-creating a new repository's first commit. To set your own commit author for niuniu sessions, go to Settings → Git.",
       "unconfiguredHint": "Configure OS-level git identity so niuniu can auto-initialize new repositories.",
       "namePlaceholder": "name (e.g. Alice)",
       "emailPlaceholder": "email (e.g. alice@example.com)"
     }
   },
   "env": {
-    "description": "Manage environment-variable preset groups for quick import in workspaces",
-    "oneShotHint": "Tip: add NIUNIU_ONESHOT_PROVIDER=1 to a preset to make system-level AI helper calls (goal inference, kickoff classification, column-op suggestions and other one-shot calls) use that preset's model provider. These calls run outside any workspace and otherwise use only the host environment.",
+    "description": "Manage environment-variable preset groups for quick import in sessions",
+    "oneShotHint": "Tip: add NIUNIU_ONESHOT_PROVIDER=1 to a preset to make system-level AI helper calls (goal inference, kickoff classification, column-op suggestions and other one-shot calls) use that preset's model provider. These calls run outside any session and otherwise use only the host environment.",
     "newPreset": "New Preset",
     "noPresets": "No presets",
     "presetsAdvancedTitle": "Raw env presets (advanced)",
@@ -1026,7 +1026,7 @@
     "dialog": {
       "createTitle": "New Preset",
       "editTitle": "Edit Preset",
-      "description": "Configure environment-variable presets for quick import in workspace settings",
+      "description": "Configure environment-variable presets for quick import in session settings",
       "nameLabel": "Name",
       "namePlaceholder": "Preset name",
       "descLabel": "Description",
@@ -1082,7 +1082,7 @@
     "groupOrderHint": "↑↓ reorder fallback priority: higher = tried first",
     "standaloneTitle": "Standalone providers (not grouped)",
     "providerImportTitle": "Import as Preset",
-    "providerImportDesc": "Convert this provider's config into environment variables for an Agent type, producing a preset you can mount in scenes/workspaces.",
+    "providerImportDesc": "Convert this provider's config into environment variables for an Agent type, producing a preset you can mount in scenes/sessions.",
     "providerCliTypeLabel": "Target Agent type",
     "providerCliTypeClaude": "Claude Code",
     "providerCliTypeCodex": "Codex",
@@ -1094,7 +1094,7 @@
     "providerOverwriteLabel": "Overwrite preset with same name",
     "providerPreviewLabel": "Generated environment variables",
     "providerImportBtn": "Import as Preset",
-    "providerImported": "Preset \"{{name}}\" generated — mount it in a workspace or scene.",
+    "providerImported": "Preset \"{{name}}\" generated — mount it in a session or scene.",
     "providerImportFailed": "Import failed: {{error}}",
     "provider": {
       "createTitle": "New Provider",
@@ -1140,7 +1140,7 @@
     },
     "floors": {
       "title": "Project Floor Gates",
-      "subtitle": "Command that must pass when a workspace is marked done (epic auto-completion is checked too). Empty = no gate. Configured per Project under Project → Settings → Kanban.",
+      "subtitle": "Command that must pass when a session is marked done (epic auto-completion is checked too). Empty = no gate. Configured per Project under Project → Settings → Kanban.",
       "noProjects": "No active projects",
       "summary": "{{active}} of {{total}} projects have a floor gate configured",
       "notSet": "No floor gate — nothing is enforced for this project",
@@ -1168,7 +1168,7 @@
         "regex_match": "Match a regular expression against the selected input field.",
         "command_exit_code": "Run a shell command and compare its exit code.",
         "command_output_match": "Run a shell command, extract a number, and compare it against a threshold.",
-        "file_exists": "Pass when every listed path exists in the workspace.",
+        "file_exists": "Pass when every listed path exists in the session.",
         "ai_judge": "Send the selected text to an Anthropic model with a rubric prompt; pass / fail is decided by the model."
       },
       "target": {
@@ -1375,14 +1375,14 @@
       "sections": {
         "orgs": "Organizations",
         "projects": "Projects",
-        "workspaces": "Workspaces",
+        "workspaces": "Sessions",
         "repositories": "Repositories",
         "otherResources": "Other resources"
       },
       "empty": {
         "orgs": "Not a member of any organization",
         "projects": "No projects",
-        "workspaces": "No workspaces",
+        "workspaces": "No sessions",
         "repositories": "No repositories"
       },
       "counts": {
@@ -1409,7 +1409,7 @@
         "success": "Deleted",
         "types": {
           "project": "project",
-          "workspace": "workspace",
+          "workspace": "session",
           "repository": "repository"
         }
       },
@@ -1603,7 +1603,7 @@
     },
     "range": "Last {{count}} days",
     "emptyTitle": "No usage data yet",
-    "emptyDescription": "Once a turn completes, its hourly token consumption shows up here. Workspaces bound to a subscription platform provider are also broken down per platform.",
+    "emptyDescription": "Once a turn completes, its hourly token consumption shows up here. Sessions bound to a subscription platform provider are also broken down per platform.",
     "chart": {
       "title": "Hourly token usage (stacked by platform)",
       "titleDaily": "Daily token usage (stacked by platform)",
@@ -1639,7 +1639,7 @@
     }
   },
   "share": {
-    "title": "Workspace sharing",
+    "title": "Session sharing",
     "description": "Configure the access domain for share links (team edition). Links look like <domain>/share/ws/<token>.",
     "baseUrlLabel": "Access domain",
     "baseUrlPlaceholder": "https://share.example.com",

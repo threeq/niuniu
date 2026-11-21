@@ -1,12 +1,12 @@
 {
   "list": {
     "title": "Auto AI · Schedules",
-    "subtitle": "Manage scheduled execution plans across all workspaces",
+    "subtitle": "Manage scheduled execution plans across all sessions",
     "filterAll": "All ({{count}})",
     "filterEnabled": "Enabled ({{count}})",
     "filterDisabled": "Disabled ({{count}})",
     "emptyAll": "No schedules yet",
-    "workspaceFallback": "Workspace {{id}}",
+    "workspaceFallback": "Session {{id}}",
     "tasksCountSuffix": "{{count}} tasks",
     "addTask": "Add task",
     "onceLabel": "One-time",
@@ -36,7 +36,7 @@
     "actionKindMessage": "Send message",
     "actionKindDiscovery": "Autonomous discovery",
     "actionKindMessageHint": "Sends the queued or default message to the agent.",
-    "actionKindDiscoveryHint": "On idle ticks the agent surveys the workspace, finds work, and writes a report under .niuniu/reports/.",
+    "actionKindDiscoveryHint": "On idle ticks the agent surveys the session, finds work, and writes a report under .niuniu/reports/.",
     "submitAdd": "Add",
     "presetDaily09": "Daily 09:00",
     "presetDaily14": "Daily 14:00",

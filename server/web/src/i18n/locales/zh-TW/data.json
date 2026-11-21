@@ -117,7 +117,7 @@
     "saveFailed": "儲存失敗：{{error}}",
     "saveSuccess": "資料來源已儲存",
     "bindingsTitle": "可見範圍",
-    "bindingsHint": "選擇哪些專案可以看到此資料來源。Agent 僅透過其工作空間所屬的專案看到資料來源。未關聯任何專案的資料來源對所有 Agent 不可見。",
+    "bindingsHint": "選擇哪些專案可以看到此資料來源。Agent 僅透過其會話所屬的專案看到資料來源。未關聯任何專案的資料來源對所有 Agent 不可見。",
     "bindingsEmpty": "未關聯 — 對所有 Agent 不可見",
     "bindingTypeProject": "專案",
     "bindingAdd": "新增關聯",

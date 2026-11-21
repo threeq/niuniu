@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from '@tanstack/react-router';
-import { Plus, PanelLeftOpen } from 'lucide-react';
+import { Plus } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useWorkspaces } from '@/lib/hooks/use-workspaces';
 import { useAppStore } from '@/stores/app';
@@ -8,25 +8,10 @@ import { useAuthStore } from '@/stores/auth-store';
 import { useWorkspacePanelStore } from '@/stores/workspace-panel-store';
 import { useIsMobile } from '@/hooks/use-media-query';
 import { WorkspaceSidebar } from './workspace-sidebar';
+import { CollapsedSidebarRail } from './collapsed-sidebar-rail';
 import { NewWorkspaceDialog } from '@/components/dialogs/new-workspace-dialog';
 import { OwnerFilter } from '@/components/shared/owner-filter';
 import type { OwnerRef } from '@/types/org';
-
-function SidebarExpandButton() {
-  const { t } = useTranslation('workspaces');
-  const toggleSidebar = useWorkspacePanelStore((s) => s.toggleSidebar);
-  return (
-    <button
-      type="button"
-      onClick={toggleSidebar}
-      aria-label={t('sidebar.collapse.expand')}
-      title={t('sidebar.collapse.expand')}
-      className="self-start mt-2 ml-1 p-1 rounded text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
-    >
-      <PanelLeftOpen className="w-4 h-4" />
-    </button>
-  );
-}
 
 export function WorkspaceListPage() {
   const { t } = useTranslation('workspaces');
@@ -62,7 +47,7 @@ export function WorkspaceListPage() {
   if (isLoading) {
     return (
       <div className="flex h-full">
-        {!isMobile && (isSidebarOpen ? <WorkspaceSidebar /> : <SidebarExpandButton />)}
+        {!isMobile && (isSidebarOpen ? <WorkspaceSidebar /> : <CollapsedSidebarRail />)}
         <div className="flex-1 flex items-center justify-center text-muted-foreground text-sm">
           {t('common:actions.loading')}
         </div>
@@ -74,7 +59,7 @@ export function WorkspaceListPage() {
   if (workspaces && workspaces.length > 0) {
     return (
       <div className="flex h-full">
-        {!isMobile && (isSidebarOpen ? <WorkspaceSidebar /> : <SidebarExpandButton />)}
+        {!isMobile && (isSidebarOpen ? <WorkspaceSidebar /> : <CollapsedSidebarRail />)}
         <div className="flex-1" />
       </div>
     );
@@ -83,7 +68,7 @@ export function WorkspaceListPage() {
   // Empty state
   return (
     <div className="flex h-full">
-      {!isMobile && (isSidebarOpen ? <WorkspaceSidebar /> : <SidebarExpandButton />)}
+      {!isMobile && (isSidebarOpen ? <WorkspaceSidebar /> : <CollapsedSidebarRail />)}
       <div className="flex-1 flex flex-col items-center justify-center gap-3 text-muted-foreground">
         <OwnerFilter value={ownerFilter} onChange={setOwnerFilter} userId={userId} />
         <p className="text-sm">{t('list.empty')}</p>

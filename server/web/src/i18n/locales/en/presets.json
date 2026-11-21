@@ -10,21 +10,43 @@
     "description": "4-column workflow for bug fixes: Triage → Fix → Verify → Done"
   },
   "column": {
-    "backlog": { "label": "Backlog" },
-    "spec": { "label": "Spec" },
-    "implement": { "label": "Implement" },
-    "review": { "label": "Review" },
-    "done": { "label": "Done" },
-    "triage": { "label": "Triage" },
-    "fix": { "label": "Fix" },
-    "verify": { "label": "Verify" }
+    "backlog": {
+      "label": "Backlog"
+    },
+    "spec": {
+      "label": "Spec"
+    },
+    "implement": {
+      "label": "Implement"
+    },
+    "review": {
+      "label": "Review"
+    },
+    "done": {
+      "label": "Done"
+    },
+    "triage": {
+      "label": "Triage"
+    },
+    "fix": {
+      "label": "Fix"
+    },
+    "verify": {
+      "label": "Verify"
+    }
   },
   "spec": {
-    "go-test-pass": { "label": "Go Tests Pass" }
+    "go-test-pass": {
+      "label": "Go Tests Pass"
+    }
   },
   "template": {
-    "standard-development": { "label": "Standard Development" },
-    "quick-fix": { "label": "Quick Fix" }
+    "standard-development": {
+      "label": "Standard Development"
+    },
+    "quick-fix": {
+      "label": "Quick Fix"
+    }
   },
   "preview": {
     "columns": "Columns",

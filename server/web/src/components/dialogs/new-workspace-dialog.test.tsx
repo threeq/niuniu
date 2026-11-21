@@ -70,7 +70,7 @@ describe('NewWorkspaceDialog (issue-bound flow)', () => {
     // Inherited defaults are shown read-only.
     await waitFor(() => expect(screen.getByText(/alpha/)).toBeInTheDocument());
 
-    await user.type(screen.getByPlaceholderText(/工作空间名称|Workspace name/i), '订单服务重构');
+    await user.type(screen.getByPlaceholderText(/会话名称|Session name/i), '订单服务重构');
     await user.click(screen.getByRole('button', { name: '创建' }));
 
     await waitFor(() => expect(apiModule.api.createWorkspace).toHaveBeenCalledTimes(1));
@@ -95,7 +95,7 @@ describe('NewWorkspaceDialog (issue-bound flow)', () => {
     await user.click(screen.getByRole('button', { name: /选择问题|Select.*issue/i }));
     await user.click(await screen.findByText('Fix login'));
 
-    const nameInput = screen.getByPlaceholderText(/工作空间名称|Workspace name/i) as HTMLInputElement;
+    const nameInput = screen.getByPlaceholderText(/会话名称|Session name/i) as HTMLInputElement;
     expect(nameInput.value).toBe('Fix login');
 
     await user.click(screen.getByRole('button', { name: '创建' }));

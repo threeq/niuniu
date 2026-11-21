@@ -55,7 +55,7 @@
     "resources": {
       "description": "Resource counts owned by this organization. Click to navigate to the corresponding list page.",
       "projects": "Projects",
-      "workspaces": "Workspaces",
+      "workspaces": "Sessions",
       "repositories": "Repositories"
     },
     "audit": {
@@ -81,7 +81,7 @@
       "deleteHint": "Permanently delete this organization. This action cannot be undone.",
       "deleteHasResources": "This organization still has resources ({{summary}}). Please remove them before deleting.",
       "deleteResourceProjects": "{{count}} project(s)",
-      "deleteResourceWorkspaces": "{{count}} workspace(s)",
+      "deleteResourceWorkspaces": "{{count}} session(s)",
       "deleteResourceRepositories": "{{count}} repository(ies)",
       "deleteResourceSeparator": ", ",
       "deleteButton": "Delete organization",
@@ -95,13 +95,12 @@
   "dialogs": {
     "createOrg": {
       "title": "New organization",
-      "description": "Create a new organization to manage members and resources.",
+      "description": "Description (optional)",
       "name": "Name",
       "namePlaceholder": "e.g. My organization",
       "slug": "Slug (optional)",
       "slugPlaceholder": "Leave blank to auto-generate",
       "slugHint": "Used in URL paths; lowercase letters, digits, and hyphens only",
-      "description": "Description (optional)",
       "descriptionPlaceholder": "A short description of this organization",
       "cancel": "Cancel",
       "submit": "Create",
@@ -149,7 +148,7 @@
     "deny": "Deny",
     "selfDecide": "You are the requester and cannot approve your own request.",
     "notPermitted": "Your role cannot approve this action."
-  },
+  },
   "activity": {
     "tab": "Integration activity",
     "hint": "Audit record of members' integration use: who, when, with which credential, what they called, and how it ended. Approval decisions are recorded here too. Records are append-only — never edited or deleted — and can be exported for archival.",

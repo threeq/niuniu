@@ -287,7 +287,7 @@ describe('PriorityZone', () => {
       fireEvent.click(findPill(/待审核|Awaiting review/i));
       expect(screen.queryAllByRole('link')).toHaveLength(0);
       expect(
-        screen.getByText(/当前筛选下没有工作空间|No workspaces match the current filter/i),
+        screen.getByText(/当前筛选下没有会话|No sessions match the current filter/i),
       ).toBeInTheDocument();
     });
 

@@ -16,7 +16,7 @@
       "defaultPrompt": "構建 / 打包 / 測試等命令優先使用本地執行器工具集（local_exec / local_read / local_sync）在繫結的本地目錄中執行；程式碼的讀寫仍在遠端 worktree 進行。當本地執行器工具集不可見時，回退到 server 執行。",
       "dirLabel": "本地工作目錄",
       "dirPlaceholder": "/本地/專案/路徑",
-      "dirHint": "填寫本機上要繫結到該工作空間的目錄的絕對路徑。",
+      "dirHint": "填寫本機上要繫結到該會話的目錄的絕對路徑。",
       "dirLockedHint": "繫結後工作目錄不可更改。",
       "browse": "瀏覽…",
       "promptLabel": "提示詞片段",
@@ -30,7 +30,7 @@
     },
     "log": {
       "title": "本地執行日誌",
-      "description": "該工作空間在本地執行的命令與輸出。",
+      "description": "該會話在本地執行的命令與輸出。",
       "boundTo": "已繫結：{{dir}}",
       "configButton": "配置",
       "empty": "暫無本地執行記錄。"
@@ -76,21 +76,21 @@
     "dismiss": "知道了"
   },
   "list": {
-    "empty": "暫無工作空間",
-    "createWorkspace": "建立工作空間"
+    "empty": "暫無會話",
+    "createWorkspace": "建立會話"
   },
   "detail": {
-    "notFound": "工作空間不存在"
+    "notFound": "會話不存在"
   },
   "sidebar": {
-    "title": "工作空間",
-    "newWorkspace": "新建工作空間",
+    "title": "會話",
+    "newWorkspace": "新建會話",
     "openKanban": "開啟專案看板",
     "archivedList": "歸檔列表",
     "overview": "總覽",
     "kanbanOverview": "看板總覽",
     "archived": "已歸檔",
-    "searchPlaceholder": "搜尋標題、ID 或對話內容...",
+    "searchPlaceholder": "搜尋會話或內容…",
     "filterAll": "全部",
     "uncategorized": "未分類",
     "scheduleSuffix": "定時任務",
@@ -104,7 +104,7 @@
       "collapse": "收起",
       "sortHint": "按 ID 倒序",
       "filterLabel": "按狀態篩選",
-      "filteredEmpty": "當前篩選下沒有工作空間"
+      "filteredEmpty": "當前篩選下沒有會話"
     },
     "pinned": {
       "zoneTitle": "置頂",
@@ -118,9 +118,9 @@
       "success": "已標記完成",
       "undo": "撤銷",
       "undoError": "撤銷失敗",
-      "undoStale": "撤銷失敗：工作空間已不在已完成狀態",
+      "undoStale": "撤銷失敗：會話已不在已完成狀態",
       "error": "操作失敗",
-      "runningError": "執行中的工作空間需要先停止 agent",
+      "runningError": "執行中的會話需要先停止 agent",
       "partialSuccess": "已完成，但 issue 狀態同步失敗"
     },
     "scope": {
@@ -128,11 +128,12 @@
       "all": "全部"
     },
     "search": {
-      "noMatch": "無匹配工作空間",
+      "noMatch": "無匹配會話",
       "searching": "正在搜尋對話內容…"
     },
     "empty": {
-      "noProjects": "還沒有專案"
+      "noProjects": "還沒有會話",
+      "startHint": "選擇專案並描述你要做的事，牛牛會建立第一個會話。"
     },
     "card": {
       "creatorUnknown": "未知建立人",
@@ -152,7 +153,9 @@
     },
     "resize": {
       "handle": "拖動調整側邊欄寬度"
-    }
+    },
+    "startHint": "會話就是一次任務的執行過程。選擇專案、描述目標即可開始。",
+    "newShort": "新建"
   },
   "workspace": {
     "scope": {
@@ -165,17 +168,17 @@
     },
     "empty": {
       "mine": {
-        "title": "你還沒有建立工作空間",
-        "cta": "前往工作空間總覽"
+        "title": "你還沒有建立會話",
+        "cta": "前往會話總覽"
       }
     }
   },
   "overview": {
-    "title": "工作空間總覽",
-    "subtitle": "跨工作空間的成本、活躍度與卡住檢測",
+    "title": "會話總覽",
+    "subtitle": "跨會話的成本、活躍度與卡住檢測",
     "loadFailed": "載入失敗",
     "retry": "重試",
-    "empty": "沒有可顯示的工作空間",
+    "empty": "沒有可顯示的會話",
     "stuck": "卡住",
     "stuckTooltip": "執行中但超過 2 小時無活動",
     "messages": "{{count}} 條訊息",
@@ -190,24 +193,24 @@
       "aheadTooltip": "領先基線分支 {{count}} 個提交",
       "changesTooltip": "{{count}} 個未提交變更"
     },
-    "workspaceList": "工作空間列表",
+    "workspaceList": "會話列表",
     "workspaceCount": "共 {{count}} 個",
     "batch": {
       "enter": "批次管理",
       "exit": "完成",
       "selectedCount": "已選 {{count}} 個",
-      "selectAria": "選擇工作空間 !{{id}}",
+      "selectAria": "選擇會話 !{{id}}",
       "forceLabel": "強制刪除（忽略未提交變更）",
       "deleteSelected": "刪除（{{count}}）",
       "deleting": "刪除中",
-      "deletingTooltip": "該工作空間正在刪除中",
-      "deleteStarted": "正在後臺刪除 {{count}} 個工作空間",
+      "deletingTooltip": "該會話正在刪除中",
+      "deleteStarted": "正在後臺刪除 {{count}} 個會話",
       "skippedChanges": "{{count}} 個因存在未提交變更被跳過（勾選“強制刪除”可刪除）",
       "skippedOther": "{{count}} 個被跳過",
       "deleteFailed": "批次刪除失敗：{{message}}",
-      "confirmTitle": "刪除 {{count}} 個工作空間？",
-      "confirmDesc": "所選工作空間將在後臺刪除。存在未提交或未合併變更的工作空間會被跳過。",
-      "confirmDescForce": "所選工作空間將在後臺刪除，包含存在未提交或未合併變更的工作空間。此操作不可撤銷。",
+      "confirmTitle": "刪除 {{count}} 個會話？",
+      "confirmDesc": "所選會話將在後臺刪除。存在未提交或未合併變更的會話會被跳過。",
+      "confirmDescForce": "所選會話將在後臺刪除，包含存在未提交或未合併變更的會話。此操作不可撤銷。",
       "confirmAction": "刪除"
     },
     "column": {
@@ -315,13 +318,13 @@
   },
   "dialogs": {
     "newWorkspace": {
-      "title": "新建工作空間",
-      "description": "建立一個新的開發工作空間，可關聯多個倉庫",
+      "title": "新建會話",
+      "description": "選擇一個專案，描述要做的事；倉庫、場景和 CLI 會沿用專案預設值。",
       "mode": {
         "label": "建立方式",
         "standard": "關聯 Issue / 倉庫",
         "fromDirectory": "從本地目錄新建",
-        "standardHint": "關聯已有倉庫與 Issue 建立開發工作空間。",
+        "standardHint": "關聯已有倉庫與 Issue 建立開發會話。",
         "fromDirectoryHint": "選一個本地目錄即可建艙：非 git 目錄自動初始化（含 .gitignore 與 Git LFS），已是倉庫則直接繫結。"
       },
       "fromDir": {
@@ -340,21 +343,21 @@
         "notGitRepo": "該目錄不是有效的 git 倉庫。",
         "addFailed": "新增倉庫失敗，請重試。"
       },
-      "name": "工作空間名稱",
-      "namePlaceholder": "輸入工作空間名稱",
+      "name": "會話名稱",
+      "namePlaceholder": "輸入會話名稱",
       "linkIssue": "關聯問題",
       "selectIssue": "選擇問題（可選）",
       "searchIssue": "搜尋問題...",
       "noAvailableIssue": "沒有可用的問題",
-      "issueHint": "可選：僅顯示未完成且未關聯工作空間的問題",
+      "issueHint": "可選：僅顯示未完成且未關聯會話的問題",
       "project": "專案",
       "selectProject": "選擇專案",
       "noProject": "暫無可用專案",
       "projectRequired": "請選擇專案",
-      "nameAndNewIssue": "工作空間名稱 / 新問題標題",
+      "nameAndNewIssue": "會話名稱 / 新問題標題",
       "nameRequiredForNewIssue": "請填寫名稱（將作為新問題的標題）",
       "inheritTitle": "將繼承專案預設配置",
-      "inheritNoRepos": "該專案未繫結倉庫，將建立無倉庫工作空間",
+      "inheritNoRepos": "該專案未繫結倉庫，將建立無倉庫會話",
       "inheritRepos": "倉庫 {{count}} 個：{{names}}",
       "noRepo": {
         "label": "無倉庫（辦公 / 純目錄任務）",
@@ -365,8 +368,8 @@
       "allReposAdded": "所有倉庫已新增",
       "selectedRepos": "已選倉庫 ({{count}})",
       "missingBranch": "請為倉庫「{{name}}」選擇一個分支",
-      "partialSuccess": "工作空間已建立，但部分倉庫未能建立 worktree：\n\n{{lines}}",
-      "createFailed": "建立工作空間失敗",
+      "partialSuccess": "會話已建立，但部分倉庫未能建立 worktree：\n\n{{lines}}",
+      "createFailed": "建立會話失敗",
       "submitting": "建立中...",
       "submit": "建立",
       "claudeAccount": "Claude 賬號",
@@ -395,7 +398,7 @@
       }
     },
     "deleteWorkspace": {
-      "title": "工作空間有未提交或未合併的變更",
+      "title": "會話有未提交或未合併的變更",
       "unstaged": "未暫存的修改 ({{count}})",
       "staged": "已暫存未提交 ({{count}})",
       "mergeConflict": "合併衝突 ({{count}})",
@@ -405,15 +408,15 @@
       "forceDelete": "強制刪除"
     },
     "archived": {
-      "title": "已歸檔的工作空間",
-      "count": "共 {{count}} 個歸檔工作空間",
+      "title": "已歸檔的會話",
+      "count": "共 {{count}} 個歸檔會話",
       "loading": "載入中...",
-      "empty": "暫無歸檔工作空間",
-      "viewArchived": "檢視歸檔工作空間",
+      "empty": "暫無歸檔會話",
+      "viewArchived": "檢視歸檔會話",
       "archivedAt": "歸檔於 {{date}} · 建立於 {{created}}",
-      "footer": "刪除將永久移除工作空間的所有資料（包括訊息、費用等歷史記錄）",
+      "footer": "刪除將永久移除會話的所有資料（包括訊息、費用等歷史記錄）",
       "confirmTitle": "確認刪除",
-      "confirmDescription": "此操作將永久刪除該工作空間的所有資料，包括訊息記錄、費用記錄等。此操作不可撤銷。",
+      "confirmDescription": "此操作將永久刪除該會話的所有資料，包括訊息記錄、費用記錄等。此操作不可撤銷。",
       "confirmDelete": "確認刪除"
     }
   },
@@ -446,7 +449,7 @@
       "repoNoChanges": "無變更",
       "collapseRepo": "摺疊",
       "expandRepo": "展開",
-      "commitHint": "本工作空間 {{count}} 次提交已全部包含",
+      "commitHint": "本會話 {{count}} 次提交已全部包含",
       "noChanges": "暫無變更",
       "syncFromBranchTitle": "同步最新程式碼",
       "syncFromBranchPickerTitle": "選擇要合併的分支",
@@ -507,7 +510,7 @@
         "reviewProgressShowHint": "審閱聚焦已開啟——點選顯示全部檔案與評論",
         "commentsOnlyEmpty": "沒有帶審閱評論的檔案"
       },
-      "syncFromBranchPrompt": "請把分支 `{{sourceBranch}}` 的最新程式碼合併到下述指定 worktree 的當前分支 `{{currentBranch}}` 中。\n\n⚠️ 此工作空間下可能有多個 worktree，請嚴格只在下面這一個 worktree 中操作，不要切換到其他 worktree、不要 cd 離開它：\n- worktree 名稱：{{worktreeName}}\n- worktree 絕對路徑：{{worktreePath}}\n- 當前分支：{{currentBranch}}\n- 要合入的分支：{{sourceBranch}}\n\n請按以下步驟操作（始終用 `git -C \"{{worktreePath}}\"` 顯式定位，不要靠 cwd 推斷）：\n1. 執行 `git -C \"{{worktreePath}}\" status` 檢查工作區是否乾淨；若有未提交修改，先停下來告訴我，等我確認後再繼續；\n2. 執行 `git -C \"{{worktreePath}}\" merge {{sourceBranch}}` 進行合併；\n3. 如果產生合併衝突：先列出全部衝突檔案，再嘗試逐個解決（保留雙方意圖，避免丟失改動），完成後用 `git -C \"{{worktreePath}}\" commit --no-edit` 提交合並；遇到無法判斷如何取捨的衝突，停下來告訴我具體檔案和原因，**不要** 執行 `git merge --abort`，把現場保留給我；\n4. 合併成功後簡要報告：合併方式（fast-forward / merge commit）、新的 HEAD commit、是否還有未提交內容。"
+      "syncFromBranchPrompt": "請把分支 `{{sourceBranch}}` 的最新程式碼合併到下述指定 worktree 的當前分支 `{{currentBranch}}` 中。\n\n⚠️ 此會話下可能有多個 worktree，請嚴格只在下面這一個 worktree 中操作，不要切換到其他 worktree、不要 cd 離開它：\n- worktree 名稱：{{worktreeName}}\n- worktree 絕對路徑：{{worktreePath}}\n- 當前分支：{{currentBranch}}\n- 要合入的分支：{{sourceBranch}}\n\n請按以下步驟操作（始終用 `git -C \"{{worktreePath}}\"` 顯式定位，不要靠 cwd 推斷）：\n1. 執行 `git -C \"{{worktreePath}}\" status` 檢查工作區是否乾淨；若有未提交修改，先停下來告訴我，等我確認後再繼續；\n2. 執行 `git -C \"{{worktreePath}}\" merge {{sourceBranch}}` 進行合併；\n3. 如果產生合併衝突：先列出全部衝突檔案，再嘗試逐個解決（保留雙方意圖，避免丟失改動），完成後用 `git -C \"{{worktreePath}}\" commit --no-edit` 提交合並；遇到無法判斷如何取捨的衝突，停下來告訴我具體檔案和原因，**不要** 執行 `git merge --abort`，把現場保留給我；\n4. 合併成功後簡要報告：合併方式（fast-forward / merge commit）、新的 HEAD commit、是否還有未提交內容。"
     },
     "chat": {
       "loadMore": "載入更多訊息...",
@@ -519,7 +522,7 @@
       "scheduleToast": "定時任務觸發",
       "scheduleDesc": "正在執行佇列訊息",
       "builtin": {
-        "unsupported": "⚠️ {{command}} 僅在 Claude CLI 互動模式下可用，工作空間 chat 不支援此命令。",
+        "unsupported": "⚠️ {{command}} 僅在 Claude CLI 互動模式下可用，會話 chat 不支援此命令。",
         "cleared": "會話已清除，開始新對話",
         "noCost": "暫無費用記錄",
         "costSummary": "費用統計（歷史累計）：${{cost}} | {{turns}} 輪 | {{interactions}} 次互動 | {{minutes}}m{{seconds}}s",
@@ -617,7 +620,7 @@
       "trigger": "Claude",
       "triggerTitle": "Claude 設定",
       "title": "Claude 設定",
-      "description": "配置本工作空間的 Claude Code 行為（僅對當前工作空間生效）",
+      "description": "配置本會話的 Claude Code 行為（僅對當前會話生效）",
       "cliFlags": "啟動配置",
       "cliFlagsDesc": "覆蓋全域性配置，轉換為 Claude CLI 啟動引數",
       "envVars": "環境變數",
@@ -661,17 +664,17 @@
     },
     "workspaceScenes": {
       "trigger": "場景",
-      "triggerTitle": "管理本工作空間附加的場景",
-      "title": "工作空間場景",
-      "description": "為這個工作空間附加場景：每個場景是一組 MCP / Claude 外掛 / 資產，會被投影到 .mcp.json 與 ~/.claude overlay。"
+      "triggerTitle": "管理本會話附加的場景",
+      "title": "會話場景",
+      "description": "為這個會話附加場景：每個場景是一組 MCP / Claude 外掛 / 資產，會被投影到 .mcp.json 與 ~/.claude overlay。"
     },
     "skillInstall": {
       "trigger": "技能",
       "triggerTitle": "安裝常用技能（Claude 外掛）",
       "title": "安裝技能",
-      "description": "從精選列表裡挑一個技能（Claude 外掛），選擇安裝到全域性 ~/.claude 或本工作空間繫結賬號的 .claude 目錄。",
+      "description": "從精選列表裡挑一個技能（Claude 外掛），選擇安裝到全域性 ~/.claude 或本會話繫結賬號的 .claude 目錄。",
       "installGlobal": "全域性安裝",
-      "installWorkspace": "本工作空間",
+      "installWorkspace": "本會話",
       "install": "安裝",
       "uninstall": "解除安裝",
       "installedBadge": "已安裝",
@@ -681,12 +684,12 @@
         "installed": "已安裝"
       },
       "tabEmpty": "此分類下暫無技能",
-      "workspaceCliBadge": "工作空間使用 {{cli}}",
+      "workspaceCliBadge": "會話使用 {{cli}}",
       "noVersionForCli": "無對應版本",
       "noVersionForCliTooltip": "該精選條目在當前 CLI 的 marketplace 裡沒有對應版本，無法安裝。",
       "scope": {
         "global": "全域性",
-        "workspace": "本工作空間"
+        "workspace": "本會話"
       },
       "installedToast": "{{name}} 已安裝（{{scope}}）",
       "uninstalledToast": "{{name}} 已解除安裝（{{scope}}）",
@@ -700,7 +703,7 @@
       "addMarketplaceHint": "支援 GitHub 倉庫簡寫（owner/repo）、完整 URL 或本地路徑。新增後即可安裝該市場裡的技能。",
       "addMarketplacePlaceholder": "owner/repo 或 https://github.com/...",
       "addMarketplaceGlobal": "全域性新增",
-      "addMarketplaceWorkspace": "本工作空間",
+      "addMarketplaceWorkspace": "本會話",
       "marketplaceAddedToast": "已新增市場 {{source}}（{{scope}}）",
       "marketplaceAddFailedToast": "新增市場 {{source}} 失敗：{{detail}}",
       "marketplaceAddErrorToast": "新增市場請求失敗",
@@ -735,7 +738,7 @@
       "trigger": "OpenAI Codex",
       "triggerTitle": "Codex 設定",
       "title": "Codex 設定",
-      "description": "本 Codex 工作空間的沙箱與審批策略。",
+      "description": "本 Codex 會話的沙箱與審批策略。",
       "sandboxLabel": "沙箱模式",
       "approvalLabel": "審批策略",
       "saving": "儲存中…"
@@ -745,15 +748,15 @@
       "triggerTitle": "Qwen 設定",
       "title": "Qwen 設定",
       "description": "Qwen Code 引擎設定。",
-      "sharedNote": "Qwen 暫無引擎專屬設定。模型與 CLI 命令在「工作空間設定」中配置；審批模式透過工具欄的許可權選擇器設定。"
+      "sharedNote": "Qwen 暫無引擎專屬設定。模型與 CLI 命令在「會話設定」中配置；審批模式透過工具欄的許可權選擇器設定。"
     },
     "workspaceSettings": {
-      "trigger": "工作空間",
-      "triggerTitle": "工作空間設定",
-      "title": "工作空間設定",
-      "description": "配置工作空間的名稱、倉庫和環境變數",
+      "trigger": "會話",
+      "triggerTitle": "會話設定",
+      "title": "會話設定",
+      "description": "配置會話的名稱、倉庫和環境變數",
       "agentSection": "Agent（通用）",
-      "agentSectionDesc": "適用於本工作空間執行的任意引擎 —— 命令 / 引數 / 模型 / 允許的工具。",
+      "agentSectionDesc": "適用於本會話執行的任意引擎 —— 命令 / 引數 / 模型 / 允許的工具。",
       "agentDefaultHint": "預設: {{value}}",
       "agentEgHint": "例: {{value}}",
       "agentAcpNoArgs": "ACP 模式，無需額外引數",
@@ -772,7 +775,7 @@
       "envVars": "環境變數",
       "envProvider": "訂閱平臺 Provider",
       "envProviderNone": "不繫結（用場景/手動 env）",
-      "envProviderHint": "直接選一個 Provider，其 base_url/模型/API Key 會在 Agent 啟動時按本工作空間的 Agent 型別自動展開為環境變數，無需建場景。選「分組」則自動使用該組內當前可用的最優 Provider（按組內排序）。",
+      "envProviderHint": "直接選一個 Provider，其 base_url/模型/API Key 會在 Agent 啟動時按本會話的 Agent 型別自動展開為環境變數，無需建場景。選「分組」則自動使用該組內當前可用的最優 Provider（按組內排序）。",
       "envProviderLimited": "（限流中）",
       "envProviderDisabled": "（已禁用）",
       "envProviderGroups": "分組（自動選用組內可用最優）",
@@ -785,15 +788,15 @@
       "noEnvVars": "暫無環境變數",
       "addEnvVar": "新增",
       "dangerZone": "危險操作",
-      "archiveDesc": "歸檔將刪除工作空間目錄但保留歷史資料",
+      "archiveDesc": "歸檔將刪除會話目錄但保留歷史資料",
       "archiving": "歸檔中...",
-      "archive": "歸檔工作空間",
+      "archive": "歸檔會話",
       "deleting": "刪除中...",
-      "delete": "刪除工作空間",
+      "delete": "刪除會話",
       "saving": "儲存中...",
       "save": "儲存",
       "confirmArchiveTitle": "確認歸檔",
-      "confirmArchiveDesc": "歸檔將刪除工作空間目錄和 git 分支，但保留訊息、費用等歷史資料。此操作不可撤銷。",
+      "confirmArchiveDesc": "歸檔將刪除會話目錄和 git 分支，但保留訊息、費用等歷史資料。此操作不可撤銷。",
       "confirmArchive": "確認歸檔",
       "claudeAccount": "Claude 賬號",
       "claudeAccountFollow": "（跟隨活躍）",
@@ -849,7 +852,7 @@
       "searchPlaceholder": "搜尋快捷操作",
       "searchEmpty": "無匹配的快捷操作",
       "dialogTitle": "管理快捷操作",
-      "dialogDescription": "配置常用的快捷輸入操作，所有工作空間共享",
+      "dialogDescription": "配置常用的快捷輸入操作，所有會話共享",
       "labelPlaceholder": "顯示名稱",
       "contentPlaceholder": "預設內容（將填入輸入框）",
       "autoSendLabel": "選擇後自動傳送",
@@ -870,7 +873,7 @@
         "activeTitle": "自動託管已開啟",
         "openSettings": "開啟自動託管設定",
         "dialogTitle": "自動託管設定",
-        "dialogDescription": "調整 Agent 在此工作空間的自動續跑與錯誤恢復策略。",
+        "dialogDescription": "調整 Agent 在此會話的自動續跑與錯誤恢復策略。",
         "budgetSection": "預算",
         "continueBudget": "續跑次數",
         "continueBudgetDesc": "連續無操作時自動讓 Agent 繼續的次數上限。0 = 關閉續跑。",
@@ -1058,8 +1061,8 @@
     "refresh": "重新整理"
   },
   "search": {
-    "title": "搜尋工作空間",
-    "description": "按檔名或檔案內容搜尋該工作空間下的所有倉庫。",
+    "title": "搜尋會話",
+    "description": "按檔名或檔案內容搜尋該會話下的所有倉庫。",
     "open": "搜尋",
     "openHint": "搜尋檔案與內容（Ctrl/Cmd+Shift+F）",
     "placeholder": "搜尋檔名與檔案內容…",
@@ -1104,7 +1107,7 @@
     },
     "empty": {
       "title": "尚無影片專案",
-      "description": "該工作空間尚無影片專案——在媒體艙場景讓 agent 開始創作後會出現在這裡。"
+      "description": "該會話尚無影片專案——在媒體艙場景讓 agent 開始創作後會出現在這裡。"
     },
     "products": {
       "brief": "導演闡述",
@@ -1159,8 +1162,8 @@
   },
   "share": {
     "toolbarButton": "分享",
-    "title": "分享工作空間",
-    "description": "建立一個帶密碼和時效的只讀連結，外部成員可在瀏覽器中檢視此工作空間的會話內容。",
+    "title": "分享會話",
+    "description": "建立一個帶密碼和時效的只讀連結，外部成員可在瀏覽器中檢視此會話的會話內容。",
     "passwordLabel": "訪問密碼",
     "generatePassword": "重新生成密碼",
     "expiryLabel": "有效期",
@@ -1194,10 +1197,10 @@
     "empty": "暫無會話內容",
     "allowChatLabel": "允許對話",
     "allowChatShort": "可對話",
-    "allowChatHint": "解鎖的觀看者可以向此工作空間的 AI 助手傳送訊息（消耗真實額度，預設關閉）。",
+    "allowChatHint": "解鎖的觀看者可以向此會話的 AI 助手傳送訊息（消耗真實額度，預設關閉）。",
     "allowChatUpdateFailed": "更新對話許可權失敗",
     "chatEnabled": "可對話分享",
-    "chatPlaceholder": "輸入訊息，與該工作空間的 AI 助手對話…",
+    "chatPlaceholder": "輸入訊息，與該會話的 AI 助手對話…",
     "chatSend": "傳送",
     "chatSendFailed": "傳送失敗，請重試"
   }

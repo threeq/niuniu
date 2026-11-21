@@ -10,21 +10,43 @@
     "description": "适合 Bug 修复的精简 4 列流程：Triage → Fix → Verify → Done"
   },
   "column": {
-    "backlog": { "label": "待办" },
-    "spec": { "label": "规格" },
-    "implement": { "label": "编码" },
-    "review": { "label": "审查" },
-    "done": { "label": "完成" },
-    "triage": { "label": "分类" },
-    "fix": { "label": "修复" },
-    "verify": { "label": "验证" }
+    "backlog": {
+      "label": "待办"
+    },
+    "spec": {
+      "label": "规格"
+    },
+    "implement": {
+      "label": "编码"
+    },
+    "review": {
+      "label": "审查"
+    },
+    "done": {
+      "label": "完成"
+    },
+    "triage": {
+      "label": "分类"
+    },
+    "fix": {
+      "label": "修复"
+    },
+    "verify": {
+      "label": "验证"
+    }
   },
   "spec": {
-    "go-test-pass": { "label": "Go 测试通过" }
+    "go-test-pass": {
+      "label": "Go 测试通过"
+    }
   },
   "template": {
-    "standard-development": { "label": "标准开发" },
-    "quick-fix": { "label": "快速修复" }
+    "standard-development": {
+      "label": "标准开发"
+    },
+    "quick-fix": {
+      "label": "快速修复"
+    }
   },
   "preview": {
     "columns": "看板列",

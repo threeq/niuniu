@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Group, Panel, Separator } from 'react-resizable-panels';
 import { useTranslation } from 'react-i18next';
-import { ChevronLeft, PanelLeftOpen } from 'lucide-react';
+import { ChevronLeft } from 'lucide-react';
 import { api } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { Sheet, SheetContent, SheetTitle } from '@/components/ui/sheet';
@@ -14,6 +14,7 @@ import { useAppStore } from '@/stores/app';
 import { useRunSSE } from '@/hooks/use-run-sse';
 import { WorkspaceToolbar } from './workspace-toolbar';
 import { WorkspaceSidebar } from './workspace-sidebar';
+import { CollapsedSidebarRail } from './collapsed-sidebar-rail';
 import { WorkspaceQuickActions } from './workspace-quick-actions';
 import { ChatPanel } from './panels/chat-panel';
 import { TerminalPanel } from './panels/terminal-panel';
@@ -67,7 +68,7 @@ function PanelContent({ panelId, workspaceId, workspace, isArchived }: { panelId
 
 export function WorkspacePage({ workspaceId }: WorkspacePageProps) {
   const { t } = useTranslation('workspaces');
-  const { openPanels, isSidebarOpen, toggleSidebar, togglePanel } = useWorkspacePanelStore();
+  const { openPanels, isSidebarOpen, togglePanel } = useWorkspacePanelStore();
   const isMobile = useIsMobile();
   const [mobileListOpen, setMobileListOpen] = useState(false);
   const contentViewer = useWorkspacePanelStore((s) => s.contentViewer[workspaceId] ?? null);
@@ -156,19 +157,7 @@ export function WorkspacePage({ workspaceId }: WorkspacePageProps) {
       {/* On phones the workspace list is reachable from the global menu, so the
           fixed rail is hidden to give the chat the full width. */}
       {!isMobile &&
-        (isSidebarOpen ? (
-          <WorkspaceSidebar />
-        ) : (
-          <button
-            type="button"
-            onClick={toggleSidebar}
-            aria-label={t('sidebar.collapse.expand')}
-            title={t('sidebar.collapse.expand')}
-            className="self-start mt-2 ml-1 p-1 rounded text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
-          >
-            <PanelLeftOpen className="w-4 h-4" />
-          </button>
-        ))}
+        (isSidebarOpen ? <WorkspaceSidebar /> : <CollapsedSidebarRail />)}
 
       <div className="flex flex-col flex-1 min-w-0">
         <WorkspaceToolbar

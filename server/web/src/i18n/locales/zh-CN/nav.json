@@ -4,7 +4,7 @@
   },
   "menu": {
     "projects": "项目",
-    "workspaces": "工作空间",
+    "workspaces": "会话",
     "intake": "任务建议",
     "intakeBadge": "{{count}} 条任务建议待确认",
     "repositories": "仓库",

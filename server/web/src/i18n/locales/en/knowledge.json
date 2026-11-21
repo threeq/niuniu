@@ -1,7 +1,7 @@
 {
   "panel": {
     "title": "Knowledge bases",
-    "description": "Create and manage knowledge bases your AI can search, then bind them to projects so workspace agents can use them.",
+    "description": "Create and manage knowledge bases your AI can search, then bind them to projects so session agents can use them.",
     "add": "New knowledge base",
     "loading": "Loading…",
     "empty": "No knowledge bases yet. Create one from a local directory, uploaded files, or a network dataset.",
@@ -72,7 +72,7 @@
   },
   "bindings": {
     "title": "Visibility (projects)",
-    "hint": "Once bound to a project, agents in that project's workspaces can search and direct-read this knowledge base. Unbound = invisible to every agent.",
+    "hint": "Once bound to a project, agents in that project's sessions can search and direct-read this knowledge base. Unbound = invisible to every agent.",
     "empty": "Not bound to any project yet.",
     "typeProject": "Project",
     "remove": "Remove binding",
@@ -99,7 +99,7 @@
   },
   "project": {
     "title": "Knowledge bases",
-    "description": "Bind existing knowledge bases to this project so its workspace agents can search and direct-read them.",
+    "description": "Bind existing knowledge bases to this project so its session agents can search and direct-read them.",
     "loading": "Loading…",
     "empty": "No knowledge bases bound to this project yet.",
     "removeConfirm": "Remove knowledge base \"{{name}}\" from this project?",
@@ -122,14 +122,14 @@
   },
   "workspaceMount": {
     "title": "Mounted knowledge bases",
-    "description": "Mount knowledge bases to this workspace. Each mounted KB is copied read-only into <datasets/<name>/> inside the workspace file tree and auto-ingested, so the agent can browse and search it directly.",
+    "description": "Mount knowledge bases to this session. Each mounted KB is copied read-only into <datasets/<name>/> inside the session file tree and auto-ingested, so the agent can browse and search it directly.",
     "allMounted": "All knowledge bases mounted",
     "pick": "Select a knowledge base to mount…",
     "mount": "Mount",
-    "none": "No knowledge bases mounted to this workspace yet.",
+    "none": "No knowledge bases mounted to this session yet.",
     "noKbs": "No knowledge bases available. Create one on the Knowledge bases page first.",
     "unmount": "Unmount",
-    "unmountConfirm": "Unmount knowledge base \"{{name}}\" from this workspace? Its read-only copy in the file tree is removed; the source knowledge base is untouched.",
+    "unmountConfirm": "Unmount knowledge base \"{{name}}\" from this session? Its read-only copy in the file tree is removed; the source knowledge base is untouched.",
     "sync": "Sync",
     "syncing": "Syncing…",
     "mounting": "Mounting…",

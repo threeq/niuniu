@@ -369,11 +369,11 @@
       "critical": "紧急"
     },
     "workspace": {
-      "title": "工作空间",
+      "title": "会话",
       "loading": "加载中...",
       "loadFailed": "加载失败",
-      "notBound": "尚未绑定工作空间",
-      "create": "创建工作空间",
+      "notBound": "尚未绑定会话",
+      "create": "创建会话",
       "createWithCount": "创建",
       "createWithCountSuffix": " ({{count}})",
       "cliType": {
@@ -406,7 +406,7 @@
       "archived": "已归档",
       "archivedAt": "归档于 {{date}}",
       "selectBranch": "请为仓库「{{name}}」选择一个分支",
-      "partialSuccess": "工作空间已创建，但部分仓库未能建立 worktree：\n\n{{lines}}"
+      "partialSuccess": "会话已创建，但部分仓库未能建立 worktree：\n\n{{lines}}"
     },
     "sidebar": {
       "name": "名称",
@@ -415,9 +415,9 @@
       "inactive": "○ 非活跃",
       "agentRunning": "● 运行中",
       "agentIdle": "○ 空闲",
-      "openWorkspace": "打开工作空间",
-      "noWorkspace": "还未创建工作空间",
-      "createWorkspace": "创建工作空间"
+      "openWorkspace": "打开会话",
+      "noWorkspace": "还未创建会话",
+      "createWorkspace": "创建会话"
     }
   },
   "createIssue": {
@@ -434,9 +434,9 @@
       "startDateLabel": "开始日期",
       "dueDateLabel": "截止日期",
       "estimateLabel": "估时",
-      "createWorkspace": "同时创建工作空间",
-      "workspaceName": "工作空间名称",
-      "workspaceNamePlaceholder": "工作空间名称将与问题标题相同",
+      "createWorkspace": "同时创建会话",
+      "workspaceName": "会话名称",
+      "workspaceNamePlaceholder": "会话名称将与问题标题相同",
       "addRepo": "添加仓库",
       "selectedRepos": "已选仓库 ({{count}})",
       "selectColumn": "选择栏目...",
@@ -464,7 +464,7 @@
     "errors": {
       "fetchBranchesFailed": "获取仓库分支失败",
       "createIssueFailed": "创建问题失败",
-      "issueCreatedWorkspaceFailed": "问题已创建，但工作空间创建失败",
+      "issueCreatedWorkspaceFailed": "问题已创建，但会话创建失败",
       "confirmCloseUnsaved": "确定要关闭吗？未保存的内容将丢失。"
     },
     "noRepoSelected": "还未选择仓库",
@@ -605,7 +605,7 @@
       "defaultAgent": "默认 Agent",
       "defaultAgentHint": "在本项目下新建工作区时预选；issue 自动创建工作区时直接采用。",
       "defaultProvider": "默认 Provider",
-      "defaultProviderNone": "不绑定（工作空间自行选择）",
+      "defaultProviderNone": "不绑定（会话自行选择）",
       "defaultProviderHint": "在本项目下通过 issue 创建工作区时自动继承该绑定（Provider 或分组），后续可修改。选「分组」则自动使用该组内当前可用的最优 Provider。",
       "defaultProviderGroups": "分组（自动选用组内可用最优）",
       "defaultProviderGroupLabel": "分组：{{group}}",
@@ -637,12 +637,12 @@
         "externalSources": "外部源",
         "memory": "记忆",
         "imbot": "IM 机器人",
-        "cleanup": "工作空间清理",
+        "cleanup": "会话清理",
         "danger": "危险操作"
       },
       "memory": {
         "title": "记忆库自动整理",
-        "description": "定时创建一个「记忆库整理」任务，由 Agent 在工作空间内通过 niuniu-mcp 核对并修正本项目记忆库（与当前代码对齐）。默认关闭；无仓库的项目会跳过。",
+        "description": "定时创建一个「记忆库整理」任务，由 Agent 在会话内通过 niuniu-mcp 核对并修正本项目记忆库（与当前代码对齐）。默认关闭；无仓库的项目会跳过。",
         "enable": "启用定时整理",
         "enableHint": "开启后按下方计划自动运行；关闭后仅可手动执行。",
         "runOnce": "立即执行一次",
@@ -673,13 +673,13 @@
         "saveFailed": "保存失败：{{message}}"
       },
       "cleanup": {
-        "title": "工作空间自动清理",
-        "description": "每小时自动扫描：删除「已完成」或「未开始」且在下方保留天数内无任何活跃的工作空间及其对应 issue。默认关闭。存在未提交改动的工作空间始终跳过。",
+        "title": "会话自动清理",
+        "description": "每小时自动扫描：删除「已完成」或「未开始」且在下方保留天数内无任何活跃的会话及其对应 issue。默认关闭。存在未提交改动的会话始终跳过。",
         "enable": "启用自动清理",
-        "enableHint": "开启后自动清理符合条件的工作空间；关闭后不会删除任何内容。",
+        "enableHint": "开启后自动清理符合条件的会话；关闭后不会删除任何内容。",
         "inactiveDays": "无活跃时长至少",
         "daysUnit": "天",
-        "statuses": "目标工作空间状态",
+        "statuses": "目标会话状态",
         "status": {
           "completed": "已完成",
           "not_started": "未开始"
@@ -779,7 +779,7 @@
       },
       "defaultScenes": {
         "title": "默认场景",
-        "hint": "在此项目下创建工作空间时，会按顺序自动挂载这些场景；多个场景叠加时，相同的 MCP / Agent / 快捷操作等资源会自动去重，只保留一个。",
+        "hint": "在此项目下创建会话时，会按顺序自动挂载这些场景；多个场景叠加时，相同的 MCP / Agent / 快捷操作等资源会自动去重，只保留一个。",
         "loading": "加载中…",
         "empty": "尚未配置默认场景。",
         "add": "添加",
@@ -864,11 +864,11 @@
   "hooks": {
     "extractedLearnings": "提取了 {{count}} 条经验",
     "noLearningsExtracted": "未发现值得记录的经验",
-    "noLinkedProject": "当前工作空间未关联项目",
+    "noLinkedProject": "当前会话未关联项目",
     "extractInProgress": "正在提取中，请稍候",
     "extractFailed": "提取失败",
-    "extractWorkspace": "工作空间 !{{id}}",
-    "gotoWorkspace": "前往工作空间"
+    "extractWorkspace": "会话 !{{id}}",
+    "gotoWorkspace": "前往会话"
   },
   "externalSources": {
     "title": "外部源管理",
@@ -1141,7 +1141,7 @@
   },
   "projectDataSources": {
     "title": "数据源",
-    "description": "将数据源关联到本项目，本项目的 Agent 即可查询这些数据源。数据源需关联到项目（或工作空间）后才对 Agent 可见。",
+    "description": "将数据源关联到本项目，本项目的 Agent 即可查询这些数据源。数据源需关联到项目（或会话）后才对 Agent 可见。",
     "loading": "加载中…",
     "noSources": "尚未关联任何数据源",
     "add": "关联",

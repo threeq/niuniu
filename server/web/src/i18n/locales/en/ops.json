@@ -67,7 +67,7 @@
   },
   "deleteBot": {
     "title": "Delete Ops Bot",
-    "description": "Delete \"{{name}}\"? This also removes pending approvals, chat bindings, browser sessions, the control workspace and Epic, and cannot be undone.",
+    "description": "Delete \"{{name}}\"? This also removes pending approvals, chat bindings, browser sessions, the control session and Epic, and cannot be undone.",
     "cancel": "Cancel",
     "delete": "Delete",
     "deleting": "Deleting…",
