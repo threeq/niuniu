@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Link, useParams } from '@tanstack/react-router';
+import { Link, useNavigate, useParams } from '@tanstack/react-router';
 import { Plus, Search, Archive, LayoutDashboard, Inbox, PanelLeftClose, Loader2, ListChecks, Trash2 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
@@ -108,6 +108,7 @@ export function WorkspaceSidebar() {
   const { contentMatchIds, isSearching } = useWorkspaceContentSearch(debouncedSearch);
   const [newWsOpen, setNewWsOpen] = useState(false);
   const [archivedOpen, setArchivedOpen] = useState(false);
+  const navigate = useNavigate();
 
   // ====== 2. Data hooks ======
   const { workspaces, isLoading, batchDeleteWorkspaces, isBatchDeleting } = useWorkspaces({
@@ -572,7 +573,11 @@ export function WorkspaceSidebar() {
         )}
       </div>
 
-      <NewWorkspaceDialog open={newWsOpen} onOpenChange={setNewWsOpen} />
+      <NewWorkspaceDialog
+        open={newWsOpen}
+        onOpenChange={setNewWsOpen}
+        onCreated={(id) => navigate({ to: '/workspaces/$id', params: { id } })}
+      />
       <ArchivedWorkspacesDialog open={archivedOpen} onOpenChange={setArchivedOpen} />
 
       {/* Batch-delete confirmation */}

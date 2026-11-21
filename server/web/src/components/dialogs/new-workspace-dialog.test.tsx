@@ -43,7 +43,7 @@ describe('NewWorkspaceDialog (issue-bound flow)', () => {
     });
     vi.spyOn(apiModule.api, 'listAvailableIssuesForWorkspace').mockResolvedValue(issues);
     vi.spyOn(apiModule.api, 'getProjectWorkspaceDefaults').mockResolvedValue(inheritRepos);
-    vi.spyOn(apiModule.api, 'createWorkspace').mockResolvedValue({} as any);
+    vi.spyOn(apiModule.api, 'createWorkspace').mockResolvedValue({ id: 'ws-new' } as any);
   });
 
   afterEach(() => vi.restoreAllMocks());
@@ -63,7 +63,8 @@ describe('NewWorkspaceDialog (issue-bound flow)', () => {
   });
 
   it('creates with project_id + name when no issue is picked (name becomes the new issue title)', async () => {
-    render(withQuery(<NewWorkspaceDialog open={true} onOpenChange={() => {}} />));
+    const onCreated = vi.fn();
+    render(withQuery(<NewWorkspaceDialog open={true} onOpenChange={() => {}} onCreated={onCreated} />));
     const user = await pickProject('7');
 
     // Inherited defaults are shown read-only.
@@ -82,6 +83,8 @@ describe('NewWorkspaceDialog (issue-bound flow)', () => {
     expect(payload.owner).toBeUndefined();
     // Repositories are inherited, never hand-picked here.
     expect(payload.repos).toEqual([]);
+    // The caller opens the newly created workspace.
+    await waitFor(() => expect(onCreated).toHaveBeenCalledWith('ws-new'));
   });
 
   it('creates bound to the picked issue, and fills the name from its title', async () => {
