@@ -463,6 +463,14 @@ RUSTUP := $(shell command -v rustup 2>/dev/null || echo "$$HOME/.cargo/bin/rustu
 # 缺 target 的报错由后续 cargo build 给出（E0463 自带 rustup target add 提示）。
 RUSTUP_TARGET_ADD = $(RUSTUP) target add
 
+# Windows 桌面打包的资源编译：宿主 Rust 工具链为 GNU 时（本机默认），
+# tauri-winres → embed-resource 固定调用 PATH 上的 `windres`，且该路径不读 RC
+# 变量（只有 MSVC 宿主工具链才会自动找 Windows SDK 的 rc.exe）。由旧进程派生的
+# 终端（长期运行的应用内终端等）PATH 可能缺 scoop gcc 等条目，于是报
+# NotAttempted("windres")。构建前探测，缺失时按常见安装位置补进 PATH。
+WINDRES_DIR := $(shell sh -c 'command -v windres >/dev/null 2>&1 || for d in "$$HOME/scoop/apps/gcc/current/bin" /c/msys64/mingw64/bin /c/msys64/clang64/bin /mingw64/bin; do if [ -x "$$d/windres.exe" ] || [ -x "$$d/windres" ]; then echo "$$d"; break; fi; done')
+WINDRES_PATH = $(if $(WINDRES_DIR),PATH="$(WINDRES_DIR):$$PATH" )
+
 .PHONY: build-personal-v2-current build-personal-v2-all \
 	build-personal-v2-windows build-personal-v2-darwin build-personal-v2-linux \
 	package-personal-v2-darwin package-personal-v2-linux \
@@ -481,7 +489,7 @@ build-personal-v2-current:
 	$(MAKE) _personal-prepare-v2 GOOS=$(shell go env GOOS) GOARCH=$(shell go env GOARCH) EXT=$(EXE_SUFFIX)
 	@TRIPLE="$(V2_TRIPLE_$(shell go env GOOS)_$(shell go env GOARCH))"; \
 	$(RUSTUP_TARGET_ADD) $$TRIPLE >/dev/null 2>&1 || true; \
-	cd desktop-v2 && $(CARGO) build --release --target $$TRIPLE && \
+	cd desktop-v2 && $(WINDRES_PATH)$(CARGO) build --release --target $$TRIPLE && \
 	mkdir -p ../bin && cp target/$$TRIPLE/release/niuniu-desktop-v2$(EXE_SUFFIX) ../bin/niuniu-desktop-v2-$(VERSION)$(EXE_SUFFIX)
 
 build-personal-v2-all: build-personal-v2-windows build-personal-v2-darwin build-personal-v2-linux
@@ -492,7 +500,7 @@ build-personal-v2-windows:
 	$(MAKE) _personal-prepare GOOS=windows GOARCH=amd64 EXT=.exe
 	$(MAKE) _personal-prepare-v2 GOOS=windows GOARCH=amd64 EXT=.exe
 	-@$(RUSTUP_TARGET_ADD) x86_64-pc-windows-msvc 2>/dev/null || true
-	cd desktop-v2 && $(CARGO) build --release --target x86_64-pc-windows-msvc
+	cd desktop-v2 && $(WINDRES_PATH)$(CARGO) build --release --target x86_64-pc-windows-msvc
 	mkdir -p bin
 	cp desktop-v2/target/x86_64-pc-windows-msvc/release/niuniu-desktop-v2.exe bin/niuniu-desktop-v2-$(VERSION)-windows-amd64.exe
 
@@ -563,7 +571,7 @@ dev-desktop-v2:
 	$(MAKE) _personal-prepare-v2 GOOS=$(shell go env GOOS) GOARCH=$(shell go env GOARCH) EXT=$(EXE_SUFFIX)
 	@TRIPLE="$(V2_TRIPLE_$(shell go env GOOS)_$(shell go env GOARCH))"; \
 	$(RUSTUP_TARGET_ADD) $$TRIPLE >/dev/null 2>&1 || true; \
-	cd desktop-v2 && $(CARGO) run --target $$TRIPLE
+	cd desktop-v2 && $(WINDRES_PATH)$(CARGO) run --target $$TRIPLE
 
 # 把 _personal-prepare 产出的 server/mcp/agent/video-mcp 二进制拷为 Tauri 侧车（以去
 # triple 名为主 —— server_binary_path 先按 exe 旁/plain 名解析，toolchain 差异
