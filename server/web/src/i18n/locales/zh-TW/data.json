@@ -106,7 +106,7 @@
     "accessModeLabel": "預設讀寫模式",
     "accessModeRead": "只讀",
     "accessModeReadwrite": "讀寫",
-    "accessModeM1Note": "M1 僅支援只讀",
+    "accessModeHint": "讀寫模式允許寫操作；寫操作每次都需要你確認。",
     "requireConfirmLabel": "操作確認策略",
     "confirmAlways": "每次都確認",
     "confirmWritesOnly": "僅寫操作確認",

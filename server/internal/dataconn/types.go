@@ -148,6 +148,11 @@ type Operation struct {
 	Database     string
 	RowLimit     int
 	TimeoutMS    int
+	// Mode is the access mode Classify returned, injected by the service layer
+	// after the read/write gate passes. Connectors use it to choose an execution
+	// path (e.g. a read-only transaction for reads vs. a committed write).
+	// Never set from agent input.
+	Mode AccessMode
 }
 
 type Column struct {

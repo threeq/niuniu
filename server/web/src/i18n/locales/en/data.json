@@ -106,7 +106,7 @@
     "accessModeLabel": "Default access mode",
     "accessModeRead": "Read-only",
     "accessModeReadwrite": "Read/write",
-    "accessModeM1Note": "M1 supports read-only only",
+    "accessModeHint": "Read/write allows write operations. Every write still requires your confirmation.",
     "requireConfirmLabel": "Confirmation policy",
     "confirmAlways": "Always confirm",
     "confirmWritesOnly": "Confirm writes only",

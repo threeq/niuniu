@@ -189,10 +189,11 @@ func TestDataProxyGate(t *testing.T) {
 // what op the gateway constructed for each source kind without a live store
 // (the schema kind CHECK doesn't admit elasticsearch until #354).
 type captureConnector struct {
-	kind dataconn.SourceKind
-	mode dataconn.AccessMode
-	ref  dataconn.ResourceRef
-	got  dataconn.Operation
+	kind   dataconn.SourceKind
+	mode   dataconn.AccessMode
+	ref    dataconn.ResourceRef
+	got    dataconn.Operation
+	execOp dataconn.Operation
 }
 
 func (c *captureConnector) Kind() dataconn.SourceKind                                { return c.kind }
@@ -202,6 +203,7 @@ func (c *captureConnector) Classify(op dataconn.Operation) (dataconn.AccessMode,
 	return c.mode, c.ref, nil
 }
 func (c *captureConnector) Execute(ctx context.Context, conn dataconn.ConnConfig, op dataconn.Operation) (*dataconn.ResultSet, error) {
+	c.execOp = op
 	return &dataconn.ResultSet{Engine: string(c.kind)}, nil
 }
 
@@ -475,7 +477,7 @@ func TestDataProxyHTTPGate(t *testing.T) {
 		reg.Register(dataconn.KindHTTP, conn)
 		loader := &fakeSourceLoader{
 			dto: &service.DataSourceDTO{ID: 1, Name: "api", Kind: "http",
-				ScopeConfig: map[string]any{"tables_allow": []any{"/users"}},
+				ScopeConfig:       map[string]any{"tables_allow": []any{"/users"}},
 				DefaultAccessMode: "read", RequireConfirm: "always"},
 			cc: dataconn.ConnConfig{Kind: dataconn.KindHTTP},
 		}
@@ -604,7 +606,7 @@ func TestDataProxyClassifyPolicyMapping(t *testing.T) {
 	loader := &fakeSourceLoader{
 		dto: &service.DataSourceDTO{
 			ID: 1, Name: "kv", Kind: "redis",
-			ScopeConfig: map[string]any{"tables_allow": []any{"cache:"}},
+			ScopeConfig:       map[string]any{"tables_allow": []any{"cache:"}},
 			DefaultAccessMode: "read", RequireConfirm: "writes_only",
 		},
 		cc: dataconn.ConnConfig{Kind: dataconn.KindRedis, Database: "0"},
@@ -618,10 +620,10 @@ func TestDataProxyClassifyPolicyMapping(t *testing.T) {
 		cmd  string
 		args []string
 	}{
-		{"KEYS", []string{"*"}},          // deny list
-		{"FLUSHALL", nil},                // deny list
-		{"GETDEL", []string{"cache:x"}},  // whitelist miss
-		{"CONFIG GET", []string{"dir"}},  // deny list, folded subcommand
+		{"KEYS", []string{"*"}},         // deny list
+		{"FLUSHALL", nil},               // deny list
+		{"GETDEL", []string{"cache:x"}}, // whitelist miss
+		{"CONFIG GET", []string{"dir"}}, // deny list, folded subcommand
 	} {
 		in := base
 		in.Command, in.Args = c.cmd, c.args
@@ -710,5 +712,37 @@ func TestDataProxyWritesAlwaysConfirmed(t *testing.T) {
 	}
 	if perm.lastIn["mode"] != "write" {
 		t.Fatalf("permission card mode should be write, got %v", perm.lastIn["mode"])
+	}
+}
+
+// TestDataProxyWriteModeReachesConnector locks that the classified mode is
+// stamped onto the Operation handed to Execute — SQLConnector relies on it to
+// skip the read-only transaction for writes on a readwrite source.
+func TestDataProxyWriteModeReachesConnector(t *testing.T) {
+	ctx := context.Background()
+	reg := dataconn.NewRegistry()
+	conn := &captureConnector{
+		kind: dataconn.KindMySQL,
+		mode: dataconn.ModeWrite,
+		ref:  dataconn.ResourceRef{Objects: []string{"orders"}, ReferencesTables: true},
+	}
+	reg.Register(dataconn.KindMySQL, conn)
+	loader := &fakeSourceLoader{
+		dto: &service.DataSourceDTO{ID: 1, Name: "db", Kind: "mysql",
+			ScopeConfig:       map[string]any{"tables_allow": []any{"orders"}},
+			DefaultAccessMode: "readwrite", RequireConfirm: "writes_only"},
+		cc: dataconn.ConnConfig{Kind: dataconn.KindMySQL, Database: "app"},
+	}
+	svc := service.NewDataProxyServiceWithSeams(
+		loader, reg, &fakePermission{resp: service.AllowResp{Behavior: "allow"}}, nil)
+
+	if _, err := svc.Query(ctx, service.DataQueryInput{
+		WorkspaceID: 1, OwnerType: "user", OwnerID: 7, UserID: 7, SessionID: "s",
+		SourceID: 1, Statement: "DELETE FROM orders",
+	}); err != nil {
+		t.Fatalf("confirmed write should pass: %v", err)
+	}
+	if conn.execOp.Mode != dataconn.ModeWrite {
+		t.Fatalf("Execute must receive Mode=write, got %q", conn.execOp.Mode)
 	}
 }
