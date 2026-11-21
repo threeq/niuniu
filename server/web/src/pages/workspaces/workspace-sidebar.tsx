@@ -390,16 +390,37 @@ export function WorkspaceSidebar() {
       <div className="flex h-10 shrink-0 items-center justify-between px-3 border-b">
         <span className="text-sm font-semibold text-foreground">{t('sidebar.title')}</span>
         <div className="flex items-center gap-1 text-muted-foreground">
+          <Button
+            type="button"
+            size="sm"
+            onClick={() => setNewWsOpen(true)}
+            className="h-7 shrink-0 gap-1 px-2 text-xs"
+            aria-label={t('sidebar.newWorkspace')}
+            title={t('sidebar.newWorkspace')}
+          >
+            <Plus className="w-3.5 h-3.5" aria-hidden />
+            {t('sidebar.newShort')}
+          </Button>
+          <button
+            type="button"
+            onClick={() => (selectMode ? exitSelect() : setSelectMode(true))}
+            className={cn(
+              'p-0.5 rounded transition-colors',
+              selectMode
+                ? 'bg-accent text-foreground'
+                : 'hover:bg-accent hover:text-foreground'
+            )}
+            aria-pressed={selectMode}
+            aria-label={t(selectMode ? 'overview.batch.exit' : 'overview.batch.enter')}
+            title={t(selectMode ? 'overview.batch.exit' : 'overview.batch.enter')}
+          >
+            <ListChecks className="w-4 h-4" />
+          </button>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <button
                 type="button"
-                className={cn(
-                  'p-0.5 rounded transition-colors',
-                  selectMode
-                    ? 'bg-accent text-foreground'
-                    : 'hover:bg-accent hover:text-foreground'
-                )}
+                className="p-0.5 rounded transition-colors hover:bg-accent hover:text-foreground"
                 aria-label={t('common:actions.more')}
                 title={t('common:actions.more')}
               >
@@ -413,13 +434,6 @@ export function WorkspaceSidebar() {
               >
                 <LayoutDashboard className="w-4 h-4" />
                 {t('sidebar.kanbanOverview')}
-              </DropdownMenuItem>
-              <DropdownMenuItem
-                className="gap-2"
-                onSelect={() => (selectMode ? exitSelect() : setSelectMode(true))}
-              >
-                <ListChecks className="w-4 h-4" />
-                {t(selectMode ? 'overview.batch.exit' : 'overview.batch.enter')}
               </DropdownMenuItem>
               <DropdownMenuItem className="gap-2" onSelect={() => setArchivedOpen(true)}>
                 <Archive className="w-4 h-4" />
@@ -439,31 +453,14 @@ export function WorkspaceSidebar() {
         </div>
       </div>
 
-      {/* [1b] Primary action — the main way to start, always visible. */}
-      <div className="px-3 pt-2 pb-1">
-        <Button
-          type="button"
-          onClick={() => setNewWsOpen(true)}
-          className="w-full h-9 justify-center gap-1.5"
-        >
-          <Plus className="w-4 h-4" aria-hidden />
-          {t('sidebar.newWorkspace')}
-        </Button>
-        {(workspaces?.length ?? 0) === 0 && (
-          <p className="mt-1.5 text-[11px] leading-snug text-muted-foreground">
-            {t('sidebar.startHint')}
-          </p>
-        )}
-      </div>
-
-      {/* [2] Toolbar: scope selector, then a full-width search field. */}
-      <div className="px-3 py-2 space-y-2 border-b">
-        <div className="grid grid-cols-2 bg-background border rounded-md p-0.5 text-[11px]">
+      {/* [2] Toolbar: compact scope selector + search in one row. */}
+      <div className="px-3 py-2 flex items-center gap-2 border-b">
+        <div className="inline-flex shrink-0 bg-background border rounded-md p-0.5 text-[11px]">
           <button
             type="button"
             onClick={() => setScopePersist('mine')}
             className={cn(
-              'px-3 py-1 rounded transition-colors',
+              'px-2 py-1 rounded transition-colors',
               scope === 'mine' ? 'bg-accent text-foreground' : 'text-muted-foreground'
             )}
           >
@@ -473,21 +470,21 @@ export function WorkspaceSidebar() {
             type="button"
             onClick={() => setScopePersist('all')}
             className={cn(
-              'px-3 py-1 rounded transition-colors',
+              'px-2 py-1 rounded transition-colors',
               scope === 'all' ? 'bg-accent text-foreground' : 'text-muted-foreground'
             )}
           >
             {t('sidebar.scope.all')}
           </button>
         </div>
-        <div className="relative">
+        <div className="relative flex-1 min-w-0">
           <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
           <input
             type="text"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder={t('sidebar.searchPlaceholder')}
-            className="w-full bg-background border rounded-md text-xs pl-7 pr-7 py-1.5
+            className="w-full bg-background border rounded-md text-xs pl-7 pr-7 py-1
                        placeholder:text-muted-foreground outline-none"
           />
           {/* Non-blocking content-search indicator. Sits inside the input on the

@@ -90,7 +90,7 @@
     "overview": "總覽",
     "kanbanOverview": "看板總覽",
     "archived": "已歸檔",
-    "searchPlaceholder": "搜尋標題、ID 或對話內容...",
+    "searchPlaceholder": "搜尋會話或內容…",
     "filterAll": "全部",
     "uncategorized": "未分類",
     "scheduleSuffix": "定時任務",
@@ -154,7 +154,8 @@
     "resize": {
       "handle": "拖動調整側邊欄寬度"
     },
-    "startHint": "會話就是一次任務的執行過程。選擇專案、描述目標即可開始。"
+    "startHint": "會話就是一次任務的執行過程。選擇專案、描述目標即可開始。",
+    "newShort": "新建"
   },
   "workspace": {
     "scope": {

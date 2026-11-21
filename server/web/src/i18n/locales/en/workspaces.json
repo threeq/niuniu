@@ -90,7 +90,7 @@
     "overview": "Overview",
     "kanbanOverview": "Kanban overview",
     "archived": "Archived",
-    "searchPlaceholder": "Search title, ID or chat content...",
+    "searchPlaceholder": "Search sessions or content…",
     "filterAll": "All",
     "uncategorized": "Uncategorized",
     "scheduleSuffix": "scheduled tasks",
@@ -154,7 +154,8 @@
     "resize": {
       "handle": "Drag to resize sidebar"
     },
-    "startHint": "A session is one task in progress. Pick a project, describe the goal, and start."
+    "startHint": "A session is one task in progress. Pick a project, describe the goal, and start.",
+    "newShort": "New"
   },
   "workspace": {
     "scope": {
