@@ -7,6 +7,7 @@ import { Toaster } from 'sonner';
 import i18n from '@/i18n';
 
 import type { Workspace, Project } from '@/types/api';
+import { usePinnedWorkspacesStore } from '@/stores/pinned-workspaces-store';
 
 // --- mocks --------------------------------------------------------------
 
@@ -115,9 +116,19 @@ vi.mock('./workspace-bg-tasks-row', () => ({
   WorkspaceBgTasksRow: () => null,
 }));
 
-// Stub permission store consumed by WorkspaceCard.
+// Permission-pending state consumed by WorkspaceCard (badge) and the
+// needs-authorization zone. Mutable per test.
+const mockNotify = vi.hoisted(() => ({
+  pending: {} as Record<number, Set<number>>,
+}));
 vi.mock('@/stores/notification-ws-store', () => ({
-  usePermissionPendingByWorkspace: () => 0,
+  usePermissionPendingByWorkspace: (id: number) => mockNotify.pending[id]?.size ?? 0,
+  useNotificationWSStore: <T,>(
+    selector?: (s: { permissionPendingByWorkspace: Record<number, Set<number>> }) => T,
+  ) => {
+    const state = { permissionPendingByWorkspace: mockNotify.pending };
+    return selector ? selector(state) : (state as unknown as T);
+  },
 }));
 
 // --- factories ----------------------------------------------------------
@@ -211,6 +222,8 @@ describe('WorkspaceSidebar', () => {
     localStorage.clear();
     vi.clearAllMocks();
     mockParamsRef.value = {};
+    mockNotify.pending = {};
+    usePinnedWorkspacesStore.setState({ uid: 0, pinnedIds: [] });
     defaultFixture();
     // Re-install default mock impl post clearAllMocks
     useWorkspacesMock.mockImplementation(() => ({
@@ -235,6 +248,30 @@ describe('WorkspaceSidebar', () => {
     const WorkspaceSidebar = await importSidebar();
     renderWithProviders(<WorkspaceSidebar />);
     expect(screen.queryByText(/需要我关注|Needs my attention/i)).not.toBeInTheDocument();
+  });
+
+  it('shows the needs-authorization group above the pinned group', async () => {
+    mockNotify.pending = { 30: new Set([101]) };
+    usePinnedWorkspacesStore.setState({ uid: 42, pinnedIds: ['30'] });
+    const WorkspaceSidebar = await importSidebar();
+    renderWithProviders(<WorkspaceSidebar />);
+
+    const authZone = document.querySelector('[data-sidebar-zone="pending-auth"]');
+    const pinnedZone = document.querySelector('[data-sidebar-zone="pinned"]');
+    expect(authZone).not.toBeNull();
+    expect(pinnedZone).not.toBeNull();
+    // Authorization needs attention before bookkeeping: the group must sit
+    // above the pinned group.
+    expect(
+      authZone!.compareDocumentPosition(pinnedZone!) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(screen.getByText(/需授权|Needs authorization/i)).toBeInTheDocument();
+  });
+
+  it('hides the needs-authorization group when nothing is pending', async () => {
+    const WorkspaceSidebar = await importSidebar();
+    renderWithProviders(<WorkspaceSidebar />);
+    expect(document.querySelector('[data-sidebar-zone="pending-auth"]')).toBeNull();
   });
 
   it('removes the project chip row and CreatorScopeChip', async () => {

@@ -35,6 +35,29 @@ describe('PermissionPromptCard', () => {
     expect(onDecide).toHaveBeenCalledWith({ decision: 'allow', scope: 'once' });
   });
 
+  it('keeps a long SQL preview inside the card via horizontal scroll', () => {
+    // Regression: a <pre> defaults to overflow:visible, so a long one-line
+    // DataQuery summary painted straight through the card border.
+    const req: PermissionRequest = {
+      ...baseRequest,
+      tool_name: 'DataQuery',
+      tool_input: {
+        source: 'crm/sensai',
+        kind: 'mysql',
+        mode: 'write',
+        objects: ['sensai.upms.t_upms_access_control_feature'],
+        statement_summary:
+          "INSERT INTO sensai.upms.t_upms_access_control_feature (id, create_at, display_name, is_deleted, modifiable, name, selector, source_feature_id) SELECT '?', CAST(UNIX_TIMESTAMP(?) AS UNSIGNED), '?', '?', b'...",
+      },
+    };
+    render(<PermissionPromptCard request={req} onDecide={vi.fn()} />);
+
+    const pre = screen.getByText(/INSERT INTO/).closest('pre');
+    expect(pre).not.toBeNull();
+    expect(pre!.className).toContain('overflow-x-auto');
+    expect(pre!.className).toContain('max-w-full');
+  });
+
   it('renders collapsed status badge when status != pending (no decide buttons)', () => {
     const allowed: PermissionRequest = { ...baseRequest, status: 'allowed' };
     render(<PermissionPromptCard request={allowed} onDecide={vi.fn()} />);

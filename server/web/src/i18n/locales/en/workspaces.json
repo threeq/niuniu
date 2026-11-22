@@ -112,6 +112,9 @@
       "unpin": "Unpin",
       "failed": "Action failed, please retry"
     },
+    "pendingAuth": {
+      "zoneTitle": "Needs authorization"
+    },
     "markDone": {
       "button": "Done",
       "disabled": "Can't complete",
