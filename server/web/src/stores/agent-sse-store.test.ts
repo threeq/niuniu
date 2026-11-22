@@ -23,6 +23,10 @@ class MockEventSource {
   emitError() {
     this.onerror?.(new Event('error'));
   }
+  emitMessage(data: string) {
+    this.readyState = MockEventSource.OPEN;
+    this.onmessage?.({ data } as MessageEvent);
+  }
 }
 
 function resetStore() {
@@ -100,5 +104,51 @@ describe('agent-sse-store reconnection', () => {
     MockEventSource.instances[0].emitError();
     vi.advanceTimersByTime(2000);
     expect(MockEventSource.instances.length).toBe(2);
+  });
+
+  // Half-open TCP / silent proxy freeze: EventSource fires neither error nor
+  // close, leaving the chat stuck on stale content until a manual reload. The
+  // server's 30s data-frame keepalive doubles as the liveness signal.
+  it('reconnects when the stream goes silent past the stall timeout', () => {
+    const store = useAgentSSEStore.getState();
+
+    store.addWorkspace('932');
+    vi.advanceTimersByTime(300);
+    expect(MockEventSource.instances).toHaveLength(1);
+
+    // No keepalives ever arrive.
+    vi.advanceTimersByTime(90_000);
+    expect(MockEventSource.instances.length).toBe(2);
+    expect(MockEventSource.instances.at(-1)!.url).toContain('workspaces=932');
+  });
+
+  it('keeps the stream open while keepalive pings arrive', () => {
+    const store = useAgentSSEStore.getState();
+
+    store.addWorkspace('932');
+    vi.advanceTimersByTime(300);
+    const es = MockEventSource.instances[0];
+
+    // Three minutes of 30s keepalives — well past the 75s stall window.
+    for (let i = 0; i < 6; i++) {
+      vi.advanceTimersByTime(30_000);
+      es.emitMessage('{"type":"ping"}');
+    }
+    expect(MockEventSource.instances).toHaveLength(1);
+  });
+
+  // Mount ordering on workspace open: addHandler runs first and schedules the
+  // debounced reconnect, then the page's addWorkspace finds the workspace
+  // subscribed with no live stream and connects immediately. The leftover
+  // debounce used to fire 300ms later and replace that fresh stream.
+  it('connecting immediately cancels a pending debounced reconnect', () => {
+    const store = useAgentSSEStore.getState();
+
+    store.addWorkspace('932'); // schedules the 300ms reconnect
+    store.connect(['932']); // immediate connect (page mount effect)
+    expect(MockEventSource.instances).toHaveLength(1);
+
+    vi.advanceTimersByTime(1000);
+    expect(MockEventSource.instances).toHaveLength(1);
   });
 });

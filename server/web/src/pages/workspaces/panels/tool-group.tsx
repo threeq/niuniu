@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { memo, useState } from 'react';
 import { ChevronRight, Wrench } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { ToolCallCard } from './tool-call-card';
@@ -9,7 +9,7 @@ interface ToolGroupProps {
   toolResults: Map<string, { content: string; isError?: boolean }>;
 }
 
-export function ToolGroup({ events, toolResults }: ToolGroupProps) {
+function ToolGroupImpl({ events, toolResults }: ToolGroupProps) {
   const [expanded, setExpanded] = useState(false);
 
   if (events.length === 1) {
@@ -94,3 +94,8 @@ export function ToolGroup({ events, toolResults }: ToolGroupProps) {
     </div>
   );
 }
+
+// Memoized: ChatPanel preserves the `events` array identity for groups whose
+// members did not change (see the grouping cache), so a streamed text delta
+// does not re-render every collapsed tool group in the timeline.
+export const ToolGroup = memo(ToolGroupImpl);

@@ -38,14 +38,27 @@ export function ChatStickyUserHeader({ scrollRef, events }: Props) {
     () => events.filter((e) => e.role === 'user' && e.type === 'text'),
     [events]
   );
+  // Latest list via ref: `recompute` must stay identity-stable (its effect
+  // re-runs otherwise). Streaming deltas change `events` on every token while
+  // the user-message subset is unchanged, so the effect below keys off the
+  // stable id list instead — no per-token layout scans.
+  const userEventsRef = useRef(userEvents);
+  useEffect(() => {
+    userEventsRef.current = userEvents;
+  }, [userEvents]);
+  const userEventKey = useMemo(
+    () => userEvents.map((e) => e.id).join('\n'),
+    [userEvents]
+  );
 
   const recompute = useCallback(() => {
+    const currentUserEvents = userEventsRef.current;
     const container = scrollRef.current;
     if (!container) {
       setActiveId(null);
       return;
     }
-    if (userEvents.length === 0) {
+    if (currentUserEvents.length === 0) {
       setActiveId(null);
       return;
     }
@@ -55,7 +68,7 @@ export function ChatStickyUserHeader({ scrollRef, events }: Props) {
     // banner swaps a moment before the original scrolls fully out of view).
     const threshold = containerTop + 4;
     let candidateId: string | null = null;
-    for (const ev of userEvents) {
+    for (const ev of currentUserEvents) {
       const el = document.getElementById(`msg-${ev.messageId}`);
       if (!el) continue;
       const top = el.getBoundingClientRect().top;
@@ -79,7 +92,7 @@ export function ChatStickyUserHeader({ scrollRef, events }: Props) {
       }
     }
     setActiveId(candidateId);
-  }, [scrollRef, userEvents]);
+  }, [scrollRef]);
 
   useEffect(() => {
     const container = scrollRef.current;
@@ -92,7 +105,8 @@ export function ChatStickyUserHeader({ scrollRef, events }: Props) {
       });
     };
     container.addEventListener('scroll', onScroll, { passive: true });
-    // Recompute when the events list changes too (new messages appended, etc.)
+    // Recompute only when the user-message set itself changes (new prompt,
+    // history page loaded) — NOT on every streamed assistant token.
     // Deferred to the next frame like the scroll handler so the effect body
     // never calls setState synchronously.
     rafRef.current = requestAnimationFrame(() => {
@@ -106,7 +120,7 @@ export function ChatStickyUserHeader({ scrollRef, events }: Props) {
         rafRef.current = null;
       }
     };
-  }, [scrollRef, recompute]);
+  }, [scrollRef, recompute, userEventKey]);
 
   const active = activeId ? userEvents.find((e) => e.id === activeId) : null;
   if (!active) return null;
