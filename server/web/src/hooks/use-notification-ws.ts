@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useNotificationWSStore } from '@/stores/notification-ws-store';
 import { dispatchNotification } from '@/lib/notification-dispatcher';
+import { backfillPendingPermissions } from '@/lib/backfill-pending-permissions';
 
 export function useNotificationWS() {
   const queryClient = useQueryClient();
@@ -13,6 +14,9 @@ export function useNotificationWS() {
 
   useEffect(() => {
     connect();
+    // The socket only streams events from now on; seed what is ALREADY pending
+    // so a reload doesn't leave the needs-authorization group empty.
+    void backfillPendingPermissions();
     return () => disconnect();
   }, [connect, disconnect]);
 
@@ -26,6 +30,8 @@ export function useNotificationWS() {
     if (reconnectCount > 0 && reconnectCount !== prevReconnectCount.current) {
       prevReconnectCount.current = reconnectCount;
       queryClient.invalidateQueries();
+      // Events emitted while the socket was down are lost; re-seed from REST.
+      void backfillPendingPermissions();
     }
   }, [reconnectCount, queryClient]);
 }

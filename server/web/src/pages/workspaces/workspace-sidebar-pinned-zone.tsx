@@ -61,7 +61,10 @@ export function PinnedZone({
   if (pinned.length === 0) return null;
 
   return (
-    <div className="px-3.5 py-2.5 border-b border-warm-border bg-gradient-to-b from-brand/[0.04] to-transparent">
+    <div
+      data-sidebar-zone="pinned"
+      className="px-3.5 py-2.5 border-b border-warm-border bg-gradient-to-b from-brand/[0.04] to-transparent"
+    >
       <div className={cn('flex items-center justify-between', !collapsed && 'mb-2')}>
         <button
           type="button"

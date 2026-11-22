@@ -31,6 +31,7 @@ import { useWorkspacePanelStore } from '@/stores/workspace-panel-store';
 import { usePinnedWorkspacesStore } from '@/stores/pinned-workspaces-store';
 import type { Workspace, Project } from '@/types/api';
 import { PinnedZone } from './workspace-sidebar-pinned-zone';
+import { PendingAuthZone } from './workspace-sidebar-pending-auth-zone';
 import { PriorityZone } from './workspace-sidebar-priority-zone';
 import { WorkspaceVirtualList } from './workspace-sidebar-virtual-list';
 import { buildDescendantMap } from './workspace-tree';
@@ -529,16 +530,25 @@ export function WorkspaceSidebar() {
           scrollbar so "需要我关注" scrolls away with the list instead of
           permanently squeezing it above a separate, shorter scroll area. */}
       <div ref={scrollRef} className="flex-1 min-h-0 overflow-y-auto">
-        {/* Pinned zone — user-pinned workspaces float to the very top, above the
-            priority zone. Shown in both scopes (pins are personal); hidden in
-            select mode so batch management works over the flat project list. */}
+        {/* Sessions waiting on an agent permission request get their own group
+            at the very top — above pins — so the blocked session can be opened
+            for approval in one click. Renders nothing while none are pending;
+            hidden in select mode like the other zones. */}
         {!selectMode && (
-          <PinnedZone
-            workspaces={filtered}
-            projectsByKey={projectsByKey}
-            projectKeyForWs={projectKeyForWs}
-            activeWorkspaceId={activeId}
-          />
+          <>
+            <PendingAuthZone
+              workspaces={filtered}
+              projectsByKey={projectsByKey}
+              projectKeyForWs={projectKeyForWs}
+              activeWorkspaceId={activeId}
+            />
+            <PinnedZone
+              workspaces={filtered}
+              projectsByKey={projectsByKey}
+              projectKeyForWs={projectKeyForWs}
+              activeWorkspaceId={activeId}
+            />
+          </>
         )}
 
         {/* Priority zone — only in "mine" scope, exclude completed. Hidden in

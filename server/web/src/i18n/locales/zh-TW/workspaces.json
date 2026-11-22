@@ -112,6 +112,9 @@
       "unpin": "取消置頂",
       "failed": "操作失敗，請重試"
     },
+    "pendingAuth": {
+      "zoneTitle": "需授權"
+    },
     "markDone": {
       "button": "完成",
       "disabled": "不可完成",

@@ -46,6 +46,14 @@ interface NotificationWSState {
   consecutiveErrors: number;
   connect: () => void;
   disconnect: () => void;
+  /**
+   * Replace one workspace's pending set with a REST snapshot. The notify
+   * channel only streams events AFTER the socket opens, so a page reload would
+   * otherwise forget requests that are already pending — the sidebar's
+   * needs-authorization group and the per-card badge would stay empty until the
+   * next event. Called by the app-level backfill on connect/reconnect.
+   */
+  seedPermissionPending: (workspaceId: number, requestIds: number[]) => void;
 }
 
 export const useNotificationWSStore = create<NotificationWSState>((set, get) => {
@@ -205,6 +213,23 @@ export const useNotificationWSStore = create<NotificationWSState>((set, get) => 
       clearTimers();
       const ws = get().ws;
       if (ws) { ws.close(); set({ ws: null, connected: false }); }
+    },
+
+    seedPermissionPending(workspaceId, requestIds) {
+      set((state) => {
+        const prev = state.permissionPendingByWorkspace[workspaceId];
+        const same =
+          (prev?.size ?? 0) === requestIds.length &&
+          requestIds.every((id) => prev?.has(id));
+        if (same) return state; // identity-preserving no-op: no re-render
+        const updated = { ...state.permissionPendingByWorkspace };
+        if (requestIds.length === 0) {
+          delete updated[workspaceId];
+        } else {
+          updated[workspaceId] = new Set(requestIds);
+        }
+        return { permissionPendingByWorkspace: updated };
+      });
     },
   };
 });
