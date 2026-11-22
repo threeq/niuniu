@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react';
+import { memo, useCallback, useState } from 'react';
 import { CheckCircle, RefreshCw, Pin, Copy, Check } from 'lucide-react';
 import { useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
@@ -368,7 +368,7 @@ interface ChatMessageProps {
   onTogglePin?: (event: TimelineEvent) => void;
 }
 
-export function ChatMessage({ event, cliType, showAgentLabel, toolResults, workspaceId, workspacePath, blockKey, isPinned, onTogglePin }: ChatMessageProps) {
+function ChatMessageImpl({ event, cliType, showAgentLabel, toolResults, workspaceId, workspacePath, blockKey, isPinned, onTogglePin }: ChatMessageProps) {
   const openViewer = useWorkspacePanelStore((s) => s.openContentViewer);
   const anchorId = `msg-${blockKey ?? event.messageId}`;
 
@@ -542,3 +542,9 @@ export function ChatMessage({ event, cliType, showAgentLabel, toolResults, works
       return null;
   }
 }
+
+// Memoized on shallow prop equality: streamed deltas replace only the event
+// that changed, so unchanged messages must not re-parse their markdown on
+// every token. Props that vary per render (toolResults map, pin toggle) are
+// stabilized in ChatPanel — see the identity-preserving caches there.
+export const ChatMessage = memo(ChatMessageImpl);

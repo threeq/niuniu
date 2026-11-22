@@ -561,7 +561,11 @@ func (h *AgentProxyHandler) SSE(c *gin.Context) {
 			close(done)
 			return
 		case <-ticker.C:
-			c.Writer.Write([]byte(": ping\n\n"))
+			// Keepalive as a DATA frame, not an SSE comment: comment lines are
+			// invisible to EventSource JS, so the client could not tell a live
+			// idle stream from a silently stalled one. The client ignores
+			// type=ping for rendering but feeds it to its stall watchdog.
+			c.Writer.Write([]byte("data: {\"type\":\"ping\"}\n\n"))
 			flusher.Flush()
 			// Piggyback the 30-second authz refresh on the keepalive ticker to avoid
 			// an extra goroutine. This gives a revocation window of ~30s, which is

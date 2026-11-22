@@ -30,3 +30,27 @@ export function groupTimelineEvents(
   }
   return result;
 }
+
+/**
+ * Keeps the previous group array whenever a group's member events are the
+ * same objects in the same order. `groupTimelineEvents` always allocates fresh
+ * arrays, so without this the memoized ToolGroup would see a "new" `events`
+ * prop on every streamed token and re-render the whole tool history.
+ */
+export function reuseUnchangedGroups(
+  prev: (TimelineEvent | TimelineEvent[])[],
+  next: (TimelineEvent | TimelineEvent[])[],
+): (TimelineEvent | TimelineEvent[])[] {
+  return next.map((item, i) => {
+    const prevItem = prev[i];
+    if (
+      Array.isArray(item) &&
+      Array.isArray(prevItem) &&
+      item.length === prevItem.length &&
+      item.every((e, j) => e === prevItem[j])
+    ) {
+      return prevItem;
+    }
+    return item;
+  });
+}

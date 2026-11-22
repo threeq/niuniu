@@ -26,6 +26,15 @@ const generateId = (): string =>
 
 type MessageHandler = (msg: AgentMessage) => void;
 
+// Liveness watchdog. The server writes a `{"type":"ping"}` data frame every
+// 30s. EventSource surfaces neither TCP half-open stalls nor silent proxy
+// freezes (no error, no close), so a dead-but-open stream left the chat
+// permanently stale until a manual reload — the "卡住不更新" symptom. Two and
+// a half missed keepalives is a dead stream: close and reconnect (the
+// reconnect replays everything after `lastEventTs`).
+const STALL_TIMEOUT_MS = 75_000;
+const WATCHDOG_INTERVAL_MS = 15_000;
+
 interface AgentSSEState {
   windowId: string;
   es: EventSource | null;
@@ -93,6 +102,16 @@ export const useAgentSSEStore = create<AgentSSEState>((set, get) => ({
   connect(workspaceIds) {
     const state = get();
 
+    // A scheduled (debounced) reconnect is moot now that we are connecting:
+    // leaving it armed would replace this fresh stream ~300ms later. That
+    // double-connect happens on every workspace open — addHandler connects
+    // immediately (workspace already subscribed) while the addWorkspace mount
+    // effect's debounce is still pending.
+    if (state.reconnectTimer) {
+      clearTimeout(state.reconnectTimer);
+      set({ reconnectTimer: null });
+    }
+
     // Close existing connection
     if (state.es) {
       state.es.close();
@@ -120,7 +139,25 @@ export const useAgentSSEStore = create<AgentSSEState>((set, get) => ({
 
     const es = new EventSource(url);
 
+    // Any frame — event or keepalive — keeps the stream marked alive.
+    let lastActivityAt = Date.now();
+    const watchdog = setInterval(() => {
+      if (get().es !== es) {
+        clearInterval(watchdog);
+        return;
+      }
+      if (Date.now() - lastActivityAt <= STALL_TIMEOUT_MS) return;
+      clearInterval(watchdog);
+      console.warn('[SSE] stream stalled (no data for 75s) — reconnecting');
+      set({ es: null, consecutiveErrors: get().consecutiveErrors + 1 });
+      es.close();
+      if (get().intentionalClose) return;
+      const ws = Array.from(get().subscribedWorkspaces);
+      if (ws.length > 0) get().connect(ws);
+    }, WATCHDOG_INTERVAL_MS);
+
     es.onopen = () => {
+      lastActivityAt = Date.now();
       if (get().consecutiveErrors > 0) {
         set({ consecutiveErrors: 0 });
       }
@@ -164,6 +201,7 @@ export const useAgentSSEStore = create<AgentSSEState>((set, get) => ({
     };
 
     es.onmessage = (event) => {
+      lastActivityAt = Date.now();
       try {
         const msg: AgentMessage = JSON.parse(event.data);
         if (msg.type === 'ping') return;

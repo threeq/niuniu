@@ -9,7 +9,7 @@ import {
 } from '@/lib/pinned-messages-api';
 import { scrollToChatMessage } from '@/lib/scroll-to-chat-message';
 import { deriveBlockKeys } from '@/lib/chat-block-key';
-import { groupTimelineEvents } from '@/lib/group-timeline-events';
+import { groupTimelineEvents, reuseUnchangedGroups } from '@/lib/group-timeline-events';
 import { useAgentSSEStore } from '@/stores/agent-sse-store';
 import type { AgentMessage, AgentMessageRecord, Workspace, ChatAttachment } from '@/types/api';
 import { ChatMessage, type TimelineEvent } from './chat-message';
@@ -87,6 +87,37 @@ export function ChatPanel({ workspace, readOnly }: ChatPanelProps) {
   const changesSummary = { files: totalFiles, additions: totalAdditions, deletions: totalDeletions };
   const togglePanel = useWorkspacePanelStore((s) => s.togglePanel);
   const attachmentStore = useAttachmentStore();
+
+  // Streamed SSE deltas arrive in bursts — one answer/thinking segment emits
+  // dozens per second, and a reconnect replays every missed event. Each delta
+  // used to trigger its own render of the whole timeline, so long conversations
+  // saturated the main thread and the UI stopped painting until a reload. Queue
+  // the updater functions and apply them in ONE setState per flush window.
+  const pendingEventUpdates = useRef<Array<(prev: TimelineEvent[]) => TimelineEvent[]>>([]);
+  const flushTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const enqueueEvents = useCallback(
+    (updater: (prev: TimelineEvent[]) => TimelineEvent[]) => {
+      pendingEventUpdates.current.push(updater);
+      if (flushTimer.current != null) return;
+      flushTimer.current = setTimeout(() => {
+        flushTimer.current = null;
+        const updates = pendingEventUpdates.current;
+        pendingEventUpdates.current = [];
+        if (updates.length === 0) return;
+        setEvents((prev) => updates.reduce((acc, u) => u(acc), prev));
+      }, 80);
+    },
+    [],
+  );
+  useEffect(
+    () => () => {
+      if (flushTimer.current != null) {
+        clearTimeout(flushTimer.current);
+        flushTimer.current = null;
+      }
+    },
+    [],
+  );
 
   // Permission prompts — pending requests rendered inline in the chat stream.
   const wsIdNum = Number(workspaceId);
@@ -226,7 +257,7 @@ export function ChatPanel({ workspace, readOnly }: ChatPanelProps) {
       switch (msg.type) {
         case 'text': {
           setSessionState('running');
-          setEvents((prev) => {
+          enqueueEvents((prev) => {
             // Find the last text event with the same messageId
             const idx = prev.findLastIndex(
               (e) => e.messageId === msg.messageId && e.type === 'text' && e.role === msg.role,
@@ -294,7 +325,7 @@ export function ChatPanel({ workspace, readOnly }: ChatPanelProps) {
         }
 
         case 'tool_use': {
-          setEvents((prev) => {
+          enqueueEvents((prev) => {
             if (msg.toolInput) {
               // Update existing entry by toolUseId
               const idx = prev.findIndex(
@@ -324,7 +355,7 @@ export function ChatPanel({ workspace, readOnly }: ChatPanelProps) {
         }
 
         case 'tool_result': {
-          setEvents((prev) => [
+          enqueueEvents((prev) => [
             ...prev,
             {
               id: (msg.toolUseId ?? msg.messageId) + '-result',
@@ -340,7 +371,7 @@ export function ChatPanel({ workspace, readOnly }: ChatPanelProps) {
         }
 
         case 'thinking': {
-          setEvents((prev) => {
+          enqueueEvents((prev) => {
             const idx = prev.findIndex(
               (e) => e.messageId === msg.messageId && e.type === 'thinking',
             );
@@ -385,7 +416,7 @@ export function ChatPanel({ workspace, readOnly }: ChatPanelProps) {
             useWorkspaceTaskStore.getState().clearTasks();
             break;
           }
-          setEvents((prev) => [
+          enqueueEvents((prev) => [
             ...prev,
             {
               id: msg.messageId + '-sys-' + Date.now(),
@@ -420,13 +451,13 @@ export function ChatPanel({ workspace, readOnly }: ChatPanelProps) {
           }
           queryClient.invalidateQueries({ queryKey: ['workspace', String(workspaceId), 'queue'] });
           // Finalize all streaming events
-          setEvents((prev) =>
+          enqueueEvents((prev) =>
             prev.map((e) =>
               e.streaming ? { ...e, streaming: false } : e,
             ),
           );
           // Append done event with token + timing info (completion time = now)
-          setEvents((prev) => [
+          enqueueEvents((prev) => [
             ...prev,
             {
               id: msg.messageId + '-done',
@@ -450,10 +481,10 @@ export function ChatPanel({ workspace, readOnly }: ChatPanelProps) {
           // and keep running, so don't flip the loop-scoped gate here. The loop-end
           // 'idle' (EventIdle) event is the single authority that unlocks the input.
           // Finalize all streaming events
-          setEvents((prev) =>
+          enqueueEvents((prev) =>
             prev.map((e) => (e.streaming ? { ...e, streaming: false } : e)),
           );
-          setEvents((prev) => [
+          enqueueEvents((prev) => [
             ...prev,
             {
               id: msg.messageId + '-error',
@@ -479,7 +510,7 @@ export function ChatPanel({ workspace, readOnly }: ChatPanelProps) {
     });
 
     return unsubscribe;
-  }, [workspaceId, addHandler, queryClient, readOnly, t]);
+  }, [workspaceId, addHandler, queryClient, readOnly, t, enqueueEvents]);
 
   // Auto-scroll on new events (only if user is near the bottom)
   const isNearBottomRef = useRef(true);
@@ -541,14 +572,27 @@ export function ChatPanel({ workspace, readOnly }: ChatPanelProps) {
     return () => el.removeEventListener('scroll', handleScroll);
   }, [loadOlderMessages]);
 
-  // Build toolResults map from tool_result events
+  // Build toolResults map from tool_result events. tool_result rows are only
+  // ever APPENDED, so their count is a sufficient version: streaming text
+  // deltas must reuse the previous Map identity, otherwise every memoized
+  // ChatMessage/ToolGroup would see a "new" prop and re-render anyway.
+  const toolResultsRef = useRef<{
+    count: number;
+    map: Map<string, { content: string; isError?: boolean }>;
+  }>({ count: 0, map: new Map() });
   const toolResults = useMemo(() => {
+    let count = 0;
+    for (const e of events) {
+      if (e.type === 'tool_result') count++;
+    }
+    if (count === toolResultsRef.current.count) return toolResultsRef.current.map;
     const map = new Map<string, { content: string; isError?: boolean }>();
     for (const e of events) {
       if (e.type === 'tool_result' && e.toolUseId) {
         map.set(e.toolUseId, { content: e.content, isError: e.isError });
       }
     }
+    toolResultsRef.current = { count, map };
     return map;
   }, [events]);
 
@@ -855,10 +899,17 @@ export function ChatPanel({ workspace, readOnly }: ChatPanelProps) {
   // per-block key: the first block of a turn keeps the bare messageId (so
   // task-locate and pre-existing pins still resolve), later blocks get
   // `messageId#N`. Order-derived, so it stays stable across reloads.
+  // Ref-indirected so `blockKeyOf` (and every callback built on it, e.g. the
+  // pin toggle passed to each ChatMessage) keeps a stable identity across
+  // streamed deltas; otherwise React.memo's shallow compare never matches.
   const blockKeyByEventId = useMemo(() => deriveBlockKeys(events), [events]);
+  const blockKeyByEventIdRef = useRef(blockKeyByEventId);
+  useEffect(() => {
+    blockKeyByEventIdRef.current = blockKeyByEventId;
+  }, [blockKeyByEventId]);
   const blockKeyOf = useCallback(
-    (ev: TimelineEvent) => blockKeyByEventId.get(ev.id) ?? ev.messageId,
-    [blockKeyByEventId],
+    (ev: TimelineEvent) => blockKeyByEventIdRef.current.get(ev.id) ?? ev.messageId,
+    [],
   );
 
   const invalidatePins = useCallback(() => {
@@ -905,7 +956,16 @@ export function ChatPanel({ workspace, readOnly }: ChatPanelProps) {
     }
   }
 
-  const grouped = useMemo(() => groupTimelineEvents(events), [events]);
+  // Identity-preserving grouping: groupTimelineEvents always allocates fresh
+  // arrays, which would defeat React.memo on ToolGroup for every streamed
+  // token. Reuse the previous group array whenever its member events (and
+  // order) are unchanged.
+  const groupedRef = useRef<(TimelineEvent | TimelineEvent[])[]>([]);
+  const grouped = useMemo(() => {
+    const merged = reuseUnchangedGroups(groupedRef.current, groupTimelineEvents(events));
+    groupedRef.current = merged;
+    return merged;
+  }, [events]);
 
   return (
     <div className="flex flex-col h-full bg-warm-surface">
@@ -929,13 +989,19 @@ export function ChatPanel({ workspace, readOnly }: ChatPanelProps) {
               // per-block key so it never collides with a sibling text block's
               // `msg-<messageId>` id.
               return (
-                <div key={`tg-${idx}`} id={`msg-${blockKeyOf(item[0])}`}>
+                <div
+                  key={`tg-${idx}`}
+                  id={`msg-${blockKeyByEventId.get(item[0].id) ?? item[0].messageId}`}
+                >
                   <ToolGroup events={item} toolResults={toolResults} />
                 </div>
               );
             }
             const event = item;
-            const blockKey = blockKeyOf(event);
+            // Read the current map directly (not the ref) — refs updated in
+            // effects are one render behind, and this value feeds the DOM
+            // anchor id.
+            const blockKey = blockKeyByEventId.get(event.id) ?? event.messageId;
             return (
               <ChatMessage
                 key={event.id}
